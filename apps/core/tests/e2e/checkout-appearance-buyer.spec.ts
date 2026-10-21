@@ -6,9 +6,10 @@ import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deleteAgencies, insertAgency, seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { companyPaymentSettings } from "@core/src/features/companies";
-import { checkoutThemes } from "@core/src/features/checkout-appearance/domain/checkout-themes";
+import { checkoutThemeIds, checkoutThemes, type CheckoutThemeId } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { removeCompanyAppearance, rgb, saveCompanyAppearance } from "@core/tests/e2e/checkout-appearance-fixtures";
+import type { Page } from "@playwright/test";
 import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -22,7 +23,10 @@ function requestLogs(requestId: string) {
     .filter((event) => event.requestId === requestId);
 }
 
-async function fixture({ delivery = true }: { delivery?: boolean } = {}) {
+const photoSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="120" height="150"><rect width="120" height="150" fill="#C98B5B"/></svg>';
+
+/** `photos` builds the order of «Polo básico» (with a product photo) and «Taza blanca» (without one) instead of the single «Cuaderno». */
+async function fixture({ delivery = true, photos = false }: { delivery?: boolean; photos?: boolean } = {}) {
   const companyId = randomUUID() as CompanyId;
   const userId = randomUUID() as UserId;
   const orderId = randomUUID() as OrderId;
@@ -30,11 +34,20 @@ async function fixture({ delivery = true }: { delivery?: boolean } = {}) {
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Tienda con marca", country: "PE" } });
     await systemPrisma.user.create({ data: { id: userId, name: "Seller", email: `${userId}@example.test`, companyId } });
-    const product = await products.create({ name: "Cuaderno", currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
-    if (!product.success) throw new Error("Product fixture failed");
-    const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
+    const variantIds: VariantId[] = [];
+    for (const name of photos ? ["Polo básico", "Taza blanca"] : ["Cuaderno"]) {
+      const product = await products.create({ name, currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
+      if (!product.success) throw new Error("Product fixture failed");
+      const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
+      variantIds.push(variant.id as VariantId);
+      if (photos && name === "Polo básico") {
+        const imageId = randomUUID();
+        await prisma.image.create({ data: { id: imageId, storageKey: `products/${imageId}.svg` } });
+        await prisma.product.update({ where: { id: product.data }, data: { imageId } });
+      }
+    }
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
-    const created = await orders.create({ id: orderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId, userId });
+    const created = await orders.create({ id: orderId, items: [variantIds[0], ...variantIds.slice(1)].map((variantId) => ({ variantId, quantity: 1 as PositiveInteger })) as [{ variantId: VariantId; quantity: PositiveInteger }] }, { companyId, userId });
     if (!created.success) throw new Error("Order fixture failed");
     await prisma.orderBuyer.create({ data: { orderId, contactId, name: "Ana", phone: "+51987654321" } });
     if (delivery) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "store",
@@ -61,10 +74,51 @@ async function fixture({ delivery = true }: { delivery?: boolean } = {}) {
   };
 }
 
+type Fixture = Awaited<ReturnType<typeof fixture>>;
+
+/** Agency delivery to Miraflores for S/ 8.00 and one bank transfer, so a pending order can be confirmed and paid. */
+async function configureAgencyDelivery(f: Fixture, agencies: string[]) {
+  await withTenantIsolation(f.companyId, async () => {
+    const access = { companyId: f.companyId, userId: f.userId };
+    expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
+      store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+    expect((await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"],
+      options: [{ kind: "new", method: "agency", name: "Retiro en agencia", enabled: true, price: { amount: 8, currency: "PEN" }, agencyIds: agencies }] }] }, access)).success).toBe(true);
+    expect((await companyPaymentSettings.save(f.companyId, f.userId, [{ method: "bank_transfer", bank: "BCP", holder: "Tienda",
+      accountNumber: null, cci: "00200000000000000001", imageId: null }])).success).toBe(true);
+  });
+}
+
 const primary = (page: import("@playwright/test").Page) =>
   page.locator("[data-checkout-theme]").evaluate((element) => getComputedStyle(element).getPropertyValue("--primary").trim().toUpperCase());
 const themeId = (page: import("@playwright/test").Page) => page.locator("[data-checkout-theme]").getAttribute("data-checkout-theme-id");
 const isDark = (page: import("@playwright/test").Page) => page.evaluate(() => document.documentElement.classList.contains("dark"));
+
+const captureDir = "test-results/checkout-themes";
+
+/** «Polo básico» shows its photo and «Taza blanca» the initial block, both with the size and shape of the theme. */
+async function expectThumbnails(page: Page, id: CheckoutThemeId) {
+  const { width, ratio, radius } = checkoutThemes[id].thumbnail;
+  const photo = page.locator("[data-checkout-part=product-row]").filter({ hasText: "Polo básico" }).locator("[data-slot=product-thumbnail]");
+  const marker = page.locator("[data-checkout-part=product-row]").filter({ hasText: "Taza blanca" }).locator("[data-slot=product-thumbnail]");
+  await browserExpect(photo.locator("img")).toBeVisible();
+  await browserExpect.poll(() => photo.locator("img").evaluate((img: HTMLImageElement) => img.complete && img.naturalWidth > 0)).toBe(true);
+  await browserExpect(marker.locator("img")).toHaveCount(0);
+  await browserExpect(marker).toHaveText("T");
+  const [photoBox, markerBox] = [await photo.boundingBox(), await marker.boundingBox()];
+  const [w, h] = [parseFloat(width), parseFloat(width) * Number(ratio.split("/")[1]) / Number(ratio.split("/")[0])];
+  for (const box of [photoBox, markerBox]) expect([box?.width, box?.height], id).toEqual([expect.closeTo(w, 0), expect.closeTo(h, 0)]);
+  for (const thumbnail of [photo, marker]) await browserExpect(thumbnail).toHaveCSS("border-top-left-radius", radius === "0" ? "0px" : radius);
+}
+
+/** The whole checkout takes the theme: its page color and mode, and no theme id of another one. */
+async function expectTheme(page: Page, id: CheckoutThemeId) {
+  expect(await themeId(page)).toBe(id);
+  await browserExpect(page.locator("[data-checkout-theme]")).toHaveCSS("background-color", rgb(checkoutThemes[id].colors.background));
+  await browserExpect.poll(() => primary(page)).toBe(checkoutThemes[id].colors.primary.toUpperCase());
+}
+
+const capture = (page: Page, name: string) => page.screenshot({ path: `${captureDir}/${name}.png`, fullPage: true });
 
 test.describe("buyer checkout with appearance", () => {
   test("shows the logo and the theme in every order state", async ({ page }) => {
@@ -164,16 +218,8 @@ test.describe("buyer checkout with appearance", () => {
     try {
       await saveCompanyAppearance(f.companyId, { theme: "boutique", withLogo: true });
       const receiptId = randomUUID();
-      await withTenantIsolation(f.companyId, async () => {
-        const access = { companyId: f.companyId, userId: f.userId };
-        expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true },
-          store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
-        expect((await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", name: "Agency zone", enabled: true, districtCodes: ["150122"],
-          options: [{ kind: "new", method: "agency", name: "Retiro en agencia", enabled: true, price: { amount: 8, currency: "PEN" }, agencyIds: agencies }] }] }, access)).success).toBe(true);
-        expect((await companyPaymentSettings.save(f.companyId, f.userId, [{ method: "bank_transfer", bank: "BCP", holder: "Tienda",
-          accountNumber: null, cci: "00200000000000000001", imageId: null }])).success).toBe(true);
-        await prisma.image.create({ data: { id: receiptId, storageKey: `test/${receiptId}` } });
-      });
+      await configureAgencyDelivery(f, agencies);
+      await withTenantIsolation(f.companyId, () => prisma.image.create({ data: { id: receiptId, storageKey: `test/${receiptId}` } }));
       await page.route("**/test-images/**", (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg }));
       await page.route(`**/api/buyer/orders/${f.orderId}/images`, (route) => route.fulfill({ status: 201, contentType: "application/json",
         body: JSON.stringify({ id: receiptId, url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test-images/test%2F${receiptId}` }) }));
@@ -202,5 +248,100 @@ test.describe("buyer checkout with appearance", () => {
       expect(stored.delivery).toMatchObject({ method: "agency", destination: { districtCode: "150122" }, recordedBy: { kind: "buyer" } });
       expect(stored.payments).toMatchObject([{ status: "reported" }]);
     } finally { await f.cleanup(); await deleteAgencies(agencies); }
+  });
+
+  test("shows each theme in every order state with thumbnails and markers", async ({ page }) => {
+    const catalogId = await seededCatalogId();
+    await page.route("**/test-images/**", (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", body: photoSvg }));
+    for (const id of checkoutThemeIds) {
+      const f = await fixture({ delivery: false, photos: true });
+      const agencies = [await insertAgency({ courierId: catalogId, name: "Sucursal Miraflores", districtCode: "150122" })];
+      try {
+        await configureAgencyDelivery(f, agencies);
+        await saveCompanyAppearance(f.companyId, { theme: id, withLogo: false });
+        await page.emulateMedia({ colorScheme: id === "noche" ? "light" : "dark" });
+
+        // Pending, on a 390 px phone: labels above fields, «Envío a agencia» offered, total before the action.
+        await page.setViewportSize({ width: 390, height: 844 });
+        await page.goto(f.path);
+        await expectTheme(page, id);
+        await expectThumbnails(page, id);
+        await browserExpect(page.getByText("Envío a agencia", { exact: true })).toBeVisible();
+        await page.getByText("Envío a agencia", { exact: true }).click();
+        const [label, field] = [await page.getByText("Nombre", { exact: true }).first().boundingBox(), await page.getByLabel("Nombre", { exact: true }).boundingBox()];
+        expect(label!.y + label!.height, `${id}: the label sits above its field`).toBeLessThanOrEqual(field!.y + 1);
+        await capture(page, `${id}-pending-390`);
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await expectThumbnails(page, id);
+        await capture(page, `${id}-pending-desktop`);
+        await page.setViewportSize({ width: 390, height: 844 });
+
+        // Agency delivery chosen, S/ 8.00 on top of the two items.
+        await page.getByLabel("Departamento", { exact: true }).selectOption("15");
+        await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
+        await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+        await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
+        await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+        await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+        await page.getByLabel("Nombre del destinatario").fill("Recipient");
+        await page.getByLabel("Teléfono del destinatario").fill("999");
+        await page.getByLabel("Documento del destinatario").fill("12345678");
+        const total = page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) });
+        await browserExpect(total).toContainText(/28[.,]00/);
+        const confirm = page.getByRole("button", { name: "Confirmar pedido", exact: true });
+        expect((await total.boundingBox())!.y, `${id}: the total is shown before the action`).toBeLessThan((await confirm.boundingBox())!.y);
+        await capture(page, `${id}-agency-390`);
+
+        // Confirmed, with the payment instructions.
+        await confirm.click();
+        await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
+        await expectTheme(page, id);
+        await expectThumbnails(page, id);
+        await capture(page, `${id}-payment-390`);
+        await page.setViewportSize({ width: 1280, height: 900 });
+        await capture(page, `${id}-payment-desktop`);
+
+        // Cancelled.
+        await f.cancel();
+        await page.goto(f.path);
+        await browserExpect(page.getByRole("heading", { name: "Pedido cancelado", exact: true })).toBeVisible();
+        await expectTheme(page, id);
+        await expectThumbnails(page, id);
+        await capture(page, `${id}-cancelled-desktop`);
+      } finally { await f.cleanup(); await deleteAgencies(agencies); }
+    }
+  }, 300_000);
+
+  test("shows the marker, never a broken image, when a product photo fails to load", async ({ page }) => {
+    const f = await fixture({ delivery: false, photos: true });
+    try {
+      await saveCompanyAppearance(f.companyId, { theme: "boutique", withLogo: false });
+      await page.route("**/test-images/**", (route) => route.fulfill({ status: 404 }));
+      await page.goto(f.path);
+      const row = page.locator("[data-checkout-part=product-row]").filter({ hasText: "Polo básico" });
+      await browserExpect(row.locator("[data-slot=product-thumbnail]")).toHaveText("P");
+      await browserExpect(row.locator("img")).toHaveCount(0);
+      await browserExpect(row).toContainText(/1 × S\/ 10[.,]00/);
+      await browserExpect(row).toContainText(/S\/ 10[.,]00$/);
+    } finally { await f.cleanup(); }
+  });
+
+  test("sets Boutique fields, prices and totals in Inter, and its titles and store name in Playfair Display", async ({ page }) => {
+    const f = await fixture({ delivery: false, photos: true });
+    try {
+      await saveCompanyAppearance(f.companyId, { theme: "boutique", withLogo: false });
+      await page.route("**/test-images/**", (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", body: photoSvg }));
+      await page.goto(f.path);
+      const family = (locator: import("@playwright/test").Locator) => locator.first().evaluate((element) => getComputedStyle(element).fontFamily);
+      const inter = /Inter/;
+      const playfair = /Playfair Display/;
+      expect(await family(page.getByText("Nombre", { exact: true }))).toMatch(inter);
+      expect(await family(page.getByLabel("Nombre", { exact: true }))).toMatch(inter);
+      expect(await family(page.locator("[data-checkout-part=price]"))).toMatch(inter);
+      expect(await family(page.locator("[data-checkout-part=total-amount]"))).toMatch(inter);
+      expect(await family(page.locator("[data-checkout-part=section-title]"))).toMatch(playfair);
+      expect(await family(page.locator("[data-checkout-part=header-brand]"))).toMatch(playfair);
+      await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeVisible();
+    } finally { await f.cleanup(); }
   });
 });
