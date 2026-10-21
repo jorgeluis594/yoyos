@@ -25,7 +25,7 @@ export const demoFormContent = {
   title: "Agenda una demo",
   intro: "Déjanos tus datos y te contactamos para mostrarte Yoyos.",
   fields: {
-    nombre: { label: "Tu nombre", placeholder: "Ej.: Rosa Quispe", error: "Escribe tu nombre." },
+    nombre: { label: "Tu nombre", placeholder: "Ej.: Rosa Quispe", error: "Escribe tu nombre.", pattern: ".*\\S.*" },
     telefono: {
       label: "Tu WhatsApp o celular",
       prefix: "+51",

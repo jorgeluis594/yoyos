@@ -6,6 +6,9 @@ type Field = HTMLInputElement | HTMLSelectElement;
 const form = document.querySelector<HTMLFormElement>("[data-demo-form] form");
 const button = form?.querySelector<HTMLButtonElement>('button[type="submit"]');
 
+// A name made only of spaces is as empty as no name; the pattern of the field says the same without JavaScript.
+const isValid = (field: Field) => field.checkValidity() && !(field.name === "nombre" && field.value.trim() === "");
+
 const messageOf = (field: Field) => form?.querySelector<HTMLElement>(`#${field.name}-error`);
 
 function showError(field: Field): void {
@@ -31,7 +34,7 @@ if (form && button) {
   form.noValidate = true;
 
   form.addEventListener("submit", (event) => {
-    const invalid = fields.filter((field) => !field.checkValidity());
+    const invalid = fields.filter((field) => !isValid(field));
     if (submitting || invalid.length > 0) {
       event.preventDefault();
       invalid.forEach(showError);

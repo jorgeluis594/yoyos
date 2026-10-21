@@ -30,7 +30,6 @@ export const integrationsContent = {
       text: "Muestra tus datos de cobro y recibe el comprobante en cada pedido.",
     },
   ],
-  logosLabel: "Agencias y medios de pago",
   note: "WhatsApp, Shalom, Olva, Yape y Plin son marcas de sus respectivos dueños. Yoyos no está afiliado a ellas.",
 } as const;
 

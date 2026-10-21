@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, statSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { files, distPath, readPage } from "./html";
 import { demoText, phoneDisplay } from "./variants";
@@ -81,6 +81,13 @@ describe("demo form", () => {
     expect(consent?.getAttribute("data-error")).toBe("Para enviar tus datos necesitamos que aceptes la Política de privacidad.");
   });
 
+  test("the nombre field rejects a name made only of spaces", () => {
+    const nombre = readPage("full", "index.html").querySelector('input[name="nombre"]');
+    const pattern = new RegExp(`^(?:${nombre?.getAttribute("pattern")})$`, "v");
+    expect(["Rosa", " Rosa ", "Rosa Quispe"].every((value) => pattern.test(value))).toBe(true);
+    expect(["", " ", "     "].some((value) => pattern.test(value))).toBe(false);
+  });
+
   test("the telefono field requires 9 digits starting with 9", () => {
     const telefono = readPage("full", "index.html").querySelector('input[name="telefono"]');
     expect(telefono?.hasAttribute("required")).toBe(true);
@@ -161,6 +168,18 @@ describe("demo form", () => {
       .join("");
     expect(bundle).toContain("telefono");
     for (const copy of ["Ropa", "Por WhatsApp", "Enviando", "Escribe", "Elige"]) expect(bundle).not.toContain(copy);
+  });
+
+  test("the enhancement script stays within 2 KB", () => {
+    const sizes = files(distPath("full", "_astro"))
+      .filter((file) => file.includes("demo-form") && file.endsWith(".js"))
+      .map((file) => statSync(file).size);
+    expect(sizes).toHaveLength(1);
+    expect(sizes[0]).toBeLessThanOrEqual(2048);
+  });
+
+  test("the integrations logo list carries no invented accessible name", () => {
+    expect(readPage("minimal", "index.html").querySelector("#integraciones .logos")?.hasAttribute("aria-label")).toBe(false);
   });
 
   test("renders no success or error block without a form action", () => {
