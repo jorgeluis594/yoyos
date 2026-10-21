@@ -66,11 +66,16 @@
 
 /*
  * Keyboard focus and invalid fields. The unlayered rules above replace the utilities' ring and border, so both states are declared here
- * with the theme's ring and destructive tokens.
+ * with the theme's ring and destructive tokens. A native radio inside an option or payment chip leaves the ring to its parent, so one focus
+ * shows one ring.
  */
-[data-checkout-theme] :is([data-slot="button"], [data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="radio-group-item"]):focus-visible {
+[data-checkout-theme] :is([data-slot="button"], [data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="radio-group-item"]:not(input)):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+[data-checkout-theme] input[data-slot="radio-group-item"]:focus-visible {
+  outline: none;
 }
 
 [data-checkout-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"])[aria-invalid="true"] {
@@ -212,7 +217,7 @@
 }
 
 [data-checkout-theme] [data-checkout-part="option"]:is([data-state="checked"], [aria-checked="true"], :has([aria-checked="true"], :checked)) {
-  border-color: var(--selected);
+  border-color: var(--checkout-selected-border);
   background-color: var(--selected-surface);
   box-shadow: var(--checkout-selected-shadow);
   outline: var(--checkout-selected-outline);
@@ -220,9 +225,10 @@
   color: var(--foreground);
 }
 
+/* Inset: the option group clips whatever is drawn outside it. */
 [data-checkout-theme] [data-checkout-part="option"]:has(:focus-visible) {
   outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 [data-checkout-theme] [data-checkout-part="option-cost"] {
@@ -258,7 +264,7 @@
 
 /* Payment */
 [data-checkout-theme] [data-checkout-part="payment-method"] {
-  border: 1px solid var(--border);
+  border: var(--checkout-payment-border);
   border-radius: var(--checkout-radius-chip);
   background-color: var(--checkout-option-surface);
 }
@@ -267,8 +273,8 @@
 [data-checkout-theme] [data-checkout-part="payment-method"]:is([data-state="checked"], [aria-checked="true"], :has(:checked)) {
   border-color: var(--selected);
   background-color: var(--selected-surface);
-  box-shadow: var(--checkout-selected-shadow);
-  outline: var(--checkout-selected-outline);
+  box-shadow: var(--checkout-payment-selected-shadow);
+  outline: var(--checkout-payment-selected-outline);
   outline-offset: -2px;
   color: var(--foreground);
 }

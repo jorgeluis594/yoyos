@@ -107,7 +107,9 @@ describe("checkout-theme.css", () => {
   test("declares keyboard focus and invalid fields with the theme's ring and destructive tokens", () => {
     const focus = [...stylesheet.matchAll(/([^{}]*:focus-visible[^{}]*)\{([^{}]*)\}/g)];
     expect(focus.length).toBeGreaterThan(1);
-    for (const [, selector, body] of focus) expect(body, selector).toMatch(/outline:\s*2px solid var\(--ring\)/);
+    // A native radio draws no ring of its own: its option or payment chip draws the one ring.
+    const nativeRadio = (selector: string) => selector.includes('input[data-slot="radio-group-item"]');
+    for (const [, selector, body] of focus) expect(body, selector).toMatch(nativeRadio(selector) ? /outline:\s*none/ : /outline:\s*2px solid var\(--ring\)/);
     expect(focus.map(([, selector]) => selector).join(" ")).toMatch(/data-slot="button"[\s\S]*data-slot="input"/);
     const invalid = [...stylesheet.matchAll(/([^{}]*\[aria-invalid="true"\][^{}]*)\{([^{}]*)\}/g)];
     expect(invalid.length).toBe(1);
@@ -116,10 +118,30 @@ describe("checkout-theme.css", () => {
   });
 
   test("gives a checked payment method and a checked option the selected look and a readable text color", () => {
-    for (const part of ["payment-method", "option"]) {
+    const selectedBorder = { "payment-method": "var(--selected)", option: "var(--checkout-selected-border)" };
+    for (const part of ["payment-method", "option"] as const) {
       const checked = [...stylesheet.matchAll(new RegExp(`data-checkout-part="${part}"\\]:is\\([^{}]*\\{([^{}]*)\\}`, "g"))].map((match) => match[1]).join("");
-      for (const property of ["border-color: var(--selected)", "background-color: var(--selected-surface)", "color: var(--foreground)"]) expect(checked, `${part} ${property}`).toContain(property);
+      for (const property of [`border-color: ${selectedBorder[part]}`, "background-color: var(--selected-surface)", "color: var(--foreground)"]) expect(checked, `${part} ${property}`).toContain(property);
     }
+  });
+
+  test("paints payment chips with their own border, outline and shadow tokens, and the option group with the selected border token", () => {
+    const chips = stylesheet.match(/data-checkout-part="payment-method"\] \{([^{}]*)\}/)?.[1] ?? "";
+    expect(chips).toContain("border: var(--checkout-payment-border)");
+    const checked = [...stylesheet.matchAll(/data-checkout-part="payment-method"\]:is\([^{}]*\{([^{}]*)\}/g)].map((match) => match[1]).join("");
+    expect(checked).toContain("outline: var(--checkout-payment-selected-outline)");
+    expect(checked).toContain("box-shadow: var(--checkout-payment-selected-shadow)");
+  });
+
+  test("keeps the checked state of Boutique and Noche free of a selected border, and Noche chips free of a selected shadow, as temas.css does", () => {
+    for (const id of ["boutique", "noche"] as const) expect(checkoutThemes[id].style["selected-border"], id).toBe("transparent");
+    expect(checkoutThemes.boutique.style["payment-selected-outline"]).toBe("1px solid var(--selected)");
+    expect(checkoutThemes.noche.style["payment-selected-shadow"]).toBe("none");
+  });
+
+  test("lets a native radio leave the focus ring to its option or payment chip", () => {
+    expect(stylesheet).toContain('[data-slot="radio-group-item"]:not(input)):focus-visible');
+    for (const part of ["option", "payment-method"]) expect(stylesheet).toMatch(new RegExp(`data-checkout-part="${part}"\\]:has\\(:focus-visible\\) \\{[^}]*outline-offset: ${part === "option" ? "-2px" : "2px"}`));
   });
 
   test("limits the main button size, border and shadow to the default variant", () => {
