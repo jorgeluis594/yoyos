@@ -2,7 +2,7 @@ import type { ContactMethod, Rubro } from "@landing/src/content/demo-form-values
 
 export type { ContactMethod, Rubro };
 
-// Labelled options of the demo form contract (landing-technical.md §8), plus the literal form copy. The values
+// Labelled options of the demo form contract (docs/landing.md, "Demo form contract"), plus the literal form copy. The values
 // live in demo-form-values.ts.
 export const rubroOptions = [
   { value: "ropa", label: "Ropa" },
