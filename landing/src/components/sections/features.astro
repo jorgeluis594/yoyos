@@ -1,3 +1,63 @@
 ---
-// Stub created by T0 so that index.astro imports every section. The task that owns this section implements it.
+import Screenshot from "@landing/src/components/screenshot.astro";
+import SectionHeading from "@landing/src/components/section-heading.astro";
+import { featuresContent } from "@landing/src/content/sections/features";
+import { navLinks } from "@landing/src/content/site";
+
+const label = navLinks.find((link) => link.anchor === "funciones")?.label;
 ---
+
+<section id="funciones" class="section" aria-labelledby="funciones-titulo">
+  <div class="container stack">
+    <SectionHeading id="funciones-titulo" label={label} heading={featuresContent.heading} />
+    <ul class="grid">
+      {featuresContent.cards.map((card) => (
+        <li class="card">
+          <Screenshot capture={card.capture} />
+          <h3>{card.title}</h3>
+          <p class="card-text">{card.text}</p>
+        </li>
+      ))}
+    </ul>
+  </div>
+</section>
+
+<style>
+  .stack {
+    display: grid;
+    gap: var(--space-12);
+  }
+
+  .grid {
+    display: grid;
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .card {
+    display: grid;
+    align-content: start;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-overlay);
+    background: var(--card);
+  }
+
+  .card h3 {
+    margin-block-start: var(--space-3);
+  }
+
+  .card-text {
+    color: var(--muted-foreground);
+  }
+
+  @media (min-width: 64em) {
+    .grid {
+      grid-template-columns: repeat(2, 1fr);
+      gap: var(--space-6);
+    }
+  }
+</style>

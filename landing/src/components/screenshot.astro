@@ -1,3 +1,69 @@
 ---
-// Stub created by T0: the task that owns this component implements it.
+import { Picture } from "astro:assets";
+import { provisionalLabel, type ScreenshotSlot } from "@landing/src/content/sections/screenshot-slot";
+
+type Props = Readonly<{
+  capture: ScreenshotSlot;
+  /** Hero LCP image: eager, high priority. Every other capture is lazy. */
+  priority?: boolean;
+  widths?: readonly number[];
+  sizes?: string;
+}>;
+
+const { capture: slot, priority = false, widths = [360, 540, 720, 1080], sizes = "(min-width: 64em) 540px, 100vw" } = Astro.props;
+const decorative = slot.alt === "";
+const frameStyle = `--aspect-ratio:${slot.aspectRatio}`;
 ---
+
+{
+  slot.kind === "image" ? (
+    <div class="screenshot frame" style={frameStyle}>
+      <Picture
+        src={slot.image}
+        alt={slot.alt}
+        formats={["avif", "webp"]}
+        widths={[...widths]}
+        sizes={sizes}
+        loading={priority ? "eager" : "lazy"}
+        fetchpriority={priority ? "high" : undefined}
+        decoding={priority ? "sync" : "async"}
+      />
+    </div>
+  ) : (
+    <div
+      class="screenshot frame provisional"
+      style={frameStyle}
+      role={decorative ? undefined : "img"}
+      aria-label={decorative ? undefined : slot.alt}
+      aria-hidden={decorative ? "true" : undefined}
+    >
+      <span>{provisionalLabel}</span>
+    </div>
+  )
+}
+
+<style>
+  .frame {
+    aspect-ratio: var(--aspect-ratio);
+    width: 100%;
+    overflow: hidden;
+    border-radius: var(--radius-overlay);
+    background: var(--secondary);
+  }
+
+  .frame :global(img) {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  .provisional {
+    display: grid;
+    place-items: center;
+    border: var(--border-width) dashed var(--border);
+    color: var(--muted-foreground);
+    font-size: var(--text-label-size);
+    line-height: var(--text-label-line);
+    font-weight: var(--text-label-weight);
+  }
+</style>

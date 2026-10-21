@@ -1,10 +1,127 @@
 ---
-// Stub created by T0 so that index.astro imports every section: T1 owns this file and builds the full hero.
-import { heroContent } from "@landing/src/content/sections/hero";
+import CtaLink from "@landing/src/components/cta-link.astro";
+import Screenshot from "@landing/src/components/screenshot.astro";
+import { siteConfig } from "@landing/src/config/site";
+import { heroImage } from "@landing/src/content/sections/hero-image";
+import { heroContent, heroImageSizing } from "@landing/src/content/sections/hero";
+import { ctaLabels } from "@landing/src/content/site";
+import { telUrl, whatsappUrl } from "@landing/src/lib/contact";
+
+const { demoForm, phone, whatsapp } = siteConfig;
 ---
 
-<section id="inicio" class="section">
-  <div class="container">
-    <h1>{heroContent.heading}</h1>
+<section id="inicio" class="section hero">
+  <div class="container layout">
+    <div class="copy">
+      <p class="pill-label">{heroContent.eyebrow}</p>
+      <h1>{heroContent.heading}</h1>
+      <p class="lead">{heroContent.lead}</p>
+      <div class="actions">
+        <CtaLink href={whatsappUrl(whatsapp)} event="whatsapp_click" location="hero" newTab>{ctaLabels.whatsapp}</CtaLink>
+        {demoForm.kind === "enabled" && (
+          <CtaLink href="#demo" variant="secondary" event="demo_form_open" location="hero">{ctaLabels.demo}</CtaLink>
+        )}
+      </div>
+      <a class="call" href={telUrl(phone)} data-event="call_click" data-location="hero">{heroContent.callLink}</a>
+      <p class="microcopy">{heroContent.microcopy}</p>
+    </div>
+    <div class="media">
+      <div class="layers">
+        <span class="layer back" aria-hidden="true"></span>
+        <span class="layer middle" aria-hidden="true"></span>
+        <div class="front"><Screenshot capture={heroImage} priority widths={heroImageSizing.widths} sizes={heroImageSizing.sizes} /></div>
+      </div>
+    </div>
   </div>
 </section>
+
+<style>
+  .hero {
+    padding-block-start: var(--space-8);
+  }
+
+  .layout {
+    display: grid;
+    gap: var(--space-12);
+    align-items: center;
+  }
+
+  .copy {
+    display: grid;
+    justify-items: start;
+    gap: var(--space-6);
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-3);
+  }
+
+  .call {
+    display: inline-flex;
+    align-items: center;
+    min-height: var(--touch-target-min-size);
+    font-weight: var(--text-label-weight);
+  }
+
+  .microcopy {
+    color: var(--muted-foreground);
+    font-size: var(--text-body-compact-size);
+    line-height: var(--text-body-compact-line);
+  }
+
+  /* Soft card with the capture layered over two offset sheets; capped below the desktop breakpoint so the
+     stacked hero stays a phone-sized mockup instead of a full-width slab. */
+  .media {
+    justify-self: center;
+    width: 100%;
+    max-width: calc(var(--form-max-width) * 5 / 8);
+    padding: var(--space-8);
+    overflow: hidden;
+    border-radius: var(--radius-overlay);
+    background: var(--accent);
+  }
+
+  .layers {
+    position: relative;
+    margin-inline-end: var(--space-4);
+  }
+
+  .layer {
+    position: absolute;
+    inset: 0;
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-overlay);
+  }
+
+  .back {
+    background: var(--secondary);
+    transform: translate(var(--space-4), calc(-1 * var(--space-4)));
+  }
+
+  .middle {
+    background: var(--card);
+    transform: translate(var(--space-2), calc(-1 * var(--space-2)));
+  }
+
+  .front {
+    position: relative;
+  }
+
+  @media (min-width: 64em) {
+    .hero {
+      padding-block-start: var(--space-16);
+    }
+
+    .layout {
+      grid-template-columns: 1fr 1fr;
+      gap: var(--space-16);
+    }
+
+    .media {
+      justify-self: stretch;
+      max-width: none;
+    }
+  }
+</style>
