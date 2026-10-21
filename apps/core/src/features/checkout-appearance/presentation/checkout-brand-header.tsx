@@ -5,6 +5,7 @@ type CheckoutBrandHeaderProps = Readonly<{ companyName: string; logoUrl: string 
 /** The plate is always white; a theme sets its size and shape through variables, and the fallbacks are the default Yoyos look. */
 const plate: CSSProperties = {
   height: "var(--checkout-logo-height, 2.5rem)",
+  maxWidth: "var(--checkout-logo-max-width, 10rem)",
   borderRadius: "var(--checkout-logo-radius, var(--radius-sm))",
   border: "var(--checkout-logo-border, 1px solid var(--border))",
   boxShadow: "var(--checkout-logo-shadow, none)",
@@ -25,7 +26,7 @@ function BrandLogo({ url }: Readonly<{ url: string }>) {
     if (image.current?.complete && image.current.naturalWidth === 0) setFailed(true);
   }, []);
   if (failed) return null;
-  return <span data-slot="brand-logo" style={plate} className="flex max-w-40 shrink-0 items-center bg-white">
+  return <span data-slot="brand-logo" style={plate} className="flex shrink-0 items-center bg-white">
     <img ref={image} src={url} alt="" className="max-h-full max-w-full object-contain" onError={() => setFailed(true)} />
   </span>;
 }

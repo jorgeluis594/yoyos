@@ -104,6 +104,25 @@ describe("checkout themes", () => {
     expect(checkoutThemes.antojo.colors["primary-foreground"]).toBe("#2A1A12");
   });
 
+  test("shows an 8:1 logo at least 24 px tall on a 390 px phone and leaves the store name 96 px beside it", () => {
+    const phone = 390, gutter = 16, gap = 12, rem = 16;
+    const px = (value: string) => value.endsWith("rem") ? parseFloat(value) * rem : parseFloat(value) || 0;
+    const plateWidth = (maxWidth: string) => {
+      const [, cap, inset] = /^min\(([\d.]+rem), 100vw - ([\d.]+rem)\)$/.exec(maxWidth) ?? [];
+      expect(cap, maxWidth).toBeDefined();
+      return Math.min(px(cap), phone - px(inset));
+    };
+    for (const { id, logo } of themes) {
+      const [vertical, horizontal = vertical] = logo.padding.split(" ").map(px);
+      const border = logo.border === "none" ? 0 : px(logo.border);
+      const width = plateWidth(logo.maxWidth);
+      const logoHeight = Math.min(px(logo.height) - 2 * (vertical + border), (width - 2 * (horizontal + border)) / 8);
+      expect(logoHeight, id).toBeGreaterThanOrEqual(24);
+      if (logo.direction === "row") expect(phone - 2 * gutter - gap - width, id).toBeGreaterThanOrEqual(96);
+      else expect(width, id).toBeLessThanOrEqual(phone - 2 * gutter);
+    }
+  });
+
   test("uses a serif family only for Boutique headings and product names", () => {
     for (const theme of themes) {
       const serif = Object.entries(theme.fonts).filter(([, family]) => family === "playfair-display").map(([role]) => role);

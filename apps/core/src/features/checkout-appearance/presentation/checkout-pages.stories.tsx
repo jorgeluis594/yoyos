@@ -13,18 +13,21 @@ import { previewCheckout, previewOrderId, type PreviewState } from "@core/src/fe
 const i18n = createInstance();
 await i18n.use(initReactI18next).init({ lng: "es", resources, interpolation: { escapeValue: false } });
 
-type PageProps = Readonly<{ theme: CheckoutThemeId; state: PreviewState | "cancelled" | "delivery" }>;
+type PageProps = Readonly<{ theme: CheckoutThemeId; state: PreviewState | "cancelled" | "delivery"; logoUrl?: string | null }>;
+
+/** An 8:1 wordmark, the longest logo shape the header must keep readable. */
+const longLogo = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="160"><rect width="1280" height="160" fill="#1F5A8C"/><text x="640" y="112" font-family="Arial" font-size="104" font-weight="700" fill="#fff" text-anchor="middle">LIMA STUDIO</text></svg>')}`;
 
 /** Home and agency delivery offered, so the district, recipient and agency fields show (the rates need the server). */
 const deliveryOptions = { home: { enabled: true }, agency: { enabled: true, covered: true }, store: { enabled: false as const, pickupPoint: null } };
 
 /** The real checkout sections of every state a buyer sees, with the preview fixtures. */
-function CheckoutPage({ theme, state }: PageProps) {
+function CheckoutPage({ theme, state, logoUrl = null }: PageProps) {
   const pending = useMemo(() => previewCheckout("Lima Studio", "review"), []);
   const cancelled = useMemo(() => ({ ...previewCheckout("Lima Studio", "review"), state: { kind: "cancelled" } as const }), []);
   // The payment content revalidates the loader after a report, so it needs a data router around it.
   const router = useMemo(() => {
-    const appearance = { logoUrl: null, theme };
+    const appearance = { logoUrl, theme };
     return createMemoryRouter([{
     path: "*",
     element: <I18nextProvider i18n={i18n}><div className="-m-8">
@@ -39,7 +42,7 @@ function CheckoutPage({ theme, state }: PageProps) {
         : <CheckoutPreviewPage companyName="Lima Studio" appearance={appearance} state={state} paymentMethods={null} />}
     </div></I18nextProvider>,
   }]);
-  }, [theme, state, pending, cancelled]);
+  }, [theme, state, logoUrl, pending, cancelled]);
   return <RouterProvider router={router} />;
 }
 
@@ -78,3 +81,13 @@ export const NocheReview = pageStory("noche", "review");
 export const NochePayment = pageStory("noche", "payment");
 export const NocheCancelled = pageStory("noche", "cancelled");
 export const NocheDelivery = pageStory("noche", "delivery");
+
+const longLogoStory = (theme: CheckoutThemeId): Story => ({
+  name: `${checkoutThemes[theme].name} · Logo largo`, args: { theme, state: "review", logoUrl: longLogo },
+});
+
+export const ClassicLongLogo = longLogoStory("classic");
+export const BoutiqueLongLogo = longLogoStory("boutique");
+export const AntojoLongLogo = longLogoStory("antojo");
+export const SuaveLongLogo = longLogoStory("suave");
+export const NocheLongLogo = longLogoStory("noche");

@@ -138,7 +138,8 @@ export type CheckoutThemeDefinition = Readonly<{
   backgroundImage: Readonly<{ css: CssValue; stops: readonly HexColor[] }> | null;
   fonts: Readonly<{ body: CheckoutFontFamily; heading: CheckoutFontFamily; productName: CheckoutFontFamily; button: CheckoutFontFamily }>;
   style: Readonly<Record<CheckoutStyleToken, CssValue>>;
-  logo: Readonly<{ placement: "start" | "center"; direction: "row" | "column"; height: CssValue; radius: CssValue; border: CssValue; shadow: CssValue; padding: CssValue }>;
+  /** `maxWidth` lets a long horizontal logo grow toward the plate height while the store name keeps room beside (row) or below (column) it. */
+  logo: Readonly<{ placement: "start" | "center"; direction: "row" | "column"; height: CssValue; maxWidth: CssValue; radius: CssValue; border: CssValue; shadow: CssValue; padding: CssValue }>;
   thumbnail: Readonly<{ width: CssValue; ratio: "1 / 1" | "4 / 5"; radius: CssValue; border: CssValue; filter: CssValue }>;
 }>;
 
@@ -276,7 +277,7 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       "button-gap": css("16px"),
       "header-justify": css("flex-start"),
     },
-    logo: { placement: "start", direction: "row", height: css("38px"), radius: css("8px"), border: css("1px solid var(--border)"), shadow: css("none"), padding: css("0.25rem 0.5rem") },
+    logo: { placement: "start", direction: "row", height: css("38px"), maxWidth: css("min(20rem, 100vw - 9rem)"), radius: css("8px"), border: css("1px solid var(--border)"), shadow: css("none"), padding: css("0.25rem 0.5rem") },
     thumbnail: { width: css("56px"), ratio: "1 / 1", radius: css("6px"), border: css("1px solid #ECECEC"), filter: css("none") },
   },
   boutique: {
@@ -402,7 +403,7 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       "button-gap": css("22px"),
       "header-justify": css("center"),
     },
-    logo: { placement: "center", direction: "column", height: css("42px"), radius: css("0"), border: css("1px solid var(--foreground)"), shadow: css("none"), padding: css("0.25rem 0.5rem") },
+    logo: { placement: "center", direction: "column", height: css("42px"), maxWidth: css("min(20rem, 100vw - 2rem)"), radius: css("0"), border: css("1px solid var(--foreground)"), shadow: css("none"), padding: css("0.25rem 0.5rem") },
     thumbnail: { width: css("56px"), ratio: "4 / 5", radius: css("0"), border: css("none"), filter: css("saturate(.85)") },
   },
   antojo: {
@@ -528,7 +529,7 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       "button-gap": css("18px"),
       "header-justify": css("flex-start"),
     },
-    logo: { placement: "start", direction: "row", height: css("48px"), radius: css("999px"), border: css("2px solid var(--border)"), shadow: css("3px 3px 0 var(--border)"), padding: css("0.25rem 1rem") },
+    logo: { placement: "start", direction: "row", height: css("48px"), maxWidth: css("min(20rem, 100vw - 9rem)"), radius: css("999px"), border: css("2px solid var(--border)"), shadow: css("3px 3px 0 var(--border)"), padding: css("0.25rem 1rem") },
     thumbnail: { width: css("76px"), ratio: "1 / 1", radius: css("20px"), border: css("2px solid var(--border)"), filter: css("saturate(1.15)") },
   },
   suave: {
@@ -654,7 +655,7 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       "button-gap": css("18px"),
       "header-justify": css("center"),
     },
-    logo: { placement: "center", direction: "row", height: css("44px"), radius: css("999px"), border: css("none"), shadow: css("0 6px 20px rgba(120,80,80,.12)"), padding: css("0.25rem 1rem") },
+    logo: { placement: "center", direction: "row", height: css("44px"), maxWidth: css("min(20rem, 100vw - 9rem)"), radius: css("999px"), border: css("none"), shadow: css("0 6px 20px rgba(120,80,80,.12)"), padding: css("0.25rem 1rem") },
     thumbnail: { width: css("64px"), ratio: "1 / 1", radius: css("999px"), border: css("none"), filter: css("saturate(.8) brightness(1.03)") },
   },
   noche: {
@@ -780,7 +781,7 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
       "button-gap": css("12px"),
       "header-justify": css("flex-start"),
     },
-    logo: { placement: "start", direction: "row", height: css("34px"), radius: css("8px"), border: css("none"), shadow: css("none"), padding: css("0.25rem 0.5rem") },
+    logo: { placement: "start", direction: "row", height: css("34px"), maxWidth: css("min(20rem, 100vw - 9rem)"), radius: css("8px"), border: css("none"), shadow: css("none"), padding: css("0.25rem 0.5rem") },
     thumbnail: { width: css("48px"), ratio: "1 / 1", radius: css("6px"), border: css("1px solid #333845"), filter: css("brightness(.88) saturate(.9)") },
   },
 };
