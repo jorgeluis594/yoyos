@@ -39,6 +39,19 @@ The state is derived from `Order.checkoutEnabledAt`, `Order.checkoutConfirmedAt`
 - Confirming expresses purchase intent. It does not register a payment.
 - The buyer is stored in `OrderBuyer`, a per-order copy (see `apps/core/prisma/schema.prisma`). Editing it never updates the global Contact. `contactId` comes from the server, never from the public form.
 
+### Delivery choice
+
+- «Forma de entrega» offers, in this order and only when available: «Conservar entrega actual» (only with a saved delivery), «Entrega a domicilio», «Envío a agencia» and «Recojo en tienda · Gratis». A saved delivery is preselected; otherwise the first available method.
+- «Envío a agencia» appears only when the method is on and the company has agency coverage ([Delivery](delivery.md#delivery-methods)). The public checkout receives coverage as a yes/no flag only, decided when the checkout loads; zones, districts and agencies are never exposed. Reason: the buyer only needs to know whether the method exists.
+- Home and agency quote the buyer's district with the [current quotation](delivery.md#quotation). «Entrega a domicilio» lists only home rates; «Envío a agencia» has no rate list: the buyer picks a destination agency and its rate follows from it.
+- The agencies offered are only those of the agency rates of the buyer's district. Their price is the option's, never the agency's location. Reason: coverage and price are per zone; a district whose zones have no agency option sees no agencies, even with agencies nearby.
+- An agency in several options is shown once with the lowest price; on equal price, the option whose name sorts first. Reason: the buyer picks a place, not an option.
+- **Location cascade:** one list with the first level that has agencies, by the agency's location: the buyer's district, else their province, else their department. A notice names the level used when it is the province or department. Levels are never mixed and agencies outside the buyer's department are never shown. Reason: shows the nearest agencies without maps or geolocation.
+- Within the level, agencies are ordered by price, agency name, then courier name. Each entry shows agency, courier, address, district, province and price. A single agency is preselected.
+- Without agencies at any level the buyer sees a message with **Cambiar distrito** and, when home delivery is offered, **Pasar a Entrega a domicilio**.
+- Changing department, province or district clears the agency and rate and quotes again. Changing method clears rate, agency and quotation but keeps the district.
+- Agency delivery requires the recipient's identity document. The server revalidates option and agency on confirmation; the cascade and its level are not stored.
+
 ### Amounts
 
 - The checkout shows `itemsTotal` (products) and `total` (what the buyer pays, including delivery). It never recalculates the total in the browser nor labels the subtotal as total.
