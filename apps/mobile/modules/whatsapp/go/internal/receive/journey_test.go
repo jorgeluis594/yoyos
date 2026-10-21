@@ -10,7 +10,7 @@ import (
 // arrives late and the deliveries left by an account that was unlinked, all through one durable container and
 // one durable, idempotent consumer (consumerApp persists by message id, so a repeated delivery has no second
 // effect). Transport is not involved: the receive path is driven the way whatsmeow drives it. Linking, QR,
-// history, image download and remote logout have their own controlled tests (see README "Journey map").
+// history, image download and remote logout have their own controlled tests (internal/connection, internal/receive/history_*_test.go, internal/images, bridge/images_test.go, bridge/logout_test.go).
 func TestWA14JourneyDurableConsumerSurvivesLostConfirmationRestartLateIdentityAndLogout(t *testing.T) {
 	n := newNative()
 

@@ -14,10 +14,6 @@ The initial focus is businesses selling through live streams that need to keep t
 - **Deliveries:** track each order's delivery status.
 - **Business operations:** support the daily work of sellers and their teams.
 
-## Current status
-
-The project is under development.
-
 ## Repository structure
 
 | Directory | Contents |
@@ -87,7 +83,7 @@ docker compose up --build -d web
 
 Do not use `docker compose down -v` during an update: it deletes the data.
 
-A volume created with the former `postgres:18-alpine` image (musl) sorts text differently from the Debian-based `pgvector/pgvector` image (glibc), so its text indexes become silently inconsistent. Reindex once, right after the first start on the new image and before writes resume:
+A volume created with a musl-based image such as `postgres:18-alpine` sorts text differently from the glibc-based `pgvector/pgvector` image in use, so its text indexes become silently inconsistent. Reindex such a volume once, right after its first start on `pgvector/pgvector` and before writes resume:
 
 ```sh
 docker compose stop web worker
@@ -113,10 +109,10 @@ Images require the `R2_*` environment variables from [`apps/core/.env.example`](
 - [Product definition](PRODUCT.md).
 - [Architecture](docs/architecture.md) and [domain rules](docs/domain.md).
 - [Programming style](docs/programming-style.md) and [testing conventions](docs/testing-conventions.md).
-- [Logging conventions](docs/logging-conventions.md).
+- [Logging and observability](docs/logging.md).
 - [Persistence](docs/persistence.md) and [company data isolation](docs/rls-with-prisma.md).
-- [Image API](docs/images-api.md).
-- [Event bus quick start](docs/event-bus-quick-start.md).
+- [Images](docs/images.md).
+- [Event bus](docs/event-bus.md).
 
 Migration output records start/end, duration, each attempted migration identifier and aggregate order/buyer counts. Raw Prisma output is withheld because database errors can contain row values. On failure, inspect `_prisma_migrations` through administrative access, resolve the recorded cause and retry; do not expose its `logs` column to application logging. Keep order writes stopped through migration and deployment of the matching application.
 

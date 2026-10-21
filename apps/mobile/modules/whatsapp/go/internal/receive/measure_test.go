@@ -222,7 +222,7 @@ func TestITSEG03SnapshotCostHarnessOnSmallLoads(t *testing.T) {
 	}
 }
 
-// TestITSEG03MeasureSnapshotCost prints the figures reported in the README. It is skipped unless WA_MEASURE=1.
+// TestITSEG03MeasureSnapshotCost prints the figures written to MEASUREMENTS.json. It is skipped unless WA_MEASURE=1.
 func TestITSEG03MeasureSnapshotCost(t *testing.T) {
 	if os.Getenv("WA_MEASURE") != "1" {
 		t.Skip("set WA_MEASURE=1 (and run without -race) to measure; no threshold is asserted")
