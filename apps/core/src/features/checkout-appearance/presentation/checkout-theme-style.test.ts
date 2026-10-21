@@ -104,6 +104,30 @@ describe("checkout-theme.css", () => {
     for (const name of read) expect(written.has(name), name).toBe(true);
   });
 
+  test("declares keyboard focus and invalid fields with the theme's ring and destructive tokens", () => {
+    const focus = [...stylesheet.matchAll(/([^{}]*:focus-visible[^{}]*)\{([^{}]*)\}/g)];
+    expect(focus.length).toBeGreaterThan(1);
+    for (const [, selector, body] of focus) expect(body, selector).toMatch(/outline:\s*2px solid var\(--ring\)/);
+    expect(focus.map(([, selector]) => selector).join(" ")).toMatch(/data-slot="button"[\s\S]*data-slot="input"/);
+    const invalid = [...stylesheet.matchAll(/([^{}]*\[aria-invalid="true"\][^{}]*)\{([^{}]*)\}/g)];
+    expect(invalid.length).toBe(1);
+    expect(invalid[0][2]).toContain("border-color: var(--destructive)");
+    expect(invalid[0][2]).toContain("var(--destructive)");
+  });
+
+  test("gives a checked payment method and a checked option the selected look and a readable text color", () => {
+    for (const part of ["payment-method", "option"]) {
+      const checked = [...stylesheet.matchAll(new RegExp(`data-checkout-part="${part}"\\]:is\\([^{}]*\\{([^{}]*)\\}`, "g"))].map((match) => match[1]).join("");
+      for (const property of ["border-color: var(--selected)", "background-color: var(--selected-surface)", "color: var(--foreground)"]) expect(checked, `${part} ${property}`).toContain(property);
+    }
+  });
+
+  test("limits the main button size, border and shadow to the default variant", () => {
+    const rule = (selector: string) => stylesheet.match(new RegExp(`${selector.replace(/[[\]"=().]/g, "\\$&")} \\{([^{}]*)\\}`))?.[1] ?? "";
+    expect(rule('[data-checkout-theme] [data-slot="button"]')).not.toMatch(/height|box-shadow|border:/);
+    expect(rule('[data-checkout-theme] [data-slot="button"][data-variant="default"]')).toMatch(/height[\s\S]*box-shadow/);
+  });
+
   test("hooks only the closed list of checkout parts", () => {
     const parts = new Set([...stylesheet.matchAll(/data-checkout-part="([a-z-]+)"/g)].map((match) => match[1]));
     expect([...parts].sort()).toEqual(["card", "field", "field-group", "free", "header", "header-brand", "option", "option-cost", "option-group", "order-title",
