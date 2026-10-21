@@ -190,7 +190,7 @@ The public landing (`landing/`) adapts these rules to a marketing page; app scre
 | Section rhythm | Vertical space between sections uses spacing `16` (64) on mobile and `24` (96) on desktop. |
 | Container | `layout.landingMaxWidth` (1200), centered, with the page gutters. |
 | CTAs and pill labels | `radius.pill`, only on the landing's calls to action and section pill labels. App buttons keep the `control` radius. |
-| Cards | `overlay` radius (12), one-unit border, no shadow. |
+| Cards | `overlay` radius (12), one-unit border, no shadow. The single featured pricing card is the exception: a two-unit `primary` border. |
 | Dark mode | Follows `prefers-color-scheme` with the `colors.dark` values; there is no toggle. |
 
 ### Visual reference and review

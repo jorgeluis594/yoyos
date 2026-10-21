@@ -1,3 +1,92 @@
 ---
-// Stub created by T0 so that index.astro imports every section. The task that owns this section implements it.
+import Wallet from "@lucide/astro/icons/wallet";
+import MessageCircle from "@lucide/astro/icons/message-circle";
+import Store from "@lucide/astro/icons/store";
+import Truck from "@lucide/astro/icons/truck";
+import PartnerLogoBadge from "@landing/src/components/partner-logo.astro";
+import SectionHeading from "@landing/src/components/section-heading.astro";
+import { integrationsContent, partnerLogos } from "@landing/src/content/sections/integrations";
+import { navLinks } from "@landing/src/content/site";
+
+const icons = { chat: MessageCircle, shipping: Truck, pickup: Store, payments: Wallet };
+const label = navLinks.find((link) => link.anchor === "integraciones")?.label;
 ---
+
+<section id="integraciones" class="section" aria-labelledby="integraciones-titulo">
+  <div class="container">
+    <SectionHeading id="integraciones-titulo" label={label} heading={integrationsContent.heading} lead={integrationsContent.lead} />
+
+    <ul class="items">
+      {
+        integrationsContent.items.map((item) => {
+          const Icon = icons[item.icon];
+          return (
+            <li class="item">
+              <Icon class="icon" aria-hidden="true" />
+              <p>
+                <strong>{item.title}</strong> {item.text}
+              </p>
+            </li>
+          );
+        })
+      }
+    </ul>
+
+    <ul class="logos">
+      {partnerLogos.map((logo) => <li><PartnerLogoBadge logo={logo} /></li>)}
+    </ul>
+
+    <p class="note">{integrationsContent.note}</p>
+  </div>
+</section>
+
+<style>
+  .items {
+    display: grid;
+    gap: var(--space-4);
+    margin: var(--space-12) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .item {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    gap: var(--space-4);
+    padding: var(--space-6);
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-overlay);
+    background: var(--card);
+  }
+
+  .icon {
+    width: var(--icon-navigation-size);
+    height: var(--icon-navigation-size);
+    stroke-width: var(--icon-stroke);
+    color: var(--primary);
+  }
+
+  .logos {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: var(--space-4);
+    margin: var(--space-12) 0 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .note {
+    margin-top: var(--space-6);
+    color: var(--muted-foreground);
+    font-size: var(--text-caption-size);
+    line-height: var(--text-caption-line);
+    text-align: center;
+  }
+
+  @media (min-width: 48em) {
+    .items {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+</style>

@@ -30,7 +30,7 @@ const locations: readonly CtaLocation[] = ["header", "hero", "precio", "cta_fina
 
 const isLocation = (value: string | undefined): value is CtaLocation => locations.some((location) => location === value);
 
-/** Builds the event of an element from its `data-event`, `data-location` and `data-q` attributes. */
+/** Builds the click event of an element from its `data-event` and `data-location` attributes. */
 export function eventFromDataset(dataset: Readonly<Record<string, string | undefined>>): AnalyticsEvent | null {
   const { event, location } = dataset;
   switch (event) {
@@ -40,11 +40,16 @@ export function eventFromDataset(dataset: Readonly<Record<string, string | undef
       return isLocation(location) && location !== "precio" && location !== "404" ? { name: event, location } : null;
     case "demo_form_open":
       return location === "hero" || location === "precio" ? { name: event, location } : null;
-    case "faq_open": {
-      const q = Number(dataset.q);
-      return Number.isInteger(q) && q > 0 ? { name: event, location: "faq", q } : null;
-    }
     default:
       return null;
   }
+}
+
+/**
+ * Builds the `faq_open` event of a FAQ `<details>` from its `data-faq-q` attribute. It is read only by the toggle
+ * listener, so the delegated click listener never matches a FAQ element.
+ */
+export function faqOpenEvent(dataset: Readonly<Record<string, string | undefined>>): AnalyticsEvent | null {
+  const q = Number(dataset.faqQ);
+  return Number.isInteger(q) && q > 0 ? { name: "faq_open", location: "faq", q } : null;
 }

@@ -124,16 +124,19 @@ describe("budgets", () => {
   });
 
   test("the minimal variant ships no JavaScript and the analytics listener appears only in the full variant", () => {
-    for (const file of pages) expect(scriptElements(readPage("minimal", file))).toHaveLength(0);
-    expect(files(distPath("minimal")).filter((file) => file.endsWith(".js"))).toEqual([]);
+    // Astro also emits the chunks of components that are not rendered; nothing loads them, so only references count.
+    for (const file of pages) {
+      expect(scriptElements(readPage("minimal", file))).toHaveLength(0);
+      expect(readDist("minimal", file)).not.toMatch(/\.js\b/);
+    }
     const listener = (variant: VariantName) => {
       const bundles = files(distPath(variant, "_astro"))
         .filter((file) => file.endsWith(".js"))
         .map((file) => readFileSync(file, "utf8"));
       const inline = scriptElements(readPage(variant, "index.html")).map((script) => script.text);
-      return [...bundles, ...inline].filter((code) => code.includes("yoyosAnalytics"));
+      return [...bundles, ...inline].filter((code) => /["'`]toggle["'`]/.test(code));
     };
-    expect(listener("minimal")).toEqual([]);
     expect(listener("full")).toHaveLength(1);
+    expect(readDist("full", "index.html")).toMatch(/\.js\b|<script/);
   });
 });

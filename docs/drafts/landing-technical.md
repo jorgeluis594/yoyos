@@ -234,7 +234,7 @@ The demo form and the CRM endpoint (task 6hphgH8GpgFhjvgV) meet on this HTML for
 | --- | --- |
 | Request | `POST {PUBLIC_DEMO_FORM_ACTION}`, `enctype="application/x-www-form-urlencoded"`, `accept-charset="UTF-8"`. Native navigation, no `fetch`, no CORS. |
 | `nombre` | Required, trimmed, 1–100 characters. |
-| `telefono` | Required, 9 national digits matching `^9\d{8}$`; the form sends it as typed, with or without JS, and the endpoint stores it as `+51` + digits. |
+| `telefono` | Required. The form pattern accepts 9 national digits starting with 9 with an optional single space between the 3-3-3 groups (`9\d{2} ?\d{3} ?\d{3}`). With JS the enhancement removes the spaces before submitting; without JS the value is sent as typed. The endpoint removes spaces, then validates `^9\d{8}$` and stores `+51` + digits. |
 | `rubro` | Required, one of `ropa`, `zapatillas`, `joyeria_accesorios`, `mascotas`, `cosmeticos`, `otro` (labels «Ropa» … «Otro» of §12). |
 | `contacto_preferido` | Required, `whatsapp` (default checked) or `llamada`. |
 | `consentimiento` | Required, value `acepto`; absent means no consent. |
