@@ -12,3 +12,6 @@ debug-storybook.log
 
 # Orca worktree port registry
 .worktree-ports
+
+# New Relic agent log written by local runs
+newrelic_agent.log
