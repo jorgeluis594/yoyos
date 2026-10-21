@@ -25,17 +25,17 @@ const logoImageId = "00000000-0000-4000-8000-0000000000aa";
 afterEach(() => vi.restoreAllMocks());
 
 describe("save checkout appearance", () => {
-  test("logs checkout_appearance_saved with the logo when the appearance has one", async () => {
+  test("logs checkout_appearance_saved with the theme and the logo when the appearance has one", async () => {
     const info = vi.spyOn(log, "info").mockImplementation(() => {});
-    const saved = await checkoutAppearance.save(companyId, userId, { logoImageId, brandColor: "forest", background: "brand_tint" });
+    const saved = await checkoutAppearance.save(companyId, userId, { logoImageId, theme: "suave" });
     expect(saved.success).toBe(true);
     expect(info).toHaveBeenCalledWith({ event: "checkout_appearance_saved", companyId, userId, logoImageId, hasLogo: true,
-      brandColor: "forest", background: "brand_tint", isDefault: false }, "checkout_appearance_saved");
+      theme: "suave", isDefault: false }, "checkout_appearance_saved");
   });
 
   test("logs checkout_appearance_saved without logoImageId when there is no logo", async () => {
     const info = vi.spyOn(log, "info").mockImplementation(() => {});
-    await checkoutAppearance.save(companyId, userId, { logoImageId: null, brandColor: "yoyos", background: "medium" });
+    await checkoutAppearance.save(companyId, userId, { logoImageId: null, theme: "classic" });
     const payload = info.mock.calls[0][0];
     expect(payload).toMatchObject({ event: "checkout_appearance_saved", hasLogo: false, isDefault: true });
     expect(payload).not.toHaveProperty("logoImageId");
@@ -43,7 +43,7 @@ describe("save checkout appearance", () => {
 
   test("does not log the event when the appearance is invalid", async () => {
     const info = vi.spyOn(log, "info").mockImplementation(() => {});
-    const saved = await checkoutAppearance.save(companyId, userId, { logoImageId: null, brandColor: "#ff0000", background: "soft" });
+    const saved = await checkoutAppearance.save(companyId, userId, { logoImageId: null, theme: "neon" });
     expect(saved).toMatchObject({ success: false, error: { code: "INVALID_CHECKOUT_APPEARANCE" } });
     expect(info).not.toHaveBeenCalled();
   });

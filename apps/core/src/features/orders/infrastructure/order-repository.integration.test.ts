@@ -1101,7 +1101,7 @@ test("public checkout checks company, live cancellation, enablement and complete
       await prisma.order.update({ where: { id: access.orderId }, data: { checkoutEnabledAt: new Date("2000-01-01") } });
       expect(await orders.cancel(access.orderId, context)).toMatchObject({ success: true });
     });
-    expect(await orders.getCheckout(access)).toMatchObject({ data: { state: { kind: "cancelled" } } });
+    expect(await orders.getCheckout(access)).toMatchObject({ data: { checkout: { state: { kind: "cancelled" } } } });
     expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
     const completed = await withTenantIsolation(f.companyId, () => immediateSale({ id: randomUUID(), items: [{ variantId: f.variantIds[0], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId }));
     if (!completed.success) throw new Error("Immediate sale failed");
@@ -1158,7 +1158,7 @@ test("checkout persistence failure produces one technical log and no confirmatio
     expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: "unable_to_save_order_buyer", errorCode: "PERSISTENCE_UNAVAILABLE" }), "Checkout persistence failed");
     expect(info).not.toHaveBeenCalled();
     write.mockRestore();
-    expect(await orders.getCheckout(access)).toMatchObject({ data: { buyer: null, state: { kind: "pending" } } });
+    expect(await orders.getCheckout(access)).toMatchObject({ data: { checkout: { buyer: null, state: { kind: "pending" } } } });
   } finally { write?.mockRestore(); error.mockRestore(); info.mockRestore(); await f.cleanup(); }
 });
 
@@ -1194,9 +1194,9 @@ test("confirmation committed first survives a concurrent total update or cancell
       release.resolve();
       expect(await confirmation).toMatchObject({ success: true });
       expect(await mutation).toMatchObject({ success: true });
-      expect(await orders.getCheckout(access)).toMatchObject({ data: {
+      expect(await orders.getCheckout(access)).toMatchObject({ data: { checkout: {
         state: { kind: change === "cancel" ? "cancelled" : "confirmed" }, buyer: checkoutInput().buyer,
-      } });
+      } } });
       await withTenantIsolation(f.companyId, async () => {
         expect((await prisma.order.findUniqueOrThrow({ where: { id: access.orderId } })).checkoutConfirmedAt).toBeInstanceOf(Date);
         expect(await prisma.orderBuyer.count({ where: { orderId: access.orderId } })).toBe(1);
@@ -1214,13 +1214,13 @@ test("interleaved public reads and confirmations retain their own company and bu
       return checkout;
     }));
     const results = await Promise.all(cases.map(async ({ access }, index) => {
-      expect(await orders.getCheckout(access)).toMatchObject({ data: { buyer: null } });
+      expect(await orders.getCheckout(access)).toMatchObject({ data: { checkout: { buyer: null } } });
       const input = checkoutInput(index ? "Bruno" : "Ana");
       expect(await orders.confirmCheckout(input, access)).toMatchObject({ data: { buyer: input.buyer } });
       return orders.getCheckout(access);
     }));
-    expect(results[0]).toMatchObject({ data: { buyer: { name: "Ana" } } });
-    expect(results[1]).toMatchObject({ data: { buyer: { name: "Bruno" } } });
+    expect(results[0]).toMatchObject({ data: { checkout: { buyer: { name: "Ana" } } } });
+    expect(results[1]).toMatchObject({ data: { checkout: { buyer: { name: "Bruno" } } } });
     for (const [index, { access }] of cases.entries()) {
       const other = cases[1 - index];
       expect(await orders.getCheckout({ ...access, companyId: other.access.companyId })).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
@@ -1249,7 +1249,7 @@ test("a real deferred commit failure rolls back checkout and emits no successful
     expect(info).not.toHaveBeenCalled();
     expect(error.mock.calls).toHaveLength(1);
     expect(error.mock.calls[0][0]).toMatchObject({ event: "unable_to_complete_order_transaction" });
-    expect(await orders.getCheckout(access)).toMatchObject({ data: { buyer: null, state: { kind: "pending" } } });
+    expect(await orders.getCheckout(access)).toMatchObject({ data: { checkout: { buyer: null, state: { kind: "pending" } } } });
     await admin.query(`DROP TRIGGER "${trigger}" ON "Order"; DROP FUNCTION "${trigger}"()`);
     expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ data: { state: { kind: "confirmed" } } });
   } finally {
@@ -1600,10 +1600,10 @@ test("checkout validates immutable home rate and current price before total and 
     });
     expect(await orders.confirmCheckoutDelivery({ ...input, expectedTotal: { amount: 1, currency: "PEN" } }, access)).toMatchObject({ success: true, data: { total: { amount: 10.2 } } });
     const checkout = await orders.getCheckout(access);
-    expect(checkout).toMatchObject({ success: true, data: { deliveryCharge: { amount: 10 }, total: { amount: 10.2 },
-      delivery: { method: "home", destination: { districtCode: "150122", address: "Street" } } } });
+    expect(checkout).toMatchObject({ success: true, data: { checkout: { deliveryCharge: { amount: 10 }, total: { amount: 10.2 },
+      delivery: { method: "home", destination: { districtCode: "150122", address: "Street" } } } } });
     if (!checkout.success) throw new Error("Expected persisted checkout");
-    expect(checkout.data.delivery).not.toHaveProperty("recordedBy");
+    expect(checkout.data.checkout.delivery).not.toHaveProperty("recordedBy");
   } finally { await f.cleanup(); }
 });
 

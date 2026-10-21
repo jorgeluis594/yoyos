@@ -2,8 +2,9 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import {
   defaultCheckoutAppearance, parseCheckoutAppearance,
-  type CheckoutAppearance, type CheckoutAppearanceError, type CheckoutBackground, type CheckoutBrandColor, type CompanyId, type ImageId,
+  type CheckoutAppearance, type CheckoutAppearanceError, type CompanyId, type ImageId,
 } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
+import type { CheckoutThemeId } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 
 export type CheckoutAppearanceFailure = CheckoutAppearanceError
   | Readonly<{ code: "INVALID_IMAGE" | "INVALID_STORED_DATA" | "PERSISTENCE_UNAVAILABLE"; message: string }>;
@@ -12,8 +13,7 @@ type StorageFailure = Exclude<CheckoutAppearanceFailure, CheckoutAppearanceError
 
 export type PublicAppearance = Readonly<{
   logoUrl: string | null;
-  brandColor: CheckoutBrandColor;
-  background: CheckoutBackground;
+  theme: CheckoutThemeId;
 }>;
 
 export type PublicAppearanceResult =
@@ -78,8 +78,7 @@ export async function getPublicCheckoutAppearance(
   const loaded = await deps.load(companyId);
   if (!loaded.success) return { kind: "fallback" };
   if (!loaded.data) return { kind: "default" };
-  const { brandColor, background } = loaded.data;
-  return { kind: "custom", appearance: { logoUrl: await logoUrlOf(loaded.data, deps.imageUrl), brandColor, background } };
+  return { kind: "custom", appearance: { logoUrl: await logoUrlOf(loaded.data, deps.imageUrl), theme: loaded.data.theme } };
 }
 
 export async function getCheckoutAppearancePreview(

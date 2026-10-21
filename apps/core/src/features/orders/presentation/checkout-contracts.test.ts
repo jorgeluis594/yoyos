@@ -15,7 +15,7 @@ test("checkout boundaries reject extra authority, malformed UUIDs and invalid mo
 
 test("public response validates confirmed buyers and excludes private aggregate fields", () => {
   const view = { companyName: "Store", number: 1001, buyer: null, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: valid.expectedTotal, total: valid.expectedTotal,
-    items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }], state: { kind: "pending" } };
+    items: [{ productName: "Product", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }], state: { kind: "pending" } };
   expect(publicCheckoutSchema.safeParse(view).success).toBe(true);
   for (const response of [{ ...view, sellerId: "seller" }, { ...view, payments: [] }, { ...view, deliveryCost: valid.expectedTotal },
     { ...view, buyer: { ...valid.buyer, contactId: "contact" } }, { ...view, state: { kind: "confirmed", confirmedAt: "2026-01-01T00:00:00.000Z" } }])
@@ -57,7 +57,7 @@ test("delivery confirmation requires explicit change, rate identity and independ
 
 test("accepts a checkout buyer with a null phone", () => {
   const view = { companyName: "Store", number: 1001, buyer: { name: null, phone: null }, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: valid.expectedTotal, total: valid.expectedTotal,
-    items: [{ productName: "Product", variantAttributes: {}, sku: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }], state: { kind: "pending" } };
+    items: [{ productName: "Product", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }], state: { kind: "pending" } };
   expect(publicCheckoutSchema.safeParse(view).success).toBe(true);
   expect(confirmCheckoutSchema.safeParse({ ...valid, buyer: { name: "Ana", phone: null } }).success).toBe(false);
 });

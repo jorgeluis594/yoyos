@@ -19,7 +19,7 @@ const unavailable = (message: string) => err({ code: "PERSISTENCE_UNAVAILABLE" a
 export async function loadCheckoutAppearance(companyId: CompanyId): Promise<Result<CheckoutAppearance | null, RepositoryFailure>> {
   try {
     const row = await prisma.companyCheckoutAppearance.findUnique({ where: { companyId },
-      select: { logoImageId: true, brandColor: true, background: true } });
+      select: { logoImageId: true, theme: true } });
     if (!row) return ok(null);
     const parsed = parseCheckoutAppearance(row);
     if (!parsed.success) {

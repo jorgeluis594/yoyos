@@ -1,31 +1,27 @@
 import { useEffect, useState, useSyncExternalStore } from "react";
-import { Check, ChevronRight, RotateCcw, Upload } from "lucide-react";
+import { RotateCcw, Upload } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { data, useBlocker, useFetcher, useLoaderData, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { data, isRouteErrorResponse, useBlocker, useFetcher, useLoaderData, type ActionFunctionArgs, type ClientActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { imageResponseSchema } from "@shared/contracts/images";
 import { privateUserContext } from "@core/app/private-user-context";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Badge } from "@core/app/components/ui/badge";
 import { Button } from "@core/app/components/ui/button";
-import { Card, CardContent, CardDescription, CardTitle } from "@core/app/components/ui/card";
+import { Card, CardContent, CardTitle } from "@core/app/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
 import { FileUpload, FileUploadActions, FileUploadTrigger } from "@core/app/components/ui/file-upload";
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@core/app/components/ui/tabs";
-import { ToggleGroup, ToggleGroupItem } from "@core/app/components/ui/toggle-group";
 import { ErrorState } from "@core/app/components/ui/error-state";
 import { resolvePublicImage } from "@core/src/shared/images";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { checkoutAppearance, defaultCheckoutAppearance, parseCompanyId, parseUserId } from "@core/src/features/checkout-appearance";
 // Client code imports the domain modules directly: the feature index also exports server-only composition.
-import {
-  checkoutBackgrounds, type CheckoutAppearance, type CheckoutBackground,
-} from "@core/src/features/checkout-appearance/domain/checkout-appearance";
-import { checkoutBrandColorCatalog } from "@core/src/features/checkout-appearance/domain/checkout-colors";
+import type { CheckoutAppearance } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
+import type { CheckoutThemeId } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 import type { CheckoutAppearanceFailure } from "@core/src/features/checkout-appearance/application/checkout-appearance";
-import { BrandColorDialog, swatchOf } from "@core/src/features/checkout-appearance/presentation/brand-color-dialog";
 import { CheckoutPreviewFrame } from "@core/src/features/checkout-appearance/presentation/checkout-preview-frame";
-import type { CheckoutPreviewMode } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
+import { ThemePicker } from "@core/src/features/checkout-appearance/presentation/theme-picker";
 import { resetDraft, sameAppearance, type EditorDraft } from "@core/src/features/checkout-appearance/presentation/editor-draft";
 
 const maxLogoBytes = 10 * 1024 * 1024;
@@ -65,6 +61,16 @@ export async function action({ context, request }: ActionFunctionArgs) {
   const code = saved.error.code;
   bindRequestOperation({ operation: "save_checkout_appearance", outcome: code === "INVALID_STORED_DATA" || code === "PERSISTENCE_UNAVAILABLE" ? "technical_failure" : "invalid_input" });
   return data<EditorActionData>({ error: code }, { status: failureStatus[code] });
+}
+
+// A save that gets no response shows the save error with Reintentar instead of replacing the editor with the load error.
+export async function clientAction({ serverAction }: ClientActionFunctionArgs) {
+  try { return await serverAction<typeof action>(); }
+  catch (cause) {
+    if (cause instanceof Response || isRouteErrorResponse(cause)) throw cause;
+    // The 503 keeps the loader from revalidating, which would also fail offline and lose the draft.
+    return data<EditorActionData>({ error: "PERSISTENCE_UNAVAILABLE" }, { status: failureStatus.PERSISTENCE_UNAVAILABLE });
+  }
 }
 
 export function ErrorBoundary() {
@@ -107,7 +113,6 @@ export default function CheckoutAppearanceSettings() {
   const fetcher = useFetcher<EditorActionData>();
   const published: CheckoutAppearance = loaded.published;
   const [draft, setDraft] = useState<EditorDraft>({ appearance: published, logoUrl: loaded.logoUrl });
-  const [mode, setMode] = useState<CheckoutPreviewMode>("light");
   const [tab, setTab] = useState<EditorTab>("edit");
   const wide = useWideLayout();
   // The last submission result the seller has already moved past (draft changed or retry started).
@@ -124,7 +129,6 @@ export default function CheckoutAppearanceSettings() {
   const result = fetcher.state === "idle" && fetcher.data !== dismissed ? fetcher.data : undefined;
   const saveFailure = result && "error" in result ? result.error : null;
   const justSaved = !!result && "success" in result;
-  const colorName = checkoutBrandColorCatalog[draft.appearance.brandColor].name;
 
   // A page reload or tab close with unsaved changes also asks first.
   useEffect(() => {
@@ -153,22 +157,22 @@ export default function CheckoutAppearanceSettings() {
   }
 
   function save() {
-    const { logoImageId, brandColor, background } = draft.appearance;
+    const { logoImageId, theme } = draft.appearance;
     setDismissed(fetcher.data);
-    fetcher.submit({ logoImageId, brandColor, background }, { method: "post", encType: "application/json" });
+    fetcher.submit({ logoImageId, theme }, { method: "post", encType: "application/json" });
   }
 
-  const backgrounds: Record<CheckoutBackground, string> = {
-    soft: t("checkoutAppearance.backgroundSoft"), medium: t("checkoutAppearance.backgroundMedium"), brand_tint: t("checkoutAppearance.backgroundBrandTint"),
+  const themeDescriptions: Record<CheckoutThemeId, string> = {
+    classic: t("checkoutAppearance.themeClassicDescription"), boutique: t("checkoutAppearance.themeBoutiqueDescription"),
+    antojo: t("checkoutAppearance.themeAntojoDescription"), suave: t("checkoutAppearance.themeSuaveDescription"),
+    noche: t("checkoutAppearance.themeNocheDescription"),
   };
-  const backgroundHints = { soft: "checkoutAppearance.backgroundSoftHint", medium: "checkoutAppearance.backgroundMediumHint", brand_tint: "checkoutAppearance.backgroundBrandTintHint" } as const;
   const uploadMessage = uploadFailure && t(uploadFailure.reason === "type" ? "checkoutAppearance.uploadTypeError"
     : uploadFailure.reason === "size" ? "checkoutAppearance.uploadSizeError" : "checkoutAppearance.uploadError");
   const saveMessage = saveFailure && t(saveFailure === "INVALID_IMAGE" ? "checkoutAppearance.invalidLogo"
     : saveFailure === "INVALID_CHECKOUT_APPEARANCE" ? "checkoutAppearance.invalidAppearance" : "checkoutAppearance.saveError");
 
-  const previewPanel = <CheckoutPreviewFrame mode={mode} onModeChange={setMode}
-        appearance={{ logoUrl: draft.logoUrl, brandColor: draft.appearance.brandColor, background: draft.appearance.background }} />;
+  const previewPanel = <CheckoutPreviewFrame appearance={{ logoUrl: draft.logoUrl, theme: draft.appearance.theme }} />;
   const editPanel = <Card className="gap-0 divide-y py-0">
         <CardContent className="flex flex-col gap-3 p-5">
           <CardTitle>{t("checkoutAppearance.logoTitle")}</CardTitle>
@@ -196,28 +200,9 @@ export default function CheckoutAppearanceSettings() {
         </CardContent>
 
         <CardContent className="flex flex-col gap-3 p-5">
-          <div><CardTitle>{t("checkoutAppearance.colorTitle")}</CardTitle>
-            <CardDescription>{t("checkoutAppearance.colorHint")}</CardDescription></div>
-          <BrandColorDialog value={draft.appearance.brandColor} mode={mode} onUse={(brandColor) => update({ brandColor })}>
-            <Button type="button" variant="outline" className="h-auto min-h-touch justify-start gap-3 p-3 text-left">
-              <span className="size-9 shrink-0 rounded-md border border-foreground/10" style={{ backgroundColor: swatchOf(draft.appearance.brandColor, mode) }} data-testid="color-swatch" aria-hidden="true" />
-              <span className="min-w-0 flex-1"><span className="block text-sm font-semibold">{colorName}</span>
-                <span className="block text-xs font-normal text-muted-foreground">{t(mode === "light" ? "checkoutAppearance.colorToneLight" : "checkoutAppearance.colorToneDark")}</span></span>
-              <span className="flex items-center text-sm font-medium">{t("checkoutAppearance.colorChange")}<ChevronRight className="size-4" aria-hidden="true" /></span>
-            </Button>
-          </BrandColorDialog>
-        </CardContent>
-
-        <CardContent className="flex flex-col gap-3 p-5">
-          <CardTitle id="appearance-background-label">{t("checkoutAppearance.backgroundTitle")}</CardTitle>
-          {/* Radix reports "" when the pressed item is pressed again; a background is always required. */}
-          <ToggleGroup type="single" variant="outline" aria-labelledby="appearance-background-label" value={draft.appearance.background}
-            onValueChange={(background) => background && update({ background: background as CheckoutBackground })} className="grid w-full grid-cols-3">
-            {checkoutBackgrounds.map((background) => <ToggleGroupItem key={background} value={background} className="min-h-touch whitespace-nowrap">
-              {draft.appearance.background === background && <Check className="size-3.5" aria-hidden="true" />}{backgrounds[background]}
-            </ToggleGroupItem>)}
-          </ToggleGroup>
-          <p className="text-xs text-muted-foreground">{t(backgroundHints[draft.appearance.background], { color: colorName })}</p>
+          <CardTitle>{t("checkoutAppearance.themeTitle")}</CardTitle>
+          <ThemePicker value={draft.appearance.theme} label={t("checkoutAppearance.themeOptions")} descriptions={themeDescriptions}
+            onChange={(theme) => update({ theme })} />
         </CardContent>
 
         <CardContent className="flex flex-col gap-1 p-5">

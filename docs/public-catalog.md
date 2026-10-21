@@ -7,7 +7,7 @@ Code: `apps/core/src/features/catalog/` (publication, browsing, continue to chec
 ## Scope
 
 - One catalog per company with a fixed layout defined by Yoyos. The seller configures nothing except publishing it. Reason: zero configuration for the seller; personalization would be added over the same layout.
-- The catalog uses the company's [checkout appearance](checkout.md#appearance) (logo, brand color, background), so the catalog and checkout look like the same store.
+- The catalog shows the default Yoyos look (global design tokens) with the company's logo and name, for every company; it does not adopt the [checkout themes](checkout.md#appearance), and choosing a theme never changes it. Reason: themes were scoped to the checkout, where the buyer pays; the logo and name already identify the store. The logo is the only part of the checkout appearance the catalog reads: it sits on the same white plate as the checkout header with the default plate values, and if the appearance cannot be read the catalog shows no logo (logged as `unable_to_read_catalog`) and is never hidden.
 - The public pages are web only (React Router loaders and actions). There is no public JSON API.
 - The link uses the company's internal id, not a readable slug. Reason: nothing to configure or validate. The link never changes, also across hide and publish.
 

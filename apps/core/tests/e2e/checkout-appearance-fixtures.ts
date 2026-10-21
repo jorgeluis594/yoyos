@@ -1,15 +1,19 @@
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import {
-  parseCompanyId, parseImageId, type CheckoutBackground, type CheckoutBrandColor,
-} from "@core/src/features/checkout-appearance/domain/checkout-appearance";
+import { browserExpect, expect, prepareVerifiedCompany } from "@core/tests/e2e/fixtures";
+import { orders } from "@core/src/features/orders/composition";
+import { products } from "@core/src/features/products/composition";
+import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { parseCompanyId, parseImageId } from "@core/src/features/checkout-appearance/domain/checkout-appearance";
+import type { CheckoutThemeId } from "@core/src/features/checkout-appearance/domain/checkout-themes";
 import { persistCheckoutAppearance } from "@core/src/features/checkout-appearance/infrastructure/checkout-appearance-repository";
+import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { VariantId } from "@core/src/features/products/domain/product";
 
-type StoredAppearance = Readonly<{ brandColor: CheckoutBrandColor; background: CheckoutBackground; withLogo: boolean }>;
+type StoredAppearance = Readonly<{ theme: CheckoutThemeId; withLogo: boolean }>;
 
 /** Saves the appearance of one company the way the editor will, without going through the UI. */
-export async function saveCompanyAppearance(companyId: string, { brandColor, background, withLogo }: StoredAppearance) {
+export async function saveCompanyAppearance(companyId: string, { theme, withLogo }: StoredAppearance) {
   const company = parseCompanyId(companyId);
   if (!company.success) throw new Error("Invalid company id for the appearance fixture");
   const imageId = withLogo ? randomUUID() : null;
@@ -17,9 +21,36 @@ export async function saveCompanyAppearance(companyId: string, { brandColor, bac
   if (logo && !logo.success) throw new Error("Invalid image id for the appearance fixture");
   await withTenantIsolation(company.data, async () => {
     if (imageId) await prisma.image.create({ data: { id: imageId, storageKey: `logos/${imageId}.png` } });
-    const saved = await persistCheckoutAppearance(company.data, { logoImageId: logo?.success ? logo.data : null, brandColor, background });
+    const saved = await persistCheckoutAppearance(company.data, { logoImageId: logo?.success ? logo.data : null, theme });
     if (!saved.success) throw new Error("Appearance fixture failed");
   });
+}
+
+const editorPath = "/es-PE/settings/checkout-appearance";
+
+/** Signs up a company and opens its appearance editor; returns the company id. */
+export async function openEditor(page: Page, email = `appearance-${crypto.randomUUID()}@example.test`) {
+  const companyId = await prepareVerifiedCompany(page, { email, name: "Vendedora", companyName: "Lima Studio", country: "PE" });
+  await page.goto(editorPath, { waitUntil: "networkidle" });
+  await browserExpect(page.getByRole("heading", { name: "Apariencia del checkout", level: 1 })).toBeVisible();
+  return companyId;
+}
+
+/** A pending order of the company with its checkout enabled, as the seller shares it with a buyer. */
+export async function sharedCheckoutPath(companyId: string, email: string) {
+  const user = await systemPrisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } });
+  const [tenant, userId, orderId, contactId] = [companyId as CompanyId, user.id as UserId, crypto.randomUUID() as OrderId, crypto.randomUUID() as ContactId];
+  await withTenantIsolation(tenant, async () => {
+    const product = await products.create({ name: "Cuaderno", currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
+    if (!product.success) throw new Error("Product fixture failed");
+    const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
+    await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
+    const created = await orders.create({ id: orderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: tenant, userId });
+    if (!created.success) throw new Error("Order fixture failed");
+    await prisma.orderBuyer.create({ data: { orderId, contactId, name: "Ana", phone: "+51987654321" } });
+    expect(await orders.enableCheckout(orderId, { companyId: tenant, userId })).toMatchObject({ success: true });
+  });
+  return `/checkout/${companyId}/${orderId}`;
 }
 
 export async function removeCompanyAppearance(companyId: string) {

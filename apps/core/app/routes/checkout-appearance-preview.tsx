@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import type { ColorSchemeHandle } from "@core/app/color-scheme";
 import { useLoaderData, type LoaderFunctionArgs } from "react-router";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { privateUserContext } from "@core/app/private-user-context";
@@ -9,6 +10,7 @@ import { announcePreviewReady, listenForPreviewUpdates } from "@core/src/feature
 
 export { middleware } from "@core/app/private-access";
 export const headers = () => ({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
+export const handle = { colorScheme: () => "fixed" } satisfies ColorSchemeHandle;
 export const meta = () => [{ title: "Vista previa del checkout" }, { name: "robots", content: "noindex, nofollow" }];
 
 export async function loader({ context }: LoaderFunctionArgs) {
@@ -22,7 +24,7 @@ export async function loader({ context }: LoaderFunctionArgs) {
   }
   bindRequestOperation({ outcome: "rendered" });
   const { companyName, appearance, logoUrl, paymentSettings } = preview.data;
-  return { companyName, paymentSettings, appearance: { logoUrl, brandColor: appearance.brandColor, background: appearance.background } };
+  return { companyName, paymentSettings, appearance: { logoUrl, theme: appearance.theme } };
 }
 
 export default function CheckoutAppearancePreview() {
@@ -36,10 +38,6 @@ export default function CheckoutAppearancePreview() {
     announcePreviewReady(window);
     return () => { stop(); delete document.documentElement.dataset.checkoutPreview; };
   }, []);
-  // Only the page's own `.dark` class changes: the seller's saved theme preference is never written.
-  useEffect(() => {
-    if (draft) document.documentElement.classList.toggle("dark", draft.mode === "dark");
-  }, [draft]);
 
   return <CheckoutPreviewPage companyName={companyName} appearance={draft?.appearance ?? appearance}
     state={draft?.state ?? "review"} paymentMethods={paymentSettings} />;

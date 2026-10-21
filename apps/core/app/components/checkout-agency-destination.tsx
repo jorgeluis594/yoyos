@@ -23,10 +23,10 @@ export function CheckoutAgencyDestination({ choices, buyerDistrict, value, onCha
   const selected = chosenAgency(choices, value)?.agency.id ?? "";
   return <>
     {notice && <p role="status" className={status}>{t(`checkoutDelivery.${notice}`, buyerDistrict)}</p>}
-    <Field><FieldLabel htmlFor="delivery-agency">{t("checkoutDelivery.agency")}</FieldLabel>
-      <select id="delivery-agency" className={controlClass} value={selected} disabled={disabled} onChange={event => onChange(event.target.value)}>
+    <div data-checkout-part="field-group" className="flex flex-col gap-4"><Field data-checkout-part="field"><FieldLabel htmlFor="delivery-agency">{t("checkoutDelivery.agency")}</FieldLabel>
+      <select id="delivery-agency" data-slot="select" className={controlClass} value={selected} disabled={disabled} onChange={event => onChange(event.target.value)}>
         <option value="">{t("checkoutDelivery.selectAgency")}</option>
         {choices.choices.map(choice => <option key={choice.agency.id} value={choice.agency.id}>{buyerAgencyLabel(choice, amount)}</option>)}
-      </select></Field>
+      </select></Field></div>
   </>;
 }

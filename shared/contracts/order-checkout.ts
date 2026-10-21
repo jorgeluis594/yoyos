@@ -29,6 +29,8 @@ export const publicCheckoutSchema = z.strictObject({
   companyName: z.string(), number: z.number().int().safe().min(1001),
   buyer: z.strictObject({ name: z.string().nullable(), phone: z.string().nullable() }).nullable(),
   items: z.array(z.strictObject({ productName: z.string(), variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(),
+    // `z.httpUrl()` rejects IP and localhost hosts, which local storage endpoints use.
+    imageUrl: z.url({ protocol: /^https?$/ }).nullable(),
     quantity: z.number().int().positive().safe(), unitPrice: checkoutMoneySchema, subtotal: checkoutMoneySchema })).min(1),
   itemsTotal: checkoutMoneySchema, deliveryCharge: checkoutMoneySchema, total: checkoutMoneySchema,
   delivery: publicCheckoutDeliverySchema.nullable(),
