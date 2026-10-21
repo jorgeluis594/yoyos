@@ -6,6 +6,8 @@ import { deliverySettings } from "@core/src/features/delivery-settings";
 import { checkoutAppearance, parseCompanyId } from "@core/src/features/checkout-appearance";
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { ok, err } from "@shared/functional";
+import type { CheckoutPage } from "@core/src/features/orders/application/checkout";
+import type { VariantId } from "@core/src/features/products/domain/product";
 import type { CheckoutView, OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 
@@ -21,7 +23,9 @@ vi.mock("@core/src/features/checkout-appearance", async (importOriginal) => {
 const params = { companyId: "00000000-0000-4000-8000-000000000001", orderId: "00000000-0000-4000-8000-000000000002" };
 const total = { amount: 10, currency: "PEN" as const };
 const view: CheckoutView = { companyName: "Store", number: 1001 as OrderNumber, buyer: null, itemsTotal: total, total, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" },
-  items: [{ productName: "Product", sku: null, variantAttributes: {}, quantity: 1 as PositiveInteger, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
+  items: [{ variantId: "00000000-0000-4000-8000-000000000004" as VariantId, productName: "Product", sku: null, variantAttributes: {}, quantity: 1 as PositiveInteger, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
+const page = (checkout: CheckoutView, photos: CheckoutPage["photos"] = new Map()): CheckoutPage => ({ checkout, photos });
+const publicView = { ...view, items: [{ productName: "Product", sku: null, variantAttributes: {}, imageUrl: null, quantity: 1, unitPrice: total, subtotal: total }] };
 const body = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: total, delivery: { kind: "keep" as const } };
 const args = (payload: unknown, path = params) => ({ params: path, request: new Request("http://localhost/checkout/company/order", {
   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
@@ -31,12 +35,28 @@ afterEach(() => vi.restoreAllMocks());
 
 test("public loader preserves wire amounts and privacy headers without requiring an authenticated context", async () => {
   const settings = vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
-  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
-  expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: view }, init: { headers: headers() } });
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
+  expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: publicView }, init: { headers: headers() } });
   await expect(loader({ params: { companyId: "bad", orderId: "1001" } } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
   vi.mocked(orders.getCheckout).mockResolvedValue(err({ code: "CHECKOUT_UNAVAILABLE", message: "not public" }));
   await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
   expect(settings).toHaveBeenCalledTimes(1);
+});
+
+test("projects each item's current photo URL and no variant id", async () => {
+  const [first] = view.items;
+  const second = { ...first, variantId: "00000000-0000-4000-8000-000000000005" as VariantId, productName: "Taza blanca" };
+  vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page({ ...view, items: [first, second] }, new Map([[first.variantId, "https://cdn.example/polo.webp"]]))));
+  const result = await loader({ params } as unknown as LoaderFunctionArgs) as unknown as { data: { checkout: { items: Record<string, unknown>[] } } };
+  expect(result.data.checkout.items.map((item) => item.imageUrl)).toEqual(["https://cdn.example/polo.webp", null]);
+  expect(JSON.stringify(result.data)).not.toContain("variantId");
+});
+
+test("loads the checkout with markers when the photos cannot be read", async () => {
+  vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view, new Map())));
+  expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: { items: [{ imageUrl: null }] } } });
 });
 
 test("public action rejects tampering and attaches field errors before calling the use case", async () => {
@@ -51,7 +71,7 @@ test("public action rejects tampering and attaches field errors before calling t
 
 test("total conflict returns the current checkout and requires another explicit confirmation", async () => {
   const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(err({ code: "TOTAL_CHANGED", message: "changed" }));
-  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok({ ...view, total: { ...total, amount: 12 } }));
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page({ ...view, total: { ...total, amount: 12 } })));
   expect(await action(args(body))).toMatchObject({ data: { checkout: { total: { amount: 12 } }, message: expect.stringContaining("vuelve a confirmar") }, init: { status: 409 } });
   expect(confirm).toHaveBeenCalledTimes(1);
 });
@@ -68,7 +88,7 @@ test("confirmation requires an explicit delivery choice for JSON and form reques
 
 test("cancelled, unavailable and technical failures never return false confirmation", async () => {
   const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(err({ code: "ORDER_CANCELLED", message: "cancelled" }));
-  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok({ ...view, state: { kind: "cancelled" } }));
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page({ ...view, state: { kind: "cancelled" } })));
   expect(await action(args(body))).toMatchObject({ data: { checkout: { state: { kind: "cancelled" } } }, init: { status: 409 } });
   confirm.mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "private cause" }));
   const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
@@ -91,9 +111,9 @@ test("delivery confirmation constructs domain selection and redirects to payment
 
 test("delivery price conflict preserves current checkout and returns the price for explicit reconfirmation", async () => {
   vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(err({ code: "TOTAL_CHANGED", message: "Private reason", currentPrice: { amount: 12, currency: "PEN" } }));
-  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   expect(await action(args({ ...body, delivery: { kind: "keep" } }))).toMatchObject({ init: { status: 409 },
-    data: { checkout: view, code: "TOTAL_CHANGED", currentPrice: { amount: 12, currency: "PEN" }, message: expect.stringContaining("vuelve a confirmar") } });
+    data: { checkout: publicView, code: "TOTAL_CHANGED", currentPrice: { amount: 12, currency: "PEN" }, message: expect.stringContaining("vuelve a confirmar") } });
 });
 
 test("delivery business failures do not redirect or falsely confirm", async () => {
@@ -118,7 +138,7 @@ test("delivery form accepts exactly four fields and rejects repeated delivery va
 });
 
 test("public checkout exposes current pickup configuration without courier names or seller identity", async () => {
-  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 7, home: { enabled: true }, agency: { enabled: false }, couriers: [],
     store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, agencyCovered: false }));
   const result = await loader({ params } as unknown as LoaderFunctionArgs);
@@ -129,7 +149,7 @@ test("public checkout exposes current pickup configuration without courier names
 });
 
 test("public loader exposes agency coverage only as a yes or no flag", async () => {
-  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 7, home: { enabled: false }, agency: { enabled: true },
     couriers: [{ id: "private" }] as never, store: { enabled: false, pickupPoint: null } }, agencyCovered: true }));
   const result = await loader({ params } as unknown as LoaderFunctionArgs);
@@ -138,14 +158,14 @@ test("public loader exposes agency coverage only as a yes or no flag", async () 
 });
 
 test("public loader reports no agency coverage when the switch is on but no option has eligible agencies", async () => {
-  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 7, home: { enabled: false }, agency: { enabled: true },
     couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
   expect((await loader({ params } as unknown as LoaderFunctionArgs)).data.deliveryOptions?.agency).toEqual({ enabled: true, covered: false });
 });
 
 test("failed coverage read answers 503 without manufacturing delivery options", async () => {
-  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(err({ code: "SERVICE_UNAVAILABLE", message: "Private detail" }));
   const failure = await loader({ params } as unknown as LoaderFunctionArgs).catch(error => error);
   expect(failure).toMatchObject({ status: 503 });
@@ -153,14 +173,14 @@ test("failed coverage read answers 503 without manufacturing delivery options", 
 });
 
 test("failed current configuration does not manufacture free shipping or enabled pickup", async () => {
-  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(err({ code: "SERVICE_UNAVAILABLE", message: "Private detail" }));
   await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
 });
 
 const paymentView = { orderId: params.orderId, total, deliveryCharge: { amount: 0, currency: "PEN" as const }, availability: "available" as const,
   paidAmount: { amount: 0, currency: "PEN" as const }, balanceDue: total, paymentStatus: "pending" as const, settings: [], payments: [] };
-const confirmed = ok({ ...view, buyer: body.buyer, state: { kind: "confirmed" as const, confirmedAt: new Date("2026-10-05T00:00:00Z") } });
+const confirmed = ok(page({ ...view, buyer: body.buyer, state: { kind: "confirmed" as const, confirmedAt: new Date("2026-10-05T00:00:00Z") } }));
 
 test("confirmed checkout keeps its saved summary and loads the payment view without requiring current delivery settings", async () => {
   vi.spyOn(orders, "getCheckout").mockResolvedValue(confirmed);
@@ -195,7 +215,7 @@ describe("checkout appearance", () => {
 
   test("includes the company appearance after authorizing the order", async () => {
     pendingSettings();
-    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
     const getPublic = vi.mocked(checkoutAppearance.getPublic).mockResolvedValue({ kind: "custom", appearance: custom });
     expect(await load()).toMatchObject({ data: { appearance: custom } });
     expect(getPublic).toHaveBeenCalledWith(params.companyId);
@@ -204,7 +224,7 @@ describe("checkout appearance", () => {
   test("exposes only logo, color and background", async () => {
     pendingSettings();
     const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
-    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
     vi.mocked(checkoutAppearance.getPublic).mockResolvedValue({ kind: "custom", appearance: { ...custom, logoImageId: "private" } as never });
     expect(await load()).toMatchObject({ data: { appearance: null } });
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_data_invalid", errorCode: "INVALID_APPEARANCE_RESPONSE" }), expect.any(String));
@@ -214,9 +234,9 @@ describe("checkout appearance", () => {
   test("logs and falls back when the company id cannot be parsed", async () => {
     pendingSettings();
     const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
-    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
     vi.mocked(parseCompanyId).mockReturnValueOnce(err({ code: "INVALID_CHECKOUT_APPEARANCE", message: "Invalid company id", invalidFields: ["companyId"] }));
-    expect(await load()).toMatchObject({ data: { checkout: view, appearance: null } });
+    expect(await load()).toMatchObject({ data: { checkout: publicView, appearance: null } });
     expect(checkoutAppearance.getPublic).not.toHaveBeenCalled();
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_appearance_failed", errorCode: "INVALID_CHECKOUT_APPEARANCE" }), expect.any(String));
     expect(bindRequestOperation).toHaveBeenCalledWith({ checkoutAppearance: "fallback" });
@@ -231,18 +251,18 @@ describe("checkout appearance", () => {
 
   test("uses the default appearance when the company has none", async () => {
     pendingSettings();
-    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
     expect(await load()).toMatchObject({ data: { appearance: null } });
   });
 
   test("uses the default appearance and still loads the order when reading it fails", async () => {
     pendingSettings();
     const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
-    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
     vi.mocked(checkoutAppearance.getPublic).mockResolvedValue({ kind: "fallback" });
-    expect(await load()).toMatchObject({ data: { checkout: view, appearance: null } });
+    expect(await load()).toMatchObject({ data: { checkout: publicView, appearance: null } });
     vi.mocked(checkoutAppearance.getPublic).mockRejectedValue(new Error("private cause"));
-    expect(await load()).toMatchObject({ data: { checkout: view, appearance: null } });
+    expect(await load()).toMatchObject({ data: { checkout: publicView, appearance: null } });
     expect(error).toHaveBeenCalledTimes(1);
   });
 
@@ -257,7 +277,7 @@ describe("checkout appearance", () => {
 
   test("tags the request with default, custom or fallback appearance", async () => {
     pendingSettings();
-    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(view));
+    vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
     const tagged = async (result: Awaited<ReturnType<typeof checkoutAppearance.getPublic>>) => {
       vi.mocked(checkoutAppearance.getPublic).mockResolvedValue(result);
       vi.mocked(bindRequestOperation).mockClear();

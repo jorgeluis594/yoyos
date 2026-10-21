@@ -434,6 +434,7 @@ Semantic utilities (`bg-[var(--error-surface)]` and similar) need no hook: the t
 | `unable_to_load_checkout_appearance`, `unable_to_save_checkout_appearance` | error | appearance repository | unchanged |
 | `http_request_completed` (`get_checkout`) | info | request logger | adds `checkoutTheme` (`classic` … `noche`) next to `checkoutAppearance` |
 | `order_checkout_photos_unavailable` | error | `orders/composition.ts`, `findItemPhotos` adapter | `["companyId", "errorCode", "variantCount"]` |
+| `unable_to_read_variant_photos` | error | `products/infrastructure/variant-photo-repository.ts` | `["companyId", "errorCode", "err?"]`; infrastructure event, as in the other products repositories, alongside the orders event above |
 | `product_list_images_unavailable` | error | products composition (existing report) | unchanged: `["count", "codes", "imageIds"]` |
 
 Never logged: order ids together with company ids, checkout URLs, photo or logo URLs, buyer data, amounts.
