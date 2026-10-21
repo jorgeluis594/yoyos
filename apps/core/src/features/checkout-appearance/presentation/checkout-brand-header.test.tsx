@@ -48,8 +48,8 @@ describe("CheckoutBrandHeader", () => {
     const html = renderToStaticMarkup(<CheckoutBrandHeader companyName="Lima Studio" logoUrl="https://cdn.example/logo.png" />);
     expect(html).toContain('data-checkout-part="header-brand"');
     for (const [property, fallback] of [
-      ["height", "2.5rem"], ["border-radius", "var(--radius-sm)"], ["border", "1px solid var(--border)"], ["box-shadow", "none"], ["padding", "0.25rem 0.5rem"],
-    ]) expect(html, property).toMatch(new RegExp(`${property}:var\\(--checkout-logo-[a-z]+,\\s*${fallback.replace(/[().]/g, "\\$&")}\\)`));
+      ["height", "2.5rem"], ["max-width", "10rem"], ["border-radius", "var(--radius-sm)"], ["border", "1px solid var(--border)"], ["box-shadow", "none"], ["padding", "0.25rem 0.5rem"],
+    ]) expect(html, property).toMatch(new RegExp(`${property}:var\\(--checkout-logo-[a-z-]+,\\s*${fallback.replace(/[().]/g, "\\$&")}\\)`));
   });
 
   test("sets the store name in the theme's heading font and weight", () => {

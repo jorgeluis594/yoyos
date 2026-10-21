@@ -29,7 +29,7 @@ function variables(theme: CheckoutThemeDefinition): Declaration[] {
     ["--checkout-font-button", checkoutFontStacks[fonts.button]],
     ["--checkout-logo-direction", logo.direction],
     ["--checkout-logo-text-align", logo.placement === "center" ? "center" : "left"],
-    ["--checkout-logo-height", logo.height], ["--checkout-logo-radius", logo.radius], ["--checkout-logo-border", logo.border],
+    ["--checkout-logo-height", logo.height], ["--checkout-logo-max-width", logo.maxWidth], ["--checkout-logo-radius", logo.radius], ["--checkout-logo-border", logo.border],
     ["--checkout-logo-shadow", logo.shadow], ["--checkout-logo-padding", logo.padding],
     ["--checkout-thumb-width", thumbnail.width], ["--checkout-thumb-ratio", thumbnail.ratio], ["--checkout-thumb-radius", thumbnail.radius],
     ["--checkout-thumb-border", thumbnail.border], ["--checkout-thumb-filter", thumbnail.filter],
