@@ -127,9 +127,15 @@ const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
     display: block;
   }
 
+  details:not([open]) .panel {
+    display: none;
+  }
+
   .panel {
     flex-basis: 100%;
     display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    min-width: 0;
     gap: var(--space-4);
     padding-block-end: var(--space-4);
   }
@@ -176,7 +182,8 @@ const anchorHref = (anchor: string) => `${isHome ? "" : "/"}#${anchor}`;
         display: block;
       }
 
-      .panel {
+      .panel,
+      details:not([open]) .panel {
         display: flex;
         align-items: center;
         justify-content: space-between;

@@ -45,6 +45,18 @@ ol {
   margin: 0;
 }
 
+/* "anywhere" also lowers min-content, so a long word wraps instead of widening grid tracks and flex items when
+   the user enlarges the default text size (WCAG 1.4.4 and 1.4.10). */
+h1,
+h2,
+h3,
+p,
+li,
+summary,
+.pill-label {
+  overflow-wrap: anywhere;
+}
+
 h1 {
   font-size: var(--text-display-size);
   line-height: var(--text-display-line);
@@ -145,6 +157,7 @@ a:hover {
 
 .pill-label {
   display: inline-block;
+  max-width: 100%;
   padding: var(--space-1) var(--space-3);
   border: var(--border-width) solid var(--border);
   border-radius: var(--radius-pill);
