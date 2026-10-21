@@ -1,5 +1,5 @@
 import { useTranslation } from "react-i18next";
-import { useId, useState } from "react";
+import { useId, useState, type ReactNode } from "react";
 import { Input } from "@core/app/components/ui/input";
 import { controlClass } from "@core/app/components/ui/field";
 import { filterPeruDistricts, getPeruDistrict, getPeruDistricts, getPeruProvinces, peruDepartments, type PeruDistrictCode } from "@shared/peru-geography";
@@ -14,6 +14,13 @@ export function PeruDistrictSelect({ value, onChange, disabled = false, themed =
   const { t } = useTranslation();
   const selectSlot = themed ? { "data-slot": "select" } : {};
   const labelSlot = themed ? { "data-slot": "label" } : {};
+  // The checkout themes lay these fields out as one group, like the buyer fields; the seller views keep their own layout.
+  const fieldPart = themed ? { "data-checkout-part": "field" } : {};
+  // Themed, the two columns are one field of the group, so its separator and padding stay one per row.
+  const pair = (fields: ReactNode) => themed
+    ? <div data-checkout-part="field" className="min-w-0"><div className="grid min-w-0 gap-3 sm:grid-cols-2">{fields}</div></div>
+    : <div className="grid min-w-0 gap-3 sm:grid-cols-2">{fields}</div>;
+  const group = (fields: ReactNode) => themed ? <div data-checkout-part="field-group" className="flex min-w-0 flex-col gap-3">{fields}</div> : fields;
   const id = useId();
   const selected = value ? getPeruDistrict(value) : null;
   const [departmentCode, setDepartmentCode] = useState<string>(selected?.departmentCode ?? "");
@@ -27,7 +34,8 @@ export function PeruDistrictSelect({ value, onChange, disabled = false, themed =
   const options = selected && !matches.some(item => item.code === selected.code) ? [selected, ...matches] : matches;
   return <fieldset disabled={disabled} className="flex min-w-0 flex-col gap-3">
     <legend className="mb-3 font-medium">{t("peruDistrict.deliveryTitle")}</legend>
-    <div className="grid min-w-0 gap-3 sm:grid-cols-2">
+    {group(<>
+    {pair(<>
       <div className="flex min-w-0 flex-col gap-1.5"><label htmlFor={`${id}-department`} {...labelSlot} className="text-sm font-medium">{t("peruDistrict.department")}</label>
         <select id={`${id}-department`} {...selectSlot} className={controlClass} value={department?.code ?? ""} onChange={event => {
           setDepartmentCode(event.target.value); setProvinceCode(""); setQuery(""); onChange(null);
@@ -38,15 +46,16 @@ export function PeruDistrictSelect({ value, onChange, disabled = false, themed =
           setProvinceCode(event.target.value); setQuery(""); onChange(null);
         }}><option value="">{t("peruDistrict.selectProvince")}</option>{provinces.map(item => <option key={item.code} value={item.code}>{item.name}</option>)}</select>
       </div>
-    </div>
-    <div className="flex flex-col gap-1.5"><label htmlFor={`${id}-search`} {...labelSlot} className="text-sm font-medium">{t("peruDistrict.search")}</label>
+    </>)}
+    <div {...fieldPart} className="flex flex-col gap-1.5"><label htmlFor={`${id}-search`} {...labelSlot} className="text-sm font-medium">{t("peruDistrict.search")}</label>
       <Input id={`${id}-search`} type="search" disabled={!province} value={query} onChange={event => setQuery(event.target.value)} placeholder={t("peruDistrict.searchPlaceholder")} />
     </div>
-    <div className="flex flex-col gap-1.5"><label htmlFor={`${id}-district`} {...labelSlot} className="text-sm font-medium">{t("peruDistrict.district")}</label>
+    <div {...fieldPart} className="flex flex-col gap-1.5"><label htmlFor={`${id}-district`} {...labelSlot} className="text-sm font-medium">{t("peruDistrict.district")}</label>
       <select id={`${id}-district`} {...selectSlot} className={controlClass} value={value ?? ""} disabled={!province} aria-describedby={`${id}-hint`} onChange={event => {
         onChange(districts.find(item => item.code === event.target.value)?.code ?? null);
       }}><option value="">{t("peruDistrict.selectDistrict")}</option>{options.map(item => <option key={item.code} value={item.code}>{item.name} · {item.code}</option>)}</select>
       <p id={`${id}-hint`} className="text-sm text-muted-foreground" role="status">{!province ? t("peruDistrict.pickParents") : matches.length === 0 ? t("peruDistrict.noMatches") : t("peruDistrict.available", { count: matches.length, province: province.name })}</p>
     </div>
+    </>)}
   </fieldset>;
 }

@@ -38,3 +38,8 @@ test("district search ignores accents and case and supports official codes withi
   expect(filterPeruDistricts(districts, "not a district")).toEqual([]);
   expect(filterPeruDistricts(districts, "")).toEqual(districts);
 });
+
+test("themed, department and province stay in two columns on wide screens, inside one field of the group", () => {
+  const html = renderToStaticMarkup(withI18n(<PeruDistrictSelect themed value={district.code} onChange={() => undefined} />));
+  expect(html).toMatch(/data-checkout-part="field" class="min-w-0"><div class="grid min-w-0 gap-3 sm:grid-cols-2">[\s\S]*-department[\s\S]*-province/);
+});

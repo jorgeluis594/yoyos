@@ -193,6 +193,8 @@ export const checkoutThemes: Readonly<Record<CheckoutThemeId, CheckoutThemeDefin
 
 `Record` over closed token lists makes a missing value a type error, so no theme can inherit a value from another. `stops` lists the gradient colors so contrast is checked against each.
 
+The payment chips' own border (`payment-border`) is decorative and not part of the 3:1 floor in Boutique and Noche, where it takes the card border `--border`, because each chip holds a radio whose own border passes (`control`) and the selected chip adds its outline or fill.
+
 **Color tokens.** Every theme defines all of them as opaque HEX. Sources are `temas.css` variables of the same theme; the semantic tokens start from `docs/design-tokens.json` of the theme's mode.
 
 | Token | Used for | `temas.css` source |

@@ -68,7 +68,7 @@ export function CheckoutOrderSummary({ checkout, deliveryDraft, action }: Readon
   const delivery = checkout.state.kind !== "pending" ? checkout.deliveryCharge : deliveryDraft?.price;
   return <>
     <section aria-labelledby="products-title" data-checkout-part="card" className={`${checkoutCard} [grid-area:products]`}><h2 id="products-title" data-checkout-part="section-title" className={sectionTitle}>{t("checkoutSections.products")}</h2>
-      <ul className="-my-3 divide-y">{checkout.items.map((item, index) => <li key={index} data-checkout-part="product-row" className="flex items-center gap-3 py-3">
+      <ul>{checkout.items.map((item, index) => <li key={index} data-checkout-part="product-row" className="flex items-center gap-3">
         <ProductThumbnail name={item.productName} url={item.imageUrl} />
         <div className="min-w-0 flex-1 break-words"><p data-checkout-part="product-name" className="font-medium">{item.productName}</p>{Object.keys(item.variantAttributes).length > 0 && <p data-checkout-part="product-meta" className="text-sm text-muted-foreground">{Object.values(item.variantAttributes).join(" · ")}</p>}<p data-checkout-part="product-meta" className="text-sm text-muted-foreground tabular-nums">{item.quantity} × {amount(item.unitPrice)}</p></div>
         <span data-checkout-part="price" className="shrink-0 font-medium tabular-nums">{amount(item.subtotal)}</span></li>)}</ul>

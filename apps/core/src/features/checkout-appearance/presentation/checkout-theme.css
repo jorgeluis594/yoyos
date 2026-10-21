@@ -66,11 +66,16 @@
 
 /*
  * Keyboard focus and invalid fields. The unlayered rules above replace the utilities' ring and border, so both states are declared here
- * with the theme's ring and destructive tokens.
+ * with the theme's ring and destructive tokens. A native radio inside an option or payment chip leaves the ring to its parent, so one focus
+ * shows one ring.
  */
-[data-checkout-theme] :is([data-slot="button"], [data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="radio-group-item"]):focus-visible {
+[data-checkout-theme] :is([data-slot="button"], [data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="radio-group-item"]:not(input)):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+[data-checkout-theme] input[data-slot="radio-group-item"]:focus-visible {
+  outline: none;
 }
 
 [data-checkout-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"])[aria-invalid="true"] {
@@ -163,7 +168,10 @@
   white-space: nowrap;
 }
 
-/* Buyer fields: a bordered group in Noche, plain stacked fields elsewhere */
+/*
+ * Buyer fields: a bordered group in Noche, plain stacked fields elsewhere. The group does not clip: where fields touch its edges
+ * (field padding 0) the keyboard focus ring would lose its sides, and its fields paint no background that could cover the rounded border.
+ */
 [data-checkout-theme] [data-checkout-part="field-group"] {
   display: flex;
   flex-direction: column;
@@ -171,7 +179,6 @@
   border: var(--checkout-group-border);
   border-radius: var(--checkout-radius-group);
   background-color: var(--checkout-group-surface);
-  overflow: hidden;
 }
 
 [data-checkout-theme] [data-checkout-part="field"] {
@@ -212,7 +219,7 @@
 }
 
 [data-checkout-theme] [data-checkout-part="option"]:is([data-state="checked"], [aria-checked="true"], :has([aria-checked="true"], :checked)) {
-  border-color: var(--selected);
+  border-color: var(--checkout-selected-border);
   background-color: var(--selected-surface);
   box-shadow: var(--checkout-selected-shadow);
   outline: var(--checkout-selected-outline);
@@ -220,9 +227,10 @@
   color: var(--foreground);
 }
 
+/* Inset: the option group clips whatever is drawn outside it. */
 [data-checkout-theme] [data-checkout-part="option"]:has(:focus-visible) {
   outline: 2px solid var(--ring);
-  outline-offset: 2px;
+  outline-offset: -2px;
 }
 
 [data-checkout-theme] [data-checkout-part="option-cost"] {
@@ -237,7 +245,10 @@
 }
 
 /* Total */
+/* The label stays on one line; a long amount ("Selecciona entrega") moves under it instead of wrapping both. */
 [data-checkout-theme] [data-checkout-part="total"] {
+  flex-wrap: wrap;
+  row-gap: 4px;
   margin-top: 8px;
   padding-top: 12px;
   border-top: var(--checkout-total-separator);
@@ -247,6 +258,7 @@
   font-family: var(--checkout-font-heading);
   font-size: var(--checkout-text-total-label);
   font-weight: var(--checkout-weight-heading);
+  white-space: nowrap;
 }
 
 [data-checkout-theme] [data-checkout-part="total-amount"] {
@@ -254,11 +266,13 @@
   font-size: var(--checkout-text-total);
   font-weight: var(--checkout-weight-total);
   font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  text-align: right;
 }
 
 /* Payment */
 [data-checkout-theme] [data-checkout-part="payment-method"] {
-  border: 1px solid var(--border);
+  border: var(--checkout-payment-border);
   border-radius: var(--checkout-radius-chip);
   background-color: var(--checkout-option-surface);
 }
@@ -267,8 +281,8 @@
 [data-checkout-theme] [data-checkout-part="payment-method"]:is([data-state="checked"], [aria-checked="true"], :has(:checked)) {
   border-color: var(--selected);
   background-color: var(--selected-surface);
-  box-shadow: var(--checkout-selected-shadow);
-  outline: var(--checkout-selected-outline);
+  box-shadow: var(--checkout-payment-selected-shadow);
+  outline: var(--checkout-payment-selected-outline);
   outline-offset: -2px;
   color: var(--foreground);
 }
