@@ -56,9 +56,10 @@ export function requestLogging(request: Request, response: Response, next: NextF
   const started = performance.now();
   const pathname = request.path;
   const checkout = /^\/checkout(?:\/|$)/.test(pathname);
-  const preview = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/checkout-appearance\/preview\/?(?:\.data)?$/.test(pathname);
+  const preview = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/store-appearance\/preview\/?(?:\.data)?$/.test(pathname);
   const enable = /^\/api\/orders\/[^/]+\/checkout-link\/?$/.test(pathname);
-  const appearanceEditor = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/checkout-appearance(?:\.data)?\/?$/.test(pathname);
+  const appearanceEditor = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/store-appearance(?:\.data)?\/?$/.test(pathname);
+  const legacyAppearanceEditor = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/checkout-appearance(?:\.data)?\/?$/.test(pathname);
   const operation = checkout ? request.method === "POST" ? "confirm_checkout" : "get_checkout" : enable ? "enable_checkout" : undefined;
   response.set("x-request-id", requestId);
   // prefinish retains the agent's request context; finish runs after it is gone.
@@ -69,8 +70,8 @@ export function requestLogging(request: Request, response: Response, next: NextF
     log.info({
       event: "http_request_completed",
       method: request.method,
-      route: checkout ? "/checkout/:companyId/:orderId" : preview ? "/settings/checkout-appearance/preview" : enable ? "/api/orders/:orderId/checkout-link"
-        : appearanceEditor ? "/settings/checkout-appearance"
+      route: checkout ? "/checkout/:companyId/:orderId" : preview ? "/settings/store-appearance/preview" : enable ? "/api/orders/:orderId/checkout-link"
+        : appearanceEditor ? "/settings/store-appearance" : legacyAppearanceEditor ? "/settings/checkout-appearance"
         : request.route?.path ? `${request.baseUrl}${request.route.path}` : "unmatched",
       statusCode: response.statusCode,
       durationMs: Math.round(performance.now() - started),
