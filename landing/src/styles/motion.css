@@ -13,6 +13,13 @@
     }
   }
 
+  @keyframes motion-reveal {
+    from {
+      opacity: 0;
+      translate: 0 var(--motion-reveal-rise);
+    }
+  }
+
   @keyframes motion-settle {
     from {
       translate: 0 var(--motion-rise);
@@ -42,13 +49,15 @@
 @media (prefers-reduced-motion: no-preference) {
   @supports (animation-timeline: view()) {
     [data-reveal] {
-      animation: motion-rise linear both;
+      animation: motion-reveal ease-out both;
     }
 
-    /* A separate rule so the minifier cannot fold the timeline into the shorthand, which Chromium rejects. */
+    /* A separate rule so the minifier cannot fold the timeline into the shorthand, which Chromium rejects. The range
+       runs over the first third of the element's pass through the viewport (not just its entry, which ends a few
+       pixels above the bottom edge for short elements), so the rise is visible while reading. */
     [data-reveal]:where(*) {
       animation-timeline: view();
-      animation-range: entry calc(var(--motion-order, 0) * 8%) entry calc(60% + var(--motion-order, 0) * 8%);
+      animation-range: cover calc(var(--motion-order, 0) * 4%) cover calc(30% + var(--motion-order, 0) * 4%);
     }
   }
 }

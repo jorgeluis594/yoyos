@@ -22,6 +22,7 @@ describe("themeCss", () => {
     expect(themeCss).toContain(`--motion-feedback:${tokens.motion.feedbackMs}ms;`);
     expect(themeCss).toContain("--motion-entrance:480ms;");
     expect(themeCss).toContain("--motion-rise:1rem;");
+    expect(themeCss).toContain("--motion-reveal-rise:2rem;");
     expect(themeCss).toContain("--motion-lift:0.125rem;");
   });
 });
