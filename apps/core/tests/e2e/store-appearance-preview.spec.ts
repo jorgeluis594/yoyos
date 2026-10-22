@@ -4,7 +4,7 @@ import { storeThemes } from "@shared/store-themes";
 import { openEditor, removeCompanyAppearance, rgb, sharedCheckoutPath } from "@core/tests/e2e/store-appearance-fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
-const previewPath = "/settings/checkout-appearance/preview";
+const previewPath = "/settings/store-appearance/preview";
 const update = (overrides: object = {}) => ({
   type: "store-appearance:update", state: "review",
   appearance: { logoUrl: null, theme: "boutique" }, ...overrides,
@@ -56,7 +56,7 @@ test("the preview page stays blank until the first draft message", async ({ page
 test("shows the checkout with sample data and labelled sample payment methods", async ({ page }) => {
   await withCompany(async () => {
     await openPreview(page);
-    await browserExpect(page).toHaveURL(/\/es-PE\/settings\/checkout-appearance\/preview$/);
+    await browserExpect(page).toHaveURL(/\/es-PE\/settings\/store-appearance\/preview$/);
     await browserExpect(page.getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
     await browserExpect(page.getByText("Lima Studio", { exact: true })).toBeVisible();
     await post(page, update({ state: "payment" }));

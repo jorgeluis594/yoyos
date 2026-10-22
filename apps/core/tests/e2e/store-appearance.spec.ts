@@ -28,13 +28,13 @@ async function tabTo(page: Page, target: Locator, key: "Tab" | "Shift+Tab" = "Ta
 const stored = (companyId: string) => withTenantIsolation(companyId, async () => await prisma.companyCheckoutAppearance.findUnique({ where: { companyId } }));
 const uploadLogo = (page: Page) => page.getByTestId("logo-upload").locator("input[type=file]").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: png });
 const themeOption = (page: Page, name: string) => page.getByRole("radio", { name: new RegExp(`^${name}`) });
-const themeList = (page: Page) => page.getByRole("radiogroup", { name: "Temas del checkout" });
+const themeList = (page: Page) => page.getByRole("radiogroup", { name: "Temas de la tienda" });
 const storeThemeId = (page: Page) => page.locator("[data-store-theme]").getAttribute("data-store-theme-id");
 const saveChanges = (page: Page) => page.getByRole("button", { name: "Guardar cambios" });
 const savedNotice = (page: Page) => page.getByRole("status").filter({ hasText: "Apariencia actualizada" });
 const unsaved = (page: Page) => page.getByText("Cambios sin guardar", { exact: true });
 
-describe("checkout appearance editor", () => {
+describe("store appearance editor", () => {
   test("publishes logo and theme together when saving and the buyer sees the theme on the next load", async ({ page }) => {
     const email = `appearance-${crypto.randomUUID()}@example.test`;
     const companyId = await openEditor(page, email);
@@ -164,7 +164,7 @@ describe("checkout appearance editor", () => {
     await page.getByRole("link", { name: "Productos" }).first().click();
     await browserExpect(page.getByRole("dialog", { name: "Tienes cambios sin guardar" })).toBeVisible();
     await page.getByRole("button", { name: "Seguir editando" }).click();
-    await browserExpect(page).toHaveURL(/settings\/checkout-appearance/);
+    await browserExpect(page).toHaveURL(/settings\/store-appearance/);
     await browserExpect(unsaved(page)).toBeVisible();
     await page.getByRole("link", { name: "Productos" }).first().click();
     await page.getByRole("button", { name: "Descartar y salir" }).click();
@@ -176,7 +176,7 @@ describe("checkout appearance editor", () => {
     await themeOption(page, "Suave").click();
     await page.getByRole("link", { name: "Productos" }).first().click();
     await page.getByRole("button", { name: "Seguir editando" }).click();
-    await browserExpect(page).toHaveURL(/settings\/checkout-appearance/);
+    await browserExpect(page).toHaveURL(/settings\/store-appearance/);
     await browserExpect(themeOption(page, "Suave")).toBeChecked();
     await browserExpect(unsaved(page)).toBeVisible();
     expect(await stored(companyId)).toBeNull();
@@ -188,7 +188,7 @@ describe("checkout appearance editor", () => {
     // The whole connection is lost: neither the save nor the revalidation that could follow it gets through.
     let offline = true;
     let saves = 0;
-    await page.route("**/settings/checkout-appearance*", (route) => {
+    await page.route("**/settings/store-appearance*", (route) => {
       if (route.request().method() === "POST") saves += 1;
       return offline ? route.abort("failed") : route.continue();
     });
@@ -266,7 +266,32 @@ describe("checkout appearance editor", () => {
   });
 });
 
-describe("checkout appearance editor with the live preview", () => {
+describe("store appearance editor addresses", () => {
+  test("opening the old checkout appearance address lands on Apariencia de la tienda", async ({ page }) => {
+    await openEditor(page);
+    for (const [from, to] of [["/settings/checkout-appearance?x=1", /\/settings\/store-appearance\?x=1$/], ["/es-PE/settings/checkout-appearance", /\/es-PE\/settings\/store-appearance$/]] as const) {
+      await page.goto(from);
+      await browserExpect(page).toHaveURL(to);
+      await browserExpect(page.getByRole("heading", { name: "Apariencia de la tienda", level: 1 })).toBeVisible();
+    }
+    await browserExpect(page.getByRole("link", { name: "Apariencia de la tienda" })).toBeVisible();
+    await browserExpect(page.getByText("Apariencia del checkout")).toHaveCount(0);
+  });
+
+  test("publishes and hides the catalog from the editor without touching the draft", async ({ page }) => {
+    await openEditor(page);
+    await themeOption(page, "Boutique").click();
+    await page.getByRole("switch", { name: "Publicar catálogo" }).click();
+    await browserExpect(page.getByText("Catálogo publicado", { exact: true })).toBeVisible();
+    await page.getByRole("switch", { name: "Publicar catálogo" }).click();
+    await page.getByRole("button", { name: "Ocultar catálogo" }).click();
+    await browserExpect(page.getByText("Catálogo oculto", { exact: true })).toBeVisible();
+    await browserExpect(themeOption(page, "Boutique")).toBeChecked();
+    await browserExpect(unsaved(page)).toBeVisible();
+  });
+});
+
+describe("store appearance editor with the live preview", () => {
   const previewFrame = (page: Page) => page.frameLocator('iframe[title="Vista previa del checkout"]');
 
   test("shows the published appearance and a preview with sample data", async ({ page }) => {

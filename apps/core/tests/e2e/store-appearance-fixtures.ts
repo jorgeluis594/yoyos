@@ -26,13 +26,13 @@ export async function saveCompanyAppearance(companyId: string, { theme, withLogo
   });
 }
 
-const editorPath = "/es-PE/settings/checkout-appearance";
+const editorPath = "/es-PE/settings/store-appearance";
 
 /** Signs up a company and opens its appearance editor; returns the company id. */
 export async function openEditor(page: Page, email = `appearance-${crypto.randomUUID()}@example.test`) {
   const companyId = await prepareVerifiedCompany(page, { email, name: "Vendedora", companyName: "Lima Studio", country: "PE" });
   await page.goto(editorPath, { waitUntil: "networkidle" });
-  await browserExpect(page.getByRole("heading", { name: "Apariencia del checkout", level: 1 })).toBeVisible();
+  await browserExpect(page.getByRole("heading", { name: "Apariencia de la tienda", level: 1 })).toBeVisible();
   return companyId;
 }
 
