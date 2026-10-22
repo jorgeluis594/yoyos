@@ -308,7 +308,7 @@
   border: 1px solid var(--control);
 }
 
-/* The card clips its square photo with its own rounding; text keeps a small inset so the corners never touch it. */
+/* The card clips its square photo with its own rounding. */
 [data-store-theme] [data-store-part="catalog-card"] {
   overflow: hidden;
   border: var(--store-card-border);
