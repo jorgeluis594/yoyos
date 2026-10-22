@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Link } from "react-router";
 import { StoreBrandHeader } from "@core/src/features/store-appearance/presentation/store-brand-header";
 import { StoreTheme } from "@core/src/features/store-appearance/presentation/store-theme";
@@ -6,6 +6,8 @@ import type { PublicStoreAppearance } from "@core/src/features/store-appearance/
 import type { CatalogCard, CatalogProduct } from "@core/src/features/products/domain/catalog-product";
 import { formatCurrency } from "@core/app/format-currency";
 import { Button } from "@core/app/components/ui/button";
+import { Input } from "@core/app/components/ui/input";
+import { Skeleton } from "@core/app/components/ui/skeleton";
 import { cn } from "@core/app/lib/utils";
 import type { Money } from "@shared/money";
 
@@ -31,8 +33,27 @@ export function CatalogShell({ appearance, storeName, cart, children }: Readonly
   </StoreTheme>;
 }
 
+/** The search field of the catalog; the editor preview passes `readOnly` to draw it inert. */
+export function CatalogSearchField(props: Omit<ComponentProps<typeof Input>, "type" | "placeholder" | "aria-label" | "autoComplete">) {
+  return <Input data-store-part="catalog-search" type="search" maxLength={80} placeholder="Buscar productos" aria-label="Buscar productos" autoComplete="off" {...props} />;
+}
+
+/** The product grid, with the columns and gaps the catalog uses. */
+export function CatalogGrid({ children, ...props }: ComponentProps<"ul">) {
+  return <ul className="grid grid-cols-2 gap-x-3 gap-y-5 lg:grid-cols-4 lg:gap-x-5" {...props}>{children}</ul>;
+}
+
+/** Empty cards in the grid's shape, while products load. */
+export function ProductGridSkeleton({ count = 8 }: Readonly<{ count?: number }>) {
+  return <CatalogGrid aria-busy="true" aria-label="Cargando productos">
+    {Array.from({ length: count }, (_, index) => <li key={index} data-slot="card-placeholder" className="flex flex-col gap-2">
+      <Skeleton className="aspect-square w-full" /><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-1/3" />
+    </li>)}
+  </CatalogGrid>;
+}
+
 /** A card of the grid: the square photo, the name and the price. Without `to` it is inert, for the editor preview. */
-export function CatalogProductCard({ item, to }: Readonly<{ item: CatalogCard; to?: string }>) {
+export function CatalogProductCard({ item, to }: Readonly<{ item: Omit<CatalogCard, "id">; to?: string }>) {
   const className = "group flex flex-col gap-2 rounded-[var(--radius-card)] outline-offset-4";
   const content = <>
     <div className="relative">

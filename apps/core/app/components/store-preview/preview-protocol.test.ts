@@ -1,12 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, describe, expect, test, vi } from "vitest";
-import type { StorePreviewMessage } from "@core/src/features/store-appearance/presentation/store-appearance-schemas";
-import { announcePreviewReady, listenForPreviewReady, listenForPreviewUpdates, sendPreviewUpdate } from "@core/src/features/store-appearance/presentation/preview-protocol";
+import { storePreviewMessageSchema, type StorePreviewMessage } from "@core/app/components/store-preview/store-preview-schemas";
+import { announcePreviewReady, listenForPreviewReady, listenForPreviewUpdates, sendPreviewUpdate } from "@core/app/components/store-preview/preview-protocol";
 
 const update: StorePreviewMessage = {
-  type: "store-appearance:update", state: "payment",
-  appearance: { logoUrl: null, theme: "noche" },
+  type: "store-appearance:update", surface: "checkout", state: "payment",
+  appearance: { logoUrl: null, theme: "noche" }, catalog: { kind: "loading" },
 };
+const card = { id: "p1", name: "Polo", imageUrl: null, price: { kind: "single", amount: { amount: 10, currency: "PEN" } }, soldOut: false } as const;
 
 const stops: Array<() => void> = [];
 afterEach(() => { stops.splice(0).forEach((stop) => stop()); vi.restoreAllMocks(); });
@@ -91,5 +92,22 @@ describe("preview messages", () => {
     const local = { ...update, appearance: { ...update.appearance, logoUrl: "http://127.0.0.1:9000/b/x.png" } };
     expect(sendPreviewUpdate(frame, local).success).toBe(true);
     expect(frame.postMessage).toHaveBeenCalledTimes(1);
+  });
+
+  test("the preview message rejects mixed sample and real catalog cards", () => {
+    const accepted = (catalog: unknown) => storePreviewMessageSchema.safeParse({ ...update, surface: "catalog", catalog }).success;
+    expect(accepted({ kind: "products", cards: [card] })).toBe(true);
+    expect(accepted({ kind: "samples" })).toBe(true);
+    expect(accepted({ kind: "loading" })).toBe(true);
+    expect(accepted({ kind: "samples", cards: [card] })).toBe(false);
+    expect(accepted({ kind: "products", cards: [card], samples: true })).toBe(false);
+    expect(accepted({ kind: "products", cards: [] })).toBe(false);
+    expect(accepted({ kind: "products", cards: [card, card, card, card] })).toBe(false);
+    expect(accepted({ kind: "loading", cards: [card] })).toBe(false);
+  });
+
+  test("rejects a draft without a surface or a catalog state", () => {
+    expect(storePreviewMessageSchema.safeParse({ ...update, surface: undefined }).success).toBe(false);
+    expect(storePreviewMessageSchema.safeParse({ ...update, catalog: undefined }).success).toBe(false);
   });
 });

@@ -3,6 +3,7 @@ import { describe } from "vitest";
 import { browserExpect, expect, test } from "@core/tests/e2e/fixtures";
 import { storeThemeIds, storeThemes } from "@shared/store-themes";
 import { openEditor, rgb, sharedCheckoutPath } from "@core/tests/e2e/store-appearance-fixtures";
+import { products } from "@core/src/features/products/composition";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
@@ -241,14 +242,14 @@ describe("store appearance editor", () => {
     await page.keyboard.press("ArrowRight");
     await browserExpect(previewTab).toBeFocused();
     await browserExpect(previewTab).toHaveAttribute("aria-selected", "true");
-    await browserExpect(page.getByRole("region", { name: "Vista previa del checkout" })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Vista previa de la tienda" })).toBeVisible();
     await page.keyboard.press("Tab");
     await browserExpect(editTab).not.toBeFocused();
     await page.setViewportSize({ width: 1280, height: 800 });
     await browserExpect(page.getByRole("tablist")).toHaveCount(0);
     await browserExpect(page.getByRole("tabpanel")).toHaveCount(0);
     await browserExpect(themeList(page)).toBeVisible();
-    await browserExpect(page.getByRole("region", { name: "Vista previa del checkout" })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Vista previa de la tienda" })).toBeVisible();
   });
 
   test("shows the desktop layout before hydration on a wide screen", async ({ page }) => {
@@ -257,7 +258,7 @@ describe("store appearance editor", () => {
     await page.route(/\.m?js(\?|$)/, (route) => route.abort());
     await page.reload({ waitUntil: "domcontentloaded" });
     await browserExpect(page.getByRole("tablist")).toHaveCount(0);
-    const preview = page.getByRole("region", { name: "Vista previa del checkout" });
+    const preview = page.getByRole("region", { name: "Vista previa de la tienda" });
     const themes = themeList(page);
     await browserExpect(preview).toBeVisible();
     await browserExpect(themes).toBeVisible();
@@ -292,18 +293,21 @@ describe("store appearance editor addresses", () => {
 });
 
 describe("store appearance editor with the live preview", () => {
-  const previewFrame = (page: Page) => page.frameLocator('iframe[title="Vista previa del checkout"]');
+  const previewFrame = (page: Page) => page.frameLocator('iframe[title="Vista previa de la tienda"]');
 
-  test("shows the published appearance and a preview with sample data", async ({ page }) => {
+  test("shows the published appearance and a catalog preview with sample data, and the checkout preview after switching", async ({ page }) => {
     await openEditor(page);
-    await browserExpect(previewFrame(page).getByText("Vista previa · Datos de ejemplo")).toBeVisible();
+    await browserExpect(page.getByRole("status").filter({ hasText: "Tema Clásico · Datos de ejemplo" })).toBeVisible();
+    await browserExpect(previewFrame(page).locator("[data-store-part=catalog-card]")).toHaveCount(3);
+    await page.getByRole("button", { name: "Checkout", exact: true }).click();
     await browserExpect(previewFrame(page).getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
     await browserExpect(themeOption(page, "Clásico")).toBeChecked();
   });
 
   test("switches the preview between phone and desktop and between review and payment, with no light or dark mode", async ({ page }) => {
     await openEditor(page);
-    const frame = page.locator('iframe[title="Vista previa del checkout"]');
+    const frame = page.locator('iframe[title="Vista previa de la tienda"]');
+    await page.getByRole("button", { name: "Checkout", exact: true }).click();
     await browserExpect(frame).toHaveAttribute("data-device", "phone");
     await page.getByRole("button", { name: "Escritorio" }).click();
     await browserExpect(frame).toHaveAttribute("data-device", "desktop");
@@ -314,5 +318,55 @@ describe("store appearance editor with the live preview", () => {
     await browserExpect(previewFrame(page).getByRole("heading", { name: "Cómo pagar" })).toBeVisible();
     await page.getByRole("button", { name: "Revisión", exact: true }).click();
     await browserExpect(previewFrame(page).getByRole("heading", { name: "Tus datos" })).toBeVisible();
+  });
+
+  test("seller compares Catálogo and Checkout previews with the same draft and publishes the catalog from the editor", async ({ page }) => {
+    const cardRequests: string[] = [];
+    page.on("request", (request) => { if (request.url().includes("/es-PE/settings/store-appearance/catalog-cards")) cardRequests.push(request.url()); });
+    const companyId = await openEditor(page);
+    await withTenantIsolation(companyId, async () => {
+      for (const name of ["Polo", "Casaca", "Gorra", "Medias", "Mochila"]) {
+        const created = await products.create({ name, currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
+        if (!created.success) throw new Error("Product fixture failed");
+      }
+    });
+    await page.reload({ waitUntil: "networkidle" });
+    const catalog = previewFrame(page).locator("[data-store-part=catalog-card]");
+    const label = (text: string) => page.getByRole("status").filter({ hasText: text });
+
+    // A hidden catalog is previewed all the same: its three newest products, with the cart button standing for one unit.
+    await browserExpect(label("Tema Clásico · Tus productos")).toBeVisible();
+    await browserExpect(catalog).toHaveCount(3);
+    await browserExpect(catalog.first()).toContainText("Mochila");
+    await browserExpect(previewFrame(page).locator("[data-store-part=cart-button]")).toContainText("Carrito1");
+    await browserExpect(previewFrame(page).locator("[data-slot=card-placeholder]")).toHaveCount(0);
+
+    await page.getByRole("button", { name: "Escritorio" }).click();
+    await themeOption(page, "Noche").click();
+    await browserExpect(previewFrame(page).locator('[data-store-theme-id="noche"].dark')).toBeAttached();
+    await browserExpect(label("Tema Noche · Tus productos")).toBeVisible();
+    await browserExpect(unsaved(page)).toBeVisible();
+
+    await page.getByRole("button", { name: "Checkout", exact: true }).click();
+    await browserExpect(previewFrame(page).getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
+    await browserExpect(previewFrame(page).locator('[data-store-theme-id="noche"].dark')).toBeAttached();
+    await browserExpect(page.locator('iframe[title="Vista previa de la tienda"]')).toHaveAttribute("data-device", "desktop");
+    await page.getByRole("button", { name: "Catálogo", exact: true }).click();
+    await browserExpect(catalog).toHaveCount(3);
+    await browserExpect(previewFrame(page).locator('[data-store-theme-id="noche"].dark')).toBeAttached();
+    await browserExpect(unsaved(page)).toBeVisible();
+
+    // The published catalog keeps Clásico until Guardar cambios, and none of these actions reads the cards again.
+    await page.getByRole("switch", { name: "Publicar catálogo" }).click();
+    await browserExpect(page.getByText("Catálogo publicado", { exact: true })).toBeVisible();
+    const buyer = await page.context().newPage();
+    await buyer.goto(`/catalogo/${companyId}`);
+    await browserExpect(buyer.locator("[data-store-theme]")).toHaveAttribute("data-store-theme-id", "classic");
+    await saveChanges(page).click();
+    await browserExpect(savedNotice(page)).toBeVisible();
+    await browserExpect(previewFrame(page).locator("[data-slot=card-placeholder]")).toHaveCount(0);
+    await buyer.reload();
+    await browserExpect(buyer.locator("[data-store-theme]")).toHaveAttribute("data-store-theme-id", "noche");
+    expect(cardRequests).toHaveLength(2); // the first load and the reload above; saving and publishing add none
   });
 });

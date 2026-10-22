@@ -1,3 +1,4 @@
+import type { Money } from "@shared/money";
 import type { BuyerPaymentView } from "@shared/contracts/orders";
 import type { CheckoutDeliveryOptions, PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 import type { PreviewPaymentMethod } from "@core/src/features/store-appearance/application/store-appearance";
@@ -11,6 +12,18 @@ export const previewOrderId = "00000000-0000-4000-8000-000000000000";
 export const samplePaymentMethods: readonly PreviewPaymentMethod[] = [
   { method: "digital_wallet", provider: "Billetera de ejemplo", holder: "Titular de ejemplo", imageUrl: null },
   { method: "bank_transfer", bank: "Banco de ejemplo", holder: "Titular de ejemplo", accountNumber: "000-0000000-0-00", cci: "00000000000000000000", imageUrl: null },
+];
+
+/** A catalog card as the preview draws it; the same fields the buyer catalog list carries. */
+export type SampleCatalogCard = Readonly<{
+  id: string; name: string; imageUrl: string | null; price: Readonly<{ kind: "single" | "from"; amount: Money }>; soldOut: boolean;
+}>;
+
+/** Shown, and labelled as such, when the company has no visible products or they cannot be read. */
+export const sampleCatalogCards: readonly SampleCatalogCard[] = [
+  { id: "sample-1", name: "Producto de ejemplo", imageUrl: "/checkout-preview/sample-product.svg", price: { kind: "single", amount: pen(49) }, soldOut: false },
+  { id: "sample-2", name: "Otro producto de ejemplo", imageUrl: null, price: { kind: "from", amount: pen(20) }, soldOut: false },
+  { id: "sample-3", name: "Tercer producto de ejemplo", imageUrl: null, price: { kind: "single", amount: pen(35) }, soldOut: false },
 ];
 
 export const previewDeliveryOptions: CheckoutDeliveryOptions = {

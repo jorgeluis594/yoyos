@@ -35,7 +35,6 @@ export function CheckoutPreviewPage({ companyName, appearance, state, paymentMet
   const checkout = useMemo(() => previewCheckout(companyName, state), [companyName, state]);
   const total = checkoutTotal(checkout, deliveryDraft);
   return <CheckoutShell appearance={appearance} checkout={checkout}
-    banner={<p data-slot="preview-bar" className="sticky top-0 z-10 border-b bg-muted px-4 py-2 text-center text-sm font-medium text-muted-foreground">{t("checkoutPreview.bar")}</p>}
     summary={<CheckoutOrderSummary checkout={checkout} deliveryDraft={deliveryDraft}
       action={state === "review" && <CheckoutConfirmAction type="button" disabled={!deliveryDraft || !total} pending={false} />} />}>
     {state === "review"
@@ -47,7 +46,7 @@ export function CheckoutPreviewPage({ companyName, appearance, state, paymentMet
         <CheckoutBuyerDetails buyer={checkout.buyer} />
         <div onChangeCapture={stopUploads} onClickCapture={stopFilePicker}>
           <CheckoutPayment view={previewPaymentView(paymentMethods ?? samplePaymentMethods)}
-            notice={paymentMethods === null && <p role="note" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t("checkoutPreview.sampleMethods")}</p>} />
+            notice={paymentMethods === null && <p role="note" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t("storePreview.sampleMethods")}</p>} />
         </div>
       </>}
   </CheckoutShell>;

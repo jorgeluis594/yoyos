@@ -6,7 +6,7 @@ import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infr
 
 const previewPath = "/settings/store-appearance/preview";
 const update = (overrides: object = {}) => ({
-  type: "store-appearance:update", state: "review",
+  type: "store-appearance:update", surface: "checkout", state: "review", catalog: { kind: "loading" },
   appearance: { logoUrl: null, theme: "boutique" }, ...overrides,
 });
 
@@ -17,7 +17,7 @@ async function openPreview(page: Page) {
   await page.goto(previewPath);
   await browserExpect(ready(page)).toBeAttached();
   await post(page, update());
-  await browserExpect(page.getByText("Vista previa · Datos de ejemplo")).toBeVisible();
+  await browserExpect(page.getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
 }
 const primary = (page: Page) => page.getByRole("button", { name: "Confirmar pedido" }).evaluate((node) => getComputedStyle(node).backgroundColor);
 const post = (page: Page, data: unknown, origin?: string) => page.evaluate(([message, from]) =>
@@ -45,11 +45,11 @@ test("the preview page stays blank until the first draft message", async ({ page
   await withCompany(async () => {
     await page.goto(previewPath);
     await browserExpect(ready(page)).toBeAttached();
-    await browserExpect(page.getByText("Vista previa · Datos de ejemplo")).toHaveCount(0);
+    await browserExpect(page.getByRole("heading", { name: "Pedido #1001" })).toHaveCount(0);
     await browserExpect(page.getByRole("button")).toHaveCount(0);
     await browserExpect(page.locator("[data-store-theme]")).toHaveCount(0);
     await post(page, update());
-    await browserExpect(page.getByText("Vista previa · Datos de ejemplo")).toBeVisible();
+    await browserExpect(page.getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
   }, page);
 });
 
@@ -137,7 +137,7 @@ test("applies the theme draft to the preview without changing the public checkou
   try {
     companyId = await openEditor(page, email);
     const path = await sharedCheckoutPath(companyId, email);
-    const frame = page.frameLocator('iframe[title="Vista previa del checkout"]');
+    const frame = page.frameLocator('iframe[title="Vista previa de la tienda"]');
     const confirm = frame.getByRole("button", { name: "Confirmar pedido" });
     await page.getByRole("radio", { name: /^Antojo/ }).click();
     await browserExpect(confirm).toHaveCSS("background-color", rgb(storeThemes.antojo.colors.primary));
@@ -196,20 +196,35 @@ test("embedded at 390 px the preview activates the phone breakpoints and cannot 
     await browserExpect(ready(preview)).toBeAttached();
     await page.evaluate(() => {
       const frame = document.querySelector<HTMLIFrameElement>("#preview")!;
-      frame.contentWindow!.postMessage({ type: "store-appearance:update", state: "review",
+      frame.contentWindow!.postMessage({ type: "store-appearance:update", surface: "checkout", catalog: { kind: "loading" }, state: "review",
         appearance: { logoUrl: null, theme: "boutique" } }, window.location.origin);
     });
-    await browserExpect(preview.getByText("Vista previa · Datos de ejemplo")).toBeVisible();
+    await browserExpect(preview.getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
     const viewport = await page.locator("#preview").evaluate((frame: HTMLIFrameElement) => ({
       width: frame.contentWindow!.innerWidth, phone: frame.contentWindow!.matchMedia("(max-width: 767px)").matches }));
     expect(viewport).toEqual({ width: 390, phone: true });
     await page.evaluate(() => {
       const frame = document.querySelector<HTMLIFrameElement>("#preview")!;
-      frame.contentWindow!.postMessage({ type: "store-appearance:update", state: "payment",
+      frame.contentWindow!.postMessage({ type: "store-appearance:update", surface: "checkout", catalog: { kind: "loading" }, state: "payment",
         appearance: { logoUrl: null, theme: "noche" } }, window.location.origin);
     });
     await browserExpect(preview.getByRole("heading", { name: "Cómo pagar" })).toBeVisible();
     await browserExpect(preview.locator('[data-store-theme-id="noche"]')).toHaveClass(/dark/);
     await browserExpect(preview.locator("html")).not.toHaveClass(/dark/);
+  }, page);
+});
+
+test("renders the catalog surface inert with real or sample cards and its loading placeholders", async ({ page }) => {
+  await withCompany(async () => {
+    await openPreview(page);
+    await post(page, update({ surface: "catalog" }));
+    await browserExpect(page.locator("[data-slot=card-placeholder]")).toHaveCount(3);
+    await browserExpect(page.getByText("Cargando productos")).toBeAttached();
+    await post(page, update({ surface: "catalog", catalog: { kind: "samples" } }));
+    await browserExpect(page.locator("[data-store-part=catalog-card]")).toHaveCount(3);
+    await browserExpect(page.locator("[data-slot=catalog-preview]")).toHaveAttribute("aria-hidden", "true");
+    await browserExpect(page.locator("[data-slot=catalog-preview]")).toHaveAttribute("inert", "");
+    await post(page, update({ surface: "catalog", catalog: { kind: "samples", cards: [] } }));
+    await browserExpect(page.locator("[data-store-part=catalog-card]")).toHaveCount(3);
   }, page);
 });

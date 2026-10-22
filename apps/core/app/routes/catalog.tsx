@@ -4,11 +4,9 @@ import { catalogBrowse } from "@core/src/features/catalog/browse-composition";
 import { catalogPathSchema, parseCatalogQuery } from "@core/src/features/catalog/presentation/browse-schemas";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import type { ColorSchemeHandle } from "@core/app/color-scheme";
-import { CatalogLoadError, CatalogMessage, CatalogProductCard, CatalogShell, catalogHeaders, catalogMeta } from "@core/app/components/catalog-sections";
+import { CatalogGrid, CatalogLoadError, CatalogMessage, CatalogProductCard, CatalogSearchField, CatalogShell, ProductGridSkeleton, catalogHeaders, catalogMeta } from "@core/app/components/catalog-sections";
 import { CatalogCartButton } from "@core/app/components/catalog-cart";
 import { Button } from "@core/app/components/ui/button";
-import { Input } from "@core/app/components/ui/input";
-import { Skeleton } from "@core/app/components/ui/skeleton";
 
 const unavailableTitle = "Catálogo no disponible";
 export const headers = () => catalogHeaders;
@@ -56,13 +54,12 @@ export default function Catalog() {
 
   return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} />}>
     <form role="search" onSubmit={(event) => event.preventDefault()}>
-      <Input data-store-part="catalog-search" type="search" name="q" value={text} maxLength={80} onChange={(event) => setText(event.target.value)}
-        placeholder="Buscar productos" aria-label="Buscar productos" autoComplete="off" />
+      <CatalogSearchField name="q" value={text} onChange={(event) => setText(event.target.value)} />
     </form>
     {searching ? <ProductGridSkeleton /> : items.length ? <>
-      <ul className="grid grid-cols-2 gap-x-3 gap-y-5 lg:grid-cols-4 lg:gap-x-5">
+      <CatalogGrid>
         {items.map((item) => <li key={item.id}><CatalogProductCard item={item} to={`productos/${item.id}`} /></li>)}
-      </ul>
+      </CatalogGrid>
       {hasMore && <Button data-store-part="catalog-more" asChild={!pending} variant="outline" className="self-center" disabled={pending !== null}>
         {pending ? <span>Cargando…</span> : <Link to={`?${more}`} replace preventScrollReset>Ver más</Link>}
       </Button>}
@@ -71,14 +68,6 @@ export default function Catalog() {
       <Button variant="outline" onClick={() => setText("")}>Borrar búsqueda</Button>
     </div> : <p data-store-part="catalog-empty" className="py-12 text-center text-muted-foreground">Esta tienda todavía no tiene productos publicados</p>}
   </CatalogShell>;
-}
-
-function ProductGridSkeleton() {
-  return <ul className="grid grid-cols-2 gap-x-3 gap-y-5 lg:grid-cols-4 lg:gap-x-5" aria-busy="true" aria-label="Cargando productos">
-    {Array.from({ length: 8 }, (_, index) => <li key={index} className="flex flex-col gap-2">
-      <Skeleton className="aspect-square w-full" /><Skeleton className="h-4 w-3/4" /><Skeleton className="h-4 w-1/3" />
-    </li>)}
-  </ul>;
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {

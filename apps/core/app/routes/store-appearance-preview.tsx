@@ -5,14 +5,15 @@ import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { privateUserContext } from "@core/app/private-user-context";
 import { storeAppearance } from "@core/src/features/store-appearance/composition";
 import { parseCompanyId } from "@core/src/features/store-appearance/domain/store-appearance";
-import type { StorePreviewMessage } from "@core/src/features/store-appearance/presentation/store-appearance-schemas";
+import { CatalogPreview } from "@core/app/components/catalog-preview";
+import type { StorePreviewMessage } from "@core/app/components/store-preview/store-preview-schemas";
 import { CheckoutPreviewPage } from "@core/src/features/store-appearance/presentation/checkout-preview-page";
-import { announcePreviewReady, listenForPreviewUpdates } from "@core/src/features/store-appearance/presentation/preview-protocol";
+import { announcePreviewReady, listenForPreviewUpdates } from "@core/app/components/store-preview/preview-protocol";
 
 export { middleware } from "@core/app/private-access";
 export const headers = () => ({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
 export const handle = { colorScheme: () => "fixed" } satisfies ColorSchemeHandle;
-export const meta = () => [{ title: "Vista previa del checkout" }, { name: "robots", content: "noindex, nofollow" }];
+export const meta = () => [{ title: "Vista previa de la tienda" }, { name: "robots", content: "noindex, nofollow" }];
 
 export async function loader({ context }: LoaderFunctionArgs) {
   bindRequestOperation({ operation: "get_store_preview" });
@@ -41,5 +42,6 @@ export default function StoreAppearancePreview() {
 
   // The frame paints only the draft the editor sends, so the page stays blank until the first message.
   if (!draft) return null;
+  if (draft.surface === "catalog") return <CatalogPreview appearance={draft.appearance} storeName={companyName} catalog={draft.catalog} />;
   return <CheckoutPreviewPage companyName={companyName} appearance={draft.appearance} state={draft.state} paymentMethods={paymentMethods} />;
 }
