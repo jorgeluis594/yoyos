@@ -19,12 +19,11 @@ afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove
 
 async function mount(publication: PublicationPart, answer: unknown) {
   const action = vi.fn(async () => answer);
-  const loader = vi.fn(() => ({}));
-  const Stub = createRoutesStub([{ path: "/", Component: () => <CatalogPublicationCard publication={publication} />, loader, action }]);
+  const Stub = createRoutesStub([{ path: "/", Component: () => <CatalogPublicationCard publication={publication} />, action }]);
   container = document.body.appendChild(document.createElement("div"));
   root = createRoot(container);
   await act(async () => root!.render(<I18nextProvider i18n={i18n}><Stub initialEntries={["/"]} /></I18nextProvider>));
-  return { action, loader };
+  return { action };
 }
 const toggle = () => container.querySelector<HTMLElement>('[role="switch"]')!;
 const click = (element: Element | undefined | null) => act(async () => { (element as HTMLElement).click(); });
@@ -49,13 +48,12 @@ test("the publication card asks before hiding, never shows Cambios sin guardar, 
 });
 
 test("publishing saves at once and the card trusts its own result", async () => {
-  const { action, loader } = await mount({ kind: "loaded", published: false }, data({ intent: "set-publication", published: true }));
+  const { action } = await mount({ kind: "loaded", published: false }, data({ intent: "set-publication", published: true }));
   await click(toggle());
   await vi.waitFor(() => expect(container.textContent).toContain("Catálogo publicado"));
   expect(await submittedBody(action)).toEqual({ intent: "set-publication", published: true });
   expect(toggle().getAttribute("aria-checked")).toBe("true");
   expect(document.body.textContent).not.toContain("¿Ocultar tu catálogo?");
-  void loader;
 });
 
 test("keeps the card on its previous position when the user keeps the catalog published", async () => {

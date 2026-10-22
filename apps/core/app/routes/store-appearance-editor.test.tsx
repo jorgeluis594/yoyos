@@ -31,9 +31,9 @@ afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove
 
 type Mounted = { loader: ReturnType<typeof vi.fn>; action: ReturnType<typeof vi.fn> };
 
-async function mount(reads: Loaded[], actionAnswer: unknown = data({ intent: "save-appearance", error: "PERSISTENCE_UNAVAILABLE" }, { status: 503 })): Promise<Mounted> {
+async function mount(reads: Loaded[], actionAnswer: unknown = data({ intent: "save-appearance", error: "PERSISTENCE_UNAVAILABLE" }, { status: 503 }), publicationAnswer?: unknown): Promise<Mounted> {
   const loader = vi.fn(() => reads[Math.min(loader.mock.calls.length - 1, reads.length - 1)]);
-  const action = vi.fn(async () => actionAnswer);
+  const action = vi.fn(async ({ request }: { request: Request }) => (publicationAnswer !== undefined && (await request.clone().json()).intent === "set-publication" ? publicationAnswer : actionAnswer));
   const Layout = () => <><Link to="/other">Salir</Link><Outlet /></>;
   const Stub = createRoutesStub([{ path: "/", Component: Layout, children: [
     { path: "settings/store-appearance", Component: StoreAppearanceSettings, loader, action, shouldRevalidate: shouldRevalidate as never },
@@ -144,6 +144,30 @@ test("the editor initializes the draft on the first appearance that loads after 
   await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(3));
   expect(radio("Suave").getAttribute("aria-checked")).toBe("true");
   expect(container.textContent).toContain("Cambios sin guardar");
+});
+
+test("a later failed appearance re-read keeps the draft, the published baseline, Guardar cambios and the leave confirmation", async () => {
+  await mount([loaded(readable("boutique"), { kind: "failed" }), loaded({ kind: "failed" }, { kind: "loaded", published: true })]);
+  await click(radio("Suave"));
+  await click(buttons().find((element) => element.textContent === "Reintentar"));
+  await vi.waitFor(() => expect(container.textContent).not.toContain("No pudimos cargar la configuración del catálogo"));
+  expect(radio("Suave").getAttribute("aria-checked")).toBe("true");
+  expect(container.textContent).toContain("Cambios sin guardar");
+  expect(button("Guardar cambios")?.disabled).toBe(false);
+  expect(button("Descartar")).toBeDefined();
+  await click(button("Descartar"));
+  expect(radio("Boutique").getAttribute("aria-checked")).toBe("true");
+  await click(radio("Suave"));
+  await click(container.querySelector("a"));
+  await vi.waitFor(() => expect(document.body.textContent).toContain("Tienes cambios sin guardar"));
+});
+
+test("toggling the publication card does not read the editor loader again", async () => {
+  const { loader } = await mount([loaded(readable("classic"))], undefined, data({ intent: "set-publication", published: false }));
+  await click(container.querySelector('[role="switch"]'));
+  await click([...document.body.querySelectorAll("button")].find((element) => element.textContent === "Ocultar catálogo"));
+  await shows("Catálogo oculto");
+  expect(loader).toHaveBeenCalledTimes(1);
 });
 
 test("with the publication read failing, the editor still edits and the card offers Reintentar", async () => {

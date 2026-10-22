@@ -137,8 +137,12 @@ export default function StoreAppearanceSettings() {
   const { appearance, publication } = useLoaderData<typeof loader>();
   const fetcher = useFetcher<EditorActionResult>();
   const revalidator = useRevalidator();
-  const baseline = baselineOf(appearance);
-  const unknownTheme = appearance.kind === "unknown_theme";
+  // A later failed read keeps the baseline the editor last knew, so saving and the leave confirmation keep working.
+  const [lastRead, setLastRead] = useState<AppearancePart | null>(appearance.kind === "failed" ? null : appearance);
+  if (appearance.kind !== "failed" && appearance !== lastRead) setLastRead(appearance);
+  const source = appearance.kind === "failed" ? lastRead : appearance;
+  const baseline = source && baselineOf(source);
+  const unknownTheme = source?.kind === "unknown_theme";
   // The draft starts from the first appearance that loads and later reads never reset it.
   const [draft, setDraft] = useState<EditorDraft | null>(baseline);
   if (draft === null && baseline !== null) setDraft(baseline);
