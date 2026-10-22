@@ -7,6 +7,8 @@ export type ThemeSample = Readonly<{
   /** Stops of the page gradient (Suave), or null for a flat background. */
   gradient: readonly string[] | null;
   card: string;
+  /** Placeholder color of the thumbnail. */
+  thumbnail: string;
   border: string;
   borderWidth: number;
   primary: string;
@@ -46,6 +48,7 @@ export function themeSample(theme: StoreThemeDefinition): Result<ThemeSample, Th
     background: theme.colors.background,
     gradient: theme.backgroundImage?.stops ?? null,
     card: theme.colors.card,
+    thumbnail: theme.colors["thumbnail-surface"],
     border: theme.colors.border,
     borderWidth: width.data,
     primary: theme.colors.primary,

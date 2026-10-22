@@ -9,7 +9,7 @@ function sampleOf(theme: StoreThemeDefinition) {
 
 test("theme samples use each theme's colors, button radius and thumbnail shape", () => {
   const classic = sampleOf(storeThemes.classic);
-  expect(classic).toMatchObject({ background: "#FFFFFF", gradient: null, card: "#FFFFFF", border: "#E5E5E5", borderWidth: 1, primary: "#111111", primaryForeground: "#FFFFFF", buttonRadius: 8, cardRadius: 8, thumbnailAspect: 1, thumbnailRadius: 6 });
+  expect(classic).toMatchObject({ background: "#FFFFFF", gradient: null, card: "#FFFFFF", thumbnail: "#EDEDED", border: "#E5E5E5", borderWidth: 1, primary: "#111111", primaryForeground: "#FFFFFF", buttonRadius: 8, cardRadius: 8, thumbnailAspect: 1, thumbnailRadius: 6 });
   expect(sampleOf(storeThemes.boutique)).toMatchObject({ buttonRadius: 0, borderWidth: 0, thumbnailAspect: 4 / 5, thumbnailRadius: 0 });
   expect(sampleOf(storeThemes.antojo)).toMatchObject({ buttonRadius: 999, cardRadius: 20, borderWidth: 2, thumbnailRadius: 20 });
   expect(sampleOf(storeThemes.suave)).toMatchObject({ gradient: ["#F7DEDD", "#F5E8E0", "#EDE1D0"], thumbnailRadius: 999, buttonRadius: 16, borderWidth: 0 });
