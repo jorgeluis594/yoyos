@@ -92,18 +92,20 @@ export async function action({ context, request }: ActionFunctionArgs) {
   return body.data.intent === "save-appearance" ? saveAppearance(context, body.data.appearance) : setPublication(context, body.data.published);
 }
 
-async function intentOf(request: Request): Promise<EditorIntent> {
-  const body = editorActionSchema.safeParse(await request.clone().json().catch(() => null));
+async function intentOf(copy: Request): Promise<EditorIntent> {
+  const body = editorActionSchema.safeParse(await copy.json().catch(() => null));
   return body.success ? body.data.intent : "save-appearance";
 }
 
 // A request that gets no response shows the error of its own part instead of replacing the editor with the load error.
 export async function clientAction({ request, serverAction }: ClientActionFunctionArgs) {
+  // serverAction consumes the body, so the copy is taken first: cloning after it throws "unusable".
+  const intent = intentOf(request.clone());
   try { return await serverAction<typeof action>(); }
   catch (cause) {
     if (cause instanceof Response || isRouteErrorResponse(cause)) throw cause;
     // The 503 keeps the loader from revalidating, which would also fail offline and lose the draft.
-    return await intentOf(request) === "set-publication"
+    return await intent === "set-publication"
       ? data<EditorActionResult>({ intent: "set-publication", error: true }, { status: 503 })
       : data<EditorActionResult>({ intent: "save-appearance", error: "PERSISTENCE_UNAVAILABLE" }, { status: failureStatus.PERSISTENCE_UNAVAILABLE });
   }
