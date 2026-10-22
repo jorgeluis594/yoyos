@@ -11,6 +11,19 @@ import type { AppearancePart, PublicationPart } from "@core/app/components/store
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
+const pesoCard = { id: "p1", name: "Polo", imageUrl: null, price: { kind: "single", amount: { amount: 10, currency: "PEN" } }, soldOut: false };
+type CardsAnswer = Response | Error | "pending";
+/** Answers the plain fetch of the catalog preview cards; every other request is a test mistake. */
+function stubCards(answer: CardsAnswer = Response.json({ kind: "products", cards: [pesoCard] })) {
+  const fetchSpy = vi.fn(async (_url: unknown, init?: RequestInit) => {
+    if (answer === "pending") return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
+    if (answer instanceof Error) throw answer;
+    return answer.clone();
+  });
+  vi.stubGlobal("fetch", fetchSpy);
+  return fetchSpy;
+}
+
 const i18n = createInstance();
 await i18n.use(initReactI18next).init({ lng: "es", resources });
 
@@ -27,7 +40,8 @@ beforeEach(() => {
   window.matchMedia = ((query: string) => ({ matches: true, media: query, addEventListener: () => undefined, removeEventListener: () => undefined })) as unknown as typeof window.matchMedia;
   HTMLIFrameElement.prototype.scrollIntoView = () => undefined;
 });
-afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove(); vi.restoreAllMocks(); });
+afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
+beforeEach(() => { stubCards(); });
 
 type Mounted = { loader: ReturnType<typeof vi.fn>; action: ReturnType<typeof vi.fn> };
 
@@ -176,4 +190,69 @@ test("with the publication read failing, the editor still edits and the card off
   await click(radio("Noche"));
   expect(container.textContent).toContain("Cambios sin guardar");
   expect(button("Guardar cambios")?.disabled).toBe(false);
+});
+
+const previewLabel = () => container.querySelector('[role="status"]')?.textContent;
+
+test("the catalog preview shows the draft theme while the cards load, then the label of the real cards", async () => {
+  stubCards("pending");
+  await mount([loaded(readable("classic"))]);
+  await vi.waitFor(() => expect(previewLabel()).toBe("Tema Clásico · Cargando productos"));
+  expect(previewLabel()).not.toContain("Datos de ejemplo");
+});
+
+test("the preview label reads Tema Clásico · Tus productos with real cards and follows the draft theme", async () => {
+  await mount([loaded(readable("classic"))]);
+  await vi.waitFor(() => expect(previewLabel()).toBe("Tema Clásico · Tus productos"));
+  await click(radio("Noche"));
+  expect(previewLabel()).toBe("Tema Noche · Tus productos");
+});
+
+test("the catalog preview shows samples when the catalog-cards route fails", async () => {
+  stubCards(new Response("down", { status: 503 }));
+  await mount([loaded(readable("classic"))]);
+  await vi.waitFor(() => expect(previewLabel()).toBe("Tema Clásico · Datos de ejemplo"));
+  expect(container.textContent).not.toContain("No se pudo cargar la apariencia");
+});
+
+test("the catalog preview shows samples when the cards fetch fails on the network or returns an invalid body, without replacing the editor", async () => {
+  stubCards(new TypeError("Failed to fetch"));
+  await mount([loaded(readable("classic"))]);
+  await vi.waitFor(() => expect(previewLabel()).toBe("Tema Clásico · Datos de ejemplo"));
+  expect(button("Guardar cambios")).toBeDefined();
+  act(() => root!.unmount());
+  container.remove();
+  stubCards(Response.json({ kind: "products", cards: [], extra: true }));
+  await mount([loaded(readable("classic"))]);
+  await vi.waitFor(() => expect(previewLabel()).toBe("Tema Clásico · Datos de ejemplo"));
+  expect(button("Guardar cambios")).toBeDefined();
+});
+
+test("saving the appearance, changing publication and Reintentar do not refetch the catalog preview cards or show the placeholders again", async () => {
+  const fetchSpy = stubCards();
+  const saved = data({ intent: "save-appearance", success: true, appearance: { logoImageId: null, theme: "noche" } });
+  const failedRead: Loaded = loaded({ kind: "failed" });
+  const { loader } = await mount([failedRead, loaded(readable("classic")), loaded(readable("noche"))], saved, data({ intent: "set-publication", published: false }));
+  await shows("No se pudo cargar la apariencia");
+  await click(button("Reintentar"));
+  await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(previewLabel()).toBe("Tema Clásico · Tus productos"));
+  await click(radio("Noche"));
+  await click(button("Guardar cambios"));
+  await shows("Apariencia actualizada");
+  await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(3));
+  await click(container.querySelector('[role="switch"]'));
+  await click([...document.body.querySelectorAll("button")].find((element) => element.textContent === "Ocultar catálogo"));
+  expect(fetchSpy).toHaveBeenCalledTimes(1);
+  expect(previewLabel()).not.toContain("Cargando productos");
+});
+
+test("leaving the editor aborts the pending cards request", async () => {
+  const signals: AbortSignal[] = [];
+  vi.stubGlobal("fetch", vi.fn((_url: unknown, init?: RequestInit) => { signals.push(init!.signal!); return new Promise<Response>(() => undefined); }));
+  await mount([loaded(readable("classic"))]);
+  await vi.waitFor(() => expect(signals).toHaveLength(1));
+  expect(signals[0]!.aborted).toBe(false);
+  act(() => root!.unmount());
+  expect(signals[0]!.aborted).toBe(true);
 });

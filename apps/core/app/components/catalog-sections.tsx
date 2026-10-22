@@ -32,7 +32,7 @@ export function CatalogShell({ appearance, storeName, cart, children }: Readonly
 }
 
 /** A card of the grid: the square photo, the name and the price. Without `to` it is inert, for the editor preview. */
-export function CatalogProductCard({ item, to }: Readonly<{ item: CatalogCard; to?: string }>) {
+export function CatalogProductCard({ item, to }: Readonly<{ item: Omit<CatalogCard, "id">; to?: string }>) {
   const className = "group flex flex-col gap-2 rounded-[var(--radius-card)] outline-offset-4";
   const content = <>
     <div className="relative">

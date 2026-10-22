@@ -8,15 +8,4 @@ export const publicStoreAppearanceSchema = z.strictObject({
   theme: z.enum(storeThemeIds),
 });
 
-// Editor → preview iframe.
-export const storePreviewMessageSchema = z.strictObject({
-  type: z.literal("store-appearance:update"),
-  appearance: publicStoreAppearanceSchema,
-  state: z.enum(["review", "payment"]),
-});
-
-// Preview iframe → editor: ready to receive the state.
-export const storePreviewReadySchema = z.strictObject({ type: z.literal("store-appearance:ready") });
-
 export type PublicStoreAppearance = z.infer<typeof publicStoreAppearanceSchema>;
-export type StorePreviewMessage = z.infer<typeof storePreviewMessageSchema>;

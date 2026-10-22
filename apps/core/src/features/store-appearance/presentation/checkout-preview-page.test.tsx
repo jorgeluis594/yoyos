@@ -33,9 +33,10 @@ describe("CheckoutPreviewPage", () => {
     return container;
   }
 
-  test("labels the page as a preview with sample data", async () => {
+  test("draws the sample order without a label of its own, because the editor labels the view", async () => {
     const container = await mount("review", null);
-    expect(container.querySelector("[data-slot=preview-bar]")?.textContent).toBe("Vista previa · Datos de ejemplo");
+    expect(container.querySelector("[data-slot=preview-bar]")).toBeNull();
+    expect(container.textContent).not.toContain("Vista previa");
     expect(container.textContent).toContain("Pedido #1001");
   });
 

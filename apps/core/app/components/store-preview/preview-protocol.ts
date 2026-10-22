@@ -3,7 +3,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import {
   storePreviewMessageSchema, storePreviewReadySchema, type StorePreviewMessage,
-} from "@core/src/features/store-appearance/presentation/store-appearance-schemas";
+} from "@core/app/components/store-preview/store-preview-schemas";
 
 type Incoming = Readonly<{ origin: string; source: MessageEventSource | null; data: unknown }>;
 

@@ -19,7 +19,9 @@ import { parseCompanyId, parseUserId } from "@core/src/features/store-appearance
 // Client code imports the domain modules directly: the composition is server-only.
 import type { StoreAppearance } from "@core/src/features/store-appearance/domain/store-appearance";
 import type { StoreThemeId } from "@shared/store-themes";
-import { StorePreviewFrame } from "@core/src/features/store-appearance/presentation/store-preview-frame";
+import { StorePreviewFrame } from "@core/app/components/store-preview/store-preview-frame";
+import { fetchCatalogPreviewCards } from "@core/app/components/store-preview/catalog-cards-client";
+import type { CatalogPreviewCards } from "@core/app/components/store-preview/store-preview-schemas";
 import { ThemePicker } from "@core/src/features/store-appearance/presentation/theme-picker";
 import { baselineOf, resetDraft, sameAppearance, type EditorDraft } from "@core/src/features/store-appearance/presentation/editor-draft";
 import { logoTypes, uploadLogo, type LogoUploadFailure } from "@core/src/features/store-appearance/presentation/logo-upload";
@@ -147,6 +149,13 @@ export default function StoreAppearanceSettings() {
   const [draft, setDraft] = useState<EditorDraft | null>(baseline);
   if (draft === null && baseline !== null) setDraft(baseline);
   const [tab, setTab] = useState<EditorTab>("edit");
+  // Read once per visit by a plain fetch: saves, publication changes and Reintentar never refetch it, and `null` is the only loading state.
+  const [cards, setCards] = useState<CatalogPreviewCards | null>(null);
+  useEffect(() => {
+    const controller = new AbortController();
+    void fetchCatalogPreviewCards(controller.signal).then((result) => { if (!controller.signal.aborted) setCards(result); });
+    return () => controller.abort();
+  }, []);
   const wide = useWideLayout();
   // The last submission result the seller has already moved past (draft changed or retry started).
   const [dismissed, setDismissed] = useState<EditorActionResult | undefined>(undefined);
@@ -209,7 +218,7 @@ export default function StoreAppearanceSettings() {
     : saveFailure === "INVALID_STORE_APPEARANCE" ? "storeAppearance.invalidAppearance" : "storeAppearance.saveError");
 
   const publicationCard = <CatalogPublicationCard publication={publication} />;
-  const previewPanel = draft && <StorePreviewFrame appearance={{ logoUrl: draft.logoUrl, theme: draft.appearance.theme }} />;
+  const previewPanel = draft && <StorePreviewFrame appearance={{ logoUrl: draft.logoUrl, theme: draft.appearance.theme }} catalog={cards ?? { kind: "loading" }} />;
   const draftCard = draft && <Card className="gap-0 divide-y py-0">
         <CardContent className="flex flex-col gap-3 p-5">
           <CardTitle>{t("storeAppearance.logoTitle")}</CardTitle>
