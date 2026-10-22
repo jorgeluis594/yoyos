@@ -4,7 +4,6 @@ import { ActivityIndicator, Alert, Pressable, StyleSheet, View } from "react-nat
 import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
 import { useTranslation } from "react-i18next";
-import * as ImageManipulator from "expo-image-manipulator";
 import * as ImagePicker from "expo-image-picker";
 import { Button } from "@/components/ui/button";
 import { ThemedText } from "@/components/themed-text";
@@ -12,29 +11,19 @@ import { useTheme } from "@mobile/hooks/use-theme";
 import type { ImageId, PhotoSelection, Product } from "../domain/product";
 import { useProductDraft } from "./draft-guard";
 import i18n from '@mobile/i18n';
+import { imageUploadLimits } from "@shared/contracts/images";
+import { fitJpeg } from "@mobile/shared/infrastructure/jpeg-fitting";
 
-const MAX_BYTES = 10_000_000;
-const MAX_PIXELS = 24_000_000;
-const MAX_SIDE = 8_000;
+const photoBounds = { maxSide: imageUploadLimits.maxSide, maxPixels: imageUploadLimits.maxPixels, maxBytes: imageUploadLimits.maxBytes } as const;
 type UploadImage = (uri: string) => Promise<{ success: true; data: Readonly<{ id: ImageId; url: string }> } | { success: false; error: { code: string; message: string } }>;
 
 async function preparePhoto(asset: ImagePicker.ImagePickerAsset) {
   const width = asset.width;
   const height = asset.height;
   if (!width || !height) throw new Error(i18n.t('photoInvalidDimensions'));
-  const scale = Math.min(1, MAX_SIDE / Math.max(width, height), Math.sqrt(MAX_PIXELS / (width * height)));
-  // ponytail: four JPEG size attempts cap device work; the upload API remains the final size check.
-  for (let attempt = 0; attempt < 4; attempt++) {
-    const factor = scale * 0.75 ** attempt;
-    const result = await ImageManipulator.manipulateAsync(
-      asset.uri,
-      factor < 1 ? [{ resize: { width: Math.max(1, Math.round(width * factor)), height: Math.max(1, Math.round(height * factor)) } }] : [],
-      { compress: [0.82, 0.72, 0.62, 0.52][attempt], format: ImageManipulator.SaveFormat.JPEG },
-    );
-    const file = await fetch(result.uri).then((response) => response.blob());
-    if (file.size <= MAX_BYTES && result.width * result.height <= MAX_PIXELS && Math.max(result.width, result.height) <= MAX_SIDE) return result.uri;
-  }
-  throw new Error(i18n.t('photoTooLarge'));
+  const fitted = await fitJpeg(asset.uri, width, height, photoBounds);
+  if (!fitted.success) throw new Error(i18n.t('photoTooLarge'));
+  return fitted.data;
 }
 
 export function ProductPhoto({ value, original, upload, disabled = false, onChange, onBusy }: {
