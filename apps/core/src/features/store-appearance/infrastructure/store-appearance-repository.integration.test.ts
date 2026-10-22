@@ -56,16 +56,28 @@ describe("loadStoreAppearance", () => {
     });
   });
 
-  test("logs the invalid fields and returns INVALID_STORED_DATA for a corrupt row", async () => {
+  test("reports a theme outside the five as UNKNOWN_STORED_THEME and logs it once", async () => {
     await withCompanies(async (a) => {
       const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
       await withTenantIsolation(a.id, async () => {
         // The enum column cannot hold a theme outside the catalog, so the adapter's read is replaced with one.
         vi.spyOn(prisma.companyCheckoutAppearance, "findUnique").mockResolvedValueOnce(
           { logoImageId: null, theme: "retired" } as never);
+        expect(await loadStoreAppearance(a.id)).toMatchObject({ success: false, error: { code: "UNKNOWN_STORED_THEME" } });
+      });
+      expect(error).toHaveBeenCalledExactlyOnceWith(expect.objectContaining({ event: "invalid_stored_store_appearance", errorCode: "UNKNOWN_STORED_THEME", invalidFields: ["theme"], companyId: a.id }), "invalid_stored_store_appearance");
+    });
+  });
+
+  test("the repository reports an invalid stored row as INVALID_STORED_DATA without returning a default", async () => {
+    await withCompanies(async (a) => {
+      const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+      await withTenantIsolation(a.id, async () => {
+        vi.spyOn(prisma.companyCheckoutAppearance, "findUnique").mockResolvedValueOnce(
+          { logoImageId: "not-a-uuid", theme: "boutique" } as never);
         expect(await loadStoreAppearance(a.id)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
       });
-      expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "invalid_stored_store_appearance", errorCode: "INVALID_STORED_DATA", invalidFields: ["theme"], companyId: a.id }), "invalid_stored_store_appearance");
+      expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "invalid_stored_store_appearance", errorCode: "INVALID_STORED_DATA", invalidFields: ["logoImageId"], companyId: a.id }), "invalid_stored_store_appearance");
     });
   });
 });

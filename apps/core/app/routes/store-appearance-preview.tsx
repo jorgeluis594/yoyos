@@ -24,12 +24,11 @@ export async function loader({ context }: LoaderFunctionArgs) {
     throw new Response("Preview unavailable", { status: 503, headers: headers() });
   }
   bindRequestOperation({ outcome: "rendered" });
-  const { companyName, appearance, logoUrl, paymentSettings } = preview.data;
-  return { companyName, paymentSettings, appearance: { logoUrl, theme: appearance.theme } };
+  return preview.data;
 }
 
 export default function StoreAppearancePreview() {
-  const { companyName, appearance, paymentSettings } = useLoaderData<typeof loader>();
+  const { companyName, paymentMethods } = useLoaderData<typeof loader>();
   const [draft, setDraft] = useState<StorePreviewMessage | null>(null);
 
   useEffect(() => {
@@ -40,6 +39,7 @@ export default function StoreAppearancePreview() {
     return () => { stop(); delete document.documentElement.dataset.storePreview; };
   }, []);
 
-  return <CheckoutPreviewPage companyName={companyName} appearance={draft?.appearance ?? appearance}
-    state={draft?.state ?? "review"} paymentMethods={paymentSettings} />;
+  // The frame paints only the draft the editor sends, so the page stays blank until the first message.
+  if (!draft) return null;
+  return <CheckoutPreviewPage companyName={companyName} appearance={draft.appearance} state={draft.state} paymentMethods={paymentMethods} />;
 }

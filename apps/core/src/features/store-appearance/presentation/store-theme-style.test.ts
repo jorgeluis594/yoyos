@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { storeThemeIds, storeThemes, type StoreThemeDefinition } from "@shared/store-themes";
-import { checkoutFontStacks, storeThemeCss } from "@core/src/features/store-appearance/presentation/store-theme-style";
+import { storeFontStacks, storeThemeCss } from "@core/src/features/store-appearance/presentation/store-theme-style";
 
 const scope = ":r1:";
 const scopeSelector = `[data-store-theme="${scope}"]`;
@@ -10,7 +10,7 @@ const scopeSelector = `[data-store-theme="${scope}"]`;
 function identifyingValues(theme: StoreThemeDefinition): Set<string> {
   return new Set([
     ...Object.values(theme.colors), ...(theme.backgroundImage ? [theme.backgroundImage.css] : []),
-    ...Object.values(theme.fonts).filter((family) => family !== "system").map((family) => /^"[^"]+"/.exec(checkoutFontStacks[family])?.[0] ?? ""),
+    ...Object.values(theme.fonts).filter((family) => family !== "system").map((family) => /^"[^"]+"/.exec(storeFontStacks[family])?.[0] ?? ""),
   ]);
 }
 
@@ -18,7 +18,7 @@ function identifyingValues(theme: StoreThemeDefinition): Set<string> {
 function catalogValues(theme: StoreThemeDefinition): Set<string> {
   return new Set([
     ...Object.values(theme.colors), ...Object.values(theme.style), ...Object.values(theme.logo), ...Object.values(theme.thumbnail),
-    ...Object.values(theme.fonts).map((family) => checkoutFontStacks[family]), ...(theme.backgroundImage ? [theme.backgroundImage.css] : []),
+    ...Object.values(theme.fonts).map((family) => storeFontStacks[family]), ...(theme.backgroundImage ? [theme.backgroundImage.css] : []),
   ]);
 }
 const rules = (css: string) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({ selector: match[1], body: match[2] }));
@@ -76,14 +76,14 @@ describe("storeThemeCss", () => {
   });
 });
 
-describe("checkoutFontStacks", () => {
+describe("storeFontStacks", () => {
   test("falls back to system fonts after each self-hosted family", () => {
-    expect(checkoutFontStacks.system).toContain("-apple-system");
-    expect(checkoutFontStacks["playfair-display"]).toMatch(/^"Playfair Display Variable",.*serif$/);
-    expect(checkoutFontStacks.fredoka).toMatch(/^"Fredoka Variable"/);
-    expect(checkoutFontStacks.nunito).toMatch(/^"Nunito Variable"/);
-    expect(checkoutFontStacks.outfit).toMatch(/^"Outfit Variable"/);
-    expect(checkoutFontStacks.inter).toMatch(/^"Inter Variable"/);
+    expect(storeFontStacks.system).toContain("-apple-system");
+    expect(storeFontStacks["playfair-display"]).toMatch(/^"Playfair Display Variable",.*serif$/);
+    expect(storeFontStacks.fredoka).toMatch(/^"Fredoka Variable"/);
+    expect(storeFontStacks.nunito).toMatch(/^"Nunito Variable"/);
+    expect(storeFontStacks.outfit).toMatch(/^"Outfit Variable"/);
+    expect(storeFontStacks.inter).toMatch(/^"Inter Variable"/);
   });
 });
 

@@ -3,7 +3,6 @@ import type { ActionFunctionArgs, ClientActionFunctionArgs, LoaderFunctionArgs }
 import { action, clientAction, loader } from "@core/app/routes/store-appearance-settings";
 import { storeAppearance } from "@core/src/features/store-appearance/composition";
 import type { StoreAppearance, ImageId } from "@core/src/features/store-appearance/domain/store-appearance";
-import * as images from "@core/src/shared/images";
 import * as logger from "@core/src/shared/infrastructure/logger";
 
 const access = { company: { id: "00000000-0000-4000-8000-000000000001", name: "Lima Studio" }, user: { id: "user-1" } };
@@ -20,15 +19,19 @@ afterEach(() => vi.restoreAllMocks());
 
 describe("editor loader", () => {
   test("returns the published appearance and logo URL of the session company", async () => {
-    const get = vi.spyOn(storeAppearance, "get").mockResolvedValue({ success: true, data: appearance });
-    vi.spyOn(images, "resolvePublicImage").mockResolvedValue({ success: true, data: { url: "https://cdn.test/logo.png" } } as never);
+    const get = vi.spyOn(storeAppearance, "get").mockResolvedValue({ success: true, data: { kind: "readable", appearance, logoUrl: "https://cdn.test/logo.png" } });
     expect(await load()).toEqual({ published: appearance, logoUrl: "https://cdn.test/logo.png" });
     expect(get).toHaveBeenCalledWith(access.company.id);
   });
 
   test("loads Clásico without logo for a company without appearance", async () => {
-    vi.spyOn(storeAppearance, "get").mockResolvedValue({ success: true, data: null });
+    vi.spyOn(storeAppearance, "get").mockResolvedValue({ success: true, data: { kind: "readable", appearance: { logoImageId: null, theme: "classic" }, logoUrl: null } });
     expect(await load()).toEqual({ published: { logoImageId: null, theme: "classic" }, logoUrl: null });
+  });
+
+  test("keeps the load error for an unknown stored theme until the editor shows its starting point", async () => {
+    vi.spyOn(storeAppearance, "get").mockResolvedValue({ success: true, data: { kind: "unknown_theme" } });
+    await expect(load()).rejects.toMatchObject({ status: 503 });
   });
 
   test("responds 503 when the appearance cannot be read", async () => {
@@ -39,7 +42,7 @@ describe("editor loader", () => {
 
 describe("editor action", () => {
   test("saves the appearance for the session company, ignoring any company in the body", async () => {
-    const write = vi.spyOn(storeAppearance, "save").mockResolvedValue({ success: true, data: appearance });
+    const write = vi.spyOn(storeAppearance, "save").mockResolvedValue({ success: true, data: { appearance, logoUrl: null } });
     const body = { ...appearance, companyId: "forged" };
     const result = await save(body);
     expect(result.data).toEqual({ success: true, appearance });
@@ -83,7 +86,7 @@ describe("editor action", () => {
 
   test("tags the request as save_store_appearance with its outcome", async () => {
     const bind = vi.spyOn(logger, "bindRequestOperation");
-    vi.spyOn(storeAppearance, "save").mockResolvedValueOnce({ success: true, data: appearance })
+    vi.spyOn(storeAppearance, "save").mockResolvedValueOnce({ success: true, data: { appearance, logoUrl: null } })
       .mockResolvedValueOnce(failure("INVALID_IMAGE")).mockResolvedValueOnce(failure("PERSISTENCE_UNAVAILABLE"));
     await save(appearance); await save(appearance); await save(appearance);
     expect(bind.mock.calls.map(([fields]) => fields)).toEqual([

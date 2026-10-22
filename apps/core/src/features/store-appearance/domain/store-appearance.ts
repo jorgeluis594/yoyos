@@ -53,7 +53,7 @@ export function parseStoreAppearance(value: unknown): Result<StoreAppearance, St
   if (parsed.success) return ok({ ...parsed.data, logoImageId: parsed.data.logoImageId as ImageId | null });
   const invalidFields = [...new Set(parsed.error.issues.flatMap((issue) => issue.code === "unrecognized_keys"
     ? issue.keys : [String(issue.path[0] ?? "appearance")]))];
-  return err({ code: "INVALID_STORE_APPEARANCE", message: "Invalid checkout appearance", invalidFields });
+  return err({ code: "INVALID_STORE_APPEARANCE", message: "Invalid store appearance", invalidFields });
 }
 
 export function isDefaultStoreAppearance(appearance: StoreAppearance): boolean {

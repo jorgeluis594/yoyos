@@ -6,7 +6,7 @@ import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deleteAgencies, insertAgency, seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { companyPaymentSettings } from "@core/src/features/companies";
-import { checkoutFontStacks } from "@core/src/features/store-appearance/presentation/store-theme-style";
+import { storeFontStacks } from "@core/src/features/store-appearance/presentation/store-theme-style";
 import { storeThemeIds, storeThemes, type StoreThemeId } from "@shared/store-themes";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { removeCompanyAppearance, rgb, saveCompanyAppearance } from "@core/tests/e2e/store-appearance-fixtures";
@@ -119,7 +119,7 @@ async function expectThumbnails(page: Page, id: StoreThemeId) {
 /** The theme's font files are loaded and used, not only named in the stack: a failed file would still leave the family name in `font-family`. */
 async function expectFontsLoaded(page: Page, id: StoreThemeId) {
   const families = [...new Set(Object.values(storeThemes[id].fonts))].filter((font) => font !== "system")
-    .map((font) => checkoutFontStacks[font].split(",")[0].replace(/"/g, "").trim());
+    .map((font) => storeFontStacks[font].split(",")[0].replace(/"/g, "").trim());
   await browserExpect.poll(() => page.evaluate(async (names) => {
     await document.fonts.ready;
     return names.every((name) => [...document.fonts].some((face) => face.family.replace(/"/g, "") === name && face.status === "loaded"));

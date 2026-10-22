@@ -7,7 +7,7 @@ import {
 import type { StoreThemeId } from "@shared/store-themes";
 
 export type StoreAppearanceFailure = StoreAppearanceError
-  | Readonly<{ code: "INVALID_IMAGE" | "INVALID_STORED_DATA" | "PERSISTENCE_UNAVAILABLE"; message: string }>;
+  | Readonly<{ code: "INVALID_IMAGE" | "INVALID_STORED_DATA" | "UNKNOWN_STORED_THEME" | "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
 type StorageFailure = Exclude<StoreAppearanceFailure, StoreAppearanceError>;
 
@@ -21,16 +21,21 @@ export type PublicAppearanceResult =
   | Readonly<{ kind: "custom"; appearance: PublicAppearance }>
   | Readonly<{ kind: "fallback" }>;
 
+/** `unknown_theme` lets the editors start from Clásico without logo instead of failing to load. */
+export type SellerStoreAppearance =
+  | Readonly<{ kind: "readable"; appearance: StoreAppearance; logoUrl: string | null }>
+  | Readonly<{ kind: "unknown_theme" }>;
+
+export type SavedStoreAppearance = Readonly<{ appearance: StoreAppearance; logoUrl: string | null }>;
+
 export type PreviewPaymentMethod =
   | Readonly<{ method: "digital_wallet"; provider: string; holder: string; imageUrl: string | null }>
   | Readonly<{ method: "bank_transfer"; bank: string; holder: string; accountNumber: string | null; cci: string | null; imageUrl: string | null }>;
 
-export type StoreAppearancePreview = Readonly<{
+export type StorePreview = Readonly<{
   companyName: string;
-  appearance: StoreAppearance;
-  logoUrl: string | null;
-  /** The company's real payment methods, or `null` when it has none. */
-  paymentSettings: readonly PreviewPaymentMethod[] | null;
+  /** The company's real payment methods, or `null` when it has none or they cannot be read. */
+  paymentMethods: readonly PreviewPaymentMethod[] | null;
 }>;
 
 type ImageUrlResolver = (imageId: ImageId) => Promise<Result<string | null, Readonly<{ message: string }>>>;
@@ -38,31 +43,42 @@ type ImageUrlResolver = (imageId: ImageId) => Promise<Result<string | null, Read
 export type AppearanceDependencies = Readonly<{
   load: (companyId: CompanyId) => Promise<Result<StoreAppearance | null, StorageFailure>>;
   save: (companyId: CompanyId, appearance: StoreAppearance) => Promise<Result<null, StorageFailure>>;
-  imageAvailable: (companyId: CompanyId, imageId: ImageId) => Promise<Result<boolean, StorageFailure>>;
+  /** A database read only: whether the logo is an available image of the company. */
+  logoOwned: (companyId: CompanyId, imageId: ImageId) => Promise<Result<boolean, StorageFailure>>;
+  /** Never fails: a missing image or a storage failure gives `null`. */
+  logoUrl: (imageId: ImageId) => Promise<string | null>;
+  /** The public buyer read keeps this adapter, which does not log. */
   imageUrl: ImageUrlResolver;
 }>;
 
-export type PreviewDependencies = Pick<AppearanceDependencies, "load" | "imageUrl"> & Readonly<{
+export type PreviewDependencies = Readonly<{
   companyName: (companyId: CompanyId) => Promise<Result<string, StorageFailure>>;
   paymentMethods: (companyId: CompanyId) => Promise<Result<readonly PreviewPaymentMethod[], StorageFailure>>;
 }>;
 
-export function getStoreAppearance(companyId: CompanyId, deps: Pick<AppearanceDependencies, "load">) {
-  return deps.load(companyId);
+export async function getStoreAppearance(
+  companyId: CompanyId, deps: Pick<AppearanceDependencies, "load" | "logoUrl">,
+): Promise<Result<SellerStoreAppearance, StorageFailure>> {
+  const loaded = await deps.load(companyId);
+  if (!loaded.success) return loaded.error.code === "UNKNOWN_STORED_THEME" ? ok({ kind: "unknown_theme" }) : loaded;
+  const appearance = loaded.data ?? defaultStoreAppearance;
+  return ok({ kind: "readable", appearance, logoUrl: appearance.logoImageId ? await deps.logoUrl(appearance.logoImageId) : null });
 }
 
 export async function saveStoreAppearance(
-  companyId: CompanyId, value: unknown, deps: Pick<AppearanceDependencies, "save" | "imageAvailable">,
-): Promise<Result<StoreAppearance, StoreAppearanceFailure>> {
+  companyId: CompanyId, value: unknown, deps: Pick<AppearanceDependencies, "save" | "logoOwned" | "logoUrl">,
+): Promise<Result<SavedStoreAppearance, StoreAppearanceFailure>> {
   const parsed = parseStoreAppearance(value);
   if (!parsed.success) return parsed;
   if (parsed.data.logoImageId) {
-    const available = await deps.imageAvailable(companyId, parsed.data.logoImageId);
-    if (!available.success) return available;
-    if (!available.data) return err({ code: "INVALID_IMAGE", message: "Logo image is unavailable" });
+    const owned = await deps.logoOwned(companyId, parsed.data.logoImageId);
+    if (!owned.success) return owned;
+    if (!owned.data) return err({ code: "INVALID_IMAGE", message: "Logo image is unavailable" });
   }
   const saved = await deps.save(companyId, parsed.data);
-  return saved.success ? ok(parsed.data) : saved;
+  if (!saved.success) return saved;
+  // The write has committed: a URL that cannot be built is part of the success, never a failed save.
+  return ok({ appearance: parsed.data, logoUrl: parsed.data.logoImageId ? await deps.logoUrl(parsed.data.logoImageId) : null });
 }
 
 /** A missing or unreadable logo must never hide the rest of the appearance. */
@@ -81,14 +97,9 @@ export async function getPublicStoreAppearance(
   return { kind: "custom", appearance: { logoUrl: await logoUrlOf(loaded.data, deps.imageUrl), theme: loaded.data.theme } };
 }
 
-export async function getStoreAppearancePreview(
-  companyId: CompanyId, deps: PreviewDependencies,
-): Promise<Result<StoreAppearancePreview, StorageFailure>> {
-  const [loaded, companyName, methods] = await Promise.all([deps.load(companyId), deps.companyName(companyId), deps.paymentMethods(companyId)]);
-  if (!loaded.success) return loaded;
+/** The iframe paints only the draft the editor sends, so the appearance is not read here. */
+export async function getStorePreview(companyId: CompanyId, deps: PreviewDependencies): Promise<Result<StorePreview, StorageFailure>> {
+  const [companyName, methods] = await Promise.all([deps.companyName(companyId), deps.paymentMethods(companyId)]);
   if (!companyName.success) return companyName;
-  if (!methods.success) return methods;
-  const appearance = loaded.data ?? defaultStoreAppearance;
-  return ok({ companyName: companyName.data, appearance, logoUrl: await logoUrlOf(appearance, deps.imageUrl),
-    paymentSettings: methods.data.length ? methods.data : null });
+  return ok({ companyName: companyName.data, paymentMethods: methods.success && methods.data.length ? methods.data : null });
 }

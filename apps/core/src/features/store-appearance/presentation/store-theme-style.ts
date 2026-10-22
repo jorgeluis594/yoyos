@@ -1,11 +1,11 @@
 import {
-  storeColorTokens, storeStyleTokens, storeThemes, type CheckoutFontFamily, type StoreThemeDefinition, type StoreThemeId,
+  storeColorTokens, storeStyleTokens, storeThemes, type StoreFontFamily, type StoreThemeDefinition, type StoreThemeId,
 } from "@shared/store-themes";
 
 const systemSans = '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif';
 
 /** The self-hosted families register as "<Name> Variable" (Fontsource); the rest of each stack is the fallback while a font loads. */
-export const checkoutFontStacks: Readonly<Record<CheckoutFontFamily, string>> = {
+export const storeFontStacks: Readonly<Record<StoreFontFamily, string>> = {
   system: systemSans,
   inter: `"Inter Variable", "Inter", ${systemSans}`,
   "playfair-display": '"Playfair Display Variable", "Playfair Display", Georgia, "Times New Roman", serif',
@@ -23,10 +23,10 @@ function variables(theme: StoreThemeDefinition): Declaration[] {
   return [
     ...storeColorTokens.map((token): Declaration => [`--${token}`, theme.colors[token]]),
     ...storeStyleTokens.map((token): Declaration => [`--store-${token}`, theme.style[token]]),
-    ["--store-font-body", checkoutFontStacks[fonts.body]],
-    ["--store-font-heading", checkoutFontStacks[fonts.heading]],
-    ["--store-font-product-name", checkoutFontStacks[fonts.productName]],
-    ["--store-font-button", checkoutFontStacks[fonts.button]],
+    ["--store-font-body", storeFontStacks[fonts.body]],
+    ["--store-font-heading", storeFontStacks[fonts.heading]],
+    ["--store-font-product-name", storeFontStacks[fonts.productName]],
+    ["--store-font-button", storeFontStacks[fonts.button]],
     ["--store-logo-direction", logo.direction],
     ["--store-logo-text-align", logo.placement === "center" ? "center" : "left"],
     ["--store-logo-height", logo.height], ["--store-logo-max-width", logo.maxWidth], ["--store-logo-radius", logo.radius], ["--store-logo-border", logo.border],

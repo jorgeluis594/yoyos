@@ -13,10 +13,10 @@ import { FileUpload, FileUploadActions, FileUploadTrigger } from "@core/app/comp
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@core/app/components/ui/tabs";
 import { ErrorState } from "@core/app/components/ui/error-state";
-import { resolvePublicImage } from "@core/src/shared/images";
+import { imageUploadLimits } from "@shared/contracts/images";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { storeAppearance } from "@core/src/features/store-appearance/composition";
-import { defaultStoreAppearance, parseCompanyId, parseUserId } from "@core/src/features/store-appearance/domain/store-appearance";
+import { parseCompanyId, parseUserId } from "@core/src/features/store-appearance/domain/store-appearance";
 // Client code imports the domain modules directly: the composition is server-only.
 import type { StoreAppearance } from "@core/src/features/store-appearance/domain/store-appearance";
 import type { StoreThemeId } from "@shared/store-themes";
@@ -25,24 +25,22 @@ import { StorePreviewFrame } from "@core/src/features/store-appearance/presentat
 import { ThemePicker } from "@core/src/features/store-appearance/presentation/theme-picker";
 import { resetDraft, sameAppearance, type EditorDraft } from "@core/src/features/store-appearance/presentation/editor-draft";
 
-const maxLogoBytes = 10 * 1024 * 1024;
+const maxLogoBytes = imageUploadLimits.maxBytes;
 const logoTypes = ["image/png", "image/jpeg", "image/webp"];
-const failureStatus = { INVALID_STORE_APPEARANCE: 422, INVALID_IMAGE: 422, INVALID_STORED_DATA: 503, PERSISTENCE_UNAVAILABLE: 503 } as const;
+const failureStatus = { INVALID_STORE_APPEARANCE: 422, INVALID_IMAGE: 422, INVALID_STORED_DATA: 503, UNKNOWN_STORED_THEME: 503, PERSISTENCE_UNAVAILABLE: 503 } as const;
 
 export async function loader({ context }: LoaderFunctionArgs) {
   const access = context.get(privateUserContext);
   const companyId = parseCompanyId(access.company.id);
   if (!companyId.success) throw new Response("Invalid company", { status: 500 });
   const loaded = await storeAppearance.get(companyId.data);
-  if (!loaded.success) {
+  // The unknown-theme starting point keeps today's load error until the editor learns to show it.
+  if (!loaded.success || loaded.data.kind === "unknown_theme") {
     bindRequestOperation({ operation: "get_store_appearance", outcome: "technical_failure" });
-    throw new Response("Unable to load checkout appearance", { status: 503 });
+    throw new Response("Unable to load store appearance", { status: 503 });
   }
-  const published = loaded.data ?? defaultStoreAppearance;
-  // A missing logo file must not block editing; the seller can upload it again.
-  const image = published.logoImageId ? await resolvePublicImage(published.logoImageId) : null;
   bindRequestOperation({ operation: "get_store_appearance", outcome: "loaded" });
-  return { published, logoUrl: image?.success ? image.data?.url ?? null : null };
+  return { published: loaded.data.appearance, logoUrl: loaded.data.logoUrl };
 }
 
 type EditorActionData = { success: true; appearance: StoreAppearance } | { error: StoreAppearanceFailure["code"] };
@@ -57,7 +55,7 @@ export async function action({ context, request }: ActionFunctionArgs) {
   const saved = await storeAppearance.save(companyId.data, userId.data, body);
   if (saved.success) {
     bindRequestOperation({ operation: "save_store_appearance", outcome: "saved" });
-    return data<EditorActionData>({ success: true, appearance: saved.data });
+    return data<EditorActionData>({ success: true, appearance: saved.data.appearance });
   }
   const code = saved.error.code;
   bindRequestOperation({ operation: "save_store_appearance", outcome: code === "INVALID_STORED_DATA" || code === "PERSISTENCE_UNAVAILABLE" ? "technical_failure" : "invalid_input" });
