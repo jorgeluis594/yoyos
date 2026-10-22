@@ -4,7 +4,7 @@ export const defaultStoreTheme: StoreThemeId = "classic";
 export type HexColor = string & { readonly __brand: "HexColor" };
 /** A CSS value written in this file only; never seller data. */
 export type CssValue = string & { readonly __brand: "CssValue" };
-export type CheckoutFontFamily = "system" | "inter" | "playfair-display" | "fredoka" | "nunito" | "outfit";
+export type StoreFontFamily = "system" | "inter" | "playfair-display" | "fredoka" | "nunito" | "outfit";
 
 export const storeColorTokens = [
   "background",
@@ -136,7 +136,7 @@ export type StoreThemeDefinition = Readonly<{
   colors: Readonly<Record<StoreColorToken, HexColor>>;
   /** Page background image painted over `background` (Suave's gradient), or null. */
   backgroundImage: Readonly<{ css: CssValue; stops: readonly HexColor[] }> | null;
-  fonts: Readonly<{ body: CheckoutFontFamily; heading: CheckoutFontFamily; productName: CheckoutFontFamily; button: CheckoutFontFamily }>;
+  fonts: Readonly<{ body: StoreFontFamily; heading: StoreFontFamily; productName: StoreFontFamily; button: StoreFontFamily }>;
   style: Readonly<Record<StoreStyleToken, CssValue>>;
   /** `maxWidth` lets a long horizontal logo grow toward the plate height while the store name keeps room beside (row) or below (column) it. */
   logo: Readonly<{ placement: "start" | "center"; direction: "row" | "column"; height: CssValue; maxWidth: CssValue; radius: CssValue; border: CssValue; shadow: CssValue; padding: CssValue }>;
