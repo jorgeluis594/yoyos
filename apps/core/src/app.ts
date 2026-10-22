@@ -17,6 +17,7 @@ import { orderRoutes } from "@core/src/features/orders/presentation/api-routes";
 import { hasDuplicateJsonKeys } from "@core/src/shared/presentation/json-keys";
 import { deliverySettingsRoutes } from "@core/src/features/delivery-settings/presentation/api-routes";
 import { quotationRoutes } from "@core/src/features/delivery-settings/presentation/quotation-routes";
+import { storeAppearanceRoutes } from "@core/src/features/store-appearance/presentation/api-routes";
 import { catalogRoutes } from "@core/src/features/catalog/presentation/api-routes";
 import { buyerPaymentRoutes } from "@core/src/features/orders/presentation/buyer-payment-routes";
 import { log, requestLogging } from "@core/src/shared/infrastructure/logger";
@@ -51,6 +52,7 @@ app.use("/api/delivery-settings", (_request, response, next) => {
 });
 app.use("/api/quotations", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
 app.use("/api/catalog", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
+app.use("/api/store-appearance", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
 app.use("/api/orders", express.json({ limit: "100kb", verify: (_request, _response, body) => {
   if (hasDuplicateJsonKeys(body.toString("utf8"))) throw new Error("Duplicate JSON key");
 } }));
@@ -97,6 +99,7 @@ app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/delivery-settings", deliverySettingsRoutes);
 app.use("/api/catalog", catalogRoutes);
+app.use("/api/store-appearance", storeAppearanceRoutes());
 app.use("/api/images", images);
 
 app.use("/api", (_request, response: Response<unknown, PrivateLocals>) => {
@@ -106,7 +109,7 @@ app.use("/api", (_request, response: Response<unknown, PrivateLocals>) => {
 app.use("/api", (error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   void _next;
   const pathname = _request.originalUrl.split("?", 1)[0];
-  const isFeatureRequest = ["/api/products", "/api/orders", "/api/delivery-settings", "/api/quotations", "/api/catalog"].some((base) => pathname === base || pathname.startsWith(`${base}/`));
+  const isFeatureRequest = ["/api/products", "/api/orders", "/api/delivery-settings", "/api/quotations", "/api/catalog", "/api/store-appearance"].some((base) => pathname === base || pathname.startsWith(`${base}/`));
   if (pathname.startsWith("/api/orders") && typeof error === "object" && error !== null && "type" in error && error.type === "entity.verify.failed")
     return apiError(response, 400, "INVALID_INPUT", "Duplicate JSON key");
   if (error instanceof SyntaxError && "body" in error) return apiError(response, 400, isFeatureRequest ? "INVALID_INPUT" : "INVALID_COMPANY", "Invalid JSON", isFeatureRequest ? [{ field: "body", reason: "INVALID_JSON" }] : undefined);
