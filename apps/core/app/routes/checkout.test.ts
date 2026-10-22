@@ -3,7 +3,8 @@ import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { action, handle, headers, loader } from "@core/app/routes/checkout";
 import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
-import { checkoutAppearance, parseCompanyId } from "@core/src/features/checkout-appearance";
+import { storeAppearance } from "@core/src/features/store-appearance/composition";
+import { parseCompanyId } from "@core/src/features/store-appearance/domain/store-appearance";
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { ok, err } from "@shared/functional";
 import type { CheckoutPage } from "@core/src/features/orders/application/checkout";
@@ -15,8 +16,8 @@ vi.mock("@core/src/shared/infrastructure/logger", async (importOriginal) => ({
   ...await importOriginal<typeof import("@core/src/shared/infrastructure/logger")>(), bindRequestOperation: vi.fn(),
 }));
 
-vi.mock("@core/src/features/checkout-appearance", async (importOriginal) => {
-  const actual = await importOriginal<typeof import("@core/src/features/checkout-appearance")>();
+vi.mock("@core/src/features/store-appearance/domain/store-appearance", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@core/src/features/store-appearance/domain/store-appearance")>();
   return { ...actual, parseCompanyId: vi.fn(actual.parseCompanyId) };
 });
 
@@ -30,7 +31,7 @@ const body = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: tot
 const args = (payload: unknown, path = params) => ({ params: path, request: new Request("http://localhost/checkout/company/order", {
   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
 }) } as unknown as ActionFunctionArgs);
-beforeEach(() => { vi.mocked(bindRequestOperation).mockClear(); vi.spyOn(checkoutAppearance, "getPublic").mockResolvedValue({ kind: "default" }); });
+beforeEach(() => { vi.mocked(bindRequestOperation).mockClear(); vi.spyOn(storeAppearance, "getPublic").mockResolvedValue({ kind: "default" }); });
 afterEach(() => vi.restoreAllMocks());
 
 test("public loader preserves wire amounts and privacy headers without requiring an authenticated context", async () => {
@@ -216,7 +217,7 @@ describe("checkout appearance", () => {
   test("includes the company appearance after authorizing the order", async () => {
     pendingSettings();
     vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
-    const getPublic = vi.mocked(checkoutAppearance.getPublic).mockResolvedValue({ kind: "custom", appearance: custom });
+    const getPublic = vi.mocked(storeAppearance.getPublic).mockResolvedValue({ kind: "custom", appearance: custom });
     expect(await load()).toMatchObject({ data: { appearance: custom } });
     expect(getPublic).toHaveBeenCalledWith(params.companyId);
   });
@@ -225,28 +226,28 @@ describe("checkout appearance", () => {
     pendingSettings();
     const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
     vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
-    vi.mocked(checkoutAppearance.getPublic).mockResolvedValue({ kind: "custom", appearance: { ...custom, logoImageId: "private" } as never });
+    vi.mocked(storeAppearance.getPublic).mockResolvedValue({ kind: "custom", appearance: { ...custom, logoImageId: "private" } as never });
     expect(await load()).toMatchObject({ data: { appearance: null } });
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_data_invalid", errorCode: "INVALID_APPEARANCE_RESPONSE" }), expect.any(String));
-    expect(bindRequestOperation).toHaveBeenCalledWith({ checkoutAppearance: "fallback", checkoutTheme: "classic" });
+    expect(bindRequestOperation).toHaveBeenCalledWith({ storeAppearance: "fallback", storeTheme: "classic" });
   });
 
   test("logs and falls back when the company id cannot be parsed", async () => {
     pendingSettings();
     const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
     vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
-    vi.mocked(parseCompanyId).mockReturnValueOnce(err({ code: "INVALID_CHECKOUT_APPEARANCE", message: "Invalid company id", invalidFields: ["companyId"] }));
+    vi.mocked(parseCompanyId).mockReturnValueOnce(err({ code: "INVALID_STORE_APPEARANCE", message: "Invalid company id", invalidFields: ["companyId"] }));
     expect(await load()).toMatchObject({ data: { checkout: publicView, appearance: null } });
-    expect(checkoutAppearance.getPublic).not.toHaveBeenCalled();
-    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_appearance_failed", errorCode: "INVALID_CHECKOUT_APPEARANCE" }), expect.any(String));
-    expect(bindRequestOperation).toHaveBeenCalledWith({ checkoutAppearance: "fallback", checkoutTheme: "classic" });
+    expect(storeAppearance.getPublic).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_store_appearance_failed", errorCode: "INVALID_STORE_APPEARANCE" }), expect.any(String));
+    expect(bindRequestOperation).toHaveBeenCalledWith({ storeAppearance: "fallback", storeTheme: "classic" });
   });
 
   test("does not read the appearance for an unauthorized link", async () => {
     vi.spyOn(orders, "getCheckout").mockResolvedValue(err({ code: "CHECKOUT_UNAVAILABLE", message: "not public" }));
     await expect(load()).rejects.toMatchObject({ status: 404 });
     await expect(loader({ params: { companyId: "bad", orderId: "1001" } } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
-    expect(checkoutAppearance.getPublic).not.toHaveBeenCalled();
+    expect(storeAppearance.getPublic).not.toHaveBeenCalled();
   });
 
   test("uses the default appearance when the company has none", async () => {
@@ -259,9 +260,9 @@ describe("checkout appearance", () => {
     pendingSettings();
     const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
     vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
-    vi.mocked(checkoutAppearance.getPublic).mockResolvedValue({ kind: "fallback" });
+    vi.mocked(storeAppearance.getPublic).mockResolvedValue({ kind: "fallback" });
     expect(await load()).toMatchObject({ data: { checkout: publicView, appearance: null } });
-    vi.mocked(checkoutAppearance.getPublic).mockRejectedValue(new Error("private cause"));
+    vi.mocked(storeAppearance.getPublic).mockRejectedValue(new Error("private cause"));
     expect(await load()).toMatchObject({ data: { checkout: publicView, appearance: null } });
     expect(error).toHaveBeenCalledTimes(1);
   });
@@ -269,7 +270,7 @@ describe("checkout appearance", () => {
   test("brands the confirmed state and loads the payment in parallel with the appearance", async () => {
     vi.spyOn(orders, "getCheckout").mockResolvedValue(confirmed);
     vi.spyOn(orders, "getBuyerPaymentView").mockResolvedValue(ok(paymentView));
-    vi.mocked(checkoutAppearance.getPublic).mockResolvedValue({ kind: "custom", appearance: custom });
+    vi.mocked(storeAppearance.getPublic).mockResolvedValue({ kind: "custom", appearance: custom });
     const result = await load();
     expect(result).toMatchObject({ data: { appearance: custom, payment: paymentView } });
     expect(orders.getBuyerPaymentView).toHaveBeenCalledTimes(1);
@@ -278,11 +279,11 @@ describe("checkout appearance", () => {
   test("tags the request with default, custom or fallback appearance", async () => {
     pendingSettings();
     vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
-    const tagged = async (result: Awaited<ReturnType<typeof checkoutAppearance.getPublic>>) => {
-      vi.mocked(checkoutAppearance.getPublic).mockResolvedValue(result);
+    const tagged = async (result: Awaited<ReturnType<typeof storeAppearance.getPublic>>) => {
+      vi.mocked(storeAppearance.getPublic).mockResolvedValue(result);
       vi.mocked(bindRequestOperation).mockClear();
       await load();
-      return vi.mocked(bindRequestOperation).mock.calls.flatMap(([fields]) => fields.checkoutAppearance ?? []);
+      return vi.mocked(bindRequestOperation).mock.calls.flatMap(([fields]) => fields.storeAppearance ?? []);
     };
     expect(await tagged({ kind: "default" })).toEqual(["default"]);
     expect(await tagged({ kind: "custom", appearance: custom })).toEqual(["custom"]);
@@ -294,11 +295,11 @@ describe("checkout theme tag and color scheme", () => {
   test("tags the request with the checkout theme", async () => {
     vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
     vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
-    const tagged = async (result: Awaited<ReturnType<typeof checkoutAppearance.getPublic>>) => {
-      vi.mocked(checkoutAppearance.getPublic).mockResolvedValue(result);
+    const tagged = async (result: Awaited<ReturnType<typeof storeAppearance.getPublic>>) => {
+      vi.mocked(storeAppearance.getPublic).mockResolvedValue(result);
       vi.mocked(bindRequestOperation).mockClear();
       await loader({ params } as unknown as LoaderFunctionArgs);
-      return vi.mocked(bindRequestOperation).mock.calls.flatMap(([fields]) => fields.checkoutTheme ?? []);
+      return vi.mocked(bindRequestOperation).mock.calls.flatMap(([fields]) => fields.storeTheme ?? []);
     };
     expect(await tagged({ kind: "custom", appearance: { logoUrl: null, theme: "noche" } })).toEqual(["noche"]);
     expect(await tagged({ kind: "default" })).toEqual(["classic"]);

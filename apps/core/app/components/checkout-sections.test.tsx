@@ -7,8 +7,8 @@ import resources from "@core/app/locales";
 import { describe, expect, test } from "vitest";
 import type { CheckoutDeliveryDraft } from "@core/app/components/checkout-delivery-fields";
 import { CheckoutBuyerDetails, CheckoutOrderSummary, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
-import { checkoutThemeIds } from "@core/src/features/checkout-appearance/domain/checkout-themes";
-import { previewCheckout } from "@core/src/features/checkout-appearance/presentation/preview-fixtures";
+import { storeThemeIds } from "@shared/store-themes";
+import { previewCheckout } from "@core/src/features/store-appearance/presentation/preview-fixtures";
 
 const i18n = createInstance();
 await i18n.use(initReactI18next).init({ lng: "es", resources });
@@ -51,10 +51,10 @@ describe("CheckoutShell", () => {
     const container = document.body.appendChild(document.createElement("div"));
     const root = createRoot(container);
     act(() => root.render(withI18n(<CheckoutShell appearance={null} checkout={pending}><p>Contenido</p></CheckoutShell>)));
-    const bar = container.querySelector('[data-checkout-part="header"]')!;
+    const bar = container.querySelector('[data-store-part="header"]')!;
     const row = bar.firstElementChild!;
-    expect((row as HTMLElement).getAttribute("style")).toContain("var(--checkout-header-justify");
-    expect(row.contains(container.querySelector('[data-checkout-part="header-brand"]'))).toBe(true);
+    expect((row as HTMLElement).getAttribute("style")).toContain("var(--store-header-justify");
+    expect(row.contains(container.querySelector('[data-store-part="header-brand"]'))).toBe(true);
     act(() => root.unmount());
   });
 });
@@ -77,7 +77,7 @@ describe("CheckoutOrderSummary", () => {
 
   test("shows a thumbnail at the left of each product row before name, variant, quantity and subtotal", () => {
     const { container, unmount } = render(<CheckoutOrderSummary checkout={withPhotos} deliveryDraft={null} />);
-    const rows = [...container.querySelectorAll<HTMLElement>("[data-checkout-part=product-row]")];
+    const rows = [...container.querySelectorAll<HTMLElement>("[data-store-part=product-row]")];
     expect(rows).toHaveLength(2);
     const [polo, taza] = rows as [HTMLElement, HTMLElement];
     expect(polo.firstElementChild?.getAttribute("data-slot")).toBe("product-thumbnail");
@@ -85,19 +85,19 @@ describe("CheckoutOrderSummary", () => {
     expect(taza.firstElementChild?.getAttribute("data-slot")).toBe("product-thumbnail");
     expect(taza.querySelector("img")).toBeNull();
     expect(taza.querySelector("[data-slot=product-thumbnail]")?.textContent).toBe("T");
-    expect(polo.querySelector("[data-checkout-part=product-name]")?.textContent).toBe("Polo básico");
-    expect(polo.querySelector("[data-checkout-part=product-meta]")?.textContent).toContain("M");
-    expect(polo.querySelector("[data-checkout-part=price]")?.textContent).toContain("98");
+    expect(polo.querySelector("[data-store-part=product-name]")?.textContent).toBe("Polo básico");
+    expect(polo.querySelector("[data-store-part=product-meta]")?.textContent).toContain("M");
+    expect(polo.querySelector("[data-store-part=price]")?.textContent).toContain("98");
     expect(polo.textContent).toContain("2 ×");
     unmount();
   });
 
   test("marks the totals with their theme hooks", () => {
     const { container, unmount } = render(<CheckoutOrderSummary checkout={withPhotos} deliveryDraft={null} />);
-    expect(container.querySelector("[data-checkout-part=total] [data-checkout-part=total-label]")?.textContent).toBe("Total a pagar");
-    expect(container.querySelector("[data-checkout-part=total-amount]")).not.toBeNull();
-    expect(container.querySelectorAll("[data-checkout-part=card]")).toHaveLength(2);
-    expect(container.querySelector("[data-checkout-part=section-title]")?.textContent).toBe("Productos");
+    expect(container.querySelector("[data-store-part=total] [data-store-part=total-label]")?.textContent).toBe("Total a pagar");
+    expect(container.querySelector("[data-store-part=total-amount]")).not.toBeNull();
+    expect(container.querySelectorAll("[data-store-part=card]")).toHaveLength(2);
+    expect(container.querySelector("[data-store-part=section-title]")?.textContent).toBe("Productos");
     unmount();
   });
 
@@ -108,7 +108,7 @@ describe("CheckoutOrderSummary", () => {
       "Entrega", "Selecciona una opción", "Total a pagar", "Selecciona entrega",
     ].join("");
 
-  test.each(checkoutThemeIds)("keeps the same sections, fields and texts in the %s theme", (theme) => {
+  test.each(storeThemeIds)("keeps the same sections, fields and texts in the %s theme", (theme) => {
     const { container, unmount } = render(
       <CheckoutShell appearance={{ logoUrl: null, theme }} checkout={withPhotos} summary={<CheckoutOrderSummary checkout={withPhotos} deliveryDraft={null} />}>
         <CheckoutReviewFields message={null} name={{ defaultValue: "Ana" }} phone={{ defaultValue: "+51987654321" }} delivery={null} />
@@ -118,11 +118,11 @@ describe("CheckoutOrderSummary", () => {
     const clone = container.cloneNode(true) as HTMLElement;
     clone.querySelectorAll("[data-slot=product-thumbnail], style").forEach((added) => added.remove());
     expect(clone.textContent?.replaceAll("\u00a0", " ")).toBe(sameText);
-    const group = container.querySelector("[data-checkout-part=field-group]")!;
-    expect(group.querySelectorAll("[data-checkout-part=field]")).toHaveLength(2);
+    const group = container.querySelector("[data-store-part=field-group]")!;
+    expect(group.querySelectorAll("[data-store-part=field]")).toHaveLength(2);
     expect(group.querySelectorAll("input")).toHaveLength(2);
-    expect(container.querySelector("[data-checkout-part=header]")?.querySelector("[data-checkout-part=header-brand]")).not.toBeNull();
-    expect(container.querySelector("h1[data-checkout-part=order-title]")?.textContent).toBe("Pedido #1001");
+    expect(container.querySelector("[data-store-part=header]")?.querySelector("[data-store-part=header-brand]")).not.toBeNull();
+    expect(container.querySelector("h1[data-store-part=order-title]")?.textContent).toBe("Pedido #1001");
     unmount();
   });
 });

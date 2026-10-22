@@ -115,7 +115,7 @@ test("every text field and select of the delivery step sits in a field group, so
   expect(controls.map((control) => control.id)).toEqual(expect.arrayContaining(["delivery-name", "delivery-phone"]));
   expect(controls.length).toBeGreaterThanOrEqual(6);
   for (const control of controls) {
-    expect(control.closest("[data-checkout-part=field-group]"), control.id).not.toBeNull();
-    expect(control.closest("[data-checkout-part=field]"), control.id).not.toBeNull();
+    expect(control.closest("[data-store-part=field-group]"), control.id).not.toBeNull();
+    expect(control.closest("[data-store-part=field]"), control.id).not.toBeNull();
   }
 });

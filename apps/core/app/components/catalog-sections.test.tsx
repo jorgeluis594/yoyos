@@ -10,7 +10,7 @@ describe("CatalogShell", () => {
     expect(html).toContain("Lima Studio");
     // No theme scope, no variables: the page reads the global tokens.
     expect(html).not.toContain("<style");
-    expect(html).not.toContain("data-checkout-theme");
+    expect(html).not.toContain("data-store-theme");
   });
 
   test("shows only the store name when the company has no logo", () => {

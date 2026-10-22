@@ -15,12 +15,12 @@ export function PeruDistrictSelect({ value, onChange, disabled = false, themed =
   const selectSlot = themed ? { "data-slot": "select" } : {};
   const labelSlot = themed ? { "data-slot": "label" } : {};
   // The checkout themes lay these fields out as one group, like the buyer fields; the seller views keep their own layout.
-  const fieldPart = themed ? { "data-checkout-part": "field" } : {};
+  const fieldPart = themed ? { "data-store-part": "field" } : {};
   // Themed, the two columns are one field of the group, so its separator and padding stay one per row.
   const pair = (fields: ReactNode) => themed
-    ? <div data-checkout-part="field" className="min-w-0"><div className="grid min-w-0 gap-3 sm:grid-cols-2">{fields}</div></div>
+    ? <div data-store-part="field" className="min-w-0"><div className="grid min-w-0 gap-3 sm:grid-cols-2">{fields}</div></div>
     : <div className="grid min-w-0 gap-3 sm:grid-cols-2">{fields}</div>;
-  const group = (fields: ReactNode) => themed ? <div data-checkout-part="field-group" className="flex min-w-0 flex-col gap-3">{fields}</div> : fields;
+  const group = (fields: ReactNode) => themed ? <div data-store-part="field-group" className="flex min-w-0 flex-col gap-3">{fields}</div> : fields;
   const id = useId();
   const selected = value ? getPeruDistrict(value) : null;
   const [departmentCode, setDepartmentCode] = useState<string>(selected?.departmentCode ?? "");
