@@ -40,8 +40,13 @@ export function createLogoFiles(request: Request) {
       }
     },
     async convertToJpeg(asset: LogoAsset) {
-      const fitted = await fitJpeg(asset.uri, asset.width, asset.height, logoJpegBounds);
-      return fitted.success ? fitted : err({ message: fitted.error.message });
+      // The device manipulator and the file read reject when a conversion fails; the boundary turns that into a Result.
+      try {
+        const fitted = await fitJpeg(asset.uri, asset.width, asset.height, logoJpegBounds);
+        return fitted.success ? fitted : err({ message: fitted.error.message });
+      } catch {
+        return err({ message: "Could not convert the logo to JPEG" });
+      }
     },
     upload: (uri: string, mimeType: string) => uploadImage(request, uri, mimeType),
   } satisfies LogoFiles & { pick: unknown };

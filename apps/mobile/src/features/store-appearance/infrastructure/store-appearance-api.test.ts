@@ -27,6 +27,8 @@ test("store appearance API maps 400 and 422 to theme and logo errors and rejects
   expect(await save(failed(400, "INVALID_STORE_APPEARANCE"))).toMatchObject({ success: false, error: { code: "INVALID_STORE_APPEARANCE" } });
   expect(await createStoreAppearanceApi(async () => err({ code: "INVALID_IMAGE" as const, message: "No logo", http: { status: 422, body: { code: "INVALID_IMAGE", error: "No logo" } } })).save(body))
     .toMatchObject({ success: false, error: { code: "INVALID_IMAGE" } });
+  expect(await createStoreAppearanceApi(async () => err({ code: "INVALID_IMAGE" as const, message: "x", http: { status: 400, body: { code: "INVALID_IMAGE", error: "x" } } })).save(body))
+    .toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
   // A code with the wrong status is not a trustworthy answer.
   expect(await save(failed(500, "INVALID_STORE_APPEARANCE"))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
   expect(await save(failed(503, "SERVICE_UNAVAILABLE"))).toMatchObject({ success: false, error: { code: "API_ERROR" } });

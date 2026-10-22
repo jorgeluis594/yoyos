@@ -19,7 +19,7 @@ function parseResponse(raw: Result<unknown, TransportError>): Result<StoreAppear
 function saveFailure(error: TransportError): SaveStoreAppearanceError {
   const code = error.http?.body && typeof error.http.body === "object" && "code" in error.http.body ? error.http.body.code : undefined;
   if (code === "INVALID_STORE_APPEARANCE") return error.http?.status === 400 ? { code, message: error.message } : { code: "INVALID_RESPONSE", message: "Unexpected store appearance error" };
-  if (error.code === "INVALID_IMAGE" && error.http?.status === 422) return { code: "INVALID_IMAGE", message: error.message };
+  if (error.code === "INVALID_IMAGE") return error.http?.status === 422 ? { code: "INVALID_IMAGE", message: error.message } : { code: "INVALID_RESPONSE", message: "Unexpected store appearance error" };
   return { code: error.code, message: error.message };
 }
 

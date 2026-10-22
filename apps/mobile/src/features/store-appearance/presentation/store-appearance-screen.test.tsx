@@ -11,6 +11,7 @@ const mockDispatch = jest.fn();
 jest.mock("expo-router", () => ({ useNavigation: () => ({ dispatch: mockDispatch }) }));
 jest.mock("expo-router/react-navigation", () => ({ usePreventRemove: (...args: unknown[]) => mockUsePreventRemove(...args) }));
 jest.mock("@mobile/components/ui/show-confirmation", () => ({ showConfirmation: (...args: unknown[]) => mockShowConfirmation(...args) }));
+jest.mock("@mobile/shared/infrastructure/jpeg-fitting", () => ({ fitJpeg: jest.fn() }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@mobile/features/store-appearance/composition", () => ({
   storeAppearance: { loadStoreAppearance: jest.fn(), saveStoreAppearance: jest.fn(), uploadStoreLogo: jest.fn(), pickLogo: jest.fn() },
@@ -50,6 +51,7 @@ async function pickFromGallery(screen: ReturnType<typeof render>, label: string)
 test("shows the save bar with Cambios sin guardar after choosing a theme and hides it after saving", async () => {
   const screen = await open(ok(readable("classic")));
   expect(screen.queryByText("Cambios sin guardar")).toBeNull();
+  expect(screen.queryByText("Guardar cambios")).toBeNull();
   saveAppearance.mockResolvedValue(ok(readable("suave")));
   choose(screen, "Suave");
   expect(screen.getByText("Cambios sin guardar")).toBeTruthy();
@@ -57,6 +59,8 @@ test("shows the save bar with Cambios sin guardar after choosing a theme and hid
   fireEvent.press(screen.getByText("Guardar cambios"));
   await screen.findByText("Apariencia actualizada");
   expect(screen.queryByText("Cambios sin guardar")).toBeNull();
+  expect(screen.queryByText("Guardar cambios")).toBeNull();
+  expect(screen.queryByText("Descartar")).toBeNull();
   expect(mockUsePreventRemove).toHaveBeenLastCalledWith(false, expect.any(Function));
 });
 
@@ -136,6 +140,7 @@ test("starts on Clásico without logo with the notice and only Guardar cambios f
   await screen.findByText("Apariencia actualizada");
   expect(saveAppearance).toHaveBeenCalledWith({ theme: "classic", logoImageId: null });
   expect(screen.queryByText(/No pudimos usar tu apariencia guardada/)).toBeNull();
+  expect(screen.queryByText("Guardar cambios")).toBeNull();
 });
 
 test("keeps an unresolved stored logo id when saving only a theme change", async () => {
@@ -164,12 +169,15 @@ test("Quitar logo removes the logo from the draft and the save sends no logo id"
 
 test("disables Guardar cambios while the logo uploads and keeps the theme list usable", async () => {
   const screen = await open(ok(readable("classic")));
+  choose(screen, "Noche");
   pickLogo.mockResolvedValue(ok(asset));
   let finish: (value: Awaited<ReturnType<typeof uploadLogo>>) => void = () => undefined;
   uploadLogo.mockReturnValue(new Promise(resolve => { finish = resolve; }));
   await pickFromGallery(screen, "Subir logo");
   expect(screen.getByText("Subiendo logo…")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Guardar cambios" }).props.accessibilityState).toMatchObject({ disabled: true });
+  expect(screen.getByRole("button", { name: "Descartar" }).props.accessibilityState).toMatchObject({ disabled: true });
+  choose(screen, "Suave");
   choose(screen, "Noche");
   expect(screen.getByRole("radio", { name: /^Noche\./ }).props.accessibilityState).toMatchObject({ checked: true });
   await act(async () => finish(ok({ id: newLogoId, url: "https://img.test/new.png" })));
@@ -264,4 +272,40 @@ test("shows every new text in Portuguese", async () => {
   expect(screen.getByText("Salvar alterações")).toBeTruthy();
   expect(screen.getByText("Sem logo")).toBeTruthy();
   expect(screen.getByText(/Não foi possível usar sua aparência salva/)).toBeTruthy();
+});
+
+test("does not announce Subiendo logo… or lock saving while the picker is open or cancelled", async () => {
+  const screen = await open(ok(readable("classic")));
+  choose(screen, "Noche");
+  let finish: (value: Awaited<ReturnType<typeof pickLogo>>) => void = () => undefined;
+  pickLogo.mockReturnValue(new Promise(resolve => { finish = resolve; }));
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
+  fireEvent.press(screen.getByText("Subir logo"));
+  const gallery = alert.mock.calls[0][2]?.find(button => button.text === "Elegir de galería");
+  alert.mockRestore();
+  await act(async () => { gallery?.onPress?.(); });
+  expect(screen.queryByText("Subiendo logo…")).toBeNull();
+  expect(screen.getByRole("button", { name: "Guardar cambios" }).props.accessibilityState).toMatchObject({ disabled: false });
+  await act(async () => finish(ok(null)));
+  expect(uploadLogo).not.toHaveBeenCalled();
+});
+
+test("a conversion that throws ends in No pudimos subir el logo with Reintentar and unlocks saving", async () => {
+  // The real operations run on top of fakes for the device pieces, so the failure travels the whole path.
+  const { createStoreAppearanceOperations } = jest.requireActual("@mobile/features/store-appearance/application/store-appearance");
+  const { createLogoFiles } = jest.requireActual("@mobile/features/store-appearance/infrastructure/logo-upload");
+  const fitJpeg = jest.requireMock("@mobile/shared/infrastructure/jpeg-fitting").fitJpeg as jest.Mock;
+  fitJpeg.mockRejectedValue(new Error("manipulator failed"));
+  const files = createLogoFiles(jest.fn());
+  const operations = createStoreAppearanceOperations({ api: { get: jest.fn(), save: jest.fn() }, logo: files });
+  uploadLogo.mockImplementation(operations.uploadStoreLogo);
+  const screen = await open(ok(readable("classic")));
+  choose(screen, "Noche");
+  pickLogo.mockResolvedValue(ok({ ...asset, mimeType: "image/heic", fileName: "IMG.HEIC" }));
+  await pickFromGallery(screen, "Subir logo");
+  await screen.findByText("No pudimos subir el logo. Inténtalo de nuevo.");
+  expect(screen.queryByText("Subiendo logo…")).toBeNull();
+  expect(screen.getByText("Reintentar")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Guardar cambios" }).props.accessibilityState).toMatchObject({ disabled: false });
+  expect(screen.getByRole("button", { name: "Subir logo" }).props.accessibilityState).toMatchObject({ disabled: false });
 });

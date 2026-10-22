@@ -59,3 +59,9 @@ test("uploads with the original MIME type through the image API", async () => {
   await createLogoFiles(request).upload("file:///logo.png", "image/png");
   expect(uploadImage).toHaveBeenCalledWith(request, "file:///logo.png", "image/png");
 });
+
+test("a conversion that throws becomes an error result instead of a rejection", async () => {
+  jest.mocked(fitJpeg).mockRejectedValue(new Error("manipulator failed"));
+  expect(await createLogoFiles(request).convertToJpeg({ uri: "file:///a.heic", width: 4000, height: 3000, fileSize: 9_000_000, source: "camera" }))
+    .toMatchObject({ success: false, error: { message: expect.any(String) } });
+});

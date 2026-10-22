@@ -15,7 +15,7 @@ export function SaveBar({ changed, uploading, save, onDiscard, onSave }: Readonl
     {changed ? <ThemedText type="smallBold">{t("appearanceUnsaved")}</ThemedText> : null}
     {failure ? <ThemedText type="small" accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ color: theme.error }}>{t(failure)}</ThemedText> : null}
     <View style={styles.actions}>
-      {changed ? <View style={styles.action}><Button variant="secondary" disabled={saving} onPress={onDiscard}>{t("discard")}</Button></View> : null}
+      {changed ? <View style={styles.action}><Button variant="secondary" disabled={saving || uploading} onPress={onDiscard}>{t("discard")}</Button></View> : null}
       <View style={styles.action}><Button disabled={saving || uploading} onPress={onSave}>{t(saving ? "appearanceSaving" : failure === "appearanceSaveError" ? "retry" : "appearanceSave")}</Button></View>
     </View>
   </View>;

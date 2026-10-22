@@ -12,7 +12,7 @@ const descriptionKey = { classic: "appearanceThemeClassic", boutique: "appearanc
 /** A static sample with the theme's colors, rounding, button and thumbnail shape; the system font, since the app bundles no theme fonts. */
 function Sample({ sample }: Readonly<{ sample: ThemeSample }>) {
   return <View accessibilityElementsHidden importantForAccessibility="no-hide-descendants" style={[styles.sample, { backgroundColor: sample.background }]}>
-    {sample.gradient ? <View style={StyleSheet.absoluteFill}>{sample.gradient.map(color => <View key={color} style={[styles.band, { backgroundColor: color }]} />)}</View> : null}
+    {sample.gradient ? <View style={StyleSheet.absoluteFill}>{sample.gradient.map((color, index) => <View key={index} style={[styles.band, { backgroundColor: color }]} />)}</View> : null}
     <View style={[styles.card, { backgroundColor: sample.card, borderColor: sample.border, borderWidth: sample.borderWidth, borderRadius: Math.min(sample.cardRadius, 14) }]}>
       <View style={{ width: 24, aspectRatio: sample.thumbnailAspect, borderRadius: Math.min(sample.thumbnailRadius, 12), backgroundColor: sample.thumbnail }} />
       <View style={{ width: 28, height: 10, borderRadius: sample.buttonRadius, backgroundColor: sample.primary }} />

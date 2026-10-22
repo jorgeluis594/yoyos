@@ -24,6 +24,7 @@ export function useStoreAppearance() {
   const [save, setSave] = useState<SaveState>(idle);
   const [attempt, setAttempt] = useState(0);
   const mounted = useRef(true);
+  const picking = useRef(false);
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; }; }, []);
 
   useEffect(() => {
@@ -39,7 +40,6 @@ export function useStoreAppearance() {
     return () => { current = false; };
   }, [attempt]);
 
-  const ready = load.status === "ready";
   const changed = load.status === "ready" && !sameDraft(draft, load.baseline);
   const uploading = logo.kind === "uploading";
   const saving = save.kind === "saving";
@@ -56,8 +56,12 @@ export function useStoreAppearance() {
     setSave(idle);
   }
   async function chooseLogo(source: LogoAsset["source"]): Promise<"permission_denied" | undefined> {
-    setLogo({ kind: "uploading" });
+    if (picking.current) return undefined;
+    // The picker is not an upload: «Subiendo logo…» starts once an asset was picked.
+    picking.current = true;
+    setLogo(idle);
     const picked = await storeAppearance.pickLogo(source);
+    picking.current = false;
     if (!mounted.current) return undefined;
     if (!picked.success) {
       const denied = picked.error.code === "CAMERA_PERMISSION_DENIED";
@@ -71,14 +75,14 @@ export function useStoreAppearance() {
 
   return {
     load, draft, logo, save, changed, uploading, saving,
-    /** Opening and leaving at the unknown-theme starting point is not unsaved work, but saving it as is is allowed. */
-    showBar: ready,
+    /** Only with unsaved changes, or at the unknown-theme starting point (saving it as is is allowed); a successful save hides it. */
+    showBar: changed || (load.status === "ready" && load.unknownTheme),
     retryLoad: () => { setLoad({ status: "loading" }); setAttempt(value => value + 1); },
     chooseTheme: (theme: StoreThemeId) => { if (!saving) edit({ ...draft, theme }); },
     removeLogo: () => { if (!saving && !uploading) { edit({ ...draft, logo: null }); setLogo(idle); } },
     chooseLogo,
     retryLogo: () => { if (logo.kind === "failed") void (logo.again.kind === "asset" ? upload(logo.again.asset) : chooseLogo(logo.again.source)); },
-    discard: () => { if (load.status === "ready" && !saving) { setDraft(load.baseline); setLogo(idle); setSave(idle); } },
+    discard: () => { if (load.status === "ready" && !saving && !uploading) { setDraft(load.baseline); setLogo(idle); setSave(idle); } },
     async submit() {
       if (load.status !== "ready" || saving || uploading) return;
       setSave({ kind: "saving" });
