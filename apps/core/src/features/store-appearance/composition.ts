@@ -51,11 +51,8 @@ async function paymentImageUrl(imageId: string | null): Promise<string | null> {
 
 async function paymentMethods(companyId: CompanyId) {
   const settings = await companyPaymentSettings.get(companyId);
-  if (!settings.success) {
-    log.error({ event: "unable_to_load_store_appearance", companyId, operation: "get_payment_methods", errorCode: "PERSISTENCE_UNAVAILABLE", err: settings.error },
-      "unable_to_load_store_appearance");
-    return { success: false as const, error: { code: "PERSISTENCE_UNAVAILABLE" as const, message: "Payment settings unavailable" } };
-  }
+  // The payment settings repository already logs its own failures, so none is logged here.
+  if (!settings.success) return { success: false as const, error: { code: "PERSISTENCE_UNAVAILABLE" as const, message: "Payment settings unavailable" } };
   const methods = await Promise.all(settings.data.map(async (item): Promise<PreviewPaymentMethod> => {
     const url = await paymentImageUrl(item.imageId);
     return item.method === "digital_wallet"

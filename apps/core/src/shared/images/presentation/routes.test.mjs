@@ -155,9 +155,14 @@ test("authenticated image routes validate uploads and isolate companies", async 
     probeConfigFails = true;
     await expectError(await request("/probe/images", { method: "POST", body: form(png) }), 500, "INTERNAL_ERROR");
     expect(uploaded).toHaveLength(0);
+    const { log } = await import("../../infrastructure/logger.ts");
+    const info = vi.spyOn(log, "info");
     const created = await request("/api/images", { method: "POST", body: form(png) }, owner);
     expect(created.status, await created.clone().text()).toBe(201);
     const image = await created.json();
+    expect(info).toHaveBeenCalledWith({ event: "image_uploaded", companyId: companies[0], imageId: image.id, mimeType: "image/png",
+      bytes: png.length, width: 16, height: 16 }, "image_uploaded");
+    info.mockRestore();
     expect(image.id).toMatch(/^[0-9a-f-]{36}$/);
     expect(image.url).toMatch(/^https:\/\/images\.example\.test\/[0-9a-f-]{36}$/);
     expect(uploaded).toHaveLength(1);

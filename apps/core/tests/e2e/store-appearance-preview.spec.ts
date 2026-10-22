@@ -12,10 +12,12 @@ const update = (overrides: object = {}) => ({
 
 const ready = (scope: Page | FrameLocator) => scope.locator("html[data-store-preview=ready]");
 
+/** The page paints nothing until the first draft message, so the helper waits for ready and then sends one. */
 async function openPreview(page: Page) {
   await page.goto(previewPath);
-  await browserExpect(page.getByText("Vista previa · Datos de ejemplo")).toBeVisible();
   await browserExpect(ready(page)).toBeAttached();
+  await post(page, update());
+  await browserExpect(page.getByText("Vista previa · Datos de ejemplo")).toBeVisible();
 }
 const primary = (page: Page) => page.getByRole("button", { name: "Confirmar pedido" }).evaluate((node) => getComputedStyle(node).backgroundColor);
 const post = (page: Page, data: unknown, origin?: string) => page.evaluate(([message, from]) =>
@@ -37,6 +39,18 @@ test("redirects to the login page without a session", async ({ request }) => {
   const response = await request.get(previewPath, { maxRedirects: 0 });
   expect(response.status()).toBe(302);
   expect(response.headers().location).toBe("/login");
+});
+
+test("the preview page stays blank until the first draft message", async ({ page }) => {
+  await withCompany(async () => {
+    await page.goto(previewPath);
+    await browserExpect(ready(page)).toBeAttached();
+    await browserExpect(page.getByText("Vista previa · Datos de ejemplo")).toHaveCount(0);
+    await browserExpect(page.getByRole("button")).toHaveCount(0);
+    await browserExpect(page.locator("[data-store-theme]")).toHaveCount(0);
+    await post(page, update());
+    await browserExpect(page.getByText("Vista previa · Datos de ejemplo")).toBeVisible();
+  }, page);
 });
 
 test("shows the checkout with sample data and labelled sample payment methods", async ({ page }) => {
@@ -179,11 +193,16 @@ test("embedded at 390 px the preview activates the phone breakpoints and cannot 
       document.body.append(frame);
     }, previewPath);
     const preview = page.frameLocator("#preview");
+    await browserExpect(ready(preview)).toBeAttached();
+    await page.evaluate(() => {
+      const frame = document.querySelector<HTMLIFrameElement>("#preview")!;
+      frame.contentWindow!.postMessage({ type: "store-appearance:update", state: "review",
+        appearance: { logoUrl: null, theme: "boutique" } }, window.location.origin);
+    });
     await browserExpect(preview.getByText("Vista previa · Datos de ejemplo")).toBeVisible();
     const viewport = await page.locator("#preview").evaluate((frame: HTMLIFrameElement) => ({
       width: frame.contentWindow!.innerWidth, phone: frame.contentWindow!.matchMedia("(max-width: 767px)").matches }));
     expect(viewport).toEqual({ width: 390, phone: true });
-    await browserExpect(ready(preview)).toBeAttached();
     await page.evaluate(() => {
       const frame = document.querySelector<HTMLIFrameElement>("#preview")!;
       frame.contentWindow!.postMessage({ type: "store-appearance:update", state: "payment",

@@ -60,7 +60,7 @@ function boundaryPairs(theme: StoreThemeDefinition): Pair[] {
   return pairs;
 }
 
-describe("checkout themes", () => {
+describe("store themes", () => {
   test("defines the five themes in the order Clásico, Boutique, Antojo, Suave, Noche with Clásico as default", () => {
     expect(storeThemeIds).toEqual(["classic", "boutique", "antojo", "suave", "noche"]);
     expect(themes.map((theme) => theme.name)).toEqual(["Clásico", "Boutique", "Antojo", "Suave", "Noche"]);
