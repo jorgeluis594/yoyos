@@ -6,14 +6,21 @@
  */
 
 /* Shadcn parts */
-/* Only the main button takes the theme's size, border and shadow; the other variants keep their own look and take the theme's shape and font. */
+/*
+ * Only the main button takes the theme's size, border and shadow; the other variants keep their own look and take the theme's shape and font.
+ * Sizes (button and field height, field padding) belong to the checkout: the catalog keeps the size and spacing it had before themes
+ * and takes only colors, borders, rounding and fonts, so those rules skip [data-store-surface="catalog"].
+ */
 [data-store-theme] [data-slot="button"] {
   border-radius: var(--store-radius-button);
   font-family: var(--store-font-button);
 }
 
-[data-store-theme] [data-slot="button"][data-variant="default"] {
+[data-store-theme]:not([data-store-surface="catalog"]) [data-slot="button"][data-variant="default"] {
   height: var(--store-button-height);
+}
+
+[data-store-theme] [data-slot="button"][data-variant="default"] {
   border: var(--store-button-border);
   box-shadow: var(--store-button-shadow);
   font-size: var(--store-text-button);
@@ -22,10 +29,13 @@
   text-transform: var(--store-case-button);
 }
 
-[data-store-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"]) {
+[data-store-theme]:not([data-store-surface="catalog"]) :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"]) {
   height: var(--store-input-height);
   min-height: var(--store-input-height);
   padding-inline: var(--store-input-padding-x);
+}
+
+[data-store-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"]) {
   border: var(--store-input-border);
   border-radius: var(--store-radius-input);
   box-shadow: var(--store-input-shadow);
