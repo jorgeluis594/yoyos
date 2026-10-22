@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import pino from "pino";
 
-type OperationContext = { operation?: "create_order" | "create_quotation" | "enable_checkout" | "get_checkout" | "confirm_checkout" | "get_checkout_appearance" | "save_checkout_appearance" | "get_checkout_preview" | "browse_catalog" | "get_catalog_product"; outcome?: "enabled" | "already_enabled" | "cancelled" | "unavailable" | "invalid_input" | "unauthenticated" | "technical_failure" | "pending" | "confirmed" | "already_confirmed" | "total_changed" | "rendered" | "loaded" | "saved"; orderNumber?: number; checkoutAppearance?: "default" | "custom" | "fallback"; checkoutTheme?: "classic" | "boutique" | "antojo" | "suave" | "noche" };
+type OperationContext = { operation?: "create_order" | "create_quotation" | "enable_checkout" | "get_checkout" | "confirm_checkout" | "get_store_appearance" | "save_store_appearance" | "get_store_preview" | "get_catalog_preview_cards" | "set_catalog_publication" | "browse_catalog" | "get_catalog_product"; outcome?: "enabled" | "already_enabled" | "cancelled" | "unavailable" | "invalid_input" | "unauthenticated" | "technical_failure" | "pending" | "confirmed" | "already_confirmed" | "total_changed" | "rendered" | "loaded" | "saved"; orderNumber?: number; storeAppearance?: "default" | "custom" | "fallback"; storeTheme?: "classic" | "boutique" | "antojo" | "suave" | "noche" };
 type LogContext = { requestId: string; companyId?: string } & OperationContext;
 type LoggingState = { context: AsyncLocalStorage<LogContext>; log?: pino.Logger };
 // Express loads source modules; the React Router server build bundles them.
@@ -56,9 +56,11 @@ export function requestLogging(request: Request, response: Response, next: NextF
   const started = performance.now();
   const pathname = request.path;
   const checkout = /^\/checkout(?:\/|$)/.test(pathname);
-  const preview = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/checkout-appearance\/preview\/?(?:\.data)?$/.test(pathname);
+  const preview = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/store-appearance\/preview\/?(?:\.data)?$/.test(pathname);
+  const catalogCards = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/store-appearance\/catalog-cards\/?(?:\.data)?$/.test(pathname);
   const enable = /^\/api\/orders\/[^/]+\/checkout-link\/?$/.test(pathname);
-  const appearanceEditor = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/checkout-appearance(?:\.data)?\/?$/.test(pathname);
+  const appearanceEditor = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/store-appearance(?:\.data)?\/?$/.test(pathname);
+  const legacyAppearanceEditor = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/checkout-appearance(?:\.data)?\/?$/.test(pathname);
   const operation = checkout ? request.method === "POST" ? "confirm_checkout" : "get_checkout" : enable ? "enable_checkout" : undefined;
   response.set("x-request-id", requestId);
   // prefinish retains the agent's request context; finish runs after it is gone.
@@ -69,8 +71,8 @@ export function requestLogging(request: Request, response: Response, next: NextF
     log.info({
       event: "http_request_completed",
       method: request.method,
-      route: checkout ? "/checkout/:companyId/:orderId" : preview ? "/settings/checkout-appearance/preview" : enable ? "/api/orders/:orderId/checkout-link"
-        : appearanceEditor ? "/settings/checkout-appearance"
+      route: checkout ? "/checkout/:companyId/:orderId" : preview ? "/settings/store-appearance/preview" : catalogCards ? "/settings/store-appearance/catalog-cards" : enable ? "/api/orders/:orderId/checkout-link"
+        : appearanceEditor ? "/settings/store-appearance" : legacyAppearanceEditor ? "/settings/checkout-appearance"
         : request.route?.path ? `${request.baseUrl}${request.route.path}` : "unmatched",
       statusCode: response.statusCode,
       durationMs: Math.round(performance.now() - started),

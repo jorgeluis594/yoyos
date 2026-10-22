@@ -1,0 +1,402 @@
+/*
+ * Maps the variables written by `storeThemeCss` onto the checkout parts. Rules are unlayered so they win over utilities, and every
+ * selector sits under [data-store-theme] so nothing leaks outside a themed checkout. The hooks are the shadcn `data-slot` attributes and
+ * the closed list of `data-store-part` attributes (see docs/checkout.md for the themes). This file never sets content,
+ * order or visibility.
+ */
+
+/* Shadcn parts */
+/*
+ * Only the main button takes the theme's size, border and shadow; the other variants keep their own look and take the theme's shape and font.
+ * Sizes (button and field height, field padding) belong to the checkout: the catalog keeps the size and spacing it had before themes
+ * and takes only colors, borders, rounding and fonts, so those rules skip [data-store-surface="catalog"].
+ */
+[data-store-theme] [data-slot="button"] {
+  border-radius: var(--store-radius-button);
+  font-family: var(--store-font-button);
+}
+
+[data-store-theme]:not([data-store-surface="catalog"]) [data-slot="button"][data-variant="default"] {
+  height: var(--store-button-height);
+}
+
+[data-store-theme] [data-slot="button"][data-variant="default"] {
+  border: var(--store-button-border);
+  box-shadow: var(--store-button-shadow);
+  font-size: var(--store-text-button);
+  font-weight: var(--store-weight-button);
+  letter-spacing: var(--store-tracking-button);
+  text-transform: var(--store-case-button);
+}
+
+[data-store-theme]:not([data-store-surface="catalog"]) :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"]) {
+  height: var(--store-input-height);
+  min-height: var(--store-input-height);
+  padding-inline: var(--store-input-padding-x);
+}
+
+[data-store-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"]) {
+  border: var(--store-input-border);
+  border-radius: var(--store-radius-input);
+  box-shadow: var(--store-input-shadow);
+  background-color: var(--input-surface);
+  color: var(--foreground);
+  font-family: var(--store-font-body);
+  /* 16 px keeps iOS from zooming into a focused field. */
+  font-size: 16px;
+}
+
+[data-store-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"])::placeholder {
+  color: var(--placeholder);
+}
+
+/* A choice card is a label that wraps a field; only plain field labels take the label style. */
+[data-store-theme] :is([data-slot="field-label"], [data-slot="label"]):not(:has(> [data-slot="field"])) {
+  color: var(--label);
+  font-family: var(--store-font-body);
+  font-size: var(--store-text-label);
+  font-weight: var(--store-weight-label);
+  letter-spacing: var(--store-tracking-label);
+  text-transform: var(--store-case-label);
+}
+
+[data-store-theme] [data-slot="radio-group-item"] {
+  border-color: var(--control);
+  background-color: var(--input-surface);
+}
+
+[data-store-theme] [data-slot="radio-group-item"]:is([aria-checked="true"], [data-state="checked"], [data-checked]) {
+  border-color: var(--selected);
+  background-color: var(--input-surface);
+}
+
+[data-store-theme] [data-slot="radio-group-item"] [data-slot="radio-group-indicator"] > span {
+  background-color: var(--accent-strong);
+}
+
+/*
+ * Keyboard focus and invalid fields. The unlayered rules above replace the utilities' ring and border, so both states are declared here
+ * with the theme's ring and destructive tokens. A native radio inside an option or payment chip leaves the ring to its parent, so one focus
+ * shows one ring.
+ */
+[data-store-theme] :is([data-slot="button"], [data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="radio-group-item"]:not(input)):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+[data-store-theme] input[data-slot="radio-group-item"]:focus-visible {
+  outline: none;
+}
+
+[data-store-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"])[aria-invalid="true"] {
+  border-color: var(--destructive);
+  /* Themes without a field border (Boutique, Noche) show the state as an underline. */
+  box-shadow: inset 0 -2px 0 var(--destructive);
+}
+
+/* Header */
+[data-store-theme] [data-store-part="header"] {
+  display: flex;
+  padding-block: var(--store-header-padding-y);
+  padding-inline: var(--store-header-padding-x);
+  border-bottom: var(--store-header-border);
+  margin-bottom: var(--store-header-margin-bottom);
+}
+
+[data-store-theme] [data-store-part="header-brand"] {
+  flex-direction: var(--store-logo-direction);
+  align-items: center;
+  text-align: var(--store-logo-text-align);
+  font-family: var(--store-font-heading);
+  font-size: var(--store-text-store);
+  font-weight: var(--store-weight-heading);
+  letter-spacing: var(--store-tracking-heading);
+  line-height: 1.15;
+}
+
+[data-store-theme] [data-store-part="order-title"] {
+  font-family: var(--store-font-heading);
+  font-size: var(--store-text-order-title);
+  font-weight: var(--store-weight-heading);
+  letter-spacing: var(--store-tracking-heading);
+  color: var(--heading);
+}
+
+/* Sections */
+[data-store-theme] [data-store-part="card"] {
+  padding: var(--store-card-padding);
+  border: var(--store-card-border);
+  border-top: var(--store-card-border-top);
+  border-radius: var(--store-radius-card);
+  box-shadow: var(--store-card-shadow);
+  background-color: var(--card);
+  color: var(--card-foreground);
+}
+
+[data-store-theme] [data-store-part="section-title"] {
+  margin-bottom: var(--store-title-gap);
+  color: var(--heading);
+  font-family: var(--store-font-heading);
+  font-size: var(--store-text-section-title);
+  font-weight: var(--store-weight-heading);
+  letter-spacing: var(--store-tracking-heading);
+}
+
+/* Product rows */
+[data-store-theme] [data-store-part="product-row"] {
+  padding-bottom: var(--store-row-separator-padding);
+  border-bottom: var(--store-row-separator);
+}
+
+[data-store-theme] [data-store-part="product-row"] + [data-store-part="product-row"] {
+  margin-top: var(--store-row-gap);
+}
+
+[data-store-theme] [data-store-part="product-row"]:last-child {
+  padding-bottom: 0;
+  border-bottom: none;
+}
+
+[data-store-theme] [data-store-part="product-name"] {
+  font-family: var(--store-font-product-name);
+  font-size: var(--store-text-product-name);
+  font-weight: var(--store-weight-product-name);
+  line-height: 1.25;
+}
+
+[data-store-theme] [data-store-part="product-meta"] {
+  color: var(--muted-foreground);
+  font-size: var(--store-text-small);
+}
+
+[data-store-theme] [data-store-part="price"] {
+  font-family: var(--store-font-body);
+  font-size: var(--store-text-price);
+  font-weight: var(--store-weight-price);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+/*
+ * Buyer fields: a bordered group in Noche, plain stacked fields elsewhere. The group does not clip: where fields touch its edges
+ * (field padding 0) the keyboard focus ring would lose its sides, and its fields paint no background that could cover the rounded border.
+ */
+[data-store-theme] [data-store-part="field-group"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--store-field-gap);
+  border: var(--store-group-border);
+  border-radius: var(--store-radius-group);
+  background-color: var(--store-group-surface);
+}
+
+[data-store-theme] [data-store-part="field"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--store-label-gap);
+  padding: var(--store-field-padding);
+  border-bottom: var(--store-field-separator);
+}
+
+[data-store-theme] [data-store-part="field"]:last-child {
+  border-bottom: none;
+}
+
+/* Delivery options */
+[data-store-theme] [data-store-part="option-group"] {
+  display: flex;
+  flex-direction: column;
+  gap: var(--store-option-gap);
+  border: var(--store-group-border);
+  border-radius: var(--store-radius-group);
+  background-color: var(--store-group-surface);
+  overflow: hidden;
+}
+
+[data-store-theme] [data-store-part="option"] {
+  padding: var(--store-option-padding);
+  border: var(--store-option-border);
+  border-bottom: var(--store-option-separator);
+  border-radius: var(--store-radius-option);
+  background-color: var(--store-option-surface);
+  font-size: var(--store-text-option);
+  font-weight: var(--store-weight-strong);
+}
+
+[data-store-theme] [data-store-part="option"]:last-child {
+  border-bottom: var(--store-option-separator-last);
+}
+
+[data-store-theme] [data-store-part="option"]:is([data-state="checked"], [aria-checked="true"], :has([aria-checked="true"], :checked)) {
+  border-color: var(--store-selected-border);
+  background-color: var(--selected-surface);
+  box-shadow: var(--store-selected-shadow);
+  outline: var(--store-selected-outline);
+  outline-offset: -2px;
+  color: var(--foreground);
+}
+
+/* Inset: the option group clips whatever is drawn outside it. */
+[data-store-theme] [data-store-part="option"]:has(:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: -2px;
+}
+
+[data-store-theme] [data-store-part="option-cost"] {
+  font-family: var(--store-font-body);
+  font-size: var(--store-text-option);
+  font-weight: var(--store-weight-price);
+  white-space: nowrap;
+}
+
+[data-store-theme] [data-store-part="free"] {
+  color: var(--free);
+}
+
+/* Total */
+/* The label stays on one line; a long amount ("Selecciona entrega") moves under it instead of wrapping both. */
+[data-store-theme] [data-store-part="total"] {
+  flex-wrap: wrap;
+  row-gap: 4px;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: var(--store-total-separator);
+}
+
+[data-store-theme] [data-store-part="total-label"] {
+  font-family: var(--store-font-heading);
+  font-size: var(--store-text-total-label);
+  font-weight: var(--store-weight-heading);
+  white-space: nowrap;
+}
+
+[data-store-theme] [data-store-part="total-amount"] {
+  font-family: var(--store-font-body);
+  font-size: var(--store-text-total);
+  font-weight: var(--store-weight-total);
+  font-variant-numeric: tabular-nums;
+  margin-left: auto;
+  text-align: right;
+}
+
+/* Payment */
+[data-store-theme] [data-store-part="payment-method"] {
+  border: var(--store-payment-border);
+  border-radius: var(--store-radius-chip);
+  background-color: var(--store-option-surface);
+}
+
+/* Selected state of a payment method. */
+[data-store-theme] [data-store-part="payment-method"]:is([data-state="checked"], [aria-checked="true"], :has(:checked)) {
+  border-color: var(--selected);
+  background-color: var(--selected-surface);
+  box-shadow: var(--store-payment-selected-shadow);
+  outline: var(--store-payment-selected-outline);
+  outline-offset: -2px;
+  color: var(--foreground);
+}
+
+[data-store-theme] [data-store-part="payment-method"]:has(:focus-visible) {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Payment images (QR, bank cards) sit on a white plate in every theme and keep their colors. */
+[data-store-theme] [data-store-part="payment-image"] {
+  padding: 0.75rem;
+  border-radius: var(--store-radius-input);
+  background-color: #ffffff;
+}
+
+[data-store-theme] [data-store-part="status"] {
+  border-radius: var(--store-radius-card);
+}
+
+/* Catalog */
+/* Themes without a field border (Boutique, Noche) still draw the search box, in the control color that reaches 3:1 on every surface. */
+[data-store-theme] [data-store-part="catalog-search"] {
+  border: 1px solid var(--control);
+}
+
+/* The card clips its square photo with its own rounding. */
+[data-store-theme] [data-store-part="catalog-card"] {
+  overflow: hidden;
+  border: var(--store-card-border);
+  border-radius: var(--store-radius-card);
+  box-shadow: var(--store-card-shadow);
+  background-color: var(--card);
+  color: var(--card-foreground);
+}
+
+/* A framed card keeps its text off the edge; a frameless one (inset 0) keeps the text flush with the photo. */
+[data-store-theme] [data-store-part="catalog-card"] :is([data-store-part="product-name"], [data-store-part="price"]) {
+  padding-inline: var(--store-catalog-card-inset);
+}
+
+[data-store-theme] [data-store-part="catalog-card"] [data-store-part="price"] {
+  padding-bottom: var(--store-catalog-card-inset);
+}
+
+[data-store-theme] [data-store-part="catalog-card"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Card photos take the theme's photo filter; the product page photo never does. */
+[data-store-theme] [data-store-part="catalog-card-photo"] {
+  border-radius: 0;
+  background-color: var(--thumbnail-surface);
+  filter: var(--store-thumb-filter);
+}
+
+[data-store-theme] [data-store-part="catalog-product-photo"] {
+  border: var(--store-card-border);
+  border-radius: var(--store-radius-card);
+  background-color: var(--thumbnail-surface);
+}
+
+/* Opaque surface and text so the badge keeps its contrast over any photo. */
+[data-store-theme] [data-store-part="catalog-sold-out"] {
+  background-color: var(--warning-surface);
+  color: var(--warning);
+  font-family: var(--store-font-body);
+}
+
+[data-store-theme] [data-store-part="catalog-more"] {
+  border-color: var(--control);
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+[data-store-theme] [data-store-part="catalog-empty"] {
+  color: var(--muted-foreground);
+  font-family: var(--store-font-body);
+  font-size: var(--store-text-body);
+}
+
+[data-store-theme] [data-store-part="catalog-quantity"] {
+  border-color: var(--control);
+  border-radius: var(--store-radius-input);
+  background-color: var(--input-surface);
+}
+
+[data-store-theme] [data-store-part="catalog-notice"] {
+  color: var(--foreground);
+  font-family: var(--store-font-body);
+  font-size: var(--store-text-small);
+}
+
+/* The main button rule removes the lifted shadow of the floating button; a drop shadow keeps it apart from the page in every theme. */
+[data-store-theme] [data-store-part="cart-button"] {
+  filter: drop-shadow(0 4px 10px rgb(0 0 0 / 0.2));
+}
+
+[data-store-theme] [data-store-part="cart-sheet"] [role="dialog"] {
+  border-left-color: var(--border);
+  font-family: var(--store-font-body);
+  font-size: var(--store-text-body);
+}
+
+[data-store-theme] [data-store-part="cart-line"] {
+  border-color: var(--border);
+}

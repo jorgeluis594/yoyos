@@ -13,6 +13,7 @@ export default function SettingsIndex() {
     <ScrollView contentContainerStyle={styles.content}>
       <ThemedText type="title" accessibilityRole="header" style={styles.title}>{t("deliverySettingsNav")}</ThemedText>
       <ListRow title={t("deliverySettingsTitle")} onPress={() => router.push("/settings/delivery")} />
+      <ListRow title={t("appearanceTitle")} description={t("appearanceMenuDescription")} onPress={() => router.push("/settings/appearance")} />
       <ListRow title={t("catalogSettingsTitle")} description={t("catalogSettingsDescription")} onPress={() => router.push("/settings/catalog")} />
     </ScrollView>
   </SafeAreaView></ThemedView>;

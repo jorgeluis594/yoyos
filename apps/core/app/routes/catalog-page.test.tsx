@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { createRoutesStub, data } from "react-router";
+import { createRoutesStub, data, type LoaderFunctionArgs } from "react-router";
+import { ok } from "@shared/functional";
+import { catalogBrowse } from "@core/src/features/catalog/browse-composition";
+import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
 import Catalog, { ErrorBoundary } from "@core/app/routes/catalog";
-import CatalogProductPage from "@core/app/routes/catalog-product";
+import CatalogProductPage, { ErrorBoundary as ProductErrorBoundary, loader as productLoader } from "@core/app/routes/catalog-product";
 
+vi.mock("@core/src/shared/infrastructure/logger", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@core/src/shared/infrastructure/logger")>(), bindRequestOperation: vi.fn(),
+}));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const companyId = "00000000-0000-4000-8000-000000000001";
@@ -13,7 +19,7 @@ const pen = (amount: number) => ({ amount, currency: "PEN" });
 const card = (name: string, extra: object = {}) => ({ id: crypto.randomUUID(), name, imageUrl: null, price: { kind: "single", amount: pen(45) }, soldOut: false, ...extra });
 let root: Root | undefined;
 let container: HTMLDivElement;
-afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove(); localStorage.clear(); });
+afterEach(() => { vi.restoreAllMocks(); act(() => root?.unmount()); root = undefined; container.remove(); localStorage.clear(); });
 
 async function mount(path: string, routes: Parameters<typeof createRoutesStub>[0]) {
   const Stub = createRoutesStub(routes);
@@ -25,7 +31,7 @@ const button = (name: string) => [...container.querySelectorAll("button")].find(
 const shows = (text: string) => vi.waitFor(() => expect(container.textContent).toContain(text));
 
 test("catalog page shows cards with initial, «Desde» and «Agotado», and an empty search offers «Borrar búsqueda» back to the empty store", async () => {
-  const page = (q: string, items: object[] = [], hasMore = false) => ({ storeName: "Moda Lucía", logoUrl: null, items, hasMore, q, pages: 1 });
+  const page = (q: string, items: object[] = [], hasMore = false) => ({ storeName: "Moda Lucía", appearance: { logoUrl: null, theme: "classic" }, items, hasMore, q, pages: 1 });
   const loader = vi.fn(({ request }: { request: Request }) => page(new URL(request.url).searchParams.get("q") ?? ""));
   loader.mockReturnValueOnce(page("", [
     card("polo básico", { price: { kind: "from", amount: pen(45) } }), card("Casaca negra", { soldOut: true })], true));
@@ -63,7 +69,7 @@ test("a sold-out variant is not selectable and the quantity stops at the availab
   const product = { id: crypto.randomUUID(), name: "Polo básico", description: null, imageUrl: null, price: { kind: "from", amount: pen(45) }, soldOut: false,
     attributes: [{ name: "Color", values: ["Negro"] }, { name: "Talla", values: ["M", "L"] }], variants: [variant("M", 45, 3), variant("L", 49, 0)] };
   await mount(`/catalogo/${companyId}/productos/${product.id}`, [{ path: "/catalogo/:companyId/productos/:productId", Component: CatalogProductPage,
-    loader: () => ({ storeName: "Moda Lucía", logoUrl: null, product }) }]);
+    loader: () => ({ kind: "found", storeName: "Moda Lucía", appearance: { logoUrl: null, theme: "classic" }, product }) }]);
   await shows("Polo básico");
   expect(button("L · Agotado").disabled).toBe(true);
   await act(async () => button("Negro").click());
@@ -71,4 +77,30 @@ test("a sold-out variant is not selectable and the quantity stops at the availab
   for (let index = 0; index < 4; index++) await act(async () => { if (!button("Agregar uno").disabled) button("Agregar uno").click(); });
   expect(container.querySelector("output")!.textContent).toBe("3");
   expect(button("Agregar uno").disabled).toBe(true);
+});
+
+test("the product page shows Este producto ya no está disponible inside the store theme with the store name, status 404 and the request outcome unavailable", async () => {
+  vi.spyOn(catalogBrowse, "storeAppearance").mockResolvedValue({ kind: "custom", appearance: { logoUrl: null, theme: "noche" } });
+  vi.spyOn(catalogBrowse, "getProduct").mockResolvedValue(ok({ kind: "unavailable", storeName: "Moda Lucía" }));
+  const productId = crypto.randomUUID();
+  const loaded = await productLoader({ params: { companyId, productId }, request: new Request(`http://localhost/catalogo/${companyId}/productos/${productId}`) } as unknown as LoaderFunctionArgs);
+  expect(loaded).toMatchObject({ init: { status: 404 } });
+  expect(bindRequestOperation).toHaveBeenCalledWith({ outcome: "unavailable" });
+  await mount(`/catalogo/${companyId}/productos/${productId}`, [{ path: "/catalogo/:companyId/productos/:productId", Component: CatalogProductPage, ErrorBoundary: ProductErrorBoundary, loader: () => loaded }]);
+  await shows("Este producto ya no está disponible");
+  expect(container.querySelector('[data-store-theme-id="noche"]')).not.toBeNull();
+  expect(container.querySelector('[data-store-part="header"]')?.textContent).toContain("Moda Lucía");
+  expect(container.querySelector("a")?.textContent).toBe("Volver al catálogo");
+});
+
+test("Catálogo no disponible and the catalog load error render without a theme scope", async () => {
+  const fail = (status: number) => () => { throw data(null, { status }); };
+  for (const [status, text] of [[404, "Catálogo no disponible"], [503, "No pudimos cargar el catálogo. Revisa tu conexión"]] as const) {
+    await mount(`/catalogo/${companyId}/productos/${crypto.randomUUID()}`, [{ path: "/catalogo/:companyId/productos/:productId", Component: CatalogProductPage, ErrorBoundary: ProductErrorBoundary, loader: fail(status) }]);
+    await shows(text);
+    expect(container.querySelector("[data-store-theme]")).toBeNull();
+    expect(container.querySelector("style")).toBeNull();
+    act(() => root!.unmount());
+    container.remove();
+  }
 });

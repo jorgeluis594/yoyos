@@ -1,11 +1,13 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type ComponentProps } from "react";
 import { Link, useLocation } from "react-router";
 import { Minus, Plus, ShoppingBag } from "lucide-react";
 import { Alert, AlertAction, AlertDescription } from "@core/app/components/ui/alert";
+import { ProductThumbnail } from "@core/src/features/store-appearance/presentation/product-thumbnail";
 import { Button } from "@core/app/components/ui/button";
 import { Empty, EmptyHeader, EmptyTitle } from "@core/app/components/ui/empty";
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
 import { formatCurrency } from "@core/app/format-currency";
+import { cn } from "@core/app/lib/utils";
 import { emptyCart, removeLine, setLineQuantity, applyRefresh, readCart, useCatalogCart, type CatalogCart, type CatalogCartLine } from "@core/app/lib/catalog-cart-storage";
 import type { CartRefreshResponse, ContinueResponse } from "@core/app/routes/catalog-cart";
 
@@ -103,12 +105,10 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
         const issue = issues.get(line.variantId);
         const max = Math.min(maxQuantities.get(line.variantId) ?? 99, 99);
         const variant = Object.values(line.attributes).join(" · ");
-        return <li key={line.variantId} className="flex gap-3 py-3">
-          {line.imageUrl
-            ? <img src={line.imageUrl} alt="" className="size-16 shrink-0 rounded-md object-cover" />
-            : <span aria-hidden="true" className="flex size-16 shrink-0 items-center justify-center rounded-md bg-muted text-lg font-semibold text-muted-foreground">{line.productName.trim().charAt(0).toUpperCase()}</span>}
+        return <li key={line.variantId} data-store-part="cart-line" className="flex gap-3 py-3">
+          <ProductThumbnail name={line.productName} url={line.imageUrl} />
           <div className="flex min-w-0 flex-1 flex-col gap-1">
-            <p className="line-clamp-2 font-medium">{line.productName}</p>
+            <p data-store-part="product-name" className="line-clamp-2 font-medium">{line.productName}</p>
             {variant && <p className="text-sm text-muted-foreground">{variant}</p>}
             {issue && <p className="text-sm font-medium text-destructive">{issueText(issue)}</p>}
             <p className="text-sm text-muted-foreground tabular-nums">{money(line.price.amount, line.price.currency)} c/u</p>
@@ -118,7 +118,7 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
                 <span className="min-w-8 text-center tabular-nums" aria-live="polite">{line.quantity}</span>
                 <Button variant="outline" size="icon" aria-label="Agregar una unidad" disabled={line.quantity >= max} onClick={() => edit(line, setLineQuantity(cart, line.variantId, line.quantity + 1))}><Plus aria-hidden="true" /></Button>
               </div>
-              <strong className="tabular-nums">{money(Math.round(line.price.amount * 100) * line.quantity / 100, line.price.currency)}</strong>
+              <strong data-store-part="price" className="tabular-nums">{money(Math.round(line.price.amount * 100) * line.quantity / 100, line.price.currency)}</strong>
             </div>
             <Button variant="link" className="w-fit px-0" onClick={() => remove(line)}>Quitar</Button>
           </div>
@@ -135,6 +135,14 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
   </div>;
 }
 
+/** The look of the **Carrito** button: bag, label and unit count. Presentational, so the editor preview can draw it without a cart. */
+export function CatalogCartButtonFace({ units, className, ...props }: Readonly<{ units: number } & Omit<ComponentProps<typeof Button>, "children">>) {
+  const unitsText = `${units} ${units === 1 ? "unidad" : "unidades"}`;
+  return <Button data-store-part="cart-button" size="lg" className={cn("fixed right-4 bottom-4 z-40 h-12 shadow-lg", className)} aria-label={`Carrito, ${unitsText}`} {...props}>
+    <ShoppingBag aria-hidden="true" />Carrito{units > 0 && <span className="rounded-full bg-background px-2 text-xs font-semibold text-foreground tabular-nums">{units}</span>}
+  </Button>;
+}
+
 /** Fixed **Carrito** button with the unit count; opens the cart in a side sheet. Render it inside `CatalogShell`: the sheet portals next to the button so it keeps the store theme. */
 export function CatalogCartButton({ companyId }: Readonly<{ companyId: string }>) {
   const [cart] = useCatalogCart(companyId);
@@ -142,12 +150,8 @@ export function CatalogCartButton({ companyId }: Readonly<{ companyId: string }>
   const units = cart.lines.reduce((sum, line) => sum + line.quantity, 0);
   const unitsText = `${units} ${units === 1 ? "unidad" : "unidades"}`;
   return <Sheet>
-    <div ref={setHost} />
-    <SheetTrigger asChild>
-      <Button size="lg" className="fixed right-4 bottom-4 z-40 h-12 shadow-lg" aria-label={`Carrito, ${unitsText}`}>
-        <ShoppingBag aria-hidden="true" />Carrito{units > 0 && <span className="rounded-full bg-background px-2 text-xs font-semibold text-foreground tabular-nums">{units}</span>}
-      </Button>
-    </SheetTrigger>
+    <div ref={setHost} data-store-part="cart-sheet" />
+    <SheetTrigger asChild><CatalogCartButtonFace units={units} /></SheetTrigger>
     <SheetContent title="Carrito" description={unitsText} container={host}>
       <div className="flex-1 overflow-y-auto p-5">
         <CatalogCartPanel companyId={companyId} catalogPath={`/catalogo/${companyId}`} />

@@ -16,10 +16,11 @@ import { deliverySettings } from "@core/src/features/delivery-settings";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { buyerPaymentViewSchema, type BuyerPaymentView } from "@shared/contracts/orders";
-import { checkoutAppearance, parseCompanyId } from "@core/src/features/checkout-appearance";
-import { defaultCheckoutTheme } from "@core/src/features/checkout-appearance/domain/checkout-themes";
+import { storeAppearance } from "@core/src/features/store-appearance/composition";
+import { parseCompanyId } from "@core/src/features/store-appearance/domain/store-appearance";
+import { defaultStoreTheme } from "@shared/store-themes";
 import type { ColorSchemeHandle } from "@core/app/color-scheme";
-import { publicCheckoutAppearanceSchema, type PublicCheckoutAppearance } from "@core/src/features/checkout-appearance/presentation/checkout-appearance-schemas";
+import { publicStoreAppearanceSchema, type PublicStoreAppearance } from "@core/src/features/store-appearance/presentation/store-appearance-schemas";
 import { clearCartForOrder } from "@core/app/lib/catalog-cart-storage";
 import { checkoutBuyerSchema, checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 
@@ -33,7 +34,7 @@ export const handle = { colorScheme: (data: unknown) => (data as Partial<PageDat
 export const meta = () => [{ title: "Revisa tu pedido" }, { name: "robots", content: "noindex, nofollow" }];
 const unavailable = "Enlace no disponible";
 const retry = "No se pudo completar la solicitud. Inténtalo de nuevo.";
-type PageData = { checkout: PublicCheckoutResponse | null; payment?: BuyerPaymentView; appearance?: PublicCheckoutAppearance | null; deliveryOptions?: CheckoutDeliveryOptions; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
+type PageData = { checkout: PublicCheckoutResponse | null; payment?: BuyerPaymentView; appearance?: PublicStoreAppearance | null; deliveryOptions?: CheckoutDeliveryOptions; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
 const response = (value: PageData, status = 200) => data(value, { status, headers: privacyHeaders });
 
 function serialize({ checkout, photos }: CheckoutPage): PublicCheckoutResponse {
@@ -49,20 +50,20 @@ function serialize({ checkout, photos }: CheckoutPage): PublicCheckoutResponse {
 }
 
 /** The brand is decorative: any failure reading it falls back to the Yoyos look and never blocks the order. */
-async function loadAppearance(companyId: string): Promise<PublicCheckoutAppearance | null> {
+async function loadAppearance(companyId: string): Promise<PublicStoreAppearance | null> {
   const id = parseCompanyId(companyId);
   if (!id.success) {
-    log.error({ event: "order_checkout_appearance_failed", errorCode: id.error.code }, "Checkout appearance unavailable");
-    bindRequestOperation({ checkoutAppearance: "fallback", checkoutTheme: defaultCheckoutTheme });
+    log.error({ event: "order_store_appearance_failed", errorCode: id.error.code }, "Checkout appearance unavailable");
+    bindRequestOperation({ storeAppearance: "fallback", storeTheme: defaultStoreTheme });
     return null;
   }
   let kind: "default" | "custom" | "fallback";
-  let appearance: PublicCheckoutAppearance | null = null;
+  let appearance: PublicStoreAppearance | null = null;
   try {
-    const result = await checkoutAppearance.getPublic(id.data);
+    const result = await storeAppearance.getPublic(id.data);
     kind = result.kind;
     if (result.kind === "custom") {
-      const parsed = publicCheckoutAppearanceSchema.safeParse(result.appearance);
+      const parsed = publicStoreAppearanceSchema.safeParse(result.appearance);
       if (parsed.success) appearance = parsed.data;
       else {
         kind = "fallback";
@@ -71,9 +72,9 @@ async function loadAppearance(companyId: string): Promise<PublicCheckoutAppearan
     }
   } catch (cause) {
     kind = "fallback";
-    log.error({ event: "order_checkout_appearance_failed", err: cause }, "Checkout appearance unavailable");
+    log.error({ event: "order_store_appearance_failed", err: cause }, "Checkout appearance unavailable");
   }
-  bindRequestOperation({ checkoutAppearance: kind, checkoutTheme: appearance?.theme ?? defaultCheckoutTheme });
+  bindRequestOperation({ storeAppearance: kind, storeTheme: appearance?.theme ?? defaultStoreTheme });
   return appearance;
 }
 
