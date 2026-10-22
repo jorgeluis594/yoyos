@@ -59,7 +59,7 @@ The home is, in order: `#inicio` (hero, the only H1), the value strip (three ite
 
 - Bracketed uppercase values are placeholders kept visible until filled: `[FECHA DE PUBLICACIÓN]`, `[RAZÓN SOCIAL]`, `[RUC]`, `[DOMICILIO]`, `[CORREO]`, `[UBICACIÓN DEL SERVIDOR DEL CRM]`, `[PROVEEDOR DE ALOJAMIENTO DE LA WEB]`, `[PAÍSES DE LOS SERVIDORES]`, `[NOMBRE DEL BANCO DE DATOS]`, `[CÓDIGO DE INSCRIPCIÓN]`.
 - `[CORREO]` is replaced by `PUBLIC_CONTACT_EMAIL` when set; the WhatsApp number shown is `PUBLIC_PHONE_DISPLAY`.
-- `/privacidad` is not published in production until the founder's final review and with every placeholder filled. The deployment task (Todoist 6hphXQVM879x2R2V) owns that gate.
+- `/privacidad` is published in production with its placeholders still visible (founder decision, 2026-10-22); they are filled after the founder's final review.
 - Any change to the policy text changes `consent_text_version` of the demo form.
 - Choosing an analytics tool that uses cookies requires a consent notice and an update of section 10 («Cookies y analítica») of the policy.
 
@@ -70,7 +70,7 @@ Every contact value, URL and switch comes from `PUBLIC_*` variables, parsed once
 | Variable | Required | When empty | Rule and use |
 | --- | --- | --- | --- |
 | `PUBLIC_SITE_URL` | Yes | — | Absolute `https` origin with no path, query or fragment; a trailing slash is removed. `http://localhost` is accepted only in `astro dev`. Canonical, hreflang, Open Graph, JSON-LD, sitemap and robots. |
-| `PUBLIC_INDEXING` | No | `false` | Only `true` or `false`. Reason for the default: an unconfigured build is never indexable. The value for `landing.yoyos.lat` is decided in the deployment task (Todoist 6hphXQVM879x2R2V). |
+| `PUBLIC_INDEXING` | No | `false` | Only `true` or `false`. Reason for the default: an unconfigured build is never indexable. Production at `yoyos.lat` builds with `true` (founder decision, 2026-10-22). |
 | `PUBLIC_WHATSAPP_NUMBER` | Yes | — | Digits only, country code without `+` (8–15 digits), for the `wa.me` link. |
 | `PUBLIC_WHATSAPP_DEMO_TEXT` | No | `wa.me` link without text | Prefilled chat text, URL-encoded. |
 | `PUBLIC_PHONE_NUMBER` | No | `+` and the WhatsApp number | International format (`internationalPhonePattern` of `shared/phone.ts`) for the `tel:` link and the JSON-LD `telephone`. |

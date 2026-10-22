@@ -71,6 +71,20 @@ These are placeholders until the founder or Marketing supplies the real ones:
 - App screenshots are real (`src/assets/screenshots/`, wired as `kind: "image"` slots); a slot typed `provisional` still renders a box marked «Imagen provisional».
 - Company data in `/privacidad` (bracketed placeholders), contact email and social URLs.
 
+## Deployment
+
+Production is served at `https://yoyos.lat` by the Cloudflare Worker `yoyos-landing` (static assets only, configured in `wrangler.jsonc`), built by Workers Builds from the `main` branch of the GitHub repository:
+
+| Setting | Value |
+| --- | --- |
+| Root directory | `landing` |
+| Build command | `pnpm install --frozen-lockfile && pnpm build` |
+| Deploy command | `npx wrangler deploy` |
+| Build variables | `PUBLIC_*` values for production, including `PUBLIC_SITE_URL=https://yoyos.lat`, `PUBLIC_INDEXING=true` and `PUBLIC_APP_LOGIN_URL=https://app.yoyos.lat/login` |
+| Custom domain | `yoyos.lat` (the `www` redirect to the apex is a Cloudflare redirect rule) |
+
+`not_found_handling: "404-page"` serves `dist/404.html` with status 404, `html_handling: "drop-trailing-slash"` serves `/privacidad` without slash, and `public/_headers` sets the immutable cache of `/_astro/*`. A Cloudflare redirect rule sends the core app's paths that were public under `yoyos.lat` (catalog, checkout, auth pages and `/api`) to `https://app.yoyos.lat` with a 308, so links shared before the move keep working.
+
 ## Not covered here
 
-Deployment, Cloudflare and DNS, the value of `PUBLIC_INDEXING` for the first domain, the CRM endpoint that receives the demo form, and the choice of an analytics tool are separate tasks.
+The CRM endpoint that receives the demo form and the choice of an analytics tool are separate tasks.
