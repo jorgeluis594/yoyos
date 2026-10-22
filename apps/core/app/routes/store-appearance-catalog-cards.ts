@@ -1,9 +1,9 @@
 import type { LoaderFunctionArgs } from "react-router";
 import { privateUserContext } from "@core/app/private-user-context";
-import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
+import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { catalogBrowse } from "@core/src/features/catalog/browse-composition";
 import { parseCompanyId } from "@core/src/features/store-appearance/domain/store-appearance";
-import type { CatalogPreviewCards } from "@core/app/components/store-preview/store-preview-schemas";
+import { catalogPreviewCardsSchema } from "@core/app/components/store-preview/store-preview-schemas";
 
 export { middleware } from "@core/app/private-access";
 const noStore = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
@@ -19,9 +19,14 @@ export async function loader({ context }: LoaderFunctionArgs) {
     bindRequestOperation({ outcome: "technical_failure" });
     throw new Response("Preview unavailable", { status: 503, headers: noStore });
   }
-  bindRequestOperation({ outcome: "loaded" });
   // An empty list means «show samples».
-  const [first, ...rest] = cards.data;
-  const body: CatalogPreviewCards = first ? { kind: "products", cards: [first, ...rest].map((card) => ({ ...card, id: String(card.id) })) } : { kind: "samples" };
-  return Response.json(body, { headers: noStore });
+  const body = catalogPreviewCardsSchema.safeParse(cards.data.length
+    ? { kind: "products", cards: cards.data.map((card) => ({ ...card, id: String(card.id) })) } : { kind: "samples" });
+  if (!body.success) {
+    log.error({ event: "unable_to_read_catalog", companyId: company.id, operation: "read_preview_cards", errorCode: "INVALID_STORED_DATA" }, "unable_to_read_catalog");
+    bindRequestOperation({ outcome: "technical_failure" });
+    throw new Response("Preview unavailable", { status: 503, headers: noStore });
+  }
+  bindRequestOperation({ outcome: "loaded" });
+  return Response.json(body.data, { headers: noStore });
 }

@@ -123,6 +123,8 @@ export function ErrorBoundary() {
 }
 
 type EditorTab = "edit" | "preview";
+/** One object for the whole loading phase, so the frame does not repost the draft on every render. */
+const loadingCards = { kind: "loading" } as const;
 const wideLayout = "(min-width: 64rem)"; // Tailwind `lg`
 
 /** The server and the hydration pass render the phone layout; its `lg:` classes already look like the wide one. */
@@ -218,7 +220,7 @@ export default function StoreAppearanceSettings() {
     : saveFailure === "INVALID_STORE_APPEARANCE" ? "storeAppearance.invalidAppearance" : "storeAppearance.saveError");
 
   const publicationCard = <CatalogPublicationCard publication={publication} />;
-  const previewPanel = draft && <StorePreviewFrame appearance={{ logoUrl: draft.logoUrl, theme: draft.appearance.theme }} catalog={cards ?? { kind: "loading" }} />;
+  const previewPanel = draft && <StorePreviewFrame appearance={{ logoUrl: draft.logoUrl, theme: draft.appearance.theme }} catalog={cards ?? loadingCards} />;
   const draftCard = draft && <Card className="gap-0 divide-y py-0">
         <CardContent className="flex flex-col gap-3 p-5">
           <CardTitle>{t("storeAppearance.logoTitle")}</CardTitle>

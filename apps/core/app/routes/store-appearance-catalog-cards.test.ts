@@ -4,7 +4,7 @@ import type { LoaderFunctionArgs } from "react-router";
 import { loader } from "@core/app/routes/store-appearance-catalog-cards";
 import { privateUserContext } from "@core/app/private-user-context";
 import { catalogBrowse } from "@core/src/features/catalog/browse-composition";
-import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
+import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 vi.mock("@core/src/shared/infrastructure/logger", async (importOriginal) => ({
@@ -28,4 +28,16 @@ test("the cards route answers the seller's cards, samples for an empty list and 
   previewCards.mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }));
   await expect(loader(args)).rejects.toMatchObject({ status: 503, headers: expect.anything() });
   expect(bindRequestOperation).toHaveBeenLastCalledWith({ outcome: "technical_failure" });
+});
+
+test("the cards route answers 503 and logs when its own answer breaks the schema", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  vi.spyOn(catalogBrowse, "previewCards").mockResolvedValue(ok([{ ...card, name: "" }]));
+  await expect(loader(args)).rejects.toMatchObject({ status: 503 });
+  expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "unable_to_read_catalog", operation: "read_preview_cards" }), "unable_to_read_catalog");
+});
+
+test("a product name of 200 code points with emoji is a valid card", async () => {
+  vi.spyOn(catalogBrowse, "previewCards").mockResolvedValue(ok([{ ...card, name: "😀".repeat(200) }]));
+  expect(await (await loader(args)).json()).toMatchObject({ kind: "products" });
 });

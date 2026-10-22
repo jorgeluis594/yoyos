@@ -6,7 +6,8 @@ import { publicStoreAppearanceSchema } from "@core/src/features/store-appearance
 // A catalog card as the preview draws it: the list fields of the buyer catalog and nothing more.
 export const previewCardSchema = z.strictObject({
   id: z.string().min(1).max(64),
-  name: z.string().min(1).max(200),
+  // Product names are limited in code points (`[...name]`), not in UTF-16 units.
+  name: z.string().min(1).refine((name) => [...name].length <= 200),
   imageUrl: z.url({ protocol: /^https?$/ }).nullable(),
   price: z.strictObject({
     kind: z.enum(["single", "from"]),

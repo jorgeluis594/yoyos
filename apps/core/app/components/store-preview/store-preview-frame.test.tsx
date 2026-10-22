@@ -73,7 +73,7 @@ describe("StorePreviewFrame", () => {
     expect(iframe.style.width).toBe("1280px");
   });
 
-  test("labels the active view with the draft theme and where its data comes from", () => {
+  test("the preview label reads Tema Boutique · Tus productos with real cards and Datos de ejemplo with samples", () => {
     const label = () => container.querySelector('[role="status"]')?.textContent;
     mount(draft, { kind: "products", cards: [card] });
     expect(label()).toBe("Tema Boutique · Tus productos");
