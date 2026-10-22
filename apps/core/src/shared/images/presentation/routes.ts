@@ -1,10 +1,11 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import express, { type ErrorRequestHandler } from "express";
-import { imageResponseSchema } from "@shared/contracts/images";
+import { imageResponseSchema, imageUploadLimits } from "@shared/contracts/images";
+import { getCompanyId } from "@core/src/shared/infrastructure/persistance";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { getImage, uploadImage, validateImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
 
-const maxBytes = 10_000_000;
+const maxBytes = imageUploadLimits.maxBytes;
 const rawBody = express.raw({ type: () => true, limit: maxBytes + 64 * 1024 });
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -51,7 +52,8 @@ export function imageRoutes(storage: ImageStorage, repository: ImageRepository) 
       : apiError(response, 400, "INVALID_IMAGE", "Invalid image data");
     const result = await uploadImage({ bytes, filename: file.name, contentType: file.type }, storage, repository);
     if (!result.success) return sendFailure(response, result.error.code);
-    log.info({ event: "image_upload_completed", imageId: result.data.id }, "image_upload_completed");
+    log.info({ event: "image_uploaded", companyId: getCompanyId(), imageId: result.data.id, mimeType: valid.data.contentType, bytes: file.size,
+      width: valid.data.width, height: valid.data.height }, "image_uploaded");
     return sendResult(response, result.data, 201);
   });
   router.get("/:id", async (request, response) => {

@@ -18,6 +18,7 @@ test("authenticated image routes validate uploads and isolate companies", async 
   process.env.R2_PUBLIC_BASE_URL = "https://images.example.test";
   const { app } = await import("../../../app.ts");
   const { prisma, systemPrisma, withTenantIsolation } = await import("../../infrastructure/persistance.ts");
+  const { imageUploadLimits } = await import("@shared/contracts/images");
   const { imageRoutes } = await import("./routes.ts");
   const probeId = crypto.randomUUID();
   let probeConfigFails = false;
@@ -131,10 +132,10 @@ test("authenticated image routes validate uploads and isolate companies", async 
     const rejectedRequests = [
       ...invalidFiles.map(([name, bytes, type]) => [name, { body: form(bytes, type) }, 400, "INVALID_IMAGE"]),
       ["multiple fields", { body: multiple }, 400, "INVALID_IMAGE"],
-      ["file limit", { body: form(new Uint8Array(10_000_001)) }, 413, "IMAGE_TOO_LARGE"],
+      ["file limit", { body: form(new Uint8Array(imageUploadLimits.maxBytes + 1)) }, 413, "IMAGE_TOO_LARGE"],
       ["body limit", { headers: { "content-type": "multipart/form-data" }, body: new Uint8Array(10_100_000) }, 413, "IMAGE_TOO_LARGE"],
-      ["width limit", { body: form(await makeImage(8001, 1).png().toBuffer()) }, 413, "IMAGE_TOO_LARGE"],
-      ["height limit", { body: form(await makeImage(1, 8001).png().toBuffer()) }, 413, "IMAGE_TOO_LARGE"],
+      ["width limit", { body: form(await makeImage(imageUploadLimits.maxSide + 1, 1).png().toBuffer()) }, 413, "IMAGE_TOO_LARGE"],
+      ["height limit", { body: form(await makeImage(1, imageUploadLimits.maxSide + 1).png().toBuffer()) }, 413, "IMAGE_TOO_LARGE"],
       ["pixel limit", { body: form(await makeImage(6000, 4001).png().toBuffer()) }, 413, "IMAGE_TOO_LARGE"],
       ["not multipart", { headers: { "content-type": "application/json" }, body: "{}" }, 415, "UNSUPPORTED_MEDIA_TYPE"],
     ];
