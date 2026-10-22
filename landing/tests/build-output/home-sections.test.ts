@@ -7,14 +7,14 @@ const text = (node: HTMLElement | null | undefined): string => node?.text.replac
 const home = (variant: "minimal" | "full") => readPage(variant, "index.html");
 
 const heroAlt =
-  "Chat de WhatsApp en el que un cliente envía la foto de unas zapatillas y Yoyos la convierte en un pedido con su total";
+  "Chat de WhatsApp con la foto de unas zapatillas que envió un cliente, junto al pedido #1004 que Yoyos armó con su total de S/ 358.00";
 
 const stepAlts = [
-  "Pantalla de Yoyos para crear un producto con foto y precio",
-  "Configuración de zonas de envío y datos de pago con Yape, Plin o transferencia",
-  "Código QR en la app de Yoyos para vincular WhatsApp desde Dispositivos vinculados",
-  "Pedido creado a partir de la foto que envió un cliente por WhatsApp",
-  "Link del pedido con opciones de entrega a domicilio, agencia o recojo y pago con Yape o Plin",
+  "Formulario Nuevo producto en Yoyos con nombre, descripción, SKU, precio de venta, foto y stock inicial",
+  "Configuración de entregas con recojo en tienda, entrega a domicilio y envío a agencia, y medios de cobro con Yape y su código QR",
+  "Pantalla de WhatsApp en la app de Yoyos con el código QR para escanear desde Dispositivos vinculados",
+  "Mensaje de WhatsApp con la foto de unas zapatillas y el pedido #1004 que Yoyos creó, con su total y el botón Registrar pago",
+  "Link del pedido para el cliente con sus datos, la forma de entrega, el pago con Yape y el comprobante por adjuntar",
 ];
 
 const steps = [
@@ -74,12 +74,28 @@ describe("hero", () => {
     expect(demo?.getAttribute("data-location")).toBe("hero");
   });
 
-  test("renders the hero image slot as a provisional marker named by the literal alt", () => {
-    const slot = home("minimal").querySelector('#inicio [role="img"]');
-    expect(slot?.getAttribute("aria-label")).toBe(heroAlt);
-    expect(text(slot)).toContain("Imagen provisional");
-    expect(home("minimal").querySelectorAll("#inicio img")).toHaveLength(0);
-    expect(home("minimal").querySelectorAll('link[rel="preload"][as="image"]')).toHaveLength(0);
+  test("renders the hero capture as an eager, high-priority AVIF and WebP picture named by the literal alt", () => {
+    const hero = home("minimal").querySelector("#inicio");
+    expect(hero?.querySelectorAll("picture source").map((source) => source.getAttribute("type"))).toEqual(["image/avif", "image/webp"]);
+    const img = hero?.querySelector("picture img");
+    expect(img?.getAttribute("alt")).toBe(heroAlt);
+    expect(img?.getAttribute("fetchpriority")).toBe("high");
+    expect(img?.getAttribute("loading")).toBe("eager");
+    expect(img?.getAttribute("width")).toBeTruthy();
+    expect(img?.getAttribute("height")).toBeTruthy();
+    expect(hero?.querySelector('[role="img"]')).toBeNull();
+  });
+
+  test("preloads the AVIF candidates with an href taken from the imagesrcset and the picture's sizes", () => {
+    const preload = home("minimal").querySelector('link[rel="preload"][as="image"]');
+    expect(preload?.getAttribute("fetchpriority")).toBe("high");
+    expect(preload?.getAttribute("type")).toBe("image/avif");
+    const urls = (preload?.getAttribute("imagesrcset") ?? "").split(",").map((candidate) => candidate.trim().split(" ")[0]);
+    expect(urls.length).toBeGreaterThan(1);
+    expect(urls).toContain(preload?.getAttribute("href"));
+    const avif = home("minimal").querySelector('#inicio picture source[type="image/avif"]');
+    expect(preload?.getAttribute("imagesrcset")).toBe(avif?.getAttribute("srcset"));
+    expect(preload?.getAttribute("imagesizes")).toBe(avif?.getAttribute("sizes"));
   });
 });
 
@@ -132,10 +148,11 @@ describe("how it works", () => {
     expect(section?.querySelectorAll("li").map((step) => text(step.querySelector(".card-text")))).toEqual(steps.map(([, body]) => body));
   });
 
-  test("gives each provisional step capture its literal alt", () => {
-    const slots = home("minimal").querySelectorAll('#como-funciona [role="img"]');
-    expect(slots.map((slot) => slot.getAttribute("aria-label"))).toEqual(stepAlts);
-    expect(slots.every((slot) => text(slot).includes("Imagen provisional"))).toBe(true);
+  test("shows each step capture as a lazy picture with its literal alt and no provisional marker", () => {
+    const images = home("minimal").querySelectorAll("#como-funciona picture img");
+    expect(images.map((img) => img.getAttribute("alt"))).toEqual(stepAlts);
+    expect(images.every((img) => img.getAttribute("loading") === "lazy" && Boolean(img.getAttribute("width")) && Boolean(img.getAttribute("height")))).toBe(true);
+    expect(home("minimal").querySelector("#como-funciona")?.text).not.toContain("Imagen provisional");
   });
 });
 
@@ -147,14 +164,16 @@ describe("features", () => {
     expect(section?.querySelectorAll("li").map((card) => text(card.querySelector(".card-text")))).toEqual(features.map(([, body]) => body));
   });
 
-  test("marks every feature capture as provisional and decorative because the content gives no alt", () => {
-    const slots = home("minimal").querySelectorAll("#funciones .screenshot");
-    expect(slots).toHaveLength(6);
-    for (const slot of slots) {
-      expect(text(slot)).toContain("Imagen provisional");
-      expect(slot.getAttribute("role")).toBeUndefined();
-      expect(slot.getAttribute("aria-hidden")).toBe("true");
+  test("shows every feature capture as a lazy decorative picture because the content gives no alt", () => {
+    const section = home("minimal").querySelector("#funciones");
+    const images = section?.querySelectorAll("picture img") ?? [];
+    expect(images).toHaveLength(6);
+    for (const img of images) {
+      expect(img.getAttribute("alt")).toBe("");
+      expect(img.getAttribute("loading")).toBe("lazy");
+      expect(img.getAttribute("width")).toBeTruthy();
     }
+    expect(section?.text).not.toContain("Imagen provisional");
   });
 });
 
@@ -180,10 +199,10 @@ describe("home structure", () => {
     levels.slice(1).forEach((level, index) => expect(level - levels[index]!).toBeLessThanOrEqual(1));
   });
 
-  test("every provisional screenshot shows «Imagen provisional» and carries its literal alt as accessible name", () => {
-    const slots = home("minimal").querySelectorAll('main .screenshot[role="img"]');
-    expect(slots.map((slot) => slot.getAttribute("aria-label"))).toEqual([heroAlt, ...stepAlts]);
-    expect(slots.every((slot) => text(slot).includes("Imagen provisional"))).toBe(true);
+  test("no screenshot is left as a provisional placeholder", () => {
+    expect(home("minimal").querySelectorAll("main .screenshot.provisional")).toHaveLength(0);
+    expect(home("minimal").querySelectorAll("main .screenshot picture img")).toHaveLength(12);
+    expect(home("minimal").text).not.toContain("Imagen provisional");
   });
 
   test("without a login URL «Ingresar» is absent from header and footer, and with it both link to it", () => {

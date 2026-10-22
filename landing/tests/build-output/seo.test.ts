@@ -162,7 +162,7 @@ describe("light theme only", () => {
         expect(html, `${variant}/${file}`).toContain("color-scheme:light");
         expect(meta(readPage(variant, file), "name", "color-scheme")).toBe("light");
         expect(readPage(variant, file).querySelectorAll('meta[name="theme-color"]')).toHaveLength(1);
-        expect(html).not.toContain("<picture");
+        expect(readPage(variant, file).querySelectorAll("picture source[media]")).toHaveLength(0);
       }
       for (const stylesheet of stylesheets) expect(readFileSync(stylesheet, "utf8")).not.toContain("prefers-color-scheme");
     }

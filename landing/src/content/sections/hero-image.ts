@@ -1,8 +1,9 @@
 import type { ScreenshotSlot } from "@landing/src/content/sections/screenshot-slot";
+import image from "@landing/src/assets/screenshots/hero-pedido-desde-foto.png";
 
-/** Switch `kind` to "image" with the real mockup (src/assets/screenshots/) when Marketing supplies it. */
 export const heroImage: ScreenshotSlot = {
-  kind: "provisional",
-  alt: "Chat de WhatsApp en el que un cliente envía la foto de unas zapatillas y Yoyos la convierte en un pedido con su total",
+  kind: "image",
+  image,
+  alt: "Chat de WhatsApp con la foto de unas zapatillas que envió un cliente, junto al pedido #1004 que Yoyos armó con su total de S/ 358.00",
   aspectRatio: "4/5",
 };

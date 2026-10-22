@@ -153,7 +153,7 @@ Events have fixed names and props. No event or log carries the name, phone, free
 | Inter Variable from the lockfile-pinned `@fontsource-variable/inter`, latin `wght` file only, `font-display: swap`, preloaded, with a metric-adjusted local fallback | Same package as core; Astro's fonts API downloads from a remote CDN instead. The fallback avoids layout shift on swap. |
 | Lucide icons through `@lucide/astro`, rendered to inline SVG at build | Icon set of `DESIGN.md`, with no JavaScript. |
 | Yoyos logos, favicon and apple-touch-icon copied from `apps/core` into the landing | The landing builds and deploys alone and does not reach into another app's tree. |
-| Screenshots typed as provisional or real | A placeholder can never ship as if it were real. |
+| Screenshots typed as provisional or real (`ScreenshotSlot`); the 12 current ones are real | A placeholder can never ship as if it were real. |
 | Partner logos rendered through `astro:assets` at the control height | Images are hashed and sized without upscaling their intrinsic resolution. |
 | `public/_headers` sets `Cache-Control: public, max-age=31536000, immutable` for `/_astro/*` | Hashed assets are cacheable forever; applying the file is the host's job. |
 | `landing` in `.dockerignore`; no compose changes | The core image build context is not affected. |
@@ -185,8 +185,7 @@ Manual, with results in the pull request: Lighthouse mobile on the production bu
 
 ## Provisional content
 
-These elements are placeholders, marked as such, until the founder or Marketing supplies the real ones:
+The app screenshots (hero, the five steps, the six feature cards) are final: 12 PNG composed at the slot ratios (hero 4:5, steps 4:3, cards 16:10), 2160 px wide (hero 1728), in `landing/src/assets/screenshots/`, wired as `kind: "image"` slots in the content modules. Replacing one means replacing the file at the same ratio. These elements are placeholders, marked as such, until the founder or Marketing supplies the real ones:
 
-- App screenshots (hero, the five steps, the six feature cards) render a box with «Imagen provisional» and, where the content gives one, the literal alt as accessible name. Real captures go to `landing/src/assets/screenshots/`.
 - The Open Graph image is rendered with a system font and awaits Marketing's approval or replacement.
 - Company data in `/privacidad` (bracketed placeholders), the contact email and the social URLs.

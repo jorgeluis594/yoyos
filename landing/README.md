@@ -68,7 +68,7 @@ These are placeholders until the founder or Marketing supplies the real ones:
 
 - The Open Graph image (`public/og/yoyos-1200x630.png`) is rendered from a committed SVG with a system font; Marketing must approve or replace it.
 - Partner logos (Shalom, Olva, Yape, Plin) are not in the repository: they render as a provisional text badge until the official SVGs are added to `src/assets/logos/`.
-- App screenshots render a box marked «Imagen provisional» until real captures are added to `src/assets/screenshots/`.
+- App screenshots are real (`src/assets/screenshots/`, wired as `kind: "image"` slots); a slot typed `provisional` still renders a box marked «Imagen provisional».
 - Company data in `/privacidad` (bracketed placeholders), contact email and social URLs.
 
 ## Not covered here
