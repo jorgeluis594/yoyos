@@ -1,6 +1,6 @@
 # Store theme in the public catalog: technical design
 
-**Status:** design closed, pending implementation. The questions were answered by the architecture review gate in round 1, see §17. Rounds 2 and 3 resolve the gate's blockers and suggestions. Based on `docs/drafts/llevar-el-tema-de-la-tienda-al-catalogo.md` (product definition closed at `e29afdfa`; rows 19 and 20 of its gate table were corrected by this gate). Base: branch `jorgeluis594/llevar-el-tema-de-la-tienda-al-catalogo`. Todoist 6hpwfg8pfvjxq9jV.
+**Status:** design closed. The architecture review gate answered the questions in round 1 and approved the design in round 3 (round 1: both reviewers rejected; round 2: both rejected; round 3: both approved, no blockers). Every decision is in §17 for the founder to confirm in the final pull request. Based on `docs/drafts/llevar-el-tema-de-la-tienda-al-catalogo.md` (product definition closed at `e29afdfa`; rows 19 and 20 of its gate table were corrected by this gate). Base: branch `jorgeluis594/llevar-el-tema-de-la-tienda-al-catalogo`. Todoist 6hpwfg8pfvjxq9jV.
 
 ## 1. Technical goal
 
@@ -50,7 +50,7 @@ The web editor gains the publication card and a catalog view in its preview. Pub
 | Web editor transport | The editor stays on its React Router loader and action; it does not fetch the new API. The loader starts the appearance part and the publication part together (`Promise.all`); they fail independently. The action takes a discriminated JSON body (`save-appearance` \| `set-publication`). After a successful `set-publication`, `shouldRevalidate` returns false and the card trusts its own action result. |
 | Web Settings → Catálogo | It keeps its loader; its action and switch are removed. On web, publication is saved only through the editor action. |
 | Old editor URL | `settings/checkout-appearance` and `:locale/settings/checkout-appearance` redirect with 308 to the same prefix plus `settings/store-appearance`, keeping the query. The old preview path is removed without a redirect, because only the editor embeds it. |
-| Catalog preview data | The editor fetches up to three catalog cards of the seller's company once per visit. It uses a plain `fetch` in a mount effect against a resource route (`settings/store-appearance/catalog-cards`) and keeps the parsed result in component state. The read skips the publication check. A failure, a network error, an invalid body or an empty list shows sample products. It does not use `useFetcher`: React Router revalidates every loaded fetcher after each action and on `revalidate()`, and sends a fetcher's error to the route's error boundary, which would replace the editor. With a plain fetch, saves, publication changes and **Reintentar** never refetch the cards. The view is loading exactly while that state holds no result. |
+| Catalog preview data | The editor fetches up to three catalog cards of the seller's company once per visit. It uses a plain `fetch` in a mount effect of the editor route component (which stays mounted while the seller switches **Catálogo** | **Checkout**), with an `AbortController` aborted on unmount, against a resource route (`settings/store-appearance/catalog-cards`) and keeps the parsed result in component state. The read skips the publication check. A failure, a network error, an invalid body or an empty list shows sample products. It does not use `useFetcher`: React Router revalidates every loaded fetcher after each action and on `revalidate()`, and sends a fetcher's error to the route's error boundary, which would replace the editor. With a plain fetch, saves, publication changes and **Reintentar** never refetch the cards. The view is loading exactly while that state holds no result. |
 | Preview iframe | One iframe and one preview route (`settings/store-appearance/preview`) render both surfaces, and the message gains `surface` and `catalog`. Switching surface does not reload the iframe, so the device choice and the draft stay. The protocol, its schema and the frame live in `apps/core/app/components/store-preview/`, the app layer that composes catalog and store-appearance. |
 | Mobile publication card | Extracted from the mobile catalog settings screen into `features/catalog/presentation/catalog-publication-card.tsx`. The route file `app/(tabs)/settings/appearance.tsx` composes it into the store appearance screen through a slot prop. Web does the same: `app/components/catalog-publication-card.tsx` is composed by the editor route. |
 | Mobile logo files | PNG, JPEG and WEBP are uploaded byte for byte with their own MIME type, after a pre-check against `imageUploadLimits`. HEIC/HEIF and camera photos go through the JPEG fitter product photos use today, extracted to `apps/mobile/src/shared/infrastructure/jpeg-fitting.ts`. The fitter now takes its bounds as a parameter: logos use `logoJpegBounds = { maxSide: 1024 }` (initial value, adjustable), product photos keep theirs. The picker options for logos are fixed in §10. |
@@ -69,7 +69,7 @@ The web editor gains the publication card and a catalog view in its preview. Pub
 | Use cases: `getCheckoutAppearance`, `saveCheckoutAppearance` (parse, then `imageAvailable`, then save), `getPublicCheckoutAppearance` (`default \| custom \| fallback`), `getCheckoutAppearancePreview` (fails on any appearance or payment-methods read error) | `…/application/checkout-appearance.ts` | Seller read, save and preview change |
 | Composition `checkoutAppearance.{get, save, getPublic, getPreview}`. `save` logs `checkout_appearance_saved`. `index.ts` re-exports it | `…/composition.ts`, `index.ts` | Renamed to `storeAppearance`; `index.ts` removed |
 | Repository: `loadCheckoutAppearance` (logs `invalid_stored_checkout_appearance` with `invalidFields` and returns `INVALID_STORED_DATA`; logs `unable_to_load_checkout_appearance` with `operation: "get_checkout"`), `persistCheckoutAppearance` (upsert; P2003 becomes `INVALID_IMAGE`; logs `unable_to_save_checkout_appearance`), `loadCompanyName` | `…/infrastructure/checkout-appearance-repository.ts` | Distinguishes unknown theme; events renamed |
-| `findAvailablePublicImage` returns only the id. `resolvePublicImage` returns `{ id, url } \| null` | `apps/core/src/shared/images/index.ts` | The save switches to `resolvePublicImage` |
+| `findAvailablePublicImage` returns only the id. `resolvePublicImage` returns `{ id, url } \| null` | `apps/core/src/shared/images/index.ts` | The save keeps `findAvailablePublicImage` for ownership and adds `resolvePublicImage` after the write; the seller read keeps `resolvePublicImage` |
 | Image limits `maxBytes = 10_000_000`, 8000 px, 24 MP | `apps/core/src/shared/images/application/images.ts`, `presentation/routes.ts` | Read from `imageUploadLimits` |
 | Table `CompanyCheckoutAppearance`: `companyId` PK; `logoImageId` with a composite FK to `Image(companyId,id)` and `Restrict`; `theme CheckoutTheme`. RLS policy `company_checkout_appearance_isolation` | `apps/core/prisma/schema.prisma:291` | Unchanged |
 | `CheckoutTheme` component (scope via `useId`; `<style>` from `checkoutThemeCss`; `data-checkout-theme`; `.dark` for Noche), `checkout-theme.css` (shadcn `data-slot` plus a closed `data-checkout-part` list), `checkout-theme-fonts.css` | `…/presentation/` | Renamed, extended with catalog parts |
@@ -120,7 +120,7 @@ Verified in the schema: the database enum restricts `theme` to the five ids. An 
 - `input`: none. `access`: `{ companyId }` from the seller session or the bearer token.
 - `deps`:
   - `load: (companyId) => Promise<Result<StoreAppearance | null, StoreAppearanceFailure>>`
-  - `logoUrl: (imageId) => Promise<string | null>`, backed by `resolvePublicImage`. It never fails: a missing image or a resolution failure gives `null`, and a failure is logged once as `store_logo_url_unavailable`.
+  - `logoUrl: (imageId) => Promise<string | null>`, backed by `resolvePublicImage`. It never fails: a missing image or a resolution failure gives `null`, and a failure is logged as `store_logo_url_unavailable` once per call. This adapter is wired only into the seller read and the save. The public buyer read (§5.3) keeps today's non-logging `imageUrl` adapter (verified in `checkout-appearance/composition.ts`), so a storage outage never adds a warn per catalog or checkout request.
 - Output: `Result<SellerStoreAppearance, StoreAppearanceFailure>`.
 - Errors: `INVALID_STORED_DATA`, `PERSISTENCE_UNAVAILABLE`.
 - Flow:
@@ -464,7 +464,7 @@ Theme style:
 
 Catalog pages:
 - `test("the catalog page declares the fixed color scheme when the store loaded and the system scheme when unavailable")`
-- `test("the product page shows Este producto ya no está disponible inside the store theme with the store name and status 404")`
+- `test("the product page shows Este producto ya no está disponible inside the store theme with the store name, status 404 and the request outcome unavailable")`
 - `test("Catálogo no disponible and the catalog load error render without a theme scope")`
 - `test("cart lines show the theme thumbnail shape with the product initial when the photo is missing")`
 
@@ -501,6 +501,8 @@ Preview:
 - `test("the preview page stays blank until the first draft message")`
 
 ### Core integration (real database)
+
+`src/shared/images/index.ts` builds the storage from `R2_*` at import time, and the integration run does not set `R2_PUBLIC_BASE_URL`. A test that needs a logo URL sets `R2_PUBLIC_BASE_URL` before a dynamic import of the app, as `message-to-order.spec.ts` does. The title that needs the URL to fail lives in its own file without it; Vitest isolates files. The images module is never mocked in these tests.
 
 - `test("GET store appearance returns the saved theme and logo of the token's company only")`
 - `test("GET store appearance returns Clásico without logo for a company that never saved one")`
@@ -553,7 +555,7 @@ Preview:
 - `test("buyer with a dark system preference sees a Boutique catalog in light mode and downloads only the Boutique font families")`
 - `test("seller compares Catálogo and Checkout previews with the same draft and publishes the catalog from the editor")`
 - `test("opening the old checkout appearance address lands on Apariencia de la tienda")`
-- The existing `store-appearance*.spec.ts` (renamed) and `public-catalog.spec.ts` stay green with the new paths.
+- The existing `store-appearance*.spec.ts` (renamed) and `public-catalog.spec.ts` stay green with the new paths. T3 updates `public-catalog.spec.ts` to publish from the editor's publication card, because it clicks the switch T3 removes from Settings → Catálogo.
 
 ### Pending manual checks
 
@@ -568,6 +570,7 @@ Preview:
 
 ## 15. Limits and checks during implementation
 
+- **Save reads the logo row twice.** Ownership and URL are two primary-key reads of the same `Image` row, one more than a single lookup. That is accepted for correctness (§17). If it is ever reduced, an images helper returning `{ id, storageKey }` from one read, with the URL built separately and a failure treated as `null`, keeps the save independent of storage.
 - **Unknown theme coverage.** The unknown-theme path cannot be reached while the database enum and `storeThemeIds` match. It is covered by unit tests with fakes, not by integration or E2E tests (memory 651a6544).
 - **Cart sheet portal.** The cart sheet must keep portalling into the host inside the theme scope. A portal to `body` would lose the theme.
 - **Picker MIME type.** `expo-image-picker` must report `mimeType` for HEIC on iOS and for library assets on Android. When it is missing, the extension decides the type. Verify that `preferredAssetRepresentationMode` exists in the installed `expo-image-picker` version.
@@ -602,8 +605,8 @@ File ownership inside wave 1:
 | Task | Owns |
 | --- | --- |
 | T1 | `src/app.ts`, `store-appearance/presentation/api-routes*` |
-| T2 | `store-theme.tsx`, `store-theme.css`, `store-theme-style.ts` and their tests; `app/components/catalog-*.tsx` (except the new publication card); `app/routes/catalog*.tsx`; `catalog/browse-composition.ts`; `catalog/application/browse-catalog.ts`; the new `tests/e2e/public-catalog-theme.spec.ts` |
-| T3 | `app/routes.ts`; the editor and preview routes; `catalog-settings.tsx`; `private-layout.tsx`; `app/locales.ts` and `locales.test.ts`; `logger.ts`; `app/components/catalog-publication-card.tsx`; `tests/e2e/store-appearance*.ts` |
+| T2 | `store-theme.tsx`, `store-theme.css`, `store-theme-style.ts` and their tests; `app/components/catalog-sections.tsx`, `catalog-cart.tsx` and their tests; `app/routes/catalog.tsx`, `catalog-product.tsx`, `catalog-cart.tsx` and their tests (never `catalog-settings*`); `catalog/browse-composition.ts`; `catalog/application/browse-catalog.ts`; the new `tests/e2e/public-catalog-theme.spec.ts` |
+| T3 | `app/routes.ts`; the editor and preview routes; `app/routes/catalog-settings.tsx` and its test; `private-layout.tsx`; `app/locales.ts` and `locales.test.ts`; `logger.ts`; `app/components/catalog-publication-card.tsx`; `tests/e2e/store-appearance*.ts`; `tests/e2e/public-catalog.spec.ts` |
 | T4 | everything under `apps/mobile/` |
 
 T2 reads `tests/e2e/store-appearance-fixtures.ts` but does not edit it.
@@ -653,7 +656,7 @@ T2 reads `tests/e2e/store-appearance-fixtures.ts` but does not edit it.
 
 **Scope:**
 - The catalog pages in the store theme: header, grid, cards, search, «Ver más», the empty and no-results messages, the product page, «Este producto ya no está disponible», and the cart button, sheet, lines and notices.
-- `catalogBrowse.storeAppearance` returning `kind` and appearance (§5.3), bound on the request log; `CatalogProductResult` (§5.7); the fixed color scheme handles.
+- `catalogBrowse.storeAppearance` returning `kind` and appearance (§5.3), bound on the request log; `CatalogProductResult` (§5.7), with `outcome: "unavailable"` still bound for `{ kind: "unavailable" }`; the fixed color scheme handles.
 - `StoreTheme` memoizes `storeThemeCss(id, scope)` with `useMemo`, so search keystrokes, cart badge changes and «Ver más» do not rebuild the CSS.
 - The catalog parts in `store-theme.css`.
 - The presentational `CatalogProductCard` and `CatalogCartButtonFace`, exported for T5.
@@ -692,7 +695,7 @@ T2 reads `tests/e2e/store-appearance-fixtures.ts` but does not edit it.
   - the new logo hint, the pre-check against `imageUploadLimits.maxBytes`, and the dimensions text
 - Settings → Catálogo without the switch, with the notice and the link.
 - es and pt-BR texts with a key-parity test.
-- The renamed editor E2E specs.
+- The renamed editor E2E specs, and `public-catalog.spec.ts` updated to publish from the editor's publication card.
 
 **Out of scope:** the «Catálogo | Checkout» selector, the catalog view and the checkout preview label (all T5).
 
@@ -751,7 +754,7 @@ T2 reads `tests/e2e/store-appearance-fixtures.ts` but does not edit it.
 - Data:
   - `previewCatalogCards` and `readStoreCurrency` (§5.5, §7)
   - `catalogBrowse.previewCards` and the `catalog-cards` resource route
-  - the editor's one-time plain `fetch` of the cards (§2), with the loading condition «no result in state yet»
+  - the editor's one-time plain `fetch` of the cards (§2), in a mount effect of the editor route component with an `AbortController` aborted on unmount, with the loading condition «no result in state yet»
   - in `logger.ts`: the `get_catalog_preview_cards` operation and the request-path pattern of the `catalog-cards` route, plain and localized
 - Preview protocol:
   - move the protocol, the schemas and the frame to `app/components/store-preview/`
@@ -811,7 +814,7 @@ The manual checks listed at the end of §14, on an iPhone, an Android phone and 
 
 ## 17. Questions decided by the review gate
 
-These were decided by the architecture review gate in round 1 (design reviewer and performance reviewer, consolidated by the coordinator). The founder confirms them in the final pull request.
+These were decided by the architecture review gate (design reviewer and performance reviewer, consolidated by the coordinator), which acts for the founder: the questions in round 1, the design approved in round 3. The founder confirms them in the final pull request. Gate history: round 1, both rejected (design 4 blockers, performance 1); round 2, both rejected (1 blocker each); round 3, both approved. Every «decided unless objected» item of rounds 1 to 3 was accepted, and §2 records each one.
 
 | # | Question | Answer | Who decided | Reason | Discarded alternatives |
 | --- | --- | --- | --- | --- | --- |
@@ -867,5 +870,17 @@ These were decided by the architecture review gate in round 1 (design reviewer a
 | Performance 4: no signal for heavy logos | Accepted | `image_uploaded` with `bytes`, `width` and `height`, plus `logoImageId` on `store_appearance_saved` (§13). No extra query: the values are known at upload. |
 | Performance 5: real worst case of the catalog query; filter cost on long pages | Accepted | §15 states up to 481 rows; the low-end Android scroll check is in §14. |
 | Performance 6: `readStoreCurrency` as the same select as `readStore` | Accepted | They share the select and the currency mapping (§7). |
+
+### Gate round 3 suggestions and how they are applied
+
+| Finding | Decision | Reason |
+| --- | --- | --- |
+| Design S1: `public-catalog.spec.ts` has no owner; T2's `catalog*.tsx` glob matches T3's `catalog-settings.tsx` | Accepted | T3 owns and updates the spec; T2's files are listed by name, never `catalog-settings*` (§16). |
+| Design S2: the integration run cannot build a logo URL | Accepted | Tests set `R2_PUBLIC_BASE_URL` per file before a dynamic import; the URL-failure title lives in its own file (§14). |
+| Design S3: stale §3 line about `resolvePublicImage` in the save | Accepted | §3 now states ownership through `findAvailablePublicImage` and the URL after the write. |
+| Design S4: request outcome of the themed unavailable product | Accepted | T2 keeps binding `outcome: "unavailable"` for `{ kind: "unavailable" }`; the test title asserts it. |
+| Performance 1: owner of the cards effect and abort | Accepted | The effect lives in the editor route component with an `AbortController`, so surface switches never refetch and StrictMode or unmount leave no stray state (§2, T5). |
+| Performance 2: two reads of the logo row in the save | Accepted as a note | §15 records the cost and the safe way to reduce it later; no change now. |
+| Performance 3: the buyer read must not use the warn-logging adapter | Accepted, verified | The public read keeps today's non-logging `imageUrl` adapter; `logoUrl` is wired only into the seller read and the save (§5.1). |
 
 No open questions remain.
