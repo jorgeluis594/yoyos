@@ -18,10 +18,10 @@ const label = navLinks.find((link) => link.anchor === "integraciones")?.label;
 
     <ul class="items">
       {
-        integrationsContent.items.map((item) => {
+        integrationsContent.items.map((item, index) => {
           const Icon = icons[item.icon];
           return (
-            <li class="item">
+            <li class="item" data-reveal data-lift style={`--motion-order: ${index % 2}`}>
               <Icon class="icon" aria-hidden="true" />
               <p>
                 <strong>{item.title}</strong> {item.text}
@@ -32,7 +32,7 @@ const label = navLinks.find((link) => link.anchor === "integraciones")?.label;
       }
     </ul>
 
-    <ul class="logos">
+    <ul class="logos" data-reveal>
       {partnerLogos.map((logo) => <li><PartnerLogoBadge logo={logo} /></li>)}
     </ul>
 

@@ -10,8 +10,8 @@ import { testimonials, testimonialsContent } from "@landing/src/content/sections
       <div class="container">
         <SectionHeading id="testimonios-titulo" heading={testimonialsContent.heading} />
         <ul class="list">
-          {testimonials.map((testimonial) => (
-            <li class="card">
+          {testimonials.map((testimonial, index) => (
+            <li class="card" data-reveal data-lift style={`--motion-order: ${index % 3}`}>
               <blockquote>{testimonial.quote}</blockquote>
               <Image src={testimonial.photo} alt={testimonial.name} width={64} height={64} loading="lazy" class="photo" />
               <p>

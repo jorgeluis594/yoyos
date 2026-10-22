@@ -13,19 +13,19 @@ const { demoForm, phone, whatsapp } = siteConfig;
 <section id="inicio" class="section hero">
   <div class="container layout">
     <div class="copy">
-      <p class="pill-label">{heroContent.eyebrow}</p>
-      <h1>{heroContent.heading}</h1>
-      <p class="lead">{heroContent.lead}</p>
-      <div class="actions">
+      <p class="pill-label" data-entrance>{heroContent.eyebrow}</p>
+      <h1 data-entrance style="--motion-order: 1">{heroContent.heading}</h1>
+      <p class="lead" data-entrance style="--motion-order: 2">{heroContent.lead}</p>
+      <div class="actions" data-entrance style="--motion-order: 3">
         <CtaLink href={whatsappUrl(whatsapp)} event="whatsapp_click" location="hero" newTab>{ctaLabels.whatsapp}</CtaLink>
         {demoForm.kind === "enabled" && (
           <CtaLink href="#demo" variant="secondary" event="demo_form_open" location="hero">{ctaLabels.demo}</CtaLink>
         )}
       </div>
-      <a class="call" href={telUrl(phone)} data-event="call_click" data-location="hero">{heroContent.callLink}</a>
-      <p class="microcopy">{heroContent.microcopy}</p>
+      <a class="call" data-entrance style="--motion-order: 4" href={telUrl(phone)} data-event="call_click" data-location="hero">{heroContent.callLink}</a>
+      <p class="microcopy" data-entrance style="--motion-order: 4">{heroContent.microcopy}</p>
     </div>
-    <div class="media">
+    <div class="media" data-entrance="lift" style="--motion-order: 1">
       <div class="layers">
         <span class="layer back" aria-hidden="true"></span>
         <span class="layer middle" aria-hidden="true"></span>

@@ -1,0 +1,54 @@
+/* Landing motion layer. Every rule sits behind prefers-reduced-motion: no-preference, and only opacity and
+   translate/transform move, so the page renders complete and static when motion is off or unsupported.
+   - [data-entrance]: above-the-fold rise on load; --motion-order staggers siblings.
+   - [data-entrance="lift"]: the same rise without fading, for the hero card that holds the LCP image.
+   - [data-reveal]: below-the-fold rise driven by scroll position; only where view timelines exist.
+   - [data-lift]: gentle hover lift for cards on pointers that hover.
+   Entrance and reveal move `translate` so they compose with each component's own `transform`. */
+@media (prefers-reduced-motion: no-preference) {
+  @keyframes motion-rise {
+    from {
+      opacity: 0;
+      translate: 0 var(--motion-rise);
+    }
+  }
+
+  @keyframes motion-settle {
+    from {
+      translate: 0 var(--motion-rise);
+    }
+  }
+
+  [data-entrance] {
+    animation: motion-rise var(--motion-entrance) var(--motion-entrance-easing) both;
+    animation-delay: calc(var(--motion-order, 0) * var(--motion-stagger));
+  }
+
+  [data-entrance="lift"] {
+    animation-name: motion-settle;
+  }
+
+  [data-lift] {
+    transition: transform var(--motion-feedback) var(--motion-easing);
+  }
+
+  @media (hover: hover) {
+    [data-lift]:hover {
+      transform: translateY(calc(-1 * var(--motion-lift)));
+    }
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  @supports (animation-timeline: view()) {
+    [data-reveal] {
+      animation: motion-rise linear both;
+    }
+
+    /* A separate rule so the minifier cannot fold the timeline into the shorthand, which Chromium rejects. */
+    [data-reveal]:where(*) {
+      animation-timeline: view();
+      animation-range: entry calc(var(--motion-order, 0) * 8%) entry calc(60% + var(--motion-order, 0) * 8%);
+    }
+  }
+}

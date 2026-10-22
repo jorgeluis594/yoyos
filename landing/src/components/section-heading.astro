@@ -4,7 +4,7 @@ type Props = Readonly<{ id?: string; label?: string; heading: string; lead?: str
 const { id, label, heading, lead } = Astro.props;
 ---
 
-<header class="section-heading">
+<header class="section-heading" data-reveal>
   {label && <p class="pill-label">{label}</p>}
   <h2 id={id}>{heading}</h2>
   {lead && <p class="lead">{lead}</p>}

@@ -40,7 +40,18 @@ const { href, variant = "primary", event, location, newTab = false, ariaLabel } 
     text-decoration: none;
     transition:
       background-color var(--motion-feedback) var(--motion-easing),
-      border-color var(--motion-feedback) var(--motion-easing);
+      border-color var(--motion-feedback) var(--motion-easing),
+      transform var(--motion-feedback) var(--motion-easing);
+  }
+
+  @media (prefers-reduced-motion: no-preference) and (hover: hover) {
+    .button:hover {
+      transform: translateY(calc(-1 * var(--motion-lift)));
+    }
+
+    .button:active {
+      transform: none;
+    }
   }
 
   .primary {

@@ -14,10 +14,10 @@ const icons = { clock: Clock, "map-pin": MapPin, "receipt-text": ReceiptText, pa
   <div class="container stack">
     <SectionHeading id="beneficios-titulo" heading={benefitsContent.heading} lead={benefitsContent.lead} />
     <ul class="grid">
-      {benefitsContent.cards.map((card) => {
+      {benefitsContent.cards.map((card, index) => {
         const Icon = icons[card.icon];
         return (
-          <li class="card">
+          <li class="card" data-reveal data-lift style={`--motion-order: ${index % 3}`}>
             <span class="icon-box"><Icon aria-hidden="true" /></span>
             <p class="card-title">{card.title}</p>
             <p class="card-text">{card.text}</p>

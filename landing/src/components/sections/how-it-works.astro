@@ -12,7 +12,7 @@ const label = navLinks.find((link) => link.anchor === "como-funciona")?.label;
     <SectionHeading id="como-funciona-titulo" label={label} heading={howItWorksContent.heading} />
     <ol class="steps">
       {howItWorksContent.steps.map((step, index) => (
-        <li class="step">
+        <li class="step" data-reveal>
           <div class="capture"><Screenshot capture={step.capture} /></div>
           <div class="body">
             <span class="number" aria-hidden="true">{index + 1}</span>

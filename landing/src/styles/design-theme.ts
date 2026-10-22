@@ -14,6 +14,16 @@ const typographyVariables = Object.fromEntries(
   ]),
 );
 
+/** Landing-only entrance motion (DESIGN.md "Landing"): a short rise that settles without overshoot, staggered per
+   card, travelling one spacing step; hover lifts by half the smallest step. */
+const landingMotionVariables = {
+  "motion-entrance": "480ms",
+  "motion-stagger": "80ms",
+  "motion-entrance-easing": "cubic-bezier(0.2, 0, 0, 1)",
+  "motion-rise": rem(tokens.spacing[4]),
+  "motion-lift": rem(tokens.spacing[1] / 2),
+};
+
 const geometryVariables = {
   ...Object.fromEntries(Object.entries(tokens.spacing).map(([step, value]) => [`space-${step}`, rem(value)])),
   ...Object.fromEntries(Object.entries(tokens.radius).map(([role, value]) => [`radius-${role}`, rem(value)])),
@@ -34,6 +44,7 @@ const geometryVariables = {
   "focus-offset": `${tokens.sizing.focusOffset}px`,
   "motion-feedback": `${tokens.motion.feedbackMs}ms`,
   "motion-easing": tokens.motion.easing,
+  ...landingMotionVariables,
 };
 
 /** Static, class-less theme: always light (founder decision: the landing has no dark mode). */

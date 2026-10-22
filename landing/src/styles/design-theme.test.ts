@@ -17,4 +17,11 @@ describe("themeCss", () => {
     expect(themeCss).toContain("--radius-pill:624.9375rem;");
     expect(themeCss).toContain("--landing-max-width:75rem;");
   });
+
+  test("exposes the landing motion durations and distances", () => {
+    expect(themeCss).toContain(`--motion-feedback:${tokens.motion.feedbackMs}ms;`);
+    expect(themeCss).toContain("--motion-entrance:480ms;");
+    expect(themeCss).toContain("--motion-rise:1rem;");
+    expect(themeCss).toContain("--motion-lift:0.125rem;");
+  });
 });
