@@ -5,6 +5,8 @@
 .git
 .happy-memory
 .pnpm-store
+# The landing builds and deploys on its own; the core image never uses it.
+landing
 apps/core/playwright-report
 apps/core/test-results
 # Fetched in the image by pnpm models:fetch; the local copies would only enlarge the build context.

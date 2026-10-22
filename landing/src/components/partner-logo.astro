@@ -1,0 +1,44 @@
+---
+import { Image } from "astro:assets";
+import type { PartnerLogo, PartnerLogoHeight } from "@landing/src/content/sections/integrations";
+import { designTokens } from "@landing/src/styles/design-theme";
+
+type Props = Readonly<{ logo: PartnerLogo }>;
+
+/** Rendered height in px per logo size, from the design tokens; no raster logo is upscaled at them (Plin 99 px, Shalom 36 px tall). */
+const renderedHeights: Readonly<Record<PartnerLogoHeight, number>> = {
+  control: designTokens.sizing.controlDesktopMinHeight,
+  compact: designTokens.spacing[6],
+};
+
+const { logo } = Astro.props;
+const height = renderedHeights[logo.height];
+const width = Math.round((logo.image.width / logo.image.height) * height);
+---
+
+<Image
+  class="partner-logo"
+  data-partner-logo={logo.name}
+  data-height={logo.height}
+  src={logo.image}
+  width={width}
+  height={height}
+  alt={logo.alt}
+  loading="lazy"
+  decoding="async"
+/>
+
+<style>
+  .partner-logo {
+    width: auto;
+    max-width: 100%;
+  }
+
+  .partner-logo[data-height="control"] {
+    height: var(--control-min-height);
+  }
+
+  .partner-logo[data-height="compact"] {
+    height: var(--space-6);
+  }
+</style>

@@ -1,0 +1,87 @@
+---
+import Clock from "@lucide/astro/icons/clock";
+import MapPin from "@lucide/astro/icons/map-pin";
+import Palette from "@lucide/astro/icons/palette";
+import ReceiptText from "@lucide/astro/icons/receipt-text";
+import Smartphone from "@lucide/astro/icons/smartphone";
+import SectionHeading from "@landing/src/components/section-heading.astro";
+import { benefitsContent } from "@landing/src/content/sections/benefits";
+
+const icons = { clock: Clock, "map-pin": MapPin, "receipt-text": ReceiptText, palette: Palette, smartphone: Smartphone } as const;
+---
+
+<section id="beneficios" class="section" aria-labelledby="beneficios-titulo">
+  <div class="container stack">
+    <SectionHeading id="beneficios-titulo" heading={benefitsContent.heading} lead={benefitsContent.lead} />
+    <ul class="grid">
+      {benefitsContent.cards.map((card, index) => {
+        const Icon = icons[card.icon];
+        return (
+          <li class="card" data-reveal data-lift style={`--motion-order: ${index % 3}`}>
+            <span class="icon-box"><Icon aria-hidden="true" /></span>
+            <p class="card-title">{card.title}</p>
+            <p class="card-text">{card.text}</p>
+          </li>
+        );
+      })}
+    </ul>
+  </div>
+</section>
+
+<style>
+  .stack {
+    display: grid;
+    gap: var(--space-12);
+  }
+
+  .grid {
+    display: grid;
+    gap: var(--space-4);
+    margin: 0;
+    padding: 0;
+    list-style: none;
+  }
+
+  .card {
+    display: grid;
+    align-content: start;
+    justify-items: start;
+    gap: var(--space-3);
+    padding: var(--space-6);
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-overlay);
+    background: var(--card);
+  }
+
+  .icon-box {
+    display: grid;
+    place-items: center;
+    width: var(--touch-target-min-size);
+    height: var(--touch-target-min-size);
+    border-radius: var(--radius-overlay);
+    background: var(--accent);
+    color: var(--accent-foreground);
+  }
+
+  .card-title {
+    font-size: var(--text-section-title-size);
+    line-height: var(--text-section-title-line);
+    font-weight: var(--text-section-title-weight);
+  }
+
+  .card-text {
+    color: var(--muted-foreground);
+  }
+
+  @media (min-width: 48em) {
+    .grid {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+
+  @media (min-width: 64em) {
+    .grid {
+      grid-template-columns: repeat(3, 1fr);
+    }
+  }
+</style>

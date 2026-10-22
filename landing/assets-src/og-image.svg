@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1200" height="630" viewBox="0 0 1200 630">
+  <!-- Provisional Open Graph layout (colors from docs/design-tokens.json, light theme).
+       The Yoyos logo is composited at render time by render-assets.mjs. -->
+  <rect width="1200" height="630" fill="#F7F4EF"/>
+  <rect x="48" y="48" width="1104" height="534" rx="24" fill="#FFFFFF" stroke="#DCD4C9" stroke-width="2"/>
+  <text x="96" y="330" font-family="Inter, Arial, sans-serif" font-size="76" font-weight="500" fill="#242326">Tus pedidos de</text>
+  <text x="96" y="418" font-family="Inter, Arial, sans-serif" font-size="76" font-weight="500" fill="#8C552D">WhatsApp, en orden</text>
+</svg>

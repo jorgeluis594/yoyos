@@ -20,6 +20,7 @@ The initial focus is businesses selling through live streams that need to keep t
 | --- | --- |
 | [`apps/core/`](apps/core/) | Web application and server: React, React Router, Express, Prisma, and PostgreSQL. |
 | [`apps/mobile/`](apps/mobile/) | Mobile application: React Native and Expo. |
+| [`landing/`](landing/) | Public marketing landing: Astro, static output, no UI framework. |
 | [`shared/`](shared/) | Types and utilities shared across applications. |
 | [`docs/`](docs/) | Architecture, domain, persistence, and testing guides. |
 
@@ -55,6 +56,13 @@ With Node.js 24 and pnpm, install shared dependencies first, followed by each ap
 pnpm --dir shared install --frozen-lockfile
 pnpm --dir apps/core install --frozen-lockfile
 pnpm --dir apps/mobile install --frozen-lockfile
+```
+
+The landing is an independent package with its own lockfile (see [`landing/README.md`](landing/README.md)):
+
+```sh
+pnpm --dir landing install --frozen-lockfile
+pnpm --dir landing build
 ```
 
 Money is available from `@shared/money`. `decimal.js` is a private dependency of `shared/`; Docker installs it automatically.
@@ -113,6 +121,7 @@ Images require the `R2_*` environment variables from [`apps/core/.env.example`](
 - [Persistence](docs/persistence.md) and [company data isolation](docs/rls-with-prisma.md).
 - [Images](docs/images.md).
 - [Event bus](docs/event-bus.md).
+- [Landing](docs/landing.md).
 
 Migration output records start/end, duration, each attempted migration identifier and aggregate order/buyer counts. Raw Prisma output is withheld because database errors can contain row values. On failure, inspect `_prisma_migrations` through administrative access, resolve the recorded cause and retry; do not expose its `logs` column to application logging. Keep order writes stopped through migration and deployment of the matching application.
 

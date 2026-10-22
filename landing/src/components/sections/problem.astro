@@ -1,0 +1,60 @@
+---
+import X from "@lucide/astro/icons/x";
+import SectionHeading from "@landing/src/components/section-heading.astro";
+import { problemContent } from "@landing/src/content/sections/problem";
+---
+
+<section id="problema" class="section" aria-labelledby="problema-titulo">
+  <div class="container stack">
+    <SectionHeading id="problema-titulo" heading={problemContent.heading} />
+    <ul class="bullets">
+      {problemContent.bullets.map((bullet, index) => (
+        <li data-reveal style={`--motion-order: ${index % 3}`}><X class="mark" aria-hidden="true" /><span>{bullet}</span></li>
+      ))}
+    </ul>
+    <p class="closing">{problemContent.closing}</p>
+  </div>
+</section>
+
+<style>
+  .stack {
+    display: grid;
+    gap: var(--space-8);
+  }
+
+  .bullets {
+    display: grid;
+    gap: var(--space-3);
+    max-width: var(--reader-max-width);
+    margin: 0 auto;
+    padding: 0;
+    list-style: none;
+  }
+
+  .bullets li {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    border: var(--border-width) solid var(--border);
+    border-radius: var(--radius-overlay);
+    background: var(--card);
+  }
+
+  .mark {
+    flex: none;
+    width: var(--icon-action-size);
+    height: var(--icon-action-size);
+    margin-block-start: var(--space-1);
+    color: var(--destructive);
+  }
+
+  .closing {
+    max-width: var(--reader-max-width);
+    margin-inline: auto;
+    font-size: var(--text-section-title-size);
+    line-height: var(--text-section-title-line);
+    font-weight: var(--text-section-title-weight);
+    text-align: center;
+  }
+</style>

@@ -1,0 +1,76 @@
+---
+import Phone from "@lucide/astro/icons/phone";
+import CtaLink from "@landing/src/components/cta-link.astro";
+import DemoForm from "@landing/src/components/demo-form.astro";
+import SectionHeading from "@landing/src/components/section-heading.astro";
+import { siteConfig } from "@landing/src/config/site";
+import { finalCtaContent } from "@landing/src/content/sections/final-cta";
+import { ctaLabels, headerContent } from "@landing/src/content/site";
+import { telUrl, whatsappUrl } from "@landing/src/lib/contact";
+
+const phoneDisplay = siteConfig.phone.display;
+---
+
+<section id="demo" class="section" aria-labelledby="demo-titulo">
+  <div class="container">
+    <SectionHeading id="demo-titulo" heading={finalCtaContent.heading} lead={finalCtaContent.lead} />
+
+    <div class="actions" data-reveal>
+      <CtaLink href={whatsappUrl(siteConfig.whatsapp)} event="whatsapp_click" location="cta_final" newTab>
+        {ctaLabels.whatsapp}
+      </CtaLink>
+      <CtaLink
+        href={telUrl(siteConfig.phone)}
+        variant="secondary"
+        event="call_click"
+        location="cta_final"
+        ariaLabel={headerContent.callAriaLabel(phoneDisplay)}
+      >
+        <Phone class="icon" aria-hidden="true" />
+        {ctaLabels.call}
+      </CtaLink>
+    </div>
+    <p class="phone">{phoneDisplay}</p>
+
+    {
+      siteConfig.demoForm.kind === "enabled" && (
+        <>
+          <p class="separator">{finalCtaContent.separator}</p>
+          <DemoForm />
+        </>
+      )
+    }
+  </div>
+</section>
+
+<style>
+  .actions {
+    display: grid;
+    gap: var(--space-3);
+    max-width: var(--form-max-width);
+    margin: var(--space-8) auto 0;
+  }
+
+  .icon {
+    width: var(--icon-inline-size);
+    height: var(--icon-inline-size);
+    stroke-width: var(--icon-stroke);
+  }
+
+  .phone,
+  .separator {
+    margin-top: var(--space-4);
+    color: var(--muted-foreground);
+    text-align: center;
+  }
+
+  .separator {
+    margin-block: var(--space-8);
+  }
+
+  @media (min-width: 48em) {
+    .actions {
+      grid-template-columns: repeat(2, 1fr);
+    }
+  }
+</style>
