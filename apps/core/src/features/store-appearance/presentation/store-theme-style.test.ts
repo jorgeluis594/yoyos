@@ -103,7 +103,7 @@ describe("store-theme.css", () => {
 
   test("styles only parts inside a themed store", () => {
     expect(selectors.length).toBeGreaterThan(20);
-    for (const selector of selectors) expect(selector, selector).toMatch(/^\[data-store-theme\] /);
+    for (const selector of selectors) expect(selector, selector).toMatch(/^\[data-store-theme\](?::not\(\[data-store-surface="catalog"\]\))? /);
   });
 
   test("reads only variables that every theme writes, also in catalog parts", () => {
@@ -169,7 +169,8 @@ describe("store-theme.css", () => {
   test("limits the main button size, border and shadow to the default variant", () => {
     const rule = (selector: string) => stylesheet.match(new RegExp(`${selector.replace(/[[\]"=().]/g, "\\$&")} \\{([^{}]*)\\}`))?.[1] ?? "";
     expect(rule('[data-store-theme] [data-slot="button"]')).not.toMatch(/height|box-shadow|border:/);
-    expect(rule('[data-store-theme] [data-slot="button"][data-variant="default"]')).toMatch(/height[\s\S]*box-shadow/);
+    expect(rule('[data-store-theme] [data-slot="button"][data-variant="default"]')).toMatch(/border:[\s\S]*box-shadow/);
+    expect(rule('[data-store-theme]:not([data-store-surface="catalog"]) [data-slot="button"][data-variant="default"]')).toMatch(/height/);
   });
 
   test("leaves the header justification to the brand row, since the bar itself spans the full width", () => {
@@ -190,7 +191,7 @@ describe("store-theme.css", () => {
   test("scopes the catalog parts to the store theme subtree", () => {
     const catalog = selectors.filter((selector) => /catalog-|cart-/.test(selector));
     expect(catalog.length).toBeGreaterThanOrEqual(12);
-    for (const selector of catalog) expect(selector, selector).toMatch(/^\[data-store-theme\] /);
+    for (const selector of catalog) expect(selector, selector).toMatch(/^\[data-store-theme\](?::not\(\[data-store-surface="catalog"\]\))? /);
   });
 
   test("applies the theme photo filter to card photos and cart thumbnails, never to the product page photo", () => {
@@ -226,5 +227,19 @@ describe("store-theme.css", () => {
     const inset = (id: StoreThemeId) => /--store-catalog-card-inset:([^;]+);/.exec(storeThemeCss(id, scope))?.[1];
     expect(Object.fromEntries(storeThemeIds.map((id) => [id, inset(id)]))).toEqual({ classic: "0.5rem", boutique: "0", antojo: "0.5rem", suave: "0.5rem", noche: "0.5rem" });
     expect(stylesheet).toMatch(/catalog-card"\] :is\([^)]*\) \{\s*padding-inline: var\(--store-catalog-card-inset\)/);
+  });
+
+  test("leaves the size and spacing of the catalog controls to the catalog", () => {
+    const sizing = /^(?:min-|max-)?(?:height|width)$|^(?:padding|margin)(?:-[a-z]+)*$|^(?:row-|column-)?gap$|^line-height$|^inset(?:-[a-z]+)*$/;
+    const offenders = rules(stylesheet)
+      .filter(({ selector }) => !selector.includes(':not([data-store-surface="catalog"])'))
+      .filter(({ selector }) => /data-slot="(?:button|input|select|select-trigger)"|catalog-(?:search|more|quantity|notice|empty|sold-out)|cart-(?:button|line|sheet)/.test(selector))
+      .flatMap(({ selector, body }) => declarations(body).filter(({ name }) => sizing.test(name.trim())).map(({ name }) => `${selector.trim()} { ${name.trim()} }`));
+    expect(offenders).toEqual([]);
+  });
+
+  test("applies the checkout field and button sizes only outside the catalog", () => {
+    expect(stylesheet).toMatch(/:not\(\[data-store-surface="catalog"\]\) \[data-slot="button"\]\[data-variant="default"\] \{\s*height: var\(--store-button-height\)/);
+    expect(stylesheet).toMatch(/:not\(\[data-store-surface="catalog"\]\) :is\([^)]*\) \{\s*height: var\(--store-input-height\);\s*min-height: var\(--store-input-height\);\s*padding-inline: var\(--store-input-padding-x\)/);
   });
 });

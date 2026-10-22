@@ -5,13 +5,13 @@ import { storeThemeCss } from "@core/src/features/store-appearance/presentation/
 import "@core/src/features/store-appearance/presentation/store-theme-fonts.css";
 import "@core/src/features/store-appearance/presentation/store-theme.css";
 
-type StoreThemeProps = Readonly<{ appearance: Pick<PublicStoreAppearance, "theme"> | null; children: ReactNode }>;
+type StoreThemeProps = Readonly<{ appearance: Pick<PublicStoreAppearance, "theme"> | null; children: ReactNode; surface?: "catalog" }>;
 
 /**
  * Paints a buyer subtree (the checkout and the catalog) with one fixed theme; a company without appearance gets Clásico.
- * The mode is fixed by the theme: only Noche adds `.dark`, so `dark:` variants of shared components match inside it alone.
+ * The `catalog` surface keeps the sizes of its controls (see store-theme.css). The mode is fixed by the theme: only Noche adds `.dark`, so `dark:` variants of shared components match inside it alone.
  */
-export function StoreTheme({ appearance, children }: StoreThemeProps) {
+export function StoreTheme({ appearance, surface, children }: StoreThemeProps) {
   // Scoped per instance so two themes on one page never paint each other's subtree.
   const scope = useId();
   const id = appearance?.theme ?? defaultStoreTheme;
@@ -20,6 +20,6 @@ export function StoreTheme({ appearance, children }: StoreThemeProps) {
   const css = useMemo(() => storeThemeCss(id, scope), [id, scope]);
   return <>
     <style dangerouslySetInnerHTML={{ __html: css }} />
-    <div data-store-theme={scope} data-store-theme-id={id} className={dark ? "dark min-h-screen" : "min-h-screen"}>{children}</div>
+    <div data-store-theme={scope} data-store-theme-id={id} className={dark ? "dark min-h-screen" : "min-h-screen"} data-store-surface={surface}>{children}</div>
   </>;
 }
