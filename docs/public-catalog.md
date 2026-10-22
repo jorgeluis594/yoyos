@@ -2,19 +2,22 @@
 
 Each company can publish one public catalog at `/catalogo/:companyId`. A buyer without an account opens the link (usually from Instagram or WhatsApp), browses the company's products, builds a cart and taps **Continuar**: core creates an order and hands the buyer to the existing [checkout](checkout.md). The seller receives the order once the buyer confirms it there.
 
-Code: `apps/core/src/features/catalog/` (publication, browsing, continue to checkout), catalog read models in `apps/core/src/features/products/`, catalog orders in `apps/core/src/features/orders/`, web routes `apps/core/app/routes/catalog*.tsx`, mobile settings in `apps/mobile/src/features/catalog/`. Settings contract: `shared/contracts/catalog.ts`.
+Code: `apps/core/src/features/catalog/` (publication, browsing, continue to checkout), catalog read models in `apps/core/src/features/products/`, catalog orders in `apps/core/src/features/orders/`, web routes `apps/core/app/routes/catalog*.tsx`, mobile settings in `apps/mobile/src/features/catalog/`. Settings contract: `shared/contracts/catalog.ts`. Theme and logo: the [store appearance](checkout.md#appearance) (`apps/core/src/features/store-appearance/`).
 
 ## Scope
 
-- One catalog per company with a fixed layout defined by Yoyos. The seller configures nothing except publishing it. Reason: zero configuration for the seller; personalization would be added over the same layout.
-- The catalog shows the default Yoyos look (global design tokens) with the company's logo and name, for every company; it does not adopt the [checkout themes](checkout.md#appearance), and choosing a theme never changes it. Reason: themes were scoped to the checkout, where the buyer pays; the logo and name already identify the store. The logo is the only part of the checkout appearance the catalog reads: it sits on the same white plate as the checkout header with the default plate values, and if the appearance cannot be read the catalog shows no logo (logged as `unable_to_read_catalog`) and is never hidden.
+- One catalog per company with a fixed layout defined by Yoyos. The seller configures nothing except publishing it and the [store appearance](checkout.md#appearance) (logo and theme) it shares with the checkout. Reason: zero configuration for the seller; personalization is applied over the same layout.
+- The catalog uses the company's store theme and logo, the same ones as the checkout (see [Theme](#theme)). Reason: the store must look the same from the first product to the payment, so the buyer never wonders at the handoff whether they are still in the same shop (rejected: a theme per surface, or the default Yoyos look in the catalog).
 - The public pages are web only (React Router loaders and actions). There is no public JSON API.
 - The link uses the company's internal id, not a readable slug. Reason: nothing to configure or validate. The link never changes, also across hide and publish.
 
 ## Seller
 
-- Settings → Catalog, on web and mobile: switch **Publicar catálogo**, the link with **Copiar link**, **Ver catálogo**, and on mobile **Compartir** (system share sheet). Hiding asks for confirmation. A failed save returns the switch to its previous position.
-- API: `GET` and `PUT /api/catalog/settings` (seller session).
+- **Publishing** lives in «Apariencia de la tienda», on web and mobile ([Checkout · Editing and publishing](checkout.md#editing-and-publishing)): the **Publicar catálogo** card with the switch and «Este cambio se guarda al momento.». It saves at once, outside the logo and theme draft: **Descartar**, **Guardar cambios** and the leave confirmation ignore it. Hiding asks for confirmation («¿Ocultar tu catálogo?»). A failed save returns the switch to its previous position with «No pudimos guardar el cambio» and **Reintentar**, which resends the same value without asking again. Reason: publishing belongs with the store's look, in one place to set up how the store looks and whether it is open.
+- The publication card loads and works independently of the appearance: if logo and theme cannot be read, the seller can still publish or hide the catalog, and a failed publication read shows «No pudimos cargar la configuración del catálogo» with **Reintentar** only inside the card. Reason: it is the only place to hide the catalog, and a failing logo or theme read must never stop the seller from closing the store.
+- **Sharing** stays in Settings → Catálogo, on web and mobile: while the catalog is published, the link with **Copiar link**, **Ver catálogo** and, on mobile, **Compartir** (system share sheet), followed by «Para ocultar tu catálogo, ve a Apariencia de la tienda.»; while hidden, no link and «Tu catálogo está oculto. Publícalo desde Apariencia de la tienda.». Both states offer **Ir a Apariencia de la tienda**, which opens that screen on top of Catálogo. Reason: sharing the link is a separate daily action, and a seller looking for the switch where it used to be must find where it went.
+- On mobile, Catálogo re-reads the publication state every time the seller returns to it, keeping the last known state meanwhile, so it never offers **Compartir** for a catalog it knows is hidden.
+- API: `GET` and `PUT /api/catalog/settings` (seller session, used by mobile). On web, publication is saved through the «Apariencia de la tienda» editor's action.
 - Existing companies start with the catalog off.
 - Catalog orders show «Desde el catálogo» in the seller's order list and detail, on web and mobile, and have no seller user.
 
@@ -23,8 +26,26 @@ Code: `apps/core/src/features/catalog/` (publication, browsing, continue to chec
 - **Catalog page:** store header, product grid (newest first, 24 per page, **Ver más**), search by product name. A product shows «Desde» the minimum price when variants differ and «Agotado» when every variant is out of stock; a product without photo shows a neutral block with its initial. Search, loaded pages and scroll position are kept when returning from a product.
 - **Product page:** photo, name, price, description, one selector per attribute. Combinations that do not exist and variants without stock cannot be selected. Quantity from 1 up to the variant's available stock, never above 99.
 - **Cart:** lives only in the buyer's browser (`localStorage`); it is not sent to Yoyos before **Continuar**. Reason: the buyer has no account and an abandoned cart needs no storage. One line per variant, at most 30 lines. It shows «Subtotal de productos»; «Total» is reserved for the checkout, where delivery is added. It is emptied when the buyer confirms the checkout.
+- A product that no longer exists or is no longer shown, inside a published catalog, shows «Este producto ya no está disponible» with **Volver al catálogo**, in the store theme with the store name, and answers 404.
 - An unknown company, a malformed link and a company with the catalog off all show the same «Catálogo no disponible». Reason: an unpublished catalog must not reveal that the company exists.
 - A load failure shows an error with **Reintentar**, never an empty catalog.
+
+## Theme
+
+The catalog renders the company's [store appearance](checkout.md#appearance): one of the five themes and the logo, exactly the values the checkout uses for that theme, through the same theme scope. There is no second theming mechanism and nothing in the catalog is configurable on its own.
+
+- **Only styles change.** Colors, fonts, type sizes and weights, rounding, borders, shadows, spacing, logo plate, photo filter and cart thumbnail shape. Screens, order, texts, fields, rules and flow are identical in the five themes. Reason: the themes are already tested and accessible.
+- **Themed screens:** header (logo on the theme's plate and store name in the heading font, as in the checkout header), search field, «Cargando productos», product grid and cards, «Ver más», the empty and no-results messages, product page, «Este producto ya no está disponible», and the cart (floating button as the theme's primary button, sheet, lines, «Producto quitado» with **Deshacer**, rejected-line notices, «Subtotal de productos» and **Continuar**). Reason: they are every screen the buyer goes through before the checkout.
+- **Not themed:** «Catálogo no disponible» and the full-page load error keep the unbranded Yoyos look and follow the buyer's system preference. Reason: the first must not reveal whether a company exists, and the second appears before Yoyos knows whether the company exists and has its catalog published, so both look the same for every link. «Este producto ya no está disponible» is themed because it happens inside a known published catalog, so theming reveals nothing.
+- **Fixed scheme:** every themed screen uses the theme's fixed mode (Noche always dark; Clásico, Boutique, Antojo and Suave always light) from the first paint, whatever the buyer's system preference, as in the checkout.
+- **Card photos** stay square in every theme, as before themes, with no rounding of their own: the card's rounding clips their top corners, so Suave never shows a round card photo. Card text keeps a small inset from the card edge only in themes that draw a card frame (a border, a shadow, or a card color different from the page); in frameless themes text aligns with the photo. Reason: it is what the approved mockup shows, and a 4:5 or round card photo would crop clothing photos and change the grid.
+- **Cart thumbnails** take the theme's thumbnail shape, rounding and photo filter, as in the checkout, with the product's initial when the photo is missing.
+- **Photo filter:** applied to card photos and cart thumbnails, never to the product page photo. Reason: the product page photo is where the buyer judges color and variant, so it shows the colors as uploaded (rejected: no filter anywhere, which departs from the approved mockup and the checkout thumbnails).
+- **Product page photo:** today's shape with the theme's card rounding and border, never the thumbnail's (Suave 16 px); it is never a circle in any theme. Reason: the large photo must show the whole product.
+- **Contrast floor:** the [checkout floor](checkout.md#contrast-floor) applies to every catalog element in the five themes. «Agotado» uses an opaque warning surface with warning text instead of a translucent badge over the photo, so its contrast is computable per theme. The search field always draws a border in the control color (3:1), also in themes whose fields have no border (Boutique, Noche).
+- **Fonts:** the buyer's browser downloads only the fonts of the active theme; if one fails, the theme's fallback system font keeps the layout.
+- **Fallback:** a company that never saved an appearance, an unknown stored theme, invalid stored data or a failed read all render Clásico without logo; the catalog is never hidden and the buyer can browse and continue. A stored logo whose image cannot be resolved shows the stored theme without logo. Reason: same rule as the checkout, so both surfaces stay identical, and a visual failure never blocks a sale.
+- **When a change shows:** every load reads the latest published theme and logo. A buyer with the catalog open sees a change on the next page load; the cart in their browser is untouched.
 
 ## Rules
 
@@ -54,3 +75,5 @@ Code: `apps/core/src/features/catalog/` (publication, browsing, continue to chec
 | Every active product appears; no per-product visibility | Zero configuration for the seller. |
 | No WhatsApp contact button | The checkout does not configure a WhatsApp contact either. |
 | No notification to the seller of a new catalog order | Yoyos has no notifications; the checkout has none either. |
+| One store theme for catalog and checkout, no theme per surface | The store must look the same from the first product to the payment. |
+| «Publicar catálogo» lives in «Apariencia de la tienda»; the link stays in Settings → Catálogo | Publishing belongs with the store's look; sharing is a separate daily action. |
