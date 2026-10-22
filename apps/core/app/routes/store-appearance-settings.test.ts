@@ -146,10 +146,14 @@ describe("editor action", () => {
 });
 
 describe("editor client action", () => {
-  const lost = (body: unknown) => clientAction({
-    request: new Request("http://localhost/x", { method: "POST", body: JSON.stringify(body) }),
-    serverAction: vi.fn(async () => { throw new TypeError("Failed to fetch"); }),
-  } as unknown as ClientActionFunctionArgs);
+  // Like React Router's serverAction, it reads the request body before the fetch fails.
+  const lost = (body: unknown) => {
+    const request = new Request("http://localhost/x", { method: "POST", body: JSON.stringify(body) });
+    return clientAction({
+      request,
+      serverAction: vi.fn(async () => { await request.json(); throw new TypeError("Failed to fetch"); }),
+    } as unknown as ClientActionFunctionArgs);
+  };
 
   test("turns a save that gets no response into the save error with status 503, so the loader is not revalidated and the draft stays", async () => {
     expect(await lost({ intent: "save-appearance", appearance })).toMatchObject({ data: { intent: "save-appearance", error: "PERSISTENCE_UNAVAILABLE" }, init: { status: 503 } });

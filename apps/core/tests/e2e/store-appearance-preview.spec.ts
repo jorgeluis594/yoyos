@@ -139,6 +139,7 @@ test("applies the theme draft to the preview without changing the public checkou
     const path = await sharedCheckoutPath(companyId, email);
     const frame = page.frameLocator('iframe[title="Vista previa de la tienda"]');
     const confirm = frame.getByRole("button", { name: "Confirmar pedido" });
+    await page.getByRole("button", { name: "Checkout", exact: true }).click();
     await page.getByRole("radio", { name: /^Antojo/ }).click();
     await browserExpect(confirm).toHaveCSS("background-color", rgb(storeThemes.antojo.colors.primary));
     await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toBeVisible();

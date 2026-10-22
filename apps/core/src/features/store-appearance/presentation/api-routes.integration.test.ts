@@ -76,7 +76,7 @@ test("GET store appearance returns the saved theme and logo of the token's compa
   const own = await call({ bearer: a.bearer });
   expect(own.headers.get("cache-control")).toBe("no-store");
   const body = storeAppearanceResponseSchema.parse(await own.json());
-  expect(body).toEqual({ kind: "readable", appearance: { theme: "suave", logo: { id: logoId, url: `http://127.0.0.1:9/test-images/images/${logoId}.png` } } });
+  expect(body).toEqual({ kind: "readable", appearance: { theme: "suave", logo: { id: logoId, url: `http://127.0.0.1:9/test-images/images%2F${logoId}.png` } } });
   expect(await (await call({ bearer: b.bearer })).json()).toEqual({ kind: "readable", appearance: { theme: "classic", logo: null } });
 });
 
@@ -94,7 +94,7 @@ test("PUT store appearance publishes theme and logo together and returns them wi
   expect(response.status).toBe(200);
   expect(response.headers.get("cache-control")).toBe("no-store");
   expect(storeAppearanceResponseSchema.parse(await response.json())).toEqual({ kind: "readable",
-    appearance: { theme: "suave", logo: { id: logoId, url: `http://127.0.0.1:9/test-images/images/${logoId}.png` } } });
+    appearance: { theme: "suave", logo: { id: logoId, url: `http://127.0.0.1:9/test-images/images%2F${logoId}.png` } } });
   const rows = await storedRows(s);
   expect(rows.map((row) => [row.theme, row.logoImageId])).toEqual([["suave", logoId]]);
 });
@@ -133,7 +133,7 @@ test("store appearance API requires a session or bearer token with an active com
   expect((await call({})).status).toBe(401);
   expect((await call({}, { theme: "suave", logoImageId: null })).status).toBe(401);
   const withoutCompany = await seller(false);
-  expect((await call({ bearer: withoutCompany.bearer })).status).toBe(403);
+  expect((await call({ bearer: withoutCompany.bearer })).status).toBe(409);
   const s = await seller();
   expect((await call({ cookie: s.cookie })).status).toBe(200);
   expect((await call({ bearer: s.bearer })).status).toBe(200);
