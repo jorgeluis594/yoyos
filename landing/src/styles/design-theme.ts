@@ -16,13 +16,14 @@ const typographyVariables = Object.fromEntries(
 
 /** Landing-only entrance motion (DESIGN.md "Landing"): a short rise that settles without overshoot, staggered per
    card, travelling one spacing step; scroll reveals travel two steps so the rise reads while the section moves into
-   view; hover lifts by half the smallest step. */
+   view, and captures beside their text slide in three steps from their side; hover lifts by half the smallest step. */
 const landingMotionVariables = {
   "motion-entrance": "480ms",
   "motion-stagger": "80ms",
   "motion-entrance-easing": "cubic-bezier(0.2, 0, 0, 1)",
   "motion-rise": rem(tokens.spacing[4]),
   "motion-reveal-rise": rem(tokens.spacing[8]),
+  "motion-reveal-slide": rem(tokens.spacing[12]),
   "motion-lift": rem(tokens.spacing[1] / 2),
 };
 

@@ -12,9 +12,9 @@ const label = navLinks.find((link) => link.anchor === "como-funciona")?.label;
     <SectionHeading id="como-funciona-titulo" label={label} heading={howItWorksContent.heading} />
     <ol class="steps">
       {howItWorksContent.steps.map((step, index) => (
-        <li class="step" data-reveal>
-          <div class="capture"><Screenshot capture={step.capture} /></div>
-          <div class="body">
+        <li class="step">
+          <div class="capture" data-reveal="capture"><Screenshot capture={step.capture} /></div>
+          <div class="body" data-reveal style="--motion-order: 1">
             <span class="number" aria-hidden="true">{index + 1}</span>
             <h3>{step.title}</h3>
             <p class="card-text">{step.text}</p>
@@ -76,8 +76,13 @@ const label = navLinks.find((link) => link.anchor === "como-funciona")?.label;
       gap: var(--space-16);
     }
 
+    .capture {
+      --motion-reveal-x: calc(-1 * var(--motion-reveal-slide));
+    }
+
     .step:nth-child(even) .capture {
       order: 2;
+      --motion-reveal-x: var(--motion-reveal-slide);
     }
   }
 </style>
