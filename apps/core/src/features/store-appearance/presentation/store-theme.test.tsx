@@ -1,8 +1,17 @@
 // @vitest-environment jsdom
+import { act, useState } from "react";
+import { createRoot } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import { storeThemeIds, storeThemes } from "@shared/store-themes";
+import * as themeStyle from "@core/src/features/store-appearance/presentation/store-theme-style";
 import { StoreTheme } from "@core/src/features/store-appearance/presentation/store-theme";
+
+vi.mock("@core/src/features/store-appearance/presentation/store-theme-style", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@core/src/features/store-appearance/presentation/store-theme-style")>();
+  return { ...original, storeThemeCss: vi.fn(original.storeThemeCss) };
+});
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const styleOf = (html: string) => /<style>(.*?)<\/style>/s.exec(html)?.[1] ?? "";
 const scopeOf = (html: string) => /<div data-store-theme="([^"]+)"/.exec(html)?.[1];
@@ -53,5 +62,24 @@ describe("StoreTheme", () => {
       expect(styleOf(html)).toContain(`html:has([data-store-theme="${scope}"])`);
       expect(styleOf(html)).not.toContain(":root");
     }
+  });
+
+  test("StoreTheme builds the theme CSS once per theme and scope, not on every render", () => {
+    const css = vi.mocked(themeStyle.storeThemeCss);
+    css.mockClear();
+    let rerender: () => void = () => undefined;
+    function Page() {
+      const [typed, setTyped] = useState(0);
+      rerender = () => setTyped((value) => value + 1);
+      return <StoreTheme appearance={{ theme: "boutique" }}><p>{typed}</p></StoreTheme>;
+    }
+    const container = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(container);
+    act(() => root.render(<Page />));
+    for (let keystroke = 0; keystroke < 3; keystroke++) act(() => rerender());
+    expect(container.querySelector("p")?.textContent).toBe("3");
+    expect(css).toHaveBeenCalledTimes(1);
+    act(() => root.unmount());
+    container.remove();
   });
 });

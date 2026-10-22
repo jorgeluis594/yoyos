@@ -301,3 +301,83 @@
 [data-store-theme] [data-store-part="status"] {
   border-radius: var(--store-radius-card);
 }
+
+/* Catalog */
+/* Themes without a field border (Boutique, Noche) still draw the search box, in the control color that reaches 3:1 on every surface. */
+[data-store-theme] [data-store-part="catalog-search"] {
+  border: 1px solid var(--control);
+}
+
+/* The card clips its square photo with its own rounding; text keeps a small inset so the corners never touch it. */
+[data-store-theme] [data-store-part="catalog-card"] {
+  overflow: hidden;
+  border: var(--store-card-border);
+  border-radius: var(--store-radius-card);
+  box-shadow: var(--store-card-shadow);
+  background-color: var(--card);
+  color: var(--card-foreground);
+}
+
+[data-store-theme] [data-store-part="catalog-card"]:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
+}
+
+/* Card photos take the theme's photo filter; the product page photo never does. */
+[data-store-theme] [data-store-part="catalog-card-photo"] {
+  border-radius: 0;
+  background-color: var(--thumbnail-surface);
+  filter: var(--store-thumb-filter);
+}
+
+[data-store-theme] [data-store-part="catalog-product-photo"] {
+  border: var(--store-card-border);
+  border-radius: var(--store-radius-card);
+  background-color: var(--thumbnail-surface);
+}
+
+/* Opaque surface and text so the badge keeps its contrast over any photo. */
+[data-store-theme] [data-store-part="catalog-sold-out"] {
+  background-color: var(--warning-surface);
+  color: var(--warning);
+  font-family: var(--store-font-body);
+}
+
+[data-store-theme] [data-store-part="catalog-more"] {
+  border-color: var(--control);
+  background-color: var(--card);
+  color: var(--foreground);
+}
+
+[data-store-theme] [data-store-part="catalog-empty"] {
+  color: var(--muted-foreground);
+  font-family: var(--store-font-body);
+  font-size: var(--store-text-body);
+}
+
+[data-store-theme] [data-store-part="catalog-quantity"] {
+  border-color: var(--control);
+  border-radius: var(--store-radius-input);
+  background-color: var(--input-surface);
+}
+
+[data-store-theme] [data-store-part="catalog-notice"] {
+  color: var(--foreground);
+  font-family: var(--store-font-body);
+  font-size: var(--store-text-small);
+}
+
+/* The main button rule removes the lifted shadow of the floating button; a drop shadow keeps it apart from the page in every theme. */
+[data-store-theme] [data-store-part="cart-button"] {
+  filter: drop-shadow(0 4px 10px rgb(0 0 0 / 0.2));
+}
+
+[data-store-theme] [data-store-part="cart-sheet"] [role="dialog"] {
+  border-left-color: var(--border);
+  font-family: var(--store-font-body);
+  font-size: var(--store-text-body);
+}
+
+[data-store-theme] [data-store-part="cart-line"] {
+  border-color: var(--border);
+}

@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { createRoutesStub, data } from "react-router";
 import { afterEach, expect, test, vi } from "vitest";
 import Catalog, { ErrorBoundary } from "@core/app/routes/catalog";
-import CatalogProductPage from "@core/app/routes/catalog-product";
+import CatalogProductPage, { ErrorBoundary as ProductErrorBoundary } from "@core/app/routes/catalog-product";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -25,7 +25,7 @@ const button = (name: string) => [...container.querySelectorAll("button")].find(
 const shows = (text: string) => vi.waitFor(() => expect(container.textContent).toContain(text));
 
 test("catalog page shows cards with initial, «Desde» and «Agotado», and an empty search offers «Borrar búsqueda» back to the empty store", async () => {
-  const page = (q: string, items: object[] = [], hasMore = false) => ({ storeName: "Moda Lucía", logoUrl: null, items, hasMore, q, pages: 1 });
+  const page = (q: string, items: object[] = [], hasMore = false) => ({ storeName: "Moda Lucía", appearance: { logoUrl: null, theme: "classic" }, items, hasMore, q, pages: 1 });
   const loader = vi.fn(({ request }: { request: Request }) => page(new URL(request.url).searchParams.get("q") ?? ""));
   loader.mockReturnValueOnce(page("", [
     card("polo básico", { price: { kind: "from", amount: pen(45) } }), card("Casaca negra", { soldOut: true })], true));
@@ -63,7 +63,7 @@ test("a sold-out variant is not selectable and the quantity stops at the availab
   const product = { id: crypto.randomUUID(), name: "Polo básico", description: null, imageUrl: null, price: { kind: "from", amount: pen(45) }, soldOut: false,
     attributes: [{ name: "Color", values: ["Negro"] }, { name: "Talla", values: ["M", "L"] }], variants: [variant("M", 45, 3), variant("L", 49, 0)] };
   await mount(`/catalogo/${companyId}/productos/${product.id}`, [{ path: "/catalogo/:companyId/productos/:productId", Component: CatalogProductPage,
-    loader: () => ({ storeName: "Moda Lucía", logoUrl: null, product }) }]);
+    loader: () => ({ kind: "found", storeName: "Moda Lucía", appearance: { logoUrl: null, theme: "classic" }, product }) }]);
   await shows("Polo básico");
   expect(button("L · Agotado").disabled).toBe(true);
   await act(async () => button("Negro").click());
@@ -71,4 +71,25 @@ test("a sold-out variant is not selectable and the quantity stops at the availab
   for (let index = 0; index < 4; index++) await act(async () => { if (!button("Agregar uno").disabled) button("Agregar uno").click(); });
   expect(container.querySelector("output")!.textContent).toBe("3");
   expect(button("Agregar uno").disabled).toBe(true);
+});
+
+test("the product page shows Este producto ya no está disponible inside the store theme with the store name", async () => {
+  await mount(`/catalogo/${companyId}/productos/${crypto.randomUUID()}`, [{ path: "/catalogo/:companyId/productos/:productId", Component: CatalogProductPage, ErrorBoundary: ProductErrorBoundary,
+    loader: () => data({ kind: "unavailable", storeName: "Moda Lucía", appearance: { logoUrl: null, theme: "noche" } }, { status: 404 }) }]);
+  await shows("Este producto ya no está disponible");
+  expect(container.querySelector('[data-store-theme-id="noche"]')).not.toBeNull();
+  expect(container.querySelector('[data-store-part="header"]')?.textContent).toContain("Moda Lucía");
+  expect(container.querySelector("a")?.textContent).toBe("Volver al catálogo");
+});
+
+test("Catálogo no disponible and the catalog load error render without a theme scope", async () => {
+  const fail = (status: number) => () => { throw data(null, { status }); };
+  for (const [status, text] of [[404, "Catálogo no disponible"], [503, "No pudimos cargar el catálogo. Revisa tu conexión"]] as const) {
+    await mount(`/catalogo/${companyId}/productos/${crypto.randomUUID()}`, [{ path: "/catalogo/:companyId/productos/:productId", Component: CatalogProductPage, ErrorBoundary: ProductErrorBoundary, loader: fail(status) }]);
+    await shows(text);
+    expect(container.querySelector("[data-store-theme]")).toBeNull();
+    expect(container.querySelector("style")).toBeNull();
+    act(() => root!.unmount());
+    container.remove();
+  }
 });

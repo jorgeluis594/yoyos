@@ -21,6 +21,15 @@ function catalogValues(theme: StoreThemeDefinition): Set<string> {
     ...Object.values(theme.fonts).map((family) => storeFontStacks[family]), ...(theme.backgroundImage ? [theme.backgroundImage.css] : []),
   ]);
 }
+const channel = (hex: string, start: number) => {
+  const value = parseInt(hex.slice(start, start + 2), 16) / 255;
+  return value <= 0.03928 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
+};
+const luminance = (hex: string) => 0.2126 * channel(hex, 1) + 0.7152 * channel(hex, 3) + 0.0722 * channel(hex, 5);
+function contrast(a: string, b: string) {
+  const [high, low] = [luminance(a), luminance(b)].sort((x, y) => y - x);
+  return (high + 0.05) / (low + 0.05);
+}
 const rules = (css: string) => [...css.matchAll(/([^{}]+)\{([^{}]*)\}/g)].map((match) => ({ selector: match[1], body: match[2] }));
 const declarations = (body: string) => body.split(";").filter(Boolean).map((declaration) => {
   const colon = declaration.indexOf(":");
@@ -91,7 +100,7 @@ describe("store-theme.css", () => {
   const stylesheet = readFileSync(new URL("./store-theme.css", import.meta.url), "utf8").replace(/\/\*[\s\S]*?\*\//g, "");
   const selectors = [...stylesheet.matchAll(/([^{}]+)\{/g)].map((match) => match[1].trim());
 
-  test("styles only parts inside a themed checkout", () => {
+  test("styles only parts inside a themed store", () => {
     expect(selectors.length).toBeGreaterThan(20);
     for (const selector of selectors) expect(selector, selector).toMatch(/^\[data-store-theme\] /);
   });
@@ -167,9 +176,48 @@ describe("store-theme.css", () => {
     expect(header).not.toContain("justify-content");
   });
 
-  test("hooks only the closed list of checkout parts", () => {
+  test("hooks only the closed list of store parts", () => {
     const parts = new Set([...stylesheet.matchAll(/data-store-part="([a-z-]+)"/g)].map((match) => match[1]));
-    expect([...parts].sort()).toEqual(["card", "field", "field-group", "free", "header", "header-brand", "option", "option-cost", "option-group", "order-title",
-      "payment-image", "payment-method", "price", "product-meta", "product-name", "product-row", "section-title", "status", "total", "total-amount", "total-label"]);
+    expect([...parts].sort()).toEqual(["card", "cart-button", "cart-line", "cart-sheet", "catalog-card", "catalog-card-photo", "catalog-empty", "catalog-more", "catalog-notice",
+      "catalog-product-photo", "catalog-quantity", "catalog-search", "catalog-sold-out", "field", "field-group", "free", "header", "header-brand", "option", "option-cost",
+      "option-group", "order-title", "payment-image", "payment-method", "price", "product-meta", "product-name", "product-row", "section-title", "status", "total",
+      "total-amount", "total-label"]);
+  });
+
+  const rule = (part: string, tail = "") => stylesheet.match(new RegExp(`data-store-part="${part}"\\]${tail} \\{([^{}]*)\\}`))?.[1] ?? "";
+
+  test("scopes the catalog parts to the store theme subtree", () => {
+    const catalog = selectors.filter((selector) => /catalog-|cart-/.test(selector));
+    expect(catalog.length).toBeGreaterThanOrEqual(12);
+    for (const selector of catalog) expect(selector, selector).toMatch(/^\[data-store-theme\] /);
+  });
+
+  test("applies the theme photo filter to card photos and cart thumbnails, never to the product page photo", () => {
+    expect(rule("catalog-card-photo")).toContain("filter: var(--store-thumb-filter)");
+    expect(rule("catalog-product-photo")).not.toMatch(/filter/);
+    const thumbnail = readFileSync(new URL("./product-thumbnail.tsx", import.meta.url), "utf8");
+    expect(thumbnail).toContain('filter: "var(--store-thumb-filter, none)"');
+  });
+
+  test("clips the square card photo with the card's rounding in Suave", () => {
+    expect(rule("catalog-card-photo")).toContain("border-radius: 0");
+    expect(rule("catalog-card")).toMatch(/overflow: hidden/);
+    expect(rule("catalog-card")).toContain("border-radius: var(--store-radius-card)");
+    expect(rule("catalog-product-photo")).toContain("border-radius: var(--store-radius-card)");
+    expect(storeThemes.suave.style["radius-card"]).toBe("16px");
+    expect(storeThemes.suave.thumbnail.radius).toBe("999px");
+  });
+
+  test("meets 4.5:1 for the sold-out badge and 3:1 for the catalog search border in every theme", () => {
+    const token = (body: string, property: string) => new RegExp(`(?:^|[\\s;])${property}:[^;]*var\\(--([a-z-]+)\\)`).exec(body)?.[1] as keyof StoreThemeDefinition["colors"];
+    const badge = rule("catalog-sold-out");
+    const [badgeText, badgeSurface, searchBorder] = [token(badge, "color"), token(badge, "background-color"), token(rule("catalog-search"), "border")];
+    expect([badgeText, badgeSurface, searchBorder]).toEqual(["warning", "warning-surface", "control"]);
+    for (const id of storeThemeIds) {
+      const { colors, backgroundImage } = storeThemes[id];
+      expect(contrast(colors[badgeText], colors[badgeSurface]), `${id}: badge`).toBeGreaterThanOrEqual(4.5);
+      for (const surface of [colors.background, colors.card, colors["input-surface"], ...(backgroundImage?.stops ?? [])])
+        expect(contrast(colors[searchBorder], surface), `${id}: search border on ${surface}`).toBeGreaterThanOrEqual(3);
+    }
   });
 });

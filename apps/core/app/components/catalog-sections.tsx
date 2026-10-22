@@ -1,6 +1,9 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { Link } from "react-router";
 import { StoreBrandHeader } from "@core/src/features/store-appearance/presentation/store-brand-header";
-import type { CatalogProduct } from "@core/src/features/products/domain/catalog-product";
+import { StoreTheme } from "@core/src/features/store-appearance/presentation/store-theme";
+import type { PublicStoreAppearance } from "@core/src/features/store-appearance/presentation/store-appearance-schemas";
+import type { CatalogCard, CatalogProduct } from "@core/src/features/products/domain/catalog-product";
 import { formatCurrency } from "@core/app/format-currency";
 import { Button } from "@core/app/components/ui/button";
 import { cn } from "@core/app/lib/utils";
@@ -14,20 +17,38 @@ export const formatCatalogAmount = (money: Money) => formatCurrency(money.amount
 export const formatCatalogPrice = ({ kind, amount }: CatalogProduct["price"]) =>
   kind === "from" ? `Desde ${formatCatalogAmount(amount)}` : formatCatalogAmount(amount);
 
-/** The catalog keeps the global Yoyos tokens: only the logo of the company's appearance reaches it, never a checkout theme. `cart` is the mount point for the cart button. */
-export function CatalogShell({ logoUrl, storeName, cart, children }: Readonly<{
-  logoUrl: string | null; storeName: string; cart?: ReactNode; children: ReactNode;
+/** The store's theme paints every buyer page of the catalog, with the same scope and fixed color scheme as the checkout. `cart` is the mount point for the cart button. */
+export function CatalogShell({ appearance, storeName, cart, children }: Readonly<{
+  appearance: PublicStoreAppearance; storeName: string; cart?: ReactNode; children: ReactNode;
 }>) {
-  return <div className="min-h-screen bg-background text-foreground">
-    <header className="border-b bg-card"><div className={`${catalogPage} flex min-h-16 items-center justify-between gap-3 py-3`}>
-      <StoreBrandHeader companyName={storeName} logoUrl={logoUrl} />{cart}
-    </div></header>
-    <main className={`${catalogPage} flex flex-col gap-4 py-6 pb-24`}>{children}</main>
-  </div>;
+  return <StoreTheme appearance={appearance}>
+    <div className="min-h-screen bg-background text-foreground">
+      <header data-store-part="header" className="border-b bg-card"><div className={`${catalogPage} flex min-h-16 items-center justify-between gap-3 py-3`}>
+        <StoreBrandHeader companyName={storeName} logoUrl={appearance.logoUrl} />{cart}
+      </div></header>
+      <main className={`${catalogPage} flex flex-col gap-4 py-6 pb-24`}>{children}</main>
+    </div>
+  </StoreTheme>;
+}
+
+/** A card of the grid: the square photo, the name and the price. Without `to` it is inert, for the editor preview. */
+export function CatalogProductCard({ item, to }: Readonly<{ item: CatalogCard; to?: string }>) {
+  const className = "group flex flex-col gap-2 rounded-[var(--radius-card)] outline-offset-4";
+  const content = <>
+    <div className="relative">
+      <CatalogProductImage name={item.name} url={item.imageUrl} part="catalog-card-photo" />
+      {item.soldOut && <span data-store-part="catalog-sold-out" className="absolute top-2 left-2 rounded-full bg-background/90 px-2 py-0.5 text-xs font-medium">Agotado</span>}
+    </div>
+    <span data-store-part="product-name" className="line-clamp-2 px-2 text-sm group-hover:underline">{item.name}</span>
+    <span data-store-part="price" className="px-2 pb-2 font-semibold">{formatCatalogPrice(item.price)}</span>
+  </>;
+  return to
+    ? <Link data-store-part="catalog-card" to={to} state={{ fromCatalog: true }} className={className}>{content}</Link>
+    : <div data-store-part="catalog-card" className={className}>{content}</div>;
 }
 
 /** Without photo, or when it fails to load, a neutral block with the initial; never a broken image. */
-export function CatalogProductImage({ name, url, className }: Readonly<{ name: string; url: string | null; className?: string }>) {
+export function CatalogProductImage({ name, url, part, className }: Readonly<{ name: string; url: string | null; part: "catalog-card-photo" | "catalog-product-photo"; className?: string }>) {
   const [failed, setFailed] = useState(false);
   const image = useRef<HTMLImageElement>(null);
   // The image can fail before React attaches `onError` during hydration.
@@ -35,10 +56,10 @@ export function CatalogProductImage({ name, url, className }: Readonly<{ name: s
     if (image.current?.complete && image.current.naturalWidth === 0) setFailed(true);
   }, []);
   const frame = cn("aspect-square w-full overflow-hidden rounded-[var(--radius-card)] bg-muted", className);
-  if (!url || failed) return <div className={cn(frame, "flex items-center justify-center text-4xl font-semibold text-muted-foreground")} aria-hidden="true">
+  if (!url || failed) return <div data-store-part={part} className={cn(frame, "flex items-center justify-center text-4xl font-semibold text-muted-foreground")} aria-hidden="true">
     {name.trim().charAt(0).toUpperCase()}
   </div>;
-  return <div className={frame}><img ref={image} src={url} alt="" loading="lazy" className="size-full object-cover" onError={() => setFailed(true)} /></div>;
+  return <div data-store-part={part} className={frame}><img ref={image} src={url} alt="" loading="lazy" className="size-full object-cover" onError={() => setFailed(true)} /></div>;
 }
 
 export function CatalogMessage({ title, children }: Readonly<{ title: string; children?: ReactNode }>) {
