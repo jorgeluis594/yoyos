@@ -1,4 +1,5 @@
 import type { Result } from "@shared/result";
+import { imageUploadLimits } from "@shared/contracts/images";
 import { fileTypeFromBuffer } from "file-type";
 import sharp from "sharp";
 
@@ -23,17 +24,17 @@ export type ImageRepository = {
 export type DownloadedImage = Readonly<{ bytes: Uint8Array; filename: string; declaredContentType: string }>;
 export type ImageValidationError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_IMAGE" | "IMAGE_TOO_LARGE" | "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR"; message: string }>;
 
-export async function validateImage(file: DownloadedImage): Promise<Result<{ contentType: string }, ImageValidationError>> {
-  if (!file.bytes.length || file.bytes.length > 10_000_000) return { success: false, error: { code: file.bytes.length ? "IMAGE_TOO_LARGE" : "INVALID_IMAGE", message: "Invalid image size" } };
+export async function validateImage(file: DownloadedImage): Promise<Result<{ contentType: string; width: number; height: number }, ImageValidationError>> {
+  if (!file.bytes.length || file.bytes.length > imageUploadLimits.maxBytes) return { success: false, error: { code: file.bytes.length ? "IMAGE_TOO_LARGE" : "INVALID_IMAGE", message: "Invalid image size" } };
   try {
     const detected = await fileTypeFromBuffer(file.bytes);
     if (!detected || detected.mime !== file.declaredContentType || !["image/jpeg", "image/png", "image/webp"].includes(detected.mime)) return { success: false, error: { code: "INVALID_IMAGE", message: "Unsupported image" } };
     const metadata = await sharp(file.bytes, { limitInputPixels: false, failOn: "warning" }).metadata();
     const { width, height, pages } = metadata;
     if (!width || !height || (pages ?? 1) > 1) return { success: false, error: { code: "INVALID_IMAGE", message: "Invalid image data" } };
-    if (width > 8_000 || height > 8_000 || width * height > 24_000_000) return { success: false, error: { code: "IMAGE_TOO_LARGE", message: "Image exceeds size limits" } };
-    await sharp(file.bytes, { limitInputPixels: 24_000_000, failOn: "warning" }).stats();
-    return { success: true, data: { contentType: detected.mime } };
+    if (width > imageUploadLimits.maxSide || height > imageUploadLimits.maxSide || width * height > imageUploadLimits.maxPixels) return { success: false, error: { code: "IMAGE_TOO_LARGE", message: "Image exceeds size limits" } };
+    await sharp(file.bytes, { limitInputPixels: imageUploadLimits.maxPixels, failOn: "warning" }).stats();
+    return { success: true, data: { contentType: detected.mime, width, height } };
   } catch {
     return { success: false, error: { code: "INVALID_IMAGE", message: "Invalid image data" } };
   }

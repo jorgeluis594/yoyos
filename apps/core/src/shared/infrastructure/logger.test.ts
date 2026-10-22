@@ -124,7 +124,7 @@ it("normalizes the checkout preview route with an explicit outcome", () => {
     const app = express();
     app.use(requestLogging);
     app.get("/{*splat}", (req, res) => {
-      bindRequestOperation({ operation: "get_checkout_preview", outcome: req.query.o });
+      bindRequestOperation({ operation: "get_store_preview", outcome: req.query.o });
       res.sendStatus(req.query.o === "rendered" ? 200 : 503);
     });
     const server = app.listen(0);
@@ -134,8 +134,8 @@ it("normalizes the checkout preview route with an explicit outcome", () => {
     server.close();
   `], { cwd: process.cwd(), encoding: "utf8" });
   expect(output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed")).toEqual([
-    expect.objectContaining({ route: "/settings/checkout-appearance/preview", operation: "get_checkout_preview", outcome: "rendered", statusCode: 200 }),
-    expect.objectContaining({ route: "/settings/checkout-appearance/preview", operation: "get_checkout_preview", outcome: "technical_failure", statusCode: 503 }),
+    expect.objectContaining({ route: "/settings/checkout-appearance/preview", operation: "get_store_preview", outcome: "rendered", statusCode: 200 }),
+    expect.objectContaining({ route: "/settings/checkout-appearance/preview", operation: "get_store_preview", outcome: "technical_failure", statusCode: 503 }),
   ]);
 });
 
@@ -151,15 +151,15 @@ it("normalizes the checkout appearance editor route without capturing the previe
     });
     const server = app.listen(0);
     const base = "http://127.0.0.1:" + server.address().port;
-    await fetch(base + "/es-PE/settings/checkout-appearance?op=get_checkout_appearance&o=loaded");
-    await fetch(base + "/es-PE/settings/checkout-appearance.data?op=save_checkout_appearance&o=saved", { method: "POST" });
-    await fetch(base + "/es-PE/settings/checkout-appearance/preview?op=get_checkout_preview&o=rendered");
+    await fetch(base + "/es-PE/settings/checkout-appearance?op=get_store_appearance&o=loaded");
+    await fetch(base + "/es-PE/settings/checkout-appearance.data?op=save_store_appearance&o=saved", { method: "POST" });
+    await fetch(base + "/es-PE/settings/checkout-appearance/preview?op=get_store_preview&o=rendered");
     server.close();
   `], { cwd: process.cwd(), encoding: "utf8" });
   expect(output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed")).toEqual([
-    expect.objectContaining({ route: "/settings/checkout-appearance", operation: "get_checkout_appearance", outcome: "loaded", statusCode: 200 }),
-    expect.objectContaining({ route: "/settings/checkout-appearance", operation: "save_checkout_appearance", outcome: "saved", statusCode: 200 }),
-    expect.objectContaining({ route: "/settings/checkout-appearance/preview", operation: "get_checkout_preview", outcome: "rendered", statusCode: 200 }),
+    expect.objectContaining({ route: "/settings/checkout-appearance", operation: "get_store_appearance", outcome: "loaded", statusCode: 200 }),
+    expect.objectContaining({ route: "/settings/checkout-appearance", operation: "save_store_appearance", outcome: "saved", statusCode: 200 }),
+    expect.objectContaining({ route: "/settings/checkout-appearance/preview", operation: "get_store_preview", outcome: "rendered", statusCode: 200 }),
   ]);
 });
 
@@ -170,7 +170,7 @@ it("keeps the checkout appearance label and normalizes the buyer checkout route"
     const app = express();
     app.use(requestLogging);
     app.get("/checkout/:companyId/:orderId", (req, res) => {
-      bindRequestOperation({ outcome: "pending", checkoutAppearance: req.query.a });
+      bindRequestOperation({ outcome: "pending", storeAppearance: req.query.a });
       res.sendStatus(200);
     });
     const server = app.listen(0);
@@ -180,7 +180,7 @@ it("keeps the checkout appearance label and normalizes the buyer checkout route"
   `], { cwd: process.cwd(), encoding: "utf8" });
   expect(output).not.toContain("order-secret");
   const completed = output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed");
-  expect(completed.map((entry) => entry.checkoutAppearance)).toEqual(["custom", "default", "fallback"]);
+  expect(completed.map((entry) => entry.storeAppearance)).toEqual(["custom", "default", "fallback"]);
   for (const entry of completed) expect(entry).toMatchObject({ route: "/checkout/:companyId/:orderId", operation: "get_checkout", outcome: "pending", statusCode: 200 });
 });
 

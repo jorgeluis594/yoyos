@@ -3,8 +3,8 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, beforeEach, describe, expect, test } from "vitest";
 import { applyColorPreference, applyPreferenceScript, colorSchemeOf } from "@core/app/color-scheme";
 import { handle as checkoutHandle } from "@core/app/routes/checkout";
-import { handle as previewHandle } from "@core/app/routes/checkout-appearance-preview";
-import { CheckoutTheme } from "@core/src/features/checkout-appearance/presentation/checkout-theme";
+import { handle as previewHandle } from "@core/app/routes/store-appearance-preview";
+import { StoreTheme } from "@core/src/features/store-appearance/presentation/store-theme";
 
 const checkoutLoaded = { handle: checkoutHandle, data: { checkout: { number: 1 }, message: null } };
 const checkoutUnavailable = { handle: checkoutHandle, data: undefined };
@@ -68,10 +68,10 @@ describe("root color scheme", () => {
     setScheme([checkoutLoaded]);
     runHeadScript(true, null);
     const html = renderToStaticMarkup(<>
-      <CheckoutTheme appearance={{ theme: "noche" }}><p /></CheckoutTheme>
-      <CheckoutTheme appearance={{ theme: "boutique" }}><p /></CheckoutTheme>
+      <StoreTheme appearance={{ theme: "noche" }}><p /></StoreTheme>
+      <StoreTheme appearance={{ theme: "boutique" }}><p /></StoreTheme>
     </>);
-    const scopes = [...html.matchAll(/<div ([^>]*data-checkout-theme="[^"]+"[^>]*)>/g)].map((match) => match[1]);
+    const scopes = [...html.matchAll(/<div ([^>]*data-store-theme="[^"]+"[^>]*)>/g)].map((match) => match[1]);
     expect(dark()).toBe(false);
     expect(scopes[0]).toMatch(/class="dark /);
     expect(scopes[1]).not.toMatch(/dark/);

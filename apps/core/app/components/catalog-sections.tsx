@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { CheckoutBrandHeader } from "@core/src/features/checkout-appearance/presentation/checkout-brand-header";
+import { StoreBrandHeader } from "@core/src/features/store-appearance/presentation/store-brand-header";
 import type { CatalogProduct } from "@core/src/features/products/domain/catalog-product";
 import { formatCurrency } from "@core/app/format-currency";
 import { Button } from "@core/app/components/ui/button";
@@ -20,7 +20,7 @@ export function CatalogShell({ logoUrl, storeName, cart, children }: Readonly<{
 }>) {
   return <div className="min-h-screen bg-background text-foreground">
     <header className="border-b bg-card"><div className={`${catalogPage} flex min-h-16 items-center justify-between gap-3 py-3`}>
-      <CheckoutBrandHeader companyName={storeName} logoUrl={logoUrl} />{cart}
+      <StoreBrandHeader companyName={storeName} logoUrl={logoUrl} />{cart}
     </div></header>
     <main className={`${catalogPage} flex flex-col gap-4 py-6 pb-24`}>{children}</main>
   </div>;

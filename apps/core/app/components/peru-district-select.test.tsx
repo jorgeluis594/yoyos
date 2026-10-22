@@ -41,5 +41,5 @@ test("district search ignores accents and case and supports official codes withi
 
 test("themed, department and province stay in two columns on wide screens, inside one field of the group", () => {
   const html = renderToStaticMarkup(withI18n(<PeruDistrictSelect themed value={district.code} onChange={() => undefined} />));
-  expect(html).toMatch(/data-checkout-part="field" class="min-w-0"><div class="grid min-w-0 gap-3 sm:grid-cols-2">[\s\S]*-department[\s\S]*-province/);
+  expect(html).toMatch(/data-store-part="field" class="min-w-0"><div class="grid min-w-0 gap-3 sm:grid-cols-2">[\s\S]*-department[\s\S]*-province/);
 });
