@@ -30,3 +30,12 @@ test("authentication translations exist in both languages and preserve localized
   expect(companyPath("/pt-BR/products", "PE", "/products/1")).toBe("/pt-BR/products/1");
   expect(companyPath("/products", "PE", "/products/1")).toBe("/es-PE/products/1");
 });
+
+function keyPaths(value: unknown, prefix = ""): string[] {
+  if (typeof value !== "object" || value === null) return [prefix];
+  return Object.entries(value).flatMap(([key, child]) => keyPaths(child, prefix ? `${prefix}.${key}` : key));
+}
+
+test("Spanish and Portuguese panel texts contain the same keys", () => {
+  expect(keyPaths(resources.pt.translation).sort()).toEqual(keyPaths(resources.es.translation).sort());
+});

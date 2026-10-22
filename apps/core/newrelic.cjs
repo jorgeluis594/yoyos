@@ -8,7 +8,8 @@ exports.config = {
   },
   rules: { name: [
     { pattern: "^/checkout(?:/.*)?$", name: "checkout" },
-    { pattern: "^/(?:[a-z]{2}-[A-Z]{2}/)?settings/checkout-appearance/preview/?(?:\\.data)?$", name: "settings/checkout-appearance/preview" },
+    { pattern: "^/(?:[a-z]{2}-[A-Z]{2}/)?settings/store-appearance/preview/?(?:\\.data)?$", name: "settings/store-appearance/preview" },
+    { pattern: "^/(?:[a-z]{2}-[A-Z]{2}/)?settings/store-appearance(?:\\.data)?/?$", name: "settings/store-appearance" },
     { pattern: "^/(?:[a-z]{2}-[A-Z]{2}/)?settings/checkout-appearance(?:\\.data)?/?$", name: "settings/checkout-appearance" },
     { pattern: "^/api/orders/[^/]+/checkout-link/?$", name: "orders/checkout-link" },
     { pattern: "^/(?:api/|[a-z]{2}-[A-Z]{2}/)?orders/[0-9a-f-]{36}(?:\\.data)?(?:/.*)?$", name: "orders/detail" },

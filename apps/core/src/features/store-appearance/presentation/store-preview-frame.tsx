@@ -41,7 +41,7 @@ function useWidth() {
   return [ref, width] as const;
 }
 
-export function StorePreviewFrame({ appearance, src = "/settings/checkout-appearance/preview" }: StorePreviewFrameProps) {
+export function StorePreviewFrame({ appearance, src = "/settings/store-appearance/preview" }: StorePreviewFrameProps) {
   const { t } = useTranslation();
   const [device, setDevice] = useState<Device>("phone");
   const [state, setState] = useState<StorePreviewMessage["state"]>("review");

@@ -31,9 +31,13 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     await browserExpect(page.getByText("Guardado", { exact: true })).toBeVisible();
     await browserExpect(page.getByLabel("Ofrecer recojo en tienda")).toBeChecked();
 
-    await page.goto("/es-PE/settings/catalog");
+    await page.goto("/es-PE/settings/store-appearance", { waitUntil: "networkidle" });
     await page.getByRole("switch", { name: "Publicar catálogo" }).click();
     await browserExpect(page.getByText("Catálogo publicado", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
+    await page.goto("/es-PE/settings/catalog");
+    await browserExpect(page.getByText("Para ocultar tu catálogo, ve a Apariencia de la tienda.")).toBeVisible();
+    await browserExpect(page.getByRole("switch")).toHaveCount(0);
     const url = new URL(await page.getByLabel("Link del catálogo").inputValue());
     expect(url.pathname).toBe(`/catalogo/${companyId}`);
 
