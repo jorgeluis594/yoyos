@@ -106,3 +106,19 @@ test("an unpublished catalog and an unknown company return the same unavailable 
   expect(await catalogBrowse.getProduct(productId, { companyId: published })).toEqual({ success: true, data: { kind: "unavailable", storeName: "Moda Lucía" } });
   expect(await browse(published)).toMatchObject({ success: true, data: { items: [] } });
 });
+
+test("preview cards read a hidden catalog's products only for the seller's company", async () => {
+  const hidden = await createCompany(false);
+  const other = await createCompany(true);
+  await addProduct(other, "Producto ajeno", [{ price: 5, stock: 1 }]);
+  expect(await catalogBrowse.previewCards({ companyId: hidden })).toEqual({ success: true, data: [] });
+
+  await addProduct(hidden, "Antiguo", [{ price: 10, stock: 1 }]);
+  await addProduct(hidden, "Agotado", [{ price: 20, stock: 0 }]);
+  await addProduct(hidden, "Medio", [{ price: 30, stock: 2 }]);
+  await addProduct(hidden, "Nuevo", [{ price: 40, stock: 2 }]);
+  const cards = await catalogBrowse.previewCards({ companyId: hidden });
+  expect(cards.success && cards.data.map(({ name }) => name)).toEqual(["Nuevo", "Medio", "Agotado"]);
+  expect(cards.success && cards.data.find(({ name }) => name === "Agotado")?.soldOut).toBe(true);
+  expect(await browse(hidden)).toMatchObject({ success: false, error: { code: "CATALOG_UNAVAILABLE" } });
+});
