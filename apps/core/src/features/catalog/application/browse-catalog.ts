@@ -13,7 +13,7 @@ export type CatalogStore = Readonly<{ name: string; currency: Currency }>;
 /** `pages` is how many pages are shown, so a reload or a return from a product restores everything loaded. */
 export type BrowseCatalogInput = Readonly<{ search: CatalogSearch | null; pages: number }>;
 export type BrowseCatalogError =
-  | Readonly<{ code: "CATALOG_UNAVAILABLE" | "PRODUCT_UNAVAILABLE"; message: string }>
+  | Readonly<{ code: "CATALOG_UNAVAILABLE"; message: string }>
   | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>
   | ProductReadError;
 type StoreDependencies = Readonly<{
@@ -44,12 +44,17 @@ export async function browseCatalog(input: BrowseCatalogInput, access: CatalogAc
   return page.success ? ok({ ...page.data, hasMore: page.data.hasMore && input.pages < maxCatalogPages, storeName: store.data.name }) : page;
 }
 
+/** The product page keeps the store it already read when the product is gone, so it can still be shown in the store's theme. */
+export type CatalogProductResult =
+  | Readonly<{ kind: "found"; storeName: string; product: CatalogProduct }>
+  | Readonly<{ kind: "unavailable"; storeName: string }>;
+
 /** A malformed id (`null`) is still checked against the catalog, so a hidden one reads as unavailable and not as a missing product. */
 export async function getCatalogProduct(productId: ProductId | null, access: CatalogAccess, deps: GetCatalogProductDependencies):
-  Promise<Result<Readonly<{ storeName: string; product: CatalogProduct }>, BrowseCatalogError>> {
+  Promise<Result<CatalogProductResult, BrowseCatalogError>> {
   const store = await publishedStore(access.companyId, deps);
   if (!store.success) return store;
   const product = productId ? await deps.findCatalogProduct(productId, store.data.currency) : ok(null);
   if (!product.success) return product;
-  return product.data ? ok({ storeName: store.data.name, product: product.data }) : err({ code: "PRODUCT_UNAVAILABLE", message: "Product is not available" });
+  return ok(product.data ? { kind: "found", storeName: store.data.name, product: product.data } : { kind: "unavailable", storeName: store.data.name });
 }

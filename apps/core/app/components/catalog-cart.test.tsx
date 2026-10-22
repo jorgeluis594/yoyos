@@ -90,3 +90,13 @@ test("Continuar on a hidden catalog says the store stopped taking orders and kee
   expect(lineItem("Polo negro")).toBeDefined();
   expect(lineItem("Polo beige")).toBeDefined();
 });
+
+test("cart lines show the theme thumbnail shape with the product initial when the photo is missing", () => {
+  const thumbnails = [...container.querySelectorAll<HTMLElement>('li[data-store-part="cart-line"] [data-slot="product-thumbnail"]')];
+  expect(thumbnails.map((thumbnail) => thumbnail.textContent)).toEqual(["P", "P"]);
+  for (const thumbnail of thumbnails) {
+    expect(thumbnail.style.borderRadius).toBe("var(--store-thumb-radius, 0.375rem)");
+    expect(thumbnail.style.filter).toBe("var(--store-thumb-filter, none)");
+    expect(thumbnail.querySelector("img")).toBeNull();
+  }
+});

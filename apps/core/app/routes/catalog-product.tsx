@@ -4,30 +4,44 @@ import { catalogBrowse } from "@core/src/features/catalog/browse-composition";
 import { catalogPathSchema, catalogProductPathSchema } from "@core/src/features/catalog/presentation/browse-schemas";
 import { optionState, selectedVariant, type VariantSelection } from "@core/src/features/catalog/presentation/variant-selection";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
+import type { ColorSchemeHandle } from "@core/app/color-scheme";
 import { CatalogLoadError, CatalogMessage, CatalogProductImage, CatalogShell, catalogHeaders, catalogMeta, formatCatalogAmount, formatCatalogPrice } from "@core/app/components/catalog-sections";
 import { CatalogCartButton } from "@core/app/components/catalog-cart";
 import { Button } from "@core/app/components/ui/button";
+import type { CatalogProduct } from "@core/src/features/products/domain/catalog-product";
+import type { PublicStoreAppearance } from "@core/src/features/store-appearance/presentation/store-appearance-schemas";
 import { addToCart, maxCartLines, useCatalogCart } from "@core/app/lib/catalog-cart-storage";
 
-const productUnavailable = "product";
 export const headers = () => catalogHeaders;
-export const meta = ({ data: page }: MetaArgs<typeof loader>) => catalogMeta(page ? `${page.product.name} · ${page.storeName}` : "Catálogo no disponible");
+/** A published store renders its fixed theme, also on «Este producto ya no está disponible»; «Catálogo no disponible» and the load error follow the system. */
+export const handle = { colorScheme: (page: unknown) => (page as { storeName?: string } | undefined)?.storeName ? "fixed" : "system" } satisfies ColorSchemeHandle;
+export const meta = ({ data: page }: MetaArgs<typeof loader>) =>
+  catalogMeta(!page ? "Catálogo no disponible" : page.kind === "found" ? `${page.product.name} · ${page.storeName}` : page.storeName);
 
 export async function loader({ params }: LoaderFunctionArgs) {
   bindRequestOperation({ operation: "get_catalog_product" });
   const company = catalogPathSchema.safeParse(params);
   if (!company.success) throw data(null, { status: 404, headers: catalogHeaders });
   const path = catalogProductPathSchema.safeParse(params);
-  const logoUrl = catalogBrowse.appearance(company.data.companyId);
+  const look = catalogBrowse.storeAppearance(company.data.companyId);
   const result = await catalogBrowse.getProduct(path.success ? path.data.productId : null, company.data);
   if (!result.success) {
     const code = result.error.code;
-    bindRequestOperation({ outcome: code === "CATALOG_UNAVAILABLE" || code === "PRODUCT_UNAVAILABLE" ? "unavailable" : "technical_failure" });
-    if (code === "PRODUCT_UNAVAILABLE") throw data(productUnavailable, { status: 404, headers: catalogHeaders });
+    bindRequestOperation({ outcome: code === "CATALOG_UNAVAILABLE" ? "unavailable" : "technical_failure" });
     throw data(null, { status: code === "CATALOG_UNAVAILABLE" ? 404 : 503, headers: catalogHeaders });
   }
-  return data({ ...result.data, logoUrl: await logoUrl }, { headers: catalogHeaders });
+  const { kind, appearance } = await look;
+  bindRequestOperation({ storeAppearance: kind, storeTheme: appearance.theme });
+  // A missing product is data, not a thrown response, so the page keeps the store name, the theme and the fixed scheme.
+  if (result.data.kind === "unavailable") {
+    bindRequestOperation({ outcome: "unavailable" });
+    return data({ ...result.data, appearance }, { status: 404, headers: catalogHeaders });
+  }
+  return data({ ...result.data, appearance }, { headers: catalogHeaders });
 }
+
+const headingFont = { fontFamily: "var(--store-font-heading, inherit)", fontWeight: "var(--store-weight-heading, 600)" };
+const priceFont = { fontFamily: "var(--store-font-body, inherit)", fontWeight: "var(--store-weight-price, 600)" };
 
 /** Returns to the list entry when coming from it, so search, pages and scroll come back as they were. */
 function BackToCatalog() {
@@ -41,7 +55,23 @@ function BackToCatalog() {
 }
 
 export default function CatalogProductPage() {
-  const { storeName, logoUrl, product } = useLoaderData<typeof loader>();
+  const page = useLoaderData<typeof loader>();
+  return page.kind === "found"
+    ? <FoundProduct storeName={page.storeName} appearance={page.appearance} product={page.product} />
+    : <CatalogShell appearance={page.appearance} storeName={page.storeName}>
+      <UnavailableProduct />
+    </CatalogShell>;
+}
+
+function UnavailableProduct() {
+  const { companyId = "" } = useParams();
+  return <section className="flex flex-col items-start gap-4 py-6">
+    <h1 className="text-2xl font-semibold" style={headingFont}>Este producto ya no está disponible</h1>
+    <Button asChild><Link to={`/catalogo/${companyId}`}>Volver al catálogo</Link></Button>
+  </section>;
+}
+
+function FoundProduct({ storeName, appearance, product }: Readonly<{ storeName: string; appearance: PublicStoreAppearance; product: CatalogProduct }>) {
   const { companyId = "" } = useParams();
   const [cart, updateCart] = useCatalogCart(companyId);
   // `id` changes on every add so the status region gets new content and screen readers repeat an identical message.
@@ -63,14 +93,14 @@ export default function CatalogProductPage() {
     notify(result.clamped ? "Agregado al carrito. Ya tienes el máximo disponible" : "Agregado al carrito");
   };
 
-  return <CatalogShell logoUrl={logoUrl} storeName={storeName} cart={<CatalogCartButton companyId={companyId} />}>
+  return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} />}>
     <BackToCatalog />
     <article className="grid gap-6 md:grid-cols-2 md:gap-10">
-      <CatalogProductImage name={product.name} url={product.imageUrl} />
+      <CatalogProductImage name={product.name} url={product.imageUrl} part="catalog-product-photo" />
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
-          <h1 className="text-2xl font-semibold text-balance">{product.name}</h1>
-          <p className="text-xl font-semibold">{variant ? formatCatalogAmount(variant.price) : formatCatalogPrice(product.price)}</p>
+          <h1 className="text-2xl font-semibold text-balance" style={headingFont}>{product.name}</h1>
+          <p className="text-xl font-semibold" style={priceFont}>{variant ? formatCatalogAmount(variant.price) : formatCatalogPrice(product.price)}</p>
           {product.soldOut && <p className="text-sm font-medium text-muted-foreground">Agotado</p>}
         </div>
         {product.variants.length > 1 && product.attributes.map(({ name, values }) => <fieldset key={name} className="flex flex-col gap-2">
@@ -87,14 +117,14 @@ export default function CatalogProductPage() {
         </fieldset>)}
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium" id="quantity-label">Cantidad</span>
-          <div className="flex items-center rounded-[var(--radius-control)] border" role="group" aria-labelledby="quantity-label">
+          <div data-store-part="catalog-quantity" className="flex items-center rounded-[var(--radius-control)] border" role="group" aria-labelledby="quantity-label">
             <Button type="button" variant="ghost" size="icon" aria-label="Quitar uno" disabled={shown <= 1} onClick={() => setQuantity(shown - 1)}>−</Button>
             <output className="w-8 text-center tabular-nums" aria-live="polite">{shown}</output>
             <Button type="button" variant="ghost" size="icon" aria-label="Agregar uno" disabled={shown >= max} onClick={() => setQuantity(shown + 1)}>+</Button>
           </div>
         </div>
         <Button type="button" size="lg" className="h-11" disabled={!variant || max === 0} onClick={add}>Agregar al carrito</Button>
-        <p role="status" className="text-sm font-medium has-[span:empty]:hidden"><span key={notice.id}>{notice.text}</span></p>
+        <p role="status" data-store-part="catalog-notice" className="text-sm font-medium has-[span:empty]:hidden"><span key={notice.id}>{notice.text}</span></p>
         {product.description && <p className="whitespace-pre-line text-muted-foreground">{product.description}</p>}
       </div>
     </article>
@@ -102,10 +132,6 @@ export default function CatalogProductPage() {
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
-  const { companyId = "" } = useParams();
-  if (isRouteErrorResponse(error) && error.status === 404 && error.data === productUnavailable) return <CatalogMessage title="Este producto ya no está disponible">
-    <Button asChild><Link to={`/catalogo/${companyId}`}>Volver al catálogo</Link></Button>
-  </CatalogMessage>;
   if (isRouteErrorResponse(error) && error.status === 404) return <CatalogMessage title="Catálogo no disponible" />;
   return <CatalogLoadError />;
 }

@@ -56,11 +56,11 @@ test("catalog projection never contains SKU, cost or stock quantity", async () =
   const detail = await catalogBrowse.getProduct(productId, { companyId });
   expect(page).toMatchObject({ success: true, data: { storeName: "Moda Lucía", hasMore: false, items: [{ id: productId }] } });
   expect(page.success && page.data.items).toHaveLength(1);
-  expect(detail).toMatchObject({ success: true, data: { product: {
+  expect(detail).toMatchObject({ success: true, data: { kind: "found", product: {
     price: { kind: "from", amount: { amount: 45, currency: "PEN" } }, soldOut: false,
     attributes: [{ name: "Color", values: ["Negro"] }, { name: "Talla", values: expect.arrayContaining(["M", "L"]) }],
   } } });
-  if (!detail.success) return;
+  if (!detail.success || detail.data.kind !== "found") return;
   expect(detail.data.product.variants.map(({ maxQuantity }) => maxQuantity).sort()).toEqual([0, 99]);
   const list = JSON.stringify(page);
   for (const detailOnly of ["maxQuantity", "variants", "attributes", "description"]) expect(list).not.toContain(detailOnly);
@@ -103,6 +103,6 @@ test("an unpublished catalog and an unknown company return the same unavailable 
   expect(results[0]).toMatchObject({ success: false, error: { code: "CATALOG_UNAVAILABLE" } });
 
   const published = await createCompany(true);
-  expect(await catalogBrowse.getProduct(productId, { companyId: published })).toMatchObject({ success: false, error: { code: "PRODUCT_UNAVAILABLE" } });
+  expect(await catalogBrowse.getProduct(productId, { companyId: published })).toEqual({ success: true, data: { kind: "unavailable", storeName: "Moda Lucía" } });
   expect(await browse(published)).toMatchObject({ success: true, data: { items: [] } });
 });
