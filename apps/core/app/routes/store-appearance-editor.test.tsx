@@ -117,6 +117,72 @@ test("the unknown-theme notice disappears after the first save without resetting
   expect(container.textContent).not.toContain("Cambios sin guardar");
 });
 
+test("Guardar cambios without touching anything at the unknown-theme starting point stores Clásico without logo and removes the notice", async () => {
+  const saved = data({ intent: "save-appearance", success: true, appearance: { logoImageId: null, theme: "classic" } });
+  const { action, loader } = await mount([loaded({ kind: "unknown_theme" }), loaded(readable("classic"))], saved);
+  await shows(unknownNotice);
+  await click(button("Guardar cambios"));
+  await shows("Apariencia actualizada");
+  const submitted = await (action.mock.calls[0] as unknown as [{ request: Request }])[0].request.json();
+  expect(submitted).toEqual({ intent: "save-appearance", appearance: { logoImageId: null, theme: "classic" } });
+  await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
+  await vi.waitFor(() => expect(container.textContent).not.toContain(unknownNotice));
+  expect(radio("Clásico").getAttribute("aria-checked")).toBe("true");
+  expect(container.textContent).not.toContain("Cambios sin guardar");
+});
+
+test("the seller can hide the catalog while the stored theme is unknown, without touching the appearance", async () => {
+  const { action } = await mount([loaded({ kind: "unknown_theme" })], undefined, data({ intent: "set-publication", published: false }));
+  await shows(unknownNotice);
+  await click(container.querySelector('[role="switch"]'));
+  await click([...document.body.querySelectorAll("button")].find((element) => element.textContent === "Ocultar catálogo"));
+  await shows("Catálogo oculto");
+  expect(action).toHaveBeenCalledOnce();
+  expect(await (action.mock.calls[0] as unknown as [{ request: Request }])[0].request.json()).toEqual({ intent: "set-publication", published: false });
+  expect(container.textContent).not.toContain("Cambios sin guardar");
+  expect(container.textContent).toContain(unknownNotice);
+});
+
+test("the seller can hide the catalog while the appearance cannot be read, and no appearance control is shown", async () => {
+  const { action } = await mount([loaded({ kind: "failed" })], undefined, data({ intent: "set-publication", published: false }));
+  await shows("No se pudo cargar la apariencia");
+  await click(container.querySelector('[role="switch"]'));
+  await click([...document.body.querySelectorAll("button")].find((element) => element.textContent === "Ocultar catálogo"));
+  await shows("Catálogo oculto");
+  expect(await (action.mock.calls[0] as unknown as [{ request: Request }])[0].request.json()).toEqual({ intent: "set-publication", published: false });
+  expect(button("Guardar cambios")).toBeUndefined();
+  expect(container.textContent).toContain("No se pudo cargar la apariencia");
+});
+
+test("a save whose re-read fails takes the saved appearance as the baseline: no false Cambios sin guardar and Descartar keeps the saved theme", async () => {
+  const saved = data({ intent: "save-appearance", success: true, appearance: { logoImageId: null, theme: "suave" } });
+  const { loader } = await mount([loaded(readable("boutique")), loaded({ kind: "failed" })], saved);
+  await click(radio("Suave"));
+  expect(container.textContent).toContain("Cambios sin guardar");
+  await click(button("Guardar cambios"));
+  await shows("Apariencia actualizada");
+  await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
+  expect(radio("Suave").getAttribute("aria-checked")).toBe("true");
+  expect(container.textContent).not.toContain("Cambios sin guardar");
+  expect(container.textContent).not.toContain("No se pudo cargar la apariencia");
+  // The baseline is Suave: choosing Noche and discarding returns to it, not to Boutique.
+  await click(radio("Noche"));
+  await click(button("Descartar"));
+  expect(radio("Suave").getAttribute("aria-checked")).toBe("true");
+});
+
+test("a save whose re-read fails removes the unknown-theme notice", async () => {
+  const saved = data({ intent: "save-appearance", success: true, appearance: { logoImageId: null, theme: "classic" } });
+  const { loader } = await mount([loaded({ kind: "unknown_theme" }), loaded({ kind: "failed" })], saved);
+  await shows(unknownNotice);
+  await click(button("Guardar cambios"));
+  await shows("Apariencia actualizada");
+  await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
+  expect(container.textContent).not.toContain(unknownNotice);
+  expect(container.textContent).not.toContain("Cambios sin guardar");
+  expect(button("Restablecer apariencia")).toBeDefined();
+});
+
 test("an unresolved stored logo shows Sin logo with Subir logo and a theme-only save keeps the logo id", async () => {
   const stored = { kind: "readable", published: { logoImageId: logoId, theme: "antojo" }, logoUrl: null } as AppearancePart;
   const saved = data({ intent: "save-appearance", success: true, appearance: { logoImageId: logoId, theme: "noche" } });

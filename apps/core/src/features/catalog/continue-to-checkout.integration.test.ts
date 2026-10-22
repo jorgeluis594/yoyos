@@ -1,6 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, expect, test } from "vitest";
+import { afterAll, afterEach, expect, test, vi } from "vitest";
+import type { LoaderFunctionArgs } from "react-router";
 import { app } from "@core/src/app";
+import { loader as catalogLoader } from "@core/app/routes/catalog";
+import { loader as checkoutLoader } from "@core/app/routes/checkout";
+import { storeAppearance } from "@core/src/features/store-appearance/composition";
 import { catalogCart } from "@core/src/features/catalog/cart-composition";
 import { orders } from "@core/src/features/orders/composition";
 import { parseBuyer } from "@core/src/features/orders/domain/checkout";
@@ -15,6 +19,7 @@ const address = server.address();
 if (!address || typeof address === "string") throw new Error("Catalog test server did not bind");
 const base = `http://127.0.0.1:${address.port}`;
 const cleanups: (() => Promise<void>)[] = [];
+afterEach(() => vi.restoreAllMocks());
 afterAll(async () => { for (const cleanup of cleanups) await cleanup(); await new Promise((resolve) => server.close(resolve)); });
 
 async function store(published = true) {
@@ -119,4 +124,19 @@ test("Continuar takes the current price and the checkout keeps working after the
   const buyer = parseBuyer({ name: "Ana", phone: "+51987654321" });
   if (!buyer.success) throw new Error(buyer.error.code);
   expect(await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: created.data.total }, { companyId, orderId })).toMatchObject({ success: true });
+});
+
+test("a buyer whose store appearance cannot be read browses in Clásico without logo, adds to the cart and continues to the checkout", async () => {
+  const { companyId, black } = await store();
+  vi.spyOn(storeAppearance, "getPublic").mockRejectedValue(new Error("appearance down"));
+  const catalog = await catalogLoader({ params: { companyId }, request: new Request(`http://localhost/catalogo/${companyId}`) } as unknown as LoaderFunctionArgs);
+  expect(catalog).toMatchObject({ data: { storeName: "Moda Lucía", appearance: { logoUrl: null, theme: "classic" }, items: [{ name: "Polo básico" }] } });
+
+  const orderId = randomUUID() as OrderId;
+  const created = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1)] }, companyId);
+  expect(created).toMatchObject({ success: true, data: { id: orderId, fromCatalog: true } });
+
+  const checkout = await checkoutLoader({ params: { companyId, orderId }, request: new Request(`http://localhost/checkout/${companyId}/${orderId}`) } as unknown as LoaderFunctionArgs);
+  if (!created.success) return;
+  expect(checkout).toMatchObject({ data: { checkout: { number: created.data.number, companyName: "Moda Lucía", items: [{ productName: "Polo básico", quantity: 1 }] }, appearance: null } });
 });

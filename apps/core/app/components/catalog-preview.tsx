@@ -1,3 +1,4 @@
+import { useTranslation } from "react-i18next";
 import { CatalogCartButtonFace } from "@core/app/components/catalog-cart";
 import { CatalogGrid, CatalogProductCard, CatalogSearchField, CatalogShell, ProductGridSkeleton } from "@core/app/components/catalog-sections";
 import type { StorePreviewMessage } from "@core/app/components/store-preview/store-preview-schemas";
@@ -16,6 +17,7 @@ export type CatalogPreviewProps = Readonly<{
  * It is inert and hidden from screen readers, because the editor announces the label of the view.
  */
 export function CatalogPreview({ appearance, storeName, catalog }: CatalogPreviewProps) {
+  const { t } = useTranslation();
   const cards = catalog.kind === "products" ? catalog.cards : catalog.kind === "samples" ? sampleCatalogCards : null;
   // The cart button stands for one unit of the first card that can be added, as the real button does with one line in the cart.
   const units = cards?.some((card) => !card.soldOut) ? 1 : 0;
@@ -26,7 +28,7 @@ export function CatalogPreview({ appearance, storeName, catalog }: CatalogPrevie
         ? <CatalogGrid>{cards.map((card) => <li key={card.id}><CatalogProductCard item={card} /></li>)}</CatalogGrid>
         : <>
           <ProductGridSkeleton count={previewCardCount} />
-          <p className="text-center text-sm text-muted-foreground">Cargando productos</p>
+          <p className="text-center text-sm text-muted-foreground">{t("storePreview.loading")}</p>
         </>}
     </CatalogShell>
   </div>;

@@ -150,6 +150,13 @@ export default function StoreAppearanceSettings() {
   // The draft starts from the first appearance that loads and later reads never reset it.
   const [draft, setDraft] = useState<EditorDraft | null>(baseline);
   if (draft === null && baseline !== null) setDraft(baseline);
+  // A save whose re-read failed still moved the published state: the saved appearance the action returned is the new baseline.
+  const [adopted, setAdopted] = useState<EditorActionResult | undefined>(undefined);
+  const saved = fetcher.state === "idle" && fetcher.data && "success" in fetcher.data && fetcher.data.intent === "save-appearance" ? fetcher.data : undefined;
+  if (saved && saved !== adopted && appearance.kind === "failed" && draft) {
+    setAdopted(saved);
+    setLastRead({ kind: "readable", published: saved.appearance, logoUrl: draft.appearance.logoImageId === saved.appearance.logoImageId ? draft.logoUrl : null });
+  }
   const [tab, setTab] = useState<EditorTab>("edit");
   // Read once per visit by a plain fetch: saves, publication changes and Reintentar never refetch it, and `null` is the only loading state.
   const [cards, setCards] = useState<CatalogPreviewCards | null>(null);

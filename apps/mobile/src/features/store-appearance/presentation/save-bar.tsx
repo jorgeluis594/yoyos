@@ -3,6 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
 import { useTheme } from "@mobile/hooks/use-theme";
+import { useIosAnnouncement } from "@mobile/features/store-appearance/presentation/announce-on-ios";
 import type { SaveState } from "@mobile/features/store-appearance/presentation/use-store-appearance";
 
 /** Fixed under the content, above the tab bar. At the unknown-theme starting point it shows only **Guardar cambios**. */
@@ -11,6 +12,7 @@ export function SaveBar({ changed, uploading, save, onDiscard, onSave }: Readonl
   const theme = useTheme();
   const saving = save.kind === "saving";
   const failure = save.kind === "failed" ? (save.code === "INVALID_IMAGE" ? "appearanceInvalidLogo" : save.code === "INVALID_STORE_APPEARANCE" ? "appearanceInvalidTheme" : "appearanceSaveError") : null;
+  useIosAnnouncement(failure ? t(failure) : null);
   return <View style={[styles.bar, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
     {changed ? <ThemedText type="smallBold">{t("appearanceUnsaved")}</ThemedText> : null}
     {failure ? <ThemedText type="small" accessibilityRole="alert" accessibilityLiveRegion="polite" style={{ color: theme.error }}>{t(failure)}</ThemedText> : null}

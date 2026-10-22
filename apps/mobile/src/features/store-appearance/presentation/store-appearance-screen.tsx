@@ -9,6 +9,7 @@ import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useTheme } from "@mobile/hooks/use-theme";
+import { useIosAnnouncement } from "@mobile/features/store-appearance/presentation/announce-on-ios";
 import { LogoSection } from "@mobile/features/store-appearance/presentation/logo-section";
 import { SaveBar } from "@mobile/features/store-appearance/presentation/save-bar";
 import { ThemeList } from "@mobile/features/store-appearance/presentation/theme-list";
@@ -21,6 +22,7 @@ export function StoreAppearanceScreen({ publication }: Readonly<{ publication: R
   const navigation = useNavigation();
   const appearance = useStoreAppearance();
   const { load, draft, logo, save, changed, uploading, saving } = appearance;
+  useIosAnnouncement(save.kind === "saved" ? t("appearanceSaved") : null);
   // Only leaving the settings stack asks; switching tabs keeps the screen and its draft.
   usePreventRemove(changed, ({ data }) => showConfirmation({ title: t("appearanceLeaveTitle"), description: t("appearanceLeaveDescription"),
     confirmLabel: t("appearanceDiscardAndLeave"), cancelLabel: t("keepEditing"), destructive: true, onConfirm: () => navigation.dispatch(data.action) }));

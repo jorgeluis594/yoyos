@@ -1,8 +1,10 @@
-import { Alert, Text } from "react-native";
+import { AccessibilityInfo, Alert, Platform, Text } from "react-native";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import { storeAppearance } from "@mobile/features/store-appearance/composition";
 import { StoreAppearanceScreen } from "@mobile/features/store-appearance/presentation/store-appearance-screen";
+import { catalogSettings } from "@mobile/features/catalog/composition";
+import { CatalogPublicationCard } from "@mobile/features/catalog/presentation/catalog-publication-card";
 import i18n from "@mobile/i18n";
 
 const mockUsePreventRemove = jest.fn();
@@ -16,6 +18,9 @@ jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireA
 jest.mock("@mobile/features/store-appearance/composition", () => ({
   storeAppearance: { loadStoreAppearance: jest.fn(), saveStoreAppearance: jest.fn(), uploadStoreLogo: jest.fn(), pickLogo: jest.fn() },
 }));
+jest.mock("@mobile/features/catalog/composition", () => ({ catalogSettings: { get: jest.fn(), setPublished: jest.fn() } }));
+const getPublication = jest.mocked(catalogSettings.get);
+const setPublished = jest.mocked(catalogSettings.setPublished);
 const load = jest.mocked(storeAppearance.loadStoreAppearance);
 const saveAppearance = jest.mocked(storeAppearance.saveStoreAppearance);
 const uploadLogo = jest.mocked(storeAppearance.uploadStoreLogo);
@@ -27,6 +32,7 @@ const readable = (theme: "classic" | "suave" | "noche", logo: { id: string; url:
 const publication = <Text>Tarjeta de publicación</Text>;
 
 beforeEach(() => {
+  getPublication.mockReset(); setPublished.mockReset();
   load.mockReset(); saveAppearance.mockReset(); uploadLogo.mockReset(); pickLogo.mockReset();
   mockUsePreventRemove.mockReset(); mockShowConfirmation.mockReset(); mockDispatch.mockReset();
 });
@@ -308,4 +314,92 @@ test("a conversion that throws ends in No pudimos subir el logo with Reintentar 
   expect(screen.getByText("Reintentar")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Guardar cambios" }).props.accessibilityState).toMatchObject({ disabled: false });
   expect(screen.getByRole("button", { name: "Subir logo" }).props.accessibilityState).toMatchObject({ disabled: false });
+});
+
+test("shows the publication load error inside its card and keeps logo and theme working", async () => {
+  const url = "https://yoyos.test/catalogo/00000000-0000-4000-8000-000000000001";
+  getPublication.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: true, url }));
+  load.mockResolvedValue(ok(readable("classic")));
+  saveAppearance.mockResolvedValue(ok(readable("noche")));
+  const screen = render(<StoreAppearanceScreen publication={<CatalogPublicationCard />} />);
+  await screen.findByText("No pudimos cargar la configuración del catálogo", {}, { timeout: 5000 });
+  // Logo and Tema load, change and save while the publication read has failed.
+  await screen.findByText("Logo");
+  choose(screen, "Noche");
+  fireEvent.press(screen.getByText("Guardar cambios"));
+  await screen.findByText("Apariencia actualizada");
+  expect(saveAppearance).toHaveBeenCalledWith({ theme: "noche", logoImageId: null });
+  expect(screen.getByText("No pudimos cargar la configuración del catálogo")).toBeTruthy();
+  fireEvent.press(screen.getByText("Reintentar"));
+  expect((await screen.findByLabelText("Publicar catálogo")).props.value).toBe(true);
+});
+
+describe("iOS VoiceOver announcements", () => {
+  const originalOS = Platform.OS;
+  afterEach(() => { Platform.OS = originalOS; });
+
+  test("announces Apariencia actualizada and the save error on iOS", async () => {
+    Platform.OS = "ios";
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => undefined);
+    announce.mockClear();
+    const screen = await open(ok(readable("classic")));
+    expect(announce).not.toHaveBeenCalled();
+    saveAppearance.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok(readable("noche")));
+    choose(screen, "Noche");
+    fireEvent.press(screen.getByText("Guardar cambios"));
+    await screen.findByText("No pudimos guardar la apariencia. Conservamos tu borrador.");
+    expect(announce).toHaveBeenLastCalledWith("No pudimos guardar la apariencia. Conservamos tu borrador.");
+    fireEvent.press(screen.getByText("Reintentar"));
+    await screen.findByText("Apariencia actualizada");
+    expect(announce).toHaveBeenLastCalledWith("Apariencia actualizada");
+    expect(announce).toHaveBeenCalledTimes(2);
+    announce.mockRestore();
+  });
+
+  test("does not announce by hand on Android, where the live region speaks", async () => {
+    Platform.OS = "android";
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => undefined);
+    announce.mockClear();
+    const screen = await open(ok(readable("classic")));
+    saveAppearance.mockResolvedValue(ok(readable("noche")));
+    choose(screen, "Noche");
+    fireEvent.press(screen.getByText("Guardar cambios"));
+    await screen.findByText("Apariencia actualizada");
+    expect(announce).not.toHaveBeenCalled();
+    announce.mockRestore();
+  });
+});
+
+describe("the seller can still hide the catalog while the appearance cannot be used", () => {
+  const url = "https://yoyos.test/catalogo/00000000-0000-4000-8000-000000000001";
+  async function hideFromCard(screen: ReturnType<typeof render>) {
+    setPublished.mockResolvedValue(ok({ published: false, url }));
+    fireEvent(await screen.findByLabelText("Publicar catálogo", {}, { timeout: 5000 }), "valueChange", false);
+    expect(mockShowConfirmation).toHaveBeenCalledWith(expect.objectContaining({ title: "¿Ocultar tu catálogo?", confirmLabel: "Ocultar catálogo" }));
+    await act(async () => mockShowConfirmation.mock.calls[0][0].onConfirm());
+    await screen.findByText("Catálogo oculto");
+    expect(setPublished).toHaveBeenCalledWith(false);
+  }
+
+  test("after the appearance read fails, the card hides the catalog and no appearance control is shown", async () => {
+    getPublication.mockResolvedValue(ok({ published: true, url }));
+    load.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
+    const screen = render(<StoreAppearanceScreen publication={<CatalogPublicationCard />} />);
+    await screen.findByText("No se pudo cargar la apariencia", {}, { timeout: 5000 });
+    await hideFromCard(screen);
+    expect(screen.queryByText("Guardar cambios")).toBeNull();
+    expect(screen.queryByText("Logo")).toBeNull();
+    expect(saveAppearance).not.toHaveBeenCalled();
+  });
+
+  test("with an unknown stored theme, the card hides the catalog without touching the appearance", async () => {
+    getPublication.mockResolvedValue(ok({ published: true, url }));
+    load.mockResolvedValue(ok({ kind: "unknown_theme" }));
+    const screen = render(<StoreAppearanceScreen publication={<CatalogPublicationCard />} />);
+    await screen.findByText(/No pudimos usar tu apariencia guardada/, {}, { timeout: 5000 });
+    await hideFromCard(screen);
+    expect(saveAppearance).not.toHaveBeenCalled();
+    expect(screen.queryByText("Cambios sin guardar")).toBeNull();
+    expect(screen.getByText(/No pudimos usar tu apariencia guardada/)).toBeTruthy();
+  });
 });

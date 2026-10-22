@@ -1,11 +1,16 @@
+import { createInstance } from "i18next";
 import { renderToStaticMarkup } from "react-dom/server";
+import { I18nextProvider, initReactI18next } from "react-i18next";
 import { describe, expect, test } from "vitest";
+import resources from "@core/app/locales";
 import { CatalogPreview } from "@core/app/components/catalog-preview";
 import type { PreviewCard } from "@core/app/components/store-preview/store-preview-schemas";
 
 const appearance = { logoUrl: null, theme: "noche" } as const;
 const card = (name: string, soldOut = false): PreviewCard => ({ id: name, name, imageUrl: null, price: { kind: "single", amount: { amount: 10, currency: "PEN" } }, soldOut });
-const html = (catalog: Parameters<typeof CatalogPreview>[0]["catalog"]) => renderToStaticMarkup(<CatalogPreview appearance={appearance} storeName="Lima Studio" catalog={catalog} />);
+const i18n = createInstance();
+await i18n.use(initReactI18next).init({ lng: "es", resources });
+const html = (catalog: Parameters<typeof CatalogPreview>[0]["catalog"]) => renderToStaticMarkup(<I18nextProvider i18n={i18n}><CatalogPreview appearance={appearance} storeName="Lima Studio" catalog={catalog} /></I18nextProvider>);
 
 describe("CatalogPreview", () => {
   test("the catalog preview shows three placeholders while cards load, then the real cards", () => {
