@@ -15,6 +15,7 @@ export default [
   route("catalogo/:companyId/carrito", "routes/catalog-cart.tsx"),
   route("settings/checkout-appearance", "routes/legacy-store-appearance-redirect.ts", { id: "public-legacy-store-appearance" }),
   route("settings/store-appearance/preview", "routes/store-appearance-preview.tsx", { id: "public-store-appearance-preview" }),
+  route("settings/store-appearance/catalog-cards", "routes/store-appearance-catalog-cards.ts", { id: "public-store-appearance-catalog-cards" }),
   layout("routes/private-layout.tsx", { id: "public-private-layout" }, [
     route("dashboard", "routes/dashboard.tsx", { id: "public-dashboard" }),
     route("products", "routes/product-list.tsx", { id: "public-product-list" }),
@@ -39,6 +40,7 @@ export default [
     route("reset-password", "routes/reset-password.tsx", { id: "localized-reset-password" }),
     route("settings/checkout-appearance", "routes/legacy-store-appearance-redirect.ts", { id: "localized-legacy-store-appearance" }),
     route("settings/store-appearance/preview", "routes/store-appearance-preview.tsx", { id: "localized-store-appearance-preview" }),
+    route("settings/store-appearance/catalog-cards", "routes/store-appearance-catalog-cards.ts", { id: "localized-store-appearance-catalog-cards" }),
     layout("routes/private-layout.tsx", { id: "localized-private-layout" }, [
       route("dashboard", "routes/dashboard.tsx", { id: "localized-dashboard" }),
       route("products", "routes/product-list.tsx", { id: "localized-product-list" }),

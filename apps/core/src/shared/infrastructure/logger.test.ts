@@ -139,6 +139,28 @@ it("normalizes the checkout preview route with an explicit outcome", () => {
   ]);
 });
 
+it("normalizes the catalog preview cards route, plain and localized", () => {
+  const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
+    import express from "express";
+    import { requestLogging, bindRequestOperation } from "./src/shared/infrastructure/logger.ts";
+    const app = express();
+    app.use(requestLogging);
+    app.get("/{*splat}", (req, res) => {
+      bindRequestOperation({ operation: "get_catalog_preview_cards", outcome: "loaded" });
+      res.sendStatus(200);
+    });
+    const server = app.listen(0);
+    const base = "http://127.0.0.1:" + server.address().port;
+    await fetch(base + "/settings/store-appearance/catalog-cards");
+    await fetch(base + "/es-PE/settings/store-appearance/catalog-cards.data?x=1");
+    server.close();
+  `], { cwd: process.cwd(), encoding: "utf8" });
+  expect(output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed")).toEqual([
+    expect.objectContaining({ route: "/settings/store-appearance/catalog-cards", operation: "get_catalog_preview_cards", outcome: "loaded" }),
+    expect.objectContaining({ route: "/settings/store-appearance/catalog-cards", operation: "get_catalog_preview_cards", outcome: "loaded" }),
+  ]);
+});
+
 it("normalizes the store appearance editor route and the legacy address without capturing the preview", () => {
   const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
     import express from "express";
