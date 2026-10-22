@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { storeThemeIds, storeThemes, type StoreThemeDefinition } from "@shared/store-themes";
+import { storeThemeIds, storeThemes, type StoreThemeDefinition, type StoreThemeId } from "@shared/store-themes";
 import { storeFontStacks, storeThemeCss } from "@core/src/features/store-appearance/presentation/store-theme-style";
 
 const scope = ":r1:";
@@ -19,6 +19,7 @@ function catalogValues(theme: StoreThemeDefinition): Set<string> {
   return new Set([
     ...Object.values(theme.colors), ...Object.values(theme.style), ...Object.values(theme.logo), ...Object.values(theme.thumbnail),
     ...Object.values(theme.fonts).map((family) => storeFontStacks[family]), ...(theme.backgroundImage ? [theme.backgroundImage.css] : []),
+    "0", "0.5rem",
   ]);
 }
 const channel = (hex: string, start: number) => {
@@ -105,7 +106,7 @@ describe("store-theme.css", () => {
     for (const selector of selectors) expect(selector, selector).toMatch(/^\[data-store-theme\] /);
   });
 
-  test("reads only variables that every theme writes", () => {
+  test("reads only variables that every theme writes, also in catalog parts", () => {
     const [scoped] = rules(storeThemeCss("classic", scope));
     const written = new Set(declarations(scoped.body).map((declaration) => declaration.name));
     const read = [...stylesheet.matchAll(/var\((--[a-z0-9-]+)/g)].map((match) => match[1]);
@@ -219,5 +220,11 @@ describe("store-theme.css", () => {
       for (const surface of [colors.background, colors.card, colors["input-surface"], ...(backgroundImage?.stops ?? [])])
         expect(contrast(colors[searchBorder], surface), `${id}: search border on ${surface}`).toBeGreaterThanOrEqual(3);
     }
+  });
+
+  test("insets the card text only where the theme draws a card frame", () => {
+    const inset = (id: StoreThemeId) => /--store-catalog-card-inset:([^;]+);/.exec(storeThemeCss(id, scope))?.[1];
+    expect(Object.fromEntries(storeThemeIds.map((id) => [id, inset(id)]))).toEqual({ classic: "0.5rem", boutique: "0", antojo: "0.5rem", suave: "0.5rem", noche: "0.5rem" });
+    expect(stylesheet).toMatch(/catalog-card"\] :is\([^)]*\) \{\s*padding-inline: var\(--store-catalog-card-inset\)/);
   });
 });

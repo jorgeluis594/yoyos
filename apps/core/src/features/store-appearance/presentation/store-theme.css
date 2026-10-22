@@ -318,6 +318,15 @@
   color: var(--card-foreground);
 }
 
+/* A framed card keeps its text off the edge; a frameless one (inset 0) keeps the text flush with the photo. */
+[data-store-theme] [data-store-part="catalog-card"] :is([data-store-part="product-name"], [data-store-part="price"]) {
+  padding-inline: var(--store-catalog-card-inset);
+}
+
+[data-store-theme] [data-store-part="catalog-card"] [data-store-part="price"] {
+  padding-bottom: var(--store-catalog-card-inset);
+}
+
 [data-store-theme] [data-store-part="catalog-card"]:focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;

@@ -1,11 +1,17 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
-import { createRoutesStub, data } from "react-router";
+import { createRoutesStub, data, type LoaderFunctionArgs } from "react-router";
+import { ok } from "@shared/functional";
+import { catalogBrowse } from "@core/src/features/catalog/browse-composition";
+import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
 import Catalog, { ErrorBoundary } from "@core/app/routes/catalog";
-import CatalogProductPage, { ErrorBoundary as ProductErrorBoundary } from "@core/app/routes/catalog-product";
+import CatalogProductPage, { ErrorBoundary as ProductErrorBoundary, loader as productLoader } from "@core/app/routes/catalog-product";
 
+vi.mock("@core/src/shared/infrastructure/logger", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@core/src/shared/infrastructure/logger")>(), bindRequestOperation: vi.fn(),
+}));
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const companyId = "00000000-0000-4000-8000-000000000001";
@@ -13,7 +19,7 @@ const pen = (amount: number) => ({ amount, currency: "PEN" });
 const card = (name: string, extra: object = {}) => ({ id: crypto.randomUUID(), name, imageUrl: null, price: { kind: "single", amount: pen(45) }, soldOut: false, ...extra });
 let root: Root | undefined;
 let container: HTMLDivElement;
-afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove(); localStorage.clear(); });
+afterEach(() => { vi.restoreAllMocks(); act(() => root?.unmount()); root = undefined; container.remove(); localStorage.clear(); });
 
 async function mount(path: string, routes: Parameters<typeof createRoutesStub>[0]) {
   const Stub = createRoutesStub(routes);
@@ -73,9 +79,14 @@ test("a sold-out variant is not selectable and the quantity stops at the availab
   expect(button("Agregar uno").disabled).toBe(true);
 });
 
-test("the product page shows Este producto ya no está disponible inside the store theme with the store name", async () => {
-  await mount(`/catalogo/${companyId}/productos/${crypto.randomUUID()}`, [{ path: "/catalogo/:companyId/productos/:productId", Component: CatalogProductPage, ErrorBoundary: ProductErrorBoundary,
-    loader: () => data({ kind: "unavailable", storeName: "Moda Lucía", appearance: { logoUrl: null, theme: "noche" } }, { status: 404 }) }]);
+test("the product page shows Este producto ya no está disponible inside the store theme with the store name, status 404 and the request outcome unavailable", async () => {
+  vi.spyOn(catalogBrowse, "storeAppearance").mockResolvedValue({ kind: "custom", appearance: { logoUrl: null, theme: "noche" } });
+  vi.spyOn(catalogBrowse, "getProduct").mockResolvedValue(ok({ kind: "unavailable", storeName: "Moda Lucía" }));
+  const productId = crypto.randomUUID();
+  const loaded = await productLoader({ params: { companyId, productId }, request: new Request(`http://localhost/catalogo/${companyId}/productos/${productId}`) } as unknown as LoaderFunctionArgs);
+  expect(loaded).toMatchObject({ init: { status: 404 } });
+  expect(bindRequestOperation).toHaveBeenCalledWith({ outcome: "unavailable" });
+  await mount(`/catalogo/${companyId}/productos/${productId}`, [{ path: "/catalogo/:companyId/productos/:productId", Component: CatalogProductPage, ErrorBoundary: ProductErrorBoundary, loader: () => loaded }]);
   await shows("Este producto ya no está disponible");
   expect(container.querySelector('[data-store-theme-id="noche"]')).not.toBeNull();
   expect(container.querySelector('[data-store-part="header"]')?.textContent).toContain("Moda Lucía");

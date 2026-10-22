@@ -39,8 +39,8 @@ export function CatalogProductCard({ item, to }: Readonly<{ item: CatalogCard; t
       <CatalogProductImage name={item.name} url={item.imageUrl} part="catalog-card-photo" />
       {item.soldOut && <span data-store-part="catalog-sold-out" className="absolute top-2 left-2 rounded-full bg-background/90 px-2 py-0.5 text-xs font-medium">Agotado</span>}
     </div>
-    <span data-store-part="product-name" className="line-clamp-2 px-2 text-sm group-hover:underline">{item.name}</span>
-    <span data-store-part="price" className="px-2 pb-2 font-semibold">{formatCatalogPrice(item.price)}</span>
+    <span data-store-part="product-name" className="line-clamp-2 text-sm group-hover:underline">{item.name}</span>
+    <span data-store-part="price" className="font-semibold">{formatCatalogPrice(item.price)}</span>
   </>;
   return to
     ? <Link data-store-part="catalog-card" to={to} state={{ fromCatalog: true }} className={className}>{content}</Link>

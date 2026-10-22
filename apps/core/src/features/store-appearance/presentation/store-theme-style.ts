@@ -18,6 +18,9 @@ type Declaration = readonly [name: string, value: string];
 const block = (selector: string, declarations: readonly Declaration[]) =>
   `${selector}{${declarations.map(([name, value]) => `${name}:${value};`).join("")}}`;
 
+/** A card draws a frame when it has a border, a shadow or a surface apart from the page; only then its text needs room from the edge. */
+const framedCard = ({ style, colors }: StoreThemeDefinition) => style["card-border"] !== "none" || style["card-shadow"] !== "none" || colors.card !== colors.background;
+
 function variables(theme: StoreThemeDefinition): Declaration[] {
   const { fonts, logo, thumbnail } = theme;
   return [
@@ -33,6 +36,7 @@ function variables(theme: StoreThemeDefinition): Declaration[] {
     ["--store-logo-shadow", logo.shadow], ["--store-logo-padding", logo.padding],
     ["--store-thumb-width", thumbnail.width], ["--store-thumb-ratio", thumbnail.ratio], ["--store-thumb-radius", thumbnail.radius],
     ["--store-thumb-border", thumbnail.border], ["--store-thumb-filter", thumbnail.filter],
+    ["--store-catalog-card-inset", framedCard(theme) ? "0.5rem" : "0"],
   ];
 }
 
