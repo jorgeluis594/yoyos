@@ -32,11 +32,11 @@ describe("parseSiteConfig", () => {
   test("parses the variables of .env.example into the site configuration", () => {
     const config = success(parseEnvExample());
     expect(config).toEqual({
-      siteUrl: "https://landing.yoyos.lat",
+      siteUrl: "https://yoyos.lat",
       indexing: false,
       whatsapp: { number: "51977909427", demoText: "Hola, quiero una demo de Yoyos" },
       phone: { number: "+51977909427", display: "+51 977 909 427" },
-      appLoginUrl: null,
+      appLoginUrl: "https://app.yoyos.lat/login",
       demoForm: { kind: "disabled" },
       contactEmail: null,
       social: { tiktok: null, instagram: null },
