@@ -11,7 +11,7 @@ const candidate = (n: number, name: string, similarity = 0.6): TextCandidate => 
 const signal = new AbortController().signal;
 
 function harness(options: Readonly<{ candidates?: readonly (readonly TextCandidate[])[]; find?: IdentifyProductInTextDependencies["findTextCandidates"]; choose?: IdentifyProductInTextDependencies["chooseTextProduct"] }> = {}) {
-  const calls = { queries: [] as string[][], chosen: [] as { mention: string; priceHint: Money | null; candidates: string[] }[] };
+  const calls = { queries: [] as string[][], chosen: [] as { mention: string; priceHint: number | null; candidates: string[] }[] };
   const deps: IdentifyProductInTextDependencies = {
     findTextCandidates: options.find ?? (async (queries) => { calls.queries.push(queries.map(({ mention }) => mention)); return ok(options.candidates ?? queries.map(() => [])); }),
     chooseTextProduct: options.choose ?? (async (input) => { calls.chosen.push({ mention: input.mention, priceHint: input.priceHint, candidates: input.candidates.map(({ name }) => name) }); return ok({ productId: null, confidence: 0.9, probabilities: [] }); }),
@@ -31,11 +31,11 @@ describe("identifyProductInText", () => {
 
   test("finds the product whose price fits the hint when the chooser honors it", async () => {
     const choose: IdentifyProductInTextDependencies["chooseTextProduct"] = async ({ priceHint, candidates }) => {
-      const fits = candidates.find(({ minPrice, maxPrice }) => priceHint !== null && minPrice.amount <= priceHint.amount && priceHint.amount <= maxPrice.amount);
+      const fits = candidates.find(({ minPrice, maxPrice }) => priceHint !== null && minPrice.amount <= priceHint && priceHint <= maxPrice.amount);
       return ok(choice(fits ? Number(fits.productId.slice(-12)) : null, 0.95));
     };
     const h = harness({ choose, candidates: [[{ ...candidate(5, "Polo básico"), minPrice: price(35), maxPrice: price(35) }, { ...candidate(9, "Polo premium"), minPrice: price(60), maxPrice: price(60) }]] });
-    expect(await identifyProductInText({ mention: "el polo", priceHint: price(35) }, h.deps, signal)).toEqual(ok({ kind: "found", productId: id(5), confidence: 0.95 }));
+    expect(await identifyProductInText({ mention: "el polo", priceHint: 35 }, h.deps, signal)).toEqual(ok({ kind: "found", productId: id(5), confidence: 0.95 }));
   });
 
   test("returns not clear when two candidates are likely and none reaches the threshold", async () => {
@@ -59,7 +59,7 @@ describe("identifyProductInText", () => {
 
   test("asks the catalog once for all the mentions and the model only for those with candidates", async () => {
     const h = harness({ candidates: [[candidate(1, "Polo")], [], [candidate(3, "Gorra")]] });
-    const result = await identifyProductsInText([{ mention: "polo", priceHint: null }, { mention: "zapatos", priceHint: null }, { mention: "gorra", priceHint: price(20) }], h.deps, signal);
+    const result = await identifyProductsInText([{ mention: "polo", priceHint: null }, { mention: "zapatos", priceHint: null }, { mention: "gorra", priceHint: 20 }], h.deps, signal);
     expect(result).toEqual(ok([{ kind: "not_found" }, { kind: "not_found" }, { kind: "not_found" }]));
     expect(h.calls.queries).toEqual([["polo", "zapatos", "gorra"]]);
     expect(h.calls.chosen.map(({ mention }) => mention)).toEqual(["polo", "gorra"]);

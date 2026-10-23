@@ -4,6 +4,7 @@ import type { Result } from "@shared/result";
 import { applyChatMessage, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
 import { createChatToolRegistry, type ChatContextItem } from "@core/src/features/orders/application/chat-message-tools";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
+import { identifyProductsInText, type IdentifyProductInTextDependencies } from "@core/src/features/products/application/identify-product-in-text";
 import { resolveVariant } from "@core/src/features/products/application/resolve-variant";
 import type { ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import type { DecisionAnswers, DecisionRequest, ExtractionRequest, OrchestrateDependencies, ToolCall } from "@core/src/shared/ai-tools/application/orchestrate";
@@ -17,7 +18,7 @@ import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { CatalogItem, MatchConfidence } from "@core/src/features/products/domain/image-identification";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
-import type { ProductRef, ProductWithSellableVariants, TextIdentification, VariantChoice } from "@core/src/features/products/domain/text-identification";
+import type { ProductRef, ProductWithSellableVariants, TextCandidate, TextIdentification, VariantChoice } from "@core/src/features/products/domain/text-identification";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 
@@ -66,6 +67,8 @@ type Options = Readonly<{
   variantChoice?: VariantChoice;
   /** What the text identification answers for each product mention; unlisted mentions are not found. */
   identify?: Readonly<Record<string, TextIdentification>>;
+  /** Runs the real text identification over these dependencies instead of `identify`. */
+  textLookup?: IdentifyProductInTextDependencies;
   topCandidate?: ProductRef | null;
   target?: ChatOrderTarget;
   stored?: StoredChatMessageOutcome;
@@ -108,7 +111,11 @@ function harness(options: Options = {}) {
       variantChoices.push(choice.words.slice());
       return ok(options.variantChoice ?? { variantId: null, confidence: 0 });
     } }, signal),
-    identifyProductsInText: async (lines) => { identifyBatches.push(lines.map(({ mention }) => mention)); return ok(lines.map(({ mention }) => options.identify?.[mention] ?? { kind: "not_found" as const })); },
+    identifyProductsInText: async (lines, signal) => {
+      if (options.textLookup) return identifyProductsInText(lines, options.textLookup, signal);
+      identifyBatches.push(lines.map(({ mention }) => mention));
+      return ok(lines.map(({ mention }) => options.identify?.[mention] ?? { kind: "not_found" as const }));
+    },
     findTopTextCandidate: async (mention) => { topCandidateQueries.push(mention); return ok(options.topCandidate ?? null); },
   });
   const items = (): ChatContextItem[] => target.kind === "open" ? target.order.items.map((item, index) => ({ label: `I${index + 1}`, variantId: item.variantId, productId: target.productIds.get(item.variantId) ?? null,
@@ -467,6 +474,42 @@ describe("applyChatMessage: text tools", () => {
     expect(h.extractions[0]!.tools.map(({ name }) => name)).toEqual(["add_products"]);
   });
 
+  test("tells «Polo básico» from «Polo premium» by the price in the text, with and without an open order", async () => {
+    const candidate = (productId: ProductId, name: string, amount: number): TextCandidate => ({ productId, name, minPrice: money(amount), maxPrice: money(amount), similarity: 0.9 });
+    const textLookup = (hints: Array<number | null>): IdentifyProductInTextDependencies => ({
+      findTextCandidates: async (queries) => ok(queries.map(() => [candidate(id(20) as ProductId, "Polo premium", 55), candidate(productPolo, "Polo básico", 35)])),
+      chooseTextProduct: async ({ priceHint, candidates }) => {
+        hints.push(priceHint);
+        const fits = candidates.find(({ minPrice }) => priceHint !== null && minPrice.amount === priceHint);
+        return ok({ productId: fits?.productId ?? null, confidence: 0.95, probabilities: [] });
+      },
+      minConfidence: 0.8, unclearMinProbability: 0.25,
+    });
+    for (const target of [undefined, capAndPolo()]) {
+      const hints: Array<number | null> = [];
+      const h = harness({ message: textMessage("el polo de 35"), target, textLookup: textLookup(hints), decision: () => decided("add_products"),
+        extraction: () => [{ tool: "add_products", args: { lines: [{ productMention: "polo", variantWords: ["M"], quantity: null, mentionedPrice: { amount: "35", units: 1, currency: "order_currency" } }] } }] });
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: poloM.variantId, identification: { productId: productPolo } }] });
+      expect(hints).toEqual([35]);
+    }
+  });
+
+  test("gives no price hint for a price in another currency and the unit amount for a price stated for several units", async () => {
+    const hints: Array<number | null> = [];
+    const only = (productId: ProductId, name: string): TextCandidate => ({ productId, name, minPrice: money(35), maxPrice: money(35), similarity: 0.9 });
+    const textLookup: IdentifyProductInTextDependencies = {
+      findTextCandidates: async (queries) => ok(queries.map(() => [only(productPolo, "Polo básico")])),
+      chooseTextProduct: async ({ priceHint }) => { hints.push(priceHint); return ok({ productId: null, confidence: 0, probabilities: [] }); },
+      minConfidence: 0.8, unclearMinProbability: 0.25,
+    };
+    const h = harness({ message: textMessage("polo a 5 dólares y gorra 50 por 2"), textLookup, decision: () => decided("add_products"),
+      extraction: () => [{ tool: "add_products", args: { lines: [
+        { productMention: "polo", variantWords: [], quantity: null, mentionedPrice: { amount: "5", units: 1, currency: "other" } },
+        { productMention: "gorra", variantWords: [], quantity: null, mentionedPrice: { amount: "50", units: 2, currency: "order_currency" } }] } }] });
+    await h.run();
+    expect(hints).toEqual([null, 25]);
+  });
+
   test("resolves ten add lines with one candidates query and at most four sequential model calls", async () => {
     const mentions = Array.from({ length: 10 }, (_, index) => (index % 2 === 0 ? `polo ${index}` : `gorra ${index}`));
     const identify = Object.fromEntries(mentions.map((mention, index) => [mention, found(index % 2 === 0 ? productPolo : productCap)]));
@@ -576,6 +619,11 @@ describe("applyChatMessage: text tools", () => {
       decision: () => decided("remove_item", { ...itemChoice("remove_item", "I1"), "remove_item:amount": { value: "one", confidence: 0.4 } }) });
     expect(await succeeded(unsureAmount.run())).toMatchObject({ outcomes: [{ kind: "unclear_item" }] });
     expect(quantities(unsureAmount.store)).toEqual({ [poloM.variantId]: 1, [poloL.variantId]: 1 });
+  });
+
+  test("does not call an unnamed reference a named item when the choice is below the minimum", async () => {
+    const h = harness({ message: textMessage("quítalo"), target: twoPolos(), decision: () => decided("remove_item", removal("unnamed", 0.5)) });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "unclear_item", namedItem: false }] });
   });
 
   test("names the likeliest product of the catalog when the text names something not in the order", async () => {

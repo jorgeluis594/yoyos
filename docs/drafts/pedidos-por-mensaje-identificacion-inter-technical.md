@@ -246,6 +246,7 @@ Notes:
   - `ambiguous`, or a low confidence → `unclear_item { namedItem: true }`.
   - `not_in_order` → `unclear_item` with `namedProductId` set to the top trigram candidate's product (no model call), or `null`.
 - **`mentionedPrice`:** `parseMentionedPrice` (§6.1). Another currency → dropped.
+- **Price hint of `add_products` (decided in the T11 review):** the hint passed to text identification is the unit amount the buyer stated (`amount / units`, a number with no currency; none when the price is in another currency). It does not depend on the chat having an open order. Products compares it with each candidate's min–max price in that candidate's own currency (`Product.currency`), so «el polo de 35» tells «Polo básico» (S/ 35) from «Polo premium» (S/ 55) with or without an open order (product criterion 9).
 
 ### 5.4 `identifyProductInText` and `resolveVariant` (products, new)
 
@@ -256,7 +257,7 @@ export type TextIdentification =
   | Readonly<{ kind: "not_found" }>;
 export type IdentifyProductInTextDependencies = Readonly<{
   findTextCandidates: (queries: readonly TextQuery[]) => Promise<Result<readonly (readonly TextCandidate[])[], PersistenceError>>;   // §7 query, one round trip for all lines; TextCandidate = { productId, name, minPrice, maxPrice, similarity }
-  chooseTextProduct: (input: Readonly<{ mention: string; priceHint: Money | null; candidates: readonly TextCandidate[] }>, signal: AbortSignal)
+  chooseTextProduct: (input: Readonly<{ mention: string; priceHint: number | null; candidates: readonly TextCandidate[] }>, signal: AbortSignal)
     => Promise<Result<TextChoice, ProductMatcherError>>;                                                 // Decision choice A…/none
   minConfidence: number;
   unclearMinProbability: number;
@@ -275,7 +276,7 @@ export function resolveVariant(
 
 Steps of `identifyProductInText`:
 1. No candidates → `not_found`, with no model call.
-2. Otherwise run one Decision choice over the candidates plus `none`. A choice at ≥ 0.8 → `found`. Two or more probabilities at ≥ 0.25 → `not_clear`. Anything else → `not_found`.
+2. Otherwise run one Decision choice over the candidates plus `none`, with the price hint as an amount only, compared with each candidate's price in its own currency (§5.3). A choice at ≥ 0.8 → `found`. Two or more probabilities at ≥ 0.25 → `not_clear`. Anything else → `not_found`.
 
 `resolveVariant` (one authority for photos and texts):
 - A preselected variant (from a QR code) with no words → `resolved`.

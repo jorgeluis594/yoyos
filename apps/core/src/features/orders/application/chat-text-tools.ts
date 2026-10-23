@@ -70,7 +70,8 @@ const unclear = (namedItem: boolean, namedProductId: ProductId | null): ItemTarg
 
 /** What the Decision step's item choice refers to, or why nothing can be changed. Never a model call of its own. */
 async function itemTargetOf(choice: ItemChoice, context: ChatToolContext, deps: ChatToolDependencies): Promise<Result<ItemTarget, ToolResolveError>> {
-  if (choice.confidence < ITEM_CHOICE_MIN_CONFIDENCE || choice.value === "ambiguous") return ok(unclear(true, null));
+  // A reference that names nothing stays unnamed however unsure the choice is.
+  if (choice.confidence < ITEM_CHOICE_MIN_CONFIDENCE || choice.value === "ambiguous") return ok(unclear(choice.value !== "unnamed", null));
   if (choice.value === "unnamed") return ok({ kind: "unnamed" });
   if (choice.value === "not_in_order") {
     if (!context.caption) return ok(unclear(true, null));
@@ -103,15 +104,16 @@ const addLine = z.object({
 });
 const addProductsArgs = z.object({ lines: z.array(addLine).min(1).max(MAX_ADD_LINES) });
 
-/** The unit price the buyer stated, as a hint for choosing the product; none while the order's currency is unknown. */
-function priceHintOf(line: z.output<typeof addLine>, currency: Money["currency"] | null): Money | null {
-  const price = priceOf(line.mentionedPrice, currency);
-  return price ? { amount: Math.round((price.amount.amount / price.units) * 100) / 100, currency: price.amount.currency } : null;
+/** The unit amount the buyer stated, with no currency: products compares it with each candidate's price in that candidate's own currency, so it needs no open order. */
+function priceHintOf(line: z.output<typeof addLine>): number | null {
+  const price = line.mentionedPrice;
+  if (!price || price.currency !== "order_currency" || price.units > 99) return null;
+  const amount = Number(price.amount);
+  return amount > 0 ? Math.round((amount / price.units) * 100) / 100 : null;
 }
 
-async function addProducts(args: z.output<typeof addProductsArgs>, context: ChatToolContext, deps: ChatToolDependencies, signal: AbortSignal): Resolved {
-  const currency = currencyOf(context, null);
-  const identified = await deps.identifyProductsInText(args.lines.map((line) => ({ mention: line.productMention, priceHint: priceHintOf(line, currency) })), signal);
+async function addProducts(args: z.output<typeof addProductsArgs>, deps: ChatToolDependencies, signal: AbortSignal): Resolved {
+  const identified = await deps.identifyProductsInText(args.lines.map((line) => ({ mention: line.productMention, priceHint: priceHintOf(line) })), signal);
   if (!identified.success) return identified;
   const foundIds = [...new Set(identified.data.flatMap((entry) => entry.kind === "found" ? [entry.productId] : []))];
   const loaded = foundIds.length ? await deps.loadSellableVariants(foundIds) : ok<readonly ProductWithSellableVariants[]>([]);
@@ -167,7 +169,7 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
       description: "The buyer asks to add products they name to the order. Give each product as the buyer wrote it (without quantity or variant), "
         + "its variant words as written, the quantity only if stated, and the price only if stated.",
       args: { kind: "extracted" }, schema: () => addProductsArgs,
-      resolve: (args, context, signal) => addProducts(args, context, deps, signal),
+      resolve: (args, context, signal) => addProducts(args, deps, signal),
     }),
     defineTool({
       name: "remove_item",
@@ -183,7 +185,7 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     }),
     defineTool({
       name: "change_item_quantity",
-      description: "The buyer sets how many units of an item of the order they want. Give the quantity as stated, 0 when they no longer want it.",
+      description: "The buyer sets how many units of an item of the order they want. Give the quantity as stated, 0 when they no longer want it. Never for asking for more of something the buyer does not name («dame 2 de ese», «otro igual»).",
       args: { kind: "extracted", questions: (context) => [itemQuestion(context)] },
       schema: (context) => z.object({ item: itemChoice(context), quantity: z.number().int().min(0) }),
       resolve: async (args, context): Resolved => {
@@ -193,7 +195,7 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     }),
     defineTool({
       name: "change_item_variant",
-      description: "The buyer explicitly asks to change an item of the order to another variant (size, color), such as «cámbialo a talla L». Give the variant words as written and the price only if stated.",
+      description: "The buyer explicitly asks to change an item of the order to another variant (size, color), such as «cámbialo a talla L». Never for a text that only names a variant («en talla L», «la quiero en M»). Give the variant words as written and the price only if stated.",
       args: { kind: "extracted", questions: (context) => [itemQuestion(context)] },
       schema: (context) => z.object({ item: itemChoice(context), variantWords: z.array(z.string().max(60)).min(1).max(5), mentionedPrice: mentionedPriceArgs.nullable() }),
       resolve: (args, context, signal) => changeItemVariant(args, context, deps, signal),
@@ -222,7 +224,7 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     }),
     defineTool({
       name: "report_unnamed_add",
-      description: "The buyer asks for more of something without naming it (quiero más, otro igual).",
+      description: "The buyer asks for more of something without naming it (quiero más, otro igual, dame 2 de ese).",
       args: { kind: "none" }, schema: () => noArgs, resolve: reportOnly({ kind: "unnamed_add" }),
     }),
   ];

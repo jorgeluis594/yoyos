@@ -55,7 +55,7 @@ async function askChoice(config: OpenAITextChooserConfig, question: Question, si
 const money = ({ amount, currency }: Money) => `${amount} ${currency}`;
 const priceRange = ({ minPrice, maxPrice }: TextCandidate) => minPrice.amount === maxPrice.amount ? money(minPrice) : `${money(minPrice)} to ${money(maxPrice)}`;
 
-type TextChooserInput = Readonly<{ mention: string; priceHint: Money | null; candidates: readonly TextCandidate[] }>;
+type TextChooserInput = Readonly<{ mention: string; priceHint: number | null; candidates: readonly TextCandidate[] }>;
 
 /** Chooses the catalog product a customer's words name; the price the customer mentioned is a hint, never a requirement. */
 export function createOpenAITextProductChooser(config: OpenAITextChooserConfig) {
@@ -65,7 +65,7 @@ export function createOpenAITextProductChooser(config: OpenAITextChooserConfig) 
       event: "product_text_match", labels, descriptions: input.candidates.map(({ name }) => name),
       instructions: "Decide which catalog product the customer is referring to. The customer's price, when given, is a hint to tell similar products apart. "
         + `Answer with the option label, or "${NONE}" if no option is clearly the product.`,
-      text: [`Customer words: ${input.mention}`, input.priceHint ? `Price the customer mentioned: ${money(input.priceHint)}` : null,
+      text: [`Customer words: ${input.mention}`, input.priceHint ? `Price the customer mentioned: ${input.priceHint}, to compare with each product's price in that product's own currency` : null,
         "Catalog products:", ...input.candidates.map((candidate, index) => `${labels[index]}: ${candidate.name} (${priceRange(candidate)})`)].filter((line) => line !== null).join("\n"),
     }, signal);
     if (!asked.success) return asked;
