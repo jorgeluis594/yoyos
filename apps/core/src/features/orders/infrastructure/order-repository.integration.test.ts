@@ -1942,3 +1942,28 @@ test("keeps the chat message outcome of one company invisible to another", async
     });
   } finally { await chatCleanup(a, b); await a.cleanup(); await b.cleanup(); }
 });
+
+test("reads the confirmation of a catalog order of the company and answers not_confirmed for another company's order", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  try {
+    const create = (companyId: string, number: bigint, values: Readonly<{ fromCatalog: boolean; confirmed: boolean }>) => withTenantIsolation(companyId, async () => {
+      const id = randomUUID() as OrderId;
+      await prisma.order.create({ data: { id, number, currency: "PEN", total: 10, itemsTotal: 10, createdAt: new Date(), fromCatalog: values.fromCatalog,
+        sellerId: values.fromCatalog ? null : (companyId === a.companyId ? a.sellerId : b.sellerId), checkoutEnabledAt: values.fromCatalog || values.confirmed ? new Date() : null,
+        checkoutConfirmedAt: values.confirmed ? new Date() : null } });
+      return id;
+    });
+    const confirmed = await create(a.companyId, 1901n, { fromCatalog: true, confirmed: true });
+    const pending = await create(a.companyId, 1902n, { fromCatalog: true, confirmed: false });
+    const manual = await create(a.companyId, 1903n, { fromCatalog: false, confirmed: true });
+    const other = await create(b.companyId, 1901n, { fromCatalog: true, confirmed: true });
+    const read = (companyId: string, orderId: OrderId) => orders.readCatalogOrderConfirmation(companyId as CompanyId, orderId);
+    expect(await read(a.companyId, confirmed)).toEqual(ok("confirmed"));
+    expect(await read(a.companyId, pending)).toEqual(ok("not_confirmed"));
+    expect(await read(a.companyId, manual)).toEqual(ok("not_confirmed"));
+    expect(await read(a.companyId, randomUUID() as OrderId)).toEqual(ok("not_confirmed"));
+    expect(await read(a.companyId, other)).toEqual(ok("not_confirmed"));
+    expect(await read(b.companyId, other)).toEqual(ok("confirmed"));
+  } finally { await a.cleanup(); await b.cleanup(); }
+});

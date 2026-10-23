@@ -101,16 +101,62 @@ docker compose exec db psql -U core -d core -c 'REINDEX DATABASE core'
 
 In Coolify, run the same `REINDEX DATABASE core` in the `db` container's terminal right after the first deployment on the new image. `ALTER DATABASE … REFRESH COLLATION VERSION` does not fix this and fails on these volumes.
 
-## Staging deployment with Coolify
+## Deployment with Coolify
 
 The Git-based Coolify application uses [`compose.prod.yaml`](compose.prod.yaml) from the repository root. It runs PostgreSQL with a persistent volume, applies migrations with the database administrator role, then starts the web server and event worker with the restricted `core_app` role. The database has no public port.
 
 1. In Coolify, create an Application from the public GitHub repository `jorgeluis594/yoyos`. Select Docker Compose, set the base directory to `/`, and set the Compose location to `compose.prod.yaml`.
-2. Set `RESEND_API_KEY` in Coolify's environment variables. The configured sender is `Yoyos <cuentas@kogozstaging.lat>`, whose domain must be verified in Resend. Coolify generates the `SERVICE_PASSWORD_64_POSTGRES`, `SERVICE_PASSWORD_64_APPDB`, and `SERVICE_PASSWORD_64_AUTH` values referenced by the Compose file.
-3. Assign `https://yoyos.kogozstaging.lat` to the `web` service on internal port `3000`. The DNS A record must point to the Coolify server, and ports 80 and 443 must reach its proxy.
+2. Set `RESEND_API_KEY` and `CATALOG_BASE_URL` in Coolify's environment variables. `CATALOG_BASE_URL` is the base domain of the [public catalog](docs/public-catalog.md#environments)'s brand addresses: `https://yoyos.lat`. There is no staging catalog domain. It has no default: Coolify stores the Compose file's `${CATALOG_BASE_URL:?…}` error text as the variable's value until a real one is set, so check in Environment Variables that the stored value is the URL. Without a valid `https` URL the `migrate` service exits before changing the schema and `web` does not start. The configured sender is `Yoyos <cuentas@yoyos.lat>`, whose domain must be verified in Resend. Coolify generates the `SERVICE_PASSWORD_64_POSTGRES`, `SERVICE_PASSWORD_64_APPDB`, and `SERVICE_PASSWORD_64_AUTH` values referenced by the Compose file.
+3. Assign `https://app.yoyos.lat` to the `web` service on internal port `3000`. The DNS A record must point to the Coolify server, and ports 80 and 443 must reach its proxy.
 4. Deploy. Wait for `migrate` to exit successfully and for `web` and `worker` to start. Verify account registration and the verification email before testing business flows.
 
-Images require the `R2_*` environment variables from [`apps/core/.env.example`](apps/core/.env.example). WhatsApp connections are optional for initial staging tests. Keep backups of the PostgreSQL volume before upgrades; the migration service runs again on each deployment.
+Images require the `R2_*` environment variables from [`apps/core/.env.example`](apps/core/.env.example). WhatsApp connections are optional for initial tests. Keep backups of the PostgreSQL volume before upgrades; the migration service runs again on each deployment.
+
+## Catalog brand hosts
+
+Production serves each published catalog at `https://{subdomain}.yoyos.lat/` ([public catalog](docs/public-catalog.md#brand-host)). The chain is: Cloudflare (proxied wildcard record, Universal SSL for `*.yoyos.lat`, Always Use HTTPS) → Coolify's Traefik (the `yoyos-stores` routers, Traefik's default certificate) → `web`, which picks the store from the host. `app.yoyos.lat` keeps its own Coolify domain and Let's Encrypt certificate.
+
+Cloudflare's SSL mode stays **Full**: the buyer's browser sees Cloudflare's Universal SSL certificate for `*.yoyos.lat`, and Cloudflare encrypts the hop to the origin without validating the certificate Traefik serves for brand hosts (its default self-signed one). Reason: no certificate or key to create, install or renew on the server (decided by the founder on 2026-10-23; rejected for now: Full (strict) with a Cloudflare Origin CA certificate, which also verifies the origin but adds a key to install in Traefik; a Let's Encrypt wildcard through DNS-01, which puts a DNS credential on the app server). Moving to Full (strict) later needs an origin certificate for `*.yoyos.lat` in Traefik first, or every brand host answers 526.
+
+Set up, in order:
+
+1. **Traefik routing.** The `yoyos-stores` and `yoyos-stores-http` routers are labels on the `web` service in [`compose.prod.yaml`](compose.prod.yaml), so they are versioned and survive redeploys. Do not add `*.yoyos.lat` as a Coolify domain: Coolify would attach its Let's Encrypt resolver, which cannot issue a wildcard over HTTP-01. The routers have low priority, so the exact `app.yoyos.lat` rule wins; they have no certificate resolver, so Traefik serves its default certificate, which Full accepts; the HTTP router redirects plain HTTP to HTTPS. In the Compose file the regex anchor is written `$$`, which interpolation turns into `$`; a bare `$` breaks the deploy. Check:
+   - Servers → Proxy shows Traefik v3 (for v2 the rule is ``HostRegexp(`{subdomain:[a-z0-9-]+}.yoyos.lat`)``);
+   - **Show deployable compose** shows the labels on `web` with a single `$`, and every router Coolify generates for `web` names its own `.service=`, because Traefik refuses an unnamed service when a container defines two;
+   - Cloudflare → Workers Routes has no route matching `*yoyos.lat/*` or `*.yoyos.lat/*`, so the landing Worker never captures brand hosts.
+2. **Environment.** `CATALOG_BASE_URL=https://yoyos.lat` in production (see the deployment steps above), then redeploy.
+3. **DNS.** Cloudflare → DNS → Records: type `A`, name `*`, the production server's IPv4, **Proxied**, TTL Auto. The explicit apex, `www` and `app` records keep precedence over the wildcard.
+4. **HTTPS and SSL mode.**
+   - SSL/TLS → Edge Certificates → **Always Use HTTPS**: On, so typed `http://` addresses are redirected at the edge.
+   - Right after, check that the Let's Encrypt renewal path of `app.yoyos.lat` still reaches the origin over HTTP: `curl -sSI http://app.yoyos.lat/.well-known/acme-challenge/x` must answer 404 with no `location`. A redirect to `https://` would make the app host's certificate fail to renew weeks later (a 526 on the whole app). In that case turn **Always Use HTTPS** off (the origin HTTP router still redirects brand hosts) and keep Full.
+   - SSL/TLS → Overview: keep **Full**. Do not switch to Full (strict) without an origin certificate for `*.yoyos.lat` in Traefik.
+   - The redirect rules for the apex (`yoyos.lat` → `app.yoyos.lat` for core paths) and for `www` must match exact hostnames (`http.host eq "yoyos.lat"`), not the wildcard.
+   - Rollback: **Always Use HTTPS** off takes effect within seconds and needs no deploy.
+5. **Verify.** Until a catalog is published, any free name must answer «Catálogo no disponible».
+
+   ```sh
+   dig +short fantasio.yoyos.lat                                                                  # Cloudflare IPs, not the server's
+   curl -sSI http://no-existe.yoyos.lat/ | grep -iE '^(HTTP|location)'                            # 301/308 to https://no-existe.yoyos.lat/
+   curl -sS -o /dev/null -w '%{http_code} %{ssl_verify_result}\n' https://no-existe.yoyos.lat/   # 404 0
+   curl -sS https://no-existe.yoyos.lat/ | grep -c 'Catálogo no disponible'                       # 1
+   curl -sSI https://<published>.yoyos.lat/ | grep -iE '^(HTTP|referrer-policy)'                 # 200, no-referrer
+   curl -sS https://<published>.yoyos.lat/ | grep -c 'noindex'                                   # 1
+   curl -sS -o /dev/null -w '%{http_code}\n' https://<published>.yoyos.lat/api/me                # 404
+   curl -sS https://<published>.yoyos.lat/robots.txt                                             # Disallow: /
+   curl -sSI https://app.yoyos.lat/catalogo/<company id> | grep -iE '^(HTTP|location|cache-control)'  # 308 to the brand host, no-store
+   curl -sSI https://yoyos.lat/ | head -1                                                         # landing unchanged
+   curl -sSI https://www.yoyos.lat/ | grep -i '^location'                                         # still to the apex
+   # Origin answers brand hosts over HTTPS (default certificate, so skip verification):
+   curl -sSk --resolve fantasio.yoyos.lat:443:<server ip> -o /dev/null -w '%{http_code}\n' https://fantasio.yoyos.lat/   # 404 or 200
+   # The app host keeps its publicly trusted certificate at the origin:
+   curl -sS --resolve app.yoyos.lat:443:<server ip> -o /dev/null -w '%{http_code} %{ssl_verify_result}\n' https://app.yoyos.lat/health   # 200 0
+   # Plain HTTP at the origin redirects:
+   curl -sSI --resolve fantasio.yoyos.lat:80:<server ip> http://fantasio.yoyos.lat/ | grep -iE '^(HTTP|location)'   # 301/308 to https
+   ```
+
+   Inside the `web` container, `curl -H 'Host: fantasio.yoyos.lat' http://127.0.0.1:3000/` confirms that core sees the brand host. Also open a test brand address on a phone (Chrome Android, Safari iOS and the Instagram in-app browser) with no certificate warning.
+
+In local Docker, brand hosts open at `http://{subdomain}.localhost:${WEB_PORT}/` with no DNS.
 
 ## Contributor documentation
 

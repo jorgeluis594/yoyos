@@ -152,6 +152,7 @@ test("failed network requests recover pending orders and lost responses recover 
   await page.setExtraHTTPHeaders({ "x-request-id": requestId });
   try {
     await page.goto(f.path);
+    await waitForHydration(page);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await page.route("**/checkout/**", async (route) => {
@@ -163,7 +164,7 @@ test("failed network requests recover pending orders and lost responses recover 
     expect((await f.read()).checkoutConfirmedAt).toBeNull();
     await page.unrouteAll();
     await page.getByRole("link", { name: "Reintentar" }).click();
-    await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeVisible();
+    await waitForHydration(page);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await page.route("**/checkout/**", async (route) => {
@@ -426,6 +427,11 @@ async function configureDelivery(f: Awaited<ReturnType<typeof fixture>>, zones: 
         ? { kind: "new" as const, method: "agency" as const, name: option.name, enabled: true, price: { amount: option.price, currency: "PEN" as const }, agencyIds: [...option.agencyIds] }
         : { kind: "new" as const, method: "home" as const, name: option.name, enabled: true, price: { amount: option.price, currency: "PEN" as const } }) })) }, access)).success).toBe(true);
   });
+}
+
+/** Typing before hydration is wiped when React hydrates; «Confirmar pedido» stays disabled until the client sets the delivery draft. */
+async function waitForHydration(page: Page) {
+  await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeEnabled();
 }
 
 async function pickDistrict(page: Page, department: string, province: string, district: string) {

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import type { CatalogSettingsResponse } from "@shared/contracts/catalog";
 import type { StoreAppearance } from "@core/src/features/store-appearance/domain/store-appearance";
 import type { StoreAppearanceFailure } from "@core/src/features/store-appearance/application/store-appearance";
 
@@ -15,7 +16,7 @@ export type EditorActionResult =
   | Readonly<{ intent: "save-appearance"; success: true; appearance: StoreAppearance }>
   | Readonly<{ intent: "save-appearance"; error: StoreAppearanceFailure["code"] }>
   | Readonly<{ intent: "set-publication"; published: boolean }>
-  | Readonly<{ intent: "set-publication"; error: true }>;
+  | Readonly<{ intent: "set-publication"; error: true; reason?: "subdomain_required" }>;
 
 /** What the loader knows about the logo and theme; `unknown_theme` is a starting point, not an error. */
 export type AppearancePart =
@@ -23,6 +24,10 @@ export type AppearancePart =
   | Readonly<{ kind: "unknown_theme" }>
   | Readonly<{ kind: "failed" }>;
 
+/** The settings the card seeds from; after that it keeps its own state and the loader is not read again. */
 export type PublicationPart =
-  | Readonly<{ kind: "loaded"; published: boolean }>
+  | Readonly<{ kind: "loaded" }> & CatalogSettingsResponse
   | Readonly<{ kind: "failed" }>;
+
+/** The id of the Publicar catálogo card: Settings → Catálogo links to it. */
+export const catalogPublicationAnchor = "catalog-publication";

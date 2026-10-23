@@ -2,10 +2,10 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { MemoryRouter, useLocation } from "react-router";
-import { afterEach, beforeEach, expect, test, vi } from "vitest";
-import { CatalogCartButton, CatalogCartPanel } from "@core/app/components/catalog-cart";
+import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { CatalogCartButton, CatalogCartPanel, resetOrderCheck } from "@core/app/components/catalog-cart";
 import { Sheet } from "@core/app/components/ui/sheet";
-import { emptyCart, writeCart, type CatalogCartLine } from "@core/app/lib/catalog-cart-storage";
+import { emptyCart, readCart, writeCart, type CatalogCartLine } from "@core/app/lib/catalog-cart-storage";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -22,6 +22,7 @@ let posts: unknown[];
 let answers: Array<() => Promise<Response>>;
 
 beforeEach(() => {
+  resetOrderCheck();
   posts = [];
   answers = [];
   // The price refresh on open fails, so the cart keeps its id; each POST takes the next queued answer.
@@ -33,7 +34,7 @@ beforeEach(() => {
   writeCart(companyId, { orderId, lines: [line(id(3), "Polo negro", 2), line(id(4), "Polo beige", 1)] });
   container = document.body.appendChild(document.createElement("div"));
   root = createRoot(container);
-  act(() => root.render(<MemoryRouter><Sheet><CatalogCartPanel companyId={companyId} catalogPath={`/catalogo/${companyId}`} /></Sheet></MemoryRouter>));
+  act(() => root.render(<MemoryRouter><Sheet><CatalogCartPanel companyId={companyId} catalogPath="/" /></Sheet></MemoryRouter>));
 });
 afterEach(() => {
   act(() => root.unmount());
@@ -76,7 +77,7 @@ test("ORDER_ID_CONFLICT retries once with a new order id, then shows the generic
 test("«Ver productos» in the empty sheet on the catalog closes it and keeps the search", async () => {
   writeCart(companyId, emptyCart(orderId));
   const Search = () => <output>{useLocation().search}</output>;
-  act(() => root.render(<MemoryRouter key="catalog" initialEntries={[`/catalogo/${companyId}?q=polo`]}><Search /><CatalogCartButton companyId={companyId} /></MemoryRouter>));
+  act(() => root.render(<MemoryRouter key="catalog" initialEntries={["/?q=polo"]}><Search /><CatalogCartButton companyId={companyId} /></MemoryRouter>));
   await click(button("Carrito, 0 unidades"));
   await click(button("Ver productos"));
   expect(container.querySelector("[role=dialog]")).toBeNull();
@@ -99,4 +100,93 @@ test("cart lines show the theme thumbnail shape with the product initial when th
     expect(thumbnail.style.filter).toBe("var(--store-thumb-filter, none)");
     expect(thumbnail.querySelector("img")).toBeNull();
   }
+});
+
+test("Continuar navigates to the full checkout URL on the app host and marks the cart as continued", async () => {
+  const checkoutUrl = `https://app.yoyos.lat/checkout/${companyId}/${orderId}`;
+  const assign = vi.fn();
+  vi.stubGlobal("location", { assign });
+  answers.push(() => Promise.resolve(json({ checkoutUrl })));
+  await click(button("Continuar"));
+  expect(posts).toEqual([{ intent: "continue", orderId, lines: [{ variantId: id(3), quantity: 2 }, { variantId: id(4), quantity: 1 }] }]);
+  expect(assign).toHaveBeenCalledWith(checkoutUrl);
+  expect(readCart(companyId)).toMatchObject({ orderId, continued: true });
+});
+
+test("a cart whose order id rotates after the conflict retry is not marked continued", async () => {
+  answers.push(() => Promise.resolve(json({ code: "ORDER_ID_CONFLICT" }, 409)), () => Promise.resolve(json({ code: "SERVICE_UNAVAILABLE" }, 503)));
+  writeCart(companyId, { orderId, lines: [line(id(3), "Polo negro", 2)], continued: true });
+  await click(button("Continuar"));
+  expect(readCart(companyId).continued).toBeFalsy();
+});
+
+describe("order check", () => {
+  let checks: unknown[];
+  let reply: () => Promise<Response>;
+  const mountButton = () => act(() => root.render(<MemoryRouter><CatalogCartButton companyId={companyId} /></MemoryRouter>));
+  const pageshow = (persisted: boolean) => act(async () => { window.dispatchEvent(Object.assign(new Event("pageshow"), { persisted })); });
+  const settle = () => act(async () => { await Promise.resolve(); });
+
+  beforeEach(() => {
+    checks = [];
+    reply = () => Promise.resolve(json({ order: "not_confirmed" }));
+    vi.stubGlobal("fetch", vi.fn(async (url: string, init?: RequestInit) => {
+      if (init?.method === "POST") { checks.push(JSON.parse(String(init.body))); return reply(); }
+      return json({ variants: [] });
+    }));
+  });
+
+  test("checks the order once per document load and on pageshow persisted when the continued cart has lines, and empties it only on confirmed", async () => {
+    writeCart(companyId, { orderId, lines: [line(id(3), "Polo negro", 2)], continued: true });
+    await mountButton();
+    await settle();
+    expect(checks).toEqual([{ intent: "check_order", orderId }]);
+    await mountButton();
+    await act(async () => root.render(<MemoryRouter key="again"><CatalogCartButton companyId={companyId} /></MemoryRouter>));
+    expect(checks).toHaveLength(1);
+    await pageshow(false);
+    expect(checks).toHaveLength(1);
+    expect(readCart(companyId).lines).toHaveLength(1);
+    await pageshow(true);
+    expect(checks).toHaveLength(2);
+    expect(readCart(companyId).lines).toHaveLength(1);
+    reply = () => Promise.resolve(json({ order: "confirmed" }));
+    await pageshow(true);
+    await settle();
+    expect(checks).toHaveLength(3);
+    expect(readCart(companyId).lines).toEqual([]);
+    await pageshow(true);
+    expect(checks).toHaveLength(3);
+  });
+
+  test("sends no order check when the cart was never continued", async () => {
+    writeCart(companyId, { orderId, lines: [line(id(3), "Polo negro", 2)] });
+    await mountButton();
+    await pageshow(true);
+    writeCart(companyId, emptyCart(orderId));
+    await pageshow(true);
+    expect(checks).toEqual([]);
+  });
+
+  test("keeps the cart when the order check fails or is rate-limited", async () => {
+    writeCart(companyId, { orderId, lines: [line(id(3), "Polo negro", 2)], continued: true });
+    reply = () => Promise.reject(new TypeError("network"));
+    await mountButton();
+    await settle();
+    reply = () => Promise.resolve(json({ code: "RATE_LIMITED" }, 429));
+    await pageshow(true);
+    reply = () => Promise.resolve(json({ code: "CATALOG_UNAVAILABLE" }, 409));
+    await pageshow(true);
+    reply = () => Promise.resolve(new Response("<html>", { status: 200 }));
+    await pageshow(true);
+    expect(checks).toHaveLength(4);
+    expect(readCart(companyId)).toMatchObject({ orderId, continued: true });
+    expect(readCart(companyId).lines).toHaveLength(1);
+  });
+
+  test("twenty-one storefront page views with a continued cart send one order check", async () => {
+    writeCart(companyId, { orderId, lines: [line(id(3), "Polo negro", 2)], continued: true });
+    for (let view = 0; view < 21; view++) await act(async () => root.render(<MemoryRouter key={view}><CatalogCartButton companyId={companyId} /></MemoryRouter>));
+    expect(checks).toHaveLength(1);
+  });
 });

@@ -1,11 +1,8 @@
 import { z } from "zod";
-import type { CompanyId } from "@shared/identity";
 import { maxCatalogPages, parseCatalogSearch, type CatalogSearch } from "@core/src/features/catalog/domain/catalog";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
-const companyId = z.uuid().transform((value) => value as CompanyId);
-export const catalogPathSchema = z.object({ companyId });
-export const catalogProductPathSchema = z.object({ companyId, productId: z.uuid().transform((value) => value as ProductId) });
+export const catalogProductPathSchema = z.object({ productId: z.uuid().transform((value) => value as ProductId) });
 
 /** Malformed query values fall back to the first page without search instead of failing the page; too many pages clamp to the cap. */
 export function parseCatalogQuery(params: URLSearchParams): Readonly<{ q: string; search: CatalogSearch | null; pages: number }> {

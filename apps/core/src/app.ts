@@ -19,6 +19,7 @@ import { deliverySettingsRoutes } from "@core/src/features/delivery-settings/pre
 import { quotationRoutes } from "@core/src/features/delivery-settings/presentation/quotation-routes";
 import { storeAppearanceRoutes } from "@core/src/features/store-appearance/presentation/api-routes";
 import { catalogRoutes } from "@core/src/features/catalog/presentation/api-routes";
+import { brandHostEdge } from "@core/src/features/catalog/presentation/brand-host-edge";
 import { buyerPaymentRoutes } from "@core/src/features/orders/presentation/buyer-payment-routes";
 import { sellerNoticeRoutes } from "@core/src/features/orders/presentation/seller-notice-routes";
 import { pushDeviceRoutes, pushDeviceUnregisterRoutes } from "@core/src/features/notifications/presentation/push-device-routes";
@@ -37,6 +38,7 @@ const images = imageRoutes(createR2ImageStorage({
 // Before request logging so Coolify's container healthcheck doesn't flood the logs.
 app.get("/health", (_request, response) => { response.send("ok"); });
 app.use(requestLogging);
+app.use(brandHostEdge);
 
 app.all("/api/auth/{*splat}", toNodeHandler(auth));
 

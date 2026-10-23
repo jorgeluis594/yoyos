@@ -18,9 +18,10 @@ jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireA
 jest.mock("@mobile/features/store-appearance/composition", () => ({
   storeAppearance: { loadStoreAppearance: jest.fn(), saveStoreAppearance: jest.fn(), uploadStoreLogo: jest.fn(), pickLogo: jest.fn() },
 }));
-jest.mock("@mobile/features/catalog/composition", () => ({ catalogSettings: { get: jest.fn(), setPublished: jest.fn() } }));
+jest.mock("@mobile/features/catalog/composition", () => ({ catalogSettings: { get: jest.fn(), setPublished: jest.fn(), checkSubdomain: jest.fn(), saveSubdomain: jest.fn() } }));
 const getPublication = jest.mocked(catalogSettings.get);
 const setPublished = jest.mocked(catalogSettings.setPublished);
+const checkSubdomain = jest.mocked(catalogSettings.checkSubdomain);
 const load = jest.mocked(storeAppearance.loadStoreAppearance);
 const saveAppearance = jest.mocked(storeAppearance.saveStoreAppearance);
 const uploadLogo = jest.mocked(storeAppearance.uploadStoreLogo);
@@ -29,7 +30,7 @@ const logoId = "00000000-0000-4000-8000-000000000001";
 const newLogoId = "00000000-0000-4000-8000-000000000002";
 const asset = { uri: "file:///logo.png", width: 800, height: 400, mimeType: "image/png", fileName: "logo.png", fileSize: 1000, source: "library" } as const;
 const readable = (theme: "classic" | "suave" | "noche", logo: { id: string; url: string | null } | null = null) => ({ kind: "readable" as const, appearance: { theme, logo } });
-const publication = <Text>Tarjeta de publicación</Text>;
+const publication = () => <Text>Tarjeta de publicación</Text>;
 
 beforeEach(() => {
   getPublication.mockReset(); setPublished.mockReset();
@@ -317,11 +318,12 @@ test("a conversion that throws ends in No pudimos subir el logo with Reintentar 
 });
 
 test("shows the publication load error inside its card and keeps logo and theme working", async () => {
-  const url = "https://yoyos.test/catalogo/00000000-0000-4000-8000-000000000001";
-  getPublication.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: true, url }));
+  const url = "https://fantasio.yoyos.lat/";
+  const link = { subdomain: "fantasio", domain: "yoyos.lat", suggestion: null };
+  getPublication.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: true, url, ...link }));
   load.mockResolvedValue(ok(readable("classic")));
   saveAppearance.mockResolvedValue(ok(readable("noche")));
-  const screen = render(<StoreAppearanceScreen publication={<CatalogPublicationCard />} />);
+  const screen = render(<StoreAppearanceScreen publication={CatalogPublicationCard} />);
   await screen.findByText("No pudimos cargar la configuración del catálogo", {}, { timeout: 5000 });
   // Logo and Tema load, change and save while the publication read has failed.
   await screen.findByText("Logo");
@@ -371,9 +373,10 @@ describe("iOS VoiceOver announcements", () => {
 });
 
 describe("the seller can still hide the catalog while the appearance cannot be used", () => {
-  const url = "https://yoyos.test/catalogo/00000000-0000-4000-8000-000000000001";
+  const url = "https://fantasio.yoyos.lat/";
+  const link = { subdomain: "fantasio", domain: "yoyos.lat", suggestion: null };
   async function hideFromCard(screen: ReturnType<typeof render>) {
-    setPublished.mockResolvedValue(ok({ published: false, url }));
+    setPublished.mockResolvedValue(ok({ published: false, url, ...link }));
     fireEvent(await screen.findByLabelText("Publicar catálogo", {}, { timeout: 5000 }), "valueChange", false);
     expect(mockShowConfirmation).toHaveBeenCalledWith(expect.objectContaining({ title: "¿Ocultar tu catálogo?", confirmLabel: "Ocultar catálogo" }));
     await act(async () => mockShowConfirmation.mock.calls[0][0].onConfirm());
@@ -382,9 +385,9 @@ describe("the seller can still hide the catalog while the appearance cannot be u
   }
 
   test("after the appearance read fails, the card hides the catalog and no appearance control is shown", async () => {
-    getPublication.mockResolvedValue(ok({ published: true, url }));
+    getPublication.mockResolvedValue(ok({ published: true, url, ...link }));
     load.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
-    const screen = render(<StoreAppearanceScreen publication={<CatalogPublicationCard />} />);
+    const screen = render(<StoreAppearanceScreen publication={CatalogPublicationCard} />);
     await screen.findByText("No se pudo cargar la apariencia", {}, { timeout: 5000 });
     await hideFromCard(screen);
     expect(screen.queryByText("Guardar cambios")).toBeNull();
@@ -393,13 +396,48 @@ describe("the seller can still hide the catalog while the appearance cannot be u
   });
 
   test("with an unknown stored theme, the card hides the catalog without touching the appearance", async () => {
-    getPublication.mockResolvedValue(ok({ published: true, url }));
+    getPublication.mockResolvedValue(ok({ published: true, url, ...link }));
     load.mockResolvedValue(ok({ kind: "unknown_theme" }));
-    const screen = render(<StoreAppearanceScreen publication={<CatalogPublicationCard />} />);
+    const screen = render(<StoreAppearanceScreen publication={CatalogPublicationCard} />);
     await screen.findByText(/No pudimos usar tu apariencia guardada/, {}, { timeout: 5000 });
     await hideFromCard(screen);
     expect(saveAppearance).not.toHaveBeenCalled();
     expect(screen.queryByText("Cambios sin guardar")).toBeNull();
     expect(screen.getByText(/No pudimos usar tu apariencia guardada/)).toBeTruthy();
+  });
+});
+
+describe("leaving with the link", () => {
+  const withSuggestion = { published: false, subdomain: null, url: null, domain: "yoyos.lat", suggestion: "cafe-fantasio" };
+  const leave = () => {
+    const [prevent, onPrevent] = mockUsePreventRemove.mock.calls.at(-1) ?? [];
+    if (prevent) onPrevent({ data: { action: { type: "GO_BACK" } } });
+    return prevent as boolean;
+  };
+
+  test("leaving with an edited link asks with the link description and an untouched suggestion asks nothing", async () => {
+    getPublication.mockResolvedValue(ok(withSuggestion));
+    checkSubdomain.mockResolvedValue(ok({ status: "available", subdomain: "fantasio" }));
+    load.mockResolvedValue(ok(readable("classic")));
+    const screen = render(<StoreAppearanceScreen publication={CatalogPublicationCard} />);
+    await screen.findByLabelText("Link de tu catálogo", {}, { timeout: 5000 });
+    expect(leave()).toBe(false);
+    expect(mockShowConfirmation).not.toHaveBeenCalled();
+
+    fireEvent.changeText(screen.getByLabelText("Link de tu catálogo"), "fantasio");
+    expect(leave()).toBe(true);
+    expect(mockShowConfirmation).toHaveBeenLastCalledWith(expect.objectContaining({ title: "Tienes cambios sin guardar", description: "Si sales ahora, no se guardará el link que escribiste.", confirmLabel: "Descartar y salir", cancelLabel: "Seguir editando" }));
+    // The link does not count as a pending appearance change.
+    expect(screen.queryByText("Cambios sin guardar")).toBeNull();
+    expect(screen.queryByText("Guardar cambios")).toBeNull();
+
+    choose(screen, "Noche");
+    leave();
+    expect(mockShowConfirmation).toHaveBeenLastCalledWith(expect.objectContaining({ description: "Si sales ahora, perderás los cambios que no publicaste y el link que escribiste." }));
+
+    // Typing the suggestion back clears the link, and only the draft is left.
+    fireEvent.changeText(screen.getByLabelText("Link de tu catálogo"), "cafe-fantasio");
+    leave();
+    expect(mockShowConfirmation).toHaveBeenLastCalledWith(expect.objectContaining({ description: "Si sales ahora, perderás los cambios que no publicaste." }));
   });
 });

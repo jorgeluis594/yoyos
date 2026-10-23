@@ -59,6 +59,7 @@ services:
       DATABASE_URL: postgresql://core_app:core_app_local@db:5432/core
       BETTER_AUTH_SECRET: local-development-secret-change-me-32chars
       BETTER_AUTH_URL: ${BETTER_AUTH_URL:-http://localhost:3000}
+      CATALOG_BASE_URL: ${CATALOG_BASE_URL:-http://localhost:${WEB_PORT:-3000}}
       EMAIL_TRANSPORT: ${EMAIL_TRANSPORT:-smtp}
       EMAIL_FROM: ${EMAIL_FROM:-Yoyos <cuentas@yoyos.test>}
       RESEND_API_KEY: ${RESEND_API_KEY:-}

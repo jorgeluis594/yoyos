@@ -19,10 +19,12 @@ services:
       context: .
       dockerfile: apps/core/Dockerfile
     restart: "no"
-    command: sh -c 'psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -f scripts/create-role.sql && pnpm exec tsx scripts/migrate.ts && psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -v dbname=core -f scripts/provision-role.sql'
+    command: sh -c 'case "$$CATALOG_BASE_URL" in https://*) ;; *) echo "CATALOG_BASE_URL must be an https URL" >&2; exit 1;; esac && psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -f scripts/create-role.sql && pnpm exec tsx scripts/migrate.ts && psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -v dbname=core -f scripts/provision-role.sql'
     environment:
       DATABASE_URL: postgresql://core:${SERVICE_PASSWORD_64_POSTGRES}@db:5432/core
       APP_DB_PASSWORD: ${SERVICE_PASSWORD_64_APPDB}
+      # Guarded by the command above: Coolify stores the :? error text as the literal value, so interpolation alone never refuses the deploy.
+      CATALOG_BASE_URL: ${CATALOG_BASE_URL:?CATALOG_BASE_URL is required}
     depends_on:
       db:
         condition: service_healthy
@@ -38,9 +40,10 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://core_app:${SERVICE_PASSWORD_64_APPDB}@db:5432/core
       BETTER_AUTH_SECRET: ${SERVICE_PASSWORD_64_AUTH}
-      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://yoyos.kogozstaging.lat}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://app.yoyos.lat}
+      CATALOG_BASE_URL: ${CATALOG_BASE_URL:?CATALOG_BASE_URL is required}
       EMAIL_TRANSPORT: resend
-      EMAIL_FROM: ${EMAIL_FROM:-Yoyos <cuentas@kogozstaging.lat>}
+      EMAIL_FROM: ${EMAIL_FROM:-Yoyos <cuentas@yoyos.lat>}
       RESEND_API_KEY: ${RESEND_API_KEY:?Set the Resend API key in Coolify}
       R2_ENDPOINT: ${R2_ENDPOINT:-}
       R2_BUCKET: ${R2_BUCKET:-}
@@ -56,6 +59,21 @@ services:
       start_period: 60s
     expose:
       - "3000"
+    labels:
+      # Brand hosts (*.yoyos.lat) reach core through explicit routers with Traefik's default certificate (Cloudflare SSL mode Full); see README.md, Catalog brand hosts.
+      - "traefik.http.routers.yoyos-stores.rule=HostRegexp(`^[a-z0-9-]+\\.yoyos\\.lat$$`)"
+      - "traefik.http.routers.yoyos-stores.entrypoints=https"
+      - "traefik.http.routers.yoyos-stores.tls=true"
+      - "traefik.http.routers.yoyos-stores.priority=1"
+      - "traefik.http.routers.yoyos-stores.service=yoyos-stores"
+      - "traefik.http.routers.yoyos-stores-http.rule=HostRegexp(`^[a-z0-9-]+\\.yoyos\\.lat$$`)"
+      - "traefik.http.routers.yoyos-stores-http.entrypoints=http"
+      - "traefik.http.routers.yoyos-stores-http.priority=1"
+      - "traefik.http.routers.yoyos-stores-http.middlewares=yoyos-stores-https"
+      - "traefik.http.routers.yoyos-stores-http.service=yoyos-stores"
+      - "traefik.http.middlewares.yoyos-stores-https.redirectscheme.scheme=https"
+      - "traefik.http.middlewares.yoyos-stores-https.redirectscheme.permanent=true"
+      - "traefik.http.services.yoyos-stores.loadbalancer.server.port=3000"
     depends_on:
       migrate:
         condition: service_completed_successfully
