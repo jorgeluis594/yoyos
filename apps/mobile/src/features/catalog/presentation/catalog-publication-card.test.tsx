@@ -9,11 +9,12 @@ jest.mock("@mobile/features/catalog/composition", () => ({ catalogSettings: { ge
 const get = jest.mocked(catalogSettings.get);
 const setPublished = jest.mocked(catalogSettings.setPublished);
 const url = "https://yoyos.test/catalogo/00000000-0000-4000-8000-000000000001";
+const link = { subdomain: "fantasio", domain: "yoyos.lat", suggestion: null };
 beforeEach(() => { get.mockReset(); setPublished.mockReset(); });
 
 test("publication card asks for confirmation before hiding and restores the switch when saving fails", async () => {
-  get.mockResolvedValue(ok({ published: true, url }));
-  setPublished.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: false, url }));
+  get.mockResolvedValue(ok({ published: true, url, ...link }));
+  setPublished.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: false, url, ...link }));
   const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
   const screen = render(<CatalogPublicationCard />);
   fireEvent(await screen.findByLabelText("Publicar catálogo", {}, { timeout: 5000 }), "valueChange", false);
@@ -34,8 +35,8 @@ test("publication card asks for confirmation before hiding and restores the swit
 });
 
 test("publishing saves at once without asking and says the change is saved at the moment", async () => {
-  get.mockResolvedValue(ok({ published: false, url }));
-  setPublished.mockResolvedValueOnce(ok({ published: true, url }));
+  get.mockResolvedValue(ok({ published: false, url, ...link }));
+  setPublished.mockResolvedValueOnce(ok({ published: true, url, ...link }));
   const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
   const screen = render(<CatalogPublicationCard />);
   expect(await screen.findByText("Este cambio se guarda al momento.", {}, { timeout: 5000 })).toBeTruthy();
@@ -46,7 +47,7 @@ test("publishing saves at once without asking and says the change is saved at th
 });
 
 test("shows the load error inside the card with Reintentar and loads again", async () => {
-  get.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: false, url }));
+  get.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: false, url, ...link }));
   const screen = render(<CatalogPublicationCard />);
   await screen.findByText("No pudimos cargar la configuración del catálogo", {}, { timeout: 5000 });
   fireEvent.press(screen.getByText("Reintentar"));

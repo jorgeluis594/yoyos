@@ -82,6 +82,11 @@ async function setPublication(context: ActionFunctionArgs["context"], published:
     bindRequestOperation({ operation: "set_catalog_publication", outcome: "saved" });
     return data<EditorActionResult>({ intent: "set-publication", published: saved.data.published });
   }
+  // Publishing without a saved link is the existing failed-save outcome; the card explains it once the link group exists.
+  if (saved.error.code === "SUBDOMAIN_REQUIRED") {
+    bindRequestOperation({ operation: "set_catalog_publication", outcome: "invalid_input" });
+    return data<EditorActionResult>({ intent: "set-publication", error: true }, { status: 409 });
+  }
   bindRequestOperation({ operation: "set_catalog_publication", outcome: "technical_failure" });
   return data<EditorActionResult>({ intent: "set-publication", error: true }, { status: 503 });
 }

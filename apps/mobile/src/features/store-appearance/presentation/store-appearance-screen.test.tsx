@@ -318,7 +318,8 @@ test("a conversion that throws ends in No pudimos subir el logo with Reintentar 
 
 test("shows the publication load error inside its card and keeps logo and theme working", async () => {
   const url = "https://yoyos.test/catalogo/00000000-0000-4000-8000-000000000001";
-  getPublication.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: true, url }));
+  const link = { subdomain: "fantasio", domain: "yoyos.lat", suggestion: null };
+  getPublication.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: true, url, ...link }));
   load.mockResolvedValue(ok(readable("classic")));
   saveAppearance.mockResolvedValue(ok(readable("noche")));
   const screen = render(<StoreAppearanceScreen publication={<CatalogPublicationCard />} />);
@@ -372,8 +373,9 @@ describe("iOS VoiceOver announcements", () => {
 
 describe("the seller can still hide the catalog while the appearance cannot be used", () => {
   const url = "https://yoyos.test/catalogo/00000000-0000-4000-8000-000000000001";
+  const link = { subdomain: "fantasio", domain: "yoyos.lat", suggestion: null };
   async function hideFromCard(screen: ReturnType<typeof render>) {
-    setPublished.mockResolvedValue(ok({ published: false, url }));
+    setPublished.mockResolvedValue(ok({ published: false, url, ...link }));
     fireEvent(await screen.findByLabelText("Publicar catálogo", {}, { timeout: 5000 }), "valueChange", false);
     expect(mockShowConfirmation).toHaveBeenCalledWith(expect.objectContaining({ title: "¿Ocultar tu catálogo?", confirmLabel: "Ocultar catálogo" }));
     await act(async () => mockShowConfirmation.mock.calls[0][0].onConfirm());
@@ -382,7 +384,7 @@ describe("the seller can still hide the catalog while the appearance cannot be u
   }
 
   test("after the appearance read fails, the card hides the catalog and no appearance control is shown", async () => {
-    getPublication.mockResolvedValue(ok({ published: true, url }));
+    getPublication.mockResolvedValue(ok({ published: true, url, ...link }));
     load.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
     const screen = render(<StoreAppearanceScreen publication={<CatalogPublicationCard />} />);
     await screen.findByText("No se pudo cargar la apariencia", {}, { timeout: 5000 });
@@ -393,7 +395,7 @@ describe("the seller can still hide the catalog while the appearance cannot be u
   });
 
   test("with an unknown stored theme, the card hides the catalog without touching the appearance", async () => {
-    getPublication.mockResolvedValue(ok({ published: true, url }));
+    getPublication.mockResolvedValue(ok({ published: true, url, ...link }));
     load.mockResolvedValue(ok({ kind: "unknown_theme" }));
     const screen = render(<StoreAppearanceScreen publication={<CatalogPublicationCard />} />);
     await screen.findByText(/No pudimos usar tu apariencia guardada/, {}, { timeout: 5000 });

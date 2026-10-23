@@ -29,18 +29,19 @@ export default function CatalogSettingsScreen() {
     ? <ScreenState status="error" title={t("catalogLoadError")} onRetry={() => { setLoadFailed(false); load(); }} />
     : <ScreenState status="loading" title={t("catalogLoading")} />;
 
-  const copy = async () => { if (await Clipboard.setStringAsync(settings.url)) setCopied(true); };
+  const { url } = settings;
+  const copy = async () => { if (url !== null && await Clipboard.setStringAsync(url)) setCopied(true); };
 
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={Platform.OS === "ios" ? ["top", "left", "right", "bottom"] : ["top", "left", "right"]}>
     <ScrollView style={styles.page} contentContainerStyle={styles.content}>
       <View style={styles.heading}><ThemedText type="title" accessibilityRole="header">{t("catalogSettingsTitle")}</ThemedText>
         <ThemedText themeColor="textSecondary">{t("catalogSettingsDescription")}</ThemedText></View>
-      {settings.published ? <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.heading}>
+      {settings.published && url !== null ? <View style={[styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}><View style={styles.heading}>
           <ThemedText type="small" themeColor="textSecondary">{t("catalogLink")}</ThemedText>
-          <ThemedText selectable>{settings.url}</ThemedText>
+          <ThemedText selectable>{url}</ThemedText>
           <Button onPress={() => void copy()}>{t("catalogCopy")}</Button>
-          <Button variant="secondary" onPress={() => void Share.share({ message: settings.url }).catch(() => undefined)}>{t("catalogShare")}</Button>
-          <Button variant="secondary" onPress={() => void Linking.openURL(settings.url).catch(() => undefined)}>{t("catalogView")}</Button>
+          <Button variant="secondary" onPress={() => void Share.share({ message: url }).catch(() => undefined)}>{t("catalogShare")}</Button>
+          <Button variant="secondary" onPress={() => void Linking.openURL(url).catch(() => undefined)}>{t("catalogView")}</Button>
         </View></View> : null}
       {copied ? <ThemedText accessibilityLiveRegion="polite">{t("catalogCopied")}</ThemedText> : null}
       <View style={styles.heading}>
