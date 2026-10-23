@@ -822,9 +822,9 @@ No agent has Cloudflare or Coolify credentials. Steps in order:
    ```
 
    The low priority keeps `app.yoyos.lat`'s exact rule first. No `certresolver` goes on this router: Let's Encrypt cannot issue a wildcard through HTTP-01, and Traefik serves the origin certificate from step 1.
-3. **Environment.** Coolify → `web` → Environment Variables: `CATALOG_BASE_URL=https://yoyos.lat`. Redeploy.
+3. **Environment.** Coolify → `web` → Environment Variables: `CATALOG_BASE_URL=https://yoyos.lat`. Set the staging app's value as well, per question 2, before the T1 merge reaches `main`: `compose.prod.yaml` requires the variable, so a deploy without it fails. Redeploy.
 4. **Cloudflare DNS.** DNS → Records → **Add record**: type `A`, name `*`, IPv4 `94.72.118.64`, Proxy status **Proxied** (orange), TTL Auto. The explicit apex, `www` and `app` records keep precedence over the wildcard.
-5. **Cloudflare SSL mode.** SSL/TLS → Overview: **Full (strict)**. If the zone is already Full (strict), nothing changes. Check that the redirect rules for the apex (`yoyos.lat` → `app.yoyos.lat` for core paths) and for `www` match exact hostnames (`http.host eq "yoyos.lat"`), not the wildcard.
+5. **Cloudflare SSL mode.** The zone is on Automatic (running as Full, per repository memory). SSL/TLS → Overview → **Custom** → **Full (strict)**, once `curl` against `app.yoyos.lat` and a brand host confirms both present a valid certificate at the origin (`app.yoyos.lat` keeps its Let's Encrypt certificate; brand hosts get the origin certificate). If `app.yoyos.lat` fails under strict, return to Full and report it. Check that the redirect rules for the apex (`yoyos.lat` → `app.yoyos.lat` for core paths) and for `www` match exact hostnames (`http.host eq "yoyos.lat"`), not the wildcard.
 6. **Verify:**
 
    ```sh
@@ -860,10 +860,9 @@ Questions (answer with the option number):
    (2) A Configuration Rule with SSL "Full" (not strict) for *.yoyos.lat, using Traefik's default self-signed certificate. No certificate work, but Cloudflare stops verifying the origin for brand hosts.
    (3) Let's Encrypt wildcard through DNS-01 in Traefik with a Cloudflare API token on the VPS. Automatic renewal, but a DNS-editing token lives on the server, and Coolify's proxy configuration grows.
 
-2. What does staging use as CATALOG_BASE_URL (compose.prod.yaml defaults BETTER_AUTH_URL to https://yoyos.kogozstaging.lat)?
-   (1) A base on the staging zone (e.g. https://kogozstaging.lat), with the same wildcard steps there. Recommended: brand hosts work end to end on staging, and links never point to production.
-   (2) Staging without brand hosts: CATALOG_BASE_URL set to a staging-only name without wildcard DNS. Seller flows are testable there, but buyer flows only locally.
-   (3) Staging is not deployed anymore: CATALOG_BASE_URL is only set for production.
+2. What does staging (yoyos.kogozstaging.lat, Coolify "agents" server) use as CATALOG_BASE_URL? *.kogozstaging.lat already points to another host, and Universal SSL covers only one level, so *.yoyos.kogozstaging.lat has no edge certificate.
+   (1) Staging without working brand hosts: CATALOG_BASE_URL=https://yoyos.kogozstaging.lat. Recommended: no infra work; seller flows (choose, check, save, publish, copy) are testable there, staging links never point to production, and buyer flows are covered locally and in E2E on *.localhost.
+   (2) Brand hosts on staging: Cloudflare Advanced Certificate Manager (paid) for *.yoyos.kogozstaging.lat, a proxied wildcard record to 5.78.136.127 and the same Traefik routing. Full parity, at a monthly cost and a second set of manual steps.
 
 Decided unless objected:
 - The subdomain is a nullable unique column Company.catalogSubdomain. A CHECK on Company makes a published catalog without a subdomain impossible.
