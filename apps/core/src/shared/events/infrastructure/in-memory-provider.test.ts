@@ -41,4 +41,41 @@ describe("in-memory event bus", () => {
     expect(first).not.toHaveBeenCalled();
     expect(second).not.toHaveBeenCalled();
   });
+
+  it("calls the dead-letter handler after the last failed attempt in memory", async () => {
+    const bus = createInMemoryEventBus<Events>();
+    const handler = vi.fn<EventHandler<Events, "order.completed">>(async () => err({ code: "TEMPORARY", message: "down", retryable: true }));
+    const deadLetter = vi.fn(async () => ok(undefined));
+    const base = subscription("ordered", handler);
+    await bus.subscribe({ ...base, policy: { ...base.policy, retries: 2, orderingKey: () => "chat",
+      deadLetter: { id: "ordered-dead-letter", handler: deadLetter, policy: base.policy } } });
+    await bus.publish("order.completed", payload, metadata);
+    expect(handler.mock.calls.map(call => call[2].attempt)).toEqual([1, 2, 3]);
+    expect(deadLetter).toHaveBeenCalledOnce();
+    expect(deadLetter).toHaveBeenCalledWith(payload, metadata, expect.objectContaining({ attempt: 1 }));
+  });
+
+  it("stops retrying a permanent failure and still calls the dead-letter handler", async () => {
+    const bus = createInMemoryEventBus<Events>();
+    const handler = vi.fn(async () => err({ code: "PERMANENT", message: "boom", retryable: false }));
+    const deadLetter = vi.fn(async () => ok(undefined));
+    const base = subscription("ordered", handler);
+    await bus.subscribe({ ...base, policy: { ...base.policy, deadLetter: { id: "ordered-dead-letter", handler: deadLetter, policy: base.policy } } });
+    expect(await bus.publish("order.completed", payload, metadata)).toMatchObject({ success: false });
+    expect(handler).toHaveBeenCalledOnce();
+    expect(deadLetter).toHaveBeenCalledOnce();
+  });
+
+  it("does not call the dead-letter handler when the handler succeeds", async () => {
+    const bus = createInMemoryEventBus<Events>();
+    const deadLetter = vi.fn(async () => ok(undefined));
+    const base = subscription("ordered");
+    await bus.subscribe({ ...base, policy: { ...base.policy, deadLetter: { id: "ordered-dead-letter", handler: deadLetter, policy: base.policy } } });
+    expect(await bus.publish("order.completed", payload, metadata)).toEqual(ok(undefined));
+    expect(deadLetter).not.toHaveBeenCalled();
+  });
+
+  it("reports no blocked keys", async () => {
+    expect(await createInMemoryEventBus<Events>().listBlockedKeys("anything")).toEqual(ok([]));
+  });
 });

@@ -13,12 +13,12 @@ import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistenc
 import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type {
-  AnyEventSubscription, EventBusError, EventHandler, EventName, EventSubscriber,
-  EventSubscription, HandlerPolicy, Unsubscribe,
+  AnyEventSubscription, EventBusError, EventHandler, EventName, EventPayload, EventSubscriber,
+  EventSubscription, HandlerPolicy, RetryPolicy, Unsubscribe,
 } from "@core/src/shared/events/application/contracts";
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 
-const defaultPolicy: HandlerPolicy = {
+const defaultPolicy: RetryPolicy = {
   retries: 4, retryDelaySeconds: 5, exponentialBackoff: true, concurrency: 1,
 };
 
@@ -28,7 +28,7 @@ export function defineEventHandler<Events extends object, Name extends EventName
   options: {
     id: string;
     parsePayload: (input: unknown) => ReturnType<EventSubscription<Events, Name>["parsePayload"]>;
-    policy?: Partial<HandlerPolicy>;
+    policy?: Partial<HandlerPolicy<EventPayload<Events, Name>>>;
   },
 ): EventSubscription<Events, Name> {
   return { id: options.id, name, handler, parsePayload: options.parsePayload,

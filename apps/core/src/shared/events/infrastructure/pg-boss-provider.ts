@@ -1,12 +1,12 @@
-import { PgBoss, type JobResult } from "pg-boss";
+import { PgBoss, type JobResult, type JobWithMetadata } from "pg-boss";
 import pg from "pg";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { getCompanyId, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type {
-  AnyEventSubscription, EventBusError, EventBusProvider, EventMetadata, EventName, EventPayload,
-  EventSubscription, HandlerPolicy, JobScheduler, Unsubscribe,
+  AnyEventSubscription, BlockedKeysReader, EventBusError, EventBusProvider, EventMetadata, EventName, EventPayload,
+  EventSubscription, HandlerPolicy, JobScheduler, RetryPolicy, Unsubscribe,
 } from "@core/src/shared/events/application/contracts";
 
 const metadataSchema = z.strictObject({ eventId: z.uuid(), occurredAt: z.iso.datetime({ offset: false }) });
@@ -16,24 +16,48 @@ const envelopeSchema = z.strictObject({
 type StoredEvent = z.infer<typeof envelopeSchema>;
 type Subscription<Events extends object> = AnyEventSubscription<Events>;
 
-export function validHandlerPolicy(policy: HandlerPolicy): boolean {
-  return Number.isInteger(policy.retries) && policy.retries >= 0 && policy.retries <= 2_147_483_647
-    && Number.isInteger(policy.retryDelaySeconds) && policy.retryDelaySeconds >= 0 && policy.retryDelaySeconds <= 2_147_483_647
+const maxInt = 2_147_483_647;
+const handlerIdPattern = /^[a-z][a-z0-9-]*$/;
+const isInt = (value: unknown, min: number): value is number => Number.isInteger(value) && (value as number) >= min && (value as number) <= maxInt;
+const isOptionalInt = (value: unknown, min: number) => value === undefined || isInt(value, min);
+
+function validRetryPolicy(policy: RetryPolicy): boolean {
+  return isInt(policy.retries, 0) && isInt(policy.retryDelaySeconds, 0)
     && Number.isSafeInteger(policy.concurrency) && policy.concurrency >= 1
-    && typeof policy.exponentialBackoff === "boolean";
+    && typeof policy.exponentialBackoff === "boolean"
+    && isOptionalInt(policy.retryDelayMaxSeconds, 1) && isOptionalInt(policy.expireInSeconds, 1)
+    && isOptionalInt(policy.deleteAfterSeconds, 0)
+    // pg-boss rejects heartbeats under 10 s; a heartbeat at or past the expiry could never fire first.
+    && isOptionalInt(policy.heartbeatSeconds, 10)
+    && (policy.heartbeatSeconds === undefined || policy.expireInSeconds === undefined || policy.heartbeatSeconds < policy.expireInSeconds);
+}
+
+export function validHandlerPolicy(policy: HandlerPolicy): boolean {
+  if (!validRetryPolicy(policy)) return false;
+  const { orderingKey, groupKey, groupConcurrency, deadLetter } = policy;
+  if (orderingKey !== undefined && (typeof orderingKey !== "function" || deadLetter === undefined)) return false;
+  if (groupKey !== undefined && typeof groupKey !== "function") return false;
+  if ((groupKey === undefined) !== (groupConcurrency === undefined)) return false;
+  if (groupConcurrency !== undefined && !isInt(groupConcurrency, 1)) return false;
+  if (deadLetter === undefined) return true;
+  return typeof deadLetter.handler === "function" && handlerIdPattern.test(deadLetter.id) && validRetryPolicy(deadLetter.policy);
 }
 
 type Options<Events extends object> = {
   connectionString: string;
   subscriptions: readonly Subscription<Events>[];
   consume?: boolean;
+  /** How often pg-boss fails expired and heartbeat-less attempts (supervise and monitor interval). Ten seconds keeps the chat queue's time bound (docs/event-bus.md). */
+  superviseIntervalSeconds?: number;
   logger?: (entry: Record<string, unknown>) => void;
 };
 
 /** Runtime adapter. The same subscription registry prepares queues in producers and workers. */
 export function createPgBossProvider<Events extends object>(options: Options<Events>) {
   const boss = new PgBoss({ connectionString: options.connectionString, schema: "pgboss",
-    migrate: false, createSchema: false, reindex: false, schedule: options.consume === true });
+    migrate: false, createSchema: false, reindex: false, schedule: options.consume === true,
+    // Expiry and heartbeat failures run in the monitor step of a supervise pass, which waits for both intervals.
+    superviseIntervalSeconds: options.superviseIntervalSeconds ?? 10, monitorIntervalSeconds: options.superviseIntervalSeconds ?? 10 });
   const pool = new pg.Pool({ connectionString: options.connectionString });
   const subscriptions = new Map<string, Subscription<Events>>();
   const consumers = new Map<string, string>();
@@ -42,25 +66,48 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
   const log = options.logger ?? (entry => console.info(JSON.stringify(entry)));
   boss.on("error", cause => console.error("pg-boss error", cause));
 
+  function queueOptions(policy: RetryPolicy) {
+    return {
+      retryLimit: policy.retries,
+      retryDelay: policy.retryDelaySeconds,
+      retryBackoff: policy.exponentialBackoff,
+      ...(policy.retryDelayMaxSeconds === undefined ? {} : { retryDelayMax: policy.retryDelayMaxSeconds }),
+      ...(policy.expireInSeconds === undefined ? {} : { expireInSeconds: policy.expireInSeconds }),
+      ...(policy.heartbeatSeconds === undefined ? {} : { heartbeatSeconds: policy.heartbeatSeconds }),
+      deleteAfterSeconds: policy.deleteAfterSeconds ?? 0,
+    };
+  }
+
   async function startOnce(): Promise<void> {
     subscriptions.clear();
+    const queueNames = new Set<string>();
     for (const subscription of options.subscriptions) {
-      if (!subscription.id || !/^[a-z][a-z0-9-]*$/.test(subscription.id)
-        || subscriptions.has(subscription.id) || !validHandlerPolicy(subscription.policy)) {
+      const deadLetterId = subscription.policy.deadLetter?.id;
+      if (!subscription.id || !handlerIdPattern.test(subscription.id)
+        || queueNames.has(subscription.id) || (deadLetterId !== undefined && (deadLetterId === subscription.id || queueNames.has(deadLetterId)))
+        || !validHandlerPolicy(subscription.policy)) {
         throw new Error(`Invalid event subscription: ${subscription.id}`);
       }
+      queueNames.add(subscription.id);
+      if (deadLetterId !== undefined) queueNames.add(deadLetterId);
       subscriptions.set(subscription.id, subscription);
     }
     await boss.start();
     try {
       for (const subscription of subscriptions.values()) {
-        const policy = {
-          retryLimit: subscription.policy.retries,
-          retryDelay: subscription.policy.retryDelaySeconds,
-          retryBackoff: subscription.policy.exponentialBackoff,
-          deleteAfterSeconds: 0,
-        };
-        await boss.createQueue(subscription.id, policy);
+        const { deadLetter } = subscription.policy;
+        if (deadLetter) {
+          const policy = queueOptions(deadLetter.policy);
+          await boss.createQueue(deadLetter.id, policy);
+          await boss.updateQueue(deadLetter.id, policy);
+        }
+        const policy = queueOptions(subscription.policy);
+        // The ordering policy and the dead-letter link are fixed when the queue is created.
+        await boss.createQueue(subscription.id, {
+          ...policy,
+          ...(subscription.policy.orderingKey ? { policy: "key_strict_fifo" as const } : {}),
+          ...(deadLetter ? { deadLetter: deadLetter.id } : {}),
+        });
         await boss.updateQueue(subscription.id, policy);
       }
       started = true;
@@ -85,9 +132,15 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
     await pool.end();
   }
 
-  async function execute<Name extends EventName<Events>>(
-    subscription: EventSubscription<Events, Name>,
-    job: { id: string; data: unknown; retryCount: number; signal: AbortSignal },
+  type JobInput = { id: string; data: unknown; retryCount: number; signal: AbortSignal };
+  type Run<Name extends EventName<Events>> = (
+    payload: EventPayload<Events, Name>, metadata: EventMetadata, context: { signal: AbortSignal; attempt: number },
+  ) => ReturnType<EventSubscription<Events, Name>["handler"]>;
+
+  /** Validates the stored envelope, runs `run` for its company and maps the handler result to a pg-boss disposition. */
+  async function settle<Name extends EventName<Events>>(
+    subscription: EventSubscription<Events, Name>, queue: string, job: JobInput, run: Run<Name>,
+    after?: () => Promise<void>,
   ): Promise<JobResult> {
     const begun = Date.now();
     const parsed = envelopeSchema.safeParse(job.data);
@@ -102,7 +155,7 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
     let message = "Invalid stored event";
     if (identity && identity.name === subscription.name && payload?.success && company?.success) {
       try {
-        const result = await withTenantIsolation(company.data, () => subscription.handler(
+        const result = await withTenantIsolation(company.data, () => run(
           payload.data, identity.metadata, { signal: job.signal, attempt: job.retryCount + 1 },
         ));
         if (result.success) {
@@ -112,15 +165,51 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
           status = result.error.retryable ? "failed" : "deadletter";
           message = result.error.message;
         }
+        if (status === "completed" && after) await after();
       } catch (cause) {
         status = "failed";
         message = cause instanceof Error ? cause.message : "Unexpected handler exception";
       }
     }
-    log({ eventId: identity?.metadata.eventId, event: identity?.name, handler: subscription.id,
+    log({ eventId: identity?.metadata.eventId, event: identity?.name, handler: queue,
       companyId: company?.success ? company.data : undefined, attempt: job.retryCount + 1,
       durationMs: Date.now() - begun, result: status });
     return { id: job.id, status, output: { message } };
+  }
+
+  function execute<Name extends EventName<Events>>(subscription: EventSubscription<Events, Name>, job: JobInput) {
+    return settle(subscription, subscription.id, job, subscription.handler);
+  }
+
+  /**
+   * Runs the dead-letter handler, then deletes the failed source job, which releases its ordering key.
+   * A failed deletion fails this job, so it retries until the key is released.
+   */
+  function executeDeadLetter<Name extends EventName<Events>>(
+    subscription: EventSubscription<Events, Name>,
+    job: JobInput & { sourceName: string | null; sourceId: string | null },
+  ) {
+    const { deadLetter } = subscription.policy;
+    if (!deadLetter) throw new Error("Subscription has no dead-letter handler");
+    return settle(subscription, deadLetter.id, job, deadLetter.handler, async () => {
+      if (job.sourceName !== subscription.id || !job.sourceId) throw new Error("Dead-letter job has no matching source job");
+      await boss.deleteJob(job.sourceName, job.sourceId);
+    });
+  }
+
+  /** The subscription's payload was parsed by its own parser, so its policy functions accept it. */
+  const erasedPolicy = (subscription: Subscription<Events>) => subscription.policy as unknown as HandlerPolicy<unknown>;
+  function sendKeys(subscription: Subscription<Events>, payload: unknown): { singletonKey?: string; group?: { id: string } } | null {
+    const { orderingKey, groupKey } = erasedPolicy(subscription);
+    try {
+      const key = orderingKey?.(payload);
+      const group = groupKey?.(payload);
+      if (key === "" || group === "") return null;
+      return { ...(key === undefined ? {} : { singletonKey: key }), ...(group === undefined ? {} : { group: { id: group } }) };
+    } catch (cause) {
+      console.error("Event ordering key failed", cause);
+      return null;
+    }
   }
 
   const provider: EventBusProvider<Events> = {
@@ -138,11 +227,14 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
         return err({ code: "INVALID_EVENT", message: "Invalid event payload or metadata" });
       }
       const matching = [...subscriptions.values()].filter(subscription => subscription.name === name);
+      const keys = new Map<string, ReturnType<typeof sendKeys>>();
       for (const subscription of matching) {
         try {
-          if (!subscription.parsePayload(payload).success) {
-            return err({ code: "INVALID_EVENT", message: "Invalid event payload" });
-          }
+          const parsed = subscription.parsePayload(payload);
+          if (!parsed.success) return err({ code: "INVALID_EVENT", message: "Invalid event payload" });
+          const sendOptions = sendKeys(subscription, parsed.data);
+          if (!sendOptions) return err({ code: "INVALID_EVENT", message: "Invalid event ordering key" });
+          keys.set(subscription.id, sendOptions);
         } catch (cause) {
           console.error("Event payload parser failed", cause);
           return err({ code: "INVALID_EVENT", message: "Invalid event payload" });
@@ -159,6 +251,7 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
         await client.query("BEGIN");
         for (const subscription of matching) {
           const id = await boss.send(subscription.id, envelope, {
+            ...keys.get(subscription.id),
             db: { executeSql: (text, values) => client.query(text, values) },
           });
           if (!id) throw new Error("Job was not accepted");
@@ -179,8 +272,20 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
         return err({ code: "INVALID_SUBSCRIPTION", message: "Unknown or duplicate handler" });
       }
       try {
+        const { deadLetter, groupConcurrency } = subscription.policy;
+        const deadLetterId = deadLetter ? `${subscription.id}:dead-letter` : undefined;
+        if (deadLetter && deadLetterId) {
+          // Registered first, so a failed job can always reach its handler.
+          const deadLetterWorkId = await boss.work<StoredEvent>(deadLetter.id, {
+            localConcurrency: deadLetter.policy.concurrency, perJobResults: true, includeMetadata: true,
+          }, async jobs => Promise.all((jobs as JobWithMetadata<StoredEvent>[]).map(job => executeDeadLetter(subscription, job))));
+          consumers.set(deadLetterId, deadLetterWorkId);
+        }
         const workId = await boss.work<StoredEvent>(subscription.id, {
           localConcurrency: subscription.policy.concurrency, perJobResults: true,
+          // pg-boss's server-side groupConcurrency is checked by each poller before it claims, so the pollers of one
+          // worker race past the limit (verified in the ordering integration test). The in-process limit is exact.
+          ...(groupConcurrency === undefined ? {} : { localGroupConcurrency: groupConcurrency }),
         }, async jobs => Promise.all(jobs.map(job => execute(subscription, job))));
         consumers.set(subscription.id, workId);
         return ok(async () => {
@@ -188,6 +293,11 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
             try {
               await boss.offWork(subscription.id, { id: workId, wait: false });
               consumers.delete(subscription.id);
+              const deadLetterWorkId = deadLetterId ? consumers.get(deadLetterId) : undefined;
+              if (deadLetter && deadLetterId && deadLetterWorkId) {
+                await boss.offWork(deadLetter.id, { id: deadLetterWorkId, wait: false });
+                consumers.delete(deadLetterId);
+              }
             } catch (cause) {
               console.error("Event bus cleanup failed", cause);
               return err({ code: "EVENT_BUS_UNAVAILABLE", message: "Could not stop event handler" });
@@ -198,6 +308,18 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
       } catch (cause) {
         console.error("Event bus subscription failed", cause);
         return err({ code: "EVENT_BUS_UNAVAILABLE", message: "Could not start event handler" });
+      }
+    },
+  };
+  const blockedKeys: BlockedKeysReader = {
+    async listBlockedKeys(handlerId) {
+      if (!started) return err({ code: "EVENT_BUS_UNAVAILABLE", message: "Event bus is not ready" });
+      try {
+        if (!await boss.getQueue(handlerId)) return ok([]);
+        return ok(await boss.getBlockedKeys(handlerId));
+      } catch (cause) {
+        console.error("Blocked keys lookup failed", cause);
+        return err({ code: "EVENT_BUS_UNAVAILABLE", message: "Could not read blocked keys" });
       }
     },
   };
@@ -237,5 +359,5 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
       }
     },
   };
-  return { ...provider, ...scheduler, start, stop };
+  return { ...provider, ...scheduler, ...blockedKeys, start, stop };
 }
