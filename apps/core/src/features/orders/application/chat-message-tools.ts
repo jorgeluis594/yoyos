@@ -4,23 +4,29 @@ import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import { defineTool, defineToolRegistry, type RegisteredTool, type ToolRegistry } from "@core/src/shared/ai-tools/application/tool-registry";
 import { parseMentionedPrice, type MentionedPriceArgs } from "@core/src/features/orders/domain/mentioned-price";
-import type { ChangeVariantResolution, ReportOutcome, ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
+import type { ReportOutcome, ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
 import type { ProductIdentification } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
+import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
 import type { ProductMatcherError, ProductWithSellableVariants, VariantResolution } from "@core/src/features/products/domain/text-identification";
 import type { identifyProductsInText, findTopTextCandidate } from "@core/src/features/products/application/identify-product-in-text";
+import { createChatTextTools, mentionedPriceArgs } from "@core/src/features/orders/application/chat-text-tools";
 import type { resolveVariant } from "@core/src/features/products/application/resolve-variant";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
 /** What a message is, once its photo (if any) is identified. A photo that matched nothing asks nothing of the models. */
+export { toChangeVariantResolution } from "@core/src/features/orders/application/chat-text-tools";
+
 export type ChatMessageKind = "photo_product" | "photo_not_product" | "text";
 
 /** One line of the chat's open order as the models see it: `label` is how they refer to it. */
 export type ChatContextItem = Readonly<{
   label: string;
   variantId: VariantId;
+  /** Null when the variant no longer belongs to a product; a change that needs the product then degrades to an unclear item. */
+  productId: ProductId | null;
   productName: string;
   variantAttributes: Readonly<Record<string, string>>;
   quantity: number;
@@ -37,6 +43,7 @@ export type ShownProduct = Readonly<{
 
 export type ChatToolContext = Readonly<{
   kind: ChatMessageKind;
+  /** The buyer's words: a photo's caption, or the text of a text message. */
   caption: string | null;
   items: readonly ChatContextItem[];
   shown: readonly ShownProduct[];
@@ -62,6 +69,14 @@ export const chatToolKinds: Readonly<Record<string, readonly ChatMessageKind[]>>
   decline_shown_product: ["photo_product"],
   report_request_with_non_product_image: ["photo_not_product"],
   no_intent: ["photo_product", "photo_not_product", "text"],
+  add_products: ["text"],
+  remove_item: ["text"],
+  change_item_quantity: ["text"],
+  change_item_variant: ["text"],
+  set_item_mentioned_price: ["text"],
+  mark_order_ready: ["text"],
+  report_variant_without_product: ["text"],
+  report_unnamed_add: ["text"],
 };
 
 /** The registered tools offered for a kind of message. */
@@ -71,12 +86,6 @@ export function toolsForKind(registry: ChatToolRegistry, kind: ChatMessageKind):
 
 /** A caption without a letter or digit (an emoji, punctuation) says nothing a model could read. */
 export const hasReadableText = (value: string | null): value is string => value !== null && /[\p{L}\p{N}]/u.test(value);
-
-const mentionedPriceArgs = z.object({
-  amount: z.string().regex(/^\d{1,9}(\.\d{1,2})?$/),
-  units: z.number().int().min(1),
-  currency: z.enum(["order_currency", "other"]),
-});
 
 const detailsArgs = z.object({
   variantWords: z.array(z.string().max(60)).max(5),
@@ -90,21 +99,13 @@ const noArgs = z.object({});
 
 const report = (outcome: ReportOutcome): readonly ResolvedChatAction[] => [{ kind: "report", outcome }];
 
-/** The variant a change moves to, as the order domain names it: a failed resolution keeps the product to report. */
-export function toChangeVariantResolution(resolution: VariantResolution, productId: ProductId): ChangeVariantResolution {
-  switch (resolution.kind) {
-    case "resolved": return { kind: "resolved", item: resolution.item };
-    case "missing": return { kind: "missing", productId };
-    case "not_available": return { kind: "not_available", productId };
-  }
-}
-
 type Details = Readonly<{ words: readonly string[]; quantity: number | null; perEach: boolean; mentionedPrice: MentionedPriceArgs | null }>;
 
 /** Adds what the photo shows. The variant, quantity and price come only from the caption; the product always comes from the photo. */
 async function addShownProducts(context: ChatToolContext, deps: ChatToolDependencies, signal: AbortSignal, details: Details): Promise<Result<readonly ResolvedChatAction[], ToolResolveError>> {
   const resolutions = await Promise.all(context.shown.map((entry) =>
     deps.resolveVariant({ product: entry.product, words: details.words, preselectedVariantId: entry.preselectedVariantId }, signal)));
+  const resolved: Array<Readonly<{ entry: ShownProduct; item: CatalogItem }>> = [];
   const actions: ResolvedChatAction[] = [];
   for (const [index, entry] of context.shown.entries()) {
     const resolution = resolutions[index]!;
@@ -114,9 +115,13 @@ async function addShownProducts(context: ChatToolContext, deps: ChatToolDependen
       actions.push(...report({ kind: resolution.data.kind === "missing" ? "variant_missing" : "variant_not_available", productId, identification: entry.identification }));
       continue;
     }
+    // Labels of one product whose caption names a variant resolve to that same variant: it is added once, not once per label.
     const item = resolution.data.item;
-    const single = context.shown.length === 1;
-    // «2 de cada uno» spreads over the products of the photo; a bare quantity is only unambiguous for a single product.
+    if (!resolved.some((other) => other.item.variantId === item.variantId)) resolved.push({ entry, item });
+  }
+  // A quantity or price is only unambiguous for a single thing; «2 de cada uno» spreads over the products of the photo.
+  const single = resolved.length + actions.length === 1;
+  for (const { entry, item } of resolved) {
     const quantity = (details.perEach || single ? details.quantity ?? 1 : 1) as PositiveInteger;
     const mentionedPrice = single && details.mentionedPrice ? parseMentionedPrice(details.mentionedPrice, item.unitPrice.currency) : null;
     actions.push({ kind: "add", item, quantity, mentionedPrice, identification: entry.identification });
@@ -124,7 +129,7 @@ async function addShownProducts(context: ChatToolContext, deps: ChatToolDependen
   return ok(actions);
 }
 
-/** The tool registry of chat messages. Its text tools are added by the text interpretation task. */
+/** The tool registry of chat messages: the photo tools, `no_intent` and the text tools. */
 export function createChatToolRegistry(deps: ChatToolDependencies): ChatToolRegistry {
   return defineToolRegistry<ChatToolContext, ResolvedChatAction, ToolResolveError>([
     defineTool({
@@ -159,5 +164,6 @@ export function createChatToolRegistry(deps: ChatToolDependencies): ChatToolRegi
       args: { kind: "none" }, schema: () => noArgs,
       resolve: async () => ok(report({ kind: "no_intent" })),
     }),
+    ...createChatTextTools(deps),
   ]);
 }

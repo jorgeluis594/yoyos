@@ -10,7 +10,7 @@ const productId = id(2) as ProductId;
 
 const deps: ChatToolDependencies = {
   loadSellableVariants: async () => ok([]), identifyProductsInText: async () => ok([]), findTopTextCandidate: async () => ok(null),
-  resolveVariant: async () => ok({ kind: "resolved", item }),
+  resolveVariant: async ({ product }) => ok({ kind: "resolved", item: product.variants[0] ?? item }),
 };
 const registry = createChatToolRegistry(deps);
 const context: ChatToolContext = { kind: "photo_product", caption: "x", items: [], shown: [{ product: { productId, name: "Polo", variants: [item] }, preselectedVariantId: null,
@@ -36,7 +36,8 @@ describe("chat tool registry", () => {
     const names = (kind: ChatToolContext["kind"]) => toolsForKind(registry, kind).map(({ name }) => name).sort();
     expect(names("photo_product")).toEqual(["add_shown_product", "add_shown_product_with_details", "decline_shown_product", "no_intent"]);
     expect(names("photo_not_product")).toEqual(["no_intent", "report_request_with_non_product_image"]);
-    expect(names("text")).toEqual(["no_intent"]);
+    expect(names("text")).toEqual(["add_products", "change_item_quantity", "change_item_variant", "mark_order_ready", "no_intent", "remove_item",
+      "report_unnamed_add", "report_variant_without_product", "set_item_mentioned_price"]);
   });
 
   test("builds a strict function schema for the tool with extracted arguments", () => {
