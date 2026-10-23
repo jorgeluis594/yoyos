@@ -26,3 +26,6 @@ export type AppearancePart =
 export type PublicationPart =
   | Readonly<{ kind: "loaded"; published: boolean }>
   | Readonly<{ kind: "failed" }>;
+
+/** The id of the Publicar catálogo card: Settings → Catálogo links to it. */
+export const catalogPublicationAnchor = "catalog-publication";
