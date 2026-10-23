@@ -13,6 +13,7 @@ const mockPush = jest.fn();
 let mockFocus: () => void;
 let mockLoadFailed = false;
 let mockLoads = 0;
+let mockNoticeAt: string | null = null;
 let mockArrival: (destination: unknown) => void = () => undefined;
 const mockStopArrivals = jest.fn();
 const mockRegisterPayment = jest.fn();
@@ -37,10 +38,10 @@ const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, company
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
     unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" }, mentionedPrice: null }] };
 let mockOrder = initialOrder;
-beforeEach(() => { mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockLoads = 0; mockStopArrivals.mockReset(); mockEnableCheckout.mockReset(); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
+beforeEach(() => { mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockLoads = 0; mockNoticeAt = null; mockStopArrivals.mockReset(); mockEnableCheckout.mockReset(); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
 
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }),
-  useLocalSearchParams: () => ({ id: mockId }),
+  useLocalSearchParams: () => ({ id: mockId, ...(mockNoticeAt === null ? {} : { noticeAt: mockNoticeAt }) }),
   useFocusEffect: (callback: () => void) => { mockFocus = callback; jest.requireActual("react").useEffect(callback, [callback]); } }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   updateOrderShipping: (...args: unknown[]) => mockUpdateShipping(...args),
@@ -705,6 +706,20 @@ describe("notices arriving while the order is open", () => {
     await act(async () => { jest.advanceTimersByTime(2000); });
     expect(screen.queryByText("Cargando venta")).toBeNull();
     expect(await screen.findByText("Gorra")).toBeTruthy();
+  });
+
+  test("reloads the order when a notice is tapped while that same order is already open", async () => {
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    const loadsBefore = mockLoads;
+    mockOrder = { ...initialOrder, items: [{ ...initialOrder.items[0], productName: "Gorra" }] };
+    mockNoticeAt = "1000";
+    screen.rerender(<OrderDetailScreen />);
+    expect(await screen.findByText("Gorra")).toBeTruthy();
+    expect(mockLoads).toBe(loadsBefore + 1);
+    mockNoticeAt = "1000";
+    screen.rerender(<OrderDetailScreen />);
+    expect(mockLoads).toBe(loadsBefore + 1);
   });
 
   test("stops listening and cancels a pending reload when the screen loses focus", async () => {

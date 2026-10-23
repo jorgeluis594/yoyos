@@ -52,7 +52,7 @@ export default function OrderDetailScreen() {
   const theme = useTheme();
   const { t, i18n } = useTranslation();
   const locale = i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE';
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, noticeAt } = useLocalSearchParams<{ id: string; noticeAt?: string }>();
   const { state } = useAccess();
   const { notice, clear } = useOrderResult();
   const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
@@ -100,6 +100,13 @@ export default function OrderDetailScreen() {
     else if (!silent) setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
   }, [id, scope]);
+  // A notice tapped while this very order is open navigates to the same route; its `noticeAt` is the only change.
+  const handledNoticeAt = useRef(noticeAt);
+  useFocusEffect(useCallback(() => {
+    if (noticeAt === handledNoticeAt.current) return;
+    handledNoticeAt.current = noticeAt;
+    if (companyId) void reload(true);
+  }, [noticeAt, companyId, reload]));
   const noticeWatch = useNotices()?.watchArrivals;
   const writing = useRef(false);
   useLayoutEffect(() => { writing.current = writeBusy; });

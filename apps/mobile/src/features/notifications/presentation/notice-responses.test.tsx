@@ -76,7 +76,7 @@ test("opens the order of an order notice in its current state", async () => {
   const { gateway, tree, resolveOrder } = setup();
   render(tree());
   await act(async () => { gateway.emitResponse({ id: "n1", data: data("order") }); });
-  await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ pathname: "/orders/[id]", params: { id: orderId } }));
+  await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ pathname: "/orders/[id]", params: { id: orderId, noticeAt: expect.any(String) } }));
   expect(resolveOrder).toHaveBeenCalledWith(messageId);
 });
 
@@ -153,4 +153,28 @@ test("waits for the local message store before looking for the message", async (
   mockRuntime = { store: { findByCoreMessageId: (...args: unknown[]) => mockFindByCoreMessageId(...args) } };
   view.rerender(tree());
   await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(1));
+});
+
+test("opens an order notice and goes home without the local message store", async () => {
+  mockRuntime = null;
+  const { gateway, tree } = setup();
+  const view = render(tree());
+  await act(async () => { gateway.emitResponse({ id: "n1", data: data("order") }); });
+  await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith({ pathname: "/orders/[id]", params: { id: orderId, noticeAt: expect.any(String) } }));
+  await act(async () => { gateway.emitResponse({ id: "n2", data: data("message", other) }); });
+  await waitFor(() => expect(mockNavigate).toHaveBeenCalledWith("/"));
+  expect(mockFindByCoreMessageId).not.toHaveBeenCalled();
+  view.unmount();
+});
+
+test("gives every order tap its own noticeAt so the same open order can reload", async () => {
+  const { gateway, tree } = setup();
+  render(tree());
+  let tick = 0;
+  jest.spyOn(Date, "now").mockImplementation(() => (tick += 1000));
+  await act(async () => { gateway.emitResponse({ id: "n1", data: data("order") }); });
+  await act(async () => { gateway.emitResponse({ id: "n2", data: data("order") }); });
+  await waitFor(() => expect(mockNavigate).toHaveBeenCalledTimes(2));
+  const [first, second] = mockNavigate.mock.calls.map(([target]) => target.params.noticeAt);
+  expect(first).not.toBe(second);
 });

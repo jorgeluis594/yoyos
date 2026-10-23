@@ -48,8 +48,11 @@ export type NoticeInbox = Readonly<{
   hold: (destination: NoticeDestination) => void;
   /** Calls back after a destination is held; returns the unsubscribe. */
   subscribe: (listener: () => void) => () => void;
-  /** With no session the destination stays held; with one it is consumed: opened for its own company, Home otherwise. */
-  settle: (session: NoticeSession) => PendingNotice | null;
+  /**
+   * With no session the destination stays held; with one it is consumed: opened for its own company,
+   * Home otherwise. A destination of the session's company that `canOpen` rejects stays held.
+   */
+  settle: (session: NoticeSession, canOpen?: (destination: NoticeDestination) => boolean) => PendingNotice | null;
 }>;
 
 export function createNoticeInbox(): NoticeInbox {
@@ -58,11 +61,13 @@ export function createNoticeInbox(): NoticeInbox {
   return {
     hold: (destination) => { held = destination; listeners.forEach((listener) => listener()); },
     subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
-    settle: (session) => {
+    settle: (session, canOpen = () => true) => {
       if (held === null || session === null) return null;
       const destination = held;
+      if (destination.companyId !== session.companyId) { held = null; return { kind: "home" }; }
+      if (!canOpen(destination)) return null;
       held = null;
-      return destination.companyId === session.companyId ? { kind: "open", destination } : { kind: "home" };
+      return { kind: "open", destination };
     },
   };
 }

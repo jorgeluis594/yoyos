@@ -16,7 +16,6 @@ import { abbreviateLid } from "@mobile/features/whatsapp/presentation/chat-label
 import { MessageImage } from "@mobile/features/whatsapp/presentation/message-image";
 import { useWhatsApp } from "@mobile/features/whatsapp/presentation/whatsapp-provider";
 import { useTheme } from "@mobile/hooks/use-theme";
-import i18n from "@mobile/i18n";
 
 const pageSize = 30;
 
@@ -51,9 +50,8 @@ export default function ConversationScreen() {
   const searchProgress = useRef<Readonly<{ coreMessageId: string; progress: NoticeSearchProgress }> | null>(null);
   // The announcement is for the seller looking at this chat, not for another tab with the chat still mounted.
   const focused = useIsFocused();
-  const focusedRef = useRef(focused);
-  useEffect(() => { focusedRef.current = focused; });
-  const announceNotice = () => { if (focusedRef.current) AccessibilityInfo.announceForAccessibility(i18n.t("whatsappNoticeScreenReader")); };
+  const announce = useRef(() => undefined as void);
+  useEffect(() => { announce.current = () => { if (focused) AccessibilityInfo.announceForAccessibility(t("whatsappNoticeScreenReader")); }; });
 
   useEffect(() => {
     if (!runtime || !companyId || chatId === null) return;
@@ -87,7 +85,7 @@ export default function ConversationScreen() {
         setMarked((previous) => new Set(previous).add(located.data.target.id));
         setScrollTarget(located.data.target.id);
         setStatus("ready");
-        announceNotice();
+        announce.current();
         return;
       }
       if (located !== null && located.error.code !== "MESSAGE_NOT_FOUND") { setStatus("notice_error"); return; }
@@ -112,7 +110,7 @@ export default function ConversationScreen() {
       if (!found.success || found.data === null || found.data.chatId !== chatId) return;
       const id = found.data.id;
       setMarked((previous) => (previous.has(id) ? previous : new Set(previous).add(id)));
-      announceNotice();
+      announce.current();
     });
   });
 

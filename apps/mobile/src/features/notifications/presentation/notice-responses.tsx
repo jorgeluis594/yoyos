@@ -2,12 +2,12 @@ import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
 import { Alert } from "react-native";
 import { useRootNavigationState, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
-import { ok } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useOrderDraft } from "@mobile/features/orders/presentation/order-draft-guard";
 import { useProductDraft } from "@mobile/features/products/presentation/draft-guard";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
-import type { CompanyId, CoreMessageId } from "@mobile/features/whatsapp/domain/ids";
+import { parseCompanyId, parseCoreMessageId } from "@mobile/features/whatsapp/domain/ids";
 import { useWhatsApp } from "@mobile/features/whatsapp/presentation/whatsapp-provider";
 import type { NoticesController } from "../application/notices-controller";
 import { openNotice, type NoticeInbox, type OpenNoticePorts } from "../application/open-notice";
@@ -45,15 +45,21 @@ export function NoticeOpener({ inbox, resolveOrder }: OpenerProps) {
 
   const settle = useCallback(() => {
     const current = latest.current;
-    if (opening.current || current.companyId === null || current.runtime === null || !current.navigatorReady) return;
-    const pending = inbox.settle({ companyId: current.companyId });
+    if (opening.current || current.companyId === null || !current.navigatorReady) return;
+    // Only a message destination needs the local message store; order and Home notices open without it.
+    const pending = inbox.settle({ companyId: current.companyId }, (destination) => destination.target !== "message" || current.runtime !== null);
     if (pending === null) return;
     if (pending.kind === "home") { current.router.navigate("/"); return; }
-    const { store } = current.runtime;
-    const scope = current.companyId as CompanyId;
+    const sessionCompanyId = current.companyId;
     const ports: OpenNoticePorts = {
       findChatOfMessage: async (messageId) => {
-        const found = await store.findByCoreMessageId(scope, messageId as CoreMessageId);
+        const store = latest.current.runtime?.store;
+        const scope = parseCompanyId(sessionCompanyId);
+        const coreMessageId = parseCoreMessageId(messageId);
+        if (!store) return err({ message: "The local message store is not available" });
+        if (!scope.success) return scope;
+        if (!coreMessageId.success) return coreMessageId;
+        const found = await store.findByCoreMessageId(scope.data, coreMessageId.data);
         return found.success ? ok(found.data?.chatId ?? null) : found;
       },
       resolveOrder,
@@ -73,7 +79,7 @@ export function NoticeOpener({ inbox, resolveOrder }: OpenerProps) {
       go: {
         chat: (chatId, noticeMessageId) => latest.current.router.navigate({ pathname: "/whatsapp/chats/[chatId]", params: { chatId, noticeMessageId } }),
         chatsList: () => latest.current.router.navigate({ pathname: "/whatsapp/chats", params: { noticeChatMissing: "1" } }),
-        order: (id) => latest.current.router.navigate({ pathname: "/orders/[id]", params: { id } }),
+        order: (id) => latest.current.router.navigate({ pathname: "/orders/[id]", params: { id, noticeAt: String(Date.now()) } }),
         home: () => latest.current.router.navigate("/"),
       },
     };

@@ -102,3 +102,16 @@ test("tells subscribers when a destination is held", () => {
   inbox.hold(destination("order"));
   expect(listener).toHaveBeenCalledTimes(1);
 });
+
+test("keeps a destination held while the caller cannot open it yet, without consuming it", () => {
+  const inbox = createNoticeInbox();
+  inbox.hold(destination("message"));
+  expect(inbox.settle({ companyId: company }, () => false)).toBeNull();
+  expect(inbox.settle({ companyId: company }, () => true)).toEqual({ kind: "open", destination: destination("message") });
+});
+
+test("goes home for another company even when the caller cannot open the destination", () => {
+  const inbox = createNoticeInbox();
+  inbox.hold(destination("message", other));
+  expect(inbox.settle({ companyId: company }, () => false)).toEqual({ kind: "home" });
+});
