@@ -34,7 +34,7 @@ Buyer browser ── http(s)://fantasio.yoyos.lat/… ──▶ Cloudflare (prox
 | Cross-company lookup | One `SECURITY DEFINER` function, `resolve_catalog_subdomain(subdomain text)`, follows the existing `resolve_buyer_order_company` pattern. It returns at most one row (`company_id`, `published`, `name`, `country`), so the brand host resolves in one round trip, and the availability check uses the same function. Every other read and write stays under the `Company` RLS policy. |
 | Uniqueness race | The unique index on `catalogSubdomain` decides it. `UPDATE "Company" SET "catalogSubdomain" = $1 WHERE id = $company` raises `23505`, which the adapter translates to `SUBDOMAIN_TAKEN`. A failed update assigns nothing and keeps the previous value. The single statement replaces the old value and releases it in the same commit. |
 | Base domain per environment | One server variable, `CATALOG_BASE_URL` (scheme, host and optional port, with no path). Production: `https://yoyos.lat`. Staging: `https://yoyos.kogozstaging.lat` (brand hosts do not work there; section 17). Docker dev: `http://localhost:${WEB_PORT}`. E2E: `http://localhost:4173`. The store URL is `{protocol}//{subdomain}.{host}/`. The visible suffix is `.{host}`. Production requires it; other environments fall back to `http://localhost:3000`, the same as `BETTER_AUTH_URL`. Initial value, adjustable. |
-| A missing or invalid `CATALOG_BASE_URL` | `web` refuses to start and crash-loops. Coolify stores the `${CATALOG_BASE_URL:?…}` error text as the variable's literal value, so the compose deploy succeeds, `migrate` applies `add_catalog_subdomain` (hiding every catalog), and `web` then fails `parseStorefrontConfig` at import. Sign-in, checkout and the API go down, not only the catalog. Setting the variable in production and staging, and checking that the stored value is a real URL, is therefore a precondition of the merge (section 16, Merge preconditions). The worker never imports the storefront config. |
+| A missing or invalid `CATALOG_BASE_URL` | Coolify stores the `${CATALOG_BASE_URL:?…}` error text as the variable's literal value, so compose interpolation never refuses the deploy.<br>- **Guard in `migrate`.** `compose.prod.yaml` gives the variable to `migrate` too. Its command starts with a shell check, `case "$$CATALOG_BASE_URL" in https://*) ;; *) echo "CATALOG_BASE_URL must be an https URL" >&2; exit 1;; esac &&`. A missing value or the placeholder fails `migrate` before any schema change, and `web` and `worker` never start, because they depend on `service_completed_successfully`.<br>- **`web` check.** `web` still validates the full config (`parseStorefrontConfig`) at import, and crash-loops on any value the shell guard lets through (for example, an `https://` value with a path).<br>- **Not verified:** whether Coolify keeps the previous containers serving after a failed `migrate`. Setting the variable in production and staging, and checking that the stored value is a real URL, therefore stays a precondition of the merge (section 16, Merge preconditions).<br>The worker never imports the storefront config. |
 | Simulated hosts in dev and tests | `*.localhost` resolves to loopback in Chromium, Firefox and curl, so `http://fantasio.localhost:3000/` works locally with no DNS. E2E launches Chromium with `--host-resolver-rules=MAP *.localhost 127.0.0.1`, so the result is deterministic. Route and middleware tests build `Request`s with any `Host`. |
 | Which host is a store host | `classifyHost(hostname)` judges format only. A hostname of exactly one DNS label plus the base hostname is a store host (`fantasio.yoyos.lat`), unless it equals the app hostname (`new URL(BETTER_AUTH_URL).hostname`). A label that fails the format (too long, edge or double hyphen, invalid characters) or a deeper name (`a.b.yoyos.lat`) is `invalid`. Every other hostname is the app host (`app.yoyos.lat`, `127.0.0.1`, `localhost`, the base apex). A reserved label with no owner resolves to «Catálogo no disponible» through the owner lookup. Infrastructure names (`www`, `app`) never reach core as store hosts, because their explicit DNS records and the app-host check decide them first. The port is ignored. |
 | Host source | Express `req.hostname` (Express 5, `trust proxy` = `loopback, uniquelocal`, so it honours Traefik's `X-Forwarded-Host`). It reaches React Router through `createRequestContext(req.ip, req.hostname)` in a new `requestHostContext`. Outside Express (route tests), the middleware falls back to `new URL(request.url).hostname`. |
@@ -46,16 +46,16 @@ Buyer browser ── http(s)://fantasio.yoyos.lat/… ──▶ Cloudflare (prox
 | Continuar target | The cart sheet navigates to the full `checkoutUrl` (app host). Today it keeps only the pathname. `checkoutUrl` keeps being built from `BETTER_AUTH_URL`. |
 | Cart after confirming | The storefront asks core `POST /carrito` `{ intent: "check_order", orderId }`, which answers `{ order: "confirmed" \| "not_confirmed" }`. The browser empties the cart on `confirmed`. It asks only when the stored cart has lines and its current `orderId` was already sent to **Continuar** (a `continued` flag stored with the cart, dropped whenever `withLines` rotates the id). It asks at most once per document load, and again on `pageshow` with `persisted` (the back button from the checkout restoring a bfcache page). The checkout's `clearCartForOrder` effect is removed, because the catalog no longer shares its origin. |
 | Confirmation read | One statement on the unique `(companyId, id)` index: `SELECT "checkoutConfirmedAt" IS NOT NULL FROM "Order" WHERE "companyId" = $1 AND id = $2 AND "fromCatalog"`. No aggregate, no company read, no request-log binding. The order number and order id never reach brand-host logs. |
-| Rate limits | **Continuar** keeps `allowCatalogOrder` (20 per IP per 10 minutes). `check_order` is outside it and has its own per-IP limiter (`CATALOG_ORDER_CHECK_RATE_LIMIT`, 120 per 10 minutes, initial value, adjustable). Reason: it is a cheap unauthenticated read that must never spend the budget of the write that creates sales, but it stays bounded on a public host. A limited `check_order` answers 429, and the cart stays as it is. The availability check has a per-user limiter (`CATALOG_SUBDOMAIN_CHECK_RATE_LIMIT`, 60 per minute, initial value, adjustable), keyed by `userId`, because it is authenticated. Its 429 shows the existing «No pudimos revisar si está disponible.» state. All limiters use the existing in-memory `createRateLimiter`. |
+| Rate limits | **Continuar** keeps `allowCatalogOrder` (20 per IP per 10 minutes). `check_order` is outside it and has its own per-IP limiter (`CATALOG_ORDER_CHECK_RATE_LIMIT`, 120 per 10 minutes, initial value, adjustable). Reason: it is a cheap unauthenticated read that must never spend the budget of the write that creates sales, but it stays bounded on a public host. A limited `check_order` answers 429, and the cart stays as it is. The availability check has a per-user limiter (`CATALOG_SUBDOMAIN_CHECK_RATE_LIMIT`, 60 per minute, initial value, adjustable), keyed by `userId`, because it is authenticated. Its 429 shows the existing «No pudimos revisar si está disponible.» state. All limiters use the existing in-memory `createRateLimiter`. T1 gives it an optional `onFirstRejection` callback, and existing callers are unchanged. The two new limiters log their warn only for the first rejection per key per window, so a scripted client cannot turn each of its own 429s into a log line. Keying behind Cloudflare is a deferred item (below). |
 | Cart key | `yoyos.catalog-cart.${companyId}` stays. The storefront loader returns the resolved `companyId`, so a released subdomain taken by another company reads another key and shows an empty cart. |
 | Availability answer | `available`, `current`, `in_use`, `reserved` or `invalid` (with the reason). It is answered only to an authenticated seller with a company. It never says which company holds a name. Clients call it only for a value the shared rules accept that is not reserved and differs from the saved subdomain. They decide `invalid`, `reserved` and `current` locally. |
 | Suggestion | Computed by core in the settings read (`suggestion`), only when the company has no subdomain and the derived value is valid, not reserved and free at that moment. Clients never derive it. |
 | Format rules shared by web and mobile | `shared/catalog-subdomain.ts`: `parseCatalogSubdomain`, `reservedCatalogSubdomains`, `suggestCatalogSubdomain`. Core's domain, the web card and the mobile card use them, so the instant state never disagrees with the server. Core still validates every save. |
-| Web transport | Web keeps its loader and action pattern. The save is a `save-subdomain` intent of the «Apariencia de la tienda» action. The check is a resource route, `settings/catalog/subdomain-availability`, loaded with a fetcher. `shouldRevalidate` skips revalidation after `save-subdomain` and `set-publication` (it already skips the latter), because both results carry the full `CatalogSettings`. "Save not sent" is detected with `navigator.onLine === false` before submitting, as `catalog-cart.tsx` and `use-instant-delivery-settings.ts` already do. "Save without an answer" is a fetcher that ends with no action data or a network error. Mobile uses the JSON API. Both call the same composed operations. |
+| Web transport for the link | The web card's link group calls the same JSON API as mobile with plain `fetch`, same-origin, using the seller's session cookie (`loadApiAccess` resolves it, and `payment-settings.tsx` already calls `/api/images` this way):<br>- the check: `GET /api/catalog/subdomain-availability`;<br>- the save: `PUT /api/catalog/subdomain`;<br>- the in-doubt re-read: `GET /api/catalog/settings`.<br>A small client, `app/lib/catalog-link-client.ts`, validates every answer with the shared schemas and returns `{ kind: "answered"; … } \| { kind: "not_sent" } \| { kind: "no_response" }`:<br>- `not_sent`: `navigator.onLine === false` before sending, as `catalog-cart.tsx` and `use-instant-delivery-settings.ts` already do;<br>- `no_response`: `fetch` rejects, `AbortSignal.timeout` fires (15 s, initial value, adjustable), the answer is a `5xx`, or its body fails the schema;<br>- `answered`: any validated answer, including 409, 422 and 429.<br>A `503` on a save is treated as `no_response`: the commit may have happened, and the save is idempotent, so the card re-reads. None of the three goes through a route loader, action, fetcher or revalidation, so a network failure never reaches the editor's `ErrorBoundary`, never replaces the card, and never clears the logo and theme draft or the typed link. The card keeps the returned `CatalogSettings` as its state; the editor loaders are not revalidated after a link save. The reason for leaving the loader and action pattern here: the editor already loads its preview cards with a plain `fetch` for the same reason (`store-appearance-settings.tsx` `clientAction` comment). The publication switch keeps its `set-publication` action and its existing `clientAction`/`shouldRevalidate` handling, unchanged. Mobile uses the same API. |
 | Old mobile builds | The settings response changes shape (`url` becomes nullable, new fields), so builds older than this version fail to read it. The product accepts this (decision 19). No compatibility field is kept. |
 | Documentation promotion | Not an implementation task. The coordinator promotes the drafts into `docs/public-catalog.md` and `docs/checkout.md` after the final verification. |
 | Out of this design | Custom domains, subdomain history or redirects, a cooling period for released names, moving the cart between hosts, moving the checkout, and measuring visits. All are listed in the product draft. |
-| Deferred, with real risk | Reuse of a released subdomain by another company, and legacy 308s cached before this design's `no-store` (none exist in production). Flagged by the product draft. No Todoist task exists; the founder decides whether to create one. |
+| Deferred, with real risk | Two items. No Todoist task exists for either; the founder decides whether to create them.<br>1. **Subdomain reuse.** Reuse of a released subdomain by another company, and legacy 308s cached before this design's `no-store` (none exist in production). Flagged by the product draft.<br>2. **Per-IP limits behind Cloudflare.** Express `trust proxy` is `loopback, uniquelocal`, so behind Cloudflare and Traefik `req.ip` is most likely a Cloudflare edge address. `allowCatalogOrder` (**Continuar**, existing) and `allowCatalogOrderCheck` are then shared by every buyer behind the same edge address. A shared **Continuar** budget can refuse unrelated buyers' orders. This predates the design, which does not worsen it.<br>Not fixed here, because the fix changes how the whole app trusts proxies (sign-in, logs, every limiter) and needs a maintained list of Cloudflare ranges: either Traefik `forwardedHeaders.trustedIPs`, or Express `trust proxy` extended with Cloudflare's ranges. `CF-Connecting-IP` must never be trusted blindly, because the origin is reachable directly. Recommended before catalog traffic is real. |
 | Deferred, improvement | `refreshCart` resolves cart images one by one (`cart-composition.ts:21-25`, an N+1 of up to 30 sequential lookups on `/carrito` `GET`). It predates this design. A follow-up batches them into one query. Out of scope for T4. |
 
 ## 3. Verified current state
@@ -164,7 +164,7 @@ It is one `systemPrisma.$queryRaw` call to `resolve_catalog_subdomain`, and it b
   2. Read the current settings. If the value equals the current subdomain, return `unchanged`, with no write. This makes a retry after a lost response safe, and it lets a company keep a subdomain that became reserved.
   3. A reserved value fails with `SUBDOMAIN_RESERVED`.
   4. `saveSubdomain` runs one scoped `UPDATE … WHERE id = companyId`. The unique index decides a race. A taken value fails with `SUBDOMAIN_TAKEN` and leaves the stored value as it was.
-  5. Return the settings with `change: "first"` when there was no previous subdomain, otherwise `"replaced"`.
+  5. Return the settings built from the step-2 read plus the written value: `published` as read, `subdomain` the new value, and `suggestion: null`. No second read and no suggestion lookup. `change` is `"first"` when there was no previous subdomain, otherwise `"replaced"`.
 - The confirmation before replacing a subdomain is a client rule. The server does not ask for a flag, because the product requires the save to work the same whatever the client.
 
 ### 5.4 `setCatalogPublication` (modified)
@@ -395,6 +395,7 @@ export const catalogSettingsErrorSchema = z.discriminatedUnion("code", [
 | `PUT /api/catalog/subdomain` `{ subdomain }` | 200 settings (same value: 200, no change) | 422 `INVALID_SUBDOMAIN` + `reason`, 422 `SUBDOMAIN_RESERVED`, 409 `SUBDOMAIN_TAKEN`, 400 `INVALID_CATALOG_SETTINGS` (body that fails the schema), 415, 503 |
 
 - **Statuses:** a well-formed request that a business rule rejects (format or reserved) answers 422. A malformed body answers 400. A race lost to another company answers 409.
+- **A `503` on `PUT /api/catalog/subdomain`:** both clients treat it as a save without an answer and re-read with `GET /api/catalog/settings`. A `PERSISTENCE_UNAVAILABLE` can follow a commit whose answer was lost, so the server cannot vouch for either outcome. Re-reading is safe, because the save is idempotent.
 - **Access:** every route requires the seller session or bearer token with a company (the existing `requireApiCompany`), and answers `Cache-Control: no-store`.
 - **Validation:** core validates its responses against the schemas before sending them. Mobile validates every response and error body with them.
 - The legacy `url` meaning (`/catalogo/:id`) is gone.
@@ -447,7 +448,7 @@ No local SQLite data. No sync queue.
 | --- | --- |
 | Availability request fails or is rate-limited | «No pudimos revisar si está disponible.» with **Reintentar**. **Guardar link** stays enabled. |
 | Save not sent | «No pudimos guardar tu link. Revisa tu conexión.» with **Reintentar**. |
-| Save without an answer | Re-read once. Saved, not saved, or a failed re-read follow the product table. **Reintentar** resends the same `PUT`, which is idempotent. |
+| Save without an answer, or answered `503` | Re-read once. Saved, not saved, or a failed re-read follow the product table. **Reintentar** resends the same `PUT`, which is idempotent. |
 | `SUBDOMAIN_REQUIRED` on publish | The switch goes back to off with «Elige el link de tu catálogo para poder publicarlo.». |
 
 ## 11. Transactions and concurrency
@@ -509,18 +510,18 @@ Duplicate policy:
 | `src/server.ts`, `app/entry.server.tsx` | `createRequestContext(req.ip, req.hostname)`. |
 | `app/request-host-context.ts` (new) | `requestHostContext = createContext<string \| null>(null)`. |
 | `app/storefront-context.ts` (new) | `storefrontContext = createContext<Storefront \| null>(null)`; `null` on the app host. |
-| `app/middleware/storefront.ts` (+ test) | Root middleware, after `i18nextMiddleware`:<br>1. classify the host;<br>2. resolve the storefront;<br>3. set the context, then let `/carrito` through or throw according to section 2.<br>`isStorefrontPath(pathname)` is the closed list. It normalizes single-fetch paths (`/_root.data` is `/`, `/productos/:id.data` is the product page) and lets `/__manifest` through. It throws `data({ kind: "catalog_unavailable" }, 404)`, `data({ kind: "store_not_found", header }, 404)` with the store name and appearance, or `data({ kind: "catalog_load_error" }, 503)`. |
+| `app/middleware/storefront.ts` (+ test) | Root middleware, after `i18nextMiddleware`:<br>1. classify the host;<br>2. on a store or invalid host, let `/__manifest` through before any lookup;<br>3. resolve the storefront;<br>4. set the context, then let `/carrito` through or throw according to section 2.<br>`isStorefrontPath(pathname)` is the closed list. It normalizes single-fetch paths (`/_root.data` is `/`, `/productos/:id.data` is the product page). The resolver is not cached: a hide must take effect on the next request, and the lookup is one unique-index probe. It throws `data({ kind: "catalog_unavailable" }, 404)`, `data({ kind: "store_not_found", header }, 404)` with the store name and appearance, or `data({ kind: "catalog_load_error" }, 503)`. |
 | `app/root.tsx` | `middleware = [i18nextMiddleware, storefrontMiddleware]`. The `ErrorBoundary` renders the three storefront kinds with `catalog-sections` components, and otherwise the generic error as today. |
-| `app/routes.ts` | `index("routes/legacy-redirect.ts")` is replaced by `layout("routes/catalog-layout.tsx", [index("routes/catalog.tsx"), route("productos/:productId", "routes/catalog-product.tsx"), route("carrito", "routes/catalog-cart.tsx")])`.<br>`catalogo/:companyId` and `catalogo/:companyId/productos/:productId` → `routes/legacy-catalog-redirect.ts`.<br>`catalogo/:companyId/carrito` → `routes/legacy-catalog-cart.ts` (T4).<br>New web resource route `settings/catalog/subdomain-availability` → `routes/catalog-subdomain-availability.ts` (T1). |
+| `app/routes.ts` | `index("routes/legacy-redirect.ts")` is replaced by `layout("routes/catalog-layout.tsx", [index("routes/catalog.tsx"), route("productos/:productId", "routes/catalog-product.tsx"), route("carrito", "routes/catalog-cart.tsx")])`.<br>`catalogo/:companyId` and `catalogo/:companyId/productos/:productId` → `routes/legacy-catalog-redirect.ts`.<br>`catalogo/:companyId/carrito` → `routes/legacy-catalog-cart.ts` (T4).<br>Only T4 edits this file. |
 | `app/routes/catalog-layout.tsx` (new) | Middleware for the app host: `/` → 308 `/es-PE/` with the query (today's `legacy-redirect.ts` loader, which is deleted); other storefront paths → generic 404. Renders `<Outlet/>` on brand hosts. |
 | `app/routes/catalog.tsx`, `catalog-product.tsx`, `catalog-cart.tsx` | Read `storefrontContext` instead of `params.companyId`. Product links `/productos/:id`. **Volver al catálogo** → `/`. The cart action dispatches by `intent` before any rate limit, and applies each intent's own limiter. Headers and `noindex` kept. |
 | `app/routes/legacy-catalog-redirect.ts`, `legacy-catalog-cart.ts` (new) | Section 5.6, and the catalog-turned-off outcome for the cart. |
-| `app/routes/catalog-subdomain-availability.ts` (new, T1) | Seller loader (session, company) → per-user limit → `catalogSettings.checkSubdomain`; JSON `subdomainAvailabilitySchema`, `no-store`. |
 | `app/components/catalog-sections.tsx` | New `StoreNotFound` (header, «No encontramos esta página», «Revisa el link o mira los productos de la tienda.», **Volver al catálogo**). |
 | `app/components/catalog-cart.tsx` | Route `/carrito`. `window.location.assign(body.checkoutUrl)`. Marks the cart `continued` when **Continuar** returns a checkout URL. Runs the order check once per document load (module-level flag) and on `pageshow.persisted`, only when the cart has lines and `continued` is true. |
 | `app/lib/catalog-cart-storage.ts` | `continued` in the cart schema (optional, default `false`). `withLines` drops it when it rotates the id. `markContinued(companyId, orderId)`. `clearCartForOrder` kept, now called by the storefront when the check answers `confirmed`. |
 | `app/routes/checkout.tsx` | The `clearCartForOrder` effect is removed. |
-| `app/components/catalog-publication-card.tsx`, `app/routes/store-appearance-settings.tsx`, `app/components/store-appearance-editor-actions.ts`, `app/routes/catalog-settings.tsx`, web locales | Seller UI (T2):<br>- link group;<br>- `save-subdomain` intent, and `shouldRevalidate` returning `false` for it;<br>- change confirmation;<br>- unsaved-link leave descriptions;<br>- Settings → Catálogo text and states;<br>- scroll to the card (`#catalog-publication`). |
+| `app/lib/catalog-link-client.ts` (new, + test) | T2. Plain-`fetch` client for check, save and re-read (section 2, "Web transport for the link"). |
+| `app/components/catalog-publication-card.tsx`, `app/routes/store-appearance-settings.tsx`, `app/components/store-appearance-editor-actions.ts`, `app/routes/catalog-settings.tsx`, `app/locales.ts` | Seller UI (T2):<br>- link group, using `catalog-link-client.ts`; the editor's loader, action and `shouldRevalidate` gain only the settings fields the card seeds from;<br>- change confirmation;<br>- unsaved-link leave descriptions;<br>- Settings → Catálogo text and states;<br>- scroll to the card (`#catalog-publication`). |
 
 ### Config and infrastructure files
 
@@ -538,12 +539,12 @@ Duplicate policy:
 | --- | --- | --- | --- |
 | `catalog_subdomain_saved` | info | catalog composition, after commit | `["companyId", "userId", "change"]` (`first` \| `replaced`; `unchanged` does not log) |
 | `catalog_subdomain_rejected` | debug | catalog composition | `["companyId", "userId", "errorCode", "reason"]` |
-| `catalog_subdomain_check_rate_limited` | warn | availability presentation | `["companyId", "userId"]` |
+| `catalog_subdomain_check_rate_limited` | warn | availability presentation, first rejection per user per window only | `["companyId", "userId"]` |
 | `unable_to_save_catalog_subdomain` | error | settings repository | `["companyId", "errorCode", "err"]` |
 | `catalog_publication_changed` | info | catalog composition (existing) | `["companyId", "userId", "published"]` |
 | `catalog_publication_rejected` | debug | catalog composition | `["companyId", "userId", "errorCode"]` (`SUBDOMAIN_REQUIRED`) |
 | `unable_to_read_catalog` | error | settings repository (existing event; the only log of these failures) | `["companyId?", "operation", "errorCode", "err"]`, `operation`: `read_settings`, `resolve_subdomain` (no `companyId`: it is unknown before the lookup) |
-| `catalog_order_check_rate_limited` | warn | cart route | `["companyId"]` |
+| `catalog_order_check_rate_limited` | warn | cart route, first rejection per IP per window only | `["companyId"]` |
 | `unable_to_check_cart_order` | error | orders repository | `["companyId", "errorCode", "err"]` |
 | `http_request_completed` | info | existing request logging | new `operation` values: `get_catalog_settings`, `check_catalog_subdomain`, `save_catalog_subdomain`, `set_catalog_publication`, `resolve_storefront`, `legacy_catalog_link`, `check_cart_order`; `outcome`; plus `storeHost: "app" \| "store" \| "invalid"` |
 
@@ -612,10 +613,12 @@ Duplicate policy:
 `apps/core/src/features/catalog/presentation/rate-limit.test.ts`:
 - `test("check_order requests do not consume the Continuar budget")`
 - `test("the subdomain check limiter counts per user and refuses the 61st call in a minute")`
+- `test("reports only the first rejection per key per window")`
 
 `apps/core/app/middleware/storefront.test.ts`:
 - `test("serves only /, /productos/:productId and /carrito on a published store host")`
-- `test("normalizes /_root.data and /productos/:id.data and lets /__manifest through")`
+- `test("normalizes /_root.data and /productos/:id.data")`
+- `test("lets /__manifest through on a store host without a lookup")`
 - `test("throws store_not_found with the store header for /login on a published store host")`
 - `test("throws catalog_unavailable for documents and other paths on an unknown or hidden store host")`
 - `test("lets /carrito through with an unavailable storefront instead of throwing")`
@@ -634,6 +637,11 @@ Duplicate policy:
 
 ### Web seller UI
 
+`apps/core/app/lib/catalog-link-client.test.ts`:
+- `test("returns not_sent without calling fetch when the browser is offline")`
+- `test("returns no_response when fetch rejects, times out, answers 5xx or sends a body that fails the schema")`
+- `test("returns answered with the parsed body for 200, 409, 422 and 429")`
+
 `apps/core/app/components/catalog-publication-card.test.tsx` and `app/routes/store-appearance-editor.test.tsx`:
 - `test("shows the help text, then after the pause one reason by priority, and keeps a 40 character paste whole with «Usa hasta 30 caracteres.»")`
 - `test("typing fantasio-store quickly never shows the hyphen reason")`
@@ -646,7 +654,11 @@ Duplicate policy:
 - `test("a save without an answer re-reads and shows Link guardado, Tu link no se guardó, or the in-doubt message with Reintentar")`
 - `test("disables the switch with «Elige el link de tu catálogo para poder publicarlo.» until a link is saved")`
 - `test("while hidden shows «Tu link» without Copiar link or Ver catálogo")`
-- `test("save-subdomain and set-publication do not revalidate the editor loaders")`
+- `test("a failed availability check keeps the editor, the logo and theme draft and the typed link, and shows «No pudimos revisar si está disponible.» in the status line")`
+- `test("a save without an answer whose re-read also fails keeps the editor, the draft and the typed link, with the in-doubt message and Reintentar")`
+- `test("a save answered 503 re-reads the settings instead of showing a save error")`
+- `test("saving the link does not revalidate the editor loaders or re-read the preview products")`
+- `test("set-publication keeps not revalidating the editor loaders")`
 - `test("leaving with only a pending link, only a draft, or both shows the matching description")`
 - `test("an untouched suggestion and a link edited back to its initial value ask nothing on leave")`
 - `test("Guardar cambios with a pending link saves only logo and theme and keeps the link status line")`
@@ -744,7 +756,7 @@ Duplicate policy:
 
 ## 15. Limits and checks during implementation
 
-- **React Router middleware paths.** Confirm that React Router 7.9 runs root middleware for `.data` requests with the pathname normalized, including `/_root.data` for client navigation to `/` (**Volver al catálogo**). Confirm whether `/__manifest` (lazy route discovery) reaches the middleware. The middleware test titles cover the result once verified.
+- **React Router middleware paths.** Confirm that React Router 7.9 runs root middleware for `.data` requests with the pathname normalized, including `/_root.data` for client navigation to `/` (**Volver al catálogo**). Confirm whether `/__manifest` (lazy route discovery) reaches the middleware. If it does, it is let through before the lookup. The middleware test titles cover the result once verified.
 - **Root `ErrorBoundary`.** Confirm that a root `ErrorBoundary` without a `Layout` export renders a complete document in this app (`root.tsx` renders `<html>` in `App`). If not, add a `Layout` export, so the boundary keeps head, scripts and the fixed color scheme of themed pages.
 - **`/carrito` behind the middleware.** Confirm that a middleware which sets context and calls `next()` for `/carrito` leaves the resource route's JSON responses untouched (no HTML boundary).
 - **Hostname behind Traefik.** Confirm that `req.hostname` behind Coolify's Traefik is the brand host (`X-Forwarded-Host`). A container-level smoke test after the deploy: `curl -H 'Host: fantasio.yoyos.lat' http://127.0.0.1:3000/` inside the container.
@@ -753,6 +765,8 @@ Duplicate policy:
 - **Static assets.** `/assets/*`, fonts and the favicon are served by `express.static` before the middleware on every host, which the brand pages need.
 - **Editor preview.** The store-appearance preview iframe stays on the app host and renders catalog components without links. Verify that its product cards do not link to `/catalogo/:id`.
 - **In-memory limiters.** They reset per process and are per instance, the same as `allowCatalogOrder` today. Acceptable for one `web` instance.
+- **Per-IP key behind Cloudflare** (known limitation, deferred with real risk in section 2). After the deploy, check once which address `req.ip` holds on a brand-host request, for example with a temporary debug log of whether it falls in a Cloudflare range, and record it in the pull request.
+- **Migration as one file.** `add_catalog_subdomain` deliberately keeps the column, the constraints and the function in one file with explicit `BEGIN`/`COMMIT`: hiding the catalogs and adding the `CHECK` must be atomic. This departs from the repository habit of a separate SQL-only migration for each `SECURITY DEFINER` function; those migrations carry no `BEGIN`/`COMMIT`. Prisma runs a `migration.sql` that contains a function body as one script (repository memory). T1 verifies this with `prisma migrate dev` on a clean database. It must not split the file.
 - **Left out on purpose:** custom domains, subdomain history, a cooling period, moving the cart between hosts, visit metrics (product draft), and the `refreshCart` image N+1 (section 2, deferred).
 - **One level only.** Universal SSL covers `*.yoyos.lat`. The format forbids dots, so deeper names never become brand hosts.
 
@@ -772,11 +786,12 @@ File ownership in wave 2. Every file a task edits or creates is listed. A file n
 
 **T2:**
 - `apps/core/app/components/catalog-publication-card.tsx` (+ `.test.tsx`)
-- `apps/core/app/components/store-appearance-editor*.tsx` and `store-appearance-editor-actions.ts`
+- `apps/core/app/components/store-appearance-editor-actions.ts`
+- `apps/core/app/lib/catalog-link-client.ts` (new, + `.test.ts`)
 - `apps/core/app/routes/store-appearance-settings.tsx` (+ `.test.ts`)
 - `apps/core/app/routes/store-appearance-editor.test.tsx`
 - `apps/core/app/routes/catalog-settings.tsx` (+ `.test.tsx`)
-- the web locale files (`apps/core/app/locales/**`)
+- `apps/core/app/locales.ts` (+ `locales.test.ts`), the single web text file. T4 adds no text there: the storefront texts, `StoreNotFound` included, stay hard-coded in the catalog modules, as today.
 - `apps/core/tests/e2e/catalog-link.spec.ts`
 
 **T3:** only `apps/mobile/**`.
@@ -822,10 +837,11 @@ File ownership in wave 2. Every file a task edits or creates is listed. A file n
 - `storefront-config.ts`, with `storeUrl` and `storeDomain`.
 - `toCatalogSettingsResponse`.
 - JSON API routes and their error mapping (422, 409, 429).
-- `allowSubdomainCheck` in `rate-limit.ts`.
+- `allowSubdomainCheck` and the optional `onFirstRejection` callback in `rate-limit.ts`.
 - Composition (`catalogSettings.checkSubdomain`, `.saveSubdomain`) and logs.
-- The web resource route `settings/catalog/subdomain-availability` with its `routes.ts` entry.
-- `CATALOG_BASE_URL` in `compose.yaml`, `compose.prod.yaml`, `.env.example` and `run-tests.sh`.
+- `CATALOG_BASE_URL` in `compose.yaml`, `compose.prod.yaml` (`web` and `migrate`), `.env.example` and `run-tests.sh`.
+- The `migrate` guard (section 2, "A missing or invalid `CATALOG_BASE_URL`").
+- The `yoyos-stores` Traefik labels on `web` in `compose.prod.yaml` (section 16, Infra step 2). They are versioned with the code, and they also reach staging, where they are harmless because no `yoyos.lat` traffic arrives there.
 - Existing fixtures and specs that set `catalogPublished: true` now also set a subdomain. This includes `public-catalog-theme.spec.ts:15` and `store-appearance/presentation/api-routes.integration.test.ts`.
 - `public-catalog.spec.ts` seeds the subdomain through the database before the seller publishes, so CI stays green while the catalog is still served at `/catalogo/:id`.
 - The web «Apariencia de la tienda» publish action maps `SUBDOMAIN_REQUIRED` to the existing failed-save outcome. The new message is added by T2.
@@ -849,7 +865,9 @@ File ownership in wave 2. Every file a task edits or creates is listed. A file n
 5. `PUT /api/catalog/settings { published: true }` without a subdomain answers 409 `SUBDOMAIN_REQUIRED`. After saving a subdomain it answers 200 `published: true`.
 6. After the migration, a company that was published is hidden, and no company has a subdomain.
 7. Core starts with `NODE_ENV=production` only when `CATALOG_BASE_URL` is a valid `https` URL. The placeholder text fails with a message naming the variable.
-8. CI green: lint, typecheck, unit, integration, e2e, mobile. The mobile typecheck still compiles against the changed contract; T3 updates its use.
+8. `docker compose -f compose.prod.yaml config` renders the labels with a single `$` in the regex. Running the `migrate` command with `CATALOG_BASE_URL="CATALOG_BASE_URL is required"` exits 1 before `scripts/migrate.ts`.
+9. `prisma migrate dev` on a clean database applies `add_catalog_subdomain` as one file.
+10. CI green: lint, typecheck, unit, integration, e2e, mobile. The mobile typecheck still compiles against the changed contract; T3 updates its use.
 
 **Tests:**
 - Shared unit: every `shared/catalog-subdomain.test.ts` title.
@@ -869,12 +887,12 @@ Note on the mobile typecheck: T1 changes `catalogSettingsSchema`. If `apps/mobil
 - The web **Publicar catálogo** card with both groups and every status line state (product Screens table).
 - The availability check:
   - invalid, reserved and current decided locally with the shared rules;
-  - the 400 ms debounce, then a latest-only fetcher on `settings/catalog/subdomain-availability`;
-  - 429 and network failures shown as the check-failed state.
+  - the 400 ms debounce, then a latest-only `GET /api/catalog/subdomain-availability` through `catalog-link-client.ts` (an `AbortController` per value);
+  - 429 and `no_response` shown as the check-failed state.
 - Enter saves only when enabled and never submits the draft.
-- The `save-subdomain` intent in the editor action, with `shouldRevalidate` returning `false` for it.
+- The save through `catalog-link-client.ts` (`PUT /api/catalog/subdomain`), never through the editor action. The card keeps the returned settings, and nothing revalidates.
 - Change confirmation with focus rules.
-- Not sent, detected with `navigator.onLine === false` before submitting, versus without an answer (the fetcher ends with no data or a network error) and the doubt flow (re-read through a revalidation of the publication part only).
+- `not_sent` versus `no_response` (including an answered `503`), and the doubt flow. The re-read is `GET /api/catalog/settings` through the same client, never a loader revalidation. Its failure keeps the editor, the draft and the typed value, with the in-doubt message and **Reintentar** (which resends the same `PUT`).
 - «Tu link» with **Copiar link** and **Ver catálogo** while published.
 - Switch disabled without a subdomain, with the accessible description.
 - Unsaved-link tracking feeding the editor's leave confirmation with the three descriptions; `beforeunload` for reload and close.
@@ -892,6 +910,7 @@ Note on the mobile typecheck: T1 changes `catalogSettingsSchema`. If `apps/mobil
 5. Editing the link and clicking another menu entry shows «Tienes cambios sin guardar» / «Si sales ahora, no se guardará el link que escribiste.».
 6. **Guardar cambios** with a pending link saves only logo and theme, and the link status line stays.
 7. A successful **Guardar link** does not re-read the preview products.
+8. With the network cut (browser offline mode, or a request blocked in Playwright or the test), the check and the re-read show their messages inside the card. The editor, the logo and theme draft and the typed link stay, and the editor's error boundary never appears (product AC 9).
 
 **Tests:** the "Web seller UI" titles in section 14, and E2E `catalog-link.spec.ts`.
 
@@ -987,28 +1006,39 @@ No agent has Cloudflare or Coolify credentials. Decided by the review gate: Clou
      ```
 
 2. **Traefik routing with explicit labels.** Do not add `*.yoyos.lat` as a Coolify domain: Coolify would attach its Let's Encrypt `certresolver` (repeated failing HTTP-01 attempts for a wildcard) and generate a rule that may not match. Leave the `web` domain as `https://app.yoyos.lat`.
-   1. In the `yoyos` application, open **Show deployable compose** and find, under the `web` service labels, the line `traefik.http.services.<name>.loadbalancer.server.port=3000`. `<name>` is the service to target.
-   2. Check the Traefik version under Servers → Proxy. Coolify v4 ships Traefik v3.
-   3. Add these custom labels to `web` (Configuration → the `web` service → Container Labels), keeping Coolify's own labels. The v3 syntax is shown; for v2 use ``HostRegexp(`{subdomain:[a-z0-9-]+}.yoyos.lat`)``.
 
-   ```text
-   traefik.http.routers.yoyos-stores.rule=HostRegexp(`^[a-z0-9-]+\.yoyos\.lat$`)
-   traefik.http.routers.yoyos-stores.entrypoints=https
-   traefik.http.routers.yoyos-stores.tls=true
-   traefik.http.routers.yoyos-stores.priority=1
-   traefik.http.routers.yoyos-stores.service=<name>
-   traefik.http.routers.yoyos-stores-http.rule=HostRegexp(`^[a-z0-9-]+\.yoyos\.lat$`)
-   traefik.http.routers.yoyos-stores-http.entrypoints=http
-   traefik.http.routers.yoyos-stores-http.priority=1
-   traefik.http.routers.yoyos-stores-http.middlewares=yoyos-stores-https
-   traefik.http.middlewares.yoyos-stores-https.redirectscheme.scheme=https
-   traefik.http.middlewares.yoyos-stores-https.redirectscheme.permanent=true
-   traefik.http.routers.yoyos-stores-http.service=<name>
+   **Where the labels go.** The `yoyos` application is a Docker Compose resource (`compose.prod.yaml`), and Coolify takes custom Traefik labels for such resources from the compose file. So T1 puts the labels on the `web` service in `compose.prod.yaml`, not in a Coolify UI field. They are versioned, survive redeploys, and reach staging too, where they are harmless (no `yoyos.lat` traffic arrives there). This step is therefore only the founder's verification.
+
+   **The `$` in the regex.** In the compose file, the anchor is written `$$`, as the `migrate` command already writes `$$DATABASE_URL`. Compose interpolation turns it into a single `$`. A bare `$` would break interpolation and fail the whole deploy. T1 acceptance criterion 8 checks the rendered label.
+
+   **The service.** The labels define their own Traefik service, `yoyos-stores`, on port 3000. The founder checks under **Show deployable compose** that every router Coolify generates for `web` carries its own `.service=` label, because Traefik refuses an unnamed service when a container defines two. If one does not, the `yoyos-stores` routers name Coolify's service instead (the `<name>` in `traefik.http.services.<name>.loadbalancer.server.port=3000`), and the `yoyos-stores` service label is dropped.
+
+   1. Check the Traefik version under Servers → Proxy. Coolify v4 ships Traefik v3, and the v3 syntax is shown. For v2, use ``HostRegexp(`{subdomain:[a-z0-9-]+}.yoyos.lat`)``.
+   2. Open **Show deployable compose** and check that the labels below appear on `web` with a single `$`, next to Coolify's own labels, and that Coolify's routers name their service.
+   3. Cloudflare → Workers Routes: check that no route on the `yoyos.lat` zone matches `*yoyos.lat/*` or `*.yoyos.lat/*`, so the landing Worker never captures brand hosts.
+
+   ```yaml
+   # compose.prod.yaml, service web
+   labels:
+     - "traefik.http.routers.yoyos-stores.rule=HostRegexp(`^[a-z0-9-]+\\.yoyos\\.lat$$`)"
+     - "traefik.http.routers.yoyos-stores.entrypoints=https"
+     - "traefik.http.routers.yoyos-stores.tls=true"
+     - "traefik.http.routers.yoyos-stores.priority=1"
+     - "traefik.http.routers.yoyos-stores.service=yoyos-stores"
+     - "traefik.http.routers.yoyos-stores-http.rule=HostRegexp(`^[a-z0-9-]+\\.yoyos\\.lat$$`)"
+     - "traefik.http.routers.yoyos-stores-http.entrypoints=http"
+     - "traefik.http.routers.yoyos-stores-http.priority=1"
+     - "traefik.http.routers.yoyos-stores-http.middlewares=yoyos-stores-https"
+     - "traefik.http.routers.yoyos-stores-http.service=yoyos-stores"
+     - "traefik.http.middlewares.yoyos-stores-https.redirectscheme.scheme=https"
+     - "traefik.http.middlewares.yoyos-stores-https.redirectscheme.permanent=true"
+     - "traefik.http.services.yoyos-stores.loadbalancer.server.port=3000"
    ```
 
    - The low priority keeps the exact `app.yoyos.lat` rule first.
    - No `certresolver` goes on these routers: Traefik serves the origin certificate from step 1.
    - The HTTP router redirects plain HTTP that reaches the origin to HTTPS.
+   - In a double-quoted YAML string, `\\.` is a regex `\.`.
 3. **Environment.** See "Merge preconditions": `CATALOG_BASE_URL=https://yoyos.lat` (production) and `https://yoyos.kogozstaging.lat` (staging), checked in Coolify. Redeploy.
 4. **Cloudflare DNS.** DNS → Records → **Add record**: type `A`, name `*`, IPv4 `94.72.118.64`, Proxy status **Proxied** (orange), TTL Auto. The explicit apex, `www` and `app` records keep precedence over the wildcard.
 5. **Cloudflare HTTPS and SSL mode.**
@@ -1085,7 +1115,7 @@ The founder confirms these in the final pull request.
 - The reserved list lives only in code (`shared/catalog-subdomain.ts`) and applies only when choosing a name. The format is also a database `CHECK`.
 - One `SECURITY DEFINER` function, `resolve_catalog_subdomain`, returns owner, publication, name and country in one round trip, following `resolve_buyer_order_company`. The `Company` RLS policy is unchanged.
 - The resolved store travels in the request context. Storefront requests do not call `readStore` again.
-- One variable, `CATALOG_BASE_URL`, per environment: production `https://yoyos.lat`, staging `https://yoyos.kogozstaging.lat`, dev `http://localhost:<port>`, E2E `http://localhost:4173`. Required in production. Setting it in both Coolify apps is a merge precondition, because a missing value crash-loops `web` after the migration. Dev and tests use `*.localhost`.
+- One variable, `CATALOG_BASE_URL`, per environment: production `https://yoyos.lat`, staging `https://yoyos.kogozstaging.lat`, dev `http://localhost:<port>`, E2E `http://localhost:4173`. Required in production. Setting it in both Coolify apps is a merge precondition. A shell guard in the `migrate` command fails the deploy before the schema changes when the value is missing or the Coolify placeholder. Dev and tests use `*.localhost`.
 - `classifyHost` judges format only. A one-label, well-formed host under the base, other than the app host, is a store host, reserved or not. Malformed labels and deeper names render «Catálogo no disponible».
 - `/carrito` is never blocked by the middleware. On a hidden, released or unknown host it answers today's JSON `CATALOG_UNAVAILABLE`, and so does `check_order`.
 - On brand hosts:
@@ -1104,8 +1134,11 @@ The founder confirms these in the final pull request.
   The checkout no longer touches the cart. Order id and number never reach brand-host logs.
 - **Continuar** navigates to the full checkout URL on the app host.
 - The availability check is a separate read-only endpoint. It does one lookup and has a per-user limit (60 per minute, adjustable), and its 429 shows the check-failed state. Clients never call it for values the shared rules decide. The save endpoint is idempotent for the same value. Business rejections answer 422 and a lost race 409. Core computes the suggestion.
-- Web keeps loaders and actions (`save-subdomain` intent plus an availability resource route). `save-subdomain` and `set-publication` skip revalidation. "Not sent" means `navigator.onLine === false`. Mobile uses the JSON API with the same shared schemas.
+- The web link group calls the JSON API with plain `fetch` through `app/lib/catalog-link-client.ts`, for the check, the save and the in-doubt re-read (`GET /api/catalog/settings`). It never uses a route loader, action, fetcher or revalidation, so network failures stay inside the card. The client returns `not_sent` (`navigator.onLine === false`), `no_response` (rejection, timeout, `5xx` or a bad body) or `answered`. A `503` on a save is treated as no answer and re-read on web and mobile. `set-publication` keeps its action and skips revalidation. Mobile uses the same API and shared schemas.
 - The settings response changes shape. Old mobile builds stop reading it (accepted by the product).
 - Logs never include the subdomain value, the `Host` header, the order id or the order number.
 - Deferred: the `refreshCart` image N+1, as a follow-up outside this work.
-- Plan: T1, then T2, T3 and T4 in parallel. The infra steps are manual for the founder. The coordinator runs the documentation promotion after the final verification.
+- Deferred, with real risk: per-IP limiters keyed on Cloudflare's edge address behind the current `trust proxy`. This predates the design, and the fix is app-wide. Recommended before catalog traffic is real.
+- The resolver is uncached. `/__manifest` passes the storefront middleware without a lookup. The two new limiters log their warn only for the first rejection per key per window.
+- `add_catalog_subdomain` stays one file with explicit `BEGIN`/`COMMIT`, deliberately.
+- Plan: T1, then T2, T3 and T4 in parallel. The `yoyos-stores` Traefik labels go in `compose.prod.yaml` (T1), with `$$` for the anchor. The Cloudflare and certificate steps and the label checks stay manual for the founder. The coordinator runs the documentation promotion after the final verification.
