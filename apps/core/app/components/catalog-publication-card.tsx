@@ -30,6 +30,7 @@ function statusMessage(t: Translate, link: CatalogLink): Readonly<{ text: string
   const notSaved = link.notSaved ? `${t("catalogLink.notSaved")} ` : "";
   if (phase === "in_doubt") return { text: t("catalogLink.inDoubt"), final: true, success: false };
   if (phase === "reread_failed") return { text: t("catalogLink.inDoubtFailed"), final: true, success: false };
+  if (phase === "rejected") return { text: t("catalogLink.saveRejected"), final: true, success: false };
   if (phase === "save_failed") return { text: t("catalogLink.saveFailed"), final: true, success: false };
   switch (status.kind) {
     case "help": return { text: notSaved + t("catalogLink.help"), final: false, success: false };
@@ -125,7 +126,7 @@ function LoadedCard({ settings, onLinkUnsavedChange }: Readonly<{ settings: Extr
           {status.success && <Check className="size-4 text-[var(--success)]" aria-hidden="true" />}{status.text}
         </p>
         {link.status.kind === "check_failed" && link.phase === "idle" && <Button type="button" size="sm" variant="outline" onClick={link.retryCheck}>{t("catalogLink.retry")}</Button>}
-        {(link.phase === "save_failed" || link.phase === "reread_failed") && <Button type="button" size="sm" variant="outline" onClick={link.retrySave}>{t("catalogLink.retry")}</Button>}
+        {(link.phase === "save_failed" || link.phase === "rejected" || link.phase === "reread_failed") && <Button type="button" size="sm" variant="outline" onClick={link.retrySave}>{t("catalogLink.retry")}</Button>}
       </div>
       <div className="sr-only" aria-live="polite">{status.final ? status.text : ""}</div>
       <div className="flex flex-col items-start gap-1">
@@ -135,7 +136,7 @@ function LoadedCard({ settings, onLinkUnsavedChange }: Readonly<{ settings: Extr
       </div>
       {!noLink && <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
         <p className="min-w-0 break-all text-sm">{t("catalogLink.yourLink")}: {link.settings.url}</p>
-        {published && <>
+        {(known ?? link.settings.published) && <>
           <Button type="button" size="sm" variant="outline" onClick={() => void copy()}>{t("catalogSettings.copy")}</Button>
           <Button asChild size="sm" variant="outline"><a href={link.settings.url ?? undefined} target="_blank" rel="noreferrer">{t("catalogSettings.view")}</a></Button>
         </>}

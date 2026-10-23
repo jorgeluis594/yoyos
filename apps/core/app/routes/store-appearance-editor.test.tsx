@@ -451,3 +451,20 @@ test("Guardar cambios with a pending link saves only logo and theme and keeps th
   await leave();
   await vi.waitFor(() => expect(leaveDialog()).toContain("Si sales ahora, no se guardará el link que escribiste."));
 });
+
+test("a failed publication read after Guardar cambios keeps the card, the typed link and the leave guard", async () => {
+  linkApi = availability();
+  const saved = data({ intent: "save-appearance", success: true, appearance: { logoImageId: null, theme: "noche" } });
+  const { loader } = await mount([loaded(readable("classic"), suggested), loaded(readable("noche"), { kind: "failed" })], saved);
+  await typeText("fantasio");
+  await shows("fantasio.localhost:3000 está disponible");
+  await click(radio("Noche"));
+  await click(button("Guardar cambios"));
+  await shows("Apariencia actualizada");
+  await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
+  expect(container.textContent).not.toContain("No pudimos cargar la configuración del catálogo");
+  expect(field().value).toBe("fantasio");
+  expect(statusLine()).toBe("fantasio.localhost:3000 está disponible");
+  await leave();
+  await vi.waitFor(() => expect(leaveDialog()).toContain("Si sales ahora, no se guardará el link que escribiste."));
+});

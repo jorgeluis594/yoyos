@@ -446,17 +446,18 @@ test("a save answered 503 re-reads the settings instead of showing a save error"
   expect(container.textContent).not.toContain("No pudimos guardar tu link");
 });
 
-test("a save answered 401, 403 or 409 COMPANY_REQUIRED shows the failed-save state, keeps the typed link and makes no re-read", async () => {
+test("a save answered 401, 403 or 409 COMPANY_REQUIRED shows «No pudimos guardar tu link. Inténtalo de nuevo.» with Reintentar, keeps the typed link and makes no re-read", async () => {
   fakeTimers();
-  for (const [code, status] of [["UNAUTHENTICATED", 401], ["EMAIL_VERIFICATION_REQUIRED", 403], ["COMPANY_REQUIRED", 409]] as const) {
+  for (const [code, status] of [["UNAUTHENTICATED", 401], ["EMAIL_VERIFICATION_REQUIRED", 403], ["COMPANY_REQUIRED", 409], ["INVALID_CATALOG_SETTINGS", 400], ["UNSUPPORTED_MEDIA_TYPE", 415]] as const) {
     const calls = stubApi({ save: () => envelope(code, status) });
     await mount(noLink);
     await typeAndSettle("fantasio");
     await click(saveButton());
     await flush();
-    expect(statusLine()).toBe("No pudimos guardar tu link. Revisa tu conexión.");
+    expect(statusLine()).toBe("No pudimos guardar tu link. Inténtalo de nuevo.");
     expect(field().value).toBe("fantasio");
     expect(calls.settings).toBe(0);
+    expect(buttonNamed("Reintentar", container)).toBeDefined();
     act(() => root!.unmount());
     container.remove();
   }

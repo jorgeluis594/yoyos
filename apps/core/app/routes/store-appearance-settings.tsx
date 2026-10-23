@@ -236,7 +236,11 @@ export default function StoreAppearanceSettings() {
   const saveMessage = saveFailure && t(saveFailure === "INVALID_IMAGE" ? "storeAppearance.invalidLogo"
     : saveFailure === "INVALID_STORE_APPEARANCE" ? "storeAppearance.invalidAppearance" : "storeAppearance.saveError");
 
-  const publicationCard = <CatalogPublicationCard publication={publication} onLinkUnsavedChange={setLinkUnsaved} />;
+  // Only the first load may show the publication load error: a later failed read keeps the card, its typed link and the leave guard.
+  const [lastPublication, setLastPublication] = useState<PublicationPart | null>(publication.kind === "loaded" ? publication : null);
+  if (publication.kind === "loaded" && publication !== lastPublication) setLastPublication(publication);
+  const shownPublication = publication.kind === "failed" && lastPublication ? lastPublication : publication;
+  const publicationCard = <CatalogPublicationCard publication={shownPublication} onLinkUnsavedChange={setLinkUnsaved} />;
   const previewPanel = draft && <StorePreviewFrame appearance={{ logoUrl: draft.logoUrl, theme: draft.appearance.theme }} catalog={cards ?? loadingCards} />;
   const draftCard = draft && <Card className="gap-0 divide-y py-0">
         <CardContent className="flex flex-col gap-3 p-5">

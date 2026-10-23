@@ -23,7 +23,7 @@ export type LinkStatus =
   | VerdictKind;
 
 /** What the last save did when it did not end in a verdict about the value. */
-export type LinkPhase = "idle" | "saving" | "save_failed" | "in_doubt" | "reread_failed";
+export type LinkPhase = "idle" | "saving" | "save_failed" | "rejected" | "in_doubt" | "reread_failed";
 
 export type StatusInput = Readonly<{ value: string; paused: string; savedSubdomain: string | null; justSaved: boolean; verdict: Verdict | null }>;
 
@@ -122,7 +122,7 @@ export function useCatalogLink(initial: CatalogSettingsResponse): CatalogLink {
         : answer.error.code === "SUBDOMAIN_RESERVED" ? { value: target, kind: "reserved" }
         : reason ? { value: target, kind: "invalid", reason } : null;
       setVerdict(refused);
-      setPhase(refused ? "idle" : "save_failed");
+      setPhase(refused ? "idle" : "rejected");
       setFocusTarget("button");
       return;
     }

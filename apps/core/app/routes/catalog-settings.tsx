@@ -49,8 +49,8 @@ export default function CatalogSettings() {
       <PageHeader.Description>{t("catalogSettings.description")}</PageHeader.Description></PageHeader.Heading></PageHeader>
     <Card><CardContent className="flex flex-col gap-5">
       {link !== null && <Field>
-        <FieldLabel id="catalog-url-label">{t("catalogSettings.link")}</FieldLabel>
-        <p id="catalog-url" aria-labelledby="catalog-url-label" className="break-all text-sm select-all">{link}</p>
+        <FieldLabel htmlFor="catalog-url">{t("catalogSettings.link")}</FieldLabel>
+        <p id="catalog-url" className="break-all text-sm select-all">{link}</p>
         <div className="flex flex-wrap gap-3">
           <Button type="button" onClick={() => void copy()}>{t("catalogSettings.copy")}</Button>
           <Button asChild variant="outline"><a href={link} target="_blank" rel="noreferrer">{t("catalogSettings.view")}</a></Button>

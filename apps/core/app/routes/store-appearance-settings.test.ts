@@ -202,7 +202,7 @@ describe("editor client action", () => {
 describe("editor revalidation", () => {
   const after = (actionResult: unknown) => shouldRevalidate({ actionResult, defaultShouldRevalidate: true } as ShouldRevalidateFunctionArgs);
 
-  test("the editor does not revalidate after a successful publication change", () => {
+  test("set-publication keeps not revalidating the editor loaders", () => {
     expect(after({ intent: "set-publication", published: true })).toBe(false);
   });
 
