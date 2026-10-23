@@ -9,10 +9,10 @@ export type RenderedNotice = Readonly<{ title: string; body: string; data: Reado
 export type NoticeError = Readonly<{ code: string; message: string; retryable?: boolean }>;
 export type PushSendError = Readonly<{ code: "DEVICE_NOT_REGISTERED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_REJECTED" | "SEND_TIMEOUT"; message: string; retryable: boolean }>;
 
-export type SendChatMessageNoticeDependencies = Readonly<{
+export type SendChatMessageNoticeDependencies<Claim extends NoticeClaim = NoticeClaim> = Readonly<{
   /** `null` when the notice was already sent or none is due. */
-  claimNotice: (messageId: string) => Promise<Result<NoticeClaim | null, NoticeError>>;
-  describeNotice: (claim: NoticeClaim, locale: NoticeLocale) => Promise<Result<RenderedNotice, NoticeError>>;
+  claimNotice: (messageId: string) => Promise<Result<Claim | null, NoticeError>>;
+  describeNotice: (claim: Claim, locale: NoticeLocale) => Promise<Result<RenderedNotice, NoticeError>>;
   releaseNotice: (messageId: string) => Promise<Result<null, NoticeError>>;
   /** Joins the session (unexpired) to its user's company; `null` when there is no device for that company. */
   findDeviceForSession: (sessionId: string, companyId: string) => Promise<Result<PushDevice | null, NoticeError>>;
@@ -31,10 +31,10 @@ export const noticeSendTimeoutMs = 10_000;
 
 const retryable = (error: NoticeError): SendChatMessageNoticeError => ({ code: error.code, message: error.message, retryable: error.retryable ?? true });
 
-export async function sendChatMessageNotice(
+export async function sendChatMessageNotice<Claim extends NoticeClaim>(
   input: Readonly<{ companyId: string; messageId: string }>,
   _context: Readonly<{ attempt: number }>,
-  deps: SendChatMessageNoticeDependencies,
+  deps: SendChatMessageNoticeDependencies<Claim>,
 ): Promise<Result<SendChatMessageNoticeOutcome, SendChatMessageNoticeError>> {
   const claimed = await deps.claimNotice(input.messageId);
   if (!claimed.success) return err(retryable(claimed.error));
@@ -42,9 +42,10 @@ export async function sendChatMessageNotice(
   if (!claim) return ok({ status: "dropped", reason: "already_sent" });
 
   // From here the claim is taken: a failure before sending releases it so a retry can send the notice.
+  // If the release itself fails the claim stays, and the retry then finds the notice claimed and drops it.
   const release = async (error: NoticeError) => {
-    await deps.releaseNotice(input.messageId);
-    return err(retryable(error));
+    const released = await deps.releaseNotice(input.messageId);
+    return err(retryable(released.success ? error : released.error));
   };
   const found = await deps.findDeviceForSession(claim.sessionId, input.companyId);
   if (!found.success) return release(found.error);

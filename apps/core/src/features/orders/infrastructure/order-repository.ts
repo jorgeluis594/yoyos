@@ -589,3 +589,16 @@ export async function recordProcessedMessage(orderId: OrderId, messageId: ChatMe
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to record processed message" });
   }
 }
+
+/** The sequential numbers of the orders that exist, in one query; an order that was deleted is absent. */
+export async function findOrderNumbers(ids: readonly OrderId[]) {
+  if (ids.length === 0) return ok<ReadonlyMap<OrderId, number>>(new Map());
+  try {
+    const rows = await prisma.order.findMany({ where: { id: { in: [...ids] } }, select: { id: true, number: true } });
+    return ok<ReadonlyMap<OrderId, number>>(new Map(rows.map((row) => [row.id as OrderId, Number(row.number)])));
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_read_order_numbers", err: cause }, "unable_to_read_order_numbers");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read order numbers" });
+  }
+}

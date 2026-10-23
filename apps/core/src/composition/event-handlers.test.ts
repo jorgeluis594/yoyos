@@ -1,5 +1,6 @@
 import { parseMessageCreated } from "@core/src/features/chats/infrastructure/event-payloads";
 import { parseOrderCancelled } from "@core/src/features/orders/infrastructure/event-payloads";
+import { parseChatMessageProcessed } from "@core/src/features/orders/infrastructure/event-payloads";
 import { eventHandlers } from "@core/src/composition/event-handlers";
 import { describe, expect, it, vi } from "vitest";
 import { err, ok } from "@shared/functional";
@@ -61,4 +62,18 @@ it("registers index-product-image for product_image_changed with concurrency 1 a
   expect(registered.map(handler => handler.id)).toEqual(["index-product-image"]);
   expect(registered[0].policy).toMatchObject({ concurrency: 1, retries: 8 });
   expect(registered[0].parsePayload({ companyId: "x", productId: "y" })).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
+});
+
+it("registers send-chat-message-notice for chat_message_processed without ordering and bounds an Expo outage to 6 to 10 minutes", () => {
+  const registered = eventHandlers.filter(handler => handler.name === "chat_message_processed");
+  expect(registered.map(handler => handler.id)).toEqual(["send-chat-message-notice"]);
+  const policy = registered[0].policy;
+  expect(policy).toMatchObject({ concurrency: 4, retries: 5, retryDelaySeconds: 15, exponentialBackoff: true, retryDelayMaxSeconds: 150, expireInSeconds: 15, deleteAfterSeconds: 604800 });
+  expect(policy.orderingKey).toBeUndefined();
+  expect(registered[0].parsePayload).toBe(parseChatMessageProcessed);
+  // Delays double from the first one up to the cap; the last attempt can still run until its expiry.
+  const delays = Array.from({ length: policy.retries }, (_, retry) => Math.min(policy.retryDelaySeconds * 2 ** retry, policy.retryDelayMaxSeconds ?? Infinity));
+  const worstCaseSeconds = delays.reduce((total, delay) => total + delay, 0) + (policy.retries + 1) * (policy.expireInSeconds ?? 0);
+  expect(worstCaseSeconds).toBeGreaterThanOrEqual(6 * 60);
+  expect(worstCaseSeconds).toBeLessThanOrEqual(10 * 60);
 });
