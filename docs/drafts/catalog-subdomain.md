@@ -1,6 +1,6 @@
 # Public catalog by brand subdomain: product definition
 
-**Status:** definition ready to implement, pending round 2 of the review gate. 22/10/2026. Replaces the "link by company id" decision of [Public catalog](../public-catalog.md) and extends the **Publicar catálogo** card of [Checkout · Editing and publishing](../checkout.md#editing-and-publishing). Today the catalog lives at `https://app.yoyos.lat/catalogo/:companyId`. Todoist task `6hq6qJJqpP6W8wmV` («Refactor del catálogo público por subdominio de marca»). The founder closed decisions 6–19 and the acceptance criteria of that task on 22/10/2026; they are transcribed here as closed. The review gate answered the two open questions (see "Questions decided by the review gate").
+**Status:** definition ready to implement, pending round 3 of the review gate. 22/10/2026. Replaces the "link by company id" decision of [Public catalog](../public-catalog.md) and extends the **Publicar catálogo** card of [Checkout · Editing and publishing](../checkout.md#editing-and-publishing). Today the catalog lives at `https://app.yoyos.lat/catalogo/:companyId`. Todoist task `6hq6qJJqpP6W8wmV` («Refactor del catálogo público por subdominio de marca»). The founder closed decisions 6–19 and the acceptance criteria of that task on 22/10/2026; they are transcribed here as closed. The review gate answered the two open questions (see "Questions decided by the review gate").
 
 ## Problem and situation
 
@@ -65,7 +65,7 @@ Usual path: a seller sets up their catalog for the first time.
 Alternative paths:
 
 - **Unavailable value:** the seller types `pay`, `fa` or a name in use. The status line says why (see Screens), and **Guardar link** stays disabled.
-- **Someone took it first:** between «disponible» and **Guardar link**, another company saves `fantasio`. The save fails with «Alguien acaba de tomar fantasio.yoyos.lat. Elige otro.». The field keeps `fantasio` with the in-use state, nothing is assigned, and the previous link stays, if there was one.
+- **Someone took it first:** between «disponible» and **Guardar link**, another company saves `fantasio`. The save fails with «Alguien acaba de tomar fantasio.yoyos.lat. Prueba con otro.». The field keeps `fantasio` with the in-use state, nothing is assigned, and the previous link stays, if there was one.
 - **Change of a saved link (published or hidden):** the seller types `fantasio-store` and taps **Guardar link**. A confirmation opens before anything is saved: «¿Cambiar el link de tu catálogo?» / «fantasio.yoyos.lat dejará de ser tuyo y otra tienda podrá usarlo. Si ya lo compartiste, tendrás que compartir el nuevo.», with **Cambiar link** (destructive style, like **Ocultar catálogo**) and **Mantener link actual**. Once confirmed, the new address is current, the old one is free, and the publication state doesn't change. **Mantener link actual** closes the dialog, saves nothing and keeps the typed value. Each attempt to replace a saved link asks again, including a new attempt after the confirmed save failed because the name was taken.
 - **Leaving with an edited, unsaved link:** see Rules → Unsaved link.
 - **Buyer abandons the checkout without confirming:** returning to the store keeps the cart as it was, and **Continuar** with the same cart reopens the same pending order, as today.
@@ -79,7 +79,7 @@ Alternative paths:
 1. Field label «Link de tu catálogo», and an input with the fixed suffix `.yoyos.lat` next to it (mobile: below the input when it doesn't fit on one line). The input has no character limit, so a long paste is never cut. On mobile, the keyboard has no autocorrect or auto-capitalization, and the input type is URL.
 2. Status line under the field (see the table).
 3. **Guardar link**, a secondary button, always visible. It's enabled only in the "available" and "check failed" states. Under it: «El link se guarda con este botón.» While saving, it reads «Guardando…», and the field, the button and the switch are disabled.
-4. «Tu link: https://fantasio.yoyos.lat/», once a subdomain is saved. It always shows the saved value, even while the seller edits the field. While the catalog is published, **Copiar link** («Link copiado») and **Ver catálogo** sit next to it. Reason: copying the link is the goal of the first-time flow, and it saves going to Settings → Catálogo right after publishing. Settings → Catálogo stays the place for sharing day to day, and it's the only place with **Compartir** on mobile.
+4. «Tu link: https://fantasio.yoyos.lat/», once a subdomain is saved. It always shows the saved value, even while the seller edits the field. While the catalog is published, **Copiar link** and **Ver catálogo** sit next to it. They behave exactly like their counterparts in Settings → Catálogo: «Link copiado» appears and is announced politely to screen readers, and a copy the system refuses fails silently, as it does there today. While the catalog is hidden, «Tu link» is still shown, so the seller can see the link they chose before publishing, but without **Copiar link** or **Ver catálogo**: a hidden catalog's link is never offered for copying (decision 12). Reason: copying the link is the goal of the first-time flow, and it saves going to Settings → Catálogo right after publishing. Settings → Catálogo stays the place for sharing day to day, and it's the only place with **Compartir** on mobile.
 
 *Group 2, publication.* The switch, labeled «Publicar catálogo», with the existing hint and «Este cambio se guarda al momento.». Without a saved subdomain, the switch is disabled, and «Elige el link de tu catálogo para poder publicarlo.» is shown and works as its accessible description. Hiding keeps its current confirmation («¿Ocultar tu catálogo?»).
 
@@ -88,7 +88,7 @@ Status line states:
 | Field state | Text | **Guardar link** |
 | --- | --- | --- |
 | Empty | «Usa el nombre de tu marca: letras, números y guiones.» | Disabled |
-| 1–2 valid characters | Same help text, not an error | Disabled |
+| 1–2 valid characters, not starting with a hyphen | Same help text, not an error | Disabled |
 | Checking (after a 400 ms pause, initial value, adjustable) | «Revisando…» | Disabled |
 | Invalid | One reason, picked by the priority in Rules → Format | Disabled |
 | Reserved | «Ese nombre está reservado. Prueba con otro.» | Disabled |
@@ -114,7 +114,7 @@ Other card states:
 
 **Settings → Catálogo (web and mobile).**
 
-- Published: the label «Link de tu catálogo» and `https://fantasio.yoyos.lat/` shown in full as selectable text that wraps when it doesn't fit. It's never truncated with an ellipsis. The web's single-line read-only input is replaced by this text, because at phone width that input scrolls sideways. Below it: **Copiar link**, **Ver catálogo**, **Compartir** (mobile), then «Para cambiar el link u ocultar tu catálogo, ve a Apariencia de la tienda.» and **Ir a Apariencia de la tienda**.
+- Published: the label «Link de tu catálogo» and `https://fantasio.yoyos.lat/` shown in full as selectable text that wraps when it doesn't fit. It's never truncated with an ellipsis. The web's single-line read-only input is replaced by this text, because at phone width that input scrolls sideways. Below it, the buttons in today's order: web **Copiar link**, **Ver catálogo**; mobile **Copiar link**, **Compartir**, **Ver catálogo**. Then «Para cambiar el link u ocultar tu catálogo, ve a Apariencia de la tienda.» and **Ir a Apariencia de la tienda**.
 - Hidden, with a saved subdomain: as today, no link. It shows «Tu catálogo está oculto. Publícalo desde Apariencia de la tienda.» and **Ir a Apariencia de la tienda**.
 - Hidden, without a subdomain: «Tu catálogo está oculto. Elige su link y publícalo desde Apariencia de la tienda.» and **Ir a Apariencia de la tienda**.
 - **Ir a Apariencia de la tienda** opens the editor at the **Publicar catálogo** card: scrolled to it on web, and on the **Editar** tab scrolled to it on mobile. It doesn't move focus into the field, so no keyboard opens on its own.
@@ -128,6 +128,8 @@ Other card states:
 
 **Buyer pages at `https://{subdominio}.yoyos.lat/`.** The same grid (`/`) and product page (`/productos/:productId`) as today, with the cart as a sheet on both. Same states and texts. «Catálogo no disponible» keeps its unbranded look.
 
+**«No encontramos esta página» (brand host, catalog published).** Shown for any path on a published brand host that isn't the grid or a product page, such as `/login`, `/ofertas` or `/checkout/...`. It's a new page with the same layout as «Este producto ya no está disponible»: the store header (logo plate and store name) in the store's theme, the title «No encontramos esta página», the text «Revisa el link o mira los productos de la tienda.», and **Volver al catálogo**, which opens the grid at `/`. It answers 404. It's themed because the catalog is published, so theming reveals nothing, for the same reason as the product page. If the theme or logo can't be read, it falls back to Clásico without logo, like the rest of the catalog. The app's generic «Página no encontrada» is never shown on a brand host.
+
 Copy is written in Spanish. The pt-BR texts are translated with the same meaning in implementation, like the existing card's texts.
 
 ## Rules
@@ -136,22 +138,24 @@ Copy is written in Spanish. The pt-BR texts are translated with the same meaning
 | --- | --- |
 | Canonical address | `https://{subdominio}.yoyos.lat/`, at the root of the host. Grid, product page, cart and **Continuar** live on that host. The link the seller copies and shares is always this one. |
 | Format | Lowercase `a-z`, digits `0-9` and hyphens; 3–30 characters; no hyphen at the start or end; no two hyphens in a row. Typed letters become lowercase as the seller types. Any other character makes the value invalid. It's never removed silently: `pañales` would become `paales`. The same rules apply when saving, whatever the client. |
-| Invalid reason, priority | Only one reason is shown. The first that applies, in this order: (1) contains `.yoyos.lat`, `://` or a dot: «Escribe solo el nombre, sin https:// ni .yoyos.lat.»; (2) contains a space: «Sin espacios: usa guiones en su lugar.»; (3) contains another character outside `a-z`, `0-9` and `-`: «Usa solo letras sin tildes, números y guiones.»; (4) more than 30 characters: «Usa hasta 30 caracteres.»; (5) starts or ends with a hyphen: «No puede empezar ni terminar con guion.»; (6) two hyphens in a row: «No uses dos guiones seguidos.». Examples: `Café-` → (3); `fantasio ` (pasted with a trailing space) → (2); `fantasio.yoyos.lat` → (1). Fewer than 3 valid characters isn't an error while typing: the help text shows and **Guardar link** stays disabled. A save request with fewer than 3 is rejected. |
+| Invalid reason, priority | Only one reason is shown. The first that applies, in this order: (1) contains `.yoyos.lat`, `://` or a dot: «Escribe solo el nombre, sin https:// ni .yoyos.lat.»; (2) contains a space: «Sin espacios: usa guiones en su lugar.»; (3) contains another character outside `a-z`, `0-9` and `-`: «Usa solo letras sin tildes, números y guiones.»; (4) more than 30 characters: «Usa hasta 30 caracteres.»; (5) starts or ends with a hyphen: «No puede empezar ni terminar con guion.»; (6) two hyphens in a row: «No uses dos guiones seguidos.». Examples: `Café-` → (3); `fantasio ` (pasted with a trailing space) → (2); `fantasio.yoyos.lat` → (1). A leading hyphen shows reason (5) from the first keystroke (`-` or `-f`). Otherwise, fewer than 3 valid characters isn't an error while typing: the help text shows and **Guardar link** stays disabled. A save request with fewer than 3 is rejected. |
 | Reserved names | Never available: `www`, `api`, `app`, `admin`, `mail`, `smtp`, `ftp`, `cdn`, `static`, `assets`, `status`, `docs`, `help`, `support`, `billing`, `pay`, `checkout`, `catalogo`, `catalog`, `yoyos`, `landing`, `auth`, `login`, `signup`, `webhook`, `webhooks`, `dev`, `staging`, `test`. Implementation may add names. Adding a name never takes away a subdomain a company already saved. |
 | Uniqueness | One subdomain, one company. Available means: valid format, not reserved, and not saved by another company. |
 | Real-time check | After a 400 ms pause with no typing (initial value, adjustable), the value is checked without saving. Only the answer for the latest typed value updates the status line; an answer for an older value is ignored. |
 | Saving | Everything is checked again at that moment. The value is assigned only if it's still available. If another company took it first, the save fails without assigning anything, and the previous subdomain stays. Saving the value that's already current changes nothing and counts as success. |
 | Change confirmation | Asked every time a save would replace a saved subdomain, whether the catalog is published or hidden, and before the save is sent. It isn't asked for the first subdomain. |
 | Suggestion | When the company has no subdomain, the field starts with the company name converted: lowercase, accents removed (`é`→`e`, `ñ`→`n`), spaces and other characters turned into single hyphens, cut to 30 characters, with no hyphen at either end. Example: «Café Fantasío» → `cafe-fantasio`. It's shown only if it's available when the card loads. If it's taken, reserved, or shorter than 3 characters, or if the check fails, the field starts empty with the help text. It's saved only with **Guardar link**. |
-| Unsaved link | A link counts as unsaved only when the seller edited the field and its value differs from the initial value: the saved subdomain, or else the suggestion, or else empty. Editing the field back to the initial value clears it. An untouched suggestion never counts. An unsaved link triggers the leave confirmation (web navigation, reload or tab close; mobile back), with the description for the link. It doesn't count for the «Cambios sin guardar» badge, **Guardar cambios** or **Descartar**. |
+| Unsaved link | A link counts as unsaved only when the seller edited the field and its value differs from the initial value: the saved subdomain, or else the suggestion, or else empty. Editing the field back to the initial value clears it. An untouched suggestion never counts. An unsaved link triggers the leave confirmation (web in-app navigation, reload or tab close; mobile back). In-app navigation and mobile back show the dialog with the description for the link. On reload or tab close, the browser shows its own generic dialog and ignores custom text, as it already does for the appearance draft. It doesn't count for the «Cambios sin guardar» badge, **Guardar cambios** or **Descartar**. |
 | Scope of each save | **Guardar link** saves only the link. The switch saves only the publication, at once. **Guardar cambios** saves only logo and theme, and «Apariencia actualizada» doesn't mean the link was saved: a pending link keeps its status line and stays pending. |
 | Change | Allowed at any time, published or hidden, as many times as wanted, after the confirmation. On save, the previous subdomain is released immediately, and its address shows «Catálogo no disponible» until another company takes it. The link in Settings → Catálogo becomes the new one. There's no redirect from the old subdomain. |
 | Removal | A saved subdomain can be changed but not emptied. Hiding the catalog doesn't release it. Reason: an empty value would leave a published catalog with no address. |
 | Publishing | The switch turns on only with a saved subdomain, and is disabled while a link save is in progress or in doubt. A publish request without a saved subdomain is rejected, whatever the client. |
 | Hiding | Always allowed, with or without a subdomain, as today. |
 | Cart after confirming | Once the buyer confirms the order in the checkout, the cart for that order on the brand host is empty the next time the buyer opens the store in that browser (back button, the link again, or a reload). **Continuar** never reopens an order the buyer already confirmed: the same products again create a new order. A cart whose order wasn't confirmed stays intact and reopens the same pending order, as today. This is the buyer's experience today on a single host, kept across hosts. The mechanism is to be resolved in implementation. |
+| Cart ownership | The cart belongs to the store (the company), not to the address, as today. A cart left at `fantasio.yoyos.lat` by Fantasio's store is never shown in the store of another company that later saves `fantasio`: that buyer sees an empty cart there. |
+| Store chosen by the host | On a brand host, the store is the one whose subdomain matches the host. A product id or variants of another company behave as nonexistent there: a product page shows «Este producto ya no está disponible», and **Continuar** with those lines creates no order and marks them as no longer available, as today. |
 | Legacy `/catalogo/:companyId` | If the company has a subdomain and the catalog is published, `/catalogo/:id` redirects permanently to `https://{subdominio}.yoyos.lat/`, and `/catalogo/:id/productos/:productId` to `https://{subdominio}.yoyos.lat/productos/:productId`, with the query kept. In every other case it shows «Catálogo no disponible». It's never a second way to see an active catalog. Old `yoyos.lat/catalogo/...` links already reach `app.yoyos.lat` through the existing redirect and then follow this rule. The cart has no page of its own, so there's no cart path to redirect. |
-| Brand host | Serves only the catalog's grid and product pages, and the cart requests they make. Any other path on `{subdominio}.yoyos.lat` (for example `/login`, `/settings` or `/checkout/...`) shows the catalog's not-found page when the catalog is published, and «Catálogo no disponible» otherwise. The seller panel and the checkout stay on `app.yoyos.lat`. |
+| Brand host | Serves only the catalog's grid and product pages, and the cart requests they make. Any other path on `{subdominio}.yoyos.lat` (for example `/login`, `/settings` or `/checkout/...`) shows the store's «No encontramos esta página» page (see Screens → Buyer pages) when the catalog is published, and «Catálogo no disponible» otherwise. The seller panel and the checkout stay on `app.yoyos.lat`. |
 | Unknown or hidden host | These all show the same «Catálogo no disponible»: an unknown subdomain, a malformed host, a reserved name with nothing behind it, a company without a published catalog, and a released subdomain. The response is the same whether or not the company exists. |
 | Privacy | `noindex` and `Referrer-Policy: no-referrer` stay on every catalog page on the brand host. |
 | Checkout | **Continuar** creates the order as today and opens the current checkout at its current address on `app.yoyos.lat`. The checkout's screens, steps and rules don't change. |
@@ -183,13 +187,14 @@ Published without a subdomain never exists. Allowed transitions:
 | The availability check fails or doesn't answer | «No pudimos revisar si está disponible.» with **Reintentar**. The typed value stays. | Retry, or tap **Guardar link**, which checks again |
 | **Guardar link** succeeds | Status line «Link guardado»; «Tu link: https://fantasio.yoyos.lat/»; the switch becomes enabled | Publish |
 | Save rejected: invalid or reserved | The reason in the status line. The value stays. | Correct it |
-| Save rejected: taken in the meantime | «Alguien acaba de tomar fantasio.yoyos.lat. Elige otro.» The value stays, in the in-use state. The previous link stays. | Type another; replacing a saved link asks for confirmation again |
+| Save rejected: taken in the meantime | «Alguien acaba de tomar fantasio.yoyos.lat. Prueba con otro.» The value stays, in the in-use state. The previous link stays. | Type another; replacing a saved link asks for confirmation again |
 | Save not sent (no connection) | «No pudimos guardar tu link. Revisa tu conexión.» with **Reintentar**. The value stays. | Retry. Nothing changed. |
 | Save without an answer | «No sabemos si tu link se guardó. Lo estamos revisando…». The card re-reads the saved subdomain. Meanwhile the field, **Guardar link** and the switch are disabled, and the typed value stays. | Wait |
 | → the re-read shows the typed value as saved | Same as success: «Link guardado», «Tu link: …» updated, switch enabled | Publish |
-| → the re-read shows the previous value, or none | «Tu link no se guardó.» The field keeps the typed value and is checked again. «Tu link» shows the previous value or nothing. | Save again when it's available |
+| → the re-read shows the previous value, or none | «Tu link no se guardó.» The field keeps the typed value and is checked again. The verdict joins the same line without replacing the message, e.g. «Tu link no se guardó. fantasio.yoyos.lat está disponible», and «Tu link no se guardó.» stays until the next edit of the field. «Tu link» shows the previous value or nothing. | Save again when it's available |
 | → the re-read fails | «No sabemos si tu link se guardó. Revisa tu conexión.» with **Reintentar**. The typed value stays in the field, the rest of the card stays as it was, and the field, **Guardar link** and the switch stay disabled. The card is never replaced by its load error. | **Reintentar** sends the same save again. It's safe: the same value for the same company is recognized as already saved, and it's never assigned twice or to another company. The seller can also leave, and the leave confirmation counts the link as unsaved. |
 | Publish attempted without a subdomain (an outdated screen or another client) | The switch goes back to off with «Elige el link de tu catálogo para poder publicarlo.» | Choose and save the link |
+| Mobile app installed before this version | It has no link field. Turning on the switch without a saved subdomain fails with its generic «No pudimos guardar el cambio» and **Reintentar**, which keeps failing. The card or Settings → Catálogo may also fail to load if the answer they read changed. Accepted limitation: there are no customers yet (decision 19), and the seller updates the app. | Update the app, or choose the link on the web |
 | The subdomain was changed from another device | The next load or return shows the current one. A late answer from an earlier check or save doesn't change the screen. | — |
 | Buyer opens an old subdomain or an unknown host | «Catálogo no disponible» | — |
 | Buyer has a cart on an old host | The cart isn't on the new address | Build it again |
@@ -210,7 +215,7 @@ Publishing and hiding keep their current outcomes: the switch goes back, with «
 
 - New, per company: the chosen subdomain. It's account data that applies on every device, and only the latest value is kept. The previous one isn't kept after a change.
 - Orders created from the catalog don't store the address the buyer came from.
-- The cart stays in the buyer's browser as today, separately on each host, and is never carried from one address to another. A cart whose order was confirmed is emptied (see Rules).
+- The cart stays in the buyer's browser as today. It belongs to the store (the company), not to the address: it's never carried from one address to another, and a cart left by one company is never shown in another company's store, even at the same address after the subdomain was released and taken. A cart whose order was confirmed is emptied (see Rules).
 - A typed but unsaved link isn't kept after leaving the screen.
 - What existed before: no company gets a subdomain automatically, and published catalogs without one become hidden at deploy time.
 
@@ -259,7 +264,7 @@ Publishing and hiding keep their current outcomes: the switch goes back, with «
 
    **Guardar link** stays visible throughout and is enabled only in the last case. Typing `Fantasio` shows `fantasio`. A 40-character paste is kept whole and shows «Usa hasta 30 caracteres.».
 5. A save request with `pay`, `fa`, `-fantasio`, `fan--tasio`, `café` or a name in use is rejected, whatever the client, and nothing is assigned.
-6. Two companies save `fantasio` at the same moment. Exactly one gets it. The other sees «Alguien acaba de tomar fantasio.yoyos.lat. Elige otro.» and keeps its previous link, or still has none.
+6. Two companies save `fantasio` at the same moment. Exactly one gets it. The other sees «Alguien acaba de tomar fantasio.yoyos.lat. Prueba con otro.» and keeps its previous link, or still has none.
 7. A company without a subdomain sees the switch disabled, with «Elige el link de tu catálogo para poder publicarlo.». A publish request sent from an outdated screen is rejected, and the switch goes back to off with that same message. Settings → Catálogo offers no link to share.
 8. Fantasio, published, changes to `fantasio-store`. The confirmation «¿Cambiar el link de tu catálogo?» appears. After **Cambiar link**:
    - `https://fantasio-store.yoyos.lat/` shows the catalog;
@@ -276,13 +281,14 @@ Publishing and hiding keep their current outcomes: the switch goes back, with «
 11. A seller whose suggested name is already in use by another company opens the card for the first time. The field is empty, with the help text, and no in-use message.
 12. With a link typed and not saved, tapping the header's **Guardar cambios** saves logo and theme only: the link remains pending, with its status line, and «Tu link» doesn't change.
 13. `https://app.yoyos.lat/catalogo/<Fantasio id>/productos/<id>?x=1` redirects permanently to `https://fantasio.yoyos.lat/productos/<id>?x=1`. With the catalog hidden, or without a subdomain, `/catalogo/<id>` shows «Catálogo no disponible».
-14. With Fantasio published, `https://fantasio.yoyos.lat/login` and `https://fantasio.yoyos.lat/settings` show the catalog's not-found page, and never the seller panel or a sign-in. With the catalog hidden, they show «Catálogo no disponible».
-15. `https://no-existe.yoyos.lat/`, the address of a hidden catalog, and a just-released subdomain all show the same «Catálogo no disponible», with no difference that reveals whether the company exists.
-16. Catalog pages on the brand host send `noindex` and `Referrer-Policy: no-referrer`.
-17. Cloudflare's wildcard certificate for `*.yoyos.lat` is verified, or configured, and a test subdomain opens over HTTPS with no certificate warning.
-18. After the deploy, a company that had its catalog published without a subdomain has it hidden, and no company has an active catalog that can be reached only through `/catalogo/:companyId`.
-19. On mobile, while typing in the field, the status line and **Guardar link** stay visible above the keyboard. The return key runs **Guardar link** when it's enabled. A screen reader announces «fantasio.yoyos.lat está disponible», but not «Revisando…».
-20. `docs/public-catalog.md` and `docs/checkout.md` describe the brand address, the field next to the switch, the wildcard SSL, the cart after confirming, and the reason. CI is green.
+14. With Fantasio published, `https://fantasio.yoyos.lat/login` and `https://fantasio.yoyos.lat/settings` show «No encontramos esta página» in Fantasio's theme, with its logo and name and **Volver al catálogo**, which opens `https://fantasio.yoyos.lat/`. They never show the seller panel, a sign-in or the generic «Página no encontrada». With the catalog hidden, they show «Catálogo no disponible».
+15. Company isolation on the brand host: `https://fantasio.yoyos.lat/productos/<id of another company's product>` shows «Este producto ya no está disponible». A **Continuar** on Fantasio's host with another company's variants creates no order. A cart left at `fantasio.yoyos.lat` by Fantasio's store isn't shown after another company takes `fantasio` and the buyer opens it again.
+16. `https://no-existe.yoyos.lat/`, the address of a hidden catalog, and a just-released subdomain all show the same «Catálogo no disponible», with no difference that reveals whether the company exists.
+17. Catalog pages on the brand host send `noindex` and `Referrer-Policy: no-referrer`.
+18. Cloudflare's wildcard certificate for `*.yoyos.lat` is verified, or configured, and a test subdomain opens over HTTPS with no certificate warning.
+19. After the deploy, a company that had its catalog published without a subdomain has it hidden, and no company has an active catalog that can be reached only through `/catalogo/:companyId`.
+20. On mobile, while typing in the field, the status line and **Guardar link** stay visible above the keyboard. The return key runs **Guardar link** when it's enabled. A screen reader announces «fantasio.yoyos.lat está disponible», but not «Revisando…».
+21. `docs/public-catalog.md` and `docs/checkout.md` describe the brand address, the field next to the switch, the wildcard SSL, the cart after confirming, and the reason. CI is green.
 
 ## Questions decided by the review gate
 
@@ -306,7 +312,11 @@ Decided unless objected:
 - A saved subdomain can be changed but not emptied. Hiding doesn't release it.
 - Disallowed characters make the value invalid, with a single reason picked by a fixed priority (including dedicated reasons for spaces and for a pasted `.yoyos.lat` or `https://`). Nothing is removed silently, and the input has no character limit.
 - One success state («Link guardado» right after saving, «Es tu link actual» otherwise).
-- **Copiar link** and **Ver catálogo** sit next to «Tu link» in the card while published. **Compartir** stays only in Settings → Catálogo.
+- **Copiar link** and **Ver catálogo** sit next to «Tu link» in the card while published and behave like those in Settings → Catálogo («Link copiado», announced politely). While hidden, «Tu link» is shown without them. **Compartir** stays only in Settings → Catálogo, whose buttons keep today's order.
+- Any other path on a published brand host shows the themed «No encontramos esta página» with **Volver al catálogo** (404).
+- The cart belongs to the store, not the address: a released and reused address never shows the previous store's cart.
+- Mobile builds older than this version can't publish without a subdomain and may fail to load the catalog settings; accepted, the seller updates the app.
+- A leading hyphen shows its reason from the first keystroke; «Tu link no se guardó.» stays until the next edit.
 - Enter or return runs **Guardar link** when it's enabled, and never submits the appearance draft.
 - On mobile, the field, the status line and **Guardar link** stay visible above the keyboard. **Ir a Apariencia de la tienda** opens the editor at the card, without opening the keyboard.
 - Screen readers hear only final verdicts, never «Revisando…».
@@ -314,7 +324,7 @@ Decided unless objected:
 - The real-time check runs after a 400 ms pause (initial value, adjustable). Only the answer for the latest value counts.
 - If the availability check fails, **Guardar link** stays enabled, and the save checks again.
 - The legacy redirect maps the grid and product pages, with the query kept. The cart has no page to redirect.
-- The brand host serves only the catalog. Any other path shows the catalog's not-found page, or «Catálogo no disponible» when the catalog isn't published.
+- The brand host serves only the catalog. Any other path shows the themed «No encontramos esta página» with **Volver al catálogo**, or «Catálogo no disponible» when the catalog isn't published.
 - The availability check answers only signed-in sellers. This is stated as limited protection, not something to rely on.
 - No company gets a subdomain automatically at deploy time.
 - No redirect from a previous subdomain and no waiting period before another store can reuse it. This is flagged as a deferred item with real risk, covering both old brand links and cached legacy redirects.
