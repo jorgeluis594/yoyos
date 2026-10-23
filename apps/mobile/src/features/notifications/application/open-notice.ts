@@ -46,14 +46,18 @@ export type PendingNotice = Readonly<{ kind: "open"; destination: NoticeDestinat
 export type NoticeInbox = Readonly<{
   /** Keeps the destination in memory (the newest wins) until a session can open it. */
   hold: (destination: NoticeDestination) => void;
+  /** Calls back after a destination is held; returns the unsubscribe. */
+  subscribe: (listener: () => void) => () => void;
   /** With no session the destination stays held; with one it is consumed: opened for its own company, Home otherwise. */
   settle: (session: NoticeSession) => PendingNotice | null;
 }>;
 
 export function createNoticeInbox(): NoticeInbox {
   let held: NoticeDestination | null = null;
+  const listeners = new Set<() => void>();
   return {
-    hold: (destination) => { held = destination; },
+    hold: (destination) => { held = destination; listeners.forEach((listener) => listener()); },
+    subscribe: (listener) => { listeners.add(listener); return () => { listeners.delete(listener); }; },
     settle: (session) => {
       if (held === null || session === null) return null;
       const destination = held;

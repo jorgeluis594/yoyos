@@ -1,8 +1,10 @@
 import * as Notifications from "expo-notifications";
 import * as SecureStore from "expo-secure-store";
 import { Platform } from "react-native";
+import { createNoticeInbox } from "@mobile/features/notifications/application/open-notice";
 import { createNoticesController } from "@mobile/features/notifications/application/notices-controller";
 import { createExpoNotificationsGateway } from "@mobile/features/notifications/infrastructure/expo-notifications-gateway";
+import { createSellerNoticeApi } from "@mobile/features/notifications/infrastructure/seller-notice-api";
 import { createPushDeviceApi } from "@mobile/features/notifications/infrastructure/push-device-api";
 import { createNoticeStore } from "@mobile/features/notifications/infrastructure/push-registration-store";
 import { confirmNoticePrompt } from "@mobile/features/notifications/presentation/notice-permission-prompt";
@@ -28,6 +30,10 @@ export const notices = createNoticesController({
   locale: () => (i18n.language === "pt-BR" ? "pt-BR" : "es"),
   confirm: () => confirmNoticePrompt((key) => i18n.t(key)),
 });
+
+/** Notices the seller tapped and no session has opened yet. */
+export const noticeInbox = createNoticeInbox();
+export const resolveNoticeOrder = createSellerNoticeApi(request).resolveOrder;
 
 export const loadCatalogReadiness = createCatalogReadinessApi(request);
 

@@ -8,6 +8,7 @@ export const translations = {
     catalogHintNoProducts: 'Aún no tienes productos. Agrégalos para que Yoyos arme pedidos con los mensajes de tus clientes',
     catalogHintNoSearchablePhotos: 'Yoyos todavía no puede reconocer fotos de tus productos. Agrega fotos en Productos; si ya las agregaste, estarán listas en unos minutos',
     catalogHintGoToProducts: 'Ir a Productos',
+    noticeOpenFailed: 'No se pudo abrir el aviso. Inténtalo de nuevo',
   },
   'pt-BR': {
     noticesPromptTitle: 'Avisos de mensagens',
@@ -18,5 +19,6 @@ export const translations = {
     catalogHintNoProducts: 'Você ainda não tem produtos. Adicione-os para que o Yoyos monte pedidos com as mensagens dos seus clientes',
     catalogHintNoSearchablePhotos: 'O Yoyos ainda não consegue reconhecer fotos dos seus produtos. Adicione fotos em Produtos; se você já adicionou, elas estarão prontas em alguns minutos',
     catalogHintGoToProducts: 'Ir para Produtos',
+    noticeOpenFailed: 'Não foi possível abrir o aviso. Tente novamente',
   },
 } as const;

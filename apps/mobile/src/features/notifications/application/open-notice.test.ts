@@ -92,3 +92,13 @@ test("a later destination replaces the held one", () => {
   inbox.hold(destination("order"));
   expect(inbox.settle({ companyId: company })).toEqual({ kind: "open", destination: destination("order") });
 });
+
+test("tells subscribers when a destination is held", () => {
+  const inbox = createNoticeInbox();
+  const listener = jest.fn();
+  const stop = inbox.subscribe(listener);
+  inbox.hold(destination("message"));
+  stop();
+  inbox.hold(destination("order"));
+  expect(listener).toHaveBeenCalledTimes(1);
+});
