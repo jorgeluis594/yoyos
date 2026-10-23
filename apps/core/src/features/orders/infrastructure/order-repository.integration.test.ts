@@ -1852,3 +1852,43 @@ test("derives source whatsapp for chat orders and manual otherwise", async () =>
     });
   } finally { await f.cleanup(); }
 });
+
+test("rejects a mentioned price with only an amount or only units", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const id = randomUUID();
+      expect((await immediateSale({ id, items: [{ variantId: f.variantIds[0], quantity: 1 }] }, f)).success).toBe(true);
+      const item = await prisma.orderItem.findFirstOrThrow({ where: { orderId: id } });
+      const update = (data: Prisma.OrderItemUpdateInput) => prisma.orderItem.update({ where: { id: item.id }, data });
+      await expect(update({ mentionedPriceAmount: new Prisma.Decimal("7.50") })).rejects.toThrow();
+      await expect(update({ mentionedPriceUnits: 2 })).rejects.toThrow();
+      await expect(update({ mentionedPriceAmount: new Prisma.Decimal("0"), mentionedPriceUnits: 1 })).rejects.toThrow();
+      await expect(update({ mentionedPriceAmount: new Prisma.Decimal("7.50"), mentionedPriceUnits: 0 })).rejects.toThrow();
+      await expect(update({ mentionedPriceAmount: new Prisma.Decimal("7.50"), mentionedPriceUnits: 100 })).rejects.toThrow();
+      await update({ mentionedPriceAmount: new Prisma.Decimal("7.50"), mentionedPriceUnits: 99 });
+      expect(await prisma.orderItem.findUniqueOrThrow({ where: { id: item.id } })).toMatchObject({ mentionedPriceUnits: 99 });
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("keeps the chat message outcome of one company invisible to another", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  try {
+    const chat = await chatFixture(a);
+    await withTenantIsolation(a.companyId, async () => {
+      await prisma.chatMessageOutcome.create({ data: { messageId: chat.messageId, outcomes: [{ kind: "no_intent" }] } });
+      expect(await prisma.chatMessageOutcome.count()).toBe(1);
+      await prisma.chatMessage.update({ where: { companyId_id: { companyId: a.companyId, id: chat.messageId } }, data: { registeredBySessionId: "session-1" } });
+    });
+    await withTenantIsolation(b.companyId, async () => {
+      expect(await prisma.chatMessageOutcome.count()).toBe(0);
+      await expect(prisma.chatMessageOutcome.create({ data: { companyId: a.companyId, messageId: chat.messageId, outcomes: [] } })).rejects.toThrow();
+    });
+    await withTenantIsolation(a.companyId, async () => {
+      await expect(prisma.chatMessage.deleteMany()).rejects.toThrow();
+      await prisma.chatMessageOutcome.deleteMany();
+    });
+  } finally { await chatCleanup(a, b); await a.cleanup(); await b.cleanup(); }
+});

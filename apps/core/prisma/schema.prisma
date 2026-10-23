@@ -19,6 +19,7 @@ model User {
   sessions      Session[]
   accounts      Account[]
   orders        Order[]
+  pushDevices   PushDevice[]
 
   @@unique([companyId, id])
 
@@ -35,9 +36,25 @@ model Session {
   userAgent String?
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  pushDevice PushDevice?
 
   @@index([userId])
   @@map("session")
+}
+
+model PushDevice {
+  id        String   @id @default(uuid()) @db.Uuid
+  sessionId String   @unique
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  token     String   @unique
+  platform  String
+  locale    String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId])
 }
 
 model Account {
@@ -101,6 +118,7 @@ model Company {
   orders Order[]
   customers Customer[]
   orderMessages OrderMessage[]
+  chatMessageOutcomes ChatMessageOutcome[]
   orderBuyers OrderBuyer[]
   orderItems OrderItem[]
   payments Payment[]
@@ -450,7 +468,9 @@ model ChatMessage {
   image               Image?                    @relation(fields: [companyId, imageId], references: [companyId, id])
   uploadedByUserId    String
   eventDispatchedAt   DateTime?                 @db.Timestamp(3)
+  registeredBySessionId String?
   orderMessages       OrderMessage[]
+  outcome             ChatMessageOutcome?
 
   @@unique([companyId, id])
   @@unique([companyId, chatId, whatsappMessageId])
@@ -527,9 +547,23 @@ model OrderItem {
   quantity BigInt
   unitPrice Decimal @db.Decimal(11, 2)
   subtotal Decimal @db.Decimal(15, 2)
+  mentionedPriceAmount Decimal? @db.Decimal(11, 2)
+  mentionedPriceUnits Int?
 
   @@unique([companyId, orderId, variantId])
   @@index([companyId, variantId])
+}
+
+model ChatMessageOutcome {
+  companyId    String      @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company      Company     @relation(fields: [companyId], references: [id])
+  messageId    String      @db.Uuid
+  message      ChatMessage @relation(fields: [companyId, messageId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  outcomes     Json
+  noticeSentAt DateTime?   @db.Timestamptz(3)
+  createdAt    DateTime    @default(now()) @db.Timestamptz(3)
+
+  @@id([companyId, messageId])
 }
 
 model OrderMessage {
