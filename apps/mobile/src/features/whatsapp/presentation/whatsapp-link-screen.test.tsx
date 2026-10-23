@@ -133,6 +133,7 @@ function fakeController(permission: "granted" | "denied" | "undetermined") {
     promptOnConnected: async () => { state.prompts++; return state.permission; },
     enable: async () => { state.enables++; state.permission = "granted"; return state.permission; },
     sync: async () => "unchanged",
+    flushPending: async () => false,
     onTokenChange: () => () => {},
     decideForeground: async () => "show",
   };
@@ -165,7 +166,7 @@ test("does not ask for permission after an expired QR", async () => {
   expect(state.prompts).toBe(0);
 });
 
-test("shows the notices-off banner and opens settings after a denial", async () => {
+test("shows the notices-off banner and removes it once the permission is granted", async () => {
   const { controller, state } = fakeController("undetermined");
   mockStatus = linked({ connection: "disconnected" });
   const screen = renderWithNotices(controller);
