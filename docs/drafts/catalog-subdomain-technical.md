@@ -158,7 +158,7 @@ It is one `systemPrisma.$queryRaw` call to `resolve_catalog_subdomain`, and it b
   - `readCatalogSettings`
   - `saveSubdomain(companyId, subdomain): Promise<Result<null, SaveSubdomainError>>`. It fails with `SUBDOMAIN_TAKEN` on the unique violation.
 - **output:** `CatalogSettings` (after the save) plus `change: "unchanged" | "first" | "replaced"`.
-- **errors:** `INVALID_SUBDOMAIN` (with `reason`), `SUBDOMAIN_RESERVED`, `SUBDOMAIN_TAKEN`, `PERSISTENCE_UNAVAILABLE`.
+- **errors:** `INVALID_SUBDOMAIN` (with `reason`), `SUBDOMAIN_RESERVED`, `SUBDOMAIN_TAKEN`, `PERSISTENCE_UNAVAILABLE`. On the wire, the reason becomes the envelope's `issues` entry (section 8).
 - **flow:**
   1. Parse the subdomain. Values under 3 characters fail with `too_short`. The server never lowercases for the client.
   2. Read the current settings. If the value equals the current subdomain, return `unchanged`, with no write. This makes a retry after a lost response safe, and it lets a company keep a subdomain that became reserved.
@@ -381,23 +381,37 @@ export const subdomainAvailabilitySchema = z.discriminatedUnion("status", [
 ]);
 
 export const saveCatalogSubdomainSchema = z.strictObject({ subdomain: z.string().max(200) });
+/** The repository's API error envelope ({ code, error, issues? } sent by apiError), narrowed to the catalog routes. */
+const subdomainIssueSchema = z.object({ field: z.literal("subdomain"), reason: subdomainFormatReasonSchema }).loose();
 export const catalogSettingsErrorSchema = z.discriminatedUnion("code", [
-  z.strictObject({ code: z.literal("INVALID_SUBDOMAIN"), reason: subdomainFormatReasonSchema }),
-  z.strictObject({ code: z.enum(["SUBDOMAIN_RESERVED", "SUBDOMAIN_TAKEN", "SUBDOMAIN_REQUIRED", "INVALID_CATALOG_SETTINGS", "RATE_LIMITED", "SERVICE_UNAVAILABLE"]) }),
-]);
+  z.object({ code: z.literal("INVALID_SUBDOMAIN"), error: z.string(), issues: z.tuple([subdomainIssueSchema]) }),
+  z.object({
+    code: z.enum(["SUBDOMAIN_RESERVED", "SUBDOMAIN_TAKEN", "SUBDOMAIN_REQUIRED", "INVALID_CATALOG_SETTINGS", "UNSUPPORTED_MEDIA_TYPE", "RATE_LIMITED", "SERVICE_UNAVAILABLE", "UNAUTHENTICATED", "COMPANY_REQUIRED"]),
+    error: z.string(),
+    issues: z.array(z.object({ field: z.string(), reason: z.string() }).loose()).optional(),
+  }),
+]).readonly();
 ```
+
+**Error envelope.** The catalog routes send every error through the existing `apiError(response, status, code, message, issues?)` in `api-auth-middleware.ts`, so the body is the repository's envelope `{ code, error, issues? }`, validated by `apiErrorResponseSchema` before sending. There is no catalog-specific sender and no new field:
+- The format reason of `INVALID_SUBDOMAIN` travels in the envelope's existing `issues` field, as `issues: [{ field: "subdomain", reason }]`. A top-level `reason` field is not added: `apiErrorResponseSchema` is a plain `z.object`, so `apiError` would silently strip it.
+- T1 adds `INVALID_SUBDOMAIN`, `SUBDOMAIN_RESERVED`, `SUBDOMAIN_TAKEN`, `SUBDOMAIN_REQUIRED` and `RATE_LIMITED` to `apiErrorCodeSchema` in `shared/contracts/registration.ts`. Otherwise `apiErrorResponseSchema.parse` inside `apiError` throws on them. `INVALID_CATALOG_SETTINGS`, `UNSUPPORTED_MEDIA_TYPE` and `SERVICE_UNAVAILABLE` already exist.
+- `catalogSettingsErrorSchema` is a non-strict `z.object` with `error: z.string()`, like `deliverySettingsApiErrorSchema` and `quotationApiErrorSchema`, so it accepts exactly what `apiError` sends.
+- `shared/contracts/catalog.ts` exports `subdomainErrorReason(error)`, which returns the reason of an `INVALID_SUBDOMAIN` error, so neither client reads `issues[0]` itself.
+- **Web** (`catalog-link-client.ts`): a non-2xx body below 500 is parsed with `catalogSettingsErrorSchema` and returned as `answered`. A body that fails it is `no_response`.
+- **Mobile** (`catalog-settings-api.ts`): the shared `api-client` already requires `{ code: string, error: string }` on errors. It returns `API_ERROR` with `http.body` for the new codes, and `RATE_LIMITED` with `http.body` for 429. `catalog-settings-api.ts` parses `http.body` with `catalogSettingsErrorSchema`. `api-client.ts` and `transport-error.ts` do not change.
 
 | Route | Success | Errors |
 | --- | --- | --- |
 | `GET /api/catalog/settings` | 200 `catalogSettingsSchema` | 503 `SERVICE_UNAVAILABLE` |
 | `PUT /api/catalog/settings` `{ published }` | 200 settings | 400 `INVALID_CATALOG_SETTINGS`, 409 `SUBDOMAIN_REQUIRED`, 415, 503 |
 | `GET /api/catalog/subdomain-availability?value=` | 200 `subdomainAvailabilitySchema` (also for `invalid` and `reserved`: a verdict, not an error) | 400 `INVALID_CATALOG_SETTINGS` (missing or over 200 characters), 429 `RATE_LIMITED`, 503 |
-| `PUT /api/catalog/subdomain` `{ subdomain }` | 200 settings (same value: 200, no change) | 422 `INVALID_SUBDOMAIN` + `reason`, 422 `SUBDOMAIN_RESERVED`, 409 `SUBDOMAIN_TAKEN`, 400 `INVALID_CATALOG_SETTINGS` (body that fails the schema), 415, 503 |
+| `PUT /api/catalog/subdomain` `{ subdomain }` | 200 settings (same value: 200, no change) | 422 `INVALID_SUBDOMAIN` + `issues: [{ field: "subdomain", reason }]`, 422 `SUBDOMAIN_RESERVED`, 409 `SUBDOMAIN_TAKEN`, 400 `INVALID_CATALOG_SETTINGS` (body that fails the schema), 415, 503 |
 
 - **Statuses:** a well-formed request that a business rule rejects (format or reserved) answers 422. A malformed body answers 400. A race lost to another company answers 409.
 - **A `503` on `PUT /api/catalog/subdomain`:** both clients treat it as a save without an answer and re-read with `GET /api/catalog/settings`. A `PERSISTENCE_UNAVAILABLE` can follow a commit whose answer was lost, so the server cannot vouch for either outcome. Re-reading is safe, because the save is idempotent.
 - **Access:** every route requires the seller session or bearer token with a company (the existing `requireApiCompany`), and answers `Cache-Control: no-store`.
-- **Validation:** core validates its responses against the schemas before sending them. Mobile validates every response and error body with them.
+- **Validation:** core validates its responses against the schemas before sending them, and its errors with `apiErrorResponseSchema` (inside `apiError`). Both clients validate every response and error body with the shared schemas.
 - The legacy `url` meaning (`/catalogo/:id`) is gone.
 
 **Storefront resource route** on the brand host: `/carrito`, a React Router route (not `/api`), web-only. Its schemas live in `features/catalog/presentation/cart-schemas.ts`:
@@ -433,7 +447,7 @@ No domain event. Cross-feature capabilities:
 | File | Change |
 | --- | --- |
 | `src/features/catalog/domain/` (new `catalog-link.ts`) | Screen model `CatalogLink = { published; subdomain \| null; url \| null; domain; suggestion \| null }`. `linkFieldState(value, saved, verdict)` (pure) maps the typed value, the saved subdomain and the latest verdict to the status line state of the product table. It reuses `parseCatalogSubdomain` and `isReservedCatalogSubdomain`, and says whether a server check is needed (only valid, non-reserved values that differ from the saved one). |
-| `src/features/catalog/infrastructure/catalog-settings-api.ts` | `get()` and `setPublished()` parse the new schema. New `checkSubdomain(value)` and `saveSubdomain(subdomain)`. Error bodies are parsed with `catalogSettingsErrorSchema` into `{ code, reason? }`. A request without an answer is `{ kind: "no_response" }`; a failure before sending is `{ kind: "not_sent" }`. |
+| `src/features/catalog/infrastructure/catalog-settings-api.ts` | `get()` and `setPublished()` parse the new schema. New `checkSubdomain(value)` and `saveSubdomain(subdomain)`. Error bodies come from `TransportError.http.body` (`API_ERROR` or `RATE_LIMITED`) and are parsed with `catalogSettingsErrorSchema`; the reason comes from `subdomainErrorReason`.<br>**Not sent versus no answer:** the shared `api-client` returns `NETWORK_ERROR` in both cases, so before a save `catalog-settings-api.ts` checks `expo-network` `getNetworkStateAsync()` (already used by `pending-order-sync-provider.tsx`). `isConnected === false` returns `{ kind: "not_sent" }` without sending.<br>Every other `NETWORK_ERROR`, `INVALID_RESPONSE`, `SERVER_ERROR`, `SERVICE_UNAVAILABLE` (503), or an error body that fails the schema, returns `{ kind: "no_response" }`. This is the safe default, because it re-reads. If the network state cannot be read, the save is sent. |
 | `src/features/catalog/composition.ts` | Exposes the two new operations. |
 | `src/features/catalog/presentation/hooks/use-catalog-link.ts` (new) | 400 ms debounce (initial value, adjustable). Drops the verdict on every edit. Calls the server only when `linkFieldState` says so. An `AbortController` and a request counter keep only the latest answer. `RATE_LIMITED` and network failures map to the check-failed state. After a save without an answer, it re-reads the settings and decides saved, not saved, or in doubt. It reports `hasUnsavedLink` (edited and different from the initial value). |
 | `src/features/catalog/presentation/catalog-publication-card.tsx` | Two groups: the link (field with suffix `.{domain}`, status line, **Guardar link**, «Tu link», **Copiar link** and **Ver catálogo** while published) and the publication (switch disabled without a subdomain). Change confirmation with **Cambiar link** in destructive style. `autoCapitalize="none"`, `autoCorrect={false}`, `keyboardType="url"`, `returnKeyLabel`/`returnKeyType` set to «Guardar». Final verdicts announced with `AccessibilityInfo.announceForAccessibility`. |
@@ -521,7 +535,7 @@ Duplicate policy:
 | `app/lib/catalog-cart-storage.ts` | `continued` in the cart schema (optional, default `false`). `withLines` drops it when it rotates the id. `markContinued(companyId, orderId)`. `clearCartForOrder` kept, now called by the storefront when the check answers `confirmed`. |
 | `app/routes/checkout.tsx` | The `clearCartForOrder` effect is removed. |
 | `app/lib/catalog-link-client.ts` (new, + test) | T2. Plain-`fetch` client for check, save and re-read (section 2, "Web transport for the link"). |
-| `app/components/catalog-publication-card.tsx`, `app/routes/store-appearance-settings.tsx`, `app/components/store-appearance-editor-actions.ts`, `app/routes/catalog-settings.tsx`, `app/locales.ts` | Seller UI (T2):<br>- link group, using `catalog-link-client.ts`; the editor's loader, action and `shouldRevalidate` gain only the settings fields the card seeds from;<br>- change confirmation;<br>- unsaved-link leave descriptions;<br>- Settings → Catálogo text and states;<br>- scroll to the card (`#catalog-publication`). |
+| `app/components/catalog-publication-card.tsx`, `app/routes/store-appearance-settings.tsx`, `app/components/store-appearance-editor-actions.ts`, `app/routes/catalog-settings.tsx`, `app/locales.ts` | Seller UI (T2):<br>- link group, using `catalog-link-client.ts`; the editor's loader, action and `shouldRevalidate` gain only the settings fields the card seeds from. The loader reads `readCatalogSettings` instead of `readPublished`. While the company has no subdomain, this adds one suggestion probe (one indexed round trip) per load and per revalidation after **Guardar cambios**. Accepted: it is needed to show the suggestion, and it stops once a link is saved;<br>- change confirmation;<br>- unsaved-link leave descriptions;<br>- Settings → Catálogo text and states;<br>- scroll to the card (`#catalog-publication`). |
 
 ### Config and infrastructure files
 
@@ -658,6 +672,7 @@ Duplicate policy:
 - `test("a save without an answer whose re-read also fails keeps the editor, the draft and the typed link, with the in-doubt message and Reintentar")`
 - `test("a save answered 503 re-reads the settings instead of showing a save error")`
 - `test("saving the link does not revalidate the editor loaders or re-read the preview products")`
+- `test("the editor loader makes the suggestion probe only while the company has no subdomain")`
 - `test("set-publication keeps not revalidating the editor loaders")`
 - `test("leaving with only a pending link, only a draft, or both shows the matching description")`
 - `test("an untouched suggestion and a link edited back to its initial value ask nothing on leave")`
@@ -686,6 +701,7 @@ Duplicate policy:
 - `test("availability API answers available, current, in_use, reserved and invalid with reason")`
 - `test("availability API answers 429 RATE_LIMITED after the per-user limit")`
 - `test("subdomain API saves, repeats the same value as success, and answers 422 for invalid and reserved and 409 for taken")`
+- `test("the real 422 INVALID_SUBDOMAIN, 422 SUBDOMAIN_RESERVED, 409 SUBDOMAIN_TAKEN, 409 SUBDOMAIN_REQUIRED and 429 RATE_LIMITED bodies parse with apiErrorResponseSchema and catalogSettingsErrorSchema, and subdomainErrorReason returns the format reason")`
 - `test("publishing without a subdomain answers 409 SUBDOMAIN_REQUIRED and keeps the catalog hidden")`
 - `test("catalog settings routes reject requests without a session")`
 
@@ -717,7 +733,9 @@ Duplicate policy:
 
 `apps/mobile/src/features/catalog/infrastructure/catalog-settings-api.test.ts`:
 - `test("parses settings, availability and subdomain errors with the shared contract")`
-- `test("distinguishes a save not sent from a save without an answer")`
+- `test("reads taken, reserved and invalid with its reason from the TransportError http body")`
+- `test("returns not_sent without sending when expo-network reports no connection")`
+- `test("returns no_response for NETWORK_ERROR, INVALID_RESPONSE, 5xx and an error body that fails the schema")`
 
 `apps/mobile/src/features/catalog/presentation/catalog-publication-card.test.tsx`:
 - `test("prefills the available suggestion and keeps the switch disabled until the link is saved")`
@@ -763,7 +781,7 @@ Duplicate policy:
 - **`*.localhost` in E2E.** Resolution in Chromium is native. The `--host-resolver-rules` flag removes the dependency on IPv6 `::1` versus `127.0.0.1`.
 - **Physical-device mobile dev.** A phone on a LAN IP cannot open `*.localhost`. A developer who needs it sets `CATALOG_BASE_URL=http://<ip>.nip.io:3000`. This is documentation only, not code.
 - **Static assets.** `/assets/*`, fonts and the favicon are served by `express.static` before the middleware on every host, which the brand pages need.
-- **Editor preview.** The store-appearance preview iframe stays on the app host and renders catalog components without links. Verify that its product cards do not link to `/catalogo/:id`.
+- **Editor preview.** The store-appearance preview iframe stays on the app host and renders catalog components without links. T4 verifies that its product cards do not link to `/catalogo/:id`, because T4 owns `catalog-sections.tsx` and removes the prefixes (T4 acceptance criterion 10).
 - **In-memory limiters.** They reset per process and are per instance, the same as `allowCatalogOrder` today. Acceptable for one `web` instance.
 - **Per-IP key behind Cloudflare** (known limitation, deferred with real risk in section 2). After the deploy, check once which address `req.ip` holds on a brand-host request, for example with a temporary debug log of whether it falls in a Cloudflare range, and record it in the pull request.
 - **Migration as one file.** `add_catalog_subdomain` deliberately keeps the column, the constraints and the function in one file with explicit `BEGIN`/`COMMIT`: hiding the catalogs and adding the `CHECK` must be atomic. This departs from the repository habit of a separate SQL-only migration for each `SECURITY DEFINER` function; those migrations carry no `BEGIN`/`COMMIT`. Prisma runs a `migration.sql` that contains a function body as one script (repository memory). T1 verifies this with `prisma migrate dev` on a clean database. It must not split the file.
@@ -832,7 +850,8 @@ File ownership in wave 2. Every file a task edits or creates is listed. A file n
 
 **Scope:**
 - Migration `add_catalog_subdomain` (section 7) and `schema.prisma`.
-- `shared/catalog-subdomain.ts` and the new `shared/contracts/catalog.ts`.
+- `shared/catalog-subdomain.ts` and the new `shared/contracts/catalog.ts`, including `catalogSettingsErrorSchema` and `subdomainErrorReason`.
+- The five new codes in `apiErrorCodeSchema` (`shared/contracts/registration.ts`); the catalog routes send errors through `apiError` (section 8, "Error envelope").
 - Use cases 5.1–5.4, and the repository functions including `resolveSubdomain`.
 - `storefront-config.ts`, with `storeUrl` and `storeDomain`.
 - `toCatalogSettingsResponse`.
@@ -879,6 +898,8 @@ File ownership in wave 2. Every file a task edits or creates is listed. A file n
 
 **Depends on:** nothing.
 
+Note on the web typecheck: `catalogSettingsSchema` makes `url` nullable. `app/routes/catalog-settings.tsx` uses `settings.url` as a `string` (copy, input value, `href`), so web would fail to typecheck. T1 makes the minimal type adjustment there, rendering nothing new when `url` is null, with no UI change. It does the same in `store-appearance-settings.tsx` and `catalog-publication-card.tsx` if they read `url`. T2 then owns those files. The waves are sequential, so there is no file conflict.
+
 Note on the mobile typecheck: T1 changes `catalogSettingsSchema`. If `apps/mobile` fails to typecheck against it, T1 makes the minimal type adjustment in `apps/mobile/src/features/catalog/infrastructure/catalog-settings-api.ts`, with `url` nullable and no UI change. T3 then owns that file.
 
 ### T2. Web seller UI
@@ -887,7 +908,7 @@ Note on the mobile typecheck: T1 changes `catalogSettingsSchema`. If `apps/mobil
 - The web **Publicar catálogo** card with both groups and every status line state (product Screens table).
 - The availability check:
   - invalid, reserved and current decided locally with the shared rules;
-  - the 400 ms debounce, then a latest-only `GET /api/catalog/subdomain-availability` through `catalog-link-client.ts` (an `AbortController` per value);
+  - the 400 ms debounce comes before the `fetch`: no request is sent per keystroke. Then a latest-only `GET /api/catalog/subdomain-availability` goes through `catalog-link-client.ts`, with an `AbortController` per value. Aborting only stops the browser's wait; a sent request still counts against the per-user limit;
   - 429 and `no_response` shown as the check-failed state.
 - Enter saves only when enabled and never submits the draft.
 - The save through `catalog-link-client.ts` (`PUT /api/catalog/subdomain`), never through the editor action. The card keeps the returned settings, and nothing revalidates.
@@ -970,6 +991,7 @@ Note on the mobile typecheck: T1 changes `catalogSettingsSchema`. If `apps/mobil
 7. After confirming on `127.0.0.1:4173/checkout/...`, returning to Fantasio's host shows the empty cart. The same products create a new order number.
 8. A cart that was never continued sends no `check_order`. Twenty-one storefront page views with a continued cart do not make **Continuar** answer 429.
 9. A published storefront request reads the store once (one resolver call, no `readStore`).
+10. The store-appearance editor preview renders product cards with no link to `/catalogo/:id`.
 
 **Tests:**
 - Unit: `store-host.test.ts`, `resolve-storefront.test.ts`, `check-cart-order.test.ts`, the `check_order` title of `rate-limit.test.ts`, `storefront.test.ts`, `catalog-cart-storage.test.ts`, `catalog-cart.test.tsx`.
@@ -1048,12 +1070,22 @@ No agent has Cloudflare or Coolify credentials. Decided by the review gate: Clou
      - brand hosts get the origin certificate.
 
      If `app.yoyos.lat` fails under strict, go back to Full and report it.
+   - **Let's Encrypt renewal of `app.yoyos.lat`.** Under Full (strict), `app.yoyos.lat` depends on its Let's Encrypt certificate renewing at the origin. Today that works through the Cloudflare proxy with HTTP-01 on Traefik's `http` entrypoint. A broken renewal shows up weeks later, as a 526 on the whole app host, not at deploy time. Right after turning on **Always Use HTTPS**, check:
+
+     ```sh
+     curl -sSI http://app.yoyos.lat/.well-known/acme-challenge/x | grep -iE '^(HTTP|location)'
+     ```
+
+     - A 404 with no `location` means the challenge path reaches the origin over HTTP, so renewal keeps working.
+     - A 301 or 308 to `https://` means the edge redirects the challenge. Roll back: turn **Always Use HTTPS** off (the step-2 HTTP router still redirects brand hosts at the origin), keep Full, and report it. The fallback is then to serve `app.yoyos.lat` with the step-1 origin certificate as well (it covers `*.yoyos.lat`), removing the Let's Encrypt dependency. That is a founder decision, so it is not done here.
+   - **Rollback for the whole step:** SSL/TLS → Overview → back to Full, and **Always Use HTTPS** off. Both take effect within seconds and need no deploy.
    - Check that the redirect rules for the apex (`yoyos.lat` → `app.yoyos.lat` for core paths) and for `www` match exact hostnames (`http.host eq "yoyos.lat"`), not the wildcard.
 6. **Verify:**
 
    ```sh
    dig +short fantasio.yoyos.lat                        # Cloudflare IPs (not the VPS IP)
    curl -sSI http://no-existe.yoyos.lat/ | grep -iE '^(HTTP|location)'                            # 301/308, location https://no-existe.yoyos.lat/
+   curl -sSI http://app.yoyos.lat/.well-known/acme-challenge/x | grep -iE '^(HTTP|location)'      # 404, no location (Let's Encrypt renewal path)
    curl -sS -o /dev/null -w '%{http_code} %{ssl_verify_result}\n' https://no-existe.yoyos.lat/   # 404 0
    curl -sS https://no-existe.yoyos.lat/ | grep -c 'Catálogo no disponible'                       # 1
    curl -sSI https://<published>.yoyos.lat/ | grep -iE '^(HTTP|referrer-policy)'                 # 200, no-referrer
@@ -1133,8 +1165,8 @@ The founder confirms these in the final pull request.
 
   The checkout no longer touches the cart. Order id and number never reach brand-host logs.
 - **Continuar** navigates to the full checkout URL on the app host.
-- The availability check is a separate read-only endpoint. It does one lookup and has a per-user limit (60 per minute, adjustable), and its 429 shows the check-failed state. Clients never call it for values the shared rules decide. The save endpoint is idempotent for the same value. Business rejections answer 422 and a lost race 409. Core computes the suggestion.
-- The web link group calls the JSON API with plain `fetch` through `app/lib/catalog-link-client.ts`, for the check, the save and the in-doubt re-read (`GET /api/catalog/settings`). It never uses a route loader, action, fetcher or revalidation, so network failures stay inside the card. The client returns `not_sent` (`navigator.onLine === false`), `no_response` (rejection, timeout, `5xx` or a bad body) or `answered`. A `503` on a save is treated as no answer and re-read on web and mobile. `set-publication` keeps its action and skips revalidation. Mobile uses the same API and shared schemas.
+- The availability check is a separate read-only endpoint. It does one lookup and has a per-user limit (60 per minute, adjustable), and its 429 shows the check-failed state. Clients never call it for values the shared rules decide. The save endpoint is idempotent for the same value. Business rejections answer 422 and a lost race 409. Errors use the repository envelope `{ code, error, issues? }` through `apiError`. The format reason travels as `issues: [{ field: "subdomain", reason }]`. The new codes are added to `apiErrorCodeSchema`, and `catalogSettingsErrorSchema` parses that envelope on both clients. Core computes the suggestion; the editor loader pays one suggestion probe only while no link is saved.
+- The web link group calls the JSON API with plain `fetch` through `app/lib/catalog-link-client.ts`, for the check, the save and the in-doubt re-read (`GET /api/catalog/settings`). It never uses a route loader, action, fetcher or revalidation, so network failures stay inside the card. The client returns `not_sent` (`navigator.onLine === false`), `no_response` (rejection, timeout, `5xx` or a bad body) or `answered`. A `503` on a save is treated as no answer and re-read on web and mobile. On mobile, "not sent" is `expo-network` `isConnected === false` before sending; every other transport failure is no answer. The availability debounce comes before the `fetch`. `set-publication` keeps its action and skips revalidation. Mobile uses the same API and shared schemas.
 - The settings response changes shape. Old mobile builds stop reading it (accepted by the product).
 - Logs never include the subdomain value, the `Host` header, the order id or the order number.
 - Deferred: the `refreshCart` image N+1, as a follow-up outside this work.
