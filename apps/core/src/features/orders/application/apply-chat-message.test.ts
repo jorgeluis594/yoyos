@@ -774,7 +774,7 @@ describe("applyChatMessage: text tools", () => {
       "quita la gorra": { decision: decided("remove_item", removal("I2")) },
     };
     const target = openWith(line(1, poloM));
-    if (target.kind === "open") target.productIds.set(cap.variantId, productCap);
+    if (target.kind === "open") (target.productIds as Map<VariantId, ProductId>).set(cap.variantId, productCap);
     const h = harness({ target, identification: visual(productCap), decision: () => texts[current]!.decision, extraction: () => texts[current]!.extraction ?? [],
       overrides: {
         findSourceMessage: async (key) => ok(current === "a 20 soles" ? photoMessage({ id: key, caption: current }) : textMessage(current, { id: key })),
@@ -783,7 +783,7 @@ describe("applyChatMessage: text tools", () => {
           productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice })) }),
       } });
     function items() { return [...h.store.orders.values()][0]?.items ?? []; }
-    const noteOf = (variantId: VariantId) => { const item = items().find((candidate) => candidate.variantId === variantId); return item && mentionedPriceNote(item); };
+    const noteOf = (variantId: VariantId) => { const item = items().find((candidate) => candidate.variantId === variantId); return item && mentionedPriceNote({ unitPrice: item.unitPrice, mentionedPrice: item.mentionedPrice ?? null }); };
     await conversation(h, { "a 20 soles": texts["a 20 soles"]! });
     expect(noteOf(cap.variantId)).toEqual({ amount: money(20).amount, units: 1 });
     expect([...h.store.orders.values()][0]!.total).toEqual(money(60));
