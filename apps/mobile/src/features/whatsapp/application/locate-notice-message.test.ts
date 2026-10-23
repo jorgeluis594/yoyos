@@ -3,7 +3,7 @@ import type { Result } from "@shared/result";
 import type { CompanyId, CoreMessageId, WhatsAppChatId } from "@mobile/features/whatsapp/domain/ids";
 import type { StoredMessage } from "@mobile/features/whatsapp/domain/stored-message";
 import type { MessageStore, StoreError } from "@mobile/features/whatsapp/application/ports";
-import { locateNoticeMessage, noticeFirstQueryLimit, noticePageSize } from "@mobile/features/whatsapp/application/locate-notice-message";
+import { locateNoticeMessage, noticeFirstQueryLimit, noticePageSize, type NoticeSearchProgress } from "@mobile/features/whatsapp/application/locate-notice-message";
 
 const company = "c1" as CompanyId;
 const chat = "2@lid" as WhatsAppChatId;
@@ -64,4 +64,27 @@ test("returns the storage failure of the lookup or of a page", async () => {
   const paging = fakeStore(2600, 100);
   (paging.store.listMessages as jest.Mock).mockResolvedValueOnce(err(failure));
   expect(await locateNoticeMessage(paging.store, company, chat, core)).toEqual(err(failure));
+});
+
+test("reports what is loaded after each query that did not reach the message", async () => {
+  const { store } = fakeStore(2600, 100);
+  const loaded: number[] = [];
+  await locateNoticeMessage(store, company, chat, core, { onProgress: (progress) => loaded.push(progress.messages.length) });
+  expect(loaded).toEqual([1000, 1500, 2000, 2500]);
+});
+
+test("resumes a failed search from the messages already loaded without looking the message up again", async () => {
+  const { store, calls, find } = fakeStore(2600, 100);
+  let progress: NoticeSearchProgress | null = null;
+  (store.listMessages as jest.Mock).mockImplementationOnce(async () => ok(Array.from({ length: 500 }, (_, index) => message(1600 - index))))
+    .mockResolvedValueOnce(err(failure));
+  const failed = await locateNoticeMessage(store, company, chat, core, { onProgress: (value) => { progress = value; } });
+  expect(failed).toEqual(err(failure));
+  expect(progress).not.toBeNull();
+  const lookups = find.mock.calls.length;
+  calls.length = 0;
+  const resumed = await locateNoticeMessage(store, company, chat, core, { resume: progress! });
+  expect(resumed.success && resumed.data.target.arrivalSeq).toBe(100);
+  expect(find).toHaveBeenCalledTimes(lookups);
+  expect(calls[0]).toBe("before:1101:500");
 });

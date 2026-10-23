@@ -1,4 +1,4 @@
-import { AccessibilityInfo, FlatList } from "react-native";
+import { AccessibilityInfo, FlatList, StyleSheet } from "react-native";
 import { act, cleanup, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import ConversationScreen, { mergeLatest } from "@mobile/features/whatsapp/presentation/conversation-screen";
@@ -13,14 +13,15 @@ const mockListFrom = jest.fn();
 let mockParams: Record<string, string> = { chatId: "123456@lid" };
 let mockArrival: (destination: unknown) => void = () => undefined;
 const runtime = { store: { listMessages: (...args: unknown[]) => mockListMessages(...args), findByCoreMessageId: (...args: unknown[]) => mockFind(...args), listFromArrivalSeq: (...args: unknown[]) => mockListFrom(...args) }, viewImage: (...args: unknown[]) => mockViewImage(...args), releaseImage: (...args: unknown[]) => mockReleaseImage(...(args as [])) };
-jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams }));
+let mockFocused = true;
+jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams, useIsFocused: () => mockFocused }));
 jest.mock("@mobile/features/notifications/presentation/notices-provider", () => ({ useNoticeArrivals: (listener: (destination: unknown) => void) => { mockArrival = listener; } }));
 jest.mock("expo-image", () => ({ Image: jest.requireActual("react-native").View }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready", company: { id: "c1" } } }) }));
 jest.mock("@mobile/features/whatsapp/presentation/whatsapp-provider", () => ({ useWhatsApp: () => ({ runtime, status: { unsynced: 0 }, refresh: jest.fn(), messagesVersion: mockVersion }) }));
 
-beforeEach(async () => { jest.clearAllMocks(); mockVersion = 0; mockParams = { chatId: "123456@lid" }; await i18n.changeLanguage("es"); });
+beforeEach(async () => { jest.clearAllMocks(); mockVersion = 0; mockFocused = true; mockParams = { chatId: "123456@lid" }; await i18n.changeLanguage("es"); });
 afterEach(cleanup);
 
 const text = (seq: number, sentAt: Date | null = new Date(1_700_000_000_000)) => ({
@@ -153,7 +154,7 @@ describe("opening a notice", () => {
     mockListFrom.mockResolvedValue(ok(range(2, 3)));
     const screen = render(<ConversationScreen />);
     expect(await screen.findByText("Aviso")).toBeTruthy();
-    expect(announce).toHaveBeenCalledWith("Aviso: este mensaje necesita tu revisión");
+    expect(announce).toHaveBeenCalledWith("Mensaje del aviso");
   });
 
   test("marks the message of a notice that arrives for the open chat without moving the scroll", async () => {
@@ -182,5 +183,82 @@ describe("opening a notice", () => {
     await act(async () => { mockArrival({ v: 1, companyId: "c1", messageId: coreMessageId, target: "order" }); });
     expect(screen.queryByText("Aviso")).toBeNull();
     expect(mockFind).toHaveBeenCalledTimes(1);
+  });
+
+  test("keeps the loaded messages with a progress indicator while older pages load, and hides the load more button", async () => {
+    open();
+    mockFind.mockResolvedValue(ok({ ...text(10), chatId: "123456@lid" }));
+    mockListFrom.mockResolvedValue(ok(range(1001, 2000)));
+    let release: (value: unknown) => void = () => undefined;
+    mockListMessages.mockReturnValueOnce(new Promise((resolve) => { release = resolve; }));
+    const screen = render(<ConversationScreen />);
+    expect(await screen.findByText("mensaje 2000")).toBeTruthy();
+    expect(screen.getByText("Buscando el mensaje del aviso…")).toBeTruthy();
+    expect(screen.getByRole("progressbar")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Cargar mensajes anteriores" })).toBeNull();
+    await act(async () => { release(ok(range(501, 1000).slice(0, 500))); });
+    await act(async () => { await Promise.resolve(); });
+  });
+
+  test("keeps what was loaded when a page fails and Reintentar continues the search from where it stopped", async () => {
+    open();
+    mockFind.mockResolvedValue(ok({ ...text(10), chatId: "123456@lid" }));
+    mockListFrom.mockResolvedValue(ok(range(1001, 2000)));
+    mockListMessages.mockResolvedValueOnce(err({ code: "LOCAL_STORAGE_FAILED", message: "x" }));
+    const screen = render(<ConversationScreen />);
+    expect(await screen.findByText("No se pudo cargar el mensaje del aviso")).toBeTruthy();
+    expect(screen.getByText("mensaje 2000")).toBeTruthy();
+    mockListMessages.mockResolvedValueOnce(ok(range(10, 509).slice(0, 500)));
+    fireEvent.press(screen.getByRole("button", { name: "Reintentar" }));
+    await waitFor(() => expect(shownSeqs(screen)).toHaveLength(1500));
+    expect(screen.queryByText("No se pudo cargar el mensaje del aviso")).toBeNull();
+    expect(mockFind).toHaveBeenCalledTimes(1);
+    expect(mockListFrom).toHaveBeenCalledTimes(1);
+    expect(mockListMessages).toHaveBeenLastCalledWith("c1", "123456@lid", { beforeArrivalSeq: 1001, limit: 500 });
+  });
+
+  test("tints the notice's message differently from incoming and outgoing bubbles", async () => {
+    open();
+    mockFind.mockResolvedValue(ok({ ...text(2), chatId: "123456@lid" }));
+    mockListFrom.mockResolvedValue(ok([{ ...text(3), direction: "outgoing" }, text(2)]));
+    const screen = render(<ConversationScreen />);
+    const notice = await screen.findByTestId("notice-message");
+    const background = (node: { props: Record<string, unknown> }): unknown => (StyleSheet.flatten(node.props.style as never) as { backgroundColor?: string }).backgroundColor;
+    const { Colors } = jest.requireActual("@mobile/constants/theme");
+    expect(background(notice)).toBe(Colors.light.warningSurface);
+    expect(background(notice)).not.toBe(Colors.light.backgroundElement);
+    expect(background(notice)).not.toBe(Colors.light.backgroundSelected);
+  });
+
+  test("reads «Mensaje del aviso» with the message as one element for a text notice", async () => {
+    open();
+    mockFind.mockResolvedValue(ok({ ...text(2), chatId: "123456@lid" }));
+    mockListFrom.mockResolvedValue(ok([text(2)]));
+    const screen = render(<ConversationScreen />);
+    const notice = await screen.findByTestId("notice-message");
+    expect(notice.props.accessible).toBe(true);
+    expect(notice.props.accessibilityLabel).toMatch(/^Mensaje del aviso\. mensaje 2\./);
+  });
+
+  test("keeps the image of a notice reachable and still speaks «Mensaje del aviso» for its label", async () => {
+    open();
+    mockFind.mockResolvedValue(ok({ ...image(2), chatId: "123456@lid" }));
+    mockListFrom.mockResolvedValue(ok([image(2)]));
+    const screen = render(<ConversationScreen />);
+    expect(await screen.findByLabelText("Mensaje del aviso")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Ver imagen" })).toBeTruthy();
+  });
+
+  test("does not announce a notice while the conversation is not focused but still marks it", async () => {
+    mockListMessages.mockResolvedValue(ok(range(1, 3)));
+    const screen = render(<ConversationScreen />);
+    await screen.findByText("mensaje 3");
+    mockFocused = false;
+    screen.rerender(<ConversationScreen />);
+    const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => undefined);
+    mockFind.mockResolvedValue(ok({ ...text(2), chatId: "123456@lid" }));
+    await act(async () => { mockArrival({ v: 1, companyId: "c1", messageId: coreMessageId, target: "message" }); });
+    expect(await screen.findByText("Aviso")).toBeTruthy();
+    expect(announce).not.toHaveBeenCalled();
   });
 });

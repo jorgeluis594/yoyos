@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { AccessibilityInfo, FlatList, StyleSheet, View } from "react-native";
+import { AccessibilityInfo, ActivityIndicator, FlatList, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useLocalSearchParams } from "expo-router";
+import { useIsFocused, useLocalSearchParams } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
@@ -9,7 +9,7 @@ import { Button } from "@mobile/components/ui/button";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useNoticeArrivals } from "@mobile/features/notifications/presentation/notices-provider";
-import { locateNoticeMessage } from "@mobile/features/whatsapp/application/locate-notice-message";
+import { locateNoticeMessage, type NoticeSearchProgress } from "@mobile/features/whatsapp/application/locate-notice-message";
 import { parseChatId, parseCoreMessageId, type CompanyId } from "@mobile/features/whatsapp/domain/ids";
 import type { StoredMessage } from "@mobile/features/whatsapp/domain/stored-message";
 import { abbreviateLid } from "@mobile/features/whatsapp/presentation/chat-labels";
@@ -25,8 +25,6 @@ export function mergeLatest(previous: readonly StoredMessage[], latest: readonly
   const latestIds = new Set(latest.map((message) => message.id));
   return [...latest, ...previous.filter((message) => !latestIds.has(message.id))];
 }
-
-const announceNotice = () => AccessibilityInfo.announceForAccessibility(i18n.t("whatsappNoticeAnnouncement"));
 
 export default function ConversationScreen() {
   const { t, i18n } = useTranslation();
@@ -49,6 +47,13 @@ export default function ConversationScreen() {
 
   const chatId = chat.success ? chat.data : null;
   const [reloads, setReloads] = useState(0);
+  // What a failed notice search had loaded, so Reintentar continues from there instead of starting over.
+  const searchProgress = useRef<Readonly<{ coreMessageId: string; progress: NoticeSearchProgress }> | null>(null);
+  // The announcement is for the seller looking at this chat, not for another tab with the chat still mounted.
+  const focused = useIsFocused();
+  const focusedRef = useRef(focused);
+  useEffect(() => { focusedRef.current = focused; });
+  const announceNotice = () => { if (focusedRef.current) AccessibilityInfo.announceForAccessibility(i18n.t("whatsappNoticeScreenReader")); };
 
   useEffect(() => {
     if (!runtime || !companyId || chatId === null) return;
@@ -65,8 +70,17 @@ export default function ConversationScreen() {
       setStatus("searching");
       setNoticeGone(false);
       const parsed = parseCoreMessageId(coreMessageId);
-      const located = parsed.success ? await locateNoticeMessage(runtime.store, companyId as CompanyId, chatId, parsed.data) : null;
+      const resume = searchProgress.current?.coreMessageId === coreMessageId ? searchProgress.current.progress : undefined;
+      const located = parsed.success ? await locateNoticeMessage(runtime.store, companyId as CompanyId, chatId, parsed.data, {
+        resume,
+        onProgress: (progress) => {
+          if (cancelled) return;
+          searchProgress.current = { coreMessageId, progress };
+          setMessages(progress.messages);
+        },
+      }) : null;
       if (cancelled) return;
+      if (located === null || located.success || located.error.code === "MESSAGE_NOT_FOUND") searchProgress.current = null;
       if (located?.success) {
         setMessages(located.data.messages);
         setHasMore(true);
@@ -123,11 +137,13 @@ export default function ConversationScreen() {
     setHasMore(result.data.length === pageSize);
   };
 
+  const retrySearch = () => { setStatus("searching"); setReloads((value) => value + 1); };
+
   if (!chat.success) return <ScreenState status="empty" title={t("whatsappChatNotFound")} />;
   if (status === "loading") return <ScreenState status="loading" title={abbreviateLid(chat.data)} />;
-  if (status === "searching") return <ScreenState status="loading" title={t("whatsappNoticeSearching")} />;
+  if (status === "searching" && messages.length === 0) return <ScreenState status="loading" title={t("whatsappNoticeSearching")} />;
   if (status === "chat_missing") return <ScreenState status="empty" title={t("whatsappNoticeChatGone")} />;
-  if (status === "notice_error") return <ScreenState status="error" title={t("whatsappNoticeLoadError")} onRetry={() => { setStatus("searching"); setReloads((value) => value + 1); }} />;
+  if (status === "notice_error" && messages.length === 0) return <ScreenState status="error" title={t("whatsappNoticeLoadError")} onRetry={retrySearch} />;
   if (status === "error") return <ScreenState status="error" title={t("whatsappLoadError")} onRetry={() => { setStatus("loading"); setReloads((value) => value + 1); }} />;
 
   const when = (date: Date | null) => date === null ? t("whatsappUnknownDate")
@@ -159,18 +175,35 @@ export default function ConversationScreen() {
             {noticeGone ? <ThemedText themeColor="textSecondary" accessibilityRole="alert" style={styles.gone}>{t("whatsappNoticeMessageGone")}</ThemedText> : null}
           </>}
           ListEmptyComponent={<ScreenState status="empty" title={t("whatsappChatNotFound")} />}
-          ListFooterComponent={hasMore ? <Button variant="ghost" onPress={() => void loadOlder(oldest)}>{t("whatsappLoadMore")}</Button> : null}
-          renderItem={({ item }) => (
-            <View style={[styles.bubble, { backgroundColor: item.direction === "incoming" ? theme.backgroundElement : theme.backgroundSelected },
-              marked.has(item.id) && { borderWidth: 2, borderColor: theme.primary }]}>
-              {marked.has(item.id) ? <ThemedText type="small" style={{ color: theme.primary }}>{t("whatsappNoticeLabel")}</ThemedText> : null}
-              {item.content.type === "image" && runtime && companyId ? <MessageImage runtime={runtime} companyId={companyId} messageId={item.id} /> : null}
-              {item.content.type === "text" ? <ThemedText>{item.content.text}</ThemedText> : item.content.caption ? <ThemedText>{item.content.caption}</ThemedText> : null}
-              <ThemedText type="small" themeColor="textSecondary">
-                {`${item.direction === "incoming" ? t("whatsappIncoming") : t("whatsappOutgoing")} · ${when(item.sentAt)}`}
-              </ThemedText>
+          ListFooterComponent={status === "searching" ? (
+            <View style={styles.searching} accessible accessibilityRole="progressbar" accessibilityLabel={t("whatsappNoticeSearching")} accessibilityState={{ busy: true }}>
+              <ActivityIndicator color={theme.primary} />
+              <ThemedText type="small" themeColor="textSecondary">{t("whatsappNoticeSearching")}</ThemedText>
             </View>
-          )}
+          ) : status === "notice_error" ? (
+            <View style={styles.searching}>
+              <ThemedText type="small" themeColor="textSecondary" accessibilityRole="alert">{t("whatsappNoticeLoadError")}</ThemedText>
+              <Button variant="ghost" onPress={retrySearch}>{t("retry")}</Button>
+            </View>
+          ) : hasMore ? <Button variant="ghost" onPress={() => void loadOlder(oldest)}>{t("whatsappLoadMore")}</Button> : null}
+          renderItem={({ item }) => {
+            const isNotice = marked.has(item.id);
+            const text = item.content.type === "text" ? item.content.text : item.content.caption;
+            const meta = `${item.direction === "incoming" ? t("whatsappIncoming") : t("whatsappOutgoing")} · ${when(item.sentAt)}`;
+            return (
+            // A text notice is one screen-reader element, so the label is read with the message; an image keeps its button reachable.
+            <View testID={isNotice ? "notice-message" : undefined}
+              style={[styles.bubble, { backgroundColor: item.direction === "incoming" ? theme.backgroundElement : theme.backgroundSelected },
+                isNotice && { backgroundColor: theme.warningSurface, borderWidth: 2, borderColor: theme.warning }]}
+              accessible={isNotice && item.content.type === "text" ? true : undefined}
+              accessibilityLabel={isNotice && item.content.type === "text" ? `${t("whatsappNoticeScreenReader")}. ${text}. ${meta}` : undefined}>
+              {isNotice ? <ThemedText type="small" accessibilityLabel={t("whatsappNoticeScreenReader")} style={{ color: theme.warning }}>{t("whatsappNoticeLabel")}</ThemedText> : null}
+              {item.content.type === "image" && runtime && companyId ? <MessageImage runtime={runtime} companyId={companyId} messageId={item.id} /> : null}
+              {text ? <ThemedText>{text}</ThemedText> : null}
+              <ThemedText type="small" themeColor="textSecondary">{meta}</ThemedText>
+            </View>
+            );
+          }}
         />
       </SafeAreaView>
     </ThemedView>
@@ -180,6 +213,7 @@ export default function ConversationScreen() {
 const styles = StyleSheet.create({
   root: { flex: 1 },
   title: { padding: 16 },
+  searching: { alignItems: "center", gap: 8, padding: 16 },
   gone: { paddingHorizontal: 16, paddingBottom: 8 },
   bubble: { marginHorizontal: 16, marginVertical: 4, padding: 12, borderRadius: 12, gap: 6 },
 });

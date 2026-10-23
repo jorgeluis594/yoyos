@@ -17,25 +17,36 @@ export type LocatedNotice = Readonly<{
 export type LocateNoticeError = StoreError | Readonly<{ code: "MESSAGE_NOT_FOUND"; message: string }>;
 const notFound: LocateNoticeError = { code: "MESSAGE_NOT_FOUND", message: "The notice message is not on this phone" };
 
+/** What the search has loaded so far; passing it back as `resume` continues from where it stopped. */
+export type NoticeSearchProgress = LocatedNotice;
+
 /**
  * Finds the notice's message by the core id of the notice and loads the chat from it to the newest,
  * so the seller lands on it without paging from the end. Pages the remaining older range when the
- * message is more than `noticeFirstQueryLimit` messages back.
+ * message is more than `noticeFirstQueryLimit` messages back. `onProgress` receives what is loaded
+ * after each query that did not reach the message yet, so a failed search can be resumed.
  */
 export async function locateNoticeMessage(
   store: Pick<MessageStore, "findByCoreMessageId" | "listFromArrivalSeq" | "listMessages">,
   companyId: CompanyId,
   chatId: WhatsAppChatId,
   coreMessageId: CoreMessageId,
+  options: Readonly<{ resume?: NoticeSearchProgress; onProgress?: (progress: NoticeSearchProgress) => void }> = {},
 ): Promise<Result<LocatedNotice, LocateNoticeError>> {
-  const found = await store.findByCoreMessageId(companyId, coreMessageId);
-  if (!found.success) return found;
-  const target = found.data;
-  if (target === null || target.chatId !== chatId) return err(notFound);
-
-  const first = await store.listFromArrivalSeq(companyId, chatId, target.arrivalSeq, noticeFirstQueryLimit);
-  if (!first.success) return first;
-  let messages = first.data;
+  let target: StoredMessage;
+  let messages: readonly StoredMessage[];
+  if (options.resume) {
+    ({ target, messages } = options.resume);
+  } else {
+    const found = await store.findByCoreMessageId(companyId, coreMessageId);
+    if (!found.success) return found;
+    if (found.data === null || found.data.chatId !== chatId) return err(notFound);
+    target = found.data;
+    const first = await store.listFromArrivalSeq(companyId, chatId, target.arrivalSeq, noticeFirstQueryLimit);
+    if (!first.success) return first;
+    messages = first.data;
+    if (!messages.some((message) => message.arrivalSeq <= target.arrivalSeq)) options.onProgress?.({ messages, target });
+  }
   while (!messages.some((message) => message.arrivalSeq <= target.arrivalSeq)) {
     const oldest = messages.at(-1)?.arrivalSeq ?? null;
     if (oldest === null) return err(notFound);
@@ -44,6 +55,7 @@ export async function locateNoticeMessage(
     // The message was deleted while paging: the range ended before reaching it.
     if (older.data.length === 0) return err(notFound);
     messages = [...messages, ...older.data];
+    if (!messages.some((message) => message.arrivalSeq <= target.arrivalSeq)) options.onProgress?.({ messages, target });
   }
   return ok({ messages, target });
 }
