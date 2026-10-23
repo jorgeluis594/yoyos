@@ -134,6 +134,11 @@ describe("orchestrate", () => {
     expect(await run()).toEqual({ success: false, error: { code: "INVALID_AI_RESPONSE", message: expect.any(String) } });
   });
 
+  test("rejects an extraction that skips one of the several requested extracted tools", async () => {
+    const { run } = setup({ action: "several", predicates: { add_item: 0.9, set_item_mentioned_price: 0.9 } }, [{ tool: "add_item", args: { product: "polo" } }]);
+    expect(await run()).toEqual({ success: false, error: { code: "INVALID_AI_RESPONSE", message: expect.any(String) } });
+  });
+
   test("returns the provider failure of the decision or extraction call", async () => {
     const unavailable = { code: "AI_PROVIDER_UNAVAILABLE", message: "down" } as const;
     const deps: OrchestrateDependencies = { minActionConfidence: 0.6, minToolPredicate: 0.5, decide: async () => err(unavailable), extract: async () => err(unavailable) };

@@ -56,7 +56,7 @@ function parseAnswers(request: DecisionRequest, decision: OpenAI.Decision): Resu
 export function createOpenAiDecisionClient(config: OpenAiDecisionClientConfig) {
   return async (request: DecisionRequest, signal: AbortSignal): Promise<Result<DecisionAnswers, AiError>> => {
     const started = performance.now();
-    const fields = () => ({ model: DECISION_MODEL, durationMs: Math.round(performance.now() - started), questions: request.predicates.length + request.choices.length + 1 });
+    const fields = () => ({ durationMs: Math.round(performance.now() - started) });
     let decision: OpenAI.Decision;
     try {
       decision = await config.client.decisions.create({
@@ -66,12 +66,12 @@ export function createOpenAiDecisionClient(config: OpenAiDecisionClientConfig) {
       }, { timeout: config.timeoutMs, maxRetries: 0, signal }); // the event bus owns retries
     } catch (cause) {
       const error = toAiError(cause, signal);
-      log.warn({ event: "ai_decision_request_failed", ...fields(), errorCode: error.code, httpStatus: httpStatusOf(cause), err: cause }, "ai_decision_request_failed");
+      log.warn({ event: "ai_decision_request_failed", ...fields(), errorCode: error.code, statusCode: httpStatusOf(cause) }, "ai_decision_request_failed");
       return err(error);
     }
     const answers = parseAnswers(request, decision);
     if (!answers.success) log.error({ event: "ai_decision_invalid_response", ...fields(), errorCode: answers.error.code }, "ai_decision_invalid_response");
-    else log.info({ event: "ai_decision_completed", ...fields(), inputTokens: decision.usage?.input_tokens, outputTokens: decision.usage?.output_tokens }, "ai_decision_completed");
+    else log.debug({ event: "ai_decision_completed", ...fields(), questions: request.predicates.length + request.choices.length + 1, chosenTool: answers.data.action.choice, confidence: answers.data.action.confidence, inputTokens: decision.usage?.input_tokens, outputTokens: decision.usage?.output_tokens }, "ai_decision_completed");
     return answers;
   };
 }

@@ -144,6 +144,9 @@ export async function orchestrate<Context>(
       if (typeof call.args !== "object" || call.args === null || Array.isArray(call.args)) return err(invalidAiResponse("The extraction returned arguments that are not an object"));
       calls.push({ tool: call.tool, args: { ...call.args, ...answered } });
     }
+    // §6.3 is silent on a tool the model skipped; dropping it would apply part of the message unnoticed, so the whole message fails and is retried.
+    const called = new Set(extraction.data.map(({ tool }) => tool));
+    if (extracted.some(({ name }) => !called.has(name))) return err(invalidAiResponse("The extraction did not call every requested tool"));
   }
 
   const [first, ...rest] = calls;

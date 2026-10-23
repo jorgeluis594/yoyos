@@ -3,6 +3,7 @@ import { err } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { invalidAiResponse, type AiError } from "@core/src/shared/ai-tools/application/ai-error";
+import { dropNullOptionals, toStrictSchema } from "@core/src/shared/ai-tools/application/strict-schema";
 
 export type JsonSchema = Readonly<Record<string, unknown>>;
 
@@ -46,21 +47,28 @@ export type ToolRegistry<Context, Action, E extends AppError> = Readonly<{
 }>;
 
 const TOOL_NAME = /^[a-z][a-z0-9_]*$/;
+/** The action choice that selects several tools at once; a tool with this name would be indistinguishable from it. */
+const RESERVED_TOOL_NAMES: ReadonlySet<string> = new Set(["several"]);
+
+const originalSchema = (schema: z.ZodType): unknown => z.toJSONSchema(schema, { io: "input", target: "draft-7" });
 
 export function defineTool<Context, Args, Action, E extends AppError>(
   definition: ToolDefinition<Context, Args, Action, E>,
 ): RegisteredTool<Context, Action, E> {
   if (!TOOL_NAME.test(definition.name)) throw new Error(`Invalid tool name: ${definition.name}`);
+  if (RESERVED_TOOL_NAMES.has(definition.name)) throw new Error(`Reserved tool name: ${definition.name}`);
   return {
     name: definition.name,
     description: definition.description,
     args: definition.args,
-    jsonSchema: (context) => z.toJSONSchema(definition.schema(context), { io: "input", target: "draft-7" }) as JsonSchema,
+    jsonSchema: (context) => toStrictSchema(originalSchema(definition.schema(context))) as JsonSchema,
     parseAndResolve: async (raw, context, signal) => {
-      const parsed = definition.schema(context).safeParse(raw);
+      const schema = definition.schema(context);
+      // The model sees optional fields as nullable (strict mode); the schema knows them as absent.
+      const parsed = schema.safeParse(dropNullOptionals(raw, originalSchema(schema)));
       if (!parsed.success) {
         // Paths only: the values come from the buyer's text.
-        log.warn({ event: "ai_tool_invalid_arguments", tool: definition.name, paths: parsed.error.issues.map(({ path }) => path.join(".")) }, "ai_tool_invalid_arguments");
+        log.error({ event: "ai_tool_arguments_invalid", tool: definition.name, issuePaths: parsed.error.issues.map(({ path }) => path.join(".")) }, "ai_tool_arguments_invalid");
         return err(invalidAiResponse(`Invalid arguments for tool ${definition.name}`));
       }
       return definition.resolve(parsed.data, context, signal);

@@ -41,7 +41,7 @@ function parseToolCalls(response: OpenAI.Responses.Response): Result<readonly To
 export function createOpenAiToolCallExtractor(config: OpenAiToolCallExtractorConfig) {
   return async (request: ExtractionRequest, signal: AbortSignal): Promise<Result<readonly ToolCall[], AiError>> => {
     const started = performance.now();
-    const fields = () => ({ model: config.model, durationMs: Math.round(performance.now() - started), tools: request.tools.map(({ name }) => name) });
+    const fields = () => ({ model: config.model, durationMs: Math.round(performance.now() - started), offeredTools: request.tools.map(({ name }) => name) });
     const content: ResponseInputContent[] = [
       { type: "input_text", text: request.contextText },
       ...request.messageParts.map((part): ResponseInputContent => part.kind === "text"
@@ -60,7 +60,7 @@ export function createOpenAiToolCallExtractor(config: OpenAiToolCallExtractorCon
       }, { timeout: config.timeoutMs, maxRetries: 0, signal }); // the event bus owns retries
     } catch (cause) {
       const error = toAiError(cause, signal);
-      log.warn({ event: "ai_extraction_request_failed", ...fields(), errorCode: error.code, httpStatus: httpStatusOf(cause), err: cause }, "ai_extraction_request_failed");
+      log.warn({ event: "ai_extraction_request_failed", ...fields(), errorCode: error.code, statusCode: httpStatusOf(cause) }, "ai_extraction_request_failed");
       return err(error);
     }
     const calls = parseToolCalls(response);
