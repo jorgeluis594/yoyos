@@ -31,22 +31,29 @@ done
 [ -n "${description//[[:space:]]/}" ] || fail "Missing description. Usage: request-grok-image.sh [--output <path>] \"<description>\""
 
 env_file="${GROK_IMAGE_ENV_FILE:-$HOME/.config/yoyos/grok-image.env}"
+# Values already set in the environment win over the env file.
+env_url="${GROK_BOT_IMAGE_WEBHOOK_URL:-}"
+env_secret="${GROK_BOT_IMAGE_WEBHOOK_SECRET:-}"
 if [ -f "$env_file" ]; then
   set -a
   # shellcheck disable=SC1090
   source "$env_file"
   set +a
 fi
+[ -z "$env_url" ] || GROK_BOT_IMAGE_WEBHOOK_URL="$env_url"
+[ -z "$env_secret" ] || GROK_BOT_IMAGE_WEBHOOK_SECRET="$env_secret"
 [ -n "${GROK_BOT_IMAGE_WEBHOOK_URL:-}" ] || fail "GROK_BOT_IMAGE_WEBHOOK_URL is not set (environment or $env_file)"
 [ -n "${GROK_BOT_IMAGE_WEBHOOK_SECRET:-}" ] || fail "GROK_BOT_IMAGE_WEBHOOK_SECRET is not set (environment or $env_file)"
 
 root="$(git rev-parse --show-toplevel 2>/dev/null)" || fail "Run it from inside a git worktree"
 root="$(realpath -m "$root")"
 
-if [ -r /proc/sys/kernel/random/uuid ] && ! command -v uuidgen >/dev/null; then
+if command -v uuidgen >/dev/null; then
+  request_id="$(uuidgen | tr 'A-Z' 'a-z')"
+elif [ -r /proc/sys/kernel/random/uuid ]; then
   request_id="$(cat /proc/sys/kernel/random/uuid)"
 else
-  request_id="$(uuidgen | tr 'A-Z' 'a-z')"
+  fail "Cannot generate a request id: install uuidgen"
 fi
 
 if [ -z "$output" ]; then
@@ -57,13 +64,18 @@ case "$output" in
   *) fail "--output must be an absolute path: $output" ;;
 esac
 output="$(realpath -m "$output")"
+[ ! -d "$output" ] || fail "--output must be a file path, not a directory: $output"
+case "$output" in
+  *.png) ;;
+  *) fail "--output must end in .png: $output" ;;
+esac
 case "$output" in
   "$root"/*) ;;
   *) fail "--output must be under the worktree root $root: $output" ;;
 esac
 mkdir -p "$(dirname "$output")"
 
-template_file="$(dirname "${BASH_SOURCE[0]}")/grok-image-prompt-template.txt"
+template_file="$(dirname "$(realpath "${BASH_SOURCE[0]}")")/grok-image-prompt-template.txt"
 [ -f "$template_file" ] || fail "Missing prompt template: $template_file"
 prompt="$(cat "$template_file")"$'\n\n'"$description"
 
@@ -73,8 +85,8 @@ payload="$(jq -n --arg request_id "$request_id" --arg output_path "$output" --ar
 response="$(curl --silent --show-error --fail-with-body --connect-timeout 10 --max-time 60 \
   --request POST "$GROK_BOT_IMAGE_WEBHOOK_URL" \
   --header "Content-Type: application/json" \
-  --header "Authorization: Bearer $GROK_BOT_IMAGE_WEBHOOK_SECRET" \
-  --data "$payload")" || fail "Webhook request failed${response:+: $response}"
+  --header @- \
+  --data "$payload" <<<"Authorization: Bearer $GROK_BOT_IMAGE_WEBHOOK_SECRET")" || fail "Webhook request failed${response:+: $response}"
 
 echo "$response" | jq -e --arg id "$request_id" \
   '.ok == true and .accepted == true and .request_id == $id' >/dev/null 2>&1 \
