@@ -79,8 +79,10 @@ async function withBus<T>(definition: ReturnType<typeof subscription>, test: (bu
     await worker.start();
     expect((await worker.subscribe(definition)).success).toBe(true);
     return await test({
-      publish: (companyId, messageId) => withTenantIsolation(companyId, () => producer.publish("message_created", { companyId, messageId } as never,
-        { eventId: messageId, occurredAt: new Date().toISOString() })),
+      publish: (companyId, messageId) => withTenantIsolation(companyId, async () => {
+        const { chatId } = await prisma.chatMessage.findFirstOrThrow({ where: { id: messageId }, select: { chatId: true } });
+        return producer.publish("message_created", { companyId, chatId, messageId } as never, { eventId: messageId, occurredAt: new Date().toISOString() });
+      }),
       job: async (messageId) => (await pool.query<{ state: string; retry_count: number }>(
         "SELECT state, retry_count FROM pgboss.job WHERE name = $1 AND data->'metadata'->>'eventId' = $2", [definition.id, messageId])).rows[0],
     });

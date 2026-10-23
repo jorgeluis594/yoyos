@@ -13,7 +13,7 @@ afterEach(async () => { await Promise.all(servers.splice(0).map((server) => new 
 async function serve(register: RegisterMobileMessage) {
   const app = express();
   app.use("/api/messages", mobileMessageParser);
-  app.use((_request, response, next) => { response.locals.auth = { status: "ready", company: { id }, user: { id: "u1" } }; next(); });
+  app.use((_request, response, next) => { response.locals.auth = { status: "ready", company: { id }, user: { id: "u1" }, sessionId: "s1" }; next(); });
   app.use("/api/messages", mobileMessageRoutes(register));
   const server = app.listen(0);
   servers.push(server);
@@ -31,7 +31,7 @@ test("factory returns validated stored and duplicate responses with trusted cont
   expect(created.status).toBe(201);
   expect(created.headers.get("cache-control")).toBe("no-store");
   expect(await created.json()).toEqual({ status: "stored", messageId: id, eventId: id, receivedAt: "1970-01-01T00:00:00.000Z" });
-  expect(register).toHaveBeenCalledWith(expect.objectContaining({ externalId: body.message.id, accountId: "1@lid", remoteChatId: "2@lid", sentAt: new Date(0) }), { companyId: id, uploadedByUserId: "u1" });
+  expect(register).toHaveBeenCalledWith(expect.objectContaining({ externalId: body.message.id, accountId: "1@lid", remoteChatId: "2@lid", sentAt: new Date(0) }), { companyId: id, uploadedByUserId: "u1", registeredBySessionId: "s1" });
   register.mockResolvedValueOnce({ success: true, data: { status: "duplicate", messageId: id as never, eventId: id as never, receivedAt: new Date(0) } });
   const duplicate = await call();
   expect(duplicate.status).toBe(200);

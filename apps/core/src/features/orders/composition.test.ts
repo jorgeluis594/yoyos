@@ -100,7 +100,7 @@ test("checkout does not announce transitions before the outer commit succeeds", 
 
 const messageId = id(10) as ChatMessageId;
 const eventId = id(11);
-const handle = (attempt = 1) => addMessageProductsHandler({ companyId: context.companyId, messageId },
+const handle = (attempt = 1) => addMessageProductsHandler({ companyId: context.companyId, chatId: id(12), messageId },
   { eventId, occurredAt: "2026-10-11T12:00:00.000Z" }, { signal: new AbortController().signal, attempt });
 
 test("treats persistence, image storage and QR reader failures as retryable", async () => {

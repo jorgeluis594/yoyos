@@ -51,6 +51,7 @@ export function mobileMessageRoutes(register: RegisterMobileMessage) {
       const result = await register(toMobileMessageInput(parsed.data), {
         companyId: response.locals.auth.company.id as CompanyId,
         uploadedByUserId: response.locals.auth.user.id,
+        registeredBySessionId: response.locals.auth.sessionId,
       });
       if (!result.success && result.error.code === "IMAGE_NOT_FOUND") return apiError(response, 404, "IMAGE_NOT_FOUND", "Image not found");
       if (!result.success) return result.error.code === "PERSISTENCE_UNAVAILABLE" || result.error.code === "EVENT_BUS_UNAVAILABLE"
