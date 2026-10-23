@@ -1,5 +1,5 @@
-import { useEffect, useState } from "react";
-import { AccessibilityInfo, Keyboard, StyleSheet, Switch, View } from "react-native";
+import { useEffect, useRef, useState } from "react";
+import { AccessibilityInfo, Keyboard, StyleSheet, Switch, View, type TextInput } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { CatalogSettingsResponse } from "@shared/contracts/catalog";
 import { catalogSettings } from "@mobile/features/catalog/composition";
@@ -30,7 +30,8 @@ export function CatalogPublicationCard({ onUnsavedLinkChange, onFieldFocus }: Ca
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState<Notice>("");
   const [attempt, setAttempt] = useState(0);
-  const link = useCatalogLink(settings, setSettings);
+  const field = useRef<TextInput>(null);
+  const link = useCatalogLink(settings, setSettings, field);
   const copying = useCopyLink(settings?.url ?? null);
   useEffect(() => {
     void catalogSettings.get().then(result => { if (result.success) setSettings(result.data); else setLoadFailed(true); });
@@ -69,7 +70,7 @@ export function CatalogPublicationCard({ onUnsavedLinkChange, onFieldFocus }: Ca
     <View style={styles.heading}>
       <ThemedText type="subtitle" accessibilityRole="header">{t("catalogLinkLabel")}</ThemedText>
       <View style={styles.fieldRow}>
-        <Input ref={link.inputRef} style={styles.field} value={link.value} onChangeText={link.edit} disabled={linkBusy}
+        <Input ref={field} style={styles.field} value={link.value} onChangeText={link.edit} disabled={linkBusy}
           accessibilityLabel={t("catalogLinkLabel")} accessibilityHint={`.${settings.domain}. ${status.text}`}
           autoCapitalize="none" autoCorrect={false} spellCheck={false} keyboardType="url" returnKeyType="done" returnKeyLabel={t("catalogLinkReturnKey")}
           invalid={status.tone === "error"} onFocus={onFieldFocus}

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type RefObject } from "react";
 import { AccessibilityInfo, findNodeHandle, type TextInput } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { CatalogSettingsResponse } from "@shared/contracts/catalog";
@@ -13,7 +13,7 @@ type Phase = "idle" | "saving" | "rereading" | "doubt";
 const pauseMilliseconds = 400;
 
 /** Link state of the «Publicar catálogo» card: the typed value, the latest verdict and the save, with the last answer winning. */
-export function useCatalogLink(settings: CatalogSettingsResponse | null, onSettings: (settings: CatalogSettingsResponse) => void) {
+export function useCatalogLink(settings: CatalogSettingsResponse | null, onSettings: (settings: CatalogSettingsResponse) => void, inputRef: RefObject<TextInput | null>) {
   const { t } = useTranslation();
   const [edited, setEdited] = useState<string | null>(null);
   const [pausedValue, setPausedValue] = useState<string | null>(null);
@@ -23,7 +23,6 @@ export function useCatalogLink(settings: CatalogSettingsResponse | null, onSetti
   const [raceLost, setRaceLost] = useState(false);
   const [notice, setNotice] = useState<LinkNotice | null>(null);
   const [phase, setPhase] = useState<Phase>("idle");
-  const inputRef = useRef<TextInput>(null);
   const latest = useRef(0);
   const controller = useRef<AbortController | null>(null);
   const mounted = useRef(true);
@@ -31,7 +30,7 @@ export function useCatalogLink(settings: CatalogSettingsResponse | null, onSetti
   useEffect(() => { mounted.current = true; return () => { mounted.current = false; controller.current?.abort(); }; }, []);
 
   const saved = settings?.subdomain ?? null;
-  savedRef.current = saved;
+  useEffect(() => { savedRef.current = saved; }, [saved]);
   const initial = saved ?? settings?.suggestion ?? "";
   const value = edited ?? initial;
   const suggestionVerdict: LinkVerdict | null = settings && saved === null && settings.suggestion !== null ? { status: "available", subdomain: settings.suggestion } : null;
@@ -118,6 +117,6 @@ export function useCatalogLink(settings: CatalogSettingsResponse | null, onSetti
   };
 
   const retryable = notice === "not_sent" || notice === "failed" || notice === "in_doubt_offline" || ((notice === null || notice === "not_saved") && field.kind === "check_failed");
-  return { inputRef, value, field, notice, raceLost, phase, canSave, canRetry: retryable && phase !== "saving" && phase !== "rereading",
+  return { value, field, notice, raceLost, phase, canSave, canRetry: retryable && phase !== "saving" && phase !== "rereading",
     hasUnsavedLink: edited !== null && edited !== initial, edit, submit, retry };
 }
