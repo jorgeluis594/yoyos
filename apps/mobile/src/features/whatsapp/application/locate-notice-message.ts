@@ -14,7 +14,8 @@ export type LocatedNotice = Readonly<{
   messages: readonly StoredMessage[];
   target: StoredMessage;
 }>;
-export type LocateNoticeError = StoreError | Readonly<{ code: "MESSAGE_NOT_FOUND" }>;
+export type LocateNoticeError = StoreError | Readonly<{ code: "MESSAGE_NOT_FOUND"; message: string }>;
+const notFound: LocateNoticeError = { code: "MESSAGE_NOT_FOUND", message: "The notice message is not on this phone" };
 
 /**
  * Finds the notice's message by the core id of the notice and loads the chat from it to the newest,
@@ -30,18 +31,18 @@ export async function locateNoticeMessage(
   const found = await store.findByCoreMessageId(companyId, coreMessageId);
   if (!found.success) return found;
   const target = found.data;
-  if (target === null || target.chatId !== chatId) return err({ code: "MESSAGE_NOT_FOUND" });
+  if (target === null || target.chatId !== chatId) return err(notFound);
 
   const first = await store.listFromArrivalSeq(companyId, chatId, target.arrivalSeq, noticeFirstQueryLimit);
   if (!first.success) return first;
   let messages = first.data;
   while (!messages.some((message) => message.arrivalSeq <= target.arrivalSeq)) {
     const oldest = messages.at(-1)?.arrivalSeq ?? null;
-    if (oldest === null) return err({ code: "MESSAGE_NOT_FOUND" });
+    if (oldest === null) return err(notFound);
     const older = await store.listMessages(companyId, chatId, { beforeArrivalSeq: oldest, limit: noticePageSize });
     if (!older.success) return older;
     // The message was deleted while paging: the range ended before reaching it.
-    if (older.data.length === 0) return err({ code: "MESSAGE_NOT_FOUND" });
+    if (older.data.length === 0) return err(notFound);
     messages = [...messages, ...older.data];
   }
   return ok({ messages, target });

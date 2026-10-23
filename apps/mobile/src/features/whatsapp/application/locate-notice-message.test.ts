@@ -49,12 +49,12 @@ test("pages older messages by 500 when the target is more than 1000 messages bac
 
 test("reports the message as missing when the phone has no message with that core id", async () => {
   const { store } = fakeStore(10, null);
-  expect(await locateNoticeMessage(store, company, chat, core)).toEqual(err({ code: "MESSAGE_NOT_FOUND" }));
+  expect(await locateNoticeMessage(store, company, chat, core)).toMatchObject({ success: false, error: { code: "MESSAGE_NOT_FOUND" } });
 });
 
 test("reports the message as missing when it belongs to another chat", async () => {
   const { store } = fakeStore(10, 3, "9@lid" as WhatsAppChatId);
-  expect(await locateNoticeMessage(store, company, chat, core)).toEqual(err({ code: "MESSAGE_NOT_FOUND" }));
+  expect(await locateNoticeMessage(store, company, chat, core)).toMatchObject({ success: false, error: { code: "MESSAGE_NOT_FOUND" } });
 });
 
 test("returns the storage failure of the lookup or of a page", async () => {
