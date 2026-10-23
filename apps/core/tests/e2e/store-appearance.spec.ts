@@ -27,7 +27,7 @@ async function tabTo(page: Page, target: Locator, key: "Tab" | "Shift+Tab" = "Ta
 }
 
 const stored = (companyId: string) => withTenantIsolation(companyId, async () => await prisma.companyCheckoutAppearance.findUnique({ where: { companyId } }));
-/** Publishing requires a saved subdomain, and choosing one has no screen in this editor yet. */
+/** Publishing requires a saved subdomain; these specs are about publishing, so they start with one (the card seeds from the page load). */
 const chooseSubdomain = (companyId: string) => withTenantIsolation(companyId, async () =>
   await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: `s${companyId.replaceAll("-", "").slice(0, 20)}` } }));
 const uploadLogo = (page: Page) => page.getByTestId("logo-upload").locator("input[type=file]").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: png });
@@ -284,6 +284,7 @@ describe("store appearance editor addresses", () => {
 
   test("publishes and hides the catalog from the editor without touching the draft", async ({ page }) => {
     await chooseSubdomain(await openEditor(page));
+    await page.reload({ waitUntil: "networkidle" });
     await themeOption(page, "Boutique").click();
     await page.getByRole("switch", { name: "Publicar catálogo" }).click();
     await browserExpect(page.getByText("Catálogo publicado", { exact: true })).toBeVisible();
