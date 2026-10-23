@@ -34,6 +34,13 @@ import { catalogProductRepository } from "@core/src/features/products/infrastruc
 import { findVariantPhotos } from "@core/src/features/products/application/variant-photos";
 import { findVariantImages } from "@core/src/features/products/infrastructure/variant-photo-repository";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { identifyProductInText, identifyProductsInText, findTopTextCandidate, type IdentifyProductInTextDependencies } from "@core/src/features/products/application/identify-product-in-text";
+import { resolveVariant, type ResolveVariantDependencies } from "@core/src/features/products/application/resolve-variant";
+import { catalogSearchReadiness } from "@core/src/features/products/application/catalog-search-readiness";
+import { findTextCandidates } from "@core/src/features/products/infrastructure/text-candidates";
+import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
+import { createOpenAITextProductChooser, createOpenAIVariantChooser } from "@core/src/features/products/infrastructure/product-matching/openai-text-chooser";
+import { loadSellableVariants } from "@core/src/features/products/infrastructure/order-stock";
 
 const imageStorage = createR2ImageStorage({
   endpoint: process.env.R2_ENDPOINT ?? "", bucket: process.env.R2_BUCKET ?? "",
@@ -122,8 +129,39 @@ export function createVisualSearch(env: Env): VisualSearchSetup {
     hasIndexedProducts, findNearestProductImages, readImage: (imageId) => readImageBytes(imageId, imageStorage, imageRepository), findSellableVariantsOfProduct } };
 }
 
+const textEnvSchema = z.object({
+  OPENAI_API_KEY: z.string().optional(),
+  PRODUCT_MATCHER_MODEL: z.string().default("gpt-6-luna"),
+  PRODUCT_MATCH_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.8),
+  PRODUCT_MATCH_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  TEXT_MATCH_CANDIDATES: z.coerce.number().int().min(1).max(MAX_CANDIDATES).default(8),
+  TEXT_MATCH_MIN_SIMILARITY: z.coerce.number().min(0).max(1).default(0.3),
+  TEXT_MATCH_UNCLEAR_MIN_PROBABILITY: z.coerce.number().min(0).max(1).default(0.25),
+});
+
+export type TextMatching = Readonly<{ identification: IdentifyProductInTextDependencies; variants: ResolveVariantDependencies }>;
+
+/** Text identification and variant resolution from one env selection; null without the provider key, so texts are skipped. */
+export function createTextMatching(env: Env): TextMatching | null {
+  const config = textEnvSchema.parse(Object.fromEntries(Object.entries(env).filter(([, value]) => value !== "")));
+  if (!config.OPENAI_API_KEY) return null;
+  const client = new OpenAI({ apiKey: config.OPENAI_API_KEY, timeout: config.PRODUCT_MATCH_TIMEOUT_MS, maxRetries: 0 });
+  const chooser = { client, model: config.PRODUCT_MATCHER_MODEL, timeoutMs: config.PRODUCT_MATCH_TIMEOUT_MS, companyId: getCompanyId };
+  return {
+    identification: { findTextCandidates: (queries) => findTextCandidates(queries, { limit: config.TEXT_MATCH_CANDIDATES, minSimilarity: config.TEXT_MATCH_MIN_SIMILARITY }),
+      chooseTextProduct: createOpenAITextProductChooser(chooser), minConfidence: config.PRODUCT_MATCH_MIN_CONFIDENCE, unclearMinProbability: config.TEXT_MATCH_UNCLEAR_MIN_PROBABILITY },
+    variants: { chooseVariant: createOpenAIVariantChooser(chooser), minConfidence: config.PRODUCT_MATCH_MIN_CONFIDENCE },
+  };
+}
+
+const textMatching = createTextMatching(process.env);
+const matcherDisabled = { success: false as const, error: { code: "PRODUCT_MATCHER_UNAVAILABLE" as const, message: "Text matching is not configured" } };
+// Candidates need no model: the top one is read even when the provider is not configured.
+const candidateReader = { findTextCandidates: (queries: Parameters<typeof findTextCandidates>[0]) => findTextCandidates(queries, { limit: 1, minSimilarity: Number(process.env.TEXT_MATCH_MIN_SIMILARITY) || 0.3 }) };
+
 const visualSearchSetup = createVisualSearch(process.env);
 export const imageEmbedder = visualSearchSetup.embedder;
+const readinessDependencies = { visualModel: visualSearchSetup.visual?.model ?? null, hasActiveProducts, hasIndexedProducts };
 
 const identificationDependencies = {
   readQrCodes,
@@ -172,6 +210,17 @@ export const products = {
   list: (input: Parameters<typeof listProducts>[0], options: ListOptions = {}) =>
     listProducts(input, { repository: productRepository, ...(options.includeImages ? { images: listImages } : {}) }),
   identifyProductsInImage: (image: ImageBytes) => identifyProductsInImage(image, identificationDependencies),
+  /** False without the provider key: orders skip texts instead of retrying a call that cannot work. */
+  textMatchingEnabled: textMatching !== null,
+  identifyProductInText: (line: Parameters<typeof identifyProductInText>[0], signal: AbortSignal) =>
+    textMatching ? identifyProductInText(line, textMatching.identification, signal) : Promise.resolve(matcherDisabled),
+  identifyProductsInText: (lines: Parameters<typeof identifyProductsInText>[0], signal: AbortSignal) =>
+    textMatching ? identifyProductsInText(lines, textMatching.identification, signal) : Promise.resolve(matcherDisabled),
+  findTopTextCandidate: (mention: string) => findTopTextCandidate(mention, textMatching?.identification ?? candidateReader),
+  resolveVariant: (input: Parameters<typeof resolveVariant>[0], signal: AbortSignal) =>
+    textMatching ? resolveVariant(input, textMatching.variants, signal) : Promise.resolve(matcherDisabled),
+  loadSellableVariants,
+  catalogSearchReadiness: () => catalogSearchReadiness(readinessDependencies),
   listForCatalog: (criteria: Parameters<typeof listCatalogProducts>[0]) =>
     listCatalogProducts(criteria, { repository: catalogProductRepository, images: listImages }),
   findVariantPhotos: (variantIds: readonly VariantId[]) => findVariantPhotos(variantIds, { findVariantImages, images: listImages }),
