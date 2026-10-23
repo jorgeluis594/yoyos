@@ -65,34 +65,17 @@ export async function findSellableVariants(ids: readonly string[]) {
 export async function findSellableVariantsByQrCodes(codes: readonly string[]) {
   try {
     const rows = await prisma.productVariant.findMany({ where: { qrCode: { in: [...codes] }, status: "active", product: { status: "active" } }, include: { product: true } });
-    const items: Array<CatalogItem & Readonly<{ qrCode: string }>> = [];
+    const items: Array<CatalogItem & Readonly<{ qrCode: string; productId: string }>> = [];
     for (const row of rows) {
       const item = toCatalogItem(row);
       // Una variante corrupta no debe bloquear las demás ni reintentarse: se omite como si no existiera.
       if (!item) { log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant"); continue; }
-      items.push({ ...item, qrCode: row.qrCode });
+      items.push({ ...item, qrCode: row.qrCode, productId: row.productId });
     }
     return ok(items);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_read_sale_variants_by_qr_code", err: cause }, "unable_to_read_sale_variants_by_qr_code");
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
-  }
-}
-
-export async function findSellableVariantsOfProduct(productId: ProductId) {
-  try {
-    const rows = await prisma.productVariant.findMany({ where: { productId, status: "active", product: { status: "active" } }, include: { product: true }, orderBy: { id: "asc" } });
-    const items: CatalogItem[] = [];
-    for (const row of rows) {
-      const item = toCatalogItem(row);
-      if (!item) { log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant"); continue; }
-      items.push(item);
-    }
-    return ok<readonly CatalogItem[]>(items);
-  } catch (cause) {
-    if (!knownFailure(cause)) throw cause;
-    log.error({ event: "unable_to_read_sale_variants_of_product", err: cause }, "unable_to_read_sale_variants_of_product");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
   }
 }
@@ -164,6 +147,18 @@ export async function loadSellableVariants(productIds: readonly ProductId[]) {
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_load_sellable_variants", err: cause }, "unable_to_load_sellable_variants");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
+  }
+}
+
+/** The product of each variant, in one query; a variant that does not exist is simply absent from the map. */
+export async function findProductIdsOfVariants(variantIds: readonly VariantId[]) {
+  try {
+    const rows = await prisma.productVariant.findMany({ where: { id: { in: [...variantIds] } }, select: { id: true, productId: true } });
+    return ok<ReadonlyMap<VariantId, ProductId>>(new Map(rows.map((row) => [row.id as VariantId, row.productId as ProductId])));
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_read_product_ids_of_variants", err: cause }, "unable_to_read_product_ids_of_variants");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
   }
 }

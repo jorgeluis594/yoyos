@@ -53,10 +53,3 @@ export function acceptVisualMatch(choice: VisualChoice, candidates: readonly Vis
   if (choice.confidence < minConfidence) return { kind: "rejected", reason: "low_confidence" };
   return { kind: "accepted", productId: choice.productId, confidence: choice.confidence };
 }
-
-export function selectVisualVariant(variants: readonly CatalogItem[]):
-  Readonly<{ kind: "selected"; item: CatalogItem }> | Readonly<{ kind: "rejected"; reason: "no_visual_match" | "ambiguous_variant" }> {
-  const [item, ...rest] = variants;
-  if (!item) return { kind: "rejected", reason: "no_visual_match" };
-  return rest.length ? { kind: "rejected", reason: "ambiguous_variant" } : { kind: "selected", item };
-}

@@ -24,7 +24,7 @@ import { productRepository } from "@core/src/features/products/infrastructure/re
 import { z } from "zod";
 import { identifyProductsInImage, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
 import type { ImageBytes, MatchConfidence, VariantQrCode } from "@core/src/features/products/domain/image-identification";
-import { findSellableVariantsByQrCodes, findSellableVariantsOfProduct } from "@core/src/features/products/infrastructure/order-stock";
+import { findSellableVariantsByQrCodes } from "@core/src/features/products/infrastructure/order-stock";
 import { findNearestProductImages, hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
 import { readQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
 import { createOpenAIProductChooser } from "@core/src/features/products/infrastructure/product-matching/openai-product-chooser";
@@ -126,7 +126,7 @@ export function createVisualSearch(env: Env): VisualSearchSetup {
   }
   return { embedder, visual: { model: embedder.model, embedImage: embedder.embedImage, candidates: config.PRODUCT_MATCH_CANDIDATES,
     minConfidence: config.PRODUCT_MATCH_MIN_CONFIDENCE as MatchConfidence, chooseProduct,
-    hasIndexedProducts, findNearestProductImages, readImage: (imageId) => readImageBytes(imageId, imageStorage, imageRepository), findSellableVariantsOfProduct } };
+    hasIndexedProducts, findNearestProductImages, readImage: (imageId) => readImageBytes(imageId, imageStorage, imageRepository) } };
 }
 
 const textEnvSchema = z.object({
@@ -167,7 +167,7 @@ const identificationDependencies = {
   readQrCodes,
   findVariantsByCodes: async (codes: readonly VariantQrCode[]) => {
     const found = await findSellableVariantsByQrCodes(codes);
-    return found.success ? ok(found.data.map((item) => ({ ...item, qrCode: item.qrCode as VariantQrCode }))) : found;
+    return found.success ? ok(found.data.map((item) => ({ ...item, qrCode: item.qrCode as VariantQrCode, productId: item.productId as ProductId }))) : found;
   },
   visual: visualSearchSetup.visual,
 };
@@ -217,8 +217,9 @@ export const products = {
   identifyProductsInText: (lines: Parameters<typeof identifyProductsInText>[0], signal: AbortSignal) =>
     textMatching ? identifyProductsInText(lines, textMatching.identification, signal) : Promise.resolve(matcherDisabled),
   findTopTextCandidate: (mention: string) => findTopTextCandidate(mention, textMatching?.identification ?? candidateReader),
+  /** Without the provider key only the deterministic paths resolve; naming a variant asks the model, which is unavailable. */
   resolveVariant: (input: Parameters<typeof resolveVariant>[0], signal: AbortSignal) =>
-    textMatching ? resolveVariant(input, textMatching.variants, signal) : Promise.resolve(matcherDisabled),
+    resolveVariant(input, textMatching?.variants ?? { minConfidence: 1, chooseVariant: async () => matcherDisabled }, signal),
   loadSellableVariants,
   catalogSearchReadiness: () => catalogSearchReadiness(readinessDependencies),
   listForCatalog: (criteria: Parameters<typeof listCatalogProducts>[0]) =>

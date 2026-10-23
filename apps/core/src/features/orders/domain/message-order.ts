@@ -1,18 +1,10 @@
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
+import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 
 export type ChatId = string & { readonly __brand: "ChatId" };
 
-export type MessageOrderSkipReason =
-  | "not_image"
-  | "outgoing_message"
-  | "unreadable_image"
-  | "unrecognized_qr_code"
-  | "product_not_found"
-  | "visual_search_disabled"
-  | "no_indexed_products"
-  | "no_visual_match"
-  | "low_confidence"
-  | "ambiguous_variant";
+/** Where a chat order comes from: its chat and the customer of the chat's contact. */
+export type OrderChatSource = Readonly<{ chatId: ChatId; customerId: CustomerId }>;
 
 export function isOpenForMessageItems(order: OrderAggregate, chatId: ChatId): boolean {
   return order.chatId === chatId && !order.cancelled && order.completedAt === null

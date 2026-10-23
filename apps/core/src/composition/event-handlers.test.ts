@@ -40,14 +40,18 @@ it("registers stock restoration for the producer and worker and rejects invalid 
   expect(parseOrderCancelled({ orderId: "invalid", companyId: "invalid" })).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
 });
 
-it("registers add-message-products-to-order for message_created with concurrency 2 and 8 retries", () => {
+it("registers apply-chat-message for message_created, ordered by chat, with its dead-letter handler", () => {
   const registered = eventHandlers.filter(handler => handler.name === "message_created");
-  expect(registered.map(handler => handler.id)).toEqual(["add-message-products-to-order"]);
-  expect(registered[0].policy).toMatchObject({ concurrency: 2, retries: 8 });
+  expect(registered.map(handler => handler.id)).toEqual(["apply-chat-message"]);
+  expect(registered[0].policy).toMatchObject({ concurrency: 16, retries: 8, groupConcurrency: 8, expireInSeconds: 90, heartbeatSeconds: 30,
+    deadLetter: { id: "apply-chat-message-dead-letter", policy: { retries: 8, retryDelaySeconds: 30 } } });
+  const payload = { companyId: "company", chatId: "chat", messageId: "message" } as never;
+  expect(registered[0].policy.orderingKey?.(payload)).toBe("chat");
+  expect(registered[0].policy.groupKey?.(payload)).toBe("company");
 });
 
 it("parses its payload with parseMessageCreated", () => {
-  const registered = eventHandlers.find(handler => handler.id === "add-message-products-to-order");
+  const registered = eventHandlers.find(handler => handler.id === "apply-chat-message");
   expect(registered?.parsePayload).toBe(parseMessageCreated);
   expect(registered?.parsePayload({ companyId: "invalid", messageId: "invalid" })).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
 });
