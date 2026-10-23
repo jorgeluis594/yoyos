@@ -9,7 +9,7 @@ export function toLegacyOrderJson(order: OrderAggregate) {
     paymentMethod: "digital_wallet", completedAt: order.completedAt.toISOString(), currency: order.total.currency, total: order.total.amount,
     items: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
       variantAttributes: item.variantAttributes, sku: item.sku, quantity: item.quantity,
-      unitPrice: item.unitPrice.amount, subtotal: item.subtotal.amount })) });
+      unitPrice: item.unitPrice.amount, subtotal: item.subtotal.amount, mentionedPrice: null })) });
 }
 
 export function toOrderAggregateJson(order: OrderAggregate) {
@@ -18,7 +18,7 @@ export function toOrderAggregateJson(order: OrderAggregate) {
   if (!lifecycle.success || !payment.success) throw new Error("Invalid order aggregate response");
   // The contract exposes `source`, not the chat id or the catalog flag.
   const fields = Object.fromEntries(Object.entries(order).filter(([key]) => key !== "chatId" && key !== "fromCatalog"));
-  return orderAggregateSchema.parse({ ...fields, source: orderSource(order), checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), shippedAt: order.shippedAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null,
+  return orderAggregateSchema.parse({ ...fields, items: order.items.map((item) => ({ ...item, mentionedPrice: item.mentionedPrice ?? null })), source: orderSource(order), checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), shippedAt: order.shippedAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null,
     completedAt: order.completedAt?.toISOString() ?? null, status: lifecycle.data.status,
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,

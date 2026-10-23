@@ -136,7 +136,9 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
       throw new InvalidStoredOrderError("Invalid stored order attributes");
     return { id: item.id as OrderItemId, variantId: item.variantId as VariantId, productName: item.productName,
       variantAttributes: { ...attributes } as Record<string, string>, sku: item.sku, quantity: Number(item.quantity) as PositiveInteger,
-      unitPrice: { amount: item.unitPrice.toNumber(), currency: row.currency }, subtotal: { amount: item.subtotal.toNumber(), currency: row.currency } };
+      unitPrice: { amount: item.unitPrice.toNumber(), currency: row.currency }, subtotal: { amount: item.subtotal.toNumber(), currency: row.currency },
+      mentionedPrice: item.mentionedPriceAmount === null || item.mentionedPriceUnits === null ? null
+        : { amount: { amount: item.mentionedPriceAmount.toNumber(), currency: row.currency }, units: item.mentionedPriceUnits } };
   }) as [OrderAggregate["items"][number], ...OrderAggregate["items"][number][]];
   const payments: Payment[] = row.payments.map(mapPayment);
   const parsedDate = row.scheduledDispatchDate ? parseDispatchDate(row.scheduledDispatchDate.toISOString().slice(0, 10)) : null;

@@ -19,7 +19,9 @@ export const orderCustomerSchema = z.discriminatedUnion("kind", [
 ]);
 export const orderBuyerSchema = z.strictObject({ contactId: z.uuid().nullable(), name: z.string().nullable(), phone: z.string().nullable() });
 export const orderSourceSchema = z.enum(["manual", "whatsapp", "catalog"]);
-export const orderItemSchema = z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(), variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(), unitPrice: z.number().positive(), subtotal: z.number().positive() });
+/** Price the buyer wrote in the chat for one item; the order currency applies. */
+export const mentionedPriceSchema = z.strictObject({ amount: moneySchema, units: z.number().int().min(1).max(99) });
+export const orderItemSchema = z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(), variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(), unitPrice: z.number().positive(), subtotal: z.number().positive(), mentionedPrice: mentionedPriceSchema.nullable() });
 export const orderSchema = z.strictObject({ number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string().nullable(), buyer: orderBuyerSchema.nullable(), source: orderSourceSchema, paymentMethod: z.literal("digital_wallet"), completedAt: z.iso.datetime(), currency: z.enum(currencies), items: z.array(orderItemSchema).min(1), total: z.number().positive() });
 export type OrderResponse = z.infer<typeof orderSchema>;
 
@@ -99,7 +101,7 @@ export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.da
   cancelled: z.boolean(), delivery: deliverySnapshotSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
   stockDeducted: z.boolean(), items: z.array(z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(),
     variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(),
-    unitPrice: moneySchema, subtotal: moneySchema })).min(1), payments: z.array(paymentSchema),
+    unitPrice: moneySchema, subtotal: moneySchema, mentionedPrice: mentionedPriceSchema.nullable() })).min(1), payments: z.array(paymentSchema),
   itemsTotal: moneySchema, deliveryCost: moneySchema, deliveryCharge: moneySchema, total: moneySchema });
 export type OrderAggregateResponse = z.infer<typeof orderAggregateSchema>;
 export const listOrderAggregatesSchema = z.strictObject({

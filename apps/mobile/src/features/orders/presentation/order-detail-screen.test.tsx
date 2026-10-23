@@ -32,7 +32,7 @@ const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, company
     method: "digital_wallet", status: "confirmed", data: { confirmedAt: "2026-09-29T12:00:00.000Z", confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } }],
   items: [{ id: "00000000-0000-4000-8000-000000000005", variantId: "00000000-0000-4000-8000-000000000002",
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
-    unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" } }] };
+    unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" }, mentionedPrice: null }] };
 let mockOrder = initialOrder;
 beforeEach(() => { mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockEnableCheckout.mockReset(); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
 
