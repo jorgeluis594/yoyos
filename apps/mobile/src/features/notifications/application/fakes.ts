@@ -13,6 +13,7 @@ export function createFakeGateway(initial: NoticePermission = "granted", token =
     openSettings: async () => { state.settingsOpened++; },
     getToken: async () => ok(state.token),
     dismissAll: async () => { state.dismissed++; },
+    onTokenChange: () => () => {},
   };
   return { gateway, state };
 }

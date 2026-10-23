@@ -12,6 +12,8 @@ export type NoticeGateway = Readonly<{
   openSettings: () => Promise<void>;
   getToken: () => Promise<Result<string, NoticeError>>;
   dismissAll: () => Promise<void>;
+  /** Calls back when the system rotates the push token; returns the unsubscribe. */
+  onTokenChange: (listener: () => void) => () => void;
 }>;
 
 export type StoredRegistration = Readonly<{ fingerprint: string; token: string }>;

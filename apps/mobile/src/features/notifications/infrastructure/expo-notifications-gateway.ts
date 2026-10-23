@@ -34,6 +34,7 @@ export function createExpoNotificationsGateway(): NoticeGateway {
         return err({ code: "NOTICE_UNAVAILABLE", message: "Unable to read the push token" });
       }
     },
+    onTokenChange: (listener) => { const subscription = Notifications.addPushTokenListener(listener); return () => subscription.remove(); },
     dismissAll: async () => { try { await Notifications.dismissAllNotificationsAsync(); } catch { /* nothing shown to dismiss */ } },
   };
 }
