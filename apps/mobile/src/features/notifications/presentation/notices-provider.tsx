@@ -1,7 +1,8 @@
-import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { AppState } from "react-native";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
+import type { NoticeDestination } from "../domain/notice-destination";
 import type { NoticesController } from "../application/notices-controller";
 import type { NoticePermission } from "../application/ports";
 
@@ -13,6 +14,8 @@ type NoticesContextValue = Readonly<{
   enable: () => Promise<void>;
   promptOnConnected: () => Promise<void>;
   loadCatalogReadiness: CatalogReadinessLoader;
+  /** Calls back with each notice of this company that reaches the running app; returns the unsubscribe. */
+  watchArrivals: (listener: (destination: NoticeDestination) => void) => () => void;
 }>;
 
 const NoticesContext = createContext<NoticesContextValue | null>(null);
@@ -49,9 +52,10 @@ export function NoticesProvider({ controller, companyId, loadCatalogReadiness, c
     setPermission(await controller.promptOnConnected());
     await controller.sync();
   }, [controller]);
+  const watchArrivals = useCallback<NoticesContextValue["watchArrivals"]>((listener) => controller.watchArrivals(listener), [controller]);
   const value = useMemo<NoticesContextValue>(
-    () => ({ permission, enable, promptOnConnected, loadCatalogReadiness }),
-    [permission, enable, promptOnConnected, loadCatalogReadiness],
+    () => ({ permission, enable, promptOnConnected, loadCatalogReadiness, watchArrivals }),
+    [permission, enable, promptOnConnected, loadCatalogReadiness, watchArrivals],
   );
   return <NoticesContext.Provider value={value}>{children}</NoticesContext.Provider>;
 }
@@ -59,4 +63,18 @@ export function NoticesProvider({ controller, companyId, loadCatalogReadiness, c
 /** `null` outside the provider (web, tests), where the link screen shows no notices UI. */
 export function useNotices(): NoticesContextValue | null {
   return useContext(NoticesContext);
+}
+
+/**
+ * Runs `listener` for each notice of the signed-in company that reaches the running app while
+ * `active`. Outside the provider (web, tests) nothing arrives.
+ */
+export function useNoticeArrivals(listener: (destination: NoticeDestination) => void, active = true): void {
+  const watchArrivals = useNotices()?.watchArrivals;
+  const latest = useRef(listener);
+  useEffect(() => { latest.current = listener; });
+  useEffect(() => {
+    if (!watchArrivals || !active) return;
+    return watchArrivals((destination) => latest.current(destination));
+  }, [watchArrivals, active]);
 }
