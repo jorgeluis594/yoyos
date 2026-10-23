@@ -40,7 +40,7 @@ services:
       PORT: 3000
       DATABASE_URL: postgresql://core_app:${SERVICE_PASSWORD_64_APPDB}@db:5432/core
       BETTER_AUTH_SECRET: ${SERVICE_PASSWORD_64_AUTH}
-      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://yoyos.kogozstaging.lat}
+      BETTER_AUTH_URL: ${BETTER_AUTH_URL:-https://app.yoyos.lat}
       CATALOG_BASE_URL: ${CATALOG_BASE_URL:?CATALOG_BASE_URL is required}
       EMAIL_TRANSPORT: resend
       EMAIL_FROM: ${EMAIL_FROM:-Yoyos <cuentas@kogozstaging.lat>}

@@ -101,16 +101,16 @@ docker compose exec db psql -U core -d core -c 'REINDEX DATABASE core'
 
 In Coolify, run the same `REINDEX DATABASE core` in the `db` container's terminal right after the first deployment on the new image. `ALTER DATABASE … REFRESH COLLATION VERSION` does not fix this and fails on these volumes.
 
-## Staging deployment with Coolify
+## Deployment with Coolify
 
 The Git-based Coolify application uses [`compose.prod.yaml`](compose.prod.yaml) from the repository root. It runs PostgreSQL with a persistent volume, applies migrations with the database administrator role, then starts the web server and event worker with the restricted `core_app` role. The database has no public port.
 
 1. In Coolify, create an Application from the public GitHub repository `jorgeluis594/yoyos`. Select Docker Compose, set the base directory to `/`, and set the Compose location to `compose.prod.yaml`.
 2. Set `RESEND_API_KEY` and `CATALOG_BASE_URL` in Coolify's environment variables. `CATALOG_BASE_URL` is the base domain of the [public catalog](docs/public-catalog.md#environments)'s brand addresses: `https://yoyos.lat`. There is no staging catalog domain. It has no default: Coolify stores the Compose file's `${CATALOG_BASE_URL:?…}` error text as the variable's value until a real one is set, so check in Environment Variables that the stored value is the URL. Without a valid `https` URL the `migrate` service exits before changing the schema and `web` does not start. The configured sender is `Yoyos <cuentas@kogozstaging.lat>`, whose domain must be verified in Resend. Coolify generates the `SERVICE_PASSWORD_64_POSTGRES`, `SERVICE_PASSWORD_64_APPDB`, and `SERVICE_PASSWORD_64_AUTH` values referenced by the Compose file.
-3. Assign `https://yoyos.kogozstaging.lat` to the `web` service on internal port `3000`. The DNS A record must point to the Coolify server, and ports 80 and 443 must reach its proxy.
+3. Assign `https://app.yoyos.lat` to the `web` service on internal port `3000`. The DNS A record must point to the Coolify server, and ports 80 and 443 must reach its proxy.
 4. Deploy. Wait for `migrate` to exit successfully and for `web` and `worker` to start. Verify account registration and the verification email before testing business flows.
 
-Images require the `R2_*` environment variables from [`apps/core/.env.example`](apps/core/.env.example). WhatsApp connections are optional for initial staging tests. Keep backups of the PostgreSQL volume before upgrades; the migration service runs again on each deployment.
+Images require the `R2_*` environment variables from [`apps/core/.env.example`](apps/core/.env.example). WhatsApp connections are optional for initial tests. Keep backups of the PostgreSQL volume before upgrades; the migration service runs again on each deployment.
 
 ## Catalog brand hosts
 
