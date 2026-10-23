@@ -155,6 +155,7 @@ test("saving the appearance never changes catalog publication and publishing nev
   expect(await published()).toBe(false);
   await call({ bearer: s.bearer }, { theme: "antojo", logoImageId: null });
   expect(await published()).toBe(false);
+  await withTenantIsolation(s.companyId, async () => await prisma.company.update({ where: { id: s.companyId }, data: { catalogSubdomain: `s${s.companyId.replaceAll("-", "").slice(0, 20)}` } }));
   const publish = await fetch(`${base}/api/catalog/settings`, { method: "PUT", headers: { origin, authorization: `Bearer ${s.bearer}`, "content-type": "application/json" },
     body: JSON.stringify({ published: true }) });
   expect(publish.status).toBe(200);

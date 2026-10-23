@@ -87,6 +87,7 @@ model Jwks {
 model Company {
   nextOrderNumber BigInt @default(1001)
   catalogPublished Boolean @default(false)
+  catalogSubdomain String? @unique
   id      String @id @db.Uuid
   name    String
   country String

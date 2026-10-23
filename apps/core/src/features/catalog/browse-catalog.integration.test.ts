@@ -13,7 +13,7 @@ let clock = Date.parse("2026-01-01T00:00:00.000Z");
 async function createCompany(published: boolean) {
   const id = randomUUID() as CompanyId;
   companies.push(id);
-  await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: "Moda Lucía", country: "PE", catalogPublished: published } }));
+  await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: "Moda Lucía", country: "PE", catalogPublished: published, catalogSubdomain: published ? `s${id.replaceAll("-", "").slice(0, 20)}` : null } }));
   return id;
 }
 

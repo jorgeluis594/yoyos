@@ -31,6 +31,9 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     await browserExpect(page.getByText("Guardado", { exact: true })).toBeVisible();
     await browserExpect(page.getByLabel("Ofrecer recojo en tienda")).toBeChecked();
 
+    // Choosing the link has no screen yet: publishing requires a saved subdomain, so the seller starts with one.
+    const subdomain = `s${companyId.replaceAll("-", "").slice(0, 20)}`;
+    await withTenantIsolation(companyId, async () => await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: subdomain } }));
     await page.goto("/es-PE/settings/store-appearance", { waitUntil: "networkidle" });
     await page.getByRole("switch", { name: "Publicar catálogo" }).click();
     await browserExpect(page.getByText("Catálogo publicado", { exact: true })).toBeVisible();
@@ -39,9 +42,11 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     await browserExpect(page.getByText("Para ocultar tu catálogo, ve a Apariencia de la tienda.")).toBeVisible();
     await browserExpect(page.getByRole("switch")).toHaveCount(0);
     const url = new URL(await page.getByLabel("Link del catálogo").inputValue());
-    expect(url.pathname).toBe(`/catalogo/${companyId}`);
+    expect(url.host).toBe(`${subdomain}.localhost:${process.env.CORE_E2E_PORT ?? "4173"}`);
+    // The brand host is served by a later task: the catalog still opens at its legacy path.
+    const catalogPath = `/catalogo/${companyId}`;
 
-    const catalog = await buyerPage.goto(url.pathname);
+    const catalog = await buyerPage.goto(catalogPath);
     expect(catalog?.headers()["referrer-policy"]).toBe("no-referrer");
     await browserExpect(buyerPage.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
     await browserExpect(async () => {
@@ -91,7 +96,7 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     expect(requestLogs(requestId)).toContainEqual(expect.objectContaining({ event: "catalog_order_created", companyId, orderNumber: 1001, linesCount: 2 }));
     expect(JSON.stringify(requestLogs(requestId))).not.toContain(orderId);
 
-    await buyerPage.goto(url.pathname);
+    await buyerPage.goto(catalogPath);
     await buyerPage.getByRole("button", { name: "Carrito, 0 unidades" }).click();
     await browserExpect(buyerPage.getByRole("dialog", { name: "Carrito" }).getByText("Tu carrito está vacío")).toBeVisible();
 
