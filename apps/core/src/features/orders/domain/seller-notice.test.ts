@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { chooseSellerNotice, sellerNoticeTarget } from "@core/src/features/orders/domain/seller-notice";
+import { chooseSellerNotice, isNoticeDue, sellerNoticeTarget } from "@core/src/features/orders/domain/seller-notice";
 import type { ChatMessageOutcome, ChatMessageOutcomes } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { OrderId } from "@core/src/features/orders/domain/order";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -64,5 +64,14 @@ describe("chooseSellerNotice", () => {
     expect(sellerNoticeTarget({ kind: "only_item_kept", orderId: order(1) })).toEqual({ kind: "order", orderId: order(1) });
     expect(sellerNoticeTarget({ kind: "failed", newOrderId: null })).toEqual({ kind: "message" });
     expect(sellerNoticeTarget({ kind: "order_closed", orderId: order(1), newOrderId: null })).toEqual({ kind: "message" });
+  });
+});
+
+describe("isNoticeDue", () => {
+  test("is due only while the outcomes call for a notice and it was not claimed", () => {
+    const failed: ChatMessageOutcomes = [{ kind: "failed", errorCode: "RETRIES_EXHAUSTED" }];
+    expect(isNoticeDue(failed, null)).toBe(true);
+    expect(isNoticeDue(failed, new Date())).toBe(false);
+    expect(isNoticeDue([{ kind: "no_intent" }], null)).toBe(false);
   });
 });

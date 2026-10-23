@@ -25,6 +25,9 @@ export type ChatMessageOutcome =
 
 export type ChatMessageOutcomes = readonly [ChatMessageOutcome, ...ChatMessageOutcome[]];
 
+/** What is stored for a read message: its outcomes and whether its notice was already claimed. */
+export type StoredChatMessageOutcome = Readonly<{ outcomes: ChatMessageOutcomes; noticeSentAt: Date | null }>;
+
 const uuid = z.uuid();
 const orderId = uuid.transform((value) => value as OrderId);
 const productId = uuid.transform((value) => value as ProductId);
