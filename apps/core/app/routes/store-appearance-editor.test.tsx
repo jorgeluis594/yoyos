@@ -13,9 +13,12 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const pesoCard = { id: "p1", name: "Polo", imageUrl: null, price: { kind: "single", amount: { amount: 10, currency: "PEN" } }, soldOut: false };
 type CardsAnswer = Response | Error | "pending";
+/** Answers the link client's requests; a test that does not expect them fails loudly. */
+let linkApi: (url: string, init?: RequestInit) => Promise<Response> = async (url) => { throw new Error(`unexpected link request ${url}`); };
 /** Answers the plain fetch of the catalog preview cards; every other request is a test mistake. */
 function stubCards(answer: CardsAnswer = Response.json({ kind: "products", cards: [pesoCard] })) {
-  const fetchSpy = vi.fn(async (_url: unknown, init?: RequestInit) => {
+  const fetchSpy = vi.fn(async (url: unknown, init?: RequestInit) => {
+    if (String(url).startsWith("/api/catalog/")) return linkApi(String(url), init);
     if (answer === "pending") return new Promise<Response>((_resolve, reject) => init?.signal?.addEventListener("abort", () => reject(new DOMException("aborted", "AbortError"))));
     if (answer instanceof Error) throw answer;
     return answer.clone();
@@ -30,7 +33,8 @@ await i18n.use(initReactI18next).init({ lng: "es", resources });
 const logoId = "00000000-0000-4000-8000-0000000000aa";
 type Loaded = { appearance: AppearancePart; publication: PublicationPart };
 const readable = (theme: string, extra: object = {}): AppearancePart => ({ kind: "readable", published: { logoImageId: null, theme }, logoUrl: null, ...extra }) as AppearancePart;
-const loaded = (appearance: AppearancePart, publication: PublicationPart = { kind: "loaded", published: true }): Loaded => ({ appearance, publication });
+const brand = { subdomain: "fantasio", url: "http://fantasio.localhost:3000/", domain: "localhost:3000", suggestion: null } as const;
+const loaded = (appearance: AppearancePart, publication: PublicationPart = { kind: "loaded", published: true, ...brand }): Loaded => ({ appearance, publication });
 
 let root: Root | undefined;
 let container: HTMLDivElement;
@@ -41,7 +45,7 @@ beforeEach(() => {
   HTMLIFrameElement.prototype.scrollIntoView = () => undefined;
 });
 afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals(); });
-beforeEach(() => { stubCards(); });
+beforeEach(() => { stubCards(); linkApi = async (url) => { throw new Error(`unexpected link request ${url}`); }; });
 
 type Mounted = { loader: ReturnType<typeof vi.fn>; action: ReturnType<typeof vi.fn> };
 
@@ -227,7 +231,7 @@ test("the editor initializes the draft on the first appearance that loads after 
 });
 
 test("a later failed appearance re-read keeps the draft, the published baseline, Guardar cambios and the leave confirmation", async () => {
-  await mount([loaded(readable("boutique"), { kind: "failed" }), loaded({ kind: "failed" }, { kind: "loaded", published: true })]);
+  await mount([loaded(readable("boutique"), { kind: "failed" }), loaded({ kind: "failed" }, { kind: "loaded", published: true, ...brand })]);
   await click(radio("Suave"));
   await click(buttons().find((element) => element.textContent === "Reintentar"));
   await vi.waitFor(() => expect(container.textContent).not.toContain("No pudimos cargar la configuración del catálogo"));
@@ -321,4 +325,129 @@ test("leaving the editor aborts the pending cards request", async () => {
   expect(signals[0]!.aborted).toBe(false);
   act(() => root!.unmount());
   expect(signals[0]!.aborted).toBe(true);
+});
+
+const field = () => container.querySelector<HTMLInputElement>("#catalog-subdomain")!;
+const statusLine = () => container.querySelector("#catalog-subdomain-status")?.textContent ?? "";
+const typeText = (value: string) => act(async () => {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(field(), value);
+  field().dispatchEvent(new Event("input", { bubbles: true }));
+});
+const link = (value: string) => ({ published: true, subdomain: value, url: `http://${value}.localhost:3000/`, domain: "localhost:3000", suggestion: null });
+const noLinkYet: PublicationPart = { kind: "loaded", published: false, subdomain: null, url: null, domain: "localhost:3000", suggestion: null };
+const suggested: PublicationPart = { ...noLinkYet, suggestion: "cafe-fantasio" };
+const availability = (status: "available" | "in_use" = "available") => async (url: string) => Response.json({ status, subdomain: new URL(url, "http://x").searchParams.get("value") });
+const leaveDialog = () => document.body.textContent ?? "";
+const leave = async () => { await click(container.querySelector("a")); };
+
+test("a failed availability check keeps the editor, the logo and theme draft and the typed link, and shows «No pudimos revisar si está disponible.» in the status line", async () => {
+  linkApi = async () => { throw new TypeError("Failed to fetch"); };
+  const { loader } = await mount([loaded(readable("classic"), noLinkYet)]);
+  await click(radio("Noche"));
+  await typeText("fantasio");
+  await shows("No pudimos revisar si está disponible.");
+  expect(field().value).toBe("fantasio");
+  expect(radio("Noche").getAttribute("aria-checked")).toBe("true");
+  expect(container.textContent).toContain("Cambios sin guardar");
+  expect(button("Guardar cambios")).toBeDefined();
+  expect(container.textContent).not.toContain("No se pudo cargar la apariencia");
+  expect(loader).toHaveBeenCalledTimes(1);
+});
+
+test("a save without an answer whose re-read also fails keeps the editor, the draft and the typed link, with the in-doubt message and Reintentar", async () => {
+  linkApi = async (url) => { if (url.includes("availability")) return Response.json({ status: "available", subdomain: "fantasio" }); throw new TypeError("Failed to fetch"); };
+  const { loader } = await mount([loaded(readable("classic"), noLinkYet)]);
+  await click(radio("Noche"));
+  await typeText("fantasio");
+  await shows("fantasio.localhost:3000 está disponible");
+  await click(button("Guardar link"));
+  await shows("No sabemos si tu link se guardó. Revisa tu conexión.");
+  expect(field().value).toBe("fantasio");
+  expect(radio("Noche").getAttribute("aria-checked")).toBe("true");
+  expect(container.textContent).toContain("Cambios sin guardar");
+  expect(button("Reintentar")).toBeDefined();
+  expect(loader).toHaveBeenCalledTimes(1);
+  expect(container.textContent).not.toContain("No se pudo cargar la apariencia");
+});
+
+test("saving the link does not revalidate the editor loaders or re-read the preview products", async () => {
+  const fetchSpy = stubCards();
+  linkApi = async (url, init) => init?.method === "PUT" ? Response.json(link("fantasio")) : availability()(url);
+  const { loader, action } = await mount([loaded(readable("classic"), noLinkYet)]);
+  await vi.waitFor(() => expect(previewLabel()).toBe("Tema Clásico · Tus productos"));
+  await typeText("fantasio");
+  await shows("fantasio.localhost:3000 está disponible");
+  await click(button("Guardar link"));
+  await shows("Link guardado");
+  expect(loader).toHaveBeenCalledTimes(1);
+  expect(action).not.toHaveBeenCalled();
+  expect(fetchSpy.mock.calls.filter(([url]) => String(url).includes("catalog-cards"))).toHaveLength(1);
+  expect(previewLabel()).toBe("Tema Clásico · Tus productos");
+});
+
+test("leaving with only a pending link, only a draft, or both shows the matching description", async () => {
+  linkApi = availability();
+  await mount([loaded(readable("classic"), suggested)]);
+  await typeText("fantasio");
+  await leave();
+  await vi.waitFor(() => expect(leaveDialog()).toContain("Tienes cambios sin guardar"));
+  expect(leaveDialog()).toContain("Si sales ahora, no se guardará el link que escribiste.");
+  await click([...document.body.querySelectorAll("button")].find((element) => element.textContent === "Seguir editando"));
+  await click(radio("Noche"));
+  await leave();
+  await vi.waitFor(() => expect(leaveDialog()).toContain("Si sales ahora, perderás los cambios que no publicaste y el link que escribiste."));
+  await click([...document.body.querySelectorAll("button")].find((element) => element.textContent === "Seguir editando"));
+  await typeText("cafe-fantasio");
+  await leave();
+  await vi.waitFor(() => expect(leaveDialog()).toContain("Si sales ahora, perderás los cambios que no publicaste."));
+  expect(leaveDialog()).not.toContain("y el link que escribiste");
+});
+
+test("an untouched suggestion and a link edited back to its initial value ask nothing on leave", async () => {
+  await mount([loaded(readable("classic"), suggested)]);
+  expect(field().value).toBe("cafe-fantasio");
+  await click(radio("Noche"));
+  await click(radio("Clásico"));
+  await leave();
+  await shows("Otra página");
+  expect(leaveDialog()).not.toContain("Tienes cambios sin guardar");
+
+  act(() => root!.unmount());
+  container.remove();
+  linkApi = availability();
+  await mount([loaded(readable("classic"), suggested)]);
+  await typeText("fantasio");
+  await typeText("cafe-fantasio");
+  await leave();
+  await shows("Otra página");
+  expect(leaveDialog()).not.toContain("Tienes cambios sin guardar");
+});
+
+test("reload and tab close also ask while a link is pending", async () => {
+  linkApi = availability();
+  await mount([loaded(readable("classic"), suggested)]);
+  const idle = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(idle);
+  expect(idle.defaultPrevented).toBe(false);
+  await typeText("fantasio");
+  const pending = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(pending);
+  expect(pending.defaultPrevented).toBe(true);
+});
+
+test("Guardar cambios with a pending link saves only logo and theme and keeps the link status line", async () => {
+  linkApi = availability();
+  const saved = data({ intent: "save-appearance", success: true, appearance: { logoImageId: null, theme: "noche" } });
+  const { action, loader } = await mount([loaded(readable("classic"), suggested), loaded(readable("noche"), suggested)], saved);
+  await typeText("fantasio");
+  await shows("fantasio.localhost:3000 está disponible");
+  await click(radio("Noche"));
+  await click(button("Guardar cambios"));
+  await shows("Apariencia actualizada");
+  await vi.waitFor(() => expect(loader).toHaveBeenCalledTimes(2));
+  expect(await (action.mock.calls[0] as unknown as [{ request: Request }])[0].request.json()).toEqual({ intent: "save-appearance", appearance: { logoImageId: null, theme: "noche" } });
+  expect(field().value).toBe("fantasio");
+  expect(statusLine()).toBe("fantasio.localhost:3000 está disponible");
+  await leave();
+  await vi.waitFor(() => expect(leaveDialog()).toContain("Si sales ahora, no se guardará el link que escribiste."));
 });

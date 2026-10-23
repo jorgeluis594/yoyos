@@ -17,7 +17,9 @@ const save = (appearanceBody: unknown) => send({ intent: "save-appearance", appe
 const failure = (code: "INVALID_STORE_APPEARANCE" | "INVALID_IMAGE" | "PERSISTENCE_UNAVAILABLE") =>
   ({ success: false, error: { code, message: "x", invalidFields: [] } }) as never;
 const readable = (data: object) => ({ success: true, data: { kind: "readable", ...data } }) as never;
-const publicationRead = (published = true) => vi.spyOn(catalogSettings, "get").mockResolvedValue({ success: true, data: { published } } as never);
+const publicationRead = (published = true, subdomain: string | null = "lima", suggestion: string | null = null) =>
+  vi.spyOn(catalogSettings, "get").mockResolvedValue({ success: true, data: { published, subdomain, suggestion } } as never);
+const brandLink = { subdomain: "lima", url: "http://lima.localhost:3000/", domain: "localhost:3000", suggestion: null };
 const publicationFails = () => vi.spyOn(catalogSettings, "get").mockResolvedValue({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "x" } } as never);
 
 afterEach(() => vi.restoreAllMocks());
@@ -28,7 +30,7 @@ describe("editor loader", () => {
     const read = publicationRead(true);
     expect(await load()).toEqual({
       appearance: { kind: "readable", published: appearance, logoUrl: "https://cdn.test/logo.png" },
-      publication: { kind: "loaded", published: true },
+      publication: { kind: "loaded", published: true, ...brandLink },
     });
     expect(get).toHaveBeenCalledWith(access.company.id);
     expect(read).toHaveBeenCalledWith({ companyId: access.company.id, userId: access.user.id });
@@ -37,7 +39,7 @@ describe("editor loader", () => {
   test("loads Clásico without logo for a company without appearance", async () => {
     vi.spyOn(storeAppearance, "get").mockResolvedValue(readable({ appearance: { logoImageId: null, theme: "classic" }, logoUrl: null }));
     publicationRead(false);
-    expect(await load()).toMatchObject({ appearance: { kind: "readable", published: { logoImageId: null, theme: "classic" }, logoUrl: null }, publication: { kind: "loaded", published: false } });
+    expect(await load()).toMatchObject({ appearance: { kind: "readable", published: { logoImageId: null, theme: "classic" }, logoUrl: null }, publication: { kind: "loaded", published: false, ...brandLink } });
   });
 
   test("returns the unknown-theme starting point as data, not as a load error", async () => {
@@ -50,8 +52,27 @@ describe("editor loader", () => {
     const bind = vi.spyOn(logger, "bindRequestOperation");
     vi.spyOn(storeAppearance, "get").mockResolvedValue({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "x" } });
     publicationRead(false);
-    expect(await load()).toEqual({ appearance: { kind: "failed" }, publication: { kind: "loaded", published: false } });
+    expect(await load()).toEqual({ appearance: { kind: "failed" }, publication: { kind: "loaded", published: false, ...brandLink } });
     expect(bind).toHaveBeenCalledWith({ operation: "get_store_appearance", outcome: "technical_failure" });
+  });
+
+  test("carries the saved link, its URL and the environment domain for a company with a subdomain", async () => {
+    vi.spyOn(storeAppearance, "get").mockResolvedValue(readable({ appearance, logoUrl: null }));
+    publicationRead(true, "fantasio");
+    expect(await load()).toMatchObject({ publication: { kind: "loaded", subdomain: "fantasio", url: "http://fantasio.localhost:3000/", domain: "localhost:3000", suggestion: null } });
+  });
+
+  test("the editor loader makes the suggestion probe only while the company has no subdomain", async () => {
+    vi.spyOn(storeAppearance, "get").mockResolvedValue(readable({ appearance, logoUrl: null }));
+    const read = publicationRead(false, null, "cafe-fantasio");
+    const check = vi.spyOn(catalogSettings, "checkSubdomain");
+    expect(await load()).toMatchObject({ publication: { kind: "loaded", subdomain: null, url: null, suggestion: "cafe-fantasio" } });
+    // The probe lives inside the single settings read: the loader adds no lookup of its own, and a saved link carries no suggestion.
+    expect(read).toHaveBeenCalledOnce();
+    expect(check).not.toHaveBeenCalled();
+    read.mockResolvedValue({ success: true, data: { published: true, subdomain: "fantasio", suggestion: null } } as never);
+    expect(await load()).toMatchObject({ publication: { subdomain: "fantasio", suggestion: null } });
+    expect(check).not.toHaveBeenCalled();
   });
 
   test("editor loader returns the appearance when the publication read fails", async () => {
@@ -131,7 +152,7 @@ describe("editor action", () => {
     vi.spyOn(catalogSettings, "setPublication").mockResolvedValue({ success: false, error: { code: "SUBDOMAIN_REQUIRED", message: "x" } } as never);
     const result = await send({ intent: "set-publication", published: true });
     expect(result.init?.status).toBe(409);
-    expect(result.data).toEqual({ intent: "set-publication", error: true });
+    expect(result.data).toEqual({ intent: "set-publication", error: true, reason: "subdomain_required" });
   });
 
   test("tags the request with its operation and outcome", async () => {
@@ -189,6 +210,7 @@ describe("editor revalidation", () => {
     expect(after({ intent: "save-appearance", success: true, appearance })).toBe(true);
     expect(after({ intent: "save-appearance", error: "PERSISTENCE_UNAVAILABLE" })).toBe(false);
     expect(after({ intent: "set-publication", error: true })).toBe(false);
+    expect(after({ intent: "set-publication", error: true, reason: "subdomain_required" })).toBe(false);
     expect(after({ error: "INVALID_INPUT" })).toBe(false);
   });
 

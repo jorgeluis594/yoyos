@@ -14,7 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@core/app/components/u
 import { ErrorState } from "@core/app/components/ui/error-state";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { storeAppearance } from "@core/src/features/store-appearance/composition";
-import { catalogSettings, type CatalogSettingsAccess } from "@core/src/features/catalog";
+import { catalogSettings, toCatalogSettingsResponse, type CatalogSettingsAccess } from "@core/src/features/catalog";
 import { parseCompanyId, parseUserId } from "@core/src/features/store-appearance/domain/store-appearance";
 // Client code imports the domain modules directly: the composition is server-only.
 import type { StoreAppearance } from "@core/src/features/store-appearance/domain/store-appearance";
@@ -46,7 +46,7 @@ async function readAppearance(companyId: Parameters<typeof storeAppearance.get>[
 
 async function readPublication(access: CatalogSettingsAccess): Promise<PublicationPart> {
   const loaded = await catalogSettings.get(access);
-  return loaded.success ? { kind: "loaded", published: loaded.data.published } : { kind: "failed" };
+  return loaded.success ? { kind: "loaded", ...toCatalogSettingsResponse(loaded.data) } : { kind: "failed" };
 }
 
 /** The two parts load together and fail on their own: neither one hides the other. */
@@ -82,10 +82,10 @@ async function setPublication(context: ActionFunctionArgs["context"], published:
     bindRequestOperation({ operation: "set_catalog_publication", outcome: "saved" });
     return data<EditorActionResult>({ intent: "set-publication", published: saved.data.published });
   }
-  // Publishing without a saved link is the existing failed-save outcome; the card explains it once the link group exists.
+  // An outdated screen publishing without a saved link: the card turns the switch off and explains why.
   if (saved.error.code === "SUBDOMAIN_REQUIRED") {
     bindRequestOperation({ operation: "set_catalog_publication", outcome: "invalid_input" });
-    return data<EditorActionResult>({ intent: "set-publication", error: true }, { status: 409 });
+    return data<EditorActionResult>({ intent: "set-publication", error: true, reason: "subdomain_required" }, { status: 409 });
   }
   bindRequestOperation({ operation: "set_catalog_publication", outcome: "technical_failure" });
   return data<EditorActionResult>({ intent: "set-publication", error: true }, { status: 503 });
@@ -184,19 +184,22 @@ export default function StoreAppearanceSettings() {
   const atStart = unknownTheme && !dirty;
   const busy = uploading || saving;
   const canSave = (dirty || unknownTheme) && !busy;
-  const blocker = useBlocker(dirty);
+  // The link is saved on its own, so a pending link is a second reason to ask before leaving.
+  const [linkUnsaved, setLinkUnsaved] = useState(false);
+  const blocker = useBlocker(dirty || linkUnsaved);
   // A finished submission reports once; any later draft change or retry dismisses it.
   const result = fetcher.state === "idle" && fetcher.data !== dismissed ? fetcher.data : undefined;
   const saveFailure = result && "error" in result ? result.error : null;
   const justSaved = !!result && "success" in result;
 
   // A page reload or tab close with unsaved changes also asks first.
+  const pending = dirty || linkUnsaved;
   useEffect(() => {
-    if (!dirty) return;
+    if (!pending) return;
     const warn = (event: BeforeUnloadEvent) => event.preventDefault();
     window.addEventListener("beforeunload", warn);
     return () => window.removeEventListener("beforeunload", warn);
-  }, [dirty]);
+  }, [pending]);
 
   function changeDraft(next: EditorDraft | ((current: EditorDraft) => EditorDraft)) {
     setDismissed(fetcher.data);
@@ -233,7 +236,7 @@ export default function StoreAppearanceSettings() {
   const saveMessage = saveFailure && t(saveFailure === "INVALID_IMAGE" ? "storeAppearance.invalidLogo"
     : saveFailure === "INVALID_STORE_APPEARANCE" ? "storeAppearance.invalidAppearance" : "storeAppearance.saveError");
 
-  const publicationCard = <CatalogPublicationCard publication={publication} />;
+  const publicationCard = <CatalogPublicationCard publication={publication} onLinkUnsavedChange={setLinkUnsaved} />;
   const previewPanel = draft && <StorePreviewFrame appearance={{ logoUrl: draft.logoUrl, theme: draft.appearance.theme }} catalog={cards ?? loadingCards} />;
   const draftCard = draft && <Card className="gap-0 divide-y py-0">
         <CardContent className="flex flex-col gap-3 p-5">
@@ -323,7 +326,7 @@ export default function StoreAppearanceSettings() {
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle>{t("storeAppearance.leaveTitle")}</DialogTitle>
-          <DialogDescription>{t("storeAppearance.leaveDescription")}</DialogDescription>
+          <DialogDescription>{t(dirty ? (linkUnsaved ? "storeAppearance.leaveDescriptionBoth" : "storeAppearance.leaveDescription") : "storeAppearance.leaveDescriptionLink")}</DialogDescription>
         </DialogHeader>
         <DialogFooter>
           <Button variant="outline" onClick={() => blocker.state === "blocked" && blocker.reset()}>{t("storeAppearance.keepEditing")}</Button>
