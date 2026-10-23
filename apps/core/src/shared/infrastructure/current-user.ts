@@ -25,7 +25,10 @@ export async function authenticateCookie(headers: Headers): Promise<Result<Authe
   }
 }
 
-export async function resolveCurrentAccess(headers: Headers): Promise<Result<UserAccess, AuthenticationError | AccessLoadError>> {
+/** The access of the authenticated request, with the Better Auth session it came from. */
+export type CurrentAccess = UserAccess & Readonly<{ sessionId: string }>;
+
+export async function resolveCurrentAccess(headers: Headers): Promise<Result<CurrentAccess, AuthenticationError | AccessLoadError>> {
   const authorization = headers.get("authorization");
   const match = authorization?.match(/^Bearer ([^\s]+)$/i);
   const principal = authorization !== null
@@ -35,5 +38,5 @@ export async function resolveCurrentAccess(headers: Headers): Promise<Result<Use
   const access = await loadUserAccess(principal.data.userId, { ...userRepository, findCompany: companyRepository.findCompany });
   if (!access.success) return access;
   if (!access.data) return err({ code: "UNAUTHENTICATED", message: "User no longer exists" });
-  return ok(access.data);
+  return ok({ ...access.data, sessionId: principal.data.sessionId });
 }

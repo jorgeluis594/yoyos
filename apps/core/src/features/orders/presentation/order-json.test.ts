@@ -1,5 +1,7 @@
 import { expect, test } from "vitest";
 import { createOrderSchema, listOrdersSchema } from "@shared/contracts/orders";
+import { toLegacyOrderJson } from "@core/src/features/orders/presentation/order-json";
+import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 
 const id = (n: number) => `00000000-0000-4000-8000-${n.toString().padStart(12, "0")}`;
 
@@ -43,4 +45,14 @@ test("complete creation accepts optional payments and delivery without client-ca
     { ...input, delivery: { ...input.delivery, cost: 0 } }, { ...input, deliverImmediately: "yes" }]) {
     expect(createOrderSchema.safeParse(invalid).success).toBe(false);
   }
+});
+
+test("the legacy order JSON keeps each item's stored mentioned price", () => {
+  const money = (amount: number) => ({ amount, currency: "PEN" as const });
+  const item = (n: number, mentionedPrice: { amount: ReturnType<typeof money>; units: number } | null) => ({ id: id(n), variantId: id(n + 1), productName: "Camisa",
+    variantAttributes: { Talla: "M" }, sku: null, quantity: 2, unitPrice: money(10), subtotal: money(20), mentionedPrice });
+  const priced = { amount: money(7.5), units: 2 };
+  const order = { number: 1001, id: id(1), companyId: id(9), sellerId: "seller", buyer: null, chatId: null, fromCatalog: false, completedAt: new Date("2026-10-23T00:00:00.000Z"),
+    deliveryStatus: "delivered", total: money(40), items: [item(10, priced), item(20, null)] } as unknown as OrderAggregate;
+  expect(toLegacyOrderJson(order).items.map((entry) => entry.mentionedPrice)).toEqual([priced, null]);
 });
