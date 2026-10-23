@@ -1,6 +1,6 @@
 import { describe } from "vitest";
-import { browserExpect, expect, test } from "@core/tests/e2e/fixtures";
-import { openEditor } from "@core/tests/e2e/store-appearance-fixtures";
+import type { Page } from "@playwright/test";
+import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const domain = `localhost:${process.env.CORE_E2E_PORT ?? "4173"}`;
@@ -9,17 +9,25 @@ const unique = () => `e${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
 const storedSubdomain = (companyId: string) => withTenantIsolation(companyId, async () =>
   (await prisma.company.findUnique({ where: { id: companyId }, select: { catalogSubdomain: true, catalogPublished: true } })));
 
+/** The company name is the suggestion, so each run uses its own name: the suggestion is never taken by an earlier run's company. */
+async function openEditor(page: Page, suffix = unique()) {
+  const companyId = await prepareVerifiedCompany(page, { email: `link-${crypto.randomUUID()}@example.test`, name: "Vendedora", companyName: `Tienda ${suffix}`, country: "PE" });
+  await page.goto("/es-PE/settings/store-appearance", { waitUntil: "networkidle" });
+  await browserExpect(page.getByRole("heading", { name: "Apariencia de la tienda", level: 1 })).toBeVisible();
+  return { companyId, suggestion: `tienda-${suffix}` };
+}
+
 describe("catalog link", () => {
   test("a seller chooses, saves, publishes and copies the brand link, and Settings → Catálogo shows it in full", async ({ page }) => {
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"], { origin });
-    const companyId = await openEditor(page);
+    const { companyId, suggestion } = await openEditor(page);
     const field = page.getByLabel("Link de tu catálogo", { exact: true });
     const status = page.locator("#catalog-subdomain-status");
     const publish = page.getByRole("switch", { name: "Publicar catálogo" });
 
     // The company name is the suggestion, free at this moment, and publishing waits for a saved link.
-    await browserExpect(field).toHaveValue("lima-studio");
-    await browserExpect(status).toHaveText(`lima-studio.${domain} está disponible`);
+    await browserExpect(field).toHaveValue(suggestion);
+    await browserExpect(status).toHaveText(`${suggestion}.${domain} está disponible`);
     await browserExpect(publish).toBeDisabled();
     await browserExpect(page.getByText("Elige el link de tu catálogo para poder publicarlo.")).toBeVisible();
 
@@ -49,11 +57,12 @@ describe("catalog link", () => {
   });
 
   test("with the network cut, the check and the save show their messages inside the card and keep the editor and the typed link", async ({ page }) => {
-    const companyId = await openEditor(page);
+    const { companyId, suggestion } = await openEditor(page);
     const field = page.getByLabel("Link de tu catálogo", { exact: true });
     const status = page.locator("#catalog-subdomain-status");
     const name = unique();
 
+    await browserExpect(status).toHaveText(`${suggestion}.${domain} está disponible`);
     await page.context().setOffline(true);
     await field.fill(name);
     await browserExpect(status).toContainText("No pudimos revisar si está disponible.");
@@ -70,11 +79,12 @@ describe("catalog link", () => {
   });
 
   test("changing a saved link asks first, keeps the typed value on Mantener link actual and releases the old link on Cambiar link", async ({ page }) => {
-    const companyId = await openEditor(page);
+    const { companyId } = await openEditor(page);
     const field = page.getByLabel("Link de tu catálogo", { exact: true });
     const first = unique();
     const second = unique();
     await field.fill(first);
+    await browserExpect(page.locator("#catalog-subdomain-status")).toHaveText(`${first}.${domain} está disponible`);
     await page.getByRole("button", { name: "Guardar link" }).click();
     await browserExpect(page.locator("#catalog-subdomain-status")).toHaveText("Link guardado");
 
