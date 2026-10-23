@@ -65,3 +65,6 @@ export function chooseSellerNotice(outcomes: ChatMessageOutcomes): SellerNotice 
 export function sellerNoticeTarget(notice: SellerNotice): SellerNoticeTarget {
   return notice.kind === "only_item_kept" || notice.kind === "ready" || notice.kind === "new_order" ? { kind: "order", orderId: notice.orderId } : { kind: "message" };
 }
+
+/** A notice is due while the outcomes call for one and nobody claimed it yet. */
+export const isNoticeDue = (outcomes: ChatMessageOutcomes, noticeSentAt: Date | null): boolean => noticeSentAt === null && chooseSellerNotice(outcomes) !== null;

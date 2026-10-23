@@ -6,4 +6,4 @@ export function ensureWhatsAppContact(input: EnsureWhatsAppContactInput) {
 }
 export type { ContactError } from "@core/src/features/contacts/application/ensure-whatsapp-contact";
 export type { WhatsAppContact } from "@core/src/features/contacts/domain/contact";
-export { ensureCustomerForContact } from "@core/src/features/contacts/infrastructure/contact-repository";
+export { ensureCustomerForContact, lockContact } from "@core/src/features/contacts/infrastructure/contact-repository";

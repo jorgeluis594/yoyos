@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { prisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { ensureWhatsAppContact } from "@core/src/features/contacts";
-import { ensureCustomerForContact } from "@core/src/features/contacts/infrastructure/contact-repository";
+import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts/infrastructure/contact-repository";
 
 const companyA = randomUUID();
 const companyB = randomUUID();
@@ -111,5 +111,27 @@ test("returns CONTACT_NOT_FOUND for a contact of another company", async () => {
       expect(await withinTransaction(() => ensureCustomerForContact(randomUUID()))).toMatchObject({ success: false, error: { code: "CONTACT_NOT_FOUND" } });
     });
     expect(await withTenantIsolation(f.otherCompanyId, async () => await prisma.customer.count())).toBe(0);
+  } finally { await f.cleanup(); }
+});
+
+test("lockContact locks the contact without creating a customer", async () => {
+  const f = await customerFixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const contact = await prisma.contact.create({ data: { whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
+      expect(await withinTransaction(() => lockContact(contact.id))).toEqual({ success: true, data: null });
+      expect(await prisma.customer.count()).toBe(0);
+      expect((await prisma.contact.findUniqueOrThrow({ where: { id: contact.id } })).customerId).toBeNull();
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("lockContact returns CONTACT_NOT_FOUND for a contact of another company", async () => {
+  const f = await customerFixture();
+  try {
+    const foreign = await withTenantIsolation(f.otherCompanyId, async () => await prisma.contact.create({ data: { whatsappAccountId: "1@lid", whatsappLid: "2@lid" } }));
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await withinTransaction(() => lockContact(foreign.id))).toMatchObject({ success: false, error: { code: "CONTACT_NOT_FOUND" } });
+    });
   } finally { await f.cleanup(); }
 });

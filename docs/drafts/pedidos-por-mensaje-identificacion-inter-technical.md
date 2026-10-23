@@ -290,6 +290,7 @@ Steps of `identifyProductInText`:
 
 - **`ChooseProduct` request:** the same Decision request adds `{ type: "predicate", name: "shows_product" }` («the first image shows a product offered for sale, not a payment or transfer screenshot, selfie, map or document»). `VisualChoice` gains `showsProduct`.
 - **`ImageIdentification`** gains `{ kind: "not_product" }`. It covers a photo with only non-product QR codes, and a visual result whose choice is `none` or below the threshold with `showsProduct < 0.5`.
+- **The matched product, not a variant (decided with T9).** The merged cascade selected the variant itself, which left no product to report for a photo of a product with several variants (criteria 13–15) and gave QR hits no product ID. A QR hit now returns its variants as `IdentifiedItem` (`CatalogItem` plus `productId`). A visual hit returns `{ kind: "found", method: "visual", productId, confidence, candidates }` and no variant; the `ambiguous_variant` miss and `selectVisualVariant` are gone. Orders loads the product's sellable variants (`loadSellableVariants`) and runs `resolveVariant`, the single variant authority, for photos and texts alike. A visual product with no sellable variant is a `not_identified` miss that names its identification.
 - **`catalogSearchReadiness()`** returns one of:
   - `no_active_products`: the company has no active products.
   - `no_searchable_photos`: visual search is disabled, or no active product's current image has an embedding of the configured model.

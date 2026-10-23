@@ -71,3 +71,18 @@ export async function ensureCustomerForContact(contactId: string): Promise<Resul
     return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to ensure customer" });
   }
 }
+
+/** Requires an active transaction. Serializes the messages of one contact without creating a customer: a message that creates no order must leave none behind. */
+export async function lockContact(contactId: string): Promise<Result<null, PersistenceError | ContactNotFound>> {
+  try {
+    return await withLockedForUpdate<LockedContact, Result<null, ContactNotFound>>(
+      getCompanyId(),
+      Prisma.sql`SELECT "id", "customerId" FROM "Contact" WHERE "id" = ${contactId}::uuid`,
+      (contact) => contact ? ok(null) : err({ code: "CONTACT_NOT_FOUND" as const, message: "Contact not found" }),
+    );
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    log.error({ event: "unable_to_lock_contact", err: cause }, "unable_to_lock_contact");
+    return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to lock contact" });
+  }
+}

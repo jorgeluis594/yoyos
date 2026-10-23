@@ -5,13 +5,17 @@ import type { ImageId, ProductId } from "@core/src/features/products/domain/prod
 import type { ReadQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
 import type { EmbedImage } from "@core/src/features/products/application/index-product-image";
 import {
-  acceptVisualMatch, selectProductCode, showsProduct, selectVisualVariant,
+  acceptVisualMatch, selectProductCode, showsProduct,
   type CatalogItem, type EmbeddingModel, type EmbeddingVector, type ImageBytes, type MatchConfidence, type VariantQrCode, type VisualCandidate, type VisualChoice,
 } from "@core/src/features/products/domain/image-identification";
 
+/** A sellable variant read from its QR code, with the product it belongs to. */
+export type IdentifiedItem = CatalogItem & Readonly<{ productId: ProductId }>;
+
+// A visual hit names only the product: the variant is chosen later by the single variant authority (`resolveVariant`).
 export type ImageIdentification =
-  | Readonly<{ kind: "found"; method: "qr"; items: readonly CatalogItem[]; unknownCodes: readonly VariantQrCode[] }>
-  | Readonly<{ kind: "found"; method: "visual"; items: readonly [CatalogItem]; confidence: MatchConfidence; candidates: number } & VisualDistances>
+  | Readonly<{ kind: "found"; method: "qr"; items: readonly IdentifiedItem[]; unknownCodes: readonly VariantQrCode[] }>
+  | Readonly<{ kind: "found"; method: "visual"; productId: ProductId; confidence: MatchConfidence; candidates: number } & VisualDistances>
   | Readonly<{ kind: "not_found"; reason: IdentificationMissReason } & Partial<VisualDistances>>
   // Non-product QR codes only, or a photo that does not show a product: no purchase intent.
   | Readonly<{ kind: "not_product" } & Partial<VisualDistances>>;
@@ -25,8 +29,7 @@ export type IdentificationMissReason =
   | "visual_search_disabled"
   | "no_indexed_products"
   | "no_visual_match"           // model answered none
-  | "low_confidence"
-  | "ambiguous_variant";        // product with several sellable variants
+  | "low_confidence";
 
 export type IdentifyProductsError = Readonly<{
   code: "PERSISTENCE_UNAVAILABLE" | "IMAGE_STORAGE_UNAVAILABLE" | "QR_READER_UNAVAILABLE"
@@ -49,12 +52,11 @@ export type VisualSearch = Readonly<{
     Promise<Result<readonly VisualCandidate[], PersistenceError>>;
   readImage: (imageId: ImageId) => Promise<Result<ImageBytes, ImageReadError>>;
   chooseProduct: ChooseProduct;
-  findSellableVariantsOfProduct: (productId: ProductId) => Promise<Result<readonly CatalogItem[], PersistenceError>>;
 }>;
 
 export type IdentifyProductsDependencies = Readonly<{
   readQrCodes: ReadQrCodes;
-  findVariantsByCodes: (codes: readonly VariantQrCode[]) => Promise<Result<readonly (CatalogItem & { qrCode: VariantQrCode })[], PersistenceError>>;
+  findVariantsByCodes: (codes: readonly VariantQrCode[]) => Promise<Result<readonly (IdentifiedItem & { qrCode: VariantQrCode })[], PersistenceError>>;
   visual: VisualSearch | null; // null = not configured
 }>;
 
@@ -100,9 +102,5 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<
     ...(chosen && { chosenDistance: chosen.candidate.distance }) };
   // A photo that is not a product is no purchase intent, whatever the match said.
   if (match.kind === "rejected") return showsProduct(choice.data) ? notFound(match.reason, distances) : ok({ kind: "not_product", ...distances });
-  const variants = await visual.findSellableVariantsOfProduct(match.productId);
-  if (!variants.success) return variants;
-  const selected = selectVisualVariant(variants.data);
-  return selected.kind === "rejected" ? notFound(selected.reason, distances)
-    : ok({ kind: "found", method: "visual", items: [selected.item], confidence: match.confidence, candidates: available.length, ...distances });
+  return ok({ kind: "found", method: "visual", productId: match.productId, confidence: match.confidence, candidates: available.length, ...distances });
 }

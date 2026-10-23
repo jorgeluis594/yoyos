@@ -11,7 +11,7 @@ const productQ = id(2) as ProductId;
 const item = (n: number): CatalogItem => ({ variantId: id(100 + n) as VariantId, productName: `Variant ${n}`, variantAttributes: {}, sku: null, unitPrice: { amount: 10, currency: "PEN" } });
 const candidate = (productId: ProductId, n: number): VisualCandidate => ({ productId, imageId: id(10 + n) as ImageId, distance: n / 10 });
 
-function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNREADABLE_IMAGE" | "QR_READER_UNAVAILABLE"; qrVariants?: (CatalogItem & { qrCode: VariantQrCode })[]; visual?: Partial<VisualSearch> | null }> = {}) {
+function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNREADABLE_IMAGE" | "QR_READER_UNAVAILABLE"; qrVariants?: (CatalogItem & { productId: ProductId; qrCode: VariantQrCode })[]; visual?: Partial<VisualSearch> | null }> = {}) {
   const calls: string[] = [];
   const asked: { products: ProductId[] } = { products: [] };
   const called = <T>(name: string, value: T): T => { calls.push(name); return value; };
@@ -22,7 +22,6 @@ function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNR
     findNearestProductImages: async () => called("findNearestProductImages", ok([candidate(productP, 1), candidate(productQ, 2)])),
     readImage: async () => called("readImage", ok(image)),
     chooseProduct: async (input) => { asked.products = input.candidates.map(({ productId }) => productId); return called("chooseProduct", ok({ kind: "product", productId: productP, confidence: 0.9 as MatchConfidence, showsProduct: 0.95 })); },
-    findSellableVariantsOfProduct: async () => called("findSellableVariantsOfProduct", ok([item(1)])),
     ...options.visual,
   };
   const deps: IdentifyProductsDependencies = {
@@ -33,7 +32,7 @@ function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNR
   return { calls, asked, run: () => identifyProductsInImage(image, deps) };
 }
 
-const qrVariant = (n: number) => ({ ...item(n), qrCode: id(200 + n) as VariantQrCode });
+const qrVariant = (n: number) => ({ ...item(n), productId: id(300 + n) as ProductId, qrCode: id(200 + n) as VariantQrCode });
 
 describe("identifyProductsInImage", () => {
   test("returns the QR variants without calling visual search", async () => {
@@ -57,7 +56,7 @@ describe("identifyProductsInImage", () => {
   test("runs visual search when the image has no QR code", async () => {
     const h = harness();
     expect(await h.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
-    expect(h.calls).toEqual(["readQrCodes", "hasIndexedProducts", "embedImage", "findNearestProductImages", "readImage", "readImage", "chooseProduct", "findSellableVariantsOfProduct"]);
+    expect(h.calls).toEqual(["readQrCodes", "hasIndexedProducts", "embedImage", "findNearestProductImages", "readImage", "readImage", "chooseProduct"]);
   });
 
   test("returns not product without calling visual search when the image only has non-product QR codes", async () => {
@@ -96,23 +95,20 @@ describe("identifyProductsInImage", () => {
     expect(await none.run()).toEqual(ok({ kind: "not_found", reason: "no_indexed_products" }));
   });
 
-  test("returns the only variant of the chosen product with its confidence and distances", async () => {
-    expect(await harness().run()).toEqual(ok({ kind: "found", method: "visual", items: [item(1)], confidence: 0.9, candidates: 2, topDistance: 0.1, chosenDistance: 0.1 }));
+  test("returns the chosen product, without choosing a variant, with its confidence and distances", async () => {
+    expect(await harness().run()).toEqual(ok({ kind: "found", method: "visual", productId: productP, confidence: 0.9, candidates: 2, topDistance: 0.1, chosenDistance: 0.1 }));
   });
 
-  test("returns low_confidence, no_visual_match or ambiguous_variant from the domain rules, with the candidate distances", async () => {
+  test("returns low_confidence or no_visual_match from the domain rules, with the candidate distances", async () => {
     const low = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.6 as MatchConfidence, showsProduct: 0.9 }) } });
     expect(await low.run()).toEqual(ok({ kind: "not_found", reason: "low_confidence", topDistance: 0.1, chosenDistance: 0.2 }));
     const none = harness({ visual: { chooseProduct: async () => ok({ kind: "none", showsProduct: 0.9 }) } });
     expect(await none.run()).toStrictEqual(ok({ kind: "not_found", reason: "no_visual_match", topDistance: 0.1 }));
-    const ambiguous = harness({ visual: { findSellableVariantsOfProduct: async () => ok([item(1), item(2)]) } });
-    expect(await ambiguous.run()).toEqual(ok({ kind: "not_found", reason: "ambiguous_variant", topDistance: 0.1, chosenDistance: 0.1 }));
   });
 
   test("returns not product when the chooser answers none and the photo does not show a product", async () => {
     const h = harness({ visual: { chooseProduct: async () => ok({ kind: "none", showsProduct: 0.1 }) } });
     expect(await h.run()).toStrictEqual(ok({ kind: "not_product", topDistance: 0.1 }));
-    expect(h.calls).not.toContain("findSellableVariantsOfProduct");
   });
 
   test("returns not found when the photo shows a product below the confidence threshold", async () => {
@@ -130,7 +126,6 @@ describe("identifyProductsInImage", () => {
       [{ chooseProduct: async () => err({ code: "INVALID_MATCHER_RESPONSE", message: "x" }) }, "INVALID_MATCHER_RESPONSE"],
       [{ readImage: async () => err({ code: "IMAGE_STORAGE_UNAVAILABLE", message: "x" }) }, "IMAGE_STORAGE_UNAVAILABLE"],
       [{ findNearestProductImages: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "x" }) }, "PERSISTENCE_UNAVAILABLE"],
-      [{ findSellableVariantsOfProduct: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "x" }) }, "PERSISTENCE_UNAVAILABLE"],
     ];
     for (const [visual, code] of failures) expect(await harness({ visual }).run()).toMatchObject({ success: false, error: { code } });
     expect(await harness({ qrError: "QR_READER_UNAVAILABLE" }).run()).toMatchObject({ success: false, error: { code: "QR_READER_UNAVAILABLE" } });
