@@ -1861,11 +1861,16 @@ test("rejects a mentioned price with only an amount or only units", async () => 
       expect((await immediateSale({ id, items: [{ variantId: f.variantIds[0], quantity: 1 }] }, f)).success).toBe(true);
       const item = await prisma.orderItem.findFirstOrThrow({ where: { orderId: id } });
       const update = (data: Prisma.OrderItemUpdateInput) => prisma.orderItem.update({ where: { id: item.id }, data });
-      await expect(update({ mentionedPriceAmount: new Prisma.Decimal("7.50") })).rejects.toThrow();
-      await expect(update({ mentionedPriceUnits: 2 })).rejects.toThrow();
-      await expect(update({ mentionedPriceAmount: new Prisma.Decimal("0"), mentionedPriceUnits: 1 })).rejects.toThrow();
-      await expect(update({ mentionedPriceAmount: new Prisma.Decimal("7.50"), mentionedPriceUnits: 0 })).rejects.toThrow();
-      await expect(update({ mentionedPriceAmount: new Prisma.Decimal("7.50"), mentionedPriceUnits: 100 })).rejects.toThrow();
+      const violation = (constraint: string) => ({ meta: { driverAdapterError: { cause: { originalCode: "23514", originalMessage: expect.stringContaining(`"${constraint}"`) } } } });
+      const rejected = async (data: Prisma.OrderItemUpdateInput, constraint: string) => {
+        const failure = await update(data).then(() => null, (error: unknown) => error);
+        expect(failure).toMatchObject(violation(constraint));
+      };
+      await rejected({ mentionedPriceAmount: new Prisma.Decimal("7.50") }, "OrderItem_mentioned_price_both_or_none");
+      await rejected({ mentionedPriceUnits: 2 }, "OrderItem_mentioned_price_both_or_none");
+      await rejected({ mentionedPriceAmount: new Prisma.Decimal("0"), mentionedPriceUnits: 1 }, "OrderItem_mentioned_price_amount_positive");
+      await rejected({ mentionedPriceAmount: new Prisma.Decimal("7.50"), mentionedPriceUnits: 0 }, "OrderItem_mentioned_price_units_range");
+      await rejected({ mentionedPriceAmount: new Prisma.Decimal("7.50"), mentionedPriceUnits: 100 }, "OrderItem_mentioned_price_units_range");
       await update({ mentionedPriceAmount: new Prisma.Decimal("7.50"), mentionedPriceUnits: 99 });
       expect(await prisma.orderItem.findUniqueOrThrow({ where: { id: item.id } })).toMatchObject({ mentionedPriceUnits: 99 });
     });
