@@ -81,3 +81,9 @@ test("fails retryably when the claim cannot be read", async () => {
   const { deps } = setup({ claimNotice: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "down", retryable: true }) });
   expect(await run(deps)).toMatchObject({ success: false, error: { retryable: true } });
 });
+
+test("keeps the claim and does not retry when the provider does not answer in time", async () => {
+  const { deps, calls } = setup({ sendPush: async () => err({ code: "SEND_TIMEOUT", message: "slow", retryable: false }) });
+  expect(await run(deps)).toEqual(ok({ status: "dropped", reason: "timeout" }));
+  expect(calls).not.toContain("release");
+});

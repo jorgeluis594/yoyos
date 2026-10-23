@@ -61,7 +61,7 @@ export function createExpoPushSender(gateway: ExpoGateway, options: Readonly<{ t
   return async (device: PushDevice, notice: RenderedNotice, signal: AbortSignal): Promise<Result<null, PushSendError>> => {
     const startedAt = Date.now();
     const finish = (failure: PushSendError, statusCode?: number) => {
-      log.warn({ event: "notifications_push_provider_failed", errorCode: failure.code, statusCode: statusCode ?? null, attempt: 1, durationMs: Date.now() - startedAt }, "Push provider failed");
+      log.warn({ event: "notifications_push_provider_failed", errorCode: failure.code, statusCode: statusCode ?? null, durationMs: Date.now() - startedAt }, "Push provider failed");
       return err(failure);
     };
     try {
@@ -69,6 +69,7 @@ export function createExpoPushSender(gateway: ExpoGateway, options: Readonly<{ t
       const classified = classifyTicket(ticket);
       return classified.success ? classified : finish(classified.error);
     } catch (cause) {
+      if (signal.aborted) return finish({ code: "SEND_TIMEOUT", message: "Expo did not answer in time", retryable: false });
       const statusCode = typeof cause === "object" && cause !== null && "statusCode" in cause && typeof cause.statusCode === "number" ? cause.statusCode : undefined;
       return finish(classifyRequestFailure(cause), statusCode);
     }

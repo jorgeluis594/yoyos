@@ -22,11 +22,14 @@ test("reports DeviceNotRegistered so the device is removed", async () => {
   expect(await send(gateway)).toMatchObject({ success: false, error: { code: "DEVICE_NOT_REGISTERED", retryable: false } });
 });
 
-test("treats 5xx, rate limits, timeouts and network errors as retryable", async () => {
+test("treats 5xx, rate limits and network errors as retryable", async () => {
   for (const cause of [Object.assign(new Error("x"), { statusCode: 503 }), Object.assign(new Error("x"), { statusCode: 429 }), new Error("network")])
     expect(await send({ send: async () => { throw cause; } })).toMatchObject({ success: false, error: { retryable: true } });
+});
+
+test("reports a send timeout as a non retryable unknown outcome", async () => {
   const slow: ExpoGateway = { send: () => new Promise(() => undefined) };
-  expect(await send(slow, AbortSignal.timeout(20))).toMatchObject({ success: false, error: { code: "PROVIDER_UNAVAILABLE", retryable: true } });
+  expect(await send(slow, AbortSignal.timeout(20))).toMatchObject({ success: false, error: { code: "SEND_TIMEOUT", retryable: false } });
 });
 
 test("treats other client errors and rejected tickets as permanent", async () => {

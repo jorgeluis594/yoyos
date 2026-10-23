@@ -7,7 +7,7 @@ export type NoticeClaim = Readonly<{ messageId: string; chatId: string; sessionI
 export type RenderedNotice = Readonly<{ title: string; body: string; data: Readonly<Record<string, unknown>>; groupKey: string }>;
 
 export type NoticeError = Readonly<{ code: string; message: string; retryable?: boolean }>;
-export type PushSendError = Readonly<{ code: "DEVICE_NOT_REGISTERED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_REJECTED"; message: string; retryable: boolean }>;
+export type PushSendError = Readonly<{ code: "DEVICE_NOT_REGISTERED" | "PROVIDER_UNAVAILABLE" | "PROVIDER_REJECTED" | "SEND_TIMEOUT"; message: string; retryable: boolean }>;
 
 export type SendChatMessageNoticeDependencies = Readonly<{
   /** `null` when the notice was already sent or none is due. */
@@ -23,7 +23,7 @@ export type SendChatMessageNoticeDependencies = Readonly<{
 
 export type SendChatMessageNoticeOutcome =
   | Readonly<{ status: "sent" }>
-  | Readonly<{ status: "dropped"; reason: "already_sent" | "no_device" | "device_not_registered" | "provider_rejected" }>;
+  | Readonly<{ status: "dropped"; reason: "already_sent" | "no_device" | "device_not_registered" | "provider_rejected" | "timeout" }>;
 
 export type SendChatMessageNoticeError = Readonly<{ code: string; message: string; retryable: boolean }>;
 
@@ -65,6 +65,8 @@ export async function sendChatMessageNotice(
     if (!removed.success) return err(retryable(removed.error));
     return ok({ status: "dropped", reason: "device_not_registered" });
   }
+  // No provider answer is an unknown outcome: the notice may have been delivered, so the claim stays and nothing is retried.
+  if (sent.error.code === "SEND_TIMEOUT") return ok({ status: "dropped", reason: "timeout" });
   if (sent.error.retryable) return release(sent.error);
   return ok({ status: "dropped", reason: "provider_rejected" });
 }
