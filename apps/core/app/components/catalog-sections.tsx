@@ -83,8 +83,23 @@ export function CatalogProductImage({ name, url, part, className }: Readonly<{ n
   return <div data-store-part={part} className={frame}><img ref={image} src={url} alt="" loading="lazy" className="size-full object-cover" onError={() => setFailed(true)} /></div>;
 }
 
+export const headingFont = { fontFamily: "var(--store-font-heading, inherit)", fontWeight: "var(--store-weight-heading, 600)" };
+
+/** The store's own «No encontramos esta página», in its theme, for any path the brand host does not serve. */
+export function StoreNotFound({ storeName, appearance }: Readonly<{ storeName: string; appearance: PublicStoreAppearance }>) {
+  return <CatalogShell appearance={appearance} storeName={storeName}>
+    <title>{`No encontramos esta página · ${storeName}`}</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <section className="flex flex-col items-start gap-4 py-6">
+      <h1 className="text-2xl font-semibold" style={headingFont}>No encontramos esta página</h1>
+      <p className="text-muted-foreground">Revisa el link o mira los productos de la tienda.</p>
+      <Button asChild><Link to="/">Volver al catálogo</Link></Button>
+    </section>
+  </CatalogShell>;
+}
+
 export function CatalogMessage({ title, children }: Readonly<{ title: string; children?: ReactNode }>) {
-  return <main className="mx-auto flex max-w-lg flex-col items-start gap-4 p-6"><h1 className="text-2xl font-semibold">{title}</h1>{children}</main>;
+  return <main className="mx-auto flex max-w-lg flex-col items-start gap-4 p-6"><title>{title}</title><meta name="robots" content="noindex, nofollow" /><h1 className="text-2xl font-semibold">{title}</h1>{children}</main>;
 }
 
 export function CatalogLoadError() {

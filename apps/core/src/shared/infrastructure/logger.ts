@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import type { NextFunction, Request, Response } from "express";
 import pino from "pino";
 
-type OperationContext = { operation?: "create_order" | "create_quotation" | "enable_checkout" | "get_checkout" | "confirm_checkout" | "get_store_appearance" | "save_store_appearance" | "get_store_preview" | "get_catalog_preview_cards" | "set_catalog_publication" | "browse_catalog" | "get_catalog_product"; outcome?: "enabled" | "already_enabled" | "cancelled" | "unavailable" | "invalid_input" | "unauthenticated" | "technical_failure" | "pending" | "confirmed" | "already_confirmed" | "total_changed" | "rendered" | "loaded" | "saved"; orderNumber?: number; storeAppearance?: "default" | "custom" | "fallback"; storeTheme?: "classic" | "boutique" | "antojo" | "suave" | "noche" };
+type OperationContext = { operation?: "create_order" | "create_quotation" | "enable_checkout" | "get_checkout" | "confirm_checkout" | "get_store_appearance" | "save_store_appearance" | "get_store_preview" | "get_catalog_preview_cards" | "set_catalog_publication" | "browse_catalog" | "get_catalog_product" | "get_catalog_settings" | "check_catalog_subdomain" | "save_catalog_subdomain" | "resolve_storefront" | "legacy_catalog_link" | "check_cart_order"; outcome?: "enabled" | "already_enabled" | "cancelled" | "unavailable" | "invalid_input" | "unauthenticated" | "technical_failure" | "pending" | "confirmed" | "already_confirmed" | "total_changed" | "rendered" | "loaded" | "saved" | "rate_limited"; storeHost?: "app" | "store" | "invalid"; orderNumber?: number; storeAppearance?: "default" | "custom" | "fallback"; storeTheme?: "classic" | "boutique" | "antojo" | "suave" | "noche" };
 type LogContext = { requestId: string; companyId?: string } & OperationContext;
 type LoggingState = { context: AsyncLocalStorage<LogContext>; log?: pino.Logger };
 // Express loads source modules; the React Router server build bundles them.
@@ -23,6 +23,22 @@ export const log = state.log ??= pino({
     censor: "[Redacted]",
   },
 });
+
+/** The seller JSON routes of the catalog, which do not bind their own operation. */
+const catalogApiOperations: Readonly<Record<string, OperationContext["operation"]>> = {
+  "GET /api/catalog/settings": "get_catalog_settings",
+  "PUT /api/catalog/settings": "set_catalog_publication",
+  "GET /api/catalog/subdomain-availability": "check_catalog_subdomain",
+  "PUT /api/catalog/subdomain": "save_catalog_subdomain",
+};
+
+function catalogApiOutcome(method: string, statusCode: number): OperationContext["outcome"] {
+  if (statusCode < 300) return method === "GET" ? "loaded" : "saved";
+  if (statusCode === 401 || statusCode === 403) return "unauthenticated";
+  if (statusCode === 404) return "unavailable";
+  if (statusCode === 429) return "rate_limited";
+  return statusCode >= 500 ? "technical_failure" : "invalid_input";
+}
 
 const validRequestId = /^[a-zA-Z0-9_-]{8,64}$/;
 
@@ -61,12 +77,14 @@ export function requestLogging(request: Request, response: Response, next: NextF
   const enable = /^\/api\/orders\/[^/]+\/checkout-link\/?$/.test(pathname);
   const appearanceEditor = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/store-appearance(?:\.data)?\/?$/.test(pathname);
   const legacyAppearanceEditor = /^(?:\/[a-z]{2}-[A-Z]{2})?\/settings\/checkout-appearance(?:\.data)?\/?$/.test(pathname);
-  const operation = checkout ? request.method === "POST" ? "confirm_checkout" : "get_checkout" : enable ? "enable_checkout" : undefined;
+  const catalogApiOperation = catalogApiOperations[`${request.method} ${pathname.replace(/\/$/, "")}`];
+  const operation = checkout ? request.method === "POST" ? "confirm_checkout" : "get_checkout" : enable ? "enable_checkout" : catalogApiOperation;
   response.set("x-request-id", requestId);
   // prefinish retains the agent's request context; finish runs after it is gone.
   response.once("prefinish", () => {
     const context = requestLog.getStore();
-    if (operation && context && !context.outcome) context.outcome = response.statusCode >= 500 ? "technical_failure"
+    if (catalogApiOperation && context && !context.outcome) context.outcome = catalogApiOutcome(request.method, response.statusCode);
+    else if (operation && context && !context.outcome) context.outcome = response.statusCode >= 500 ? "technical_failure"
       : response.statusCode === 401 ? "unauthenticated" : response.statusCode === 404 ? "unavailable" : "invalid_input";
     log.info({
       event: "http_request_completed",

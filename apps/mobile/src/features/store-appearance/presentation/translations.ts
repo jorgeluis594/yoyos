@@ -1,6 +1,6 @@
 export const translations = {
   es: {
-    appearanceTitle: "Apariencia de la tienda", appearanceMenuDescription: "Logo, tema y publicación de tu catálogo",
+    appearanceTitle: "Apariencia de la tienda", appearanceMenuDescription: "Logo, tema, link y publicación de tu catálogo",
     appearanceDescription: "Tu logo y tu tema se aplican a tu catálogo y a tu checkout.", appearanceLoading: "Cargando…",
     appearanceLoadError: "No se pudo cargar la apariencia", appearanceLoadErrorDescription: "Inténtalo de nuevo en unos momentos.",
     appearanceUnknownTheme: "No pudimos usar tu apariencia guardada. Tus clientes ven tu tienda con el tema Clásico y sin logo. Elige tu tema y tu logo y guarda.",
@@ -17,9 +17,10 @@ export const translations = {
     appearanceSaveError: "No pudimos guardar la apariencia. Conservamos tu borrador.", appearanceInvalidLogo: "No pudimos usar ese logo. Súbelo de nuevo.",
     appearanceInvalidTheme: "Revisa el tema e inténtalo de nuevo.",
     appearanceLeaveTitle: "Tienes cambios sin guardar", appearanceLeaveDescription: "Si sales ahora, perderás los cambios que no publicaste.", appearanceDiscardAndLeave: "Descartar y salir",
+    appearanceLeaveLinkDescription: "Si sales ahora, no se guardará el link que escribiste.", appearanceLeaveBothDescription: "Si sales ahora, perderás los cambios que no publicaste y el link que escribiste.",
   },
   "pt-BR": {
-    appearanceTitle: "Aparência da loja", appearanceMenuDescription: "Logo, tema e publicação do seu catálogo",
+    appearanceTitle: "Aparência da loja", appearanceMenuDescription: "Logo, tema, link e publicação do seu catálogo",
     appearanceDescription: "Seu logo e seu tema são aplicados ao seu catálogo e ao seu checkout.", appearanceLoading: "Carregando…",
     appearanceLoadError: "Não foi possível carregar a aparência", appearanceLoadErrorDescription: "Tente novamente em instantes.",
     appearanceUnknownTheme: "Não foi possível usar sua aparência salva. Seus clientes veem sua loja com o tema Clásico e sem logo. Escolha seu tema e seu logo e salve.",
@@ -36,5 +37,6 @@ export const translations = {
     appearanceSaveError: "Não foi possível salvar a aparência. Mantivemos seu rascunho.", appearanceInvalidLogo: "Não foi possível usar esse logo. Envie novamente.",
     appearanceInvalidTheme: "Revise o tema e tente novamente.",
     appearanceLeaveTitle: "Você tem alterações não salvas", appearanceLeaveDescription: "Se sair agora, perderá as alterações que não publicou.", appearanceDiscardAndLeave: "Descartar e sair",
+    appearanceLeaveLinkDescription: "Se sair agora, o link que você escreveu não será salvo.", appearanceLeaveBothDescription: "Se sair agora, perderá as alterações que não publicou e o link que você escreveu.",
   },
 } as const;

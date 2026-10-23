@@ -8,6 +8,7 @@ import { I18nextProvider } from "react-i18next";
 import { getInstance } from "@/middleware/i18next";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { clientIpContext } from "@core/app/client-ip-context";
+import { requestHostContext } from "@core/app/request-host-context";
 
 export function handleError(error: unknown, { request }: { request: Request }) {
   if (request.signal.aborted) return;
@@ -16,9 +17,10 @@ export function handleError(error: unknown, { request }: { request: Request }) {
   log.error({ event: checkout ? "order_checkout_request_failed" : "web_request_failed", err: error }, "Web request failed");
 }
 
-export function createRequestContext(clientIp?: string) {
+export function createRequestContext(clientIp?: string, hostname?: string) {
   const context = new RouterContextProvider();
   context.set(clientIpContext, clientIp ?? null);
+  context.set(requestHostContext, hostname ?? null);
   return context;
 }
 

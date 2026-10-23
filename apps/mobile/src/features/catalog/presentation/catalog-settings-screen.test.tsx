@@ -1,4 +1,5 @@
 import { Linking, Share } from "react-native";
+import * as Clipboard from "expo-clipboard";
 import { act, fireEvent, render } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import { catalogSettings } from "@mobile/features/catalog/composition";
@@ -15,21 +16,22 @@ jest.mock("expo-router", () => ({
 jest.mock("@mobile/features/catalog/composition", () => ({ catalogSettings: { get: jest.fn(), setPublished: jest.fn() } }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 const get = jest.mocked(catalogSettings.get);
-const url = "https://yoyos.test/catalogo/00000000-0000-4000-8000-000000000001";
+const url = "https://fantasio.yoyos.lat/";
+const link = { subdomain: "fantasio", domain: "yoyos.lat", suggestion: null };
 beforeEach(() => { get.mockReset(); mockPush.mockReset(); mockRefocus = undefined; });
 
 test("Catálogo re-reads the publication on focus and never offers Compartir for a hidden catalog", async () => {
-  get.mockResolvedValueOnce(ok({ published: true, url }));
+  get.mockResolvedValueOnce(ok({ published: true, url, ...link }));
   const screen = render(<CatalogSettingsScreen />);
   await screen.findByText("Compartir", {}, { timeout: 5000 });
-  expect(screen.getByText("Para ocultar tu catálogo, ve a Apariencia de la tienda.")).toBeTruthy();
+  expect(screen.getByText("Para cambiar el link u ocultar tu catálogo, ve a Apariencia de la tienda.")).toBeTruthy();
 
   // Hidden elsewhere: while it re-reads the last known state stays, and then the link goes away.
   let finish: (value: Awaited<ReturnType<typeof catalogSettings.get>>) => void = () => undefined;
   get.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
   act(() => mockRefocus?.());
   expect(screen.getByText("Compartir")).toBeTruthy();
-  await act(async () => finish(ok({ published: false, url })));
+  await act(async () => finish(ok({ published: false, url, ...link })));
   expect(screen.queryByText("Compartir")).toBeNull();
   expect(screen.queryByText(url)).toBeNull();
   expect(screen.queryByText("Copiar link")).toBeNull();
@@ -37,7 +39,7 @@ test("Catálogo re-reads the publication on focus and never offers Compartir for
 });
 
 test("keeps the last known state when the re-read on focus fails", async () => {
-  get.mockResolvedValueOnce(ok({ published: true, url })).mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" }));
+  get.mockResolvedValueOnce(ok({ published: true, url, ...link })).mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" }));
   const screen = render(<CatalogSettingsScreen />);
   await screen.findByText("Compartir", {}, { timeout: 5000 });
   await act(async () => mockRefocus?.());
@@ -45,18 +47,19 @@ test("keeps the last known state when the re-read on focus fails", async () => {
 });
 
 test("Catálogo opens Apariencia de la tienda from the published and the hidden state", async () => {
-  get.mockResolvedValueOnce(ok({ published: true, url }));
+  get.mockResolvedValueOnce(ok({ published: true, url, ...link }));
   const screen = render(<CatalogSettingsScreen />);
   fireEvent.press(await screen.findByText("Ir a Apariencia de la tienda", {}, { timeout: 5000 }));
-  expect(mockPush).toHaveBeenLastCalledWith("/settings/appearance");
-  get.mockResolvedValueOnce(ok({ published: false, url }));
+  expect(mockPush).toHaveBeenLastCalledWith("/settings/appearance?focus=catalog");
+  get.mockResolvedValueOnce(ok({ published: false, url, ...link }));
   await act(async () => mockRefocus?.());
   fireEvent.press(screen.getByText("Ir a Apariencia de la tienda"));
   expect(mockPush).toHaveBeenCalledTimes(2);
+  expect(mockPush).toHaveBeenLastCalledWith("/settings/appearance?focus=catalog");
 });
 
 test("shows the load error with Reintentar when the first read fails", async () => {
-  get.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: false, url }));
+  get.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: false, url, ...link }));
   const screen = render(<CatalogSettingsScreen />);
   await screen.findByText("No pudimos cargar la configuración del catálogo", {}, { timeout: 5000 });
   fireEvent.press(screen.getByText("Reintentar"));
@@ -64,7 +67,7 @@ test("shows the load error with Reintentar when the first read fails", async () 
 });
 
 test("share and view failures do not leave unhandled rejections", async () => {
-  get.mockResolvedValue(ok({ published: true, url }));
+  get.mockResolvedValue(ok({ published: true, url, ...link }));
   const share = jest.spyOn(Share, "share").mockRejectedValue(new Error("cancelled"));
   const open = jest.spyOn(Linking, "openURL").mockRejectedValue(new Error("no browser"));
   const screen = render(<CatalogSettingsScreen />);
@@ -74,4 +77,40 @@ test("share and view failures do not leave unhandled rejections", async () => {
   expect(share).toHaveBeenCalledWith({ message: url });
   expect(open).toHaveBeenCalledWith(url);
   share.mockRestore(); open.mockRestore();
+});
+
+test("shows the full brand link with Copiar link, Compartir and Ver catálogo while published", async () => {
+  get.mockResolvedValue(ok({ published: true, url, ...link }));
+  const setString = jest.spyOn(Clipboard, "setStringAsync").mockResolvedValue(true);
+  const share = jest.spyOn(Share, "share").mockResolvedValue({ action: "sharedAction" });
+  const open = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
+  const screen = render(<CatalogSettingsScreen />);
+  expect(await screen.findByText("Link de tu catálogo", {}, { timeout: 5000 })).toBeTruthy();
+  const shown = screen.getByText(url);
+  expect(shown.props.selectable).toBe(true);
+  expect(shown.props.numberOfLines).toBeUndefined();
+  expect(screen.getAllByRole("button").map(button => button.props.accessibilityLabel)).toEqual(["Copiar link", "Compartir", "Ver catálogo", "Ir a Apariencia de la tienda"]);
+  await act(async () => fireEvent.press(screen.getByText("Copiar link")));
+  expect(setString).toHaveBeenCalledWith(url);
+  expect(screen.getByText("Link copiado")).toBeTruthy();
+  fireEvent.press(screen.getByText("Compartir"));
+  fireEvent.press(screen.getByText("Ver catálogo"));
+  expect(share).toHaveBeenCalledWith({ message: url });
+  expect(open).toHaveBeenCalledWith(url);
+  setString.mockRestore(); share.mockRestore(); open.mockRestore();
+});
+
+test("shows the hidden texts with and without a subdomain and no link to share", async () => {
+  get.mockResolvedValueOnce(ok({ published: false, url, ...link }));
+  const screen = render(<CatalogSettingsScreen />);
+  await screen.findByText("Tu catálogo está oculto. Publícalo desde Apariencia de la tienda.", {}, { timeout: 5000 });
+  expect(screen.queryByText(url)).toBeNull();
+  expect(screen.queryByText("Compartir")).toBeNull();
+
+  get.mockResolvedValueOnce(ok({ published: false, subdomain: null, url: null, domain: "yoyos.lat", suggestion: "cafe-fantasio" }));
+  await act(async () => mockRefocus?.());
+  expect(screen.getByText("Tu catálogo está oculto. Elige su link y publícalo desde Apariencia de la tienda.")).toBeTruthy();
+  expect(screen.queryByText("Compartir")).toBeNull();
+  expect(screen.queryByText("Copiar link")).toBeNull();
+  expect(screen.getByText("Ir a Apariencia de la tienda")).toBeTruthy();
 });
