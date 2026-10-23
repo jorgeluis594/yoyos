@@ -60,7 +60,7 @@ services:
     expose:
       - "3000"
     labels:
-      # Brand hosts (*.yoyos.lat) reach core through explicit routers with the Cloudflare Origin CA certificate; see docs/drafts/catalog-subdomain-technical.md, Infra.
+      # Brand hosts (*.yoyos.lat) reach core through explicit routers with the Cloudflare Origin CA certificate; see README.md, Catalog brand hosts.
       - "traefik.http.routers.yoyos-stores.rule=HostRegexp(`^[a-z0-9-]+\\.yoyos\\.lat$$`)"
       - "traefik.http.routers.yoyos-stores.entrypoints=https"
       - "traefik.http.routers.yoyos-stores.tls=true"
