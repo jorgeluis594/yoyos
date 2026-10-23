@@ -30,10 +30,18 @@ export type InterpretAndApply = <T, RunError extends Readonly<{ code: string; me
 
 const direct = (tool: string): Extract<ToolCallPlan, { kind: "calls" }> => ({ kind: "calls", calls: [{ tool, args: {} }], extraction: false });
 
+/** The orchestrator lists the tools without extracted arguments first; the registry order is the order a message reads in («agrega una gorra y listo» adds before it is ready). */
+function inRegistryOrder(plan: Extract<ToolCallPlan, { kind: "calls" }>, registry: ChatToolRegistry): Extract<ToolCallPlan, { kind: "calls" }> {
+  const position = (tool: string) => registry.tools.findIndex(({ name }) => name === tool);
+  const [first, ...rest] = [...plan.calls].sort((left, right) => position(left.tool) - position(right.tool));
+  return first ? { ...plan, calls: [first, ...rest] } : plan;
+}
+
 /** Binds the generic orchestrator and executor to the chat tools. Without models (`ai` null) only planned tools can run. */
 export function createChatInterpreter(registry: ChatToolRegistry, ai: OrchestrateDependencies | null): InterpretAndApply {
   return async (request, signal, run) => {
-    const execute = async (plan: Extract<ToolCallPlan, { kind: "calls" }>, decisionCalls: number) => {
+    const execute = async (unordered: Extract<ToolCallPlan, { kind: "calls" }>, decisionCalls: number) => {
+      const plan = inRegistryOrder(unordered, registry);
       const executed = await executeToolCalls({ plan, registry, context: request.context, signal, run });
       return executed.success ? ok({ applied: executed.data, trace: { tools: plan.calls.map(({ tool }) => tool), extraction: plan.extraction, decisionCalls } }) : executed;
     };

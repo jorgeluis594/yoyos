@@ -1,5 +1,4 @@
 import { err, ok } from "@shared/functional";
-import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import type { ProductMatcherError, ProductRef, TextCandidate, TextChoice, TextIdentification, TextQuery } from "@core/src/features/products/domain/text-identification";
 
@@ -7,13 +6,14 @@ type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: str
 
 export type IdentifyProductInTextDependencies = Readonly<{
   findTextCandidates: (queries: readonly TextQuery[]) => Promise<Result<readonly (readonly TextCandidate[])[], PersistenceError>>;
-  chooseTextProduct: (input: Readonly<{ mention: string; priceHint: Money | null; candidates: readonly TextCandidate[] }>, signal: AbortSignal)
+  chooseTextProduct: (input: Readonly<{ mention: string; priceHint: number | null; candidates: readonly TextCandidate[] }>, signal: AbortSignal)
     => Promise<Result<TextChoice, ProductMatcherError>>;
   minConfidence: number;
   unclearMinProbability: number;
 }>;
 
-export type TextMention = Readonly<{ mention: string; priceHint: Money | null }>;
+/** `priceHint` is the amount the buyer stated, with no currency: each candidate is compared in its own currency. */
+export type TextMention = Readonly<{ mention: string; priceHint: number | null }>;
 export type IdentifyProductInTextError = PersistenceError | ProductMatcherError;
 
 const ref = ({ productId, name }: TextCandidate): ProductRef => ({ productId, name });

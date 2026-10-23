@@ -402,8 +402,10 @@ async function findChatOrderContext(chatId: ChatId) {
   if (!found.success && found.error.code === "PERSISTENCE_UNAVAILABLE") return persistenceUnavailable(found.error.message);
   // An invalid stored order shows no items; the locked read fails the message for good.
   if (!found.success || !found.data || !isOpenForMessageItems(found.data, chatId)) return ok({ items: [] });
-  return ok({ items: found.data.items.map((item, index) => ({ label: `I${index + 1}`, variantId: item.variantId, productName: item.productName,
-    variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice })) });
+  const productIds = await findProductIdsOfVariants(found.data.items.map((item) => item.variantId));
+  if (!productIds.success) return persistenceUnavailable(productIds.error.message);
+  return ok({ items: found.data.items.map((item, index) => ({ label: `I${index + 1}`, variantId: item.variantId, productId: productIds.data.get(item.variantId) ?? null,
+    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice })) });
 }
 
 const aiTools = createAiToolsFromEnv(process.env);

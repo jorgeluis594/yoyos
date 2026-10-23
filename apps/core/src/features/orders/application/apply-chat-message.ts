@@ -32,7 +32,7 @@ export type ChatSourceMessage = Readonly<{
   direction: "incoming" | "outgoing";
   /** The seller of the orders this message creates. */
   uploadedByUserId: UserId;
-  imageId: ImageId | null; // null en mensajes de texto
+  imageId: ImageId | null; // null for text messages
   text: string | null;
   caption: string | null;
 }>;
@@ -96,7 +96,8 @@ export type ApplyChatMessageDependencies = Readonly<{
 }>;
 
 type Input = Readonly<{ companyId: CompanyId; messageId: ChatMessageId }>;
-type Run = (actions: readonly ResolvedChatAction[]) => Promise<Result<AppliedChatMessage, PersistenceError | InvalidStoredData | ContactNotFound | SellerUnavailable | MessageAlreadyProcessed | OrderDomainError>>;
+type RunError = PersistenceError | InvalidStoredData | ContactNotFound | SellerUnavailable | MessageAlreadyProcessed | OrderDomainError;
+type Run = (actions: readonly ResolvedChatAction[]) => Promise<Result<AppliedChatMessage, RunError>>;
 type Stage = Result<Interpreted<AppliedChatMessage>, StageError>;
 
 /** Placeholder of `NewChatOrderSeed.number` when `needsNewChatOrder` says no order is created. */
@@ -147,8 +148,21 @@ function contextTextOf(items: readonly ChatContextItem[], shown: readonly ShownP
 }
 
 function applyText(message: ChatSourceMessage, order: ChatOrderContext, run: Run, deps: ApplyChatMessageDependencies, signal: AbortSignal): Promise<Stage> {
-  const context: ChatToolContext = { kind: "text", caption: null, items: order.items, shown: [] };
-  return deps.interpretAndApply({ context, messageText: message.text, contextText: contextTextOf(order.items, []), plan: { kind: "decide", fallbackTool: null } }, signal, run);
+  const context: ChatToolContext = { kind: "text", caption: message.text, items: order.items, shown: [] };
+  return deps.interpretAndApply({ context, messageText: message.text, contextText: contextTextOf(order.items, []), plan: { kind: "decide", fallbackTool: null } },
+    signal, (actions) => silenceTextMisses(actions, run, deps));
+}
+
+const isTextMiss = (action: ResolvedChatAction) => action.kind === "report" && (action.outcome.kind === "not_identified" || action.outcome.kind === "not_clear");
+
+/** A company without active products cannot match any text, so its misses stay silent. The readiness is read only when a text missed. */
+async function silenceTextMisses(actions: readonly ResolvedChatAction[], run: Run, deps: ApplyChatMessageDependencies): Promise<Result<AppliedChatMessage, RunError | PersistenceError>> {
+  if (!actions.some(isTextMiss)) return run(actions);
+  const readiness = await deps.catalogSearchReadiness();
+  if (!readiness.success) return readiness;
+  if (readiness.data !== "no_active_products") return run(actions);
+  return run(actions.map((action) => action.kind === "report" && (action.outcome.kind === "not_identified" || action.outcome.kind === "not_clear")
+    ? { ...action, outcome: { ...action.outcome, silent: true } } : action));
 }
 
 async function reportOnly(outcome: ReportOutcome, run: Run): Promise<Stage> {

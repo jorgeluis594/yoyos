@@ -22,12 +22,12 @@ describe("createOpenAITextProductChooser", () => {
   test("sends the words, the price hint and the labeled products, and maps the answer back to product ids with probabilities", async () => {
     let body: Parameters<NonNullable<Parameters<typeof clientFor>[1]>>[0] | undefined;
     const choose = createOpenAITextProductChooser(config(clientFor(async () => answer("B", 0.9, [["A", 0.08], ["B", 0.9]]), (sent) => { body = sent; })));
-    expect(await choose({ mention: "el polo de 35", priceHint: { amount: 35, currency: "PEN" }, candidates }, signal))
+    expect(await choose({ mention: "el polo de 35", priceHint: 35, candidates }, signal))
       .toEqual({ success: true, data: { productId: "product-b", confidence: 0.9, probabilities: [{ productId: "product-a", probability: 0.08 }, { productId: "product-b", probability: 0.9 }] } });
     expect(Object.keys(body!).sort()).toEqual(["input", "model", "questions"]);
     const text = body!.input[0]!.content[0]!.text;
     expect(text).toContain("el polo de 35");
-    expect(text).toContain("35 PEN");
+    expect(text).toContain("Price the customer mentioned: 35");
     expect(text).toContain("B: Polo premium (50 PEN to 70 PEN)");
   });
 
