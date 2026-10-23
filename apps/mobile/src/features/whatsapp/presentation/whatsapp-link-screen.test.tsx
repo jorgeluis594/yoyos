@@ -135,6 +135,8 @@ function fakeController(permission: "granted" | "denied" | "undetermined") {
     sync: async () => "unchanged",
     flushPending: async () => false,
     onTokenChange: () => () => {},
+    watchResponses: () => () => {},
+    watchArrivals: () => () => {},
     decideForeground: async () => "show",
   };
   return { controller, state };

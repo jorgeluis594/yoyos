@@ -1,8 +1,10 @@
 import { err, ok } from "@shared/functional";
-import type { NoticeError, NoticeGateway, NoticePermission, NoticeStore, PushDeviceApi, StoredRegistration } from "./ports";
+import type { NoticeError, NoticeGateway, NoticePermission, NoticeResponse, NoticeStore, PushDeviceApi, StoredRegistration } from "./ports";
 
 export function createFakeGateway(initial: NoticePermission = "granted", token = "ExponentPushToken[abc]") {
-  const state = { permission: initial, token, dismissed: 0, settingsOpened: 0, requests: 0, grantOnRequest: true };
+  const state = { permission: initial, token, dismissed: 0, settingsOpened: 0, requests: 0, grantOnRequest: true, last: null as NoticeResponse | null };
+  const responseListeners = new Set<(response: NoticeResponse) => void>();
+  const receivedListeners = new Set<(data: unknown) => void>();
   const gateway: NoticeGateway = {
     permission: async () => state.permission,
     requestPermission: async () => {
@@ -14,8 +16,13 @@ export function createFakeGateway(initial: NoticePermission = "granted", token =
     getToken: async () => ok(state.token),
     dismissAll: async () => { state.dismissed++; },
     onTokenChange: () => () => {},
+    onResponse: (listener) => { responseListeners.add(listener); return () => { responseListeners.delete(listener); }; },
+    lastResponse: async () => state.last,
+    onReceived: (listener) => { receivedListeners.add(listener); return () => { receivedListeners.delete(listener); }; },
   };
-  return { gateway, state };
+  const emitResponse = (response: NoticeResponse) => responseListeners.forEach((listener) => listener(response));
+  const emitReceived = (data: unknown) => receivedListeners.forEach((listener) => listener(data));
+  return { gateway, state, emitResponse, emitReceived };
 }
 
 export function createFakeStore(initial: Partial<{ registration: StoredRegistration; pending: string; prompted: boolean }> = {}) {
