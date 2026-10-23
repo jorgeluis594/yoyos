@@ -7,6 +7,7 @@ import { colorSchemeOf } from "@core/app/color-scheme";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { catalogBrowse } from "@core/src/features/catalog/browse-composition";
 import { catalogLegacy } from "@core/src/features/catalog/composition";
+import { middleware as layoutMiddleware } from "@core/app/routes/catalog-layout";
 import { loader as legacyLoader } from "@core/app/routes/legacy-catalog-redirect";
 import { action as legacyCartAction, loader as legacyCartLoader } from "@core/app/routes/legacy-catalog-cart";
 import { storefrontContext, type StorefrontState } from "@core/app/storefront-context";
@@ -58,14 +59,31 @@ test("a product of another company on Fantasio's host shows the product no longe
   expect(await productLoader(args({ productId }))).toMatchObject({ data: { kind: "unavailable", storeName: "Moda Lucía", companyId }, init: { status: 404 } });
 });
 
-test("an unknown host and a hidden catalog's host render byte-identical «Catálogo no disponible» bodies", async () => {
-  const bodies: string[] = [];
-  for (const state of [{ kind: "unavailable" }, { kind: "unavailable" }] as const) {
-    const thrown = await loader(args({}, "", state)).catch((error: unknown) => error) as { data: unknown; init: { status: number } };
-    bodies.push(JSON.stringify({ data: thrown.data, status: thrown.init.status }));
+test("/ on the app host keeps redirecting to /es-PE/ and /productos/:id answers the generic 404", async () => {
+  const [layout] = layoutMiddleware;
+  const run = (path: string) => {
+    const context = new RouterContextProvider();
+    const next = vi.fn(async () => new Response());
+    const request = new Request(`http://localhost:3000${path}`);
+    return { next, outcome: Promise.resolve().then(() => layout({ request, params: {}, context, url: new URL(request.url), pattern: path } as never, next)).then(() => null, (thrown: unknown) => thrown as Response) };
+  };
+  for (const path of ["/?a=1", "/_root.data?a=1"]) {
+    const { next, outcome } = run(path);
+    const redirect = await outcome;
+    expect(redirect).toMatchObject({ status: 308 });
+    expect(redirect?.headers.get("Location")).toBe("/es-PE/?a=1");
+    expect(next).not.toHaveBeenCalled();
   }
-  expect(bodies[0]).toBe(bodies[1]);
-  expect(bodies[0]).not.toContain(companyId);
+  for (const path of ["/productos/abc", "/productos/abc.data", "/carrito"]) {
+    const { next, outcome } = run(path);
+    expect(await outcome).toMatchObject({ status: 404 });
+    expect(next).not.toHaveBeenCalled();
+  }
+  const context = new RouterContextProvider();
+  context.set(storefrontContext, published);
+  const next = vi.fn(async () => new Response("page"));
+  await layout({ request: new Request("http://fantasio.localhost:3000/"), params: {}, context } as never, next);
+  expect(next).toHaveBeenCalledOnce();
 });
 
 test("legacy /catalogo/:id/productos/:pid?x=1 redirects 308 with no-store to the brand product URL with the query", async () => {

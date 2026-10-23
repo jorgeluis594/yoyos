@@ -45,3 +45,12 @@ test("robots.txt and scanner paths on a store host answer without a database que
   for (const query of queries) expect(query).not.toHaveBeenCalled();
   vi.restoreAllMocks();
 });
+
+test("every brand-host answer of the edge sends Referrer-Policy no-referrer once, and the app host does not", async () => {
+  for (const [path, status] of [["/api/me", 404], ["/robots.txt", 200], ["/wp-login.php", 404]] as const) {
+    const response = await get(path, "fantasio.localhost:3000");
+    expect(response.status).toBe(status);
+    expect(response.headers["referrer-policy"]).toBe("no-referrer");
+  }
+  expect((await get("/api/me", "localhost:3000")).headers["referrer-policy"]).toBeUndefined();
+});

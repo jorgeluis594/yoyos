@@ -87,9 +87,7 @@ async function continueToCheckout(body: unknown, storefront: PublishedStorefront
   }
   const parsed = continueToCheckoutSchema.safeParse(body);
   if (!parsed.success) return reply<ContinueResponse>({ code: "INVALID_CART" }, 400);
-  const { intent: _intent, ...input } = parsed.data;
-  void _intent;
-  const result = await catalogCart.continueToCheckout(input, storefront);
+  const result = await catalogCart.continueToCheckout({ orderId: parsed.data.orderId, lines: parsed.data.lines }, storefront);
   if (result.success) return reply<ContinueResponse>({ checkoutUrl: catalogCart.checkoutUrl(storefront.companyId, result.data.id) });
   const error = result.error;
   if (error.code === "LINES_UNAVAILABLE" || error.code === "CATALOG_UNAVAILABLE" || error.code === "ORDER_ID_CONFLICT") {

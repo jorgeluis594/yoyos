@@ -99,7 +99,7 @@ export function StoreNotFound({ storeName, appearance }: Readonly<{ storeName: s
 }
 
 export function CatalogMessage({ title, children }: Readonly<{ title: string; children?: ReactNode }>) {
-  return <main className="mx-auto flex max-w-lg flex-col items-start gap-4 p-6"><meta name="robots" content="noindex, nofollow" /><h1 className="text-2xl font-semibold">{title}</h1>{children}</main>;
+  return <main className="mx-auto flex max-w-lg flex-col items-start gap-4 p-6"><title>{title}</title><meta name="robots" content="noindex, nofollow" /><h1 className="text-2xl font-semibold">{title}</h1>{children}</main>;
 }
 
 export function CatalogLoadError() {

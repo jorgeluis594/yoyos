@@ -125,6 +125,8 @@ test("a brand host serves only the storefront: other paths, hidden and unknown s
 
     const login = await page.goto(storeUrl(subdomain, "/login"));
     expect(login?.status()).toBe(404);
+    expect(login?.headers()["referrer-policy"]).toBe("no-referrer");
+    await browserExpect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
     await browserExpect(page.getByRole("heading", { name: "No encontramos esta página" })).toBeVisible();
     await browserExpect(page.getByText("Fantasio", { exact: true }).first()).toBeVisible();
     expect(await page.getByRole("heading", { name: "Página no encontrada" }).count()).toBe(0);
@@ -141,13 +143,17 @@ test("a brand host serves only the storefront: other paths, hidden and unknown s
 
     const unknown = await page.goto(storeUrl("no-existe", "/"));
     expect(unknown?.status()).toBe(404);
+    expect(unknown?.headers()["referrer-policy"]).toBe("no-referrer");
+    await browserExpect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
+    await browserExpect(page).toHaveTitle("Catálogo no disponible");
     await browserExpect(page.getByRole("heading", { name: "Catálogo no disponible" })).toBeVisible();
     const unknownBody = await page.content();
 
-    // A published store whose name joins the reserved list keeps serving; a hidden one reads as unknown.
+    // A hidden catalog reads exactly like an unknown host.
     await withTenantIsolation(companyId, async () => await prisma.company.update({ where: { id: companyId }, data: { catalogPublished: false } }));
     const hidden = await page.goto(storeAddress);
     expect(hidden?.status()).toBe(404);
+    expect(hidden?.headers()["referrer-policy"]).toBe("no-referrer");
     const cart = await onBrandHost(`/carrito?v=${randomUUID()}`);
     expect(cart.status()).toBe(404);
     expect(await cart.json()).toEqual({ code: "CATALOG_UNAVAILABLE" });
