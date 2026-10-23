@@ -31,7 +31,7 @@ import { getOrderAggregate } from "@core/src/features/orders/application/read-or
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
-import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
+import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, findSellableVariants, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
@@ -284,6 +284,8 @@ export const orders = {
   },
   setDelivery: (input: SetDeliveryInput, context: OrderAccess) => setConfiguredOrderDelivery(input, context),
   createCatalogOrder: createConfiguredCatalogOrder,
+  /** Whether a catalog order was confirmed in the checkout; a missing, pending or other company's order is `not_confirmed`. */
+  readCatalogOrderConfirmation: (companyId: CompanyId, orderId: OrderId) => withTenantIsolation(companyId, () => readConfirmation(companyId, orderId)),
   checkoutUrl,
   resolveBuyerAccess,
   getBuyerPaymentView,

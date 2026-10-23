@@ -209,6 +209,19 @@ export async function savePendingOrder(order: OrderAggregate, source?: OrderChat
   }
 }
 
+/** One statement on the unique `(companyId, id)` index; nothing about the order is logged, because its id is a checkout credential. */
+export async function readCatalogOrderConfirmation(companyId: CompanyId, orderId: OrderId) {
+  if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+  try {
+    const row = await prisma.order.findFirst({ where: { companyId, id: orderId, fromCatalog: true }, select: { checkoutConfirmedAt: true } });
+    return ok(row?.checkoutConfirmedAt ? "confirmed" as const : "not_confirmed" as const);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_check_cart_order", companyId, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_check_cart_order");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to check cart order" });
+  }
+}
+
 export async function orderExists(id: string) {
   try {
     return ok(!!await prisma.order.findFirst({ where: { id }, select: { id: true } }));

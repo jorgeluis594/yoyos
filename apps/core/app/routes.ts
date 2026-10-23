@@ -1,7 +1,11 @@
 import { index, layout, route, type RouteConfig } from "@react-router/dev/routes";
 
 export default [
-  index("routes/legacy-redirect.ts", { id: "legacy-home" }),
+  layout("routes/catalog-layout.tsx", [
+    index("routes/catalog.tsx"),
+    route("productos/:productId", "routes/catalog-product.tsx"),
+    route("carrito", "routes/catalog-cart.tsx"),
+  ]),
   route("login", "routes/login.tsx", { id: "public-login" }),
   route("register", "routes/register.tsx", { id: "public-register" }),
   route("check-email", "routes/check-email.tsx"),
@@ -10,9 +14,9 @@ export default [
   route("reset-password", "routes/reset-password.tsx"),
   route("checkout/:companyId/:orderId", "routes/checkout.tsx"),
   route("checkout/*", "routes/checkout.tsx", { id: "unavailable-checkout" }),
-  route("catalogo/:companyId", "routes/catalog.tsx"),
-  route("catalogo/:companyId/productos/:productId", "routes/catalog-product.tsx"),
-  route("catalogo/:companyId/carrito", "routes/catalog-cart.tsx"),
+  route("catalogo/:companyId", "routes/legacy-catalog-redirect.ts"),
+  route("catalogo/:companyId/productos/:productId", "routes/legacy-catalog-redirect.ts", { id: "legacy-catalog-product-redirect" }),
+  route("catalogo/:companyId/carrito", "routes/legacy-catalog-cart.ts"),
   route("settings/checkout-appearance", "routes/legacy-store-appearance-redirect.ts", { id: "public-legacy-store-appearance" }),
   route("settings/store-appearance/preview", "routes/store-appearance-preview.tsx", { id: "public-store-appearance-preview" }),
   route("settings/store-appearance/catalog-cards", "routes/store-appearance-catalog-cards.ts", { id: "public-store-appearance-catalog-cards" }),

@@ -3,9 +3,12 @@ import type { Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
 import {
   checkSubdomainAvailability, getCatalogSettings, saveCatalogSubdomain, setCatalogPublication,
-  type CatalogSettingsAccess, type CatalogSettingsDependencies, type CatalogSettingsError, type StoredCatalogSettings,
+  type CatalogSettingsAccess, type CatalogSettingsDependencies, type CompanyId, type CatalogSettingsError, type StoredCatalogSettings,
 } from "@core/src/features/catalog/application/catalog-settings";
+import { resolveLegacyCatalogLink, resolveStorefront } from "@core/src/features/catalog/application/resolve-storefront";
+import type { StoreHost } from "@core/src/features/catalog/domain/store-host";
 import { readCatalogSettings, resolveSubdomain, savePublication, saveSubdomain } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
+import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 /** A seller's own company always exists; the legacy link resolver reads the absent case from the repository itself. */
 async function readStoredSettings(companyId: Parameters<CatalogSettingsDependencies["readCatalogSettings"]>[0]): Promise<Result<StoredCatalogSettings, CatalogSettingsError>> {
@@ -36,4 +39,14 @@ export const catalogSettings = {
       errorCode: result.error.code }, "catalog_publication_rejected");
     return result;
   },
+};
+
+/** The brand host's store in one round trip; the request keeps the answer, so nothing else reads the store again. */
+export const catalogStorefront = {
+  resolve: (host: StoreHost) => resolveStorefront({ host }, { resolveSubdomain }),
+};
+
+export const catalogLegacy = {
+  /** Under RLS an unknown company reads as absent, the same as a hidden catalog. */
+  resolve: (companyId: CompanyId) => resolveLegacyCatalogLink({ companyId }, { readCatalogSettings: (id) => withTenantIsolation(id, () => readCatalogSettings(id)) }),
 };

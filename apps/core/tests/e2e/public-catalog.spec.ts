@@ -1,8 +1,10 @@
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, publishCatalog, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+
+const baseURL = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
 
 function requestLogs(requestId: string) {
   return readFileSync("test-results/server.jsonl", "utf8").trim().split("\n")
@@ -10,10 +12,10 @@ function requestLogs(requestId: string) {
     .filter((event) => event.requestId === requestId);
 }
 
-test("seller publishes the catalog, buyer adds two variants, continues, confirms and the seller sees the order from the catalog", async ({ page }) => {
+test("buyer opens the brand host, adds two variants, continues to the app checkout, confirms and finds an empty cart back in the store", async ({ page }) => {
   const email = `catalog-seller-${randomUUID()}@example.test`;
   const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Tienda del catálogo", country: "PE" });
-  const buyer = await page.context().browser()!.newContext({ baseURL: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`, viewport: { width: 390, height: 844 } });
+  const buyer = await page.context().browser()!.newContext({ baseURL, viewport: { width: 390, height: 844 } });
   const buyerPage = await buyer.newPage();
   const requestId = `catalog-${randomUUID()}`;
   await buyerPage.setExtraHTTPHeaders({ "x-request-id": requestId });
@@ -31,22 +33,11 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     await browserExpect(page.getByText("Guardado", { exact: true })).toBeVisible();
     await browserExpect(page.getByLabel("Ofrecer recojo en tienda")).toBeChecked();
 
-    // Choosing the link has no screen yet: publishing requires a saved subdomain, so the seller starts with one.
-    const subdomain = `s${companyId.replaceAll("-", "").slice(0, 20)}`;
-    await withTenantIsolation(companyId, async () => await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: subdomain } }));
-    await page.goto("/es-PE/settings/store-appearance", { waitUntil: "networkidle" });
-    await page.getByRole("switch", { name: "Publicar catálogo" }).click();
-    await browserExpect(page.getByText("Catálogo publicado", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Cambios sin guardar", { exact: true })).toHaveCount(0);
-    await page.goto("/es-PE/settings/catalog");
-    await browserExpect(page.getByText("Para ocultar tu catálogo, ve a Apariencia de la tienda.")).toBeVisible();
-    await browserExpect(page.getByRole("switch")).toHaveCount(0);
-    const url = new URL(await page.getByLabel("Link del catálogo").inputValue());
-    expect(url.host).toBe(`${subdomain}.localhost:${process.env.CORE_E2E_PORT ?? "4173"}`);
-    // The brand host is served by a later task: the catalog still opens at its legacy path.
-    const catalogPath = `/catalogo/${companyId}`;
+    // Choosing and publishing the link is the seller specs' job (catalog-link.spec.ts); the buyer starts from a published store.
+    const subdomain = subdomainOf(companyId);
+    const storeAddress = await publishCatalog(companyId, subdomain);
 
-    const catalog = await buyerPage.goto(catalogPath);
+    const catalog = await buyerPage.goto(storeAddress);
     expect(catalog?.headers()["referrer-policy"]).toBe("no-referrer");
     await browserExpect(buyerPage.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
     await browserExpect(async () => {
@@ -54,6 +45,7 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
       await buyerPage.waitForURL(/\?q=polo$/, { timeout: 1000 });
     }).toPass({ timeout: 10_000 });
     await buyerPage.getByRole("link", { name: /Polo básico/ }).click();
+    await buyerPage.waitForURL(/\/productos\/[0-9a-f-]{36}$/);
     await buyerPage.getByRole("button", { name: "Volver al catálogo" }).click();
     await buyerPage.waitForURL(/\?q=polo$/);
     await browserExpect(buyerPage.getByRole("searchbox", { name: "Buscar productos" })).toHaveValue("polo");
@@ -75,7 +67,8 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     await browserExpect(cart.getByText("S/ 135.00", { exact: true })).toBeVisible();
     await cart.getByRole("button", { name: "Continuar" }).click();
 
-    await buyerPage.waitForURL(new RegExp(`/checkout/${companyId}/`));
+    // The checkout stays on the app host.
+    await buyerPage.waitForURL(new RegExp(`^${baseURL.replaceAll(".", "\\.")}/checkout/${companyId}/`));
     await browserExpect(buyerPage.getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
     const orderId = buyerPage.url().split("/").at(-1)!;
     const orders = await page.request.get("/api/orders");
@@ -96,7 +89,7 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     expect(requestLogs(requestId)).toContainEqual(expect.objectContaining({ event: "catalog_order_created", companyId, orderNumber: 1001, linesCount: 2 }));
     expect(JSON.stringify(requestLogs(requestId))).not.toContain(orderId);
 
-    await buyerPage.goto(catalogPath);
+    await buyerPage.goto(storeAddress);
     await buyerPage.getByRole("button", { name: "Carrito, 0 unidades" }).click();
     await browserExpect(buyerPage.getByRole("dialog", { name: "Carrito" }).getByText("Tu carrito está vacío")).toBeVisible();
 
@@ -118,3 +111,69 @@ test("seller publishes the catalog, buyer adds two variants, continues, confirms
     });
   }
 });
+
+test("a brand host serves only the storefront: other paths, hidden and unknown stores, the API and robots answer as designed", async ({ page }) => {
+  const email = `catalog-edge-${randomUUID()}@example.test`;
+  const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Fantasio", country: "PE" });
+  const subdomain = subdomainOf(companyId);
+  // The test process resolves hosts by itself, so API calls go to the app address with the brand host in `Host`.
+  const onBrandHost = (path: string) => page.request.get(`${baseURL}${path}`, { headers: { host: new URL(storeUrl(subdomain)).host }, maxRedirects: 0 });
+  try {
+    const storeAddress = await publishCatalog(companyId, subdomain);
+    const created = await withTenantIsolation(companyId, () => products.create({ name: "Polo básico", currency: "PEN", variants: [{ attributes: { Color: "Negro" }, salePrice: 45, initialStock: 5 }] }));
+    if (!created.success) throw new Error("Product fixture failed");
+
+    const login = await page.goto(storeUrl(subdomain, "/login"));
+    expect(login?.status()).toBe(404);
+    expect(login?.headers()["referrer-policy"]).toBe("no-referrer");
+    await browserExpect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
+    await browserExpect(page.getByRole("heading", { name: "No encontramos esta página" })).toBeVisible();
+    await browserExpect(page.getByText("Fantasio", { exact: true }).first()).toBeVisible();
+    expect(await page.getByRole("heading", { name: "Página no encontrada" }).count()).toBe(0);
+    await page.getByRole("link", { name: "Volver al catálogo" }).click();
+    await page.waitForURL(storeAddress);
+    await browserExpect(page.getByRole("link", { name: /Polo básico/ })).toBeVisible();
+    expect((await page.goto(storeUrl(subdomain, "/settings")))?.status()).toBe(404);
+
+    const api = await onBrandHost("/api/me");
+    expect(api.status()).toBe(404);
+    expect(await api.json()).toEqual({ code: "NOT_FOUND", error: "Not found" });
+    expect(await (await onBrandHost("/robots.txt")).text()).toContain("Disallow: /");
+    expect((await onBrandHost("/wp-login.php")).status()).toBe(404);
+
+    const unknown = await page.goto(storeUrl("no-existe", "/"));
+    expect(unknown?.status()).toBe(404);
+    expect(unknown?.headers()["referrer-policy"]).toBe("no-referrer");
+    await browserExpect(page.locator('meta[name="robots"]')).toHaveAttribute("content", "noindex, nofollow");
+    await browserExpect(page).toHaveTitle("Catálogo no disponible");
+    await browserExpect(page.getByRole("heading", { name: "Catálogo no disponible" })).toBeVisible();
+    const unknownBody = await page.content();
+
+    // A hidden catalog reads exactly like an unknown host.
+    await withTenantIsolation(companyId, async () => await prisma.company.update({ where: { id: companyId }, data: { catalogPublished: false } }));
+    const hidden = await page.goto(storeAddress);
+    expect(hidden?.status()).toBe(404);
+    expect(hidden?.headers()["referrer-policy"]).toBe("no-referrer");
+    const cart = await onBrandHost(`/carrito?v=${randomUUID()}`);
+    expect(cart.status()).toBe(404);
+    expect(await cart.json()).toEqual({ code: "CATALOG_UNAVAILABLE" });
+    expect(strip(await page.content())).toBe(strip(unknownBody));
+
+    // The legacy address redirects permanently once published, and says unavailable while hidden.
+    const legacy = `/catalogo/${companyId}/productos/${randomUUID()}?x=1`;
+    expect((await page.request.get(legacy, { maxRedirects: 0 })).status()).toBe(404);
+    await withTenantIsolation(companyId, async () => await prisma.company.update({ where: { id: companyId }, data: { catalogPublished: true } }));
+    const redirect = await page.request.get(legacy, { maxRedirects: 0 });
+    expect(redirect.status()).toBe(308);
+    expect(redirect.headers()["cache-control"]).toBe("no-store");
+    expect(redirect.headers().location).toBe(storeUrl(subdomain, legacy.replace(`/catalogo/${companyId}`, "")));
+  } finally {
+    await withTenantIsolation(companyId, async () => {
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
+    });
+  }
+});
+
+/** The page without the build-specific bits (script and stylesheet hashes, hydration payloads) that differ per request. */
+const strip = (html: string) => html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<link[^>]*>/g, "");
