@@ -19,8 +19,8 @@ describe("chooseSellerNotice", () => {
       .toEqual({ kind: "not_identified", source: "text", newOrderId: null });
     expect(chooseSellerNotice(outcomes({ kind: "not_clear", productIds: [product(31), product(32)], silent: false })))
       .toEqual({ kind: "not_clear", productIds: [product(31), product(32)], newOrderId: null });
-    expect(chooseSellerNotice(outcomes({ kind: "unclear_item", namedItem: true, namedProductId: null })))
-      .toEqual({ kind: "unclear_item", namedItem: true, namedProductId: null, newOrderId: null });
+    expect(chooseSellerNotice(outcomes({ kind: "unclear_item", orderId: order(1), namedItem: true, namedProductId: null })))
+      .toEqual({ kind: "unclear_item", orderId: order(1), namedItem: true, namedProductId: null, newOrderId: null });
     expect(chooseSellerNotice(outcomes({ kind: "order_closed", orderId: order(1) }))).toEqual({ kind: "order_closed", orderId: order(1), newOrderId: null });
     expect(chooseSellerNotice(outcomes({ kind: "failed", errorCode: "RETRIES_EXHAUSTED" }))).toEqual({ kind: "failed", newOrderId: null });
     for (const kind of ["unnamed_add", "variant_only", "image_with_request", "no_open_order"] as const)

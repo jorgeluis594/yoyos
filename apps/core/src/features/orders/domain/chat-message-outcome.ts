@@ -19,7 +19,7 @@ export type ChatMessageOutcome =
   | Readonly<{ kind: "not_identified"; source: "photo" | "text"; identification: ProductIdentification | null; silent: boolean }>
   | Readonly<{ kind: "not_clear"; productIds: readonly ProductId[]; silent: boolean }>
   | Readonly<{ kind: "variant_missing" | "variant_not_available" | "quantity_above_limit"; productId: ProductId; identification: ProductIdentification | null }>
-  | Readonly<{ kind: "unclear_item"; namedItem: boolean; namedProductId: ProductId | null }>
+  | Readonly<{ kind: "unclear_item"; orderId: OrderId | null; namedItem: boolean; namedProductId: ProductId | null }>
   | Readonly<{ kind: "new_order_after_closed"; orderId: OrderId; previousOrderId: OrderId }>
   | Readonly<{ kind: "failed"; errorCode: ChatMessageFailureCode }>;
 
@@ -45,7 +45,7 @@ const outcomeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("not_identified"), source: z.enum(["photo", "text"]), identification: identification.nullable(), silent: z.boolean() }),
   z.strictObject({ kind: z.literal("not_clear"), productIds: z.array(productId), silent: z.boolean() }),
   z.strictObject({ kind: z.enum(["variant_missing", "variant_not_available", "quantity_above_limit"]), productId, identification: identification.nullable() }),
-  z.strictObject({ kind: z.literal("unclear_item"), namedItem: z.boolean(), namedProductId: productId.nullable() }),
+  z.strictObject({ kind: z.literal("unclear_item"), orderId: orderId.nullable(), namedItem: z.boolean(), namedProductId: productId.nullable() }),
   z.strictObject({ kind: z.literal("new_order_after_closed"), orderId, previousOrderId: orderId }),
   z.strictObject({ kind: z.literal("failed"), errorCode: failureCode }),
 ]);

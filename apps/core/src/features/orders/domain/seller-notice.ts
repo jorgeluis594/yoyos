@@ -7,7 +7,7 @@ type ProblemNotice =
   | Readonly<{ kind: "not_identified"; source: "photo" | "text" }>
   | Readonly<{ kind: "not_clear"; productIds: readonly ProductId[] }>
   | Readonly<{ kind: "variant_missing" | "variant_not_available" | "quantity_above_limit"; productId: ProductId }>
-  | Readonly<{ kind: "unclear_item"; namedItem: boolean; namedProductId: ProductId | null }>
+  | Readonly<{ kind: "unclear_item"; orderId: OrderId | null; namedItem: boolean; namedProductId: ProductId | null }>
   | Readonly<{ kind: "unnamed_add" | "variant_only" | "image_with_request" | "no_open_order" | "failed" }>
   | Readonly<{ kind: "order_closed"; orderId: OrderId }>
   /** `productIds` are up to three distinct identified products; the other `problemCount - productIds.length` problems are counted. */
@@ -28,7 +28,7 @@ function problemOf(outcome: ChatMessageOutcome): ProblemNotice | null {
     case "not_identified": return outcome.silent ? null : { kind: "not_identified", source: outcome.source };
     case "not_clear": return outcome.silent ? null : { kind: "not_clear", productIds: outcome.productIds };
     case "variant_missing": case "variant_not_available": case "quantity_above_limit": return { kind: outcome.kind, productId: outcome.productId };
-    case "unclear_item": return { kind: "unclear_item", namedItem: outcome.namedItem, namedProductId: outcome.namedProductId };
+    case "unclear_item": return { kind: "unclear_item", orderId: outcome.orderId, namedItem: outcome.namedItem, namedProductId: outcome.namedProductId };
     case "unnamed_add": case "variant_only": case "image_with_request": case "no_open_order": return { kind: outcome.kind };
     case "order_closed": return { kind: "order_closed", orderId: outcome.orderId };
     case "failed": return { kind: "failed" };

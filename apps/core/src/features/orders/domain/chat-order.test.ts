@@ -167,15 +167,15 @@ describe("applyChatActions", () => {
 
   test("reports an unclear item when an unnamed reference meets two items", () => {
     const result = run(open([poloM, 2], [gorra, 1]), { kind: "set_quantity", target: unnamed, quantity: 3 });
-    expect(result.outcomes).toEqual([{ kind: "unclear_item", namedItem: false, namedProductId: null }]);
+    expect(result.outcomes).toEqual([{ kind: "unclear_item", orderId: id(1), namedItem: false, namedProductId: null }]);
     expect(lines(finalOrder(result))).toEqual([["Polo M", 2], ["Gorra", 1]]);
     const passed = run(open([poloM, 2]), { kind: "remove", target: { kind: "unclear", namedItem: true, namedProductId: id(22) as ProductId }, amount: "all" });
-    expect(passed.outcomes).toEqual([{ kind: "unclear_item", namedItem: true, namedProductId: id(22) }]);
+    expect(passed.outcomes).toEqual([{ kind: "unclear_item", orderId: id(1), namedItem: true, namedProductId: id(22) }]);
   });
 
   test("reports an unclear item when the targeted variant left the order before the lock", () => {
     const result = run(open([poloM, 2]), { kind: "remove", target: named(gorra), amount: "all" });
-    expect(result.outcomes).toEqual([{ kind: "unclear_item", namedItem: true, namedProductId: null }]);
+    expect(result.outcomes).toEqual([{ kind: "unclear_item", orderId: id(1), namedItem: true, namedProductId: null }]);
     expect(lines(finalOrder(result))).toEqual([["Polo M", 2]]);
   });
 
@@ -184,6 +184,30 @@ describe("applyChatActions", () => {
     expect(result.outcomes).toEqual([{ kind: "order_closed", orderId: id(1) }]);
     expect(result.createdOrder).toBeNull();
     expect(kinds(run(closed, { kind: "set_quantity", target: unnamed, quantity: 2 }))).toEqual(["order_closed"]);
+  });
+
+  test("resolves item actions against the target before this message created an order, whatever the action order", () => {
+    const removal: ResolvedChatAction = { kind: "remove", target: named(poloM), amount: "all" };
+    for (const actions of [[add(gorra), removal], [removal, add(gorra)]]) {
+      const result = run(closed, ...actions);
+      expect(lines(result.createdOrder)).toEqual([["Gorra", 1]]);
+      expect(kinds(result).sort()).toEqual(["added", "new_order_after_closed", "order_closed"]);
+    }
+  });
+
+  test("degrades to an unclear item when the target does not know the product of an item", () => {
+    const target = open([poloM, 60], [poloL, 40]);
+    const unknown: ChatOrderTarget = target.kind === "open" ? { ...target, productIds: new Map() } : target;
+    expect(run(unknown, { kind: "set_quantity", target: named(poloM), quantity: 100 }).outcomes)
+      .toEqual([{ kind: "unclear_item", orderId: id(1), namedItem: true, namedProductId: null }]);
+    expect(run(unknown, { kind: "change_variant", target: named(poloM), to: { kind: "resolved", item: poloL }, mentionedPrice: null }).outcomes)
+      .toEqual([{ kind: "unclear_item", orderId: id(1), namedItem: true, namedProductId: null }]);
+  });
+
+  test("fills the order of an unclear item reported by a tool when the chat has an open order", () => {
+    const outcome: ReportOutcome = { kind: "unclear_item", orderId: null, namedItem: true, namedProductId: null };
+    expect(run(open([poloM, 1]), { kind: "report", outcome }).outcomes).toEqual([{ ...outcome, orderId: id(1) }]);
+    expect(run(closed, { kind: "report", outcome }).outcomes).toEqual([outcome]);
   });
 
   test("reports no open order for a removal when the chat has no order", () => {

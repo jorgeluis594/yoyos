@@ -52,6 +52,8 @@ export type ChatOrderIds = Readonly<{ newOrderId: () => OrderId; newItemId: () =
 export type AppliedChatActions = Readonly<{ target: ChatOrderTarget; createdOrder: OrderAggregate | null; changes: ChatOrderItemChanges; outcomes: ChatMessageOutcomes }>;
 
 type State = {
+  /** The target as it was before this message, which item actions resolve against even after an add created a new order. */
+  readonly original: ChatOrderTarget;
   target: ChatOrderTarget;
   createdOrder: OrderAggregate | null;
   productIds: Map<VariantId, ProductId>;
@@ -67,7 +69,7 @@ export function needsNewChatOrder(target: ChatOrderTarget, actions: readonly Res
 
 export function applyChatActions(target: ChatOrderTarget, actions: readonly ResolvedChatAction[], ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Result<AppliedChatActions, OrderDomainError> {
   if (actions.length === 0) return err({ code: "INVALID_ORDER", message: "A message needs at least one action" });
-  const state: State = { target, createdOrder: null, productIds: new Map(target.kind === "open" ? target.productIds : []), outcomes: [] };
+  const state: State = { original: target, target, createdOrder: null, productIds: new Map(target.kind === "open" ? target.productIds : []), outcomes: [] };
   for (const action of actions) {
     const step = applyAction(state, action, ids, now, limits, seed);
     if (!step.success) return step;
@@ -81,7 +83,7 @@ export function applyChatActions(target: ChatOrderTarget, actions: readonly Reso
 function applyAction(state: State, action: ResolvedChatAction, ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Step {
   switch (action.kind) {
     case "add": return addItem(state, action, ids, now, limits, seed);
-    case "report": state.outcomes.push(action.outcome); return done;
+    case "report": return report(state, action.outcome);
     case "ready": return markReady(state);
     case "remove": return withOrderItem(state, action.target, (order, item, named) => action.amount === "one" && item.quantity > 1
       ? changeQuantity(state, order, item, item.quantity - 1, named, "quantity_lowered", limits) : removeFromOrder(state, order, item, named));
@@ -100,15 +102,17 @@ function applyAction(state: State, action: ResolvedChatAction, ids: ChatOrderIds
   }
 }
 
+/** An unclear item reported by a tool carries the order it was read against, when the chat has an open one. */
+function report(state: State, outcome: ReportOutcome): Step {
+  const open = state.original.kind === "open" ? state.original.order.id : null;
+  state.outcomes.push(outcome.kind === "unclear_item" && outcome.orderId === null ? { ...outcome, orderId: open } : outcome);
+  return done;
+}
+
 function setOrder(state: State, order: OrderAggregate): void {
   if (state.target.kind !== "open") return;
   state.target = { ...state.target, order };
   if (state.createdOrder) state.createdOrder = order;
-}
-
-function productOf(state: State, variantId: VariantId): Result<ProductId, OrderDomainError> {
-  const productId = state.productIds.get(variantId);
-  return productId ? ok(productId) : err({ code: "INVALID_ORDER", message: "Item has no known product" });
 }
 
 function addItem(state: State, action: Extract<ResolvedChatAction, { kind: "add" }>, ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Step {
@@ -147,11 +151,12 @@ function markReady(state: State): Step {
 
 /** Finds the order and item an item action applies to, or records why nothing can change. */
 function withOrderItem(state: State, target: ItemTarget, change: (order: OrderAggregate, item: OrderItem, namedItem: boolean) => Step): Step {
-  if (state.target.kind === "closed") { state.outcomes.push({ kind: "order_closed", orderId: state.target.orderId }); return done; }
-  if (state.target.kind !== "open") { state.outcomes.push({ kind: "no_open_order" }); return done; }
-  const order = state.target.order;
+  const base = state.createdOrder ? state.original : state.target;
+  if (base.kind === "closed") { state.outcomes.push({ kind: "order_closed", orderId: base.orderId }); return done; }
+  if (base.kind !== "open") { state.outcomes.push({ kind: "no_open_order" }); return done; }
+  const order = base.order;
   const found = resolveItem(order, target);
-  if (found.kind === "unclear") { state.outcomes.push({ kind: "unclear_item", namedItem: found.namedItem, namedProductId: found.namedProductId }); return done; }
+  if (found.kind === "unclear") { state.outcomes.push({ kind: "unclear_item", orderId: order.id, namedItem: found.namedItem, namedProductId: found.namedProductId }); return done; }
   return change(order, found.item, found.namedItem);
 }
 
@@ -174,7 +179,7 @@ function removeFromOrder(state: State, order: OrderAggregate, item: OrderItem, n
 }
 
 function changeQuantity(state: State, order: OrderAggregate, item: OrderItem, quantity: number, namedItem: boolean, kind: "quantity_lowered" | "quantity_changed", limits: ChatOrderLimits): Step {
-  if (quantity > limits.maxItemQuantity) return reportAboveLimit(state, item.variantId);
+  if (quantity > limits.maxItemQuantity) return reportAboveLimit(state, order, item, namedItem);
   const next = orderStateMachine.setItemQuantity(order, item.id, quantity);
   if (!next.success) return next;
   setOrder(state, next.data);
@@ -182,10 +187,10 @@ function changeQuantity(state: State, order: OrderAggregate, item: OrderItem, qu
   return done;
 }
 
-function reportAboveLimit(state: State, variantId: VariantId): Step {
-  const productId = productOf(state, variantId);
-  if (!productId.success) return productId;
-  state.outcomes.push({ kind: "quantity_above_limit", productId: productId.data, identification: null });
+/** An item whose product the target does not know cannot be named, so it degrades to an unclear item instead of failing the message. */
+function reportAboveLimit(state: State, order: OrderAggregate, item: OrderItem, namedItem: boolean): Step {
+  const productId = state.productIds.get(item.variantId);
+  state.outcomes.push(productId ? { kind: "quantity_above_limit", productId, identification: null } : { kind: "unclear_item", orderId: order.id, namedItem, namedProductId: null });
   return done;
 }
 
@@ -202,13 +207,12 @@ function changeVariant(state: State, action: Extract<ResolvedChatAction, { kind:
       return done;
     }
     const merged = order.items.find((line) => line.variantId === to.variantId);
-    if (merged && merged.quantity + item.quantity > limits.maxItemQuantity) return reportAboveLimit(state, item.variantId);
-    const productId = productOf(state, item.variantId);
-    if (!productId.success) return productId;
+    if (merged && merged.quantity + item.quantity > limits.maxItemQuantity) return reportAboveLimit(state, order, item, namedItem);
+    const productId = state.productIds.get(item.variantId);
     const next = orderStateMachine.replaceItemVariant(order, item.id, to, action.mentionedPrice, ids.newItemId);
     if (!next.success) return next;
     setOrder(state, next.data);
-    state.productIds.set(to.variantId, productId.data);
+    if (productId) state.productIds.set(to.variantId, productId);
     state.outcomes.push({ kind: "variant_changed", fromVariantId: item.variantId, toVariantId: to.variantId, namedItem });
     return done;
   });
