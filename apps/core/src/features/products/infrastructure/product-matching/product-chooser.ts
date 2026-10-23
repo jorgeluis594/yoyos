@@ -15,6 +15,9 @@ export const NONE = "none";
 export const MAX_CANDIDATES = 26;
 const MAX_SIDE = 1024;
 
+export const SHOWS_PRODUCT = "shows_product";
+export const showsProductInstructions = "The first image shows a product offered for sale, not a payment or transfer screenshot, selfie, map or document.";
+
 export const chooserInstructions = "The first image was sent by a customer. Decide which candidate product image shows the same product "
   + "(same item, design and colour; ignore background, lighting, angle, overlays and text). "
   + `Answer with the candidate label, or "${NONE}" if no candidate is clearly the same product.`;
@@ -42,17 +45,17 @@ export async function buildChooserPrompt(input: ChooserInput): Promise<Result<Ch
 }
 
 export function chooserOutputSchema(labels: readonly string[]) {
-  return z.strictObject({ choice: z.union([z.enum(labels as [string, ...string[]]), z.literal(NONE)]), confidence: z.number().min(0).max(1) });
+  return z.strictObject({ choice: z.union([z.enum(labels as [string, ...string[]]), z.literal(NONE)]), confidence: z.number().min(0).max(1), showsProduct: z.number().min(0).max(1) });
 }
 
 /** Maps the provider's structured output back to a product of the candidates. */
 export function parseChooserOutput(output: unknown, input: ChooserInput, labels: readonly string[]): Result<VisualChoice, ChooserError> {
   const parsed = chooserOutputSchema(labels).safeParse(output);
   if (!parsed.success) return err({ code: "INVALID_MATCHER_RESPONSE", message: "Unexpected matcher output" });
-  if (parsed.data.choice === NONE) return ok({ kind: "none" });
+  if (parsed.data.choice === NONE) return ok({ kind: "none", showsProduct: parsed.data.showsProduct });
   const candidate = input.candidates[labels.indexOf(parsed.data.choice)];
   const confidence = parseMatchConfidence(parsed.data.confidence);
-  return candidate && confidence !== null ? ok({ kind: "product", productId: candidate.productId, confidence })
+  return candidate && confidence !== null ? ok({ kind: "product", productId: candidate.productId, confidence, showsProduct: parsed.data.showsProduct })
     : err({ code: "INVALID_MATCHER_RESPONSE", message: "Unexpected matcher output" });
 }
 

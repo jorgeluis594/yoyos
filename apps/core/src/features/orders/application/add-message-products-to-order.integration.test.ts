@@ -89,7 +89,7 @@ const visualCalls: string[] = [];
 const visual: VisualSearch = { model, candidates: 5, minConfidence: 0.75 as MatchConfidence,
   embedImage: async () => { visualCalls.push("embedImage"); return ok([1, 0, 0] as unknown as EmbeddingVector); },
   hasIndexedProducts, findNearestProductImages, readImage: async () => ok({ bytes: new Uint8Array([1]), contentType: "image/jpeg" }),
-  chooseProduct: async ({ candidates }) => { visualCalls.push("chooseProduct"); return ok({ kind: "product", productId: candidates[0]!.productId, confidence: 0.9 as MatchConfidence }); },
+  chooseProduct: async ({ candidates }) => { visualCalls.push("chooseProduct"); return ok({ kind: "product", productId: candidates[0]!.productId, confidence: 0.9 as MatchConfidence, showsProduct: 0.95 }); },
   findSellableVariantsOfProduct };
 
 function dependencies(f: Fixture, over: Partial<AddMessageProductsDependencies> = {}): AddMessageProductsDependencies {

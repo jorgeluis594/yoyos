@@ -10,7 +10,8 @@ const json = (body: unknown, status = 200) => new Response(JSON.stringify(body),
 function respond(reply: ProviderReply, signal: AbortSignal | null | undefined): Promise<Response> {
   switch (reply.kind) {
     case "choice": return Promise.resolve(json({ model: "gpt-6-luna", usage: { input_tokens: 900, output_tokens: 1 },
-      answers: [{ type: "choice", name: "product", choice: reply.choice, confidence: reply.confidence, probabilities: [] }] }));
+      answers: [{ type: "choice", name: "product", choice: reply.choice, confidence: reply.confidence, probabilities: [] },
+        { type: "predicate", name: "shows_product", probability: reply.showsProduct }] }));
     case "malformed": return Promise.resolve(json({ model: "gpt-6-luna", answers: [{ type: "refusal", name: "product" }] }));
     case "status": return Promise.resolve(json({ error: { message: "failure" } }, reply.status));
     case "network": return Promise.reject(new TypeError("fetch failed"));

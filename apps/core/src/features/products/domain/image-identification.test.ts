@@ -26,21 +26,21 @@ describe("selectProductCode", () => {
 
 describe("acceptVisualMatch", () => {
   test("acceptVisualMatch accepts a chosen candidate at or above the minimum confidence", () => {
-    expect(acceptVisualMatch({ kind: "product", productId: id(2) as ProductId, confidence: confidence(0.8) }, candidates, confidence(0.8)))
+    expect(acceptVisualMatch({ kind: "product", productId: id(2) as ProductId, confidence: confidence(0.8), showsProduct: 0.9 }, candidates, confidence(0.8)))
       .toEqual({ kind: "accepted", productId: id(2), confidence: 0.8 });
   });
 
   test("acceptVisualMatch rejects a choice below the minimum confidence as low_confidence", () => {
-    expect(acceptVisualMatch({ kind: "product", productId: id(1) as ProductId, confidence: confidence(0.79) }, candidates, confidence(0.8)))
+    expect(acceptVisualMatch({ kind: "product", productId: id(1) as ProductId, confidence: confidence(0.79), showsProduct: 0.9 }, candidates, confidence(0.8)))
       .toEqual({ kind: "rejected", reason: "low_confidence" });
   });
 
   test("acceptVisualMatch rejects none as no_visual_match", () => {
-    expect(acceptVisualMatch({ kind: "none" }, candidates, confidence(0.8))).toEqual({ kind: "rejected", reason: "no_visual_match" });
+    expect(acceptVisualMatch({ kind: "none", showsProduct: 0.9 }, candidates, confidence(0.8))).toEqual({ kind: "rejected", reason: "no_visual_match" });
   });
 
   test("acceptVisualMatch rejects a product that is not among the candidates", () => {
-    expect(acceptVisualMatch({ kind: "product", productId: id(9) as ProductId, confidence: confidence(1) }, candidates, confidence(0.8)))
+    expect(acceptVisualMatch({ kind: "product", productId: id(9) as ProductId, confidence: confidence(1), showsProduct: 0.9 }, candidates, confidence(0.8)))
       .toEqual({ kind: "rejected", reason: "no_visual_match" });
   });
 });
