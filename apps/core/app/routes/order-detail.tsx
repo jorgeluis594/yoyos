@@ -4,6 +4,7 @@ import { isOrderId } from "@core/src/features/orders/domain/order";
 import { readCancellationOrder, verifyCancellation, cancellationMessage, type CancelOrderActionError, type CancellationClientResult, type CancellationUiState } from "@core/src/features/orders/presentation/cancellation-client";
 import { cancelOrderResponseSchema, type CancelOrderResponse, type OrderAggregateResponse } from "@shared/contracts/orders";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
+import { mentionedPriceNote } from "@shared/mentioned-price";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { useState } from "react";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
@@ -264,10 +265,10 @@ export default function OrderDetail() {
           <CardContent>
             <Table className="table-fixed max-sm:block">
               <TableHeader className="max-sm:sr-only"><TableRow><TableHead scope="col" className="w-1/2">{t("nav.product")}</TableHead><TableHead scope="col" className="text-center">{t("orders.quantity")}</TableHead><TableHead scope="col" className="text-right">{t("orderDetail.amount")}</TableHead></TableRow></TableHeader>
-              <TableBody className="max-sm:block">{order.items.map(item => <TableRow key={item.id} className="max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:gap-x-3 max-sm:py-3">
-                <TableCell className="whitespace-normal break-words align-top max-sm:min-w-0 max-sm:p-0"><p className="font-medium">{item.productName}</p><p className="mt-1 text-muted-foreground">{Object.values(item.variantAttributes).join(" · ") || item.sku || t("orders.uniqueVariant")} · <span className="tabular-nums">{amount(item.unitPrice)}</span></p></TableCell>
+              <TableBody className="max-sm:block">{order.items.map(item => { const note = mentionedPriceNote(item); return <TableRow key={item.id} className="max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:gap-x-3 max-sm:py-3">
+                <TableCell className="whitespace-normal break-words align-top max-sm:min-w-0 max-sm:p-0"><p className="font-medium">{item.productName}</p><p className="mt-1 text-muted-foreground">{Object.values(item.variantAttributes).join(" · ") || item.sku || t("orders.uniqueVariant")} · <span className="tabular-nums">{amount(item.unitPrice)}</span></p>{note && <p className="mt-1 text-sm text-muted-foreground">{t("orderDetail.mentionedPrice", { count: note.units, amount: amount({ amount: note.amount, currency: item.unitPrice.currency }) })}</p>}</TableCell>
                 <TableCell className="text-center align-top tabular-nums max-sm:col-start-1 max-sm:row-start-2 max-sm:p-0 max-sm:pt-2 max-sm:text-left max-sm:text-muted-foreground"><span className="sm:sr-only">{t("orders.quantity")}: </span>{item.quantity}</TableCell><TableCell className="whitespace-normal break-words text-right align-top font-semibold tabular-nums max-sm:col-start-2 max-sm:row-start-1 max-sm:p-0 max-sm:whitespace-nowrap">{amount(item.subtotal)}</TableCell>
-              </TableRow>)}</TableBody>
+              </TableRow>; })}</TableBody>
             </Table>
           </CardContent>
         </Card>
