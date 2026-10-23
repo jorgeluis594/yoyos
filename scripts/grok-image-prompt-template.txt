@@ -1,0 +1,4 @@
+Generate a single clean PNG image for a software project (UI mock, diagram or test asset).
+Use a neutral, simple style with flat colors and plenty of whitespace.
+Do not include real people, real brands or customer data. Avoid long text; use only a few short, legible labels.
+Image description:
