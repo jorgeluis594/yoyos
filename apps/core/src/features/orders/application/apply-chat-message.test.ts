@@ -9,6 +9,7 @@ import { resolveVariant } from "@core/src/features/products/application/resolve-
 import type { ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import type { DecisionAnswers, DecisionRequest, ExtractionRequest, OrchestrateDependencies, ToolCall } from "@core/src/shared/ai-tools/application/orchestrate";
 import type { AiError } from "@core/src/shared/ai-tools/application/ai-error";
+import { mentionedPriceNote } from "@shared/mentioned-price";
 import { chooseSellerNotice } from "@core/src/features/orders/domain/seller-notice";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
 import type { ChatMessageOutcomes, StoredChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
@@ -237,6 +238,15 @@ describe("applyChatMessage: photos", () => {
     expect(h.store.orders.size).toBe(0);
     expect(h.calls).not.toContain("ensureCustomerForContact");
     expect(h.calls).not.toContain("allocateNumber");
+  });
+
+  test("reports a missing variant and adds no gorra for a photo of a polo with the caption «quiero la gorra»", async () => {
+    const h = harness({ message: photoMessage({ caption: "quiero la gorra" }), identification: visual(productPolo),
+      decision: () => answer("add_shown_product_with_details"),
+      extraction: () => [{ tool: "add_shown_product_with_details", args: { variantWords: [], quantity: null, perEach: false, mentionedPrice: null } }] });
+    expect(await succeeded(h.run())).toMatchObject({ kind: "applied", orderId: null, noticeDue: true, outcomes: [{ kind: "variant_missing", productId: productPolo }] });
+    expect(h.store.orders.size).toBe(0);
+    expect(quantityOf(h.store, cap.variantId)).toBeUndefined();
   });
 
   test("reports a variant that is not available when the caption names one the product lacks", async () => {
@@ -740,6 +750,73 @@ describe("applyChatMessage: text tools", () => {
       extraction: () => [{ tool: "set_item_mentioned_price", args: { mentionedPrice: { amount: "50", units: 3, currency: "order_currency" } } }] });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "mentioned_price_set", variantId: cap.variantId }] });
     expect([...h.store.orders.values()][0]!.items[0]).toMatchObject({ mentionedPrice: { amount: money(50), units: 3 } });
+  });
+
+  /** Applies one text per message id to the same harness, in order, answering each with the decision and extraction given for its text. */
+  async function conversation(h: ReturnType<typeof harness>, texts: Record<string, { decision: DecisionAnswers; extraction?: readonly ToolCall[] }>) {
+    const results = [];
+    for (const text of Object.keys(texts)) {
+      const key = id(next++) as ChatMessageId;
+      current = text;
+      results.push(await succeeded(applyChatMessage({ companyId, messageId: key }, h.deps, h.controller.signal)));
+    }
+    return results;
+  }
+  let current = "";
+  let next = 700;
+
+  test("runs the photo with «a 20 soles», «la gorra en 25 está bien» and «quita la gorra» in sequence: the note appears, disappears and goes with the item", async () => {
+    const texts: Record<string, { decision: DecisionAnswers; extraction?: readonly ToolCall[] }> = {
+      "a 20 soles": { decision: answer("add_shown_product_with_details"),
+        extraction: [{ tool: "add_shown_product_with_details", args: { variantWords: [], quantity: null, perEach: false, mentionedPrice: { amount: "20", units: 1, currency: "order_currency" } } }] },
+      "la gorra en 25 está bien": { decision: decided("set_item_mentioned_price", itemChoice("set_item_mentioned_price", "I2")),
+        extraction: [{ tool: "set_item_mentioned_price", args: { mentionedPrice: { amount: "25", units: 1, currency: "order_currency" } } }] },
+      "quita la gorra": { decision: decided("remove_item", removal("I2")) },
+    };
+    const target = openWith(line(1, poloM));
+    if (target.kind === "open") target.productIds.set(cap.variantId, productCap);
+    const h = harness({ target, identification: visual(productCap), decision: () => texts[current]!.decision, extraction: () => texts[current]!.extraction ?? [],
+      overrides: {
+        findSourceMessage: async (key) => ok(current === "a 20 soles" ? photoMessage({ id: key, caption: current }) : textMessage(current, { id: key })),
+        // The order changes between messages, so the interpreter is shown its current items.
+        findChatOrderContext: async () => ok({ items: items().map((item, index) => ({ label: `I${index + 1}`, variantId: item.variantId, productId: target.kind === "open" ? target.productIds.get(item.variantId) ?? null : null,
+          productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice })) }),
+      } });
+    function items() { return [...h.store.orders.values()][0]?.items ?? []; }
+    const noteOf = (variantId: VariantId) => { const item = items().find((candidate) => candidate.variantId === variantId); return item && mentionedPriceNote(item); };
+    await conversation(h, { "a 20 soles": texts["a 20 soles"]! });
+    expect(noteOf(cap.variantId)).toEqual({ amount: money(20).amount, units: 1 });
+    expect([...h.store.orders.values()][0]!.total).toEqual(money(60));
+    await conversation(h, { "la gorra en 25 está bien": texts["la gorra en 25 está bien"]! });
+    expect(noteOf(cap.variantId)).toBeNull();
+    expect(quantityOf(h.store, cap.variantId)).toBe(1);
+    await conversation(h, { "quita la gorra": texts["quita la gorra"]! });
+    expect(items().map(({ variantId }) => variantId)).toEqual([poloM.variantId]);
+    expect(noteOf(cap.variantId)).toBeUndefined();
+    expect([...h.store.orders.values()][0]!.total).toEqual(money(35));
+  });
+
+  test("keeps the order active, unpaid and without checkout after adding, marking ready and removing its last item", async () => {
+    const texts: Record<string, { decision: DecisionAnswers; extraction?: readonly ToolCall[] }> = {
+      "agrégame un polo M": { decision: decided("add_products"), extraction: [addCall(add("polo", ["M"]))] },
+      "listo, eso es todo": { decision: decided("mark_order_ready") },
+      "quita todo": { decision: decided("remove_item", removal("I1")) },
+    };
+    const h = harness({ message: textMessage("x"), target: openWith(line(1, cap)), identify: { polo: found(productPolo) }, decision: () => texts[current]!.decision,
+      extraction: () => texts[current]!.extraction ?? [], overrides: { findSourceMessage: async (key) => ok(textMessage(current, { id: key })) } });
+    const activeOrder = () => {
+      const [order] = [...h.store.orders.values()];
+      return { cancelled: order!.cancelled, payments: order!.payments, checkoutEnabledAt: order!.checkoutEnabledAt, checkoutConfirmedAt: order!.checkoutConfirmedAt,
+        completedAt: order!.completedAt, delivery: order!.delivery, stockDeducted: order!.stockDeducted };
+    };
+    const untouched = { cancelled: false, payments: [], checkoutEnabledAt: null, checkoutConfirmedAt: null, completedAt: null, delivery: null, stockDeducted: false };
+    for (const text of Object.keys(texts)) {
+      await conversation(h, { [text]: texts[text]! });
+      expect(activeOrder()).toEqual(untouched);
+    }
+    expect(h.store.orders.size).toBe(1);
+    // The use case is given no way to take a payment, open checkout, cancel the order or create a payment link.
+    expect(Object.keys(h.deps).filter((name) => /payment|checkout|cancel|link|complete|fulfil/i.test(name))).toEqual([]);
   });
 
   test("records no intent for a mentioned price in another currency", async () => {

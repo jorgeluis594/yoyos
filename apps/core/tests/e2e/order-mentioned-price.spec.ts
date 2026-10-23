@@ -21,6 +21,8 @@ test("the seller sees the buyer's mentioned price under the unit price of an ord
     };
     await page.goto(`/es-PE/orders/${await orderWithMention(50, 3)}`);
     await browserExpect(page.getByText("El cliente mencionó S/ 50.00 por 3", { exact: true })).toBeVisible();
+    await page.goto(`/es-PE/orders/${await orderWithMention(20, 1)}`);
+    await browserExpect(page.getByText("El cliente mencionó S/ 20.00 por unidad", { exact: true })).toBeVisible();
     await page.goto(`/es-PE/orders/${await orderWithMention(75, 3)}`);
     await browserExpect(page.getByText("Gorra", { exact: true })).toBeVisible();
     await browserExpect(page.getByText(/El cliente mencionó/)).toHaveCount(0);
