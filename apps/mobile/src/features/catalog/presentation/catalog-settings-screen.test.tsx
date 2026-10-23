@@ -16,10 +16,11 @@ jest.mock("@mobile/features/catalog/composition", () => ({ catalogSettings: { ge
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 const get = jest.mocked(catalogSettings.get);
 const url = "https://yoyos.test/catalogo/00000000-0000-4000-8000-000000000001";
+const link = { subdomain: "fantasio", domain: "yoyos.lat", suggestion: null };
 beforeEach(() => { get.mockReset(); mockPush.mockReset(); mockRefocus = undefined; });
 
 test("Catálogo re-reads the publication on focus and never offers Compartir for a hidden catalog", async () => {
-  get.mockResolvedValueOnce(ok({ published: true, url }));
+  get.mockResolvedValueOnce(ok({ published: true, url, ...link }));
   const screen = render(<CatalogSettingsScreen />);
   await screen.findByText("Compartir", {}, { timeout: 5000 });
   expect(screen.getByText("Para ocultar tu catálogo, ve a Apariencia de la tienda.")).toBeTruthy();
@@ -29,7 +30,7 @@ test("Catálogo re-reads the publication on focus and never offers Compartir for
   get.mockReturnValueOnce(new Promise(resolve => { finish = resolve; }));
   act(() => mockRefocus?.());
   expect(screen.getByText("Compartir")).toBeTruthy();
-  await act(async () => finish(ok({ published: false, url })));
+  await act(async () => finish(ok({ published: false, url, ...link })));
   expect(screen.queryByText("Compartir")).toBeNull();
   expect(screen.queryByText(url)).toBeNull();
   expect(screen.queryByText("Copiar link")).toBeNull();
@@ -37,7 +38,7 @@ test("Catálogo re-reads the publication on focus and never offers Compartir for
 });
 
 test("keeps the last known state when the re-read on focus fails", async () => {
-  get.mockResolvedValueOnce(ok({ published: true, url })).mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" }));
+  get.mockResolvedValueOnce(ok({ published: true, url, ...link })).mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" }));
   const screen = render(<CatalogSettingsScreen />);
   await screen.findByText("Compartir", {}, { timeout: 5000 });
   await act(async () => mockRefocus?.());
@@ -45,18 +46,18 @@ test("keeps the last known state when the re-read on focus fails", async () => {
 });
 
 test("Catálogo opens Apariencia de la tienda from the published and the hidden state", async () => {
-  get.mockResolvedValueOnce(ok({ published: true, url }));
+  get.mockResolvedValueOnce(ok({ published: true, url, ...link }));
   const screen = render(<CatalogSettingsScreen />);
   fireEvent.press(await screen.findByText("Ir a Apariencia de la tienda", {}, { timeout: 5000 }));
   expect(mockPush).toHaveBeenLastCalledWith("/settings/appearance");
-  get.mockResolvedValueOnce(ok({ published: false, url }));
+  get.mockResolvedValueOnce(ok({ published: false, url, ...link }));
   await act(async () => mockRefocus?.());
   fireEvent.press(screen.getByText("Ir a Apariencia de la tienda"));
   expect(mockPush).toHaveBeenCalledTimes(2);
 });
 
 test("shows the load error with Reintentar when the first read fails", async () => {
-  get.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: false, url }));
+  get.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" })).mockResolvedValueOnce(ok({ published: false, url, ...link }));
   const screen = render(<CatalogSettingsScreen />);
   await screen.findByText("No pudimos cargar la configuración del catálogo", {}, { timeout: 5000 });
   fireEvent.press(screen.getByText("Reintentar"));
@@ -64,7 +65,7 @@ test("shows the load error with Reintentar when the first read fails", async () 
 });
 
 test("share and view failures do not leave unhandled rejections", async () => {
-  get.mockResolvedValue(ok({ published: true, url }));
+  get.mockResolvedValue(ok({ published: true, url, ...link }));
   const share = jest.spyOn(Share, "share").mockRejectedValue(new Error("cancelled"));
   const open = jest.spyOn(Linking, "openURL").mockRejectedValue(new Error("no browser"));
   const screen = render(<CatalogSettingsScreen />);

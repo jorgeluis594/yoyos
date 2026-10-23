@@ -12,7 +12,7 @@ const scope = (page: Page) => page.locator("[data-store-theme]");
 /** A published catalog with one product that has a single variant, so the buyer can add it with one click. */
 async function publishCatalog(companyId: string) {
   const created = await withTenantIsolation(companyId, async () => {
-    await prisma.company.update({ where: { id: companyId }, data: { catalogPublished: true } });
+    await prisma.company.update({ where: { id: companyId }, data: { catalogPublished: true, catalogSubdomain: `s${companyId.replaceAll("-", "").slice(0, 20)}` } });
     return products.create({ name: "Polo básico", currency: "PEN", variants: [{ attributes: { Color: "Negro" }, salePrice: 45, initialStock: 5 }] });
   });
   if (!created.success) throw new Error("Product fixture failed");

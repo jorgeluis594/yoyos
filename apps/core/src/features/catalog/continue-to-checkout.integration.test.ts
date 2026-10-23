@@ -27,7 +27,7 @@ async function store(published = true) {
   const productId = randomUUID();
   const [black, beige] = [randomUUID(), randomUUID()] as VariantId[];
   await withTenantIsolation(companyId, async () => {
-    await prisma.company.create({ data: { id: companyId, name: "Moda Lucía", country: "PE", catalogPublished: published } });
+    await prisma.company.create({ data: { id: companyId, name: "Moda Lucía", country: "PE", catalogPublished: published, catalogSubdomain: published ? `s${companyId.replaceAll("-", "").slice(0, 20)}` : null } });
     await prisma.product.create({ data: { id: productId, name: "Polo básico", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
     for (const [variantId, color, stock] of [[black, "Negro", 3n], [beige, "Beige", 1n]] as const) {
       await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Talla: "M", Color: color }, sku: `SKU-${variantId}`, salePrice: 45, purchasePrice: 20, qrCode: variantId, status: "active" } });

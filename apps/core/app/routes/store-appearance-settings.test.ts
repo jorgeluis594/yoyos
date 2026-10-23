@@ -127,6 +127,13 @@ describe("editor action", () => {
     expect(result.data).toEqual({ intent: "set-publication", error: true });
   });
 
+  test("answers the failed-save outcome of the set-publication intent when publishing without a saved link", async () => {
+    vi.spyOn(catalogSettings, "setPublication").mockResolvedValue({ success: false, error: { code: "SUBDOMAIN_REQUIRED", message: "x" } } as never);
+    const result = await send({ intent: "set-publication", published: true });
+    expect(result.init?.status).toBe(409);
+    expect(result.data).toEqual({ intent: "set-publication", error: true });
+  });
+
   test("tags the request with its operation and outcome", async () => {
     const bind = vi.spyOn(logger, "bindRequestOperation");
     vi.spyOn(storeAppearance, "save").mockResolvedValueOnce({ success: true, data: { appearance, logoUrl: null } })
