@@ -89,3 +89,37 @@ test("sends the pending unregister alone, without a session", async () => {
   expect(api.state.registered).toEqual([]);
   expect(store.state.pending).toBeNull();
 });
+
+const company = "6f1d5c1e-5b0b-4c53-9a53-0d6a0b3b2a11";
+const messageId = "7c9e6679-7425-40de-944b-e07fc1f90ae7";
+const data = (companyId = company) => ({ v: 1, companyId, messageId, target: "message" });
+
+test("reports each tapped notice once, including the tap that launched the app", async () => {
+  const { controller, gateway } = setup();
+  gateway.state.last = { id: "n1", data: data() };
+  const opened: unknown[] = [];
+  const stop = controller.watchResponses((destination) => opened.push(destination));
+  await Promise.resolve();
+  gateway.emitResponse({ id: "n1", data: data() });
+  gateway.emitResponse({ id: "n2", data: data() });
+  gateway.emitResponse({ id: "n3", data: { hello: "world" } });
+  expect(opened).toEqual([data(), data()]);
+  stop();
+  gateway.emitResponse({ id: "n4", data: data() });
+  expect(opened).toHaveLength(2);
+});
+
+test("reports an arriving notice only for the signed-in company", () => {
+  const { controller, gateway } = setup();
+  const arrived: unknown[] = [];
+  const stop = controller.watchArrivals((destination) => arrived.push(destination));
+  gateway.emitReceived(data());
+  controller.setSession({ companyId: company });
+  gateway.emitReceived(data());
+  gateway.emitReceived(data("0b1f2a43-9f3c-4f0e-8d0b-6f1a2b3c4d5e"));
+  gateway.emitReceived({ hello: "world" });
+  expect(arrived).toEqual([data()]);
+  stop();
+  gateway.emitReceived(data());
+  expect(arrived).toHaveLength(1);
+});

@@ -5,13 +5,14 @@ import i18n from "@mobile/i18n";
 
 const mockPush = jest.fn();
 const mockListConversations = jest.fn();
-jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }) }));
+let mockParams: Record<string, string> = {};
+jest.mock("expo-router", () => ({ useRouter: () => ({ push: mockPush }), useLocalSearchParams: () => mockParams }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready", company: { id: "c1" } } }) }));
 const mockContext = { runtime: { store: { listConversations: (...args: unknown[]) => mockListConversations(...args) } }, status: { unsynced: 0, connection: "connected" }, refresh: jest.fn(), messagesVersion: 0 };
 jest.mock("@mobile/features/whatsapp/presentation/whatsapp-provider", () => ({ useWhatsApp: () => mockContext }));
 
-beforeEach(async () => { jest.clearAllMocks(); mockContext.messagesVersion = 0; await i18n.changeLanguage("es"); });
+beforeEach(async () => { jest.clearAllMocks(); mockContext.messagesVersion = 0; mockParams = {}; await i18n.changeLanguage("es"); });
 afterEach(cleanup);
 
 const summary = (chatId: string, overrides = {}) => ({
@@ -62,4 +63,19 @@ test("reloads the list when stored messages change, without a connection change"
   screen.rerender(<ConversationsScreen />);
   expect(await screen.findByText("…7777")).toBeTruthy();
   expect(mockListConversations).toHaveBeenCalledTimes(2);
+});
+
+test("says the chat of a notice is no longer on the phone when opened from a notice whose chat is missing", async () => {
+  mockParams = { noticeChatMissing: "1" };
+  mockListConversations.mockResolvedValue(ok([summary("123456@lid")]));
+  const screen = render(<ConversationsScreen />);
+  expect(await screen.findByText("Este chat ya no está en este teléfono")).toBeTruthy();
+  expect(screen.getByText("…3456")).toBeTruthy();
+});
+
+test("does not mention a missing chat when opened normally", async () => {
+  mockListConversations.mockResolvedValue(ok([summary("123456@lid")]));
+  const screen = render(<ConversationsScreen />);
+  await screen.findByText("…3456");
+  expect(screen.queryByText("Este chat ya no está en este teléfono")).toBeNull();
 });

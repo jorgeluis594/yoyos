@@ -5,6 +5,9 @@ export type NoticePermission = "granted" | "denied" | "undetermined";
 export type NoticeLocale = RegisterPushDeviceRequest["locale"];
 export type NoticeError = Readonly<{ code: "NOTICE_UNAVAILABLE" | "NETWORK_ERROR"; message: string }>;
 
+/** A tap on a system notice; `id` tells the app launch's last response apart from one already handled. */
+export type NoticeResponse = Readonly<{ id: string; data: unknown }>;
+
 export type NoticeGateway = Readonly<{
   /** `denied` also covers a refusal the system dialog cannot be shown again for. */
   permission: () => Promise<NoticePermission>;
@@ -14,6 +17,12 @@ export type NoticeGateway = Readonly<{
   dismissAll: () => Promise<void>;
   /** Calls back when the system rotates the push token; returns the unsubscribe. */
   onTokenChange: (listener: () => void) => () => void;
+  /** Calls back when the seller taps a notice while the app runs; returns the unsubscribe. */
+  onResponse: (listener: (response: NoticeResponse) => void) => () => void;
+  /** The tap that launched the app from a closed state, if any. */
+  lastResponse: () => Promise<NoticeResponse | null>;
+  /** Calls back with the `data` of a notice that reaches the running app; returns the unsubscribe. */
+  onReceived: (listener: (data: unknown) => void) => () => void;
 }>;
 
 export type StoredRegistration = Readonly<{ fingerprint: string; token: string }>;

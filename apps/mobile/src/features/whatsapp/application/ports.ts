@@ -27,6 +27,10 @@ export type MessageStore = Readonly<{
   markRejected(id: NativeMessageId, code: RejectCode, at: Date): Promise<Result<void, StoreError>>;
   listConversations(companyId: CompanyId): Promise<Result<readonly ConversationSummary[], StoreError>>;
   listMessages(companyId: CompanyId, chatId: WhatsAppChatId, page: Page): Promise<Result<readonly StoredMessage[], StoreError>>;
+  /** The synced message core knows by this id, or null when the phone no longer has it. */
+  findByCoreMessageId(companyId: CompanyId, coreMessageId: CoreMessageId): Promise<Result<StoredMessage | null, StoreError>>;
+  /** The chat messages from `fromArrivalSeq` (inclusive) to the newest, newest first, at most `limit`. */
+  listFromArrivalSeq(companyId: CompanyId, chatId: WhatsAppChatId, fromArrivalSeq: number, limit: number): Promise<Result<readonly StoredMessage[], StoreError>>;
   findImage(companyId: CompanyId, id: NativeMessageId): Promise<Result<StoredImage | null, StoreError>>;
 }>;
 

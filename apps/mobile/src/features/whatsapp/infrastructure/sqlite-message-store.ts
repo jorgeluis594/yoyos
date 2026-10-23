@@ -183,6 +183,16 @@ export function createSqliteMessageStore(sql: LocalSql): MessageStore {
       companyId, chatId, page.beforeArrivalSeq, page.beforeArrivalSeq, page.limit,
     )).map(toStored)),
 
+    findByCoreMessageId: (companyId, coreMessageId) => guarded(async () => {
+      const row = await sql.first<MessageRow>(`${selectMessage} WHERE company_id = ? AND core_message_id = ?`, companyId, coreMessageId);
+      return row ? toStored(row) : null;
+    }),
+
+    listFromArrivalSeq: (companyId, chatId, fromArrivalSeq, limit) => guarded(async () => (await sql.all<MessageRow>(
+      `${selectMessage} WHERE company_id = ? AND chat_id = ? AND arrival_seq >= ? ORDER BY arrival_seq DESC LIMIT ?`,
+      companyId, chatId, fromArrivalSeq, limit,
+    )).map(toStored)),
+
     findImage: (companyId, id) => guarded(async () => {
       const row = await sql.first<MessageRow>(`${selectMessage} WHERE id = ? AND company_id = ? AND content_type = 'image'`, id, companyId);
       if (!row) return null;

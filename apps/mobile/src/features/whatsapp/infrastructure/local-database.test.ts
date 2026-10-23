@@ -33,15 +33,20 @@ test("opens an encrypted WhatsApp database before creating the durable links and
   expect(statements[4]).toBe("BEGIN IMMEDIATE");
   expect(statements[5]).toContain("ADD COLUMN core_image_id");
   expect(statements[6]).toBe("COMMIT");
+  expect(statements[7]).toBe("BEGIN IMMEDIATE");
+  expect(statements[8]).toContain("whatsapp_messages_core ON whatsapp_messages (company_id, core_message_id)");
+  expect(statements[9]).toBe("COMMIT");
   expect(database.closeAsync).not.toHaveBeenCalled();
 });
 
 const columns = async (database: ReturnType<typeof openTestDatabase>) =>
   (await database.getAllAsync<{ name: string }>("PRAGMA table_info(whatsapp_messages)", [])).map((row) => row.name);
+const indexes = async (database: ReturnType<typeof openTestDatabase>) =>
+  (await database.getAllAsync<{ name: string }>("SELECT name FROM sqlite_master WHERE type = 'index'", [])).map((row) => row.name);
 const userVersion = async (database: ReturnType<typeof openTestDatabase>) =>
   (await database.getFirstAsync<{ user_version: number }>("PRAGMA user_version", []))?.user_version;
 
-test("migrates v2 to v3 adding core_image_id without dropping tables", async () => {
+test("migrates v2 to v4 adding core_image_id and the core message index without dropping tables", async () => {
   const database = openTestDatabase();
   await migrateWhatsAppDatabase(database);
   await database.execAsync("ALTER TABLE whatsapp_messages DROP COLUMN core_image_id; PRAGMA user_version = 2;");
@@ -49,22 +54,33 @@ test("migrates v2 to v3 adding core_image_id without dropping tables", async () 
   expect(await columns(database)).not.toContain("core_image_id");
   await migrateWhatsAppDatabase(database);
   expect(await columns(database)).toContain("core_image_id");
-  expect(await userVersion(database)).toBe(3);
+  expect(await userVersion(database)).toBe(4);
+  expect(await indexes(database)).toContain("whatsapp_messages_core");
   expect(await database.getFirstAsync("SELECT id FROM whatsapp_links", [])).toMatchObject({ id: "l" });
   database.close();
 });
 
-test("creates v3 from an empty database", async () => {
+test("migrates v3 to v4 adding only the core message index", async () => {
   const database = openTestDatabase();
   await migrateWhatsAppDatabase(database);
-  expect(await columns(database)).toContain("core_image_id");
-  expect(await userVersion(database)).toBe(3);
+  await database.execAsync("DROP INDEX whatsapp_messages_core; PRAGMA user_version = 3;");
+  await migrateWhatsAppDatabase(database);
+  expect(await indexes(database)).toContain("whatsapp_messages_core");
+  expect(await userVersion(database)).toBe(4);
   database.close();
 });
 
-test("rejects versions above 3", async () => {
+test("creates v4 from an empty database", async () => {
   const database = openTestDatabase();
-  await database.execAsync("PRAGMA user_version = 4");
+  await migrateWhatsAppDatabase(database);
+  expect(await columns(database)).toContain("core_image_id");
+  expect(await userVersion(database)).toBe(4);
+  database.close();
+});
+
+test("rejects versions above 4", async () => {
+  const database = openTestDatabase();
+  await database.execAsync("PRAGMA user_version = 5");
   await expect(migrateWhatsAppDatabase(database)).rejects.toThrow("Unsupported WhatsApp database schema");
   database.close();
 });
