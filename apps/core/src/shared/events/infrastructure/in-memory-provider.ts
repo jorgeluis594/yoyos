@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type {
-  EventBusError, EventBusProvider, EventHandlerContext, EventMetadata, EventName,
+  BlockedKeysReader, EventBusError, EventBusProvider, EventHandlerContext, EventMetadata, EventName,
   EventPayload, EventSubscription, JobScheduler, ScheduledJobHandler, ScheduleOptions, Unsubscribe,
 } from "@core/src/shared/events/application/contracts";
 
@@ -12,13 +12,18 @@ type Registered = {
 
 export type ScheduledRegistration = Readonly<{ name: string; cron: string; handler: ScheduledJobHandler } & ScheduleOptions>;
 
-/** Application-test adapter. Delivery is awaited and each handler runs independently; schedules are only recorded. */
-export function createInMemoryEventBus<Events extends object>(): EventBusProvider<Events> & JobScheduler
+/**
+ * Application-test adapter. Delivery is awaited and each handler runs independently; schedules are only recorded.
+ * Ordering, groups, expiry and retention are ignored. A handler with a dead-letter handler is attempted without delay
+ * up to its retries, and a retryable failure of its last attempt (or a permanent one) calls the dead-letter handler.
+ */
+export function createInMemoryEventBus<Events extends object>(): EventBusProvider<Events> & JobScheduler & BlockedKeysReader
   & Readonly<{ scheduled: () => readonly ScheduledRegistration[] }> {
   const subscriptions = new Map<string, Registered>();
   const scheduled = new Map<string, ScheduledRegistration>();
   return {
     scheduled: () => [...scheduled.values()],
+    listBlockedKeys: async () => ok([]),
     async schedule(name, cron, handler, options) {
       if (!name || scheduled.has(name)) return err({ code: "INVALID_SUBSCRIPTION", message: "Scheduled job name must be unique and nonempty" });
       const registration = { name, cron, handler, ...options };
@@ -39,15 +44,22 @@ export function createInMemoryEventBus<Events extends object>(): EventBusProvide
         async deliver(input, metadata) {
           const parsed = subscription.parsePayload(input);
           if (!parsed.success) return parsed;
-          const context: EventHandlerContext = { signal: new AbortController().signal, attempt: 1 };
-          try {
-            const result = await subscription.handler(parsed.data, metadata, context);
-            return result.success ? ok(undefined) : err({
-              code: "EVENT_BUS_UNAVAILABLE", message: result.error.message,
-            });
-          } catch (cause) {
-            return err({ code: "EVENT_BUS_UNAVAILABLE", message: cause instanceof Error ? cause.message : "Handler failed" });
+          const attempts = subscription.policy.deadLetter ? subscription.policy.retries + 1 : 1;
+          let failure: EventBusError & { retryable: boolean } = { code: "EVENT_BUS_UNAVAILABLE", message: "Handler failed", retryable: false };
+          for (let attempt = 1; attempt <= attempts; attempt += 1) {
+            const context: EventHandlerContext = { signal: new AbortController().signal, attempt };
+            try {
+              const result = await subscription.handler(parsed.data, metadata, context);
+              if (result.success) return ok(undefined);
+              failure = { code: "EVENT_BUS_UNAVAILABLE", message: result.error.message, retryable: result.error.retryable };
+            } catch (cause) {
+              failure = { code: "EVENT_BUS_UNAVAILABLE", message: cause instanceof Error ? cause.message : "Handler failed", retryable: true };
+            }
+            if (!failure.retryable) break;
           }
+          await subscription.policy.deadLetter?.handler(parsed.data, metadata, { signal: new AbortController().signal, attempt: 1 })
+            .catch(() => undefined);
+          return err({ code: failure.code, message: failure.message });
         },
       };
       subscriptions.set(subscription.id, registered);
