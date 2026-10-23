@@ -27,6 +27,9 @@ async function tabTo(page: Page, target: Locator, key: "Tab" | "Shift+Tab" = "Ta
 }
 
 const stored = (companyId: string) => withTenantIsolation(companyId, async () => await prisma.companyCheckoutAppearance.findUnique({ where: { companyId } }));
+/** Publishing requires a saved subdomain, and choosing one has no screen in this editor yet. */
+const chooseSubdomain = (companyId: string) => withTenantIsolation(companyId, async () =>
+  await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: `s${companyId.replaceAll("-", "").slice(0, 20)}` } }));
 const uploadLogo = (page: Page) => page.getByTestId("logo-upload").locator("input[type=file]").setInputFiles({ name: "logo.png", mimeType: "image/png", buffer: png });
 const themeOption = (page: Page, name: string) => page.getByRole("radio", { name: new RegExp(`^${name}`) });
 const themeList = (page: Page) => page.getByRole("radiogroup", { name: "Temas de la tienda" });
@@ -280,7 +283,7 @@ describe("store appearance editor addresses", () => {
   });
 
   test("publishes and hides the catalog from the editor without touching the draft", async ({ page }) => {
-    await openEditor(page);
+    await chooseSubdomain(await openEditor(page));
     await themeOption(page, "Boutique").click();
     await page.getByRole("switch", { name: "Publicar catálogo" }).click();
     await browserExpect(page.getByText("Catálogo publicado", { exact: true })).toBeVisible();
@@ -324,6 +327,7 @@ describe("store appearance editor with the live preview", () => {
     const cardRequests: string[] = [];
     page.on("request", (request) => { if (request.url().includes("/es-PE/settings/store-appearance/catalog-cards")) cardRequests.push(request.url()); });
     const companyId = await openEditor(page);
+    await chooseSubdomain(companyId);
     await withTenantIsolation(companyId, async () => {
       for (const name of ["Polo", "Casaca", "Gorra", "Medias", "Mochila"]) {
         const created = await products.create({ name, currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
