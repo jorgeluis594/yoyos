@@ -129,10 +129,9 @@ The base domain comes from `CATALOG_BASE_URL` (see [Environments](#environments)
 
 ### Environments
 
-Each environment has its own base domain in `CATALOG_BASE_URL` (scheme, host and optional port, no path): production `https://yoyos.lat`; staging `https://yoyos.kogozstaging.lat`; Docker dev `http://localhost:${WEB_PORT}`; E2E `http://localhost:4173`. Every visible text (the field suffix, «Tu link», the status line, the change confirmation, Settings → Catálogo and the copied link) uses the current environment's domain, so a link copied on staging never points to production.
+Each environment has its own base domain in `CATALOG_BASE_URL` (scheme, host and optional port, no path): production `https://yoyos.lat`; Docker dev `http://localhost:${WEB_PORT}`; E2E `http://localhost:4173`. Every visible text (the field suffix, «Tu link», the status line, the change confirmation, Settings → Catálogo and the copied link) uses the current environment's domain, so a link copied in development never points to production.
 
 - It is required in production with no default; core refuses to start without a valid `https` value, and the deploy's `migrate` step fails before any schema change without one. Reason: a default would let a deploy that forgot the variable publish wrong links. Other environments fall back to `http://localhost:3000`, like `BETTER_AUTH_URL`.
-- Brand hosts do not work on staging: `{subdomain}.yoyos.kogozstaging.lat` is two levels deep, so Cloudflare's Universal SSL does not cover it. Reason: E2E already covers the brand host on `*.localhost`, and the base equals the staging app host, so copied links stay inside staging (rejected: Advanced Certificate Manager, a monthly cost and a second manual procedure).
 - In development and tests, brand hosts are `http://{subdomain}.localhost:{port}/`: `*.localhost` resolves to loopback in browsers and curl with no DNS, and E2E maps it explicitly in Chromium. A phone on the LAN cannot open `*.localhost`; set `CATALOG_BASE_URL=http://<ip>.nip.io:3000` for that.
 
 ## Buyer
