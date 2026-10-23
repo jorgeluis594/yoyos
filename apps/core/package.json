@@ -15,6 +15,7 @@
     "test:unit": "sh scripts/run-tests.sh unit",
     "test:integration": "sh scripts/run-tests.sh integration",
     "test:e2e": "sh scripts/run-tests.sh e2e",
+    "eval": "vitest run --config vitest.evals.config.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate"
@@ -56,7 +57,8 @@
     "typescript": "~6.0.3",
     "typescript-eslint": "^8.70.0",
     "vite": "^8.3.0",
-    "vitest": "^4.1.11"
+    "vitest": "^4.1.11",
+    "vitest-evals": "0.17.0"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.1138.0",
