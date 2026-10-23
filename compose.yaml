@@ -90,6 +90,7 @@ services:
       - ./apps/core/.env
     environment:
       DATABASE_URL: postgresql://core_app:core_app_local@db:5432/core
+      DATABASE_POOL_MAX: ${DATABASE_POOL_MAX:-24}
       NODE_ENV: ${NODE_ENV:-development}
     volumes:
       - ./apps/core:/workspace/apps/core
