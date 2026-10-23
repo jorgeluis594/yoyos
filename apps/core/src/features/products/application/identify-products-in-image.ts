@@ -5,14 +5,16 @@ import type { ImageId, ProductId } from "@core/src/features/products/domain/prod
 import type { ReadQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
 import type { EmbedImage } from "@core/src/features/products/application/index-product-image";
 import {
-  acceptVisualMatch, selectProductCode, selectVisualVariant,
+  acceptVisualMatch, selectProductCode, showsProduct, selectVisualVariant,
   type CatalogItem, type EmbeddingModel, type EmbeddingVector, type ImageBytes, type MatchConfidence, type VariantQrCode, type VisualCandidate, type VisualChoice,
 } from "@core/src/features/products/domain/image-identification";
 
 export type ImageIdentification =
   | Readonly<{ kind: "found"; method: "qr"; items: readonly CatalogItem[]; unknownCodes: readonly VariantQrCode[] }>
   | Readonly<{ kind: "found"; method: "visual"; items: readonly [CatalogItem]; confidence: MatchConfidence; candidates: number } & VisualDistances>
-  | Readonly<{ kind: "not_found"; reason: IdentificationMissReason } & Partial<VisualDistances>>;
+  | Readonly<{ kind: "not_found"; reason: IdentificationMissReason } & Partial<VisualDistances>>
+  // Non-product QR codes only, or a photo that does not show a product: no purchase intent.
+  | Readonly<{ kind: "not_product" } & Partial<VisualDistances>>;
 
 // Cosine distances only for logs: measure hits vs non-product images before choosing a threshold.
 export type VisualDistances = Readonly<{ topDistance: number; chosenDistance?: number }>;
@@ -20,7 +22,6 @@ export type VisualDistances = Readonly<{ topDistance: number; chosenDistance?: n
 export type IdentificationMissReason =
   | "unreadable_image"          // QR step could not decode the image; visual is not attempted
   | "unknown_qr_codes"          // product QR present but no sellable variant (other company, deleted)
-  | "unrecognized_qr_code"      // only non-product QR codes (Yape/Plin, URLs); visual is not attempted
   | "visual_search_disabled"
   | "no_indexed_products"
   | "no_visual_match"           // model answered none
@@ -66,7 +67,7 @@ export async function identifyProductsInImage(image: ImageBytes, deps: IdentifyP
   // Una imagen ilegible se omite: reintentar no cambia el resultado.
   if (!decoded.success) return decoded.error.code === "QR_READER_UNAVAILABLE" ? err({ code: decoded.error.code, message: decoded.error.message }) : notFound("unreadable_image");
   const selection = selectProductCode(decoded.data);
-  if (selection.kind === "skip" && selection.reason === "unrecognized_qr_code") return notFound("unrecognized_qr_code");
+  if (selection.kind === "skip" && selection.reason === "unrecognized_qr_code") return ok({ kind: "not_product" }); // Yape/Plin, URLs; visual is not attempted
   if (selection.kind === "skip") return deps.visual ? searchVisually(image, deps.visual) : notFound("visual_search_disabled");
   const variants = await deps.findVariantsByCodes(selection.codes);
   if (!variants.success) return variants;
@@ -97,7 +98,8 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<
   const chosen = available.find(({ candidate }) => candidate.productId === chosenId);
   const distances: VisualDistances = { topDistance: Math.min(...available.map(({ candidate }) => candidate.distance)),
     ...(chosen && { chosenDistance: chosen.candidate.distance }) };
-  if (match.kind === "rejected") return notFound(match.reason, distances);
+  // A photo that is not a product is no purchase intent, whatever the match said.
+  if (match.kind === "rejected") return showsProduct(choice.data) ? notFound(match.reason, distances) : ok({ kind: "not_product", ...distances });
   const variants = await visual.findSellableVariantsOfProduct(match.productId);
   if (!variants.success) return variants;
   const selected = selectVisualVariant(variants.data);

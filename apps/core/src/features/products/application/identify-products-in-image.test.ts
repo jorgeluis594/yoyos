@@ -21,7 +21,7 @@ function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNR
     embedImage: async () => called("embedImage", ok([0.1, 0.2] as unknown as EmbeddingVector)),
     findNearestProductImages: async () => called("findNearestProductImages", ok([candidate(productP, 1), candidate(productQ, 2)])),
     readImage: async () => called("readImage", ok(image)),
-    chooseProduct: async (input) => { asked.products = input.candidates.map(({ productId }) => productId); return called("chooseProduct", ok({ kind: "product", productId: productP, confidence: 0.9 as MatchConfidence })); },
+    chooseProduct: async (input) => { asked.products = input.candidates.map(({ productId }) => productId); return called("chooseProduct", ok({ kind: "product", productId: productP, confidence: 0.9 as MatchConfidence, showsProduct: 0.95 })); },
     findSellableVariantsOfProduct: async () => called("findSellableVariantsOfProduct", ok([item(1)])),
     ...options.visual,
   };
@@ -60,9 +60,9 @@ describe("identifyProductsInImage", () => {
     expect(h.calls).toEqual(["readQrCodes", "hasIndexedProducts", "embedImage", "findNearestProductImages", "readImage", "readImage", "chooseProduct", "findSellableVariantsOfProduct"]);
   });
 
-  test("stops with unrecognized_qr_code without calling visual search when the image only has non-product QR codes", async () => {
+  test("returns not product without calling visual search when the image only has non-product QR codes", async () => {
     const h = harness({ decoded: ["https://pay.example/yape"] });
-    expect(await h.run()).toEqual(ok({ kind: "not_found", reason: "unrecognized_qr_code" }));
+    expect(await h.run()).toEqual(ok({ kind: "not_product" }));
     expect(h.calls).toEqual(["readQrCodes"]);
   });
 
@@ -101,12 +101,25 @@ describe("identifyProductsInImage", () => {
   });
 
   test("returns low_confidence, no_visual_match or ambiguous_variant from the domain rules, with the candidate distances", async () => {
-    const low = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.6 as MatchConfidence }) } });
+    const low = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.6 as MatchConfidence, showsProduct: 0.9 }) } });
     expect(await low.run()).toEqual(ok({ kind: "not_found", reason: "low_confidence", topDistance: 0.1, chosenDistance: 0.2 }));
-    const none = harness({ visual: { chooseProduct: async () => ok({ kind: "none" }) } });
+    const none = harness({ visual: { chooseProduct: async () => ok({ kind: "none", showsProduct: 0.9 }) } });
     expect(await none.run()).toStrictEqual(ok({ kind: "not_found", reason: "no_visual_match", topDistance: 0.1 }));
     const ambiguous = harness({ visual: { findSellableVariantsOfProduct: async () => ok([item(1), item(2)]) } });
     expect(await ambiguous.run()).toEqual(ok({ kind: "not_found", reason: "ambiguous_variant", topDistance: 0.1, chosenDistance: 0.1 }));
+  });
+
+  test("returns not product when the chooser answers none and the photo does not show a product", async () => {
+    const h = harness({ visual: { chooseProduct: async () => ok({ kind: "none", showsProduct: 0.1 }) } });
+    expect(await h.run()).toStrictEqual(ok({ kind: "not_product", topDistance: 0.1 }));
+    expect(h.calls).not.toContain("findSellableVariantsOfProduct");
+  });
+
+  test("returns not found when the photo shows a product below the confidence threshold", async () => {
+    const low = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.6 as MatchConfidence, showsProduct: 0.5 }) } });
+    expect(await low.run()).toEqual(ok({ kind: "not_found", reason: "low_confidence", topDistance: 0.1, chosenDistance: 0.2 }));
+    const unsure = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.6 as MatchConfidence, showsProduct: 0.4 }) } });
+    expect(await unsure.run()).toEqual(ok({ kind: "not_product", topDistance: 0.1, chosenDistance: 0.2 }));
   });
 
   test("propagates embedder, matcher, storage and persistence failures", async () => {

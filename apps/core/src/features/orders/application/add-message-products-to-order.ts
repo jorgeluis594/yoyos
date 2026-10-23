@@ -122,6 +122,7 @@ async function scanMessage(imageId: ImageId, deps: AddMessageProductsDependencie
   const identified = await deps.identifyProducts(image.data);
   if (!identified.success) return identified;
   const found = identified.data;
+  if (found.kind === "not_product") return ok({ reason: "unrecognized_qr_code", distances: { topDistance: found.topDistance, chosenDistance: found.chosenDistance } });
   if (found.kind === "not_found") return ok({ reason: skipReason(found.reason), distances: { topDistance: found.topDistance, chosenDistance: found.chosenDistance } });
   return ok({ variants: found.items, match: found.method === "qr" ? { method: "qr", unknownCodes: found.unknownCodes }
     : { method: "visual", confidence: found.confidence, candidates: found.candidates, topDistance: found.topDistance, chosenDistance: found.chosenDistance } });
