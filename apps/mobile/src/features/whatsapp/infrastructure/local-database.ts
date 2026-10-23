@@ -93,6 +93,11 @@ const dropSchemaV1 = `
 
 const upgradeToV3 = "ALTER TABLE whatsapp_messages ADD COLUMN core_image_id TEXT; PRAGMA user_version = 3;";
 
+const upgradeToV4 = `
+  CREATE INDEX IF NOT EXISTS whatsapp_messages_core ON whatsapp_messages (company_id, core_message_id);
+  PRAGMA user_version = 4;
+`;
+
 /** Runs one upgrade atomically: a failure rolls back and leaves `user_version` untouched. */
 async function upgrade(database: Pick<SqlDatabase, "execAsync">, statements: string): Promise<void> {
   await database.execAsync("BEGIN IMMEDIATE");
@@ -105,11 +110,12 @@ async function upgrade(database: Pick<SqlDatabase, "execAsync">, statements: str
   }
 }
 
-/** Brings the schema to v3 one version at a time, each step in its own transaction. */
+/** Brings the schema to v4 one version at a time, each step in its own transaction. */
 export async function migrateWhatsAppDatabase(database: Pick<SqlDatabase, "execAsync" | "getFirstAsync">): Promise<void> {
   const version = await database.getFirstAsync<{ user_version: number }>("PRAGMA user_version", []);
-  if (!version || ![0, 1, 2, 3].includes(version.user_version)) throw new Error("Unsupported WhatsApp database schema");
+  if (!version || ![0, 1, 2, 3, 4].includes(version.user_version)) throw new Error("Unsupported WhatsApp database schema");
   // v1 was designed for another stack and never written, so its tables are dropped rather than migrated.
   if (version.user_version < 2) await upgrade(database, `${dropSchemaV1}${schemaV2}PRAGMA user_version = 2;`);
   if (version.user_version < 3) await upgrade(database, upgradeToV3);
+  if (version.user_version < 4) await upgrade(database, upgradeToV4);
 }
