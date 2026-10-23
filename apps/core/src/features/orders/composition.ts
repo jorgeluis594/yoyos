@@ -31,8 +31,8 @@ import { getOrderAggregate } from "@core/src/features/orders/application/read-or
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
-import { allocateOrderNumber, findOpenChatOrderCandidate, findChatOrderTargetForUpdate, saveItemChanges, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariant, findSellableVariants, findProductIdsOfVariants, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
+import { allocateOrderNumber, findOrderNumbers, findOpenChatOrderCandidate, findChatOrderTargetForUpdate, saveItemChanges, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
+import { findSellableVariant, findSellableVariants, findProductIdsOfVariants, findProductNoticeNames, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
@@ -42,10 +42,15 @@ import { createChatMessageDeadLetterHandler, createChatMessageHandler, type Chat
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
 import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
+import { claimNotice, releaseNotice, type ClaimedNotice } from "@core/src/features/orders/infrastructure/chat-message-notice-repository";
+import { describeChatMessageNotice as describeNotice } from "@core/src/features/orders/application/describe-chat-message-notice";
+import { findSellerNoticeTarget } from "@core/src/features/orders/application/find-seller-notice-target";
+import type { NoticeLocale } from "@core/src/features/orders/presentation/seller-notice-texts";
 import { createAiToolsFromEnv } from "@core/src/shared/ai-tools/composition";
 import { isOpenForMessageItems } from "@core/src/features/orders/domain/message-order";
 import { products } from "@core/src/features/products/composition";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
+import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import { findAvailablePublicImage, readImageBytes, resolvePublicImage } from "@core/src/shared/images";
 import { companyPaymentSettings } from "@core/src/features/companies";
@@ -267,6 +272,12 @@ async function createConfiguredCatalogOrder(input: CreateCatalogOrderInput, acce
 }
 
 export const orders = {
+  // Notice capabilities for notifications. They run inside the company's tenant context.
+  claimChatMessageNotice: (messageId: ChatMessageId) => claimNotice(messageId),
+  describeChatMessageNotice: (claim: ClaimedNotice, locale: NoticeLocale) => describeNotice(claim, locale, {
+    companyId: getCompanyId, findOrderNumbers, findProductNames: findProductNoticeNames }),
+  releaseChatMessageNotice: (messageId: ChatMessageId) => releaseNotice(messageId),
+  findSellerNoticeTarget: (messageId: ChatMessageId) => findSellerNoticeTarget(messageId, { findOutcome, orderExists }),
   confirmCheckoutDelivery: async (input: ConfirmCheckoutDeliveryInput, access: CheckoutAccess) => {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "confirm_checkout" });
