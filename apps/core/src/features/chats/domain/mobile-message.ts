@@ -22,9 +22,10 @@ export type MobileMessageInput = Readonly<{
   content: MobileMessageContent;
 }>;
 
-export type RegistrationContext = Readonly<{ companyId: CompanyId; uploadedByUserId: string }>;
+export type RegistrationContext = Readonly<{ companyId: CompanyId; uploadedByUserId: string; registeredBySessionId: string }>;
 export type NewMobileMessage = MobileMessageInput & RegistrationContext & Readonly<{ id: ChatMessageId; receivedAt: Date }>;
-export type MobileMessage = NewMobileMessage & Readonly<{ chatId: string; eventDispatchedAt: Date | null }>;
+/** Rows stored before the session was recorded have none. */
+export type MobileMessage = Omit<NewMobileMessage, "registeredBySessionId"> & Readonly<{ registeredBySessionId: string | null; chatId: string; eventDispatchedAt: Date | null }>;
 export type StoreOutcome = Readonly<{ created: boolean; message: MobileMessage }>;
 export type RegisterOutcome = Readonly<{ status: "stored" | "duplicate"; messageId: ChatMessageId; eventId: ChatMessageId; receivedAt: Date }>;
 export type RegisterMobileMessageError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "EVENT_BUS_UNAVAILABLE" | "INVALID_STORED_DATA" | "INVALID_EVENT" | "IMAGE_NOT_FOUND"; message: string }>;

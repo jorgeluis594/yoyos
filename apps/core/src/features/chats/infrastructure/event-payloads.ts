@@ -5,11 +5,11 @@ import type { EventBusError } from "@core/src/shared/events/application/contract
 import type { MessageCreated } from "@core/src/features/chats/application/events";
 import type { ChatMessageId, CompanyId } from "@core/src/features/chats/domain/mobile-message";
 
-const messageCreatedSchema = z.strictObject({ companyId: z.uuid(), messageId: z.uuid() });
+const messageCreatedSchema = z.strictObject({ companyId: z.uuid(), chatId: z.uuid(), messageId: z.uuid() });
 
 export function parseMessageCreated(input: unknown): Result<MessageCreated, EventBusError> {
   const parsed = messageCreatedSchema.safeParse(input);
   return parsed.success
-    ? ok({ companyId: parsed.data.companyId as CompanyId, messageId: parsed.data.messageId as ChatMessageId })
+    ? ok({ companyId: parsed.data.companyId as CompanyId, chatId: parsed.data.chatId, messageId: parsed.data.messageId as ChatMessageId })
     : err({ code: "INVALID_EVENT", message: "Invalid message created payload" });
 }

@@ -9,7 +9,7 @@ import { getCompanyId, prisma, withTenantIsolation } from "@core/src/shared/infr
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { log } from "@core/src/shared/infrastructure/logger";
 
-const payloadSchema = z.strictObject({ companyId: z.uuid(), messageId: z.uuid() });
+const payloadSchema = z.strictObject({ companyId: z.uuid(), chatId: z.uuid(), messageId: z.uuid() });
 const metadataSchema = z.strictObject({ eventId: z.uuid(), occurredAt: z.iso.datetime({ offset: false }) });
 
 export async function dispatchMessageRecorded(payload: MessageCreated, metadata: EventMetadata): Promise<Result<void, RegisterMobileMessageError>> {

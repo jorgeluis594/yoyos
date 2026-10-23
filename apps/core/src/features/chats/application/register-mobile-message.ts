@@ -27,7 +27,7 @@ export async function registerMobileMessage(input: MobileMessageInput, context: 
   if (!message.eventDispatchedAt) {
     // ponytail: Without another POST a pending event cannot recover; autonomous recovery needs a durable relay.
     const dispatched = await dependencies.dispatchMessageRecorded(
-      { companyId: message.companyId, messageId: message.id },
+      { companyId: message.companyId, chatId: message.chatId, messageId: message.id },
       { eventId: message.id, occurredAt: message.receivedAt.toISOString() },
     );
     if (!dispatched.success) return dispatched;
