@@ -3,8 +3,6 @@ allowBuilds:
   '@shopify/react-native-skia': true
   esbuild: true
   unrs-resolver: true
-minimumReleaseAgeExclude:
-  - expo-notifications@57.0.24
 overrides:
   decode-uri-component: ^0.5.0
   postcss-selector-parser: ^7.1.6

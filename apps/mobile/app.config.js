@@ -11,7 +11,7 @@ module.exports = {
     minSdkVersion: 24,
     ...(process.env.GOOGLE_SERVICES_JSON ? { googleServicesFile: process.env.GOOGLE_SERVICES_JSON } : {}),
   },
-  extra: { ...expo.extra, eas: { ...expo.extra?.eas, projectId: process.env.EAS_PROJECT_ID } },
+  extra: { ...expo.extra, eas: { ...expo.extra?.eas, ...(process.env.EAS_PROJECT_ID ? { projectId: process.env.EAS_PROJECT_ID } : {}) } },
   ios: {
     ...expo.ios,
     deploymentTarget: '16.4',
