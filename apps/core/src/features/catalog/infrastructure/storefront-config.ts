@@ -3,8 +3,8 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { CatalogSubdomain } from "@shared/catalog-subdomain";
 import type { Result } from "@shared/result";
+import type { HostConfig } from "@core/src/features/catalog/domain/store-host";
 
-export type HostConfig = Readonly<{ baseHostname: string; appHostname: string }>;
 export type StorefrontConfig = Readonly<{ baseUrl: URL; host: HostConfig }>;
 export type StorefrontConfigError = Readonly<{ code: "INVALID_CONFIG"; message: string }>;
 type StorefrontEnv = Readonly<{ CATALOG_BASE_URL?: string; BETTER_AUTH_URL?: string; NODE_ENV?: string }>;

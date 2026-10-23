@@ -3,7 +3,7 @@ import { MemoryRouter } from "react-router";
 import { describe, expect, test } from "vitest";
 import type { CatalogCard } from "@core/src/features/products/domain/catalog-product";
 import type { ProductId } from "@core/src/features/products/domain/product";
-import { CatalogProductCard, CatalogShell } from "@core/app/components/catalog-sections";
+import { CatalogProductCard, CatalogShell, StoreNotFound } from "@core/app/components/catalog-sections";
 
 const clasico = { logoUrl: null, theme: "classic" } as const;
 
@@ -39,6 +39,21 @@ describe("CatalogProductCard", () => {
     expect(linked).toContain("Agotado");
     const inert = renderToStaticMarkup(<CatalogProductCard item={item} />);
     expect(inert).not.toContain("<a ");
+    expect(inert).not.toContain("/catalogo/");
     expect(inert).toContain('<div data-store-part="catalog-card"');
+  });
+});
+
+describe("StoreNotFound", () => {
+  test("shows the store's own «No encontramos esta página» with its name, a way back to /, and no index", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><StoreNotFound storeName="Fantasio" appearance={{ logoUrl: "https://cdn.example/logo.png", theme: "boutique" }} /></MemoryRouter>);
+    expect(html).toContain('data-store-theme-id="boutique"');
+    expect(html).toContain('src="https://cdn.example/logo.png"');
+    expect(html).toContain("Fantasio");
+    expect(html).toContain("No encontramos esta página");
+    expect(html).toContain("Revisa el link o mira los productos de la tienda.");
+    expect(html).toMatch(/<a [^>]*href="\/"[^>]*>Volver al catálogo<\/a>/);
+    expect(html).toContain('name="robots" content="noindex, nofollow"');
+    expect(html).not.toContain("Página no encontrada");
   });
 });

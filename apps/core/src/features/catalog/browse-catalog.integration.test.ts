@@ -2,7 +2,10 @@ import { randomUUID } from "node:crypto";
 import { afterAll, expect, test } from "vitest";
 import type { CompanyId } from "@shared/identity";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import type { CatalogSubdomain } from "@shared/catalog-subdomain";
 import { catalogBrowse } from "@core/src/features/catalog/browse-composition";
+import { catalogStorefront } from "@core/src/features/catalog/composition";
+import type { PublishedStorefront } from "@core/src/features/catalog/application/resolve-storefront";
 import type { CatalogSearch } from "@core/src/features/catalog/domain/catalog";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
@@ -10,10 +13,19 @@ type VariantSeed = { attributes?: Record<string, string>; sku?: string; price: n
 const companies: string[] = [];
 let clock = Date.parse("2026-01-01T00:00:00.000Z");
 
+const subdomainOf = (id: string) => `s${id.replaceAll("-", "").slice(0, 20)}` as CatalogSubdomain;
+const resolve = (subdomain: CatalogSubdomain) => catalogStorefront.resolve({ kind: "store", subdomain });
+/** What the brand host middleware hands the loaders: the company's resolved, published storefront. */
+async function storefront(companyId: string): Promise<PublishedStorefront> {
+  const resolved = await resolve(subdomainOf(companyId));
+  if (!resolved.success || resolved.data.kind !== "published") throw new Error("Company is not published");
+  return resolved.data;
+}
+
 async function createCompany(published: boolean) {
   const id = randomUUID() as CompanyId;
   companies.push(id);
-  await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: "Moda Lucía", country: "PE", catalogPublished: published, catalogSubdomain: published ? `s${id.replaceAll("-", "").slice(0, 20)}` : null } }));
+  await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: "Moda Lucía", country: "PE", catalogPublished: published, catalogSubdomain: published ? subdomainOf(id) : null } }));
   return id;
 }
 
@@ -33,7 +45,8 @@ function addProduct(companyId: string, name: string, variants: VariantSeed[], op
   });
 }
 
-const browse = (companyId: CompanyId, search: string | null = null, pages = 1) => catalogBrowse.browse({ search: search as CatalogSearch | null, pages }, { companyId });
+const browse = async (companyId: CompanyId, search: string | null = null, pages = 1) =>
+  catalogBrowse.browse({ search: search as CatalogSearch | null, pages }, await storefront(companyId));
 
 afterAll(async () => {
   for (const id of companies) await withTenantIsolation(id, async () => {
@@ -53,7 +66,7 @@ test("catalog projection never contains SKU, cost or stock quantity", async () =
   await addProduct(companyId, "Producto en dólares", [{ price: 10, stock: 1 }], { currency: "USD" });
 
   const page = await browse(companyId);
-  const detail = await catalogBrowse.getProduct(productId, { companyId });
+  const detail = await catalogBrowse.getProduct(productId, await storefront(companyId));
   expect(page).toMatchObject({ success: true, data: { storeName: "Moda Lucía", hasMore: false, items: [{ id: productId }] } });
   expect(page.success && page.data.items).toHaveLength(1);
   expect(detail).toMatchObject({ success: true, data: { kind: "found", product: {
@@ -94,16 +107,17 @@ test("search finds «POLO OVERSIZE» and «Polo básico» for «polo» and ignor
 
 test("an unpublished catalog and an unknown company return the same unavailable result", async () => {
   const hidden = await createCompany(false);
-  const productId = await addProduct(hidden, "Polo básico", [{ price: 45, stock: 3 }]);
-  const unknown = randomUUID() as CompanyId;
+  await withTenantIsolation(hidden, async () => await prisma.company.update({ where: { id: hidden }, data: { catalogSubdomain: subdomainOf(hidden) } }));
+  const released = await resolve("liberado" as CatalogSubdomain);
+  const results = [await resolve(subdomainOf(hidden)), await resolve(subdomainOf(randomUUID())), await resolve("tienda" as CatalogSubdomain), released];
+  for (const result of results) expect(result).toEqual({ success: true, data: { kind: "unavailable" } });
+});
 
-  const results = [await browse(hidden), await browse(unknown), await catalogBrowse.getProduct(productId, { companyId: hidden }),
-    await catalogBrowse.getProduct(productId, { companyId: unknown })];
-  for (const result of results) expect(result).toEqual(results[0]);
-  expect(results[0]).toMatchObject({ success: false, error: { code: "CATALOG_UNAVAILABLE" } });
-
+test("a product id of another company is unavailable inside the published store", async () => {
+  const other = await createCompany(true);
+  const productId = await addProduct(other, "Polo básico", [{ price: 45, stock: 3 }]);
   const published = await createCompany(true);
-  expect(await catalogBrowse.getProduct(productId, { companyId: published })).toEqual({ success: true, data: { kind: "unavailable", storeName: "Moda Lucía" } });
+  expect(await catalogBrowse.getProduct(productId, await storefront(published))).toEqual({ success: true, data: { kind: "unavailable", storeName: "Moda Lucía" } });
   expect(await browse(published)).toMatchObject({ success: true, data: { items: [] } });
 });
 
@@ -120,5 +134,5 @@ test("preview cards read a hidden catalog's products only for the seller's compa
   const cards = await catalogBrowse.previewCards({ companyId: hidden });
   expect(cards.success && cards.data.map(({ name }) => name)).toEqual(["Nuevo", "Medio", "Agotado"]);
   expect(cards.success && cards.data.find(({ name }) => name === "Agotado")?.soldOut).toBe(true);
-  expect(await browse(hidden)).toMatchObject({ success: false, error: { code: "CATALOG_UNAVAILABLE" } });
+  expect(await resolve(subdomainOf(hidden))).toEqual({ success: true, data: { kind: "unavailable" } });
 });

@@ -8,8 +8,8 @@ import { Empty, EmptyHeader, EmptyTitle } from "@core/app/components/ui/empty";
 import { Sheet, SheetClose, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
 import { formatCurrency } from "@core/app/format-currency";
 import { cn } from "@core/app/lib/utils";
-import { emptyCart, removeLine, setLineQuantity, applyRefresh, readCart, useCatalogCart, type CatalogCart, type CatalogCartLine } from "@core/app/lib/catalog-cart-storage";
-import type { CartRefreshResponse, ContinueResponse } from "@core/app/routes/catalog-cart";
+import { clearCartForOrder, emptyCart, markContinued, removeLine, setLineQuantity, applyRefresh, readCart, useCatalogCart, type CatalogCart, type CatalogCartLine } from "@core/app/lib/catalog-cart-storage";
+import type { CartRefreshResponse, CheckOrderResponse, ContinueResponse } from "@core/app/routes/catalog-cart";
 
 type LineIssue = Extract<ContinueResponse, { code: "LINES_UNAVAILABLE" }>["issues"][number];
 type Failure = "lines" | "closed" | "offline" | "in_doubt" | "rate_limited" | "failed";
@@ -25,7 +25,40 @@ const money = (amount: number, currency: string) => formatCurrency(amount, curre
 const issueText = (issue: LineIssue) => issue.reason === "sold_out" ? "Se agotó" : issue.reason === "unavailable" ? "Ya no está disponible"
   : issue.reason === "other_currency" ? "No se puede pedir junto con los demás productos" : issue.available === 1 ? "Solo queda 1" : `Solo quedan ${issue.available}`;
 
-/** The buyer's cart inside the cart sheet: refreshes prices on open and turns into an order with **Continuar**, through the `catalogo/:companyId/carrito` resource route. */
+const cartRoute = "/carrito";
+
+let orderChecked = false;
+/** Lets a test mount the storefront again as a new document load. */
+export function resetOrderCheck() { orderChecked = false; }
+
+/** Asks core whether the order the cart sent to Continuar was confirmed in the checkout; any failure leaves the cart as it is. */
+async function checkOrder(companyId: string, orderId: string) {
+  try {
+    const response = await fetch(cartRoute, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ intent: "check_order", orderId }) });
+    if (!response.ok) return;
+    const body = await response.json() as CheckOrderResponse;
+    if ("order" in body && body.order === "confirmed") clearCartForOrder(companyId, orderId);
+  } catch { /* offline, rate-limited or a bad answer: the next document load or restored page asks again */ }
+}
+
+/**
+ * Once per document load, and again when the back button restores a bfcache page, empties the cart whose order was confirmed.
+ * Only a cart with lines whose current order id was already sent to Continuar asks, so a buyer who never continued sends nothing.
+ */
+function useConfirmedOrderCheck(companyId: string) {
+  useEffect(() => {
+    const ask = () => {
+      const cart = readCart(companyId);
+      if (cart.continued && cart.lines.length) void checkOrder(companyId, cart.orderId);
+    };
+    if (!orderChecked) { orderChecked = true; ask(); }
+    const onPageShow = (event: PageTransitionEvent) => { if (event.persisted) ask(); };
+    window.addEventListener("pageshow", onPageShow);
+    return () => window.removeEventListener("pageshow", onPageShow);
+  }, [companyId]);
+}
+
+/** The buyer's cart inside the cart sheet: refreshes prices on open and turns into an order with **Continuar**, through the `/carrito` resource route of the brand host. */
 export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyId: string; catalogPath: string }>) {
   const [cart, update] = useCatalogCart(companyId);
   const { pathname } = useLocation();
@@ -35,7 +68,7 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
   const [busy, setBusy] = useState(false);
   const [removed, setRemoved] = useState<CatalogCart | null>(null);
   const undoTimer = useRef<ReturnType<typeof setTimeout>>(undefined);
-  const route = `/catalogo/${companyId}/carrito`;
+  const route = cartRoute;
   const variantIds = cart.lines.map((line) => line.variantId).join(",");
 
   useEffect(() => {
@@ -71,12 +104,13 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
     let response: Response;
     try {
       response = await fetch(route, { method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ orderId: current.orderId, lines: current.lines.map(({ variantId, quantity }) => ({ variantId, quantity })) }) });
+        body: JSON.stringify({ intent: "continue", orderId: current.orderId, lines: current.lines.map(({ variantId, quantity }) => ({ variantId, quantity })) }) });
     } catch { setFailure("in_doubt"); return; }
     const body = await response.json().catch(() => null) as ContinueResponse | null;
-    if (body && "checkoutUrl" in body) { window.location.assign(new URL(body.checkoutUrl).pathname); return; }
+    // The checkout lives on the app host, so the whole URL is needed; the flag lets this page ask later whether it was confirmed.
+    if (body && "checkoutUrl" in body) { markContinued(companyId, current.orderId); window.location.assign(body.checkoutUrl); return; }
     if (body?.code === "ORDER_ID_CONFLICT" && !retried) {
-      const fresh = { ...current, orderId: emptyCart().orderId };
+      const fresh = { lines: current.lines, orderId: emptyCart().orderId };
       update(fresh);
       return continueToCheckout(fresh, true);
     }
@@ -149,12 +183,13 @@ export function CatalogCartButton({ companyId }: Readonly<{ companyId: string }>
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const units = cart.lines.reduce((sum, line) => sum + line.quantity, 0);
   const unitsText = `${units} ${units === 1 ? "unidad" : "unidades"}`;
+  useConfirmedOrderCheck(companyId);
   return <Sheet>
     <div ref={setHost} data-store-part="cart-sheet" />
     <SheetTrigger asChild><CatalogCartButtonFace units={units} /></SheetTrigger>
     <SheetContent title="Carrito" description={unitsText} container={host}>
       <div className="flex-1 overflow-y-auto p-5">
-        <CatalogCartPanel companyId={companyId} catalogPath={`/catalogo/${companyId}`} />
+        <CatalogCartPanel companyId={companyId} catalogPath="/" />
       </div>
     </SheetContent>
   </Sheet>;

@@ -1,9 +1,10 @@
 import { useEffect, useState } from "react";
-import { data, isRouteErrorResponse, Link, useLoaderData, useLocation, useNavigation, useParams, useSubmit, type LoaderFunctionArgs, type MetaArgs } from "react-router";
+import { data, isRouteErrorResponse, Link, useLoaderData, useLocation, useNavigation, useSubmit, type LoaderFunctionArgs, type MetaArgs } from "react-router";
 import { catalogBrowse } from "@core/src/features/catalog/browse-composition";
-import { catalogPathSchema, parseCatalogQuery } from "@core/src/features/catalog/presentation/browse-schemas";
+import { parseCatalogQuery } from "@core/src/features/catalog/presentation/browse-schemas";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import type { ColorSchemeHandle } from "@core/app/color-scheme";
+import { storefrontContext } from "@core/app/storefront-context";
 import { CatalogGrid, CatalogLoadError, CatalogMessage, CatalogProductCard, CatalogSearchField, CatalogShell, ProductGridSkeleton, catalogHeaders, catalogMeta } from "@core/app/components/catalog-sections";
 import { CatalogCartButton } from "@core/app/components/catalog-cart";
 import { Button } from "@core/app/components/ui/button";
@@ -14,14 +15,14 @@ export const headers = () => catalogHeaders;
 export const handle = { colorScheme: (page: unknown) => (page as { storeName?: string } | undefined)?.storeName ? "fixed" : "system" } satisfies ColorSchemeHandle;
 export const meta = ({ data: page }: MetaArgs<typeof loader>) => catalogMeta(page?.storeName ?? unavailableTitle);
 
-export async function loader({ params, request }: LoaderFunctionArgs) {
+export async function loader({ context, request }: LoaderFunctionArgs) {
   bindRequestOperation({ operation: "browse_catalog" });
-  const path = catalogPathSchema.safeParse(params);
-  if (!path.success) throw data(null, { status: 404, headers: catalogHeaders });
+  const storefront = context.get(storefrontContext);
+  if (storefront?.kind !== "published") throw data(null, { status: 404, headers: catalogHeaders });
   const query = parseCatalogQuery(new URL(request.url).searchParams);
   // Appearance never fails and is only returned on success, so it can load alongside the products.
-  const look = catalogBrowse.storeAppearance(path.data.companyId);
-  const result = await catalogBrowse.browse({ search: query.search, pages: query.pages }, path.data);
+  const look = catalogBrowse.storeAppearance(storefront.companyId);
+  const result = await catalogBrowse.browse({ search: query.search, pages: query.pages }, storefront);
   if (!result.success) {
     const missing = result.error.code === "CATALOG_UNAVAILABLE";
     bindRequestOperation({ outcome: missing ? "unavailable" : "technical_failure" });
@@ -29,17 +30,17 @@ export async function loader({ params, request }: LoaderFunctionArgs) {
   }
   const { kind, appearance } = await look;
   bindRequestOperation({ storeAppearance: kind, storeTheme: appearance.theme });
-  return data({ ...result.data, appearance, q: query.q, pages: query.pages }, { headers: catalogHeaders });
+  // The company id keys the buyer's cart, so a subdomain another company takes later reads another cart.
+  return data({ ...result.data, companyId: storefront.companyId, appearance, q: query.q, pages: query.pages }, { headers: catalogHeaders });
 }
 
 const searchTerm = (value: string) => (value.trim().length >= 2 ? value.trim() : "");
 
 export default function Catalog() {
-  const { storeName, appearance, items, hasMore, q, pages } = useLoaderData<typeof loader>();
+  const { storeName, companyId, appearance, items, hasMore, q, pages } = useLoaderData<typeof loader>();
   const navigation = useNavigation();
   const location = useLocation();
   const submit = useSubmit();
-  const { companyId = "" } = useParams();
   const [text, setText] = useState(q);
   const active = searchTerm(q);
   useEffect(() => {
@@ -58,7 +59,7 @@ export default function Catalog() {
     </form>
     {searching ? <ProductGridSkeleton /> : items.length ? <>
       <CatalogGrid>
-        {items.map((item) => <li key={item.id}><CatalogProductCard item={item} to={`productos/${item.id}`} /></li>)}
+        {items.map((item) => <li key={item.id}><CatalogProductCard item={item} to={`/productos/${item.id}`} /></li>)}
       </CatalogGrid>
       {hasMore && <Button data-store-part="catalog-more" asChild={!pending} variant="outline" className="self-center" disabled={pending !== null}>
         {pending ? <span>Cargando…</span> : <Link to={`?${more}`} replace preventScrollReset>Ver más</Link>}

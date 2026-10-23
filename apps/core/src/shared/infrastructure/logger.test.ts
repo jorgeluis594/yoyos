@@ -240,3 +240,45 @@ it("shares context between independently loaded source and server-bundled module
   expect(events).toHaveLength(2);
   for (const event of events) expect(event).toMatchObject({ requestId: "bundled-request", companyId: "verified-company", outcome: "pending", orderNumber: 1001 });
 });
+
+it("binds the operation and outcome that the catalog seller routes get from the request context", () => {
+  const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
+    import express from 'express';
+    import { requestLogging } from './src/shared/infrastructure/logger.ts';
+    const app = express();
+    app.use(requestLogging);
+    const respond = (status) => (_req, res) => res.sendStatus(status);
+    app.get('/api/catalog/settings', respond(200));
+    app.put('/api/catalog/settings', respond(409));
+    app.get('/api/catalog/subdomain-availability', respond(429));
+    app.put('/api/catalog/subdomain', respond(503));
+    const server = app.listen(0);
+    const base = 'http://127.0.0.1:' + server.address().port + '/api/catalog';
+    await fetch(base + '/settings');
+    await fetch(base + '/settings', { method: 'PUT' });
+    await fetch(base + '/subdomain-availability?value=fantasio');
+    await fetch(base + '/subdomain', { method: 'PUT' });
+    server.close();
+  `], { cwd: process.cwd(), encoding: "utf8" });
+  expect(output).not.toContain("fantasio");
+  const completed = output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed");
+  expect(completed.map((entry) => [entry.operation, entry.outcome, entry.statusCode])).toEqual([
+    ["get_catalog_settings", "loaded", 200], ["set_catalog_publication", "invalid_input", 409],
+    ["check_catalog_subdomain", "rate_limited", 429], ["save_catalog_subdomain", "technical_failure", 503]]);
+});
+
+it("logs the storeHost kind that the request context carries", () => {
+  const output = execFileSync(process.execPath, ["--import", "tsx", "-e", `
+    import express from 'express';
+    import { bindRequestOperation, requestLogging } from './src/shared/infrastructure/logger.ts';
+    const app = express();
+    app.use(requestLogging);
+    app.get('/', (req, res) => { bindRequestOperation({ storeHost: req.query.kind }); res.sendStatus(200); });
+    const server = app.listen(0);
+    const base = 'http://127.0.0.1:' + server.address().port;
+    for (const kind of ['app', 'store', 'invalid']) await fetch(base + '/?kind=' + kind);
+    server.close();
+  `], { cwd: process.cwd(), encoding: "utf8" });
+  const completed = output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed");
+  expect(completed.map((entry) => entry.storeHost)).toEqual(["app", "store", "invalid"]);
+});

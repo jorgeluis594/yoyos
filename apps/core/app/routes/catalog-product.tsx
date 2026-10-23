@@ -1,11 +1,12 @@
 import { useState } from "react";
-import { data, isRouteErrorResponse, Link, useLoaderData, useLocation, useNavigate, useParams, type LoaderFunctionArgs, type MetaArgs } from "react-router";
+import { data, isRouteErrorResponse, Link, useLoaderData, useLocation, useNavigate, type LoaderFunctionArgs, type MetaArgs } from "react-router";
 import { catalogBrowse } from "@core/src/features/catalog/browse-composition";
-import { catalogPathSchema, catalogProductPathSchema } from "@core/src/features/catalog/presentation/browse-schemas";
+import { catalogProductPathSchema } from "@core/src/features/catalog/presentation/browse-schemas";
 import { optionState, selectedVariant, type VariantSelection } from "@core/src/features/catalog/presentation/variant-selection";
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import type { ColorSchemeHandle } from "@core/app/color-scheme";
-import { CatalogLoadError, CatalogMessage, CatalogProductImage, CatalogShell, catalogHeaders, catalogMeta, formatCatalogAmount, formatCatalogPrice } from "@core/app/components/catalog-sections";
+import { storefrontContext } from "@core/app/storefront-context";
+import { CatalogLoadError, CatalogMessage, CatalogProductImage, CatalogShell, catalogHeaders, headingFont, catalogMeta, formatCatalogAmount, formatCatalogPrice } from "@core/app/components/catalog-sections";
 import { CatalogCartButton } from "@core/app/components/catalog-cart";
 import { Button } from "@core/app/components/ui/button";
 import type { CatalogProduct } from "@core/src/features/products/domain/catalog-product";
@@ -18,13 +19,13 @@ export const handle = { colorScheme: (page: unknown) => (page as { storeName?: s
 export const meta = ({ data: page }: MetaArgs<typeof loader>) =>
   catalogMeta(!page ? "Catálogo no disponible" : page.kind === "found" ? `${page.product.name} · ${page.storeName}` : page.storeName);
 
-export async function loader({ params }: LoaderFunctionArgs) {
+export async function loader({ params, context }: LoaderFunctionArgs) {
   bindRequestOperation({ operation: "get_catalog_product" });
-  const company = catalogPathSchema.safeParse(params);
-  if (!company.success) throw data(null, { status: 404, headers: catalogHeaders });
+  const storefront = context.get(storefrontContext);
+  if (storefront?.kind !== "published") throw data(null, { status: 404, headers: catalogHeaders });
   const path = catalogProductPathSchema.safeParse(params);
-  const look = catalogBrowse.storeAppearance(company.data.companyId);
-  const result = await catalogBrowse.getProduct(path.success ? path.data.productId : null, company.data);
+  const look = catalogBrowse.storeAppearance(storefront.companyId);
+  const result = await catalogBrowse.getProduct(path.success ? path.data.productId : null, storefront);
   if (!result.success) {
     const code = result.error.code;
     bindRequestOperation({ outcome: code === "CATALOG_UNAVAILABLE" ? "unavailable" : "technical_failure" });
@@ -35,44 +36,40 @@ export async function loader({ params }: LoaderFunctionArgs) {
   // A missing product is data, not a thrown response, so the page keeps the store name, the theme and the fixed scheme.
   if (result.data.kind === "unavailable") {
     bindRequestOperation({ outcome: "unavailable" });
-    return data({ ...result.data, appearance }, { status: 404, headers: catalogHeaders });
+    return data({ ...result.data, companyId: storefront.companyId, appearance }, { status: 404, headers: catalogHeaders });
   }
-  return data({ ...result.data, appearance }, { headers: catalogHeaders });
+  return data({ ...result.data, companyId: storefront.companyId, appearance }, { headers: catalogHeaders });
 }
 
-const headingFont = { fontFamily: "var(--store-font-heading, inherit)", fontWeight: "var(--store-weight-heading, 600)" };
 const priceFont = { fontFamily: "var(--store-font-body, inherit)", fontWeight: "var(--store-weight-price, 600)" };
 
 /** Returns to the list entry when coming from it, so search, pages and scroll come back as they were. */
 function BackToCatalog() {
-  const { companyId = "" } = useParams();
   const location = useLocation();
   const navigate = useNavigate();
   const fromCatalog = (location.state as { fromCatalog?: boolean } | null)?.fromCatalog === true;
   return <Button asChild={!fromCatalog} variant="ghost" className="self-start" onClick={fromCatalog ? () => navigate(-1) : undefined}>
-    {fromCatalog ? <span>Volver al catálogo</span> : <Link to={`/catalogo/${companyId}`}>Volver al catálogo</Link>}
+    {fromCatalog ? <span>Volver al catálogo</span> : <Link to="/">Volver al catálogo</Link>}
   </Button>;
 }
 
 export default function CatalogProductPage() {
   const page = useLoaderData<typeof loader>();
   return page.kind === "found"
-    ? <FoundProduct storeName={page.storeName} appearance={page.appearance} product={page.product} />
+    ? <FoundProduct companyId={page.companyId} storeName={page.storeName} appearance={page.appearance} product={page.product} />
     : <CatalogShell appearance={page.appearance} storeName={page.storeName}>
       <UnavailableProduct />
     </CatalogShell>;
 }
 
 function UnavailableProduct() {
-  const { companyId = "" } = useParams();
   return <section className="flex flex-col items-start gap-4 py-6">
     <h1 className="text-2xl font-semibold" style={headingFont}>Este producto ya no está disponible</h1>
-    <Button asChild><Link to={`/catalogo/${companyId}`}>Volver al catálogo</Link></Button>
+    <Button asChild><Link to="/">Volver al catálogo</Link></Button>
   </section>;
 }
 
-function FoundProduct({ storeName, appearance, product }: Readonly<{ storeName: string; appearance: PublicStoreAppearance; product: CatalogProduct }>) {
-  const { companyId = "" } = useParams();
+function FoundProduct({ companyId, storeName, appearance, product }: Readonly<{ companyId: string; storeName: string; appearance: PublicStoreAppearance; product: CatalogProduct }>) {
   const [cart, updateCart] = useCatalogCart(companyId);
   // `id` changes on every add so the status region gets new content and screen readers repeat an identical message.
   const [notice, setNotice] = useState({ text: "", id: 0 });
