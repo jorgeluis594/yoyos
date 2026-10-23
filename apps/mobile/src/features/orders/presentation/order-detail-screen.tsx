@@ -288,7 +288,7 @@ export default function OrderDetailScreen() {
             const note = mentionedPriceNote(item);
             const noteText = note ? t('mentionedPrice', { count: note.units, amount: money(note.amount, item.unitPrice.currency, locale) }) : null;
             const variant = Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ");
-            const label = [t('orderItemDetailLabel', { name: item.productName, variant: variant || item.sku || '', quantity: item.quantity, unit: format(item.unitPrice), subtotal: format(item.subtotal) }), noteText].filter(Boolean).join(". ");
+            const label = [[item.productName, variant, item.sku ? `SKU ${item.sku}` : null, t('orderItemDetailLabel', { quantity: item.quantity, unit: format(item.unitPrice), subtotal: format(item.subtotal) })].filter(Boolean).join(", "), noteText].filter(Boolean).join(". ");
             return <View key={item.id} accessible accessibilityLabel={label} style={[styles.product, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.border }]}>
             <View style={styles.productIdentity}>
               <ThemedText style={styles.semibold}>{item.productName}</ThemedText>

@@ -25,7 +25,7 @@ export const orderDetailTranslations = {
     detailPaymentConfirmed: 'Pago confirmado', detailRecipient: 'Destinatario', detailInternal: 'Detalles internos',
     detailSeller: 'Vendedor: {{id}}', detailClose: 'Cerrar',
     mentionedPrice_one: 'El cliente mencionó {{amount}} por unidad', mentionedPrice_other: 'El cliente mencionó {{amount}} por {{count}}',
-    orderItemDetailLabel: '{{name}}, {{variant}}, {{quantity}} × {{unit}}, {{subtotal}}',
+    orderItemDetailLabel: '{{quantity}} × {{unit}}, {{subtotal}}',
   },
   'pt-BR': {
     orderCancellation: {
@@ -53,6 +53,6 @@ export const orderDetailTranslations = {
     detailPaymentConfirmed: 'Pagamento confirmado', detailRecipient: 'Destinatário', detailInternal: 'Detalhes internos',
     detailSeller: 'Vendedor: {{id}}', detailClose: 'Fechar',
     mentionedPrice_one: 'O cliente mencionou {{amount}} por unidade', mentionedPrice_other: 'O cliente mencionou {{amount}} por {{count}}',
-    orderItemDetailLabel: '{{name}}, {{variant}}, {{quantity}} × {{unit}}, {{subtotal}}',
+    orderItemDetailLabel: '{{quantity}} × {{unit}}, {{subtotal}}',
   },
 };

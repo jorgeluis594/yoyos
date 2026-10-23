@@ -615,6 +615,26 @@ describe("WhatsApp orders", () => {
   });
 });
 
+describe("item accessibility label", () => {
+  const withItem = (variantAttributes: Record<string, string>, sku: string | null) => {
+    mockOrder = { ...initialOrder, items: [{ ...initialOrder.items[0], variantAttributes, sku, quantity: 1, unitPrice: { amount: 25, currency: "PEN" }, subtotal: { amount: 25, currency: "PEN" }, mentionedPrice: null }] };
+  };
+
+  test("has no empty slot when the item has neither variant attributes nor SKU", async () => {
+    withItem({}, null);
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    expect(screen.getByLabelText(/^Camisa, 1 × S\/\s?25\.00, S\/\s?25\.00$/)).toBeTruthy();
+  });
+
+  test("speaks the variant and the SKU when both are present", async () => {
+    withItem({ Talla: "M" }, "CAM-M");
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    expect(screen.getByLabelText(/^Camisa, Talla: M, SKU CAM-M, 1 × /)).toBeTruthy();
+  });
+});
+
 describe("mentioned price", () => {
   const withMentioned = (amount: number, units: number, quantity = 3) => {
     const item = initialOrder.items[0];

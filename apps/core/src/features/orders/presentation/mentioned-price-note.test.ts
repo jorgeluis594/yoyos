@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { mentionedPriceNote } from "@shared/mentioned-price";
 
 const item = (unit: number, mentioned: { amount: number; units: number } | null) => ({
-  unitPrice: { amount: unit },
+  unitPrice: { amount: unit, currency: "PEN" as const },
   mentionedPrice: mentioned && { amount: { amount: mentioned.amount, currency: "PEN" as const }, units: mentioned.units },
 });
 
