@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { AccessibilityInfo, FlatList, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useLocalSearchParams } from "expo-router";
@@ -45,7 +45,7 @@ export default function ConversationScreen() {
   const [marked, setMarked] = useState<ReadonlySet<string>>(new Set());
   const list = useRef<FlatList<StoredMessage>>(null);
   // The message to bring into view once, right after the notice's range is first laid out.
-  const scrollTarget = useRef<string | null>(null);
+  const [scrollTarget, setScrollTarget] = useState<string | null>(null);
 
   const chatId = chat.success ? chat.data : null;
   const [reloads, setReloads] = useState(0);
@@ -71,7 +71,7 @@ export default function ConversationScreen() {
         setMessages(located.data.messages);
         setHasMore(true);
         setMarked((previous) => new Set(previous).add(located.data.target.id));
-        scrollTarget.current = located.data.target.id;
+        setScrollTarget(located.data.target.id);
         setStatus("ready");
         announceNotice();
         return;
@@ -90,7 +90,7 @@ export default function ConversationScreen() {
   }, [runtime, companyId, chatId, reloads, noticeMessageId]);
 
   // A notice for this chat marks its message in place: the list is neither reloaded nor scrolled.
-  useNoticeArrivals(useCallback((destination) => {
+  useNoticeArrivals((destination) => {
     if (destination.target !== "message" || !runtime || !companyId || chatId === null) return;
     const parsed = parseCoreMessageId(destination.messageId);
     if (!parsed.success) return;
@@ -100,7 +100,7 @@ export default function ConversationScreen() {
       setMarked((previous) => (previous.has(id) ? previous : new Set(previous).add(id)));
       announceNotice();
     });
-  }, [runtime, companyId, chatId]));
+  });
 
   // A change in any chat merges the newest page in place, so older pages the user loaded stay on screen.
   const handledVersion = useRef(messagesVersion);
@@ -143,12 +143,11 @@ export default function ConversationScreen() {
           extraData={marked}
           keyExtractor={(item) => item.id}
           // The notice's message can be far from the newest: render down to it so it can be scrolled to.
-          initialNumToRender={Math.max(10, scrollTarget.current === null ? 0 : Math.min(messages.findIndex((message) => message.id === scrollTarget.current) + 3, 100))}
+          initialNumToRender={Math.max(10, Math.min(messages.findIndex((message) => message.id === scrollTarget) + 3, 100))}
           onContentSizeChange={() => {
-            const target = scrollTarget.current;
-            const index = target === null ? -1 : messages.findIndex((message) => message.id === target);
+            const index = scrollTarget === null ? -1 : messages.findIndex((message) => message.id === scrollTarget);
             if (index < 0) return;
-            scrollTarget.current = null;
+            setScrollTarget(null);
             list.current?.scrollToIndex({ index, animated: false, viewPosition: 0.3 });
           }}
           onScrollToIndexFailed={(info) => {

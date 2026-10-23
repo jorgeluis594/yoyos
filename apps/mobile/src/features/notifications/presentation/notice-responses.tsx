@@ -3,7 +3,6 @@ import { Alert } from "react-native";
 import { useRootNavigationState, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { ok } from "@shared/functional";
-import type { Result } from "@shared/result";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useOrderDraft } from "@mobile/features/orders/presentation/order-draft-guard";
 import { useProductDraft } from "@mobile/features/products/presentation/draft-guard";
@@ -41,6 +40,8 @@ export function NoticeOpener({ inbox, resolveOrder }: OpenerProps) {
   const latest = useRef({ companyId, runtime, navigatorReady, router, t, productDraft, orderDraft });
   useLayoutEffect(() => { latest.current = { companyId, runtime, navigatorReady, router, t, productDraft, orderDraft }; });
   const opening = useRef(false);
+  // `settle` runs again when an opening ends, in case another notice was tapped meanwhile.
+  const settleAgain = useRef<() => void>(() => undefined);
 
   const settle = useCallback(() => {
     const current = latest.current;
@@ -80,9 +81,10 @@ export function NoticeOpener({ inbox, resolveOrder }: OpenerProps) {
     void openNotice(pending.destination, ports)
       .then((outcome) => { if (outcome === "failed") Alert.alert(latest.current.t("noticeOpenFailed")); })
       .catch(() => Alert.alert(latest.current.t("noticeOpenFailed")))
-      .finally(() => { opening.current = false; settle(); });
+      .finally(() => { opening.current = false; settleAgain.current(); });
   }, [inbox, resolveOrder]);
 
+  useLayoutEffect(() => { settleAgain.current = settle; });
   useEffect(() => {
     settle();
     return inbox.subscribe(settle);
