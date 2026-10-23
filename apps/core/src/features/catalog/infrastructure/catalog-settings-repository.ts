@@ -17,18 +17,6 @@ const unavailable = (message: string) => err({ code: "PERSISTENCE_UNAVAILABLE" a
 const invalidStored = (message: string) => err({ code: "INVALID_STORED_DATA" as const, message });
 const subdomainRow = z.object({ company_id: z.uuid(), published: z.boolean(), name: z.string(), country: z.string().refine(isCountry) });
 
-/** Under RLS an unknown company reads as unpublished, the same as a hidden catalog. */
-export async function readPublished(companyId: CompanyId): Promise<Result<boolean, PersistenceError>> {
-  try {
-    const company = await prisma.company.findUnique({ where: { id: companyId }, select: { catalogPublished: true } });
-    return ok(company?.catalogPublished ?? false);
-  } catch (cause) {
-    if (!isPersistenceFailure(cause)) throw cause;
-    log.error({ event: "unable_to_read_catalog", companyId, operation: "read_published", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_read_catalog");
-    return unavailable("Unable to read catalog setting");
-  }
-}
-
 /** Null when the company is not visible under RLS, so callers decide what an unknown company means. */
 export async function readCatalogSettings(companyId: CompanyId): Promise<Result<StoredCatalogSettings | null, ReadError>> {
   try {

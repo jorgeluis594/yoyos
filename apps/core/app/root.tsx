@@ -1,4 +1,5 @@
 import {
+  isRouteErrorResponse,
   Links,
   Meta,
   Outlet,
@@ -6,20 +7,28 @@ import {
   ScrollRestoration,
   useLocation,
   useMatches,
+  useRouteError,
 } from "react-router";
-import { useEffect } from "react";
+import { useEffect, type ReactNode } from "react";
 import { applyColorPreference, applyPreferenceScript, colorSchemeOf } from "@/color-scheme";
 import { themeCss } from "@/design-theme";
 import "./app.css";
 import { isLocale, languageForLocale } from "@/locale";
 import { i18nextMiddleware } from "@/middleware/i18next";
+import { storefrontMiddleware } from "@/middleware/storefront";
+import { storefrontErrorOf } from "@/storefront-error";
+import { CatalogLoadError, CatalogMessage, StoreNotFound } from "@/components/catalog-sections";
+import { ErrorState } from "@/components/ui/error-state";
 import { useTranslation } from "react-i18next";
 
-export default function App() {
+/** The document for every page, the error pages included: a themed store page keeps its fixed scheme when it is the error. */
+export function Layout({ children }: Readonly<{ children: ReactNode }>) {
   const segment = useLocation().pathname.split("/")[1];
   const { i18n } = useTranslation();
   const language = languageForLocale(segment);
-  const colorScheme = colorSchemeOf(useMatches());
+  const matches = useMatches();
+  const failure = storefrontErrorOf(useRouteError());
+  const colorScheme = failure ? (failure.kind === "store_not_found" ? "fixed" : "system") : colorSchemeOf(matches);
 
   useEffect(() => {
     if (i18n.resolvedLanguage !== language) void i18n.changeLanguage(language);
@@ -52,7 +61,7 @@ FIRST VIEWPORT: Desktop review left and 320px summary right; mobile expandable p
 FORM: Review-first, option 3, seed dac33d81.
 FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance -->` }} />}
 
-        <Outlet />
+        {children}
         <ScrollRestoration />
         <Scripts />
       </body>
@@ -60,4 +69,21 @@ FINISH: unreviewed and undocumented is unfinished; this build ends with the fini
   );
 }
 
-export const middleware = [i18nextMiddleware];
+export default function App() {
+  return <Outlet />;
+}
+
+/** Brand hosts refuse with typed data; anything else keeps a plain page, with the localized text for a missing one. */
+export function ErrorBoundary() {
+  const error = useRouteError();
+  const failure = storefrontErrorOf(error);
+  const { t } = useTranslation();
+  if (failure?.kind === "store_not_found") return <StoreNotFound storeName={failure.header.storeName} appearance={failure.header.appearance} />;
+  if (failure?.kind === "catalog_unavailable") return <CatalogMessage title="Catálogo no disponible" />;
+  if (failure?.kind === "catalog_load_error") return <CatalogLoadError />;
+  const missing = isRouteErrorResponse(error) && error.status === 404;
+  return <main className="p-6"><ErrorState title={missing ? t("notFoundPage.title") : "Algo salió mal"}
+    description={missing ? t("notFoundPage.hint") : "Vuelve a intentarlo en unos minutos."} /></main>;
+}
+
+export const middleware = [i18nextMiddleware, storefrontMiddleware];

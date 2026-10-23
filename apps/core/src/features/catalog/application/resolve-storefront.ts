@@ -9,6 +9,7 @@ import type { StoreHost } from "@core/src/features/catalog/domain/store-host";
 export type Storefront =
   | Readonly<{ kind: "published"; companyId: CompanyId; subdomain: CatalogSubdomain; store: CatalogStore }>
   | Readonly<{ kind: "unavailable" }>;
+export type PublishedStorefront = Extract<Storefront, { kind: "published" }>;
 const unavailable: Storefront = { kind: "unavailable" };
 
 /** One answer covers an unknown name, a released one, a reserved one nobody owns, a malformed host and a hidden catalog, so it never reveals whether a company exists. */
