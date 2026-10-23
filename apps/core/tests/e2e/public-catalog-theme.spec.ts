@@ -1,22 +1,19 @@
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, publishCatalog as publishStore, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
-import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { openEditor, rgb, saveCompanyAppearance } from "@core/tests/e2e/store-appearance-fixtures";
 import { storeThemes, type StoreThemeId } from "@shared/store-themes";
 
 const baseURL = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
 const scope = (page: Page) => page.locator("[data-store-theme]");
 
-/** A published catalog with one product that has a single variant, so the buyer can add it with one click. */
+/** A published catalog on its brand host with one product that has a single variant, so the buyer can add it with one click. Returns the brand address. */
 async function publishCatalog(companyId: string) {
-  const created = await withTenantIsolation(companyId, async () => {
-    await prisma.company.update({ where: { id: companyId }, data: { catalogPublished: true, catalogSubdomain: `s${companyId.replaceAll("-", "").slice(0, 20)}` } });
-    return products.create({ name: "Polo básico", currency: "PEN", variants: [{ attributes: { Color: "Negro" }, salePrice: 45, initialStock: 5 }] });
-  });
+  const created = await withTenantIsolation(companyId, async () => products.create({ name: "Polo básico", currency: "PEN", variants: [{ attributes: { Color: "Negro" }, salePrice: 45, initialStock: 5 }] }));
   if (!created.success) throw new Error("Product fixture failed");
-  return `/catalogo/${companyId}`;
+  return publishStore(companyId);
 }
 
 /** A phone browser of a buyer whose system asks for `colorScheme`. */
@@ -35,7 +32,7 @@ async function expectTheme(page: Page, id: StoreThemeId) {
 test("seller saves Noche in Apariencia de la tienda and the buyer sees the catalog, product page, cart and checkout in Noche", async ({ page }) => {
   const email = `catalog-theme-${randomUUID()}@example.test`;
   const companyId = await openEditor(page, email);
-  const catalogPath = await publishCatalog(companyId);
+  const storeAddress = await publishCatalog(companyId);
   await page.getByRole("radio", { name: /^Noche/ }).click();
   await page.getByRole("button", { name: "Guardar cambios" }).click();
   await browserExpect(page.getByRole("status").filter({ hasText: "Apariencia actualizada" })).toBeVisible();
@@ -43,7 +40,7 @@ test("seller saves Noche in Apariencia de la tienda and the buyer sees the catal
   // A light system preference does not turn the Noche catalog light.
   const { context, buyer } = await openBuyer(page, "light");
   try {
-    await buyer.goto(catalogPath);
+    await buyer.goto(storeAddress);
     await expectTheme(buyer, "noche");
     await browserExpect(scope(buyer)).toHaveClass(/dark/);
     await browserExpect(buyer.getByRole("link", { name: /Polo básico/ })).toBeVisible();
@@ -75,14 +72,14 @@ test("seller saves Noche in Apariencia de la tienda and the buyer sees the catal
 
 test("buyer with a dark system preference sees a Boutique catalog in light mode and downloads only the Boutique font families", async ({ page }) => {
   const companyId = await prepareVerifiedCompany(page, { email: `catalog-boutique-${randomUUID()}@example.test`, name: "Vendedora", companyName: "Lima Studio", country: "PE" });
-  const catalogPath = await publishCatalog(companyId);
+  const storeAddress = await publishCatalog(companyId);
   await saveCompanyAppearance(companyId, { theme: "boutique", withLogo: false });
 
   const { context, buyer } = await openBuyer(page, "dark");
   const fonts: string[] = [];
   buyer.on("request", (request) => { if (/\.woff2?(\?|$)/.test(request.url())) fonts.push(request.url()); });
   try {
-    await buyer.goto(catalogPath);
+    await buyer.goto(storeAddress);
     await expectTheme(buyer, "boutique");
     await browserExpect(scope(buyer)).not.toHaveClass(/dark/);
     await browserExpect.poll(() => buyer.evaluate(async () => {
