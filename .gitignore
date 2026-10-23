@@ -15,3 +15,6 @@ debug-storybook.log
 
 # New Relic agent log written by local runs
 newrelic_agent.log
+
+# Images requested from Grok Bot by agents (scripts/request-grok-image.sh); never committed
+.grok-inbox/
