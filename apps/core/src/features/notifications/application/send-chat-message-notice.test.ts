@@ -87,3 +87,20 @@ test("keeps the claim and does not retry when the provider does not answer in ti
   expect(await run(deps)).toEqual(ok({ status: "dropped", reason: "timeout" }));
   expect(calls).not.toContain("release");
 });
+
+test("fails retryably with the release error when giving the claim back fails", async () => {
+  const { deps, calls } = setup({
+    sendPush: async () => err({ code: "PROVIDER_UNAVAILABLE", message: "down", retryable: true }),
+    releaseNotice: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "db down" }),
+  });
+  expect(await run(deps)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", retryable: true } });
+  expect(calls).toEqual(["claim", "find", "describe"]);
+});
+
+test("fails retryably and keeps the device when removing it fails", async () => {
+  const { deps } = setup({
+    sendPush: async () => err({ code: "DEVICE_NOT_REGISTERED", message: "gone", retryable: false }),
+    removeDevice: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "db down" }),
+  });
+  expect(await run(deps)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", retryable: true } });
+});
