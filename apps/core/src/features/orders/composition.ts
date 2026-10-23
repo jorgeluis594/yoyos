@@ -42,10 +42,11 @@ import { createChatMessageDeadLetterHandler, createChatMessageHandler, type Chat
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
 import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
-import { claimNotice, releaseNotice, type ClaimedNotice } from "@core/src/features/orders/infrastructure/chat-message-notice-repository";
-import { describeChatMessageNotice as describeNotice } from "@core/src/features/orders/application/describe-chat-message-notice";
+import { claimNotice, releaseNotice } from "@core/src/features/orders/infrastructure/chat-message-notice-repository";
+import type { ClaimedNotice } from "@core/src/features/orders/domain/seller-notice";
+import { describeChatMessageNotice as describeNotice, type NoticeLocale } from "@core/src/features/orders/application/describe-chat-message-notice";
 import { findSellerNoticeTarget } from "@core/src/features/orders/application/find-seller-notice-target";
-import type { NoticeLocale } from "@core/src/features/orders/presentation/seller-notice-texts";
+import { renderSellerNotice } from "@core/src/features/orders/presentation/seller-notice-texts";
 import { createAiToolsFromEnv } from "@core/src/shared/ai-tools/composition";
 import { isOpenForMessageItems } from "@core/src/features/orders/domain/message-order";
 import { products } from "@core/src/features/products/composition";
@@ -275,7 +276,7 @@ export const orders = {
   // Notice capabilities for notifications. They run inside the company's tenant context.
   claimChatMessageNotice: (messageId: ChatMessageId) => claimNotice(messageId),
   describeChatMessageNotice: (claim: ClaimedNotice, locale: NoticeLocale) => describeNotice(claim, locale, {
-    companyId: getCompanyId, findOrderNumbers, findProductNames: findProductNoticeNames }),
+    companyId: getCompanyId, findOrderNumbers, findProductNames: findProductNoticeNames, render: renderSellerNotice }),
   releaseChatMessageNotice: (messageId: ChatMessageId) => releaseNotice(messageId),
   findSellerNoticeTarget: (messageId: ChatMessageId) => findSellerNoticeTarget(messageId, { findOutcome, orderExists }),
   confirmCheckoutDelivery: async (input: ConfirmCheckoutDeliveryInput, access: CheckoutAccess) => {

@@ -1,18 +1,10 @@
+import { err, ok } from "@shared/functional";
+import type { Result } from "@shared/result";
+import { sellerNoticeDataSchema } from "@shared/contracts/seller-notices";
 import type { OrderId } from "@core/src/features/orders/domain/order";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import { sellerNoticeTarget, type SellerNotice } from "@core/src/features/orders/domain/seller-notice";
-
-export type NoticeLocale = "es" | "pt-BR";
-export type NoticeProductNames = Readonly<{ name: string; attributeNames: readonly string[] }>;
-/** Order numbers and product names of the ids a notice carries, read when the notice is described. */
-export type NoticeNames = Readonly<{ orderNumbers: ReadonlyMap<OrderId, number>; products: ReadonlyMap<ProductId, NoticeProductNames> }>;
-export type NoticeContext = Readonly<{ companyId: string; messageId: string; chatId: string; names: NoticeNames }>;
-export type RenderedSellerNotice = Readonly<{
-  title: string;
-  body: string;
-  data: Readonly<{ v: 1; companyId: string; messageId: string; target: "message" | "order" }>;
-  groupKey: string;
-}>;
+import type { NoticeContext, NoticeLocale, RenderedSellerNotice } from "@core/src/features/orders/application/describe-chat-message-notice";
 
 type Text = Readonly<{ title: string; body: string }>;
 /** What a locale needs to write a notice; the cases that name an order have a variant for an order that no longer exists. */
@@ -129,27 +121,13 @@ function textOf(notice: SellerNotice, texts: Texts, { names }: NoticeContext): T
   }
 }
 
-/** The ids a notice carries, so the caller reads their numbers and names in one query each. */
-export function noticeReferences(notice: SellerNotice): Readonly<{ orderIds: readonly OrderId[]; productIds: readonly ProductId[] }> {
-  const orderIds: OrderId[] = [];
-  const productIds: ProductId[] = [];
-  if ("orderId" in notice && notice.orderId) orderIds.push(notice.orderId);
-  if ("previousOrderId" in notice) orderIds.push(notice.previousOrderId);
-  if ("newOrderId" in notice && notice.newOrderId) orderIds.push(notice.newOrderId);
-  if ("productId" in notice) productIds.push(notice.productId);
-  if ("productIds" in notice) productIds.push(...notice.productIds);
-  return { orderIds: [...new Set(orderIds)], productIds: [...new Set(productIds)] };
-}
-
 /** The texts of a notice in the device's language. A buyer's text, phone or WhatsApp id never reaches them. */
-export function renderSellerNotice(notice: SellerNotice, locale: NoticeLocale, context: NoticeContext): RenderedSellerNotice {
+export function renderSellerNotice(notice: SellerNotice, locale: NoticeLocale, context: NoticeContext): Result<RenderedSellerNotice, Readonly<{ code: "INVALID_NOTICE_DATA"; message: string; retryable: false }>> {
   const texts = textsOf[locale];
   const { title, body } = textOf(notice, texts, context);
   const created = "newOrderId" in notice && notice.newOrderId ? context.names.orderNumbers.get(notice.newOrderId) : undefined;
-  return {
-    title,
-    body: created === undefined ? body : `${body} ${texts.newOrderNote(created)}`,
-    data: { v: 1, companyId: context.companyId, messageId: context.messageId, target: sellerNoticeTarget(notice).kind },
-    groupKey: context.chatId,
-  };
+  // The data is the contract the phone parses on tap: a payload that does not match is never sent.
+  const data = sellerNoticeDataSchema.safeParse({ v: 1, companyId: context.companyId, messageId: context.messageId, target: sellerNoticeTarget(notice).kind });
+  if (!data.success) return err({ code: "INVALID_NOTICE_DATA", message: "Invalid seller notice data", retryable: false });
+  return ok({ title, body: created === undefined ? body : `${body} ${texts.newOrderNote(created)}`, data: data.data, groupKey: context.chatId });
 }

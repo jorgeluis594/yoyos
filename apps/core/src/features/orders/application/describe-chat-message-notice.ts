@@ -1,16 +1,25 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
+import type { SellerNoticeData } from "@shared/contracts/seller-notices";
 import type { OrderId } from "@core/src/features/orders/domain/order";
 import type { ProductId } from "@core/src/features/products/domain/product";
-import type { ClaimedNotice } from "@core/src/features/orders/infrastructure/chat-message-notice-repository";
-import { noticeReferences, renderSellerNotice, type NoticeLocale, type NoticeProductNames, type RenderedSellerNotice } from "@core/src/features/orders/presentation/seller-notice-texts";
+import { noticeReferences, type ClaimedNotice, type SellerNotice } from "@core/src/features/orders/domain/seller-notice";
 
-type PersistenceError = Readonly<{ code: string; message: string }>;
+type PersistenceError = Readonly<{ code: string; message: string; retryable?: boolean }>;
+
+export type NoticeLocale = "es" | "pt-BR";
+export type NoticeProductNames = Readonly<{ name: string; attributeNames: readonly string[] }>;
+/** Order numbers and product names of the ids a notice carries, read when the notice is described. */
+export type NoticeNames = Readonly<{ orderNumbers: ReadonlyMap<OrderId, number>; products: ReadonlyMap<ProductId, NoticeProductNames> }>;
+export type NoticeContext = Readonly<{ companyId: string; messageId: string; chatId: string; names: NoticeNames }>;
+export type RenderedSellerNotice = Readonly<{ title: string; body: string; data: SellerNoticeData; groupKey: string }>;
 
 export type DescribeChatMessageNoticeDependencies = Readonly<{
   companyId: () => string;
   findOrderNumbers: (ids: readonly OrderId[]) => Promise<Result<ReadonlyMap<OrderId, number>, PersistenceError>>;
   findProductNames: (ids: readonly ProductId[]) => Promise<Result<ReadonlyMap<ProductId, NoticeProductNames>, PersistenceError>>;
+  /** The texts of a notice in a language; supplied by the presentation layer through composition. */
+  render: (notice: SellerNotice, locale: NoticeLocale, context: NoticeContext) => Result<RenderedSellerNotice, PersistenceError>;
 }>;
 
 /**
@@ -26,7 +35,8 @@ export async function describeChatMessageNotice(
   const [orderNumbers, products] = await Promise.all([deps.findOrderNumbers(orderIds), deps.findProductNames(productIds)]);
   if (!orderNumbers.success) return err(orderNumbers.error);
   if (!products.success) return err(products.error);
-  return ok(renderSellerNotice(claim.notice, locale, {
+  const rendered = deps.render(claim.notice, locale, {
     companyId: deps.companyId(), messageId: claim.messageId, chatId: claim.chatId, names: { orderNumbers: orderNumbers.data, products: products.data },
-  }));
+  });
+  return rendered.success ? ok(rendered.data) : err(rendered.error);
 }

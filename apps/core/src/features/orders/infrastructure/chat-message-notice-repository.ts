@@ -4,15 +4,12 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { getCompanyId, prisma, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { chatMessageOutcomesSchema } from "@core/src/features/orders/domain/chat-message-outcome";
-import { chooseSellerNotice, type SellerNotice } from "@core/src/features/orders/domain/seller-notice";
+import { chooseSellerNotice, type ClaimedNotice } from "@core/src/features/orders/domain/seller-notice";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 type InvalidStoredData = Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
 type NoticeRepositoryError = PersistenceError | InvalidStoredData;
-
-/** A claimed notice: who registered the message, the chat that groups it and the notice the outcomes call for. */
-export type ClaimedNotice = Readonly<{ messageId: ChatMessageId; chatId: string; sessionId: string; notice: SellerNotice }>;
 
 type ClaimRow = Readonly<{ outcomes: unknown; noticeSentAt: Date | null; chatId: string; registeredBySessionId: string | null }>;
 

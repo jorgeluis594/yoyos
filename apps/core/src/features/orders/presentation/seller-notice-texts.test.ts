@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { renderSellerNotice, type NoticeNames } from "@core/src/features/orders/presentation/seller-notice-texts";
+import { renderSellerNotice } from "@core/src/features/orders/presentation/seller-notice-texts";
+import type { NoticeNames } from "@core/src/features/orders/application/describe-chat-message-notice";
 import type { SellerNotice } from "@core/src/features/orders/domain/seller-notice";
 import type { OrderId } from "@core/src/features/orders/domain/order";
 import type { ProductId } from "@core/src/features/products/domain/product";
@@ -17,8 +18,12 @@ const names: NoticeNames = {
   ]),
 };
 const context = { companyId: id(100), messageId: id(101), chatId: id(102), names };
-const es = (notice: SellerNotice) => renderSellerNotice(notice, "es", context);
-const pt = (notice: SellerNotice) => renderSellerNotice(notice, "pt-BR", context);
+const rendered = (result: ReturnType<typeof renderSellerNotice>) => {
+  if (!result.success) throw new Error(result.error.code);
+  return result.data;
+};
+const es = (notice: SellerNotice) => rendered(renderSellerNotice(notice, "es", context));
+const pt = (notice: SellerNotice) => rendered(renderSellerNotice(notice, "pt-BR", context));
 
 describe("renderSellerNotice", () => {
   test("renders the product not recognized notice in Spanish with the data the phone opens by", () => {
@@ -89,5 +94,10 @@ describe("renderSellerNotice", () => {
     expect(es({ kind: "unnamed_add", newOrderId: order(2) }).body).toBe("Un cliente pidió más de un producto sin decir cuál. Se creó el pedido nuevo #1024.");
     expect(pt({ kind: "unnamed_add", newOrderId: order(2) }).body).toBe("Um cliente pediu mais de um produto sem dizer qual. Foi criado o novo pedido #1024.");
     expect(es({ kind: "unnamed_add", newOrderId: order(9) }).body).toBe("Un cliente pidió más de un producto sin decir cuál.");
+  });
+
+  test("refuses to render push data that does not match the shared contract", () => {
+    expect(renderSellerNotice({ kind: "failed", newOrderId: null }, "es", { ...context, messageId: "not-a-uuid" }))
+      .toMatchObject({ success: false, error: { code: "INVALID_NOTICE_DATA", retryable: false } });
   });
 });

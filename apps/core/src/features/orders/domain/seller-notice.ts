@@ -1,4 +1,5 @@
 import type { OrderId } from "@core/src/features/orders/domain/order";
+import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import type { ChatMessageOutcome, ChatMessageOutcomes } from "@core/src/features/orders/domain/chat-message-outcome";
 
@@ -18,6 +19,9 @@ export type SellerNotice =
   | (ProblemNotice & NewOrderNote)
   | Readonly<{ kind: "only_item_kept" | "ready"; orderId: OrderId }>
   | Readonly<{ kind: "new_order"; orderId: OrderId; previousOrderId: OrderId }>;
+
+/** A claimed notice: who registered the message, the chat that groups it and the notice the outcomes call for. */
+export type ClaimedNotice = Readonly<{ messageId: ChatMessageId; chatId: string; sessionId: string; notice: SellerNotice }>;
 
 export type SellerNoticeTarget = Readonly<{ kind: "message" }> | Readonly<{ kind: "order"; orderId: OrderId }>;
 
@@ -68,3 +72,15 @@ export function sellerNoticeTarget(notice: SellerNotice): SellerNoticeTarget {
 
 /** A notice is due while the outcomes call for one and nobody claimed it yet. */
 export const isNoticeDue = (outcomes: ChatMessageOutcomes, noticeSentAt: Date | null): boolean => noticeSentAt === null && chooseSellerNotice(outcomes) !== null;
+
+/** The ids a notice carries, so its numbers and names are read in one query each. */
+export function noticeReferences(notice: SellerNotice): Readonly<{ orderIds: readonly OrderId[]; productIds: readonly ProductId[] }> {
+  const orderIds: OrderId[] = [];
+  const productIds: ProductId[] = [];
+  if ("orderId" in notice && notice.orderId) orderIds.push(notice.orderId);
+  if ("previousOrderId" in notice) orderIds.push(notice.previousOrderId);
+  if ("newOrderId" in notice && notice.newOrderId) orderIds.push(notice.newOrderId);
+  if ("productId" in notice) productIds.push(notice.productId);
+  if ("productIds" in notice) productIds.push(...notice.productIds);
+  return { orderIds: [...new Set(orderIds)], productIds: [...new Set(productIds)] };
+}
