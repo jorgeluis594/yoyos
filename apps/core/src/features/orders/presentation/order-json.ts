@@ -9,7 +9,7 @@ export function toLegacyOrderJson(order: OrderAggregate) {
     paymentMethod: "digital_wallet", completedAt: order.completedAt.toISOString(), currency: order.total.currency, total: order.total.amount,
     items: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
       variantAttributes: item.variantAttributes, sku: item.sku, quantity: item.quantity,
-      unitPrice: item.unitPrice.amount, subtotal: item.subtotal.amount, mentionedPrice: null })) });
+      unitPrice: item.unitPrice.amount, subtotal: item.subtotal.amount, mentionedPrice: item.mentionedPrice ?? null })) });
 }
 
 export function toOrderAggregateJson(order: OrderAggregate) {
