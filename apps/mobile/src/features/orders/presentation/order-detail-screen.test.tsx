@@ -614,3 +614,60 @@ describe("WhatsApp orders", () => {
     expect(screen.queryByText("Público general")).toBeNull();
   });
 });
+
+describe("item accessibility label", () => {
+  const withItem = (variantAttributes: Record<string, string>, sku: string | null) => {
+    mockOrder = { ...initialOrder, items: [{ ...initialOrder.items[0], variantAttributes, sku, quantity: 1, unitPrice: { amount: 25, currency: "PEN" }, subtotal: { amount: 25, currency: "PEN" }, mentionedPrice: null }] };
+  };
+
+  test("has no empty slot when the item has neither variant attributes nor SKU", async () => {
+    withItem({}, null);
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    expect(screen.getByLabelText(/^Camisa, 1 × S\/\s?25\.00, S\/\s?25\.00$/)).toBeTruthy();
+  });
+
+  test("speaks the variant and the SKU when both are present", async () => {
+    withItem({ Talla: "M" }, "CAM-M");
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    expect(screen.getByLabelText(/^Camisa, Talla: M, SKU CAM-M, 1 × /)).toBeTruthy();
+  });
+});
+
+describe("mentioned price", () => {
+  const withMentioned = (amount: number, units: number, quantity = 3) => {
+    const item = initialOrder.items[0];
+    mockOrder = { ...initialOrder, items: [{ ...item, quantity, unitPrice: { amount: 25, currency: "PEN" }, subtotal: { amount: 25 * quantity, currency: "PEN" },
+      mentionedPrice: { amount: { amount, currency: "PEN" }, units } }] };
+  };
+
+  test("shows the mentioned price note under the unit price and in the item's accessibility label", async () => {
+    withMentioned(50, 3);
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("El cliente mencionó S/ 50.00 por 3");
+    expect(screen.getByLabelText(/Camisa.*3 × S\/\s?25\.00.*El cliente mencionó S\/\s?50\.00 por 3/)).toBeTruthy();
+  });
+
+  test("says «por unidad» for one unit and translates the note to Portuguese", async () => {
+    withMentioned(20, 1, 1);
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("El cliente mencionó S/ 20.00 por unidad");
+    screen.unmount();
+    await i18n.changeLanguage("pt-BR");
+    try {
+      const portuguese = render(<OrderDetailScreen />);
+      await portuguese.findByText(/^O cliente mencionou \D*20,00 por unidade$/);
+      portuguese.unmount();
+    } finally {
+      await i18n.changeLanguage("es");
+    }
+  });
+
+  test("shows no note when the mentioned price equals the catalog price for the same units", async () => {
+    withMentioned(75, 3);
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    expect(screen.queryByText(/El cliente mencionó/)).toBeNull();
+  });
+});
