@@ -106,7 +106,7 @@ describe("ordered event queues", () => {
     await using(h, async () => {
       await h.publish("c1", "first");
       await h.publish("c1", "second");
-      await sleep(500);
+      await vi.waitFor(() => expect(events).toEqual(["c1-first-1"]), wait);
       await h.publish("c2", "other");
       await vi.waitFor(() => expect(events).toHaveLength(4), wait);
       expect(events[0]).toBe("c1-first-1");
