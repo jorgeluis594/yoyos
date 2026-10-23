@@ -58,3 +58,20 @@ test("keeps a pending unregister until core answers", async () => {
   expect(stored.pending).toBeNull();
   expect(await flushPendingUnregister({ store, api })).toBe(false);
 });
+
+test("clears the stored registration when the unregistered token is the phone's own", async () => {
+  const { store, state: stored } = createFakeStore({ registration: { fingerprint: "f", token: "ExponentPushToken[abc]" }, pending: "ExponentPushToken[abc]" });
+  const { api } = createFakeApi();
+
+  expect(await flushPendingUnregister({ store, api })).toBe(true);
+  expect(stored.registration).toBeNull();
+});
+
+test("keeps the stored registration when the unregistered token is another one", async () => {
+  const registration = { fingerprint: "f", token: "ExponentPushToken[abc]" };
+  const { store, state: stored } = createFakeStore({ registration, pending: "ExponentPushToken[old]" });
+  const { api } = createFakeApi();
+
+  await flushPendingUnregister({ store, api });
+  expect(stored.registration).toEqual(registration);
+});

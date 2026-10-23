@@ -30,7 +30,11 @@ export async function registerPushDevice(
   return "registered";
 }
 
-/** Sends the unregister left by an offline sign-out or a hidden foreign notice; cleared only after a 204. */
+/**
+ * Sends the unregister left by an offline sign-out or a hidden foreign notice; cleared only after a 204.
+ * Core deletes by token, so when the token is the phone's current registration the stored
+ * registration is cleared too and the next registration check sends the device again.
+ */
 export async function flushPendingUnregister(dependencies: Pick<RegistrationDependencies, "store" | "api">): Promise<boolean> {
   const { store, api } = dependencies;
   const token = await store.readPendingUnregister();
@@ -38,5 +42,6 @@ export async function flushPendingUnregister(dependencies: Pick<RegistrationDepe
   const sent = await api.unregister(token);
   if (!sent.success) return false;
   await store.clearPendingUnregister();
+  if ((await store.readRegistration())?.token === token) await store.clearRegistration();
   return true;
 }

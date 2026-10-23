@@ -4,12 +4,13 @@ import { AccessProvider, useAccess } from '@/features/users/presentation/access-
 import { Pressable } from 'react-native';
 import { AccessGate } from '@/composition/access-gate';
 import { createAuthOperations } from '@/composition/create-auth-operations';
+import { notices } from '@mobile/composition/notifications';
 
 jest.mock('@mobile/composition/whatsapp-runtime', () => ({ getWhatsAppRuntime: jest.fn(() => new Promise(() => undefined)) }));
 jest.mock('@mobile/composition/notifications', () => ({
   loadCatalogReadiness: jest.fn(async () => ({ success: true, data: 'ready' })),
   notices: {
-    setSession: jest.fn(), sync: jest.fn(async () => 'skipped'), permission: jest.fn(async () => 'granted'),
+    setSession: jest.fn(), flushPending: jest.fn(async () => false), sync: jest.fn(async () => 'skipped'), permission: jest.fn(async () => 'granted'),
     onTokenChange: jest.fn(() => () => undefined), enable: jest.fn(), promptOnConnected: jest.fn(),
   },
 }));
@@ -41,6 +42,12 @@ test('only ready mounts private routes, and logout removes them', async () => {
   fireEvent.press(screen.getByLabelText('Test logout'));
   await screen.findByText('Bienvenido a Yoyos');
   expect(screen.queryByText('Private tabs')).toBeNull();
+});
+
+test('a pending unregister is sent while signed out', async () => {
+  render(<AccessProvider operations={{ ...operations, restoreSession: async () => ok(null) }}><AccessGate /></AccessProvider>);
+  await screen.findByText('Bienvenido a Yoyos');
+  expect(notices.flushPending).toHaveBeenCalled();
 });
 
 test('late sign-in result cannot remount private routes after logout', async () => {

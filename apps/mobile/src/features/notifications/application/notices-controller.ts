@@ -24,6 +24,8 @@ export type NoticesController = Readonly<{
   enable: () => Promise<NoticePermission>;
   /** Sign-in, foreground and token change: sends the pending unregister, then registers if the fingerprint changed. */
   sync: () => Promise<RegistrationOutcome>;
+  /** Sends the pending unregister alone; it needs no session, so it also runs while signed out. */
+  flushPending: () => Promise<boolean>;
   onTokenChange: (listener: () => void) => () => void;
   decideForeground: (data: unknown) => Promise<ForegroundDecision>;
 }>;
@@ -37,6 +39,7 @@ export function createNoticesController(dependencies: NoticesDependencies): Noti
     permission: () => gateway.permission(),
     promptOnConnected: () => promptForNotices({ gateway, store, confirm: dependencies.confirm }),
     enable: () => enableNotices({ gateway, store }),
+    flushPending: () => flushPendingUnregister({ store, api }),
     sync: async () => {
       await flushPendingUnregister({ store, api });
       const sessionId = await dependencies.readSessionId();
