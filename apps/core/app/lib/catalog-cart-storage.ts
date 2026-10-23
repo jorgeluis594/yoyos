@@ -9,7 +9,8 @@ const lineSchema = z.object({ variantId: z.uuid(), productId: z.uuid(), quantity
   /** Last price and display data the buyer saw; the order always uses the server price. */
   price: z.object({ amount: z.number(), currency: z.string() }), productName: z.string(), attributes: z.record(z.string(), z.string()),
   imageUrl: z.string().nullable() });
-const cartSchema = z.object({ orderId: z.uuid(), lines: z.array(lineSchema).max(maxCartLines) });
+/** `continued`: this cart's current order id was already sent to Continuar. Absent in carts stored before it existed, which read as `false`. */
+const cartSchema = z.object({ orderId: z.uuid(), lines: z.array(lineSchema).max(maxCartLines), continued: z.boolean().optional() });
 export type CatalogCartLine = z.infer<typeof lineSchema>;
 export type CatalogCart = z.infer<typeof cartSchema>;
 
@@ -17,7 +18,7 @@ const newOrderId = (): string => crypto.randomUUID();
 export const emptyCart = (orderId = newOrderId()): CatalogCart => ({ orderId, lines: [] });
 
 const content = (lines: readonly CatalogCartLine[]) => JSON.stringify(lines.map((line) => [line.variantId, line.quantity, line.price.amount]));
-/** The order id stays while lines, quantities and shown prices stay the same, so repeating Continuar opens the same order. */
+/** The order id stays while lines, quantities and shown prices stay the same, so repeating Continuar opens the same order. A new id drops `continued`: that order was never sent. */
 export function withLines(cart: CatalogCart, lines: CatalogCartLine[], nextId = newOrderId): CatalogCart {
   return content(lines) === content(cart.lines) ? { ...cart, lines } : { orderId: nextId(), lines };
 }
@@ -78,7 +79,13 @@ export function writeCart(companyId: string, cart: CatalogCart) {
   window.dispatchEvent(new Event(changeEvent));
 }
 
-/** Called by the checkout once the buyer confirms: only the cart that created that order is emptied. */
+/** Remembers that the cart's current order was sent to Continuar, so the storefront may ask later whether it was confirmed. */
+export function markContinued(companyId: string, orderId: string) {
+  const cart = readCart(companyId);
+  if (readRaw(companyId) !== null && cart.orderId === orderId && !cart.continued) writeCart(companyId, { ...cart, continued: true });
+}
+
+/** Called when the storefront learns the order was confirmed in the checkout: only the cart that created that order is emptied. */
 export function clearCartForOrder(companyId: string, orderId: string) {
   if (readRaw(companyId) !== null && readCart(companyId).orderId === orderId) writeCart(companyId, emptyCart());
 }
