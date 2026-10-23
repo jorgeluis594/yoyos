@@ -25,6 +25,7 @@ import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
 import { ScreenState } from "@mobile/components/ui/screen-state";
+import { useNotices } from "@mobile/features/notifications/presentation/notices-provider";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { deliveryMethodLabel, deliveryStatusLabel, documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
@@ -36,6 +37,9 @@ import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
 
 const money = (amount: number, currency: string, locale: string) => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 const date = (value: string, locale: string) => new Intl.DateTimeFormat(locale, { dateStyle: "long", timeStyle: "short", timeZone: "America/Lima" }).format(new Date(value));
+
+/** Notices that arrive in a burst refresh the open order once, this long after the first. */
+const noticeReloadWindowMs = 2000;
 
 export type CancellationUiState =
   | Readonly<{ kind: "idle" }>
@@ -85,16 +89,33 @@ export default function OrderDetailScreen() {
   const cancellationBusy = cancellation.kind === "submitting" || cancellation.kind === "verifying";
   const cancellationBlocked = cancellationBusy || cancellation.kind === "uncertain" || detailRefreshFailed;
   const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling || checkoutBusy;
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (silent = false) => {
     const generation = checkoutGeneration.current;
     const requestScope = scope;
-    setLoading(true);
+    if (!silent) setLoading(true);
     const result = await orders.loadOrderAggregate(id);
     if (generation !== checkoutGeneration.current || requestScope !== currentScope.current) return;
+    // A refresh the seller did not ask for keeps what is on screen when it fails.
     if (result.success) { setOrder(result.data); setError(""); loaded.current = true; }
-    else setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
+    else if (!silent) setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
   }, [id, scope]);
+  const noticeWatch = useNotices()?.watchArrivals;
+  const writing = useRef(false);
+  useLayoutEffect(() => { writing.current = writeBusy; });
+  // Any notice that arrives while the order is open may have changed it: refresh it, coalescing a burst.
+  useFocusEffect(useCallback(() => {
+    if (!noticeWatch || !companyId) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const refresh = () => {
+      // A write in flight owns the screen; look again after it settles.
+      if (writing.current || cancellationLock.current) { timer = setTimeout(refresh, noticeReloadWindowMs); return; }
+      timer = null;
+      void reload(true);
+    };
+    const stop = noticeWatch(() => { if (timer === null) timer = setTimeout(refresh, noticeReloadWindowMs); });
+    return () => { stop(); if (timer !== null) clearTimeout(timer); };
+  }, [noticeWatch, companyId, reload]));
   async function confirmPayment(paymentId: string, source: "manual" | "buyer_report", amountText: string,
     method: "digital_wallet" | "bank_transfer", deductStockIfPartial: boolean) {
     if (!order || cancellationLock.current || writeBusy || order.cancelled) return;
