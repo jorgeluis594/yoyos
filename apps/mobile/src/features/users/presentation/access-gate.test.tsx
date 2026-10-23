@@ -6,6 +6,13 @@ import { AccessGate } from '@/composition/access-gate';
 import { createAuthOperations } from '@/composition/create-auth-operations';
 
 jest.mock('@mobile/composition/whatsapp-runtime', () => ({ getWhatsAppRuntime: jest.fn(() => new Promise(() => undefined)) }));
+jest.mock('@mobile/composition/notifications', () => ({
+  loadCatalogReadiness: jest.fn(async () => ({ success: true, data: 'ready' })),
+  notices: {
+    setSession: jest.fn(), sync: jest.fn(async () => 'skipped'), permission: jest.fn(async () => 'granted'),
+    onTokenChange: jest.fn(() => () => undefined), enable: jest.fn(), promptOnConnected: jest.fn(),
+  },
+}));
 jest.mock('@mobile/components/root-stack', () => {
   const { Text: MockText } = jest.requireActual('react-native');
   return function RootStack() { return <MockText>Private tabs</MockText>; };

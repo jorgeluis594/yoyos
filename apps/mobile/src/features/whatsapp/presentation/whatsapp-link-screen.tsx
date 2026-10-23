@@ -7,6 +7,9 @@ import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
 import { informationalErrorCodes } from "@mobile/features/whatsapp/application/reception-lifecycle";
+import { CatalogReadinessHint } from "@mobile/features/whatsapp/presentation/catalog-readiness-hint";
+import { NoticesOffBanner } from "@mobile/features/notifications/presentation/notices-off-banner";
+import { useNotices } from "@mobile/features/notifications/presentation/notices-provider";
 import { QrCode } from "@mobile/features/whatsapp/presentation/qr-code";
 import { useWhatsApp } from "@mobile/features/whatsapp/presentation/whatsapp-provider";
 import { useTheme } from "@mobile/hooks/use-theme";
@@ -30,6 +33,10 @@ export default function WhatsAppLinkScreen() {
   const [busy, setBusy] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>(null);
   const secondsLeft = useSecondsLeft(status.qr?.expiresAt ?? null);
+  const promptOnConnected = useNotices()?.promptOnConnected;
+  const connected = status.link === "linked" && status.connection === "connected";
+  // Only a real connection asks for notices; an expired QR never reaches `connected`.
+  useEffect(() => { if (connected) void promptOnConnected?.(); }, [connected, promptOnConnected]);
 
   const run = async (operation: () => Promise<Feedback>) => {
     if (!runtime || busy) return;
@@ -113,6 +120,9 @@ export default function WhatsAppLinkScreen() {
               <Button variant="secondary" loading={busy} onPress={() => void unlink()}>{t("whatsappUnlink")}</Button>
             </>
           ) : null}
+
+          <NoticesOffBanner />
+          <CatalogReadinessHint />
 
           {status.notice && informationalErrorCodes.includes(status.notice) ? (
             <View style={[styles.notice, { backgroundColor: theme.backgroundElement }]}>

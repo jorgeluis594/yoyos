@@ -2,6 +2,7 @@ import type { AuthClientBoundary } from "@mobile/features/users/infrastructure/a
 import { createAuthOperations } from "./create-auth-operations";
 import { authClient } from "@mobile/shared/infrastructure/auth-client";
 import * as SecureStore from "expo-secure-store";
+import { cleanNotices } from "./notice-cleanup";
 import { coreUrl } from "@mobile/shared/infrastructure/core-url";
 
 const authSdk: AuthClientBoundary = {
@@ -14,5 +15,5 @@ const authSdk: AuthClientBoundary = {
   signOut: (signal) => authClient.signOut({ fetchOptions: { signal } }),
 };
 
-const operations = createAuthOperations(authSdk, SecureStore, fetch, coreUrl);
+const operations = createAuthOperations(authSdk, SecureStore, fetch, coreUrl, cleanNotices);
 export const { register, completeCompany, signIn, restoreSession, signOut, request, sessionGeneration, requestVerification, requestPasswordReset } = operations;

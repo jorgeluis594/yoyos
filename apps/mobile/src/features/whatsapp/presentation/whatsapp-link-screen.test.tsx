@@ -2,6 +2,8 @@ import { cleanup, fireEvent, render, waitFor } from "@testing-library/react-nati
 import { ok } from "@shared/functional";
 import WhatsAppLinkScreen from "@mobile/features/whatsapp/presentation/whatsapp-link-screen";
 import { initialWhatsAppStatus, type WhatsAppStatus } from "@mobile/features/whatsapp/presentation/whatsapp-status";
+import { NoticesProvider } from "@mobile/features/notifications/presentation/notices-provider";
+import type { NoticesController } from "@mobile/features/notifications/application/notices-controller";
 import i18n from "@mobile/i18n";
 
 let mockStatus: WhatsAppStatus = initialWhatsAppStatus;
@@ -14,7 +16,11 @@ const mockRuntime = {
 jest.mock("@mobile/features/whatsapp/presentation/whatsapp-provider", () => ({
   useWhatsApp: () => ({ runtime: mockRuntime, status: mockStatus, refresh: mockRefresh }),
 }));
-jest.mock("expo-router", () => ({ useRouter: () => ({ push: jest.fn() }) }));
+const mockPush = jest.fn();
+jest.mock("expo-router", () => ({
+  useRouter: () => ({ push: mockPush }),
+  useFocusEffect: (effect: () => void | (() => void)) => jest.requireActual("react").useEffect(effect, [effect]),
+}));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 
 const linked = (overrides: Partial<WhatsAppStatus> = {}): WhatsAppStatus => ({ ...initialWhatsAppStatus, link: "linked", ...overrides });
@@ -116,4 +122,83 @@ test("shows the library error code and offers to reconnect after an unexpected d
 test("does not offer reconnecting when disconnected without an error", () => {
   mockStatus = linked({ connection: "disconnected" });
   expect(render(<WhatsAppLinkScreen />).queryByRole("button", { name: "Reintentar conexión" })).toBeNull();
+});
+
+function fakeController(permission: "granted" | "denied" | "undetermined") {
+  const state = { permission, prompts: 0, enables: 0 };
+  const controller: NoticesController = {
+    session: () => null,
+    setSession: () => {},
+    permission: async () => state.permission,
+    promptOnConnected: async () => { state.prompts++; return state.permission; },
+    enable: async () => { state.enables++; state.permission = "granted"; return state.permission; },
+    sync: async () => "unchanged",
+    onTokenChange: () => () => {},
+    decideForeground: async () => "show",
+  };
+  return { controller, state };
+}
+
+const loadReady = async () => ok("ready" as const);
+const renderWithNotices = (controller: NoticesController, state: "no_active_products" | "no_searchable_photos" | "ready" = "ready") =>
+  render(<NoticesProvider controller={controller} companyId="company-1" loadCatalogReadiness={async () => ok(state)}><WhatsAppLinkScreen /></NoticesProvider>);
+
+test("asks for notification permission once when the WhatsApp link first becomes connected", async () => {
+  const { controller, state } = fakeController("undetermined");
+  mockStatus = linked({ connection: "connecting" });
+  const screen = renderWithNotices(controller);
+  await waitFor(() => expect(screen.getByText("Conectando…")).toBeTruthy());
+  expect(state.prompts).toBe(0);
+
+  mockStatus = linked({ connection: "connected" });
+  screen.rerender(<NoticesProvider controller={controller} companyId="company-1" loadCatalogReadiness={loadReady}><WhatsAppLinkScreen /></NoticesProvider>);
+  await waitFor(() => expect(state.prompts).toBe(1));
+  screen.rerender(<NoticesProvider controller={controller} companyId="company-1" loadCatalogReadiness={loadReady}><WhatsAppLinkScreen /></NoticesProvider>);
+  expect(state.prompts).toBe(1);
+});
+
+test("does not ask for permission after an expired QR", async () => {
+  const { controller, state } = fakeController("undetermined");
+  mockStatus = linked({ connection: "awaitingQr", qr: { value: "qr-value", expiresAt: Date.now() - 1 } });
+  const screen = renderWithNotices(controller);
+  await waitFor(() => expect(screen.getByText("El código venció. Solicita uno nuevo.")).toBeTruthy());
+  expect(state.prompts).toBe(0);
+});
+
+test("shows the notices-off banner and opens settings after a denial", async () => {
+  const { controller, state } = fakeController("undetermined");
+  mockStatus = linked({ connection: "disconnected" });
+  const screen = renderWithNotices(controller);
+  await waitFor(() => expect(screen.getByText(/Los avisos están desactivados/)).toBeTruthy());
+
+  fireEvent.press(screen.getByRole("button", { name: "Activar avisos" }));
+  await waitFor(() => expect(state.enables).toBe(1));
+  await waitFor(() => expect(screen.queryByText(/Los avisos están desactivados/)).toBeNull());
+});
+
+test("hides the notices-off banner while permission is granted", async () => {
+  const { controller } = fakeController("granted");
+  mockStatus = linked({ connection: "connected" });
+  const screen = renderWithNotices(controller);
+  await waitFor(() => expect(screen.getByText("WhatsApp conectado")).toBeTruthy());
+  expect(screen.queryByText(/Los avisos están desactivados/)).toBeNull();
+});
+
+test("shows the catalog hint for no products and for products without searchable photos", async () => {
+  const { controller } = fakeController("granted");
+  mockStatus = linked({ connection: "connected" });
+
+  const noProducts = renderWithNotices(controller, "no_active_products");
+  await waitFor(() => expect(noProducts.getByText(/Aún no tienes productos/)).toBeTruthy());
+  fireEvent.press(noProducts.getByRole("button", { name: "Ir a Productos" }));
+  expect(mockPush).toHaveBeenCalledWith("/products");
+  noProducts.unmount();
+
+  const noPhotos = renderWithNotices(controller, "no_searchable_photos");
+  await waitFor(() => expect(noPhotos.getByText(/todavía no puede reconocer fotos/)).toBeTruthy());
+  noPhotos.unmount();
+
+  const ready = renderWithNotices(controller, "ready");
+  await waitFor(() => expect(ready.getByText("WhatsApp conectado")).toBeTruthy());
+  expect(ready.queryByText("Ir a Productos")).toBeNull();
 });
