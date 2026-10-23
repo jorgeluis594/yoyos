@@ -1,12 +1,12 @@
 import type { NextFunction, Request, Response } from "express";
 import { apiErrorResponseSchema, type ApiErrorCode } from "@shared/contracts/registration";
-import { requireCompany, type ReadyAccess, type UserAccess } from "@core/src/features/users";
-import { resolveCurrentAccess } from "@core/src/shared/infrastructure/current-user";
+import { requireCompany, type ReadyAccess } from "@core/src/features/users";
+import { resolveCurrentAccess, type CurrentAccess } from "@core/src/shared/infrastructure/current-user";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { bindCompanyToRequest } from "@core/src/shared/infrastructure/logger";
 
-export type AuthenticatedLocals = { auth: UserAccess };
-export type PrivateLocals = { auth: ReadyAccess };
+export type AuthenticatedLocals = { auth: CurrentAccess };
+export type PrivateLocals = { auth: ReadyAccess & Readonly<{ sessionId: string }> };
 
 export function apiError(response: Response, status: number, code: ApiErrorCode, message: string, issues?: readonly unknown[]) {
   return response.status(status).json(apiErrorResponseSchema.parse({ code, error: message, ...(issues ? { issues } : {}) }));
@@ -40,6 +40,6 @@ export function requireApiCompany(_request: Request, response: Response<unknown,
   if (!result.success) return result.error.code === "EMAIL_VERIFICATION_REQUIRED"
     ? apiError(response, 403, "EMAIL_VERIFICATION_REQUIRED", "Email verification required")
     : apiError(response, 409, "COMPANY_REQUIRED", "Company required");
-  response.locals.auth = result.data;
+  response.locals.auth = { ...result.data, sessionId: response.locals.auth.sessionId };
   return next();
 }
