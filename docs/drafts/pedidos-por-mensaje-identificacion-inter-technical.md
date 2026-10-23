@@ -381,7 +381,7 @@ export type ChatMessageOutcome =
   | Readonly<{ kind: "not_identified"; source: "photo" | "text"; identification: ProductIdentification | null; silent: boolean }>
   | Readonly<{ kind: "not_clear"; productIds: readonly ProductId[]; silent: boolean }>
   | Readonly<{ kind: "variant_missing" | "variant_not_available" | "quantity_above_limit"; productId: ProductId; identification: ProductIdentification | null }>
-  | Readonly<{ kind: "unclear_item"; namedItem: boolean; namedProductId: ProductId | null }>
+  | Readonly<{ kind: "unclear_item"; orderId: OrderId | null; namedItem: boolean; namedProductId: ProductId | null }>   // orderId: the open order it was read against
   | Readonly<{ kind: "new_order_after_closed"; orderId: OrderId; previousOrderId: OrderId }>
   | Readonly<{ kind: "failed"; errorCode: ChatMessageFailureCode }>;
 ```
@@ -410,6 +410,11 @@ It folds the actions in order:
 | `report` | Its outcome. | same | same |
 
 - **Target resolution under lock:** `unnamed` resolves when the order has exactly one item. With two or more items, or for a variant that is no longer in the order, the result is `unclear_item`.
+- **`unclear_item` carries `orderId`** (decided in review): the open order it was resolved against, or `null` when the chat had none. The domain fills it, also for an `unclear_item` reported by a tool. The notice choice passes it through, so T12 renders «… del pedido #N» from the order at apply time and does not read the chat's current order.
+- **Item actions resolve against the target as it was before this message** (decided in review). When an `add` creates a new order after a closed one, a removal, quantity, variant or mentioned-price change in the same message still meets the closed order: «agrega una gorra y quita el polo» creates the order with the gorra and reports `order_closed` for the removal, whatever the action order.
+- **`needsNewChatOrder(target, actions, limits)`** (exported, same file) says whether applying the actions creates an order: an `add` within `maxItemQuantity` while no order is open. T9 calls it first, allocates the order number only when it is `true`, and then calls `applyChatActions`. `seed.number` is a placeholder when it is `false`.
+- **A missing `productIds` entry degrades to `unclear_item`** (decided in review) on the over-limit and variant-change paths, with `namedProductId: null`, instead of failing the message with `INVALID_ORDER`.
+- **No change, no notice:** a `change_variant` to the item's own variant without a mentioned price, and a `set_mentioned_price` with a `null` price (for example dropped as another currency), record `no_intent`.
 - **New state-machine operations:** `removeItem`, `setItemQuantity`, `replaceItemVariant`, `setItemMentionedPrice`. Each recalculates through `buildOrder`, and `items` never becomes empty.
 
 ### 6.3 AI tool infrastructure (`shared/ai-tools/`), the single contract (owned by T3)
@@ -1131,6 +1136,8 @@ Shared files by wave:
 - `chat-message-tools.ts` with the photo tools and `no_intent`.
 - The chat registry and `ChatToolDependencies` (text identification, variants, Luna) wired in `orders/composition.ts`, so T11 only adds tools.
 - `lockContact`.
+- Calling `needsNewChatOrder` before `applyChatActions` and allocating the order number only when it returns `true` (§6.2).
+- Mapping T4's `VariantResolution` to T5's `ChangeVariantResolution` in the tool wiring: `resolved` → `{ kind: "resolved", item }` (`CatalogItem` is structurally the same as `ChatOrderCatalogItem`); `missing` → `{ kind: "missing", productId }` and `not_available` → `{ kind: "not_available", productId }`, with `productId` taken from the product the tool resolved.
 - The repository: target reads and locks, `saveItemChanges`, `ChatMessageOutcome`, `recordFailedOutcome`.
 - `chat_message_processed` publication.
 - The old use case and policy deleted.
@@ -1146,6 +1153,7 @@ Shared files by wave:
 6. A «hola» creates no `Customer`.
 7. A crash between the commit and the publish is recovered: the re-run publishes the notice once.
 8. A matched photo whose caption is «👍» adds the shown product with no interpretation request.
+9. `findChatOrderTargetForUpdate` fills `productIds` for every item of the open order, so no item degrades to `unclear_item` for lack of its product.
 
 **Tests:** `apply-chat-message.test.ts`, `chat-message-handler.test.ts`, and the orders integration titles.
 
@@ -1198,6 +1206,7 @@ Shared files by wave:
 **Scope:**
 - The orders capabilities `claimChatMessageNotice` (with `chatId`), `describeChatMessageNotice` and `releaseChatMessageNotice`.
 - `seller-notice-texts.ts` (es from the product draft, pt-BR).
+- `describeChatMessageNotice` resolves the order numbers from the ids of the notice (`orderId` of `unclear_item` and `order_closed`, `newOrderId`, `previousOrderId`), so «… del pedido #N» names the order at apply time, not the chat's current one.
 - `GET /api/seller-notices/:messageId` and its router.
 - Registering `send-chat-message-notice` with the §9 policy.
 
