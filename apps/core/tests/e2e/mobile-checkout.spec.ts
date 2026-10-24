@@ -22,13 +22,14 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await withTenantIsolation(tenant, async () => { await prisma.company.update({ where: { id: tenant }, data: { nextOrderNumber: 9999n } }); });
     const historical = randomUUID();
     expect((await page.request.post("/api/orders", { data: { id: historical, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    // Orders are born enabled; a legacy row without the timestamp is simulated.
+    await withTenantIsolation(tenant, async () => { await prisma.order.update({ where: { id: historical }, data: { checkoutEnabledAt: null } }); });
     const id = randomUUID();
     expect((await page.request.post("/api/orders", { data: { id, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     await page.setViewportSize({ width: 390, height: 844 });
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto(`${mobile.origin}/orders/${id}`, { timeout: 90_000 });
     await browserExpect(page.getByText("Pedido #10000", { exact: true })).toBeVisible({ timeout: 90000 });
-    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Confirmación del comprador", exact: true }).click();
     await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
