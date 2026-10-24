@@ -4,11 +4,10 @@ import { useTranslation } from "react-i18next";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
-import type { action } from "@core/app/routes/order-detail";
 import { SelectPortalContainer } from "@core/app/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
-import { paymentErrorKey, PaymentDecisionForm, type DecisionKind } from "@core/src/features/orders/presentation/payment-decision-form";
-import { paymentDate, type PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
+import { paymentErrorKey, PaymentDecisionForm, type DecisionKind, type PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
+import { paymentDate, reportedAt, type PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
 
 type Order = OrderAggregateResponse;
 export type PaymentDialogKind = "receipt" | DecisionKind;
@@ -33,7 +32,7 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
   const [dismissed, setDismissed] = useState<unknown>(null);
   // The modal traps outside clicks, so the method select opens inside the dialog itself (as the sheets do).
   const [content, setContent] = useState<HTMLDivElement | null>(null);
-  const fetcher = useFetcher<typeof action>();
+  const fetcher = useFetcher<PaymentDecisionResult>();
   const handled = useRef<unknown>(null);
   useEffect(() => {
     const result = fetcher.data;
@@ -49,7 +48,7 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
   const back = () => kind === "receipt" ? (clearFailure(), setStep("choose")) : onClose();
   const title = kind === "receipt" ? t("orders.receiptTitle") : kind === "register" ? t("orders.registerPaymentTitle")
     : kind === "approve" ? t("orders.approvePaymentTitle") : t("orders.rejectTitle");
-  const description = kind === "receipt" && payment ? t("orders.receiptSubtitle", { number: order.number, date: format.date(paymentDate(payment)) })
+  const description = kind === "receipt" && payment ? t("orders.receiptSubtitle", { number: order.number, date: format.date(reportedAt(payment) ?? paymentDate(payment)) })
     : kind === "reject" ? t("orders.rejectBody") : kind === "register" ? t("orders.registerPaymentHint") : t("orders.orderPendingBalance", { amount: format.amount(order.balanceDue) });
   const state = payment?.status === "confirmed" ? "paymentStateConfirmed" : payment?.status === "rejected" ? "paymentStateRejected"
     : payment?.status === "voided" ? "paymentStateVoided" : "paymentStateCancelled";

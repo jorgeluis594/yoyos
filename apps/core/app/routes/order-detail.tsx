@@ -4,8 +4,9 @@ import { isOrderId } from "@core/src/features/orders/domain/order";
 import { readCancellationOrder, verifyCancellation, cancellationMessage, type CancelOrderActionError, type CancellationClientResult, type CancellationUiState } from "@core/src/features/orders/presentation/cancellation-client";
 import { cancelOrderResponseSchema, type CancelOrderResponse, type OrderAggregateResponse } from "@shared/contracts/orders";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
+import type { PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
 import { OrderPaymentsCard } from "@core/src/features/orders/presentation/order-payments-card";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
 import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
@@ -226,6 +227,7 @@ export default function OrderDetail() {
   const result = actionData && "operation" in actionData && actionData.operation === "delivery" ? actionData : undefined;
   const fulfillment = actionData && "operation" in actionData && (actionData.operation === "ship" || actionData.operation === "deliver") ? actionData : undefined;
   const navigation = useNavigation();
+  const voidResult = useMemo<PaymentDecisionResult | undefined>(() => actionData && !("operation" in actionData) ? { success: actionData.success, error: actionData.error === false ? false : String(actionData.error) } : undefined, [actionData]);
   const editable = !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
   const [editingDelivery, setEditingDelivery] = useState(false);
   const link = buyerLink(order);
@@ -302,7 +304,7 @@ export default function OrderDetail() {
         </Card>
 
         <OrderPaymentsCard order={order} receiptUrls={receiptUrls} manualPaymentId={manualPaymentId} format={{ amount, date }}
-          voidResult={actionData && !("operation" in actionData) ? { success: actionData.success, error: actionData.error === false ? false : String(actionData.error) } : undefined} />
+          voidResult={voidResult} />
 
         <Card role="region" aria-labelledby="checkout-title" className="min-w-0 max-xl:order-5">
           <CardHeader className="flex-row flex-wrap items-center justify-between gap-3"><CardTitle id="checkout-title">{t("orders.checkout")}</CardTitle>{!order.cancelled && <checkout.Form method="post"><Button type="submit" variant="outline" disabled={checkout.state !== "idle"}>{t("orders.getCheckoutLink")}</Button></checkout.Form>}</CardHeader>

@@ -1,7 +1,7 @@
 import { mkdir, readFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import { afterAll, beforeAll } from "vitest";
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, test, waitForReactHydration } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { formatCurrency } from "@core/app/format-currency";
@@ -233,6 +233,7 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
     await browserExpect(page.getByRole("img", { name: "Instrucciones de billetera digital" })).toBeVisible();
 
     const sendReceipt = async () => {
+      await waitForReactHydration(page, "#receipt");
       const imageId = crypto.randomUUID();
       await withTenantIsolation(tenantId, async () => await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } }));
       await page.route(`**/api/buyer/orders/${orderId}/images`, (route) => route.fulfill({ status: 201, contentType: "application/json",
@@ -263,7 +264,7 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
     // The buyer sees the rejection first in the upload block and in the list of receipts, and sends another receipt.
     await page.goto(checkoutPath);
     await browserExpect(page.getByText("Tu comprobante fue rechazado")).toBeVisible();
-    await browserExpect(page.getByText("Motivo: El monto no coincide.").first()).toBeVisible();
+    await browserExpect(page.getByText("Motivo: El monto no coincide.")).toHaveCount(2);
     await browserExpect(page.getByRole("link", { name: "Ver captura · Rechazado" })).toBeVisible();
     // A retried «Ya pagué» with the rejected payment answers «reported», yet the checkout keeps showing the refreshed rejection.
     const replay = await request.post(`/api/buyer/orders/${orderId}/reports`, { data: { paymentId: first.id, receiptImageId: (first.data as { receiptImageId: string }).receiptImageId } });
@@ -286,7 +287,24 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
     await browserExpect(page.getByRole("listitem").filter({ hasText: "Pago rechazado" })).toHaveCount(2);
     await browserExpect(page.getByText("Motivo: Foto borrosa")).toBeVisible();
     await browserExpect(page.getByText("Pago por revisar")).toHaveCount(0);
-    expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId, status: "rejected" } }))).toBe(2);
+
+    // A third receipt is rejected from the receipt dialog: the dialog closes, the card says so and focus lands on the decided row.
+    await page.goto(checkoutPath);
+    await sendReceipt();
+    await page.goto(`/es-PE/orders/${orderId}`);
+    await page.getByRole("button", { name: /^Ver captura del/ }).first().click();
+    const review = page.getByRole("dialog", { name: "Comprobante de pago" });
+    await review.getByRole("button", { name: "Rechazar", exact: true }).click();
+    await browserExpect(review.getByRole("heading", { name: "¿Rechazar este comprobante?" })).toBeVisible();
+    await browserExpect(review.getByLabel("Motivo (opcional, lo verá el comprador)")).toBeFocused();
+    await review.getByLabel("Motivo (opcional, lo verá el comprador)").fill("Foto cortada");
+    await review.getByRole("button", { name: "Rechazar comprobante" }).click();
+    await browserExpect(review).toHaveCount(0);
+    await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
+    await browserExpect(page.getByRole("listitem").filter({ hasText: "Motivo: Foto cortada" })).toBeFocused();
+    await browserExpect(page.getByRole("listitem").filter({ hasText: "Pago rechazado" })).toHaveCount(3);
+    await browserExpect(page.getByText("Pago por revisar")).toHaveCount(0);
+    expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId, status: "rejected" } }))).toBe(3);
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(2n);
   } finally {
     const user = await systemPrisma.user.findUnique({ where: { email }, select: { companyId: true } });

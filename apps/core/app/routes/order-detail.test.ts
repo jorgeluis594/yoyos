@@ -230,3 +230,13 @@ test("receipt thumbnails load lazily with fixed dimensions", async () => {
     expect(html).not.toContain("Comprobante de pago");
   } finally { router.dispose(); }
 });
+
+test.each(["confirm", "reject", "void"])("a lost %s response answers NO_RESPONSE so the card reloads and shows the uncertain-result message", async operation => {
+  const serverAction = vi.fn(async () => { throw new Error("Lost response"); });
+  const request = new Request(`http://localhost/es-PE/orders/${orderId}`, { method: "POST", body: new URLSearchParams({ operation, paymentId: orderId }) });
+  const result = await clientAction({ ...args(), request, params: { orderId }, serverAction });
+  expect(result).toEqual({ url: null, success: false, error: "NO_RESPONSE" });
+  expect(serverAction).toHaveBeenCalledOnce();
+  expect(paymentErrorKey("NO_RESPONSE")).toBe("orders.paymentUncertain");
+  expect(shouldRevalidate({ actionResult: result, defaultShouldRevalidate: true })).toBe(true);
+});

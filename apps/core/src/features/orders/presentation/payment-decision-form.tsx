@@ -9,6 +9,9 @@ import { Input } from "@core/app/components/ui/input";
 import { formatCurrency } from "@core/app/format-currency";
 import { isValidPaymentAmount, PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 
+/** What the route action answers to a payment decision; the dialog reads only the outcome. */
+export type PaymentDecisionResult = Readonly<{ success: boolean; error: string | false }>;
+
 export type DecisionKind = "approve" | "register" | "reject";
 
 /** Text key of a failed payment decision. A conflicting decision means somebody reviewed that payment first. */

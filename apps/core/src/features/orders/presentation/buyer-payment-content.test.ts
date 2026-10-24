@@ -31,6 +31,9 @@ test("shows the rejection notice with its reason at the start of the upload bloc
   expect(html).toContain("Envía otro comprobante para que la tienda lo revise.");
   expect(html.indexOf("Tu comprobante fue rechazado")).toBeLessThan(html.indexOf("Adjunta tu comprobante"));
   expect(html).toContain("Ver captura · Rechazado");
+  // The reason shows twice: in the notice and under the rejected receipt.
+  expect(html.split("Motivo: El monto no coincide.").length - 1).toBe(2);
+  expect(html.indexOf("Ver captura · Rechazado")).toBeLessThan(html.lastIndexOf("Motivo: El monto no coincide."));
   expect(html).not.toContain("Pago pendiente de revisión");
 });
 

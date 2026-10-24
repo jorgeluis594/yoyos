@@ -8,7 +8,7 @@ import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { PaymentDialog, type PaymentDialogKind } from "@core/src/features/orders/presentation/receipt-dialog";
-import { paymentErrorKey } from "@core/src/features/orders/presentation/payment-decision-form";
+import { paymentErrorKey, type PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
 import { paymentDate, paymentRowId, type PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
 
 type Order = OrderAggregateResponse;
@@ -36,7 +36,7 @@ export function paymentActionName(t: TFunction, action: RowAction, when: string)
 }
 
 type CardProps = Readonly<{ order: Order; receiptUrls: Record<string, string>; manualPaymentId: string; format: PaymentFormat;
-  voidResult: Readonly<{ success: boolean; error: string | false }> | undefined }>;
+  voidResult: PaymentDecisionResult | undefined }>;
 type OpenDialog = Readonly<{ kind: PaymentDialogKind; paymentId: string }>;
 
 export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format, voidResult }: CardProps) {
@@ -45,12 +45,15 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
   const summary = paymentCardSummary(order);
   const [dialog, setDialog] = useState<OpenDialog | null>(null);
   const [saved, setSaved] = useState(false);
+  // A void answer belongs to the moment it arrived: opening a dialog dismisses it so it never sits next to a later result.
+  const [dismissedVoid, setDismissedVoid] = useState<unknown>(null);
+  const visibleVoid = voidResult !== dismissedVoid ? voidResult : undefined;
   const pendingFocus = useRef<string | null>(null);
   const opener = useRef<HTMLElement | null>(null);
   const decided = useRef(false);
   const history = [...order.payments].sort((a, b) => paymentDate(b).localeCompare(paymentDate(a)));
   const open = (kind: PaymentDialogKind, paymentId: string, element: HTMLElement) => {
-    opener.current = element; decided.current = false; setSaved(false); setDialog({ kind, paymentId });
+    opener.current = element; decided.current = false; setSaved(false); setDismissedVoid(voidResult); setDialog({ kind, paymentId });
   };
   // The decided row may only exist after the card reloads, so the focus waits for the next render that finds it.
   useEffect(() => {
@@ -72,8 +75,8 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
           {summary.reviewPending && <dd className="font-medium text-warning-foreground">{t("orders.paymentReviewPending")}</dd>}</div>
       </dl>
       {order.overpaidAmount.amount > 0 && <Alert variant="warning"><AlertDescription>{t("orders.overpaid", { amount: format.amount(order.overpaidAmount) })}</AlertDescription></Alert>}
-      {voidResult?.error && <Alert variant="destructive"><AlertDescription>{t(paymentErrorKey(voidResult.error))}</AlertDescription></Alert>}
-      {(saved || voidResult?.success) && <Alert variant="success"><AlertDescription role="status">{t("orders.paymentSaved")}</AlertDescription></Alert>}
+      {visibleVoid?.error && <Alert variant="destructive"><AlertDescription>{t(paymentErrorKey(visibleVoid.error))}</AlertDescription></Alert>}
+      {((saved && !visibleVoid?.error) || visibleVoid?.success) && <Alert variant="success"><AlertDescription role="status">{t("orders.paymentSaved")}</AlertDescription></Alert>}
       <section className="flex flex-col gap-3 border-t pt-4" aria-labelledby="payment-history-title">
         <h3 id="payment-history-title" className="text-sm font-semibold">{t("orderDetail.paymentHistory")}</h3>
         {history.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderDetail.noPayments")}</p> : <ul className="flex flex-col gap-3">{history.map(payment => {
