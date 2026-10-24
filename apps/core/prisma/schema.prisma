@@ -107,6 +107,7 @@ model Company {
   payments Payment[]
   deliverySettings CompanyDeliverySettings?
   paymentSettings CompanyPaymentSettings?
+  dispatchSender CompanyDispatchSender?
   checkoutAppearance CompanyCheckoutAppearance?
   couriers CompanyCourier[]
   deliveryZones DeliveryZone[]
@@ -279,6 +280,14 @@ model CompanyPaymentSettings {
   companyId String @id @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
   settings Json
+}
+
+model CompanyDispatchSender {
+  companyId String   @id @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String?  @db.VarChar(120)
+  phone     String?  @db.VarChar(30)
+  updatedAt DateTime @updatedAt
 }
 
 enum CheckoutTheme {

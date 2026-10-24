@@ -34,6 +34,10 @@ const es = {
     ratesByZone: "Los distritos, las tarifas y las agencias de destino se definen por zona.", goToZones: "Ir a zonas y tarifas",
     title: "Modalidades de entrega", description: "Configura las opciones que ofreces a tus clientes.", home: "Entrega a domicilio", homeEnabled: "Ofrecer entrega a domicilio", agency: "Envío a agencia", agencyEnabled: "Ofrecer envío a agencia", store: "Recojo en tienda", enabled: "Ofrecer recojo en tienda", storeHint: "Al desactivar el recojo, conservamos los datos del punto para volver a activarlo.", name: "Nombre del punto de recojo", address: "Dirección", instructions: "Indicaciones (opcional)", saving: "Guardando…", rowSaved: "Guardado", reload: "Recargar configuración", invalid: "Completa los campos obligatorios.", agencyHowTo: "En cada zona, agrega una opción de agencia: eliges el courier, sus agencias de destino y la tarifa.", conflict: "Otra persona cambió la configuración. Recarga para ver los cambios.", notSent: "No se pudo guardar. Revisa tu conexión y vuelve a intentarlo.", inDoubt: "No pudimos confirmar el guardado.", retrySave: "Reintentar", activateStore: "Completa el nombre y la dirección para activar el recojo.", leave: "Hay cambios del punto de recojo sin guardar.", leaveConfirm: "Salir sin guardar", leaveStay: "Seguir editando", loadError: "No se pudo cargar la configuración",
   },
+  dispatchSender: {
+    title: "Remitente", description: "Aparece en tus rótulos de despacho. Si lo dejas vacío, usamos el nombre de tu negocio.",
+    name: "Nombre del remitente", phone: "Teléfono del remitente (opcional)",
+  },
   orderCancellation: {
     cancel: "Cancelar pedido", keep: "Conservar pedido", confirm: "¿Cancelar este pedido?",
     effects: "La devolución del stock descontado se procesará después de cancelar. Los pagos registrados se conservarán; cancelar no realiza un reembolso. No podrás reabrir este pedido.",
@@ -175,6 +179,10 @@ const pt = {
     agencyScope: "Você envia o pedido para a agência da transportadora escolhida pelo cliente.",
     ratesByZone: "Os distritos, as tarifas e as agências de destino são definidos por zona.", goToZones: "Ir para zonas e tarifas",
     title: "Modalidades de entrega", description: "Configure as opções que você oferece aos seus clientes.", home: "Entrega em domicílio", homeEnabled: "Oferecer entrega em domicílio", agency: "Envio para agência", agencyEnabled: "Oferecer envio para agência", store: "Retirada na loja", enabled: "Oferecer retirada na loja", storeHint: "Ao desativar a retirada, mantemos os dados do ponto para ativá-lo novamente.", name: "Nome do ponto de retirada", address: "Endereço", instructions: "Instruções (opcional)", saving: "Salvando…", rowSaved: "Salvo", reload: "Recarregar configuração", invalid: "Preencha os campos obrigatórios.", agencyHowTo: "Em cada zona, adicione uma opção de agência: você escolhe a transportadora, suas agências de destino e a tarifa.", conflict: "Outra pessoa alterou a configuração. Recarregue para ver as alterações.", notSent: "Não foi possível salvar. Verifique sua conexão e tente novamente.", inDoubt: "Não conseguimos confirmar o salvamento.", retrySave: "Tentar novamente", activateStore: "Preencha o nome e o endereço para ativar a retirada.", leave: "Há alterações do ponto de retirada não salvas.", leaveConfirm: "Sair sem salvar", leaveStay: "Continuar editando", loadError: "Não foi possível carregar a configuração",
+  },
+  dispatchSender: {
+    title: "Remetente", description: "Aparece nas suas etiquetas de despacho. Se você deixar vazio, usamos o nome do seu negócio.",
+    name: "Nome do remetente", phone: "Telefone do remetente (opcional)",
   },
   orderCancellation: {
     cancel: "Cancelar pedido", keep: "Manter pedido", confirm: "Cancelar este pedido?",
