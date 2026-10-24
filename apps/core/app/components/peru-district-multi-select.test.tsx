@@ -25,7 +25,7 @@ test("selection lists names once and shows loose districts with their code and s
 test("empty coverage requires hierarchy before searching districts", () => {
   const html = renderToStaticMarkup(withI18n(<PeruDistrictMultiSelect value={none} onChange={() => undefined} />));
   expect(html).toContain("0 distritos seleccionados");
-  expect(html).toContain('placeholder="Selecciona departamento y provincia');
+  expect(html).toContain('placeholder="Elige provincia');
   expect(html).toMatch(/<input[^>]*role="combobox"[^>]*disabled=""/);
 });
 
@@ -41,7 +41,7 @@ test("a complete department summarises as one entry, disables province and distr
   expect(html).toContain(": Arequipa, todos los distritos; Cusco, todos los distritos");
   expect(html).toContain("Arequipa ya está completo en la zona.");
   expect(html).toContain("Todos los distritos de Arequipa");
-  expect(html).toMatch(/<select[^>]*disabled=""[^>]*>\s*<option value="" selected="">Selecciona una provincia/);
+  expect(html).toMatch(/<select[^>]*disabled=""[^>]*>\s*<option value="" selected="">Selecciona</);
   expect(html).not.toContain("CAYMA");
 });
 
