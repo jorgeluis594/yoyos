@@ -18,8 +18,11 @@ type AgencyDispatchLabel = Readonly<{
   courier: string;
 }>;
 
+/** Effective sender: the stored name (or the company name when empty) and an optional phone. */
+export type DispatchLabelSender = Readonly<{ name: string; phone: string | null }>;
+
 /** Only what the renderer draws; no payments, stock or network objects. `scheduledDate` is a calendar day (YYYY-MM-DD). */
-export type DispatchLabel = Readonly<{ sender: string; scheduledDate: string | null }> & (HomeDispatchLabel | AgencyDispatchLabel);
+export type DispatchLabel = Readonly<{ sender: DispatchLabelSender; orderNumber: number; scheduledDate: string | null }> & (HomeDispatchLabel | AgencyDispatchLabel);
 
 export type DispatchLabelMissingField =
   | "recipientName" | "recipientPhone" | "recipientDocument" | "department" | "province" | "district"

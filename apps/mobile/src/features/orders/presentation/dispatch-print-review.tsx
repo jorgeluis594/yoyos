@@ -13,7 +13,7 @@ import { orders } from "@mobile/features/orders/composition";
 import { dispatchPrinting } from "@mobile/features/orders/composition-dispatch-printing";
 import { prepareDispatchLabels } from "@mobile/features/orders/application/order-printing";
 import { resolveUnknown, runDispatchBatch, type DispatchBatchEnd, type DispatchPrintEntry } from "@mobile/features/orders/application/dispatch-print-batch";
-import type { DispatchLabelExclusion, DispatchLabelPreparation } from "@mobile/features/orders/domain/dispatch-label";
+import type { DispatchLabelExclusion, DispatchLabelPreparation } from "@shared/dispatch-label/types";
 import { usePrint } from "@mobile/features/printing/presentation/print-provider";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useTheme } from "@mobile/hooks/use-theme";
@@ -56,7 +56,7 @@ function DispatchPrintSession({ children, sender }: { children: ReactNode; sende
     void (async () => {
       const fits = await dispatchPrinting.createFit();
       const results = await prepareDispatchLabels(selected.map(({ id }) => id), {
-        sender, fits, readOrder: async (id) => { const read = await orders.get(id); return read.success ? read : { success: false, error: { message: read.error.message } }; },
+        sender: dispatchPrinting.senderFor(sender), fits, readOrder: async (id) => { const read = await orders.get(id); return read.success ? read : { success: false, error: { message: read.error.message } }; },
       });
       if (alive.current) setPhase({ kind: "review", results });
     })().catch(() => { if (alive.current) setPhase({ kind: "idle" }); });
