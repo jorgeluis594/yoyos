@@ -108,7 +108,9 @@ model returned (mentions, variant words, quantity, price) and each text choice. 
   own `pick` and is graded by it (`lib/picks.ts`), not by the outcome, which below a gate the gate itself decides: the Decision's
   action is right when it is the expected tool (`several` for several tools); a text, visual or variant pick when an acceptable final
   order (or the text or image expectation) has that product or variant. Item choices and picks a case cannot grade are counted as
-  ungraded. «none» answers of the text and variant choosers are their own sources (`text_none`, `variant_none`);
+  ungraded. «none» answers of the text, variant and vision choosers are their own sources (`text_none`, `variant_none`,
+  `visual_none`). `shows_product` is the vision chooser's probability that the photo shows a product, at its 0.5 gate, with pick
+  `product` or `not_product`; it is graded in the image pass only (a message expectation does not say whether its photo is a product);
 - consistency flips, prompt injection outcomes, judge rescues and disagreements;
 - p50/p95 latency of the scored model step only (no chat creation, order seeding or retried attempts; retries are counted apart),
   model calls, tokens and estimated cost per model and role;

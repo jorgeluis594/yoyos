@@ -64,8 +64,14 @@ function gradeText(pick: string | null, expectations: readonly TextExpectation[]
   });
 }
 
-function gradeImage(pick: string, expectations: readonly ImageExpectation[]): boolean {
-  return expectations.some((expectation) => expectation.kind === "found" && expectation.product === pick);
+/** A visual pick names the expected product; «none» is right when the photo may end unidentified or as no product. */
+function gradeImage(pick: string | null, expectations: readonly ImageExpectation[]): boolean {
+  return expectations.some((expectation) => expectation.kind === "found" ? expectation.product === pick : pick === null);
+}
+
+/** `shows_product` picks «product» or «not_product»: right when the photo is expected to be a product or not. */
+function gradeShowsProduct(pick: string, expectations: readonly ImageExpectation[]): boolean {
+  return expectations.some(({ kind }) => (kind === "not_product") === (pick === "not_product"));
 }
 
 export function gradePick(certainty: Certainty, record: CaseRecord): boolean | null {
@@ -73,7 +79,13 @@ export function gradePick(certainty: Certainty, record: CaseRecord): boolean | n
   const pick = pickOf(certainty);
   if (pick === undefined) return null;
   if (record.pass === "text") return certainty.source.startsWith("text") ? gradeText(pick, record.expected as readonly TextExpectation[]) : null;
-  if (record.pass === "image") return certainty.source === "visual" && pick !== null ? gradeImage(pick, record.expected as readonly ImageExpectation[]) : null;
+  if (record.pass === "image") {
+    const expectations = record.expected as readonly ImageExpectation[];
+    if (certainty.source === "shows_product") return pick === null ? null : gradeShowsProduct(pick, expectations);
+    return certainty.source.startsWith("visual") ? gradeImage(pick, expectations) : null;
+  }
+  // Whether a message photo is a product is not stated by message expectations (a declined product photo also ends as no intent).
+  if (certainty.source === "shows_product") return null;
   const expectations = record.expected as readonly MessageExpectation[];
   if (certainty.source === "action") return pick === null ? null : gradeAction(pick, expectations);
   if (certainty.source.startsWith("variant")) return gradeMessageVariant(pick, expectations);
