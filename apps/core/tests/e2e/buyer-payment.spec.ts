@@ -1,5 +1,5 @@
 import { mkdir } from "node:fs/promises";
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { brandHostHeaders, browserExpect, expect, prepareVerifiedCompany, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { formatCurrency } from "@core/app/format-currency";
@@ -12,6 +12,10 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Vendedora", companyName: "Tienda", country: "PE" });
     const tenantId = companyId;
+    const subdomain = subdomainOf(tenantId);
+    const brand = brandHostHeaders(subdomain);
+    // The checkout lives on the store's brand host, whatever the catalog publication.
+    await withTenantIsolation(tenantId, async () => { await prisma.company.update({ where: { id: tenantId }, data: { catalogSubdomain: subdomain } }); });
     const product = await withTenantIsolation(tenantId, () => products.create({ name: "Cuaderno", currency: "PEN",
       variants: [{ attributes: {}, sku: `PAY-${crypto.randomUUID()}`, salePrice: 12.5, initialStock: 2 }] }));
     expect(product.success).toBe(true);
@@ -43,26 +47,28 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Tienda", address: "Av. Arequipa 123, Lima", instructions: null } } } })).ok()).toBe(true);
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("link", { name: "Abrir checkout del pedido" })).toHaveCount(0);
-    expect((await request.get(`/api/buyer/orders/${orderId}/payment`)).status()).toBe(409);
+    expect((await request.get(`/api/buyer/orders/${orderId}/payment`, { headers: brand })).status()).toBe(409);
+    expect((await request.get(`/api/buyer/orders/${orderId}/payment`)).status()).toBe(404);
     await withTenantIsolation(tenantId, async () => { await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } }); });
     const checkoutPath = `/checkout/${tenantId}/${orderId}`;
-    await page.goto(checkoutPath);
+    const checkoutAddress = storeUrl(subdomain, checkoutPath);
+    await page.goto(checkoutAddress);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana Torres");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    expect((await request.post(`/api/buyer/orders/${orderId}/reports`, { data: { paymentId: crypto.randomUUID(), receiptImageId: crypto.randomUUID() } })).status()).toBe(409);
+    expect((await request.post(`/api/buyer/orders/${orderId}/reports`, { headers: brand, data: { paymentId: crypto.randomUUID(), receiptImageId: crypto.randomUUID() } })).status()).toBe(409);
     await page.getByRole("radio", { name: "Recojo en tienda · Gratis" }).check();
     await page.getByLabel("Nombre del destinatario").fill("Ana Torres");
     await page.getByLabel("Teléfono del destinatario").fill("+51987654321");
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(page).toHaveURL(new RegExp(`${checkoutPath}$`));
+    await browserExpect(page).toHaveURL(checkoutAddress);
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado" })).toBeVisible();
-    const opened = await page.goto(checkoutPath);
+    const opened = await page.goto(checkoutAddress);
     expect(opened?.status()).toBe(200);
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado" })).toBeVisible();
     expect((await request.get(`/pago/${orderId}`, { maxRedirects: 0 })).status()).toBe(404);
     await page.goto(`/pago/${orderId}`);
     await browserExpect(page.getByRole("heading", { name: "Página no encontrada" })).toBeVisible();
-    await page.goto(checkoutPath);
+    await page.goto(checkoutAddress);
     await browserExpect(page.getByRole("radio", { name: "Yape" })).toBeVisible();
     await browserExpect(page.getByRole("img", { name: "Instrucciones de billetera digital" })).toBeVisible();
     await page.getByRole("radio", { name: "Transferencia", exact: true }).check();
@@ -136,7 +142,7 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await report.getByRole("button", { name: "Confirmar pago" }).click();
     await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
     expect((await withTenantIsolation(tenantId, async () => await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } }))).status).toBe("confirmed");
-    await page.goto(checkoutPath);
+    await page.goto(checkoutAddress);
     await browserExpect(page.getByRole("heading", { name: "Pedido pagado" })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
     await page.goto(`/es-PE/orders/${orderId}`);
@@ -149,7 +155,7 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await manualResponse;
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId, status: "confirmed" } }))).toBe(1);
     await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
-    await page.goto(checkoutPath);
+    await page.goto(checkoutAddress);
     await browserExpect(page.getByRole("heading", { name: "Pedido pagado" })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
   } finally {
