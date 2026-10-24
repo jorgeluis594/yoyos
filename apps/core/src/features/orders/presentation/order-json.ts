@@ -38,6 +38,14 @@ export function toOrderAggregateListJson(page: AggregatePage) {
   }) });
 }
 
+// Web-only list data read from the stored snapshot; never added to the mobile list JSON.
+export function toOrderListDispatchFields({ delivery }: OrderAggregate) {
+  if (!delivery) return { deliveryMethod: "none", district: null } as const;
+  if (delivery.method === "home") return { deliveryMethod: "home", district: delivery.destination.district } as const;
+  if (delivery.method === "agency") return { deliveryMethod: "agency", district: delivery.agency.location.district } as const;
+  return { deliveryMethod: "pickup", district: null } as const;
+}
+
 export function toOrderListJson(list: ListOrdersOutput) {
   return listOrdersResponseSchema.parse({ ...list, items: list.items.map((item) => ({ ...item,
     completedAt: item.completedAt.toISOString(), currency: item.total.currency, total: item.total.amount })) });

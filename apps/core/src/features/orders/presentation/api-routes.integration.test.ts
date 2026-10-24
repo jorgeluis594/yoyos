@@ -337,10 +337,14 @@ test("mixed orders list uses creation date and includes pending and completed or
   });
   const list = await call("/api/orders/mixed", seller.cookie);
   expect(list.status).toBe(200);
-  expect(await list.json()).toMatchObject({ total: 2, page: 1, items: [
+  const body = await list.json();
+  expect(body).toMatchObject({ total: 2, page: 1, items: [
     { id: pendingId, status: "active", paymentStatus: "pending", createdAt: "2026-09-30T12:00:00.000Z" },
     { id: completedId, status: "completed", paymentStatus: "paid", createdAt: "2026-09-29T12:00:00.000Z" },
   ] });
+  const mixedKeys = body.items.flatMap((item: object) => Object.keys(item));
+  expect(mixedKeys).not.toContain("deliveryMethod");
+  expect(mixedKeys).not.toContain("district");
   expect(await (await call("/api/orders/mixed?createdFrom=2026-09-30T00%3A00%3A00.000Z", seller.cookie)).json())
     .toMatchObject({ total: 1, items: [{ id: pendingId }] });
   expect(await (await call("/api/orders", seller.cookie)).json()).toMatchObject({ total: 1, items: [{ id: completedId }] });

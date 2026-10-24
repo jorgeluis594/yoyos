@@ -12,7 +12,7 @@ import { listOrderAggregatesSchema, orderListLoaderSchema } from "@shared/contra
 import { limaMidnightUtc } from "@shared/orders-date";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders } from "@core/src/features/orders/composition";
-import { toOrderAggregateJson, toOrderAggregateListJson } from "@core/src/features/orders/presentation/order-json";
+import { toOrderAggregateJson, toOrderAggregateListJson, toOrderListDispatchFields } from "@core/src/features/orders/presentation/order-json";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
@@ -49,6 +49,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   const items = list.items.map((item, index) => ({ ...item,
     itemCount: result.data.items[index].items.reduce((sum, product) => sum + product.quantity, 0),
     balanceDue: toOrderAggregateJson(result.data.items[index]).balanceDue,
+    ...toOrderListDispatchFields(result.data.items[index]),
   }));
   return orderListLoaderSchema.parse({ list: { ...list, items }, filters: parsed.data, base: companyPath(new URL(request.url).pathname, company.country, "/orders") });
 }
