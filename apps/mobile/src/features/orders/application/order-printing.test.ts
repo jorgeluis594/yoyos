@@ -15,17 +15,17 @@ const agency = { method: "agency" as const, recipient, destination: district, pr
   agency: { id, name: "Olva Centro", address: "Av. 1", location: { ...district, district: "Surco" } } };
 const store = { method: "store" as const, recipient, pickupPoint: {}, settingsVersion: 1, recordedBy };
 
-const order = (patch: Record<string, unknown>) => ({ id, status: "active", cancelled: false, deliveryStatus: "pending", scheduledDispatchDate: "2026-10-20", delivery: home, ...patch }) as unknown as OrderAggregateResponse;
+const order = (patch: Record<string, unknown>) => ({ id, number: 1042, status: "active", cancelled: false, deliveryStatus: "pending", scheduledDispatchDate: "2026-10-20", delivery: home, ...patch }) as unknown as OrderAggregateResponse;
 const prepare = (orders: Record<string, OrderAggregateResponse | "fail">, fits = () => true) => prepareDispatchLabels(Object.keys(orders), {
-  sender: "Yoyos", fits,
+  sender: { name: "Yoyos", phone: "977000111" }, fits,
   readOrder: async (orderId) => orders[orderId] === "fail" ? err({ message: "network" }) : ok(orders[orderId] as OrderAggregateResponse),
 });
 
 test("prepares home and agency labels from the stored snapshot, without payment as a condition", async () => {
   const [homeResult, agencyResult] = await prepare({ a: order({ paymentStatus: "pending", deliveryStatus: "shipped" }), b: order({ delivery: agency, scheduledDispatchDate: null, deliveryStatus: "delivered" }) });
-  expect(homeResult).toEqual({ status: "ready", orderId: "a", label: { sender: "Yoyos", scheduledDate: "2026-10-20", method: "home", courier: null,
+  expect(homeResult).toEqual({ status: "ready", orderId: "a", label: { sender: { name: "Yoyos", phone: "977000111" }, orderNumber: 1042, scheduledDate: "2026-10-20", method: "home", courier: null,
     recipient: { name: "Ana", phone: "999", document: null }, destination: { address: "Calle 2", location: { department: "Lima", province: "Lima", district: "Miraflores" }, reference: "Portón azul" } } });
-  expect(agencyResult).toEqual({ status: "ready", orderId: "b", label: { sender: "Yoyos", scheduledDate: null, method: "agency", courier: "Olva",
+  expect(agencyResult).toEqual({ status: "ready", orderId: "b", label: { sender: { name: "Yoyos", phone: "977000111" }, orderNumber: 1042, scheduledDate: null, method: "agency", courier: "Olva",
     recipient: { name: "Ana", phone: "999", document: { type: "national_id", number: "12345678" } },
     destination: { agencyName: "Olva Centro", address: "Av. 1", location: { department: "Lima", province: "Lima", district: "Surco" } } } });
 });
@@ -57,7 +57,7 @@ test("a failed read is a read error and does not stop the rest of a mixed select
 test("reads with bounded concurrency", async () => {
   let active = 0, peak = 0;
   const ids = Array.from({ length: 12 }, (_, index) => `o${index}`);
-  await prepareDispatchLabels(ids, { sender: "Yoyos", fits: () => true, readOrder: async () => {
+  await prepareDispatchLabels(ids, { sender: { name: "Yoyos", phone: null }, fits: () => true, readOrder: async () => {
     peak = Math.max(peak, ++active); await new Promise((resolve) => setTimeout(resolve, 1)); active--; return ok(order({}));
   } });
   expect(peak).toBeLessThanOrEqual(4);

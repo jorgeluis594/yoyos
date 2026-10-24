@@ -13,7 +13,7 @@ import { orders } from "@mobile/features/orders/composition";
 import { dispatchPrinting } from "@mobile/features/orders/composition-dispatch-printing";
 import { prepareDispatchLabels } from "@mobile/features/orders/application/order-printing";
 import { resolveUnknown, runDispatchBatch, type DispatchBatchEnd, type DispatchPrintEntry } from "@mobile/features/orders/application/dispatch-print-batch";
-import type { DispatchLabelExclusion, DispatchLabelPreparation } from "@mobile/features/orders/domain/dispatch-label";
+import type { DispatchLabelExclusion, DispatchLabelPreparation } from "@shared/dispatch-label/types";
 import { usePrint } from "@mobile/features/printing/presentation/print-provider";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useTheme } from "@mobile/hooks/use-theme";
@@ -24,6 +24,7 @@ type Preparation = DispatchLabelPreparation<Readonly<{ message: string }>>;
 type Phase =
   | Readonly<{ kind: "idle" }>
   | Readonly<{ kind: "preparing" }>
+  | Readonly<{ kind: "sender-error"; selected: readonly Reference[] }>
   | Readonly<{ kind: "review"; results: readonly Preparation[] }>
   | Readonly<{ kind: "batch"; entries: readonly DispatchPrintEntry[]; running: boolean; end: DispatchBatchEnd | null }>;
 
@@ -33,10 +34,10 @@ const DispatchPrintContext = createContext<Readonly<{ open: (selected: readonly 
 export function DispatchPrintProvider({ children }: { children: ReactNode }) {
   const { state } = useAccess();
   const key = state.status === "ready" ? `${state.user.id}:${state.company.id}` : "signed-out";
-  return <DispatchPrintSession key={key} sender={state.status === "ready" ? state.company.name : null}>{children}</DispatchPrintSession>;
+  return <DispatchPrintSession key={key} ready={state.status === "ready"}>{children}</DispatchPrintSession>;
 }
 
-function DispatchPrintSession({ children, sender }: { children: ReactNode; sender: string | null }) {
+function DispatchPrintSession({ children, ready }: { children: ReactNode; ready: boolean }) {
   const { t } = useTranslation();
   const router = useRouter();
   const theme = useTheme();
@@ -49,14 +50,17 @@ function DispatchPrintSession({ children, sender }: { children: ReactNode; sende
   useEffect(() => { alive.current = true; return () => { alive.current = false; }; }, []);
 
   const open = (selected: readonly Reference[]) => {
-    if (!sender || !selected.length || phase.kind === "batch") return;
+    if (!ready || !selected.length || phase.kind === "batch") return;
     setHidden(false);
     setNumbers(new Map(selected.map(({ id, number }) => [id, number])));
     setPhase({ kind: "preparing" });
     void (async () => {
+      // The sender is read on every open so a change made on the web shows up in the next review.
+      const sender = await dispatchPrinting.readSender();
+      if (!sender.success) { if (alive.current) setPhase({ kind: "sender-error", selected }); return; }
       const fits = await dispatchPrinting.createFit();
       const results = await prepareDispatchLabels(selected.map(({ id }) => id), {
-        sender, fits, readOrder: async (id) => { const read = await orders.get(id); return read.success ? read : { success: false, error: { message: read.error.message } }; },
+        sender: sender.data, fits, readOrder: async (id) => { const read = await orders.get(id); return read.success ? read : { success: false, error: { message: read.error.message } }; },
       });
       if (alive.current) setPhase({ kind: "review", results });
     })().catch(() => { if (alive.current) setPhase({ kind: "idle" }); });
@@ -86,6 +90,10 @@ function DispatchPrintSession({ children, sender }: { children: ReactNode; sende
 
   const body = () => {
     if (phase.kind === "preparing") return <ThemedText themeColor="textSecondary">{t('dispatchPreparing')}</ThemedText>;
+    if (phase.kind === "sender-error") return <>
+      <ThemedText accessibilityRole="alert">{t('dispatchSenderError')}</ThemedText>
+      <Button variant="secondary" onPress={() => open(phase.selected)}>{t('dispatchSenderRetry')}</Button>
+    </>;
     if (review) return <>
       <View style={[styles.notice, review.blocked.length ? { backgroundColor: theme.warningSurface } : { backgroundColor: theme.successSurface }]}>
         <ThemedText type="smallBold" accessibilityRole="summary" style={{ color: review.blocked.length ? theme.warning : theme.success }}>
