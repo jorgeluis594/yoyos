@@ -29,7 +29,8 @@ function ReceiptImage({ url, className }: { url: string; className: string }) {
 export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, format, onClose, onDone, onCloseAutoFocus }: Props) {
   const { t } = useTranslation();
   const [step, setStep] = useState<Step>(kind === "receipt" ? "choose" : kind === "reject" ? "reject" : "approve");
-  const [failure, setFailure] = useState("");
+  // A failure is shown until the seller changes step or submits again; the fetcher keeps the last answer.
+  const [dismissed, setDismissed] = useState<unknown>(null);
   // The modal traps outside clicks, so the method select opens inside the dialog itself (as the sheets do).
   const [content, setContent] = useState<HTMLDivElement | null>(null);
   const fetcher = useFetcher<typeof action>();
@@ -39,11 +40,13 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
     if (fetcher.state !== "idle" || !result || handled.current === result) return;
     handled.current = result;
     if ("success" in result && result.success) onDone(paymentId);
-    else if ("error" in result && result.error) setFailure(String(result.error));
   }, [fetcher.state, fetcher.data, paymentId, onDone]);
+  const answer = fetcher.state === "idle" && fetcher.data !== dismissed ? fetcher.data : undefined;
+  const failure = answer && "error" in answer && answer.error ? String(answer.error) : "";
+  const clearFailure = () => setDismissed(fetcher.data);
   const withReceipt = kind === "receipt" && receiptUrl !== null;
   const reviewable = kind === "register" || (payment?.status === "reported" && !order.cancelled);
-  const back = () => kind === "receipt" ? (setFailure(""), setStep("choose")) : onClose();
+  const back = () => kind === "receipt" ? (clearFailure(), setStep("choose")) : onClose();
   const title = kind === "receipt" ? t("orders.receiptTitle") : kind === "register" ? t("orders.registerPaymentTitle")
     : kind === "approve" ? t("orders.approvePaymentTitle") : t("orders.rejectTitle");
   const description = kind === "receipt" && payment ? t("orders.receiptSubtitle", { number: order.number, date: format.date(paymentDate(payment)) })
@@ -60,12 +63,12 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
           <ReceiptImage url={receiptUrl} className={deciding ? "max-h-32 sm:max-h-[50dvh]" : "max-h-[60dvh]"} /></div>}
         <div className="flex flex-col gap-3">
           {deciding ? <PaymentDecisionForm kind={kind === "receipt" ? step as DecisionKind : kind} paymentId={paymentId} order={order}
-              heading={kind === "receipt"} fetcher={fetcher} onSubmit={() => setFailure("")} onCancel={back} />
+              heading={kind === "receipt"} fetcher={fetcher} onSubmit={clearFailure} onCancel={back} />
             : reviewable ? <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-medium tabular-nums">{t("orders.orderPendingBalance", { amount: format.amount(order.balanceDue) })}</p>
               <div className="flex gap-2">
-                <Button type="button" variant="outline" className="min-h-touch text-destructive md:min-h-control" onClick={() => { setFailure(""); setStep("reject"); }}>{t("orders.reject")}</Button>
-                <Button type="button" className="min-h-touch md:min-h-control" onClick={() => { setFailure(""); setStep("approve"); }}>{t("orders.approve")}</Button></div></div>
+                <Button type="button" variant="outline" className="min-h-touch text-destructive md:min-h-control" onClick={() => { clearFailure(); setStep("reject"); }}>{t("orders.reject")}</Button>
+                <Button type="button" className="min-h-touch md:min-h-control" onClick={() => { clearFailure(); setStep("approve"); }}>{t("orders.approve")}</Button></div></div>
             : <p className="text-sm font-medium">{t(`orders.${state}`)}</p>}
           {failure && <Alert variant="destructive"><AlertDescription role="alert">{t(paymentErrorKey(failure))}</AlertDescription></Alert>}
         </div>
