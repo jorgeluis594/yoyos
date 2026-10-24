@@ -4,6 +4,7 @@ import { createCompanyRequestSchema, createCompanyResponseSchema, currentAccessD
 import { createCompanyForUser } from "@core/src/features/companies";
 import { companyRepository } from "@core/src/features/companies/infrastructure/company-repository";
 import { dispatchSenderRoutes } from "@core/src/features/dispatch-sender/presentation/api-routes";
+import { dispatchLabelRoutes } from "@core/src/features/dispatch-labels/presentation/api-routes";
 import { paymentSettingsRoutes } from "@core/src/features/companies/presentation/payment-settings-routes";
 import { auth } from "@core/src/shared/infrastructure/auth";
 import { apiError, loadApiAccess, requireApiCompany, type AuthenticatedLocals, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
@@ -99,6 +100,7 @@ app.use("/api", requireApiCompany);
 app.use("/api/messages", mobileMessageRoutes(registerMobileMessage));
 app.use("/api/company/payment-settings", paymentSettingsRoutes);
 app.use("/api/company/dispatch-sender", dispatchSenderRoutes);
+app.use("/api/dispatch-labels", dispatchLabelRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/delivery-settings", deliverySettingsRoutes);
