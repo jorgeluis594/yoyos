@@ -50,7 +50,7 @@ export async function savePaymentSettings(companyId: CompanyId, value: unknown, 
     const reused = storedWallet?.qr.status === "verified" && storedWallet.qr.imageId === setting.imageId;
     if (!reused) {
       const detected = await deps.detectQrCode(setting.imageId, { companyId, stage: "save" });
-      if (!detected.success) return err({ code: "QR_CHECK_UNAVAILABLE", message: detected.error.message });
+      if (!detected.success) return err({ code: detected.error.code, message: detected.error.message });
       if (detected.data === "no_qr") return err({ code: "INVALID_PAYMENT_QR", message: "Image does not hold a QR code" });
     }
     next.push({ method: "digital_wallet", provider: setting.provider, holder: setting.holder, qr: { status: "verified", imageId: setting.imageId } });

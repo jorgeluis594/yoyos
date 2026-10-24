@@ -15,6 +15,12 @@ vi.mock("@core/src/shared/images", async (importOriginal) => {
     return ok({ bytes, contentType: "image/jpeg" });
   }) };
 });
+const reader = vi.hoisted(() => ({ down: false }));
+vi.mock("@core/src/shared/images/infrastructure/qr-code-reader", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("@core/src/shared/images/infrastructure/qr-code-reader")>();
+  return { ...actual, readQrCodes: async (...args: Parameters<typeof actual.readQrCodes>) =>
+    reader.down ? err({ code: "QR_READER_UNAVAILABLE" as const, message: "reader down" }) : actual.readQrCodes(...args) };
+});
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 const server = app.listen(0, "127.0.0.1");
@@ -73,7 +79,7 @@ afterAll(async () => {
   await new Promise<void>((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
 });
 
-beforeEach(() => imageBytes.clear());
+beforeEach(() => { imageBytes.clear(); reader.down = false; });
 
 const bank = { method: "bank_transfer", bank: "BCP", holder: "Ana", accountNumber: "00123", cci: null, imageId: null };
 const wallet = (imageId: string | null) => ({ method: "digital_wallet", provider: "Plin", holder: "Ana", imageId });
@@ -125,6 +131,16 @@ test("PUT answers 400 INVALID_PAYMENT_QR for an image without qr and keeps the p
 });
 
 test("PUT answers 503 QR_CHECK_UNAVAILABLE when the reader is unavailable and saves nothing", async () => {
+  const { cookie, companyId } = await seller();
+  const qr = await image(companyId, "non-uuid-qr.jpg");
+  reader.down = true;
+  const response = await call(cookie, [wallet(qr)]);
+  expect(response.status).toBe(503);
+  expect(await response.json()).toMatchObject({ code: "QR_CHECK_UNAVAILABLE" });
+  expect(await stored(companyId)).toBeNull();
+});
+
+test("PUT answers 503 QR_CHECK_UNAVAILABLE when the image storage is unavailable and saves nothing", async () => {
   const { cookie, companyId } = await seller();
   const response = await call(cookie, [wallet(await image(companyId, "down"))]);
   expect(response.status).toBe(503);

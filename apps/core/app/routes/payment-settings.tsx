@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { Form, useActionData, useLoaderData, useNavigation, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { useTranslation } from "react-i18next";
 import { paymentQrCheckResponseSchema, paymentSettingsResponseSchema } from "@shared/contracts/payment-settings";
@@ -6,7 +6,7 @@ import { imageResponseSchema } from "@shared/contracts/images";
 import { privateUserContext } from "@core/app/private-user-context";
 import { companyPaymentSettings } from "@core/src/features/companies";
 import { resolvePublicImages } from "@core/src/shared/images";
-import { canSaveWalletQr, isAcceptableQrFile, WalletQrField, walletQrBlockReason, walletQrImageId, type WalletQrState } from "@core/src/features/companies/presentation/wallet-qr-field";
+import { canSaveWalletQr, isAcceptableQrFile, WalletQrField, walletQrAfterSave, walletQrBlockReason, walletQrImageId, walletQrRetry, walletQrWasNotAQr, type WalletQrState } from "@core/src/features/companies/presentation/wallet-qr-field";
 import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { Alert } from "@core/app/components/ui/alert";
@@ -61,6 +61,7 @@ export default function PaymentSettings() {
   const [bankImageUrl, setBankImageUrl] = useState(bank?.imageId ? imageUrls[bank.imageId] ?? "" : "");
   const [uploading, setUploading] = useState(false);
   const [uploadError, setUploadError] = useState("");
+  const lastFile = useRef<File | null>(null);
   const field = { offered: walletEnabled, state: qr };
   const blocked = walletQrBlockReason(field);
 
@@ -68,10 +69,11 @@ export default function PaymentSettings() {
   const [followedAction, setFollowedAction] = useState(actionData);
   if (actionData !== followedAction) {
     setFollowedAction(actionData);
-    if (actionData?.success) setQr(qr.status === "valid" ? qr : { status: "valid", imageId: walletQrImageId(qr), origin: "saved" });
+    if (actionData?.success) setQr(walletQrAfterSave(field));
     else if (actionData?.error === "INVALID_PAYMENT_QR") setQr({ status: "not_a_qr", imageId: walletQrImageId(qr) });
     else if (actionData?.error === "QR_CHECK_UNAVAILABLE") setQr({ status: "check_unavailable", imageId: walletQrImageId(qr) });
-    else if (actionData?.error === "INVALID_IMAGE") { setQr({ status: "empty" }); setWalletImageUrl(""); }
+    // The image may be the bank's: only a wallet that holds an image goes back to Subir QR.
+    else if (actionData?.error === "INVALID_IMAGE" && walletEnabled && walletQrImageId(qr)) { setQr({ status: "empty" }); setWalletImageUrl(""); }
   }
 
   async function uploadImage(file: File) {
@@ -97,13 +99,15 @@ export default function PaymentSettings() {
 
   async function chooseWalletImage(file: File) {
     const previous = walletQrImageId(qr) || null;
-    if (!isAcceptableQrFile(file)) { setQr({ status: "wrong_file", imageId: previous }); return; }
+    const previousNotAQr = walletQrWasNotAQr(qr);
+    lastFile.current = file;
+    if (!isAcceptableQrFile(file)) { setQr({ status: "wrong_file", imageId: previous, previousNotAQr }); return; }
     setQr({ status: "uploading" });
     try {
       const image = await uploadImage(file);
       setWalletImageUrl(image.url);
       await checkQr(image.id, file);
-    } catch { setQr({ status: "upload_failed", imageId: previous }); }
+    } catch { setQr({ status: "upload_failed", imageId: previous, previousNotAQr }); }
   }
 
   async function uploadBankImage(file: File) {
@@ -124,7 +128,11 @@ export default function PaymentSettings() {
           {walletEnabled && <><div className="grid gap-4 sm:grid-cols-2"><Field><FieldLabel htmlFor="wallet-provider">{t("paymentSettings.provider")}</FieldLabel><Input id="wallet-provider" name="walletProvider" defaultValue={wallet?.method === "digital_wallet" ? wallet.provider : ""} required /></Field>
             <Field><FieldLabel htmlFor="wallet-holder">{t("paymentSettings.holder")}</FieldLabel><Input id="wallet-holder" name="walletHolder" defaultValue={wallet?.method === "digital_wallet" ? wallet.holder : ""} required /></Field></div>
             <WalletQrField state={qr} url={walletImageUrl} onFile={(file) => void chooseWalletImage(file)}
-              onRetry={() => { const id = walletQrImageId(qr); if (id) void checkQr(id); }}
+              onRetry={() => {
+                const retry = walletQrRetry(qr, lastFile.current);
+                if (retry === "upload" && lastFile.current) void chooseWalletImage(lastFile.current);
+                else if (retry === "check") void checkQr(walletQrImageId(qr));
+              }}
               onRemove={() => { setQr({ status: "empty" }); setWalletImageUrl(""); }} /></>}
         </CardContent></Card>
       <Card><CardHeader><CardTitle>{t("paymentSettings.bankTransfer")}</CardTitle><CardDescription>{t("paymentSettings.bankHint")}</CardDescription></CardHeader>
@@ -138,7 +146,7 @@ export default function PaymentSettings() {
               onRemove={() => { setBankImageId(""); setBankImageUrl(""); }} /></>}
         </CardContent></Card>
       {uploadError && <Alert variant="destructive">{uploadError}</Alert>}
-      {actionData?.error && <Alert variant="destructive">{t("paymentSettings.saveError")}</Alert>}
+      {actionData?.error && actionData.error !== "INVALID_PAYMENT_QR" && actionData.error !== "QR_CHECK_UNAVAILABLE" && <Alert variant="destructive">{t("paymentSettings.saveError")}</Alert>}
       {actionData?.success && <Alert variant="success">{t("paymentSettings.saved")}</Alert>}
       {blocked && <FieldDescription>{t(blocked === "invalid" ? "paymentSettings.invalidQr" : "paymentSettings.missingQr")}</FieldDescription>}
       <Button type="submit" disabled={uploading || !canSaveWalletQr(field) || navigation.state !== "idle"} className="self-start">{navigation.state === "submitting" ? t("paymentSettings.saving") : t("paymentSettings.save")}</Button>

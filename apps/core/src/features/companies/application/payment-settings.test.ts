@@ -105,3 +105,9 @@ test("reads offered settings and the full configuration", async () => {
   expect(await getOfferedPaymentSettings(company, deps)).toEqual(ok([bankInput]));
   expect(await getPaymentConfiguration(company, deps)).toEqual(ok([unchecked(imageId), bankInput]));
 });
+
+test("passes INVALID_IMAGE through when the image disappears between the availability check and the read", async () => {
+  const { deps, save } = setup([], err({ code: "INVALID_IMAGE", message: "gone" }));
+  expect(await savePaymentSettings(company, [wallet], deps)).toMatchObject({ success: false, error: { code: "INVALID_IMAGE" } });
+  expect(save).not.toHaveBeenCalled();
+});

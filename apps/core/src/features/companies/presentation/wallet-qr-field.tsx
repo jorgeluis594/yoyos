@@ -15,8 +15,8 @@ export type WalletQrState =
   // Wallet saved before the QR check existed: hidden from buyers until it is saved with a valid QR.
   | Readonly<{ status: "unchecked"; imageId: string | null }>
   // The previous image, if any, stays when the upload or the file is refused.
-  | Readonly<{ status: "upload_failed"; imageId: string | null }>
-  | Readonly<{ status: "wrong_file"; imageId: string | null }>;
+  | Readonly<{ status: "upload_failed"; imageId: string | null; previousNotAQr?: boolean }>
+  | Readonly<{ status: "wrong_file"; imageId: string | null; previousNotAQr?: boolean }>;
 
 export type WalletQrField = Readonly<{ offered: boolean; state: WalletQrState }>;
 
@@ -26,8 +26,28 @@ export function canSaveWalletQr({ offered, state }: WalletQrField): boolean {
   switch (state.status) {
     case "empty": case "uploading": case "checking": case "not_a_qr": return false;
     case "valid": case "check_unavailable": return true;
-    case "unchecked": case "upload_failed": case "wrong_file": return state.imageId !== null;
+    case "unchecked": return state.imageId !== null;
+    // The previous image stays, so a previous image that was read and is not a QR keeps blocking the save.
+    case "upload_failed": case "wrong_file": return state.imageId !== null && !state.previousNotAQr;
   }
+}
+
+/** The field after a successful save: only a wallet that was offered and holds an image is now a saved valid QR. */
+export function walletQrAfterSave({ offered, state }: WalletQrField): WalletQrState {
+  if (!offered || state.status === "valid") return state;
+  const imageId = walletQrImageId(state);
+  return imageId ? { status: "valid", imageId, origin: "saved" } : state;
+}
+
+/** Whether the previously chosen image was read and is not a QR, so a failed replacement keeps blocking the save. */
+export const walletQrWasNotAQr = (state: WalletQrState): boolean =>
+  state.status === "not_a_qr" || ((state.status === "upload_failed" || state.status === "wrong_file") && state.previousNotAQr === true);
+
+/** Retry repeats the step that failed: the upload of the last chosen file, or the check of the current image. */
+export function walletQrRetry(state: WalletQrState, lastFile: File | null): "upload" | "check" | null {
+  if (state.status === "upload_failed") return lastFile ? "upload" : null;
+  if (state.status === "check_unavailable") return "check";
+  return null;
 }
 
 export const walletQrImageId = (state: WalletQrState): string => "imageId" in state && state.imageId ? state.imageId : "";
