@@ -18,7 +18,6 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
   const paymentId = useRef<string | null>(null);
   const money = (value: typeof view.total) => formatCurrency(value.amount, value.currency, "es-PE");
   const pendingReport = view.payments.some((payment) => payment.status === "reported");
@@ -54,8 +53,9 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
         headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentId: paymentId.current, receiptImageId: imageId }) });
       const parsed = reportPaymentResponseSchema.safeParse(await response.json());
       if (!response.ok || !parsed.success) throw new Error("report");
-      setSuccess(true);
-      revalidator.revalidate();
+      // The answer is always «reported», even when the seller already rejected this payment: the state shown comes from the refreshed view.
+      setFile(null); setImageId(null); paymentId.current = null;
+      await revalidator.revalidate();
     } catch {
       setError(t("buyerPaymentContent.reportFailed"));
     } finally { setSubmitting(false); }
@@ -77,12 +77,15 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
           </article>)}</div>}
         {copied && <p role="status" className="text-sm text-muted-foreground">{copied}</p>}
       </section>
-      {pendingReport || success ? <section data-store-part="card" role="status" className="rounded-lg border bg-card p-4 sm:p-6"><h2 data-store-part="section-title" className="font-semibold">{t("buyerPaymentContent.pendingTitle")}</h2><p className="mt-1 text-muted-foreground">{t("buyerPaymentContent.pendingBody")}</p></section>
-        : view.settings.length > 0 && <section data-store-part="card" className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:p-6"><div><h2 data-store-part="section-title" className="text-lg font-semibold">{t("buyerPaymentContent.attachTitle")}</h2><p className="mt-1 text-sm text-muted-foreground">{t("buyerPaymentContent.attachBody")}</p></div>
+      {pendingReport ? <section data-store-part="card" role="status" className="rounded-lg border bg-card p-4 sm:p-6"><h2 data-store-part="section-title" className="font-semibold">{t("buyerPaymentContent.pendingTitle")}</h2><p className="mt-1 text-muted-foreground">{t("buyerPaymentContent.pendingBody")}</p></section>
+        : view.settings.length > 0 && <section data-store-part="card" className="flex flex-col gap-3 rounded-lg border bg-card p-4 sm:p-6">
+          {view.rejectedReport && <div role="status" className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"><h2 data-store-part="section-title" className="font-semibold">{t("buyerPaymentContent.rejectedTitle")}</h2>
+            {view.rejectedReport.reason && <p>{t("buyerPaymentContent.rejectedReason", { reason: view.rejectedReport.reason })}</p>}<p className="text-muted-foreground">{t("buyerPaymentContent.rejectedBody")}</p></div>}
+          <div><h2 data-store-part="section-title" className="text-lg font-semibold">{t("buyerPaymentContent.attachTitle")}</h2><p className="mt-1 text-sm text-muted-foreground">{t("buyerPaymentContent.attachBody")}</p></div>
           <label htmlFor="receipt" className="flex min-h-24 cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border border-dashed border-input bg-background p-4 text-sm font-medium focus-within:outline-2 focus-within:outline-ring"><Upload className="size-5 text-primary" aria-hidden="true" /><span>{t("buyerPaymentContent.screenshot")}</span>
           <input className="sr-only" id="receipt" type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading || submitting} onChange={(event) => {
             const selected = event.target.files?.[0] ?? null;
-            setFile(selected); setImageId(null); paymentId.current = null; setSuccess(false);
+            setFile(selected); setImageId(null); paymentId.current = null;
             if (selected) void upload(selected);
           }} /><span className="max-w-full text-center text-xs [overflow-wrap:anywhere] font-normal text-muted-foreground">{file?.name ?? t("buyerPaymentContent.selectImage")}</span></label>
           {uploading && <p role="status" className="text-sm text-muted-foreground">{t("buyerPaymentContent.uploading")}</p>}
