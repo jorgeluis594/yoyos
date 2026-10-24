@@ -56,20 +56,21 @@ function PrintBody({ orderIds, orderNumber }: Readonly<{ orderIds: readonly stri
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
-  const key = `${orderIds.join(",")}|${size}|${attempt}`;
+  const ids = orderIds.join(",");
+  const key = `${ids}|${size}|${attempt}`;
   const current = loaded?.key === key ? loaded.outcome : null;
 
   useEffect(() => {
     const controller = new AbortController();
     let url: string | null = null;
-    void requestDispatchLabels({ orderIds: [...orderIds], size }, controller.signal).then((result) => {
+    void requestDispatchLabels({ orderIds: ids.split(","), size }, controller.signal).then((result) => {
       if (controller.signal.aborted) return;
       if (!result.success) return setLoaded({ key, outcome: "failed" });
       url = result.data.pdf ? URL.createObjectURL(pdfBlobFromBase64(result.data.pdf)) : null;
       setLoaded({ key, outcome: { data: result.data, url } });
     });
     return () => { controller.abort(); if (url) URL.revokeObjectURL(url); };
-  }, [key, orderIds, size]);
+  }, [key, ids, size]);
 
   const ready = current && current !== "failed" ? current : null;
   const download = () => {

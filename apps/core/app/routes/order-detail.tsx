@@ -7,7 +7,7 @@ import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { useState } from "react";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
-import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
+import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Printer, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Badge } from "@core/app/components/ui/badge";
@@ -37,6 +37,7 @@ import type { OrderId, PaymentId, CompanyId, UserId } from "@core/src/features/o
 import { resolvePublicImage } from "@core/src/shared/images";
 import { Button } from "@core/app/components/ui/button";
 import { ErrorState } from "@core/app/components/ui/error-state";
+import { DispatchLabelPrintDialog } from "@core/src/features/dispatch-labels/presentation/dispatch-label-print-dialog";
 
 export async function loader({ params, context, request }: LoaderFunctionArgs) {
   const access = context.get(privateUserContext);
@@ -212,6 +213,7 @@ export default function OrderDetail() {
   const needsCheck = cancellationState.kind === "uncertain" || (cancellation?.outcome.kind === "failed" && cancellation.outcome.refreshFailed);
   const blocked = busy || !!needsCheck;
   const [cancelOpen, setCancelOpen] = useState(false);
+  const [printOpen, setPrintOpen] = useState(false);
   const [copyMessage, setCopyMessage] = useState<"copied" | "copyManually" | null>(null);
   async function copyLink() {
     if (!checkoutData?.url) return;
@@ -231,11 +233,13 @@ export default function OrderDetail() {
           {order.completedAt && <PageHeader.Description>{t("orders.completedOn", { date: date(order.completedAt) })}</PageHeader.Description>}
         </PageHeader.Heading>
         <PageHeader.Actions>
+          <Button type="button" variant="outline" onClick={() => setPrintOpen(true)}><Printer data-icon="inline-start" aria-hidden="true" />{t("dispatchLabels.print")}</Button>
           <Badge variant={order.cancelled ? "destructive" : "success"} className="h-auto px-3 py-2 text-sm"><span aria-hidden="true">{order.cancelled ? <CircleX className="size-icon-inline" /> : <CircleCheck className="size-icon-inline" />}</span>{t(`orders.status.${order.status}`)}</Badge>
           <Badge variant={order.paymentStatus === "paid" ? "info" : "warning"} className="h-auto px-3 py-2 text-sm"><CreditCard className="size-icon-inline" aria-hidden="true" />{t("orders.payment")}: {order.paymentStatus === "paid" ? t("orders.paid") : t("orderDetail.pendingPayment")}</Badge>
           {!order.cancelled && <Badge variant={order.deliveryStatus === "pending" ? "warning" : "success"} className="h-auto px-3 py-2 text-sm"><Truck className="size-icon-inline" aria-hidden="true" />{t("orders.delivery")}: {t(`orders.deliveryStatus.${order.deliveryStatus}`)}</Badge>}
         </PageHeader.Actions>
       </PageHeader>
+      <DispatchLabelPrintDialog open={printOpen} onOpenChange={setPrintOpen} orderIds={[order.id]} orderNumber={order.number} />
       {!order.cancelled && order.status === "active" && order.deliveryStatus === "pending" && <Button type="button" variant="destructive" className="self-start" disabled={blocked} onClick={() => setCancelOpen(true)}>{t("orderCancellation.cancel")}</Button>}
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent>
