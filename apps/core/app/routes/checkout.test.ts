@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import { RouterContextProvider, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import resources from "@core/app/locales";
+import { brandHostCompanyContext } from "@core/app/brand-host-context";
 import { action, handle, headers, loader } from "@core/app/routes/checkout";
 import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
@@ -22,25 +24,42 @@ vi.mock("@core/src/features/store-appearance/domain/store-appearance", async (im
 });
 
 const params = { companyId: "00000000-0000-4000-8000-000000000001", orderId: "00000000-0000-4000-8000-000000000002" };
+const hostContext = (companyId: string | null = params.companyId) => {
+  const context = new RouterContextProvider();
+  context.set(brandHostCompanyContext, companyId as never);
+  return context;
+};
+const context = hostContext();
 const total = { amount: 10, currency: "PEN" as const };
 const view: CheckoutView = { companyName: "Store", number: 1001 as OrderNumber, buyer: null, itemsTotal: total, total, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" },
   items: [{ variantId: "00000000-0000-4000-8000-000000000004" as VariantId, productName: "Product", sku: null, variantAttributes: {}, quantity: 1 as PositiveInteger, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
 const page = (checkout: CheckoutView, photos: CheckoutPage["photos"] = new Map()): CheckoutPage => ({ checkout, photos });
 const publicView = { ...view, items: [{ productName: "Product", sku: null, variantAttributes: {}, imageUrl: null, quantity: 1, unitPrice: total, subtotal: total }] };
 const body = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: total, delivery: { kind: "keep" as const } };
-const args = (payload: unknown, path = params) => ({ params: path, request: new Request("http://localhost/checkout/company/order", {
+const args = (payload: unknown, path = params) => ({ params: path, context, request: new Request("http://localhost/checkout/company/order", {
   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
 }) } as unknown as ActionFunctionArgs);
 beforeEach(() => { vi.mocked(bindRequestOperation).mockClear(); vi.spyOn(storeAppearance, "getPublic").mockResolvedValue({ kind: "default" }); });
 afterEach(() => vi.restoreAllMocks());
 
+test("the loader and the action answer «no disponible» when the brand host belongs to another company, without reading the order", async () => {
+  const read = vi.spyOn(orders, "getCheckout");
+  const confirm = vi.spyOn(orders, "confirmCheckoutDelivery");
+  for (const host of [hostContext("00000000-0000-4000-8000-0000000000ff"), hostContext(null)]) {
+    await expect(loader({ params, context: host } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
+    expect(await action({ ...args(body), context: host } as unknown as ActionFunctionArgs)).toMatchObject({ data: { unavailable: true, message: "Enlace no disponible" }, init: { status: 404 } });
+  }
+  expect(read).not.toHaveBeenCalled();
+  expect(confirm).not.toHaveBeenCalled();
+});
+
 test("public loader preserves wire amounts and privacy headers without requiring an authenticated context", async () => {
   const settings = vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
-  expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: publicView }, init: { headers: headers() } });
-  await expect(loader({ params: { companyId: "bad", orderId: "1001" } } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
+  expect(await loader({ params, context } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: publicView }, init: { headers: headers() } });
+  await expect(loader({ params: { companyId: "bad", orderId: "1001" }, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
   vi.mocked(orders.getCheckout).mockResolvedValue(err({ code: "CHECKOUT_UNAVAILABLE", message: "not public" }));
-  await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
+  await expect(loader({ params, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
   expect(settings).toHaveBeenCalledTimes(1);
 });
 
@@ -49,7 +68,7 @@ test("projects each item's current photo URL and no variant id", async () => {
   const second = { ...first, variantId: "00000000-0000-4000-8000-000000000005" as VariantId, productName: "Taza blanca" };
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page({ ...view, items: [first, second] }, new Map([[first.variantId, "https://cdn.example/polo.webp"]]))));
-  const result = await loader({ params } as unknown as LoaderFunctionArgs) as unknown as { data: { checkout: { items: Record<string, unknown>[] } } };
+  const result = await loader({ params, context } as unknown as LoaderFunctionArgs) as unknown as { data: { checkout: { items: Record<string, unknown>[] } } };
   expect(result.data.checkout.items.map((item) => item.imageUrl)).toEqual(["https://cdn.example/polo.webp", null]);
   expect(JSON.stringify(result.data)).not.toContain("variantId");
 });
@@ -57,7 +76,7 @@ test("projects each item's current photo URL and no variant id", async () => {
 test("loads the checkout with markers when the photos cannot be read", async () => {
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view, new Map())));
-  expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: { items: [{ imageUrl: null }] } } });
+  expect(await loader({ params, context } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: { items: [{ imageUrl: null }] } } });
 });
 
 test("public action rejects tampering and attaches field errors before calling the use case", async () => {
@@ -83,7 +102,7 @@ test("confirmation requires an explicit delivery choice for JSON and form reques
   expect(await action(args(withoutDelivery))).toMatchObject({ init: { status: 422 } });
   const fields = new URLSearchParams({ ...body.buyer, expectedTotal: JSON.stringify(total) });
   const request = new Request("http://localhost/checkout/company/order", { method: "POST", body: fields });
-  expect(await action({ params, request } as unknown as ActionFunctionArgs)).toMatchObject({ init: { status: 422 } });
+  expect(await action({ params, context, request } as unknown as ActionFunctionArgs)).toMatchObject({ init: { status: 422 } });
   expect(confirm).not.toHaveBeenCalled();
 });
 
@@ -107,7 +126,85 @@ test("delivery confirmation constructs domain selection and redirects to payment
   expect(result).toBeInstanceOf(Response);
   expect((result as Response).headers.get("Location")).toBe(`/checkout/${params.companyId}/${params.orderId}`);
   expect((result as Response).headers.get("Cache-Control")).toBe("no-store");
-  expect(confirm).toHaveBeenCalledWith({ ...body, delivery }, params);
+  expect(confirm).toHaveBeenCalledWith({ ...body, delivery: { ...delivery, selection: { ...delivery.selection, recipient: { ...delivery.selection.recipient, phone: body.buyer.phone } } } }, params);
+});
+
+describe("recipient rule", () => {
+  const recipient = (name: string, phone: string, identity: unknown = { kind: "absent" }) => ({ name, phone, identity });
+  const rateId = "00000000-0000-4000-8000-000000000010";
+  const selections = (who: ReturnType<typeof recipient>) => ({
+    home: { method: "home", rateId, recipient: who, destination: { districtCode: "150101", address: "Av. Lima 123", instructions: null } },
+    agency: { method: "agency", rateId, recipient: recipient(who.name, who.phone, { kind: "document", documentType: "national_id", document: "12345678" }), districtCode: "150101", agencyId: "00000000-0000-4000-8000-000000000011" },
+    store: { method: "store", recipient: who },
+  });
+  const submit = (selection: unknown, extra: Record<string, unknown> = {}) =>
+    action(args({ ...body, ...extra, delivery: { kind: "replace", selection, expectedPrice: { amount: 5, currency: "PEN" } } }));
+
+  test.each(["home", "agency", "store"] as const)("saves the buyer as the %s recipient when nobody else receives, ignoring the recipient fields sent", async (method) => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    expect(await submit(selections(recipient("Tampered", "+51900000000"))[method], { otherRecipient: false })).toBeInstanceOf(Response);
+    const sent = confirm.mock.calls[0][0].delivery;
+    expect(sent).toMatchObject({ kind: "replace", selection: { method, recipient: { name: "Ana", phone: "+51987654321" } } });
+  });
+
+  test("treats an absent flag as nobody else receiving", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    await submit(selections(recipient("Tampered", "+51900000000")).home);
+    expect(confirm.mock.calls[0][0].delivery).toMatchObject({ selection: { recipient: { name: "Ana", phone: "+51987654321" } } });
+  });
+
+  test("keeps the document of the agency recipient when the buyer is the recipient", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    await submit(selections(recipient("x", "y")).agency, { otherRecipient: false });
+    expect(confirm.mock.calls[0][0].delivery).toMatchObject({ selection: { recipient: { identity: { kind: "document", document: "12345678" } } } });
+  });
+
+  test.each(["home", "agency", "store"] as const)("saves another %s recipient and leaves the buyer unchanged when the flag is set", async (method) => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    expect(await submit(selections(recipient("Luis", "+14155552671"))[method], { otherRecipient: true })).toBeInstanceOf(Response);
+    const call = confirm.mock.calls[0][0];
+    expect(call.buyer).toEqual(body.buyer);
+    expect(call.delivery).toMatchObject({ selection: { method, recipient: { name: "Luis", phone: "+14155552671" } } });
+  });
+
+  test("requires a valid international recipient phone when someone else receives and answers in place", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery");
+    const result = await submit(selections(recipient("Luis", "999")).home, { otherRecipient: true });
+    expect(result).toMatchObject({ init: { status: 422 }, data: { fieldErrors: { recipientPhone: expect.any(String) } } });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  test("requires the recipient name and phone together when someone else receives", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery");
+    expect(await submit(selections(recipient(" ", "999")).home, { otherRecipient: true }))
+      .toMatchObject({ init: { status: 422 }, data: { fieldErrors: { recipientName: "Ingresa el nombre de quien recibe.", recipientPhone: expect.any(String) } } });
+    expect(await submit(selections(recipient(" ", "+14155552671")).home, { otherRecipient: true })).toMatchObject({ init: { status: 422 }, data: { fieldErrors: { recipientName: expect.any(String) } } });
+    const { fieldErrors } = (await submit(selections(recipient("Luis", "999")).home, { otherRecipient: true }) as unknown as { data: { fieldErrors: Record<string, string> } }).data;
+    expect(fieldErrors.recipientPhone).toBe(resources.es.translation.checkoutRecipient.phoneInvalid);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  test("ignores empty or invalid recipient fields entirely when nobody else receives", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    expect(await submit(selections(recipient("", "")).home, { otherRecipient: false })).toBeInstanceOf(Response);
+    expect(confirm.mock.calls[0][0].delivery).toMatchObject({ selection: { recipient: { name: "Ana", phone: "+51987654321" } } });
+  });
+
+  test("a kept delivery goes to the buyer when nobody else receives, whatever recipient the client sent", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    await action(args({ ...body, otherRecipient: false, delivery: { kind: "keep", recipient: { name: "Tampered", phone: "+51900000000" } } }));
+    expect(confirm.mock.calls[0][0].delivery).toEqual({ kind: "keep", recipient: { name: "Ana", phone: "+51987654321" } });
+  });
+
+  test("a kept delivery goes to the person named when someone else receives, and needs a valid one", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    await action(args({ ...body, otherRecipient: true, delivery: { kind: "keep", recipient: { name: "Luis", phone: "+14155552671" } } }));
+    expect(confirm.mock.calls[0][0].delivery).toEqual({ kind: "keep", recipient: { name: "Luis", phone: "+14155552671" } });
+    confirm.mockClear();
+    expect(await action(args({ ...body, otherRecipient: true, delivery: { kind: "keep" } })))
+      .toMatchObject({ init: { status: 422 }, data: { fieldErrors: { recipientName: expect.any(String), recipientPhone: expect.any(String) } } });
+    expect(confirm).not.toHaveBeenCalled();
+  });
 });
 
 test("delivery price conflict preserves current checkout and returns the price for explicit reconfirmation", async () => {
@@ -133,16 +230,16 @@ test("delivery form accepts exactly four fields and rejects repeated delivery va
   vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
   const fields = new URLSearchParams({ ...body.buyer, expectedTotal: JSON.stringify(total), delivery: JSON.stringify({ kind: "keep" }) });
   const request = () => new Request("http://localhost/checkout/company/order", { method: "POST", body: fields });
-  expect(await action({ params, request: request() } as unknown as ActionFunctionArgs)).toBeInstanceOf(Response);
+  expect(await action({ params, context, request: request() } as unknown as ActionFunctionArgs)).toBeInstanceOf(Response);
   fields.append("delivery", JSON.stringify({ kind: "keep" }));
-  expect(await action({ params, request: request() } as unknown as ActionFunctionArgs)).toMatchObject({ init: { status: 422 } });
+  expect(await action({ params, context, request: request() } as unknown as ActionFunctionArgs)).toMatchObject({ init: { status: 422 } });
 });
 
 test("public checkout exposes current pickup configuration without courier names or seller identity", async () => {
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 7, home: { enabled: true }, agency: { enabled: false }, couriers: [],
     store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, agencyCovered: false }));
-  const result = await loader({ params } as unknown as LoaderFunctionArgs);
+  const result = await loader({ params, context } as unknown as LoaderFunctionArgs);
   expect(result.data.deliveryOptions).toEqual({ home: { enabled: true }, agency: { enabled: false, covered: false },
     store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } });
   expect(result.data.deliveryOptions).not.toHaveProperty("version");
@@ -153,7 +250,7 @@ test("public loader exposes agency coverage only as a yes or no flag", async () 
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 7, home: { enabled: false }, agency: { enabled: true },
     couriers: [{ id: "private" }] as never, store: { enabled: false, pickupPoint: null } }, agencyCovered: true }));
-  const result = await loader({ params } as unknown as LoaderFunctionArgs);
+  const result = await loader({ params, context } as unknown as LoaderFunctionArgs);
   expect(result.data.deliveryOptions).toEqual({ home: { enabled: false }, agency: { enabled: true, covered: true }, store: { enabled: false, pickupPoint: null } });
   expect(JSON.stringify(result.data.deliveryOptions)).not.toMatch(/zone|district|courier|agencies/i);
 });
@@ -162,13 +259,13 @@ test("public loader reports no agency coverage when the switch is on but no opti
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 7, home: { enabled: false }, agency: { enabled: true },
     couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
-  expect((await loader({ params } as unknown as LoaderFunctionArgs)).data.deliveryOptions?.agency).toEqual({ enabled: true, covered: false });
+  expect((await loader({ params, context } as unknown as LoaderFunctionArgs)).data.deliveryOptions?.agency).toEqual({ enabled: true, covered: false });
 });
 
 test("failed coverage read answers 503 without manufacturing delivery options", async () => {
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(err({ code: "SERVICE_UNAVAILABLE", message: "Private detail" }));
-  const failure = await loader({ params } as unknown as LoaderFunctionArgs).catch(error => error);
+  const failure = await loader({ params, context } as unknown as LoaderFunctionArgs).catch(error => error);
   expect(failure).toMatchObject({ status: 503 });
   expect(vi.mocked(bindRequestOperation)).toHaveBeenCalledWith({ outcome: "technical_failure" });
 });
@@ -176,7 +273,7 @@ test("failed coverage read answers 503 without manufacturing delivery options", 
 test("failed current configuration does not manufacture free shipping or enabled pickup", async () => {
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(err({ code: "SERVICE_UNAVAILABLE", message: "Private detail" }));
-  await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
+  await expect(loader({ params, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
 });
 
 const paymentView = { orderId: params.orderId, total, deliveryCharge: { amount: 0, currency: "PEN" as const }, availability: "available" as const,
@@ -187,7 +284,7 @@ test("confirmed checkout keeps its saved summary and loads the payment view with
   vi.spyOn(orders, "getCheckout").mockResolvedValue(confirmed);
   const payment = vi.spyOn(orders, "getBuyerPaymentView").mockResolvedValue(ok(paymentView));
   const settings = vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions");
-  expect(await loader({ params } as unknown as LoaderFunctionArgs)).toMatchObject({
+  expect(await loader({ params, context } as unknown as LoaderFunctionArgs)).toMatchObject({
     data: { checkout: { total, state: { kind: "confirmed" } }, payment: paymentView }, init: { headers: headers() } });
   expect(payment).toHaveBeenCalledWith(params.orderId);
   expect(settings).not.toHaveBeenCalled();
@@ -197,7 +294,7 @@ test("confirmed checkout logs and answers 503 when the payment view cannot be lo
   const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
   vi.spyOn(orders, "getCheckout").mockResolvedValue(confirmed);
   vi.spyOn(orders, "getBuyerPaymentView").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "Database down" }));
-  await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
+  await expect(loader({ params, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
   expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_payment_unavailable", errorCode: "PERSISTENCE_UNAVAILABLE" }), expect.any(String));
 });
 
@@ -205,14 +302,14 @@ test("confirmed checkout logs and answers 503 for an invalid payment view", asyn
   const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
   vi.spyOn(orders, "getCheckout").mockResolvedValue(confirmed);
   vi.spyOn(orders, "getBuyerPaymentView").mockResolvedValue(ok({ ...paymentView, orderId: "bad" }));
-  await expect(loader({ params } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
+  await expect(loader({ params, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
   expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_checkout_data_invalid" }), expect.any(String));
 });
 
 describe("checkout appearance", () => {
   const custom = { logoUrl: "https://images.example.test/logo.png", theme: "boutique" as const };
   const pendingSettings = () => vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
-  const load = () => loader({ params } as unknown as LoaderFunctionArgs);
+  const load = () => loader({ params, context } as unknown as LoaderFunctionArgs);
 
   test("includes the company appearance after authorizing the order", async () => {
     pendingSettings();
@@ -246,7 +343,7 @@ describe("checkout appearance", () => {
   test("does not read the appearance for an unauthorized link", async () => {
     vi.spyOn(orders, "getCheckout").mockResolvedValue(err({ code: "CHECKOUT_UNAVAILABLE", message: "not public" }));
     await expect(load()).rejects.toMatchObject({ status: 404 });
-    await expect(loader({ params: { companyId: "bad", orderId: "1001" } } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
+    await expect(loader({ params: { companyId: "bad", orderId: "1001" }, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
     expect(storeAppearance.getPublic).not.toHaveBeenCalled();
   });
 
@@ -298,7 +395,7 @@ describe("checkout theme tag and color scheme", () => {
     const tagged = async (result: Awaited<ReturnType<typeof storeAppearance.getPublic>>) => {
       vi.mocked(storeAppearance.getPublic).mockResolvedValue(result);
       vi.mocked(bindRequestOperation).mockClear();
-      await loader({ params } as unknown as LoaderFunctionArgs);
+      await loader({ params, context } as unknown as LoaderFunctionArgs);
       return vi.mocked(bindRequestOperation).mock.calls.flatMap(([fields]) => fields.storeTheme ?? []);
     };
     expect(await tagged({ kind: "custom", appearance: { logoUrl: null, theme: "noche" } })).toEqual(["noche"]);

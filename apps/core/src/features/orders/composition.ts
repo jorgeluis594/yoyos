@@ -2,7 +2,7 @@ import { applicationEventBus } from "@core/src/composition/event-bus";
 import type { EventBusError } from "@core/src/shared/events/application/contracts";
 import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
 import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type CheckoutPhotoError, type GetOrderCheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
-import { findCheckoutOrder, findCheckoutOrderForUpdate as findAnyCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
+import { findCheckoutOrder, findCheckoutOrderForUpdate as findAnyCheckoutOrderForUpdate, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { canAccessBuyerPayment, type CheckoutAccess, type CheckoutError } from "@core/src/features/orders/domain/checkout";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
@@ -16,6 +16,10 @@ import { setOrderDelivery, type SetDeliveryInput } from "@core/src/features/orde
 import { resolveShippingCost as resolveRatedShippingCost } from "@core/src/features/orders/application/resolve-delivery-selection";
 import { type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { rejectPendingCatalogOrder } from "@core/src/features/orders/application/reject-pending-catalog-order";
+import { buildCheckoutUrl, type CheckoutUrlError } from "@core/src/features/orders/application/checkout-url";
+import { readCatalogSettings } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
+import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
+import type { CatalogSubdomain } from "@shared/catalog-subdomain";
 import { createCatalogOrder, type CatalogOrderAccess, type CreateCatalogOrderError, type CreateCatalogOrderInput } from "@core/src/features/orders/application/create-catalog-order";
 import { z } from "zod";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
@@ -63,7 +67,7 @@ async function orderTransaction<T, E extends AppError>(callback: () => Promise<R
 
 const findOrderAggregate = rejectPendingCatalogOrder(findAnyOrderAggregate);
 const findOrderForUpdate = rejectPendingCatalogOrder(findAnyOrderForUpdate);
-const findSellerCheckoutOrderForUpdate = rejectPendingCatalogOrder(findAnyCheckoutOrderForUpdate);
+const findSellerCheckoutOrder = rejectPendingCatalogOrder(findCheckoutOrder);
 
 function scopedOrderTransaction<T, E extends AppError>(companyId: string, callback: () => Promise<Result<T, E>>): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
@@ -144,7 +148,7 @@ export function createConfiguredOrder(input: CreateCompleteOrderInput, context: 
 
 const checkoutDependencies: CheckoutDependencies = { transaction: scopedOrderTransaction,
   findOrder: findCheckoutOrder, findOrderForUpdate: findAnyCheckoutOrderForUpdate,
-  saveEnabled: saveCheckoutEnabled, saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
+  saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
 };
 /** Photos are decorative: the failure is logged here, where it is known, and the use case falls back to markers. */
 async function findItemPhotos(variantIds: readonly VariantId[]): Promise<Result<ReadonlyMap<VariantId, string>, CheckoutPhotoError>> {
@@ -232,8 +236,16 @@ export function deleteConfiguredExpiredCatalogOrders(input: DeleteExpiredCatalog
     } });
 }
 
-const checkoutUrl = (companyId: CompanyId, orderId: OrderId) =>
-  new URL(`/checkout/${companyId}/${orderId}`, process.env.BETTER_AUTH_URL ?? "http://localhost:3000").toString();
+/** The checkout link on the brand host of `subdomain`, which the caller already holds; no query. */
+const checkoutUrlFor = (subdomain: CatalogSubdomain | null, companyId: CompanyId, orderId: OrderId) =>
+  buildCheckoutUrl(storefrontConfig.baseUrl, subdomain, companyId, orderId);
+
+/** The same link for the company's current subdomain, read here for callers that do not have it at hand. */
+async function checkoutUrl(companyId: CompanyId, orderId: OrderId): Promise<Result<string, CheckoutUrlError | { code: "PERSISTENCE_UNAVAILABLE"; message: string }>> {
+  const stored = await withTenantIsolation(companyId, () => readCatalogSettings(companyId));
+  if (!stored.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: stored.error.message });
+  return checkoutUrlFor(stored.data?.subdomain ?? null, companyId, orderId);
+}
 
 async function createConfiguredCatalogOrder(input: CreateCatalogOrderInput, access: CatalogOrderAccess): Promise<Result<OrderAggregate, CreateCatalogOrderError>> {
   requireNoActiveTransaction();
@@ -287,16 +299,17 @@ export const orders = {
   /** Whether a catalog order was confirmed in the checkout; a missing, pending or other company's order is `not_confirmed`. */
   readCatalogOrderConfirmation: (companyId: CompanyId, orderId: OrderId) => withTenantIsolation(companyId, () => readConfirmation(companyId, orderId)),
   checkoutUrl,
+  checkoutUrlFor,
   resolveBuyerAccess,
   getBuyerPaymentView,
   enableCheckout: async (orderId: OrderId, access: OrderAccess) => {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "enable_checkout" });
-    const result = await enableOrderCheckout(orderId, access, new Date(), { ...checkoutDependencies, findOrderForUpdate: findSellerCheckoutOrderForUpdate });
+    const result = await withTenantIsolation(access.companyId, () => enableOrderCheckout(orderId, access, { findOrder: findSellerCheckoutOrder }));
     if (!result.success) { rejectedCheckout(result.error); return result; }
-    bindRequestOperation({ outcome: result.data.changed ? "enabled" : "already_enabled", orderNumber: result.data.number });
-    if (result.data.changed) log.info({ event: "order_checkout_enabled", companyId: access.companyId, orderNumber: result.data.number, userId: access.userId }, "Order checkout enabled");
-    return ok({ url: checkoutUrl(access.companyId, orderId) });
+    const link = await checkoutUrl(access.companyId, orderId);
+    bindRequestOperation({ outcome: link.success ? "loaded" : link.error.code === "SUBDOMAIN_REQUIRED" ? "unavailable" : "technical_failure", orderNumber: result.data.number });
+    return map(link, (url) => ({ url }));
   },
   getCheckout: (access: CheckoutAccess) => readCheckout(access, getCheckoutDependencies),
   getCheckoutView: async (access: CheckoutAccess) => map(await readCheckout(access, getCheckoutViewDependencies), ({ checkout }) => checkout),

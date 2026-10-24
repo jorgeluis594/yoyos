@@ -175,7 +175,7 @@ test("checkout link adapter validates IDs, responses and operation-specific fail
   expect(await api.enableCheckout(id(1))).toEqual(ok({ url }));
   expect(calls).toEqual([`/api/orders/${id(1)}/checkout-link`]);
   expect(await createOrderApi(async () => ok({ url: "bad" })).enableCheckout(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
-  for (const [code, status] of [["ORDER_CANCELLED", 409], ["ORDER_NOT_FOUND", 404], ["INVALID_INPUT", 422]] as const) {
+  for (const [code, status] of [["ORDER_CANCELLED", 409], ["SUBDOMAIN_REQUIRED", 409], ["ORDER_NOT_FOUND", 404], ["INVALID_INPUT", 422]] as const) {
     const failed = createOrderApi(async () => err({ code: "API_ERROR", message: "failure", http: { status, body: { code, error: "Rejected" } } }));
     expect(await failed.enableCheckout(id(1))).toMatchObject({ error: { code } });
   }

@@ -336,7 +336,7 @@ test("asks «¿Cambiar el link de tu catálogo?» before replacing a saved link,
   await typeAndSettle("fantasio-store");
   await click(saveButton());
   expect(document.body.textContent).toContain("¿Cambiar el link de tu catálogo?");
-  expect(document.body.textContent).toContain("fantasio.localhost:3000 dejará de ser tuyo y otra tienda podrá usarlo. Si ya lo compartiste, tendrás que compartir el nuevo.");
+  expect(document.body.textContent).toContain("fantasio.localhost:3000 dejará de ser tuyo y otra tienda podrá usarlo. Los links de tu catálogo y de tus pedidos que ya compartiste dejarán de funcionar.");
   expect(calls.save).toEqual([]);
   await click(buttonNamed("Mantener link actual"));
   await flush();

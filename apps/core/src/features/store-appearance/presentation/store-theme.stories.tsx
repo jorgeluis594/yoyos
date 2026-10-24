@@ -1,7 +1,8 @@
 import { useId } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
 import { Button } from "@core/app/components/ui/button";
-import { Field, FieldLabel } from "@core/app/components/ui/field";
+import { Checkbox } from "@core/app/components/ui/checkbox";
+import { Field, FieldContent, FieldDescription, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 import { storeThemes, type StoreThemeId } from "@shared/store-themes";
 import { StoreBrandHeader } from "@core/src/features/store-appearance/presentation/store-brand-header";
@@ -32,7 +33,8 @@ function CheckoutSample({ theme, logoUrl = null, companyName = "Lima Studio" }: 
           <div className="flex justify-between gap-4"><dt>Subtotal de productos</dt><dd>S/ 118,00</dd></div>
           <div className="flex justify-between gap-4 text-xl font-semibold"><dt>Total a pagar</dt><dd>S/ 128,00</dd></div>
         </dl>
-        <p className="text-sm text-muted-foreground">Incluye el código de país, por ejemplo +51987654321.</p>
+        <Field data-store-part="field" orientation="horizontal"><Checkbox id={`other-${id}`} defaultChecked aria-describedby={`other-hint-${id}`} />
+          <FieldContent><FieldLabel htmlFor={`other-${id}`}>Otra persona recibe el pedido</FieldLabel><FieldDescription id={`other-hint-${id}`}>Si no lo marcas, entregamos a tu nombre y teléfono.</FieldDescription></FieldContent></Field>
         <label className="flex items-center gap-3 rounded-[var(--radius-card)] border border-primary bg-accent p-3 text-accent-foreground">
           <input type="radio" name={`delivery-${id}`} defaultChecked className="size-4 accent-primary" /> Envío a domicilio
         </label>

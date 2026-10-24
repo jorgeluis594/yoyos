@@ -182,6 +182,25 @@ test("never confirms orders, registers payments or submits forms from the previe
   }, page);
 });
 
+test("keeps every payment detail inside its box at 390 px in the five themes and lets the total label wrap", async ({ page }) => {
+  await withCompany(async () => {
+    await page.setViewportSize({ width: 390, height: 938 });
+    await openPreview(page);
+    for (const theme of ["classic", "boutique", "antojo", "suave", "noche"] as const) {
+      await post(page, update({ state: "payment", appearance: { logoUrl: null, theme } }));
+      const details = page.locator(`[data-store-theme-id="${theme}"] [data-store-part=payment-details]`);
+      await browserExpect(details).toBeVisible();
+      const overflow = await details.evaluate((box) => {
+        const edge = box.getBoundingClientRect().right;
+        return [...box.querySelectorAll("*")].filter((child) => child.getBoundingClientRect().right > edge + 0.5).map((child) => child.textContent?.trim());
+      });
+      expect(overflow, theme).toEqual([]);
+      // The sample methods carry no QR, so the narrow column is guarded by the label being allowed to wrap beside one.
+      await browserExpect(details.locator("[data-store-part=total-label]")).toHaveCSS("white-space", "normal");
+    }
+  }, page);
+});
+
 test("embedded at 390 px the preview activates the phone breakpoints and cannot submit forms", async ({ page }) => {
   await withCompany(async () => {
     await page.goto("/es-PE/dashboard");

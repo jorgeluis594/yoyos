@@ -88,7 +88,10 @@ async function continueToCheckout(body: unknown, storefront: PublishedStorefront
   const parsed = continueToCheckoutSchema.safeParse(body);
   if (!parsed.success) return reply<ContinueResponse>({ code: "INVALID_CART" }, 400);
   const result = await catalogCart.continueToCheckout({ orderId: parsed.data.orderId, lines: parsed.data.lines }, storefront);
-  if (result.success) return reply<ContinueResponse>({ checkoutUrl: catalogCart.checkoutUrl(storefront.companyId, result.data.id) });
+  if (result.success) {
+    const checkoutUrl = catalogCart.checkoutUrl(storefront, result.data.id);
+    return checkoutUrl.success ? reply<ContinueResponse>({ checkoutUrl: checkoutUrl.data }) : reply<ContinueResponse>({ code: "SERVICE_UNAVAILABLE" }, 503);
+  }
   const error = result.error;
   if (error.code === "LINES_UNAVAILABLE" || error.code === "CATALOG_UNAVAILABLE" || error.code === "ORDER_ID_CONFLICT") {
     log.debug({ event: "catalog_order_rejected", companyId: storefront.companyId, errorCode: error.code,
