@@ -674,6 +674,7 @@ Decided by the architecture review gate of the implement-task pipeline (design a
 | Receipt and wallet URLs resolved in one batched lookup; row thumbnails lazy with fixed size, only the dialog eager | Performance reviewer, round 1 | Rejection makes receipts accumulate per order; there are no image variants | One query per receipt; eager full-size thumbnails |
 | Non-null wallet `imageUrl` and dropping an unresolved wallet in T3; T1 adds the «Pago rechazado» labels | Design reviewer, rounds 1–2 | Valid only after T2's offered-only `get`; no build may show a rejected payment as confirmed | Non-null in T1 |
 | `ImageReadError.storageCode` separates configuration errors and timeouts from outages in the logs | Design reviewer, round 1 | Same user outcome, different operator action | One code for all |
+| The buyer report endpoint answers `reported` on a replay of a report whose payment was rejected (`reportPaymentResponseSchema` stays the literal `reported`); the checkout never relies on that response status and always shows the state of the refreshed buyer view (`rejectedReport`, `payments[]`) | Coordinator, during T3 implementation | Keeps the response contract unchanged and shared with the existing clients; a retried «Ya pagué» after a rejection shows the rejection, not a false «pendiente» | A new response status `rejected` (contract change) |
 
 ## 18. Deferred items with real risk
 

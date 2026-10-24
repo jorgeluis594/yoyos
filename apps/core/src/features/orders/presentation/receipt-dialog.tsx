@@ -1,8 +1,11 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { useFetcher } from "react-router";
 import { useTranslation } from "react-i18next";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
+import type { action } from "@core/app/routes/order-detail";
+import { SelectPortalContainer } from "@core/app/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
 import { paymentErrorKey, PaymentDecisionForm, type DecisionKind } from "@core/src/features/orders/presentation/payment-decision-form";
 import { paymentDate, type PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
@@ -25,8 +28,19 @@ function ReceiptImage({ url, className }: { url: string; className: string }) {
 
 export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, format, onClose, onDone, onCloseAutoFocus }: Props) {
   const { t } = useTranslation();
-  const [step, setStep] = useState<Step>(kind === "approve" ? "approve" : kind === "reject" ? "reject" : "choose");
+  const [step, setStep] = useState<Step>(kind === "receipt" ? "choose" : kind === "reject" ? "reject" : "approve");
   const [failure, setFailure] = useState("");
+  // The modal traps outside clicks, so the method select opens inside the dialog itself (as the sheets do).
+  const [content, setContent] = useState<HTMLDivElement | null>(null);
+  const fetcher = useFetcher<typeof action>();
+  const handled = useRef<unknown>(null);
+  useEffect(() => {
+    const result = fetcher.data;
+    if (fetcher.state !== "idle" || !result || handled.current === result) return;
+    handled.current = result;
+    if ("success" in result && result.success) onDone(paymentId);
+    else if ("error" in result && result.error) setFailure(String(result.error));
+  }, [fetcher.state, fetcher.data, paymentId, onDone]);
   const withReceipt = kind === "receipt" && receiptUrl !== null;
   const reviewable = kind === "register" || (payment?.status === "reported" && !order.cancelled);
   const back = () => kind === "receipt" ? (setFailure(""), setStep("choose")) : onClose();
@@ -38,14 +52,15 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
     : payment?.status === "voided" ? "paymentStateVoided" : "paymentStateCancelled";
   const deciding = step !== "choose" && reviewable;
   return <Dialog open onOpenChange={open => { if (!open) onClose(); }}>
-    <DialogContent closeLabel={t("orders.receiptClose")} onCloseAutoFocus={onCloseAutoFocus} className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+    <DialogContent ref={setContent} closeLabel={t("orders.receiptClose")} onCloseAutoFocus={onCloseAutoFocus} className="max-h-[calc(100dvh-2rem)] overflow-y-auto sm:max-w-2xl">
+      <SelectPortalContainer.Provider value={content}>
       <DialogHeader><DialogTitle>{title}</DialogTitle><DialogDescription>{description}</DialogDescription></DialogHeader>
       <div className={withReceipt && deciding ? "grid gap-4 sm:grid-cols-2" : "grid gap-4"}>
         {withReceipt && <div className={deciding ? "sticky top-0 z-10 bg-popover pb-2 sm:static" : ""}>
           <ReceiptImage url={receiptUrl} className={deciding ? "max-h-32 sm:max-h-[50dvh]" : "max-h-[60dvh]"} /></div>}
         <div className="flex flex-col gap-3">
           {deciding ? <PaymentDecisionForm kind={kind === "receipt" ? step as DecisionKind : kind} paymentId={paymentId} order={order}
-              heading={kind === "receipt"} onDone={onDone} onFailure={setFailure} onCancel={back} />
+              heading={kind === "receipt"} fetcher={fetcher} onSubmit={() => setFailure("")} onCancel={back} />
             : reviewable ? <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-medium tabular-nums">{t("orders.orderPendingBalance", { amount: format.amount(order.balanceDue) })}</p>
               <div className="flex gap-2">
@@ -55,6 +70,7 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
           {failure && <Alert variant="destructive"><AlertDescription role="alert">{t(paymentErrorKey(failure))}</AlertDescription></Alert>}
         </div>
       </div>
+      </SelectPortalContainer.Provider>
     </DialogContent>
   </Dialog>;
 }

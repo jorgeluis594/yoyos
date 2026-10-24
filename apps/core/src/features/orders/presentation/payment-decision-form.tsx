@@ -1,5 +1,5 @@
-import { useEffect, useRef, useState } from "react";
-import { useFetcher } from "react-router";
+import { useState } from "react";
+import type { FetcherWithComponents } from "react-router";
 import { useTranslation } from "react-i18next";
 import { offersPartialStockDeduction } from "@shared/orders-payment";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
@@ -7,7 +7,6 @@ import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 import { formatCurrency } from "@core/app/format-currency";
-import type { action } from "@core/app/routes/order-detail";
 import { isValidPaymentAmount, PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 
 export type DecisionKind = "approve" | "register" | "reject";
@@ -20,23 +19,15 @@ export function paymentErrorKey(error: string) {
   return "orders.paymentSaveError" as const;
 }
 
+/** The fetcher belongs to the dialog: the form unmounts as soon as the reload shows the payment decided, before it could report the answer. */
 type FormProps = Readonly<{ kind: DecisionKind; paymentId: string; order: Pick<OrderAggregateResponse, "stockDeducted" | "balanceDue" | "total">;
-  heading: boolean; onDone: (paymentId: string) => void; onFailure: (error: string) => void; onCancel: () => void }>;
+  heading: boolean; fetcher: FetcherWithComponents<unknown>; onSubmit: () => void; onCancel: () => void }>;
 
-export function PaymentDecisionForm({ kind, paymentId, order, heading, onDone, onFailure, onCancel }: FormProps) {
+export function PaymentDecisionForm({ kind, paymentId, order, heading, fetcher, onSubmit, onCancel }: FormProps) {
   const { t, i18n } = useTranslation();
-  const fetcher = useFetcher<typeof action>();
   const [draft, setDraft] = useState<PaymentDraft>({ amount: order.balanceDue.amount > 0 ? order.balanceDue.amount.toFixed(2) : "", method: "digital_wallet", deductStockIfPartial: false });
   const [reason, setReason] = useState("");
-  const handled = useRef<unknown>(null);
   const pending = fetcher.state !== "idle";
-  useEffect(() => {
-    const result = fetcher.data;
-    if (fetcher.state !== "idle" || !result || handled.current === result) return;
-    handled.current = result;
-    if ("success" in result && result.success) onDone(paymentId);
-    else if ("error" in result && result.error) onFailure(String(result.error));
-  }, [fetcher.state, fetcher.data, paymentId, onDone, onFailure]);
 
   const validAmount = isValidPaymentAmount(draft.amount);
   const typed = validAmount ? { amount: Number(draft.amount), currency: order.total.currency } : null;
@@ -47,7 +38,7 @@ export function PaymentDecisionForm({ kind, paymentId, order, heading, onDone, o
   function submit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (pending || (kind !== "reject" && !validAmount)) return;
-    onFailure("");
+    onSubmit();
     const body = new FormData();
     body.set("paymentId", paymentId);
     if (kind === "reject") { body.set("operation", "reject"); body.set("reason", reason); }
