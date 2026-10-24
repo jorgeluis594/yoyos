@@ -10,7 +10,7 @@ export type WalletQrState =
   | Readonly<{ status: "uploading" }>
   | Readonly<{ status: "checking"; imageId: string }>
   | Readonly<{ status: "valid"; imageId: string; origin: "chosen" | "saved"; fileName?: string; size?: number }>
-  | Readonly<{ status: "not_a_qr"; imageId: string }>
+  | Readonly<{ status: "not_a_qr"; imageId: string; fileName?: string; size?: number }>
   | Readonly<{ status: "check_unavailable"; imageId: string }>
   // Wallet saved before the QR check existed: hidden from buyers until it is saved with a valid QR.
   | Readonly<{ status: "unchecked"; imageId: string | null }>
@@ -67,20 +67,25 @@ export function WalletQrField({ state, url, onFile, onRetry, onRemove }: { state
   const busy = state.status === "uploading" || state.status === "checking";
   const hasImage = "imageId" in state && state.imageId !== null && url !== "";
   const invalid = state.status === "not_a_qr";
+  const missing = state.status === "empty" || (state.status === "unchecked" && !hasImage);
+  const chosenFile = (state.status === "valid" && state.origin === "chosen") || state.status === "not_a_qr" ? state : null;
+  const fileInfo = chosenFile?.fileName ? `${chosenFile.fileName}${chosenFile.size ? ` · ${formatSize(chosenFile.size)}` : ""}` : "";
   return <Field><FieldLabel>{t("paymentSettings.qrLabel")}</FieldLabel>
     <FileUpload accept={acceptedTypes.join(",")} disabled={busy} onFileSelect={onFile} data-testid="wallet-qr-field">
-    {!hasImage && !busy && <FileUploadDropzone aria-invalid={state.status === "wrong_file" || undefined}>{t("paymentSettings.uploadQr")}</FileUploadDropzone>}
-    {state.status === "empty" && <FieldDescription>{t("paymentSettings.qrHelp")}</FieldDescription>}
+    {!hasImage && !busy && <FileUploadDropzone aria-invalid={state.status === "wrong_file" || missing || undefined}>{t("paymentSettings.uploadQr")}</FileUploadDropzone>}
     {busy && <Alert role="status">{state.status === "uploading" ? t("paymentSettings.uploading") : t("paymentSettings.checkingQr")}</Alert>}
-    {hasImage && <>
-      <FileUploadPreview src={url} alt={t("paymentSettings.imagePreview")} className={invalid ? "border-destructive" : undefined} />
-      {state.status === "valid" && <p className="text-sm text-muted-foreground">
-        {state.origin === "chosen" && state.fileName ? `${state.fileName}${state.size ? ` · ${formatSize(state.size)}` : ""} · ` : ""}<span className="font-medium">{t("paymentSettings.qrValid")}</span></p>}
-      {state.status === "unchecked" && <FieldDescription>{t("paymentSettings.uncheckedWithImage")}</FieldDescription>}
-      <FileUploadActions>
-        <FileUploadTrigger size="sm" disabled={busy}>{t("paymentSettings.changeImage")}</FileUploadTrigger>
-        <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onRemove}>{t("paymentSettings.removeImage")}</Button>
-      </FileUploadActions></>}
+    {hasImage && <div data-testid="wallet-qr-box" aria-invalid={invalid || undefined}
+      className={`flex items-center gap-4 rounded-[var(--radius-card)] border bg-card p-3 ${invalid ? "border-destructive" : "border-border"}`}>
+      <FileUploadPreview src={url} alt={t("paymentSettings.imagePreview")} className="size-20 max-h-20 shrink-0 object-cover" />
+      <div className="flex min-w-0 flex-col gap-2">
+        {fileInfo && <p className="truncate text-sm">{fileInfo}</p>}
+        {state.status === "valid" && <p className="text-sm font-medium">{t("paymentSettings.qrValid")}</p>}
+        {state.status === "unchecked" && <FieldDescription>{t("paymentSettings.uncheckedWithImage")}</FieldDescription>}
+        <FileUploadActions>
+          <FileUploadTrigger size="sm" disabled={busy}>{t("paymentSettings.changeImage")}</FileUploadTrigger>
+          <Button type="button" size="sm" variant="outline" disabled={busy} onClick={onRemove}>{t("paymentSettings.removeImage")}</Button>
+        </FileUploadActions></div></div>}
+    <FieldDescription>{t("paymentSettings.qrHelp")}</FieldDescription>
     {state.status === "unchecked" && !hasImage && <FieldDescription>{t("paymentSettings.uncheckedWithoutImage")}</FieldDescription>}
     {invalid && <FieldError>{t("paymentSettings.notAQr")}</FieldError>}
     {state.status === "wrong_file" && <FieldError>{t("paymentSettings.wrongFile")}</FieldError>}

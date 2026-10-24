@@ -93,7 +93,7 @@ export default function PaymentSettings() {
       if (!response.ok || !checked.success) throw new Error("check");
       setQr(checked.data.status === "verified"
         ? { status: "valid", imageId, origin: "chosen", ...(chosen ? { fileName: chosen.name, size: chosen.size } : {}) }
-        : { status: "not_a_qr", imageId });
+        : { status: "not_a_qr", imageId, ...(chosen ? { fileName: chosen.name, size: chosen.size } : {}) });
     } catch { setQr({ status: "check_unavailable", imageId }); }
   }
 
