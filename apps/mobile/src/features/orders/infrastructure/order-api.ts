@@ -8,13 +8,15 @@ import { createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregat
   type OrderAggregateResponse, type OrderApiError } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { imageResponseSchema } from "@shared/contracts/images";
+import { dispatchSenderResponseSchema } from "@shared/contracts/dispatch-sender";
+import type { DispatchLabelSender } from "@shared/dispatch-label/types";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 import type { OrderRequestError } from "@mobile/features/orders/application/order-operations";
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
-type Operation = "fulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "shipping";
+type Operation = "fulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "shipping" | "sender";
 
 const statusByCode: Record<OrderApiError["code"], number> = {
   INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413,
@@ -61,6 +63,7 @@ const errorSchemas = {
   list: commonErrorSchema,
   mixed: commonErrorSchema,
   catalog: commonErrorSchema,
+  sender: commonErrorSchema,
 } satisfies Record<Operation, z.ZodType>;
 
 function requestError(error: TransportError, operation: Operation): OrderRequestError {
@@ -192,6 +195,11 @@ export function createOrderApi(request: Request) {
     deductStock: async (orderId: string): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
       if (!z.uuid().safeParse(orderId).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
       return response(await request(`/api/orders/${orderId}/deduct-stock`, { method: "POST" }), orderAggregateSchema, "deduct");
+    },
+    /** Effective sender of the company's dispatch labels; the server already applies the company-name fallback. */
+    getDispatchSender: async (): Promise<Result<DispatchLabelSender, OrderRequestError>> => {
+      const result = response(await request("/api/company/dispatch-sender"), dispatchSenderResponseSchema, "sender");
+      return result.success ? ok({ name: result.data.effective.name, phone: result.data.effective.phone }) : result;
     },
     listAggregates: async (input: ListOrderAggregatesRequest): Promise<Result<z.infer<typeof listOrderAggregatesResponseSchema>, OrderRequestError>> => {
       const parsed = listOrderAggregatesSchema.safeParse(input);
