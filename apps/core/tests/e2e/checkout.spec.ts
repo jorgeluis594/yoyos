@@ -3,7 +3,7 @@ import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api
 import { ok, err } from "@shared/functional";
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, publishCatalog, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deleteAgencies, insertAgency, seededCatalogId, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
@@ -37,9 +37,11 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
     if (assigned) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home",
       recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
       recordedBy: { kind: "seller", userId } } } });
+    // The checkout lives on the brand host; the catalog stays hidden, which the checkout must not care about.
+    await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: subdomainOf(companyId) } });
     if (enabled) expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
   });
-  return { companyId, userId, orderId, path: `/checkout/${companyId}/${orderId}`,
+  return { companyId, userId, orderId, route: `/checkout/${companyId}/${orderId}`, path: storeUrl(subdomainOf(companyId), `/checkout/${companyId}/${orderId}`), host: (route: string) => storeUrl(subdomainOf(companyId), route),
     read: () => withTenantIsolation(companyId, async () => await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { buyer: true, payments: true } })),
     cancel: () => withTenantIsolation(companyId, () => orders.cancel(orderId, { companyId, userId })),
     async cleanup() {
@@ -91,7 +93,7 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado", exact: true })).toBeVisible();
     const replay = await page.request.post(f.path, { maxRedirects: 0, data: { delivery: { kind: "keep" }, buyer: { name: "Replacement", phone: "+51999999999" }, expectedTotal: { amount: 1, currency: "USD" } } });
     expect(replay.status()).toBe(302);
-    expect(replay.headers().location).toBe(f.path);
+    expect(replay.headers().location).toBe(f.route);
     expect(await f.read()).toEqual(stored);
     await f.cancel();
     await page.goto(f.path);
@@ -131,11 +133,23 @@ test("public links hide unavailable orders and show cancellation received during
   const f = await fixture("full");
   const disabled = await fixture("none", false);
   try {
-    for (const path of ["/checkout/bad", "/checkout/bad/1001", `/checkout/${randomUUID()}/${f.orderId}`, disabled.path]) {
+    // Hidden catalog: only an order of the host's own company opens; anything else is the host's «Catálogo no disponible», revealing nothing.
+    for (const path of [f.host("/checkout/bad"), f.host("/checkout/bad/1001"), f.host(`/checkout/${randomUUID()}/${f.orderId}`), f.host(`/checkout/${disabled.companyId}/${disabled.orderId}`), storeUrl(subdomainOf(f.companyId), `/checkout/${f.companyId}/${randomUUID()}`)]) {
+      expect((await page.goto(path))?.status()).toBe(404);
+      await browserExpect(page.getByRole("heading", { name: "Catálogo no disponible" })).toBeVisible();
+      await browserExpect(page.getByText("Cuaderno")).toHaveCount(0);
+    }
+    expect((await page.goto(disabled.path))?.status()).toBe(404);
+    await browserExpect(page.getByRole("heading", { name: "Enlace no disponible" })).toBeVisible();
+    // Published catalog: the checkout's own «no disponible» state, the same for a missing order and another company's.
+    await publishCatalog(f.companyId);
+    for (const path of [f.host("/checkout/bad"), f.host("/checkout/bad/1001"), f.host(`/checkout/${randomUUID()}/${f.orderId}`), f.host(`/checkout/${disabled.companyId}/${disabled.orderId}`), f.host(`/checkout/${f.companyId}/${randomUUID()}`), disabled.path]) {
       expect((await page.goto(path))?.status()).toBe(404);
       await browserExpect(page.getByRole("heading", { name: "Enlace no disponible" })).toBeVisible();
       await browserExpect(page.getByText("Cuaderno")).toHaveCount(0);
     }
+    // The app host no longer serves the checkout.
+    expect((await page.goto(`/checkout/${f.companyId}/${f.orderId}`))?.status()).toBe(404);
     await page.goto(f.path);
     await browserExpect(page.getByLabel("Nombre", { exact: true })).toHaveValue("Anterior");
     await f.cancel();
@@ -203,12 +217,13 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
       await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } },
         destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: stored.sellerId } } } });
     });
+    await withTenantIsolation(companyId, async () => { await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: subdomainOf(companyId) } }); });
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("heading", { name: "Pedido #10000" })).toBeVisible();
     await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
     const link = page.getByLabel("Enlace del pedido", { exact: true });
-    await browserExpect(link).toHaveValue(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/checkout/${companyId}/${orderId}`);
+    await browserExpect(link).toHaveValue(storeUrl(subdomainOf(companyId), `/checkout/${companyId}/${orderId}`));
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.getByRole("button", { name: "Copiar enlace", exact: true }).click();
@@ -262,7 +277,7 @@ test("old links remain usable for paid, shipped and delivered orders", async ({ 
         if (state !== "paid") expect(await orders.ship(f.orderId, context)).toMatchObject({ success: true });
         if (state === "delivered") expect(await orders.deliver(f.orderId, context)).toMatchObject({ success: true });
         await prisma.order.update({ where: { id: f.orderId }, data: { checkoutEnabledAt: new Date("2000-01-01") } });
-        expect(await orders.enableCheckout(f.orderId, context)).toMatchObject({ data: { url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}${f.path}` } });
+        expect(await orders.enableCheckout(f.orderId, context)).toMatchObject({ data: { url: f.path } });
       });
       const before = await f.read();
       await page.goto(f.path);
@@ -299,7 +314,7 @@ test("pending submit is disabled and browser history cannot reopen confirmed buy
     release.resolve();
     await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     expect(submissions).toBe(1);
-    await page.goto("/checkout/unavailable");
+    await page.goto(f.host("/checkout/unavailable"));
     await page.goBack();
     await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     await browserExpect(page.getByRole("textbox")).toHaveCount(0);

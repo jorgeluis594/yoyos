@@ -73,6 +73,21 @@ async function callOnHost(host: string, path: string, _cookie?: string, input?: 
     req.end(payload);
   });
 }
+/** A `fetch` that reaches the test server with the brand host in `Host`, as the checkout page does from its own origin. */
+function fetchOnHost(host: string): typeof fetch {
+  return (url, init) => new Promise<Response>((resolve, reject) => {
+    const target = new URL(String(url), `http://${host}`);
+    const body = typeof init?.body === "string" ? init.body : undefined;
+    const headers = { ...Object.fromEntries(new Headers(init?.headers)), host, ...(body === undefined ? {} : { "content-length": String(Buffer.byteLength(body)) }) };
+    const req = httpRequest({ host: "127.0.0.1", port, path: target.pathname + target.search, method: init?.method ?? "GET", headers }, (res) => {
+      let text = "";
+      res.on("data", (chunk) => { text += chunk; });
+      res.on("end", () => resolve(new Response(text, { status: res.statusCode ?? 0, headers: Object.fromEntries(Object.entries(res.headers).flatMap(([name, value]) => typeof value === "string" ? [[name, value]] : [])) })));
+    });
+    req.on("error", reject);
+    req.end(body);
+  });
+}
 const buyerCallFor = (companyId: string) => async (path: string, cookie?: string, input?: unknown, method?: string) => callOnHost(await brandHost(companyId), path, cookie, input, method);
 
 async function fixture(country: "PE" | "CL") {
@@ -654,27 +669,30 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   const orderId = randomUUID();
   const destination = { country: "PE", districtCode: "150122", address: null, instructions: null };
   const input = { orderId, destination };
-  const before = await call("/api/quotations", foreign.cookie, input);
+  const sellerHost = await brandHost(seller.companyId);
+  const foreignHost = await brandHost(foreign.companyId);
+  const buyer = (host: string) => callOnHost(host, "/api/quotations", undefined, input);
+  expect((await call("/api/quotations", foreign.cookie, input)).status).toBe(404);
+  const before = await buyer(sellerHost);
   expect(before.status).toBe(404);
   expect(await before.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   expect((await call("/api/quotations", foreign.cookie, input)).status).toBe(404);
-  await brandHost(seller.companyId);
+  expect((await buyer(foreignHost)).status).toBe(404);
+  expect((await callOnHost(sellerHost, "/api/quotations", undefined, { destination })).status).toBe(404);
   expect((await call(`/api/orders/${orderId}/checkout-link`, seller.cookie, {})).status).toBe(200);
   expect((await call("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 0,
     zones: [0, 8, 8].map(amount => ({ kind: "new", name: "Private zone", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] })) }, "PUT")).status).toBe(200);
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: true },
     store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
   const orderBefore = await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json();
-  const browserFetch: typeof fetch = (url, init) => fetch(new URL(String(url), base), {
-    ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin },
-  });
+  const browserFetch = fetchOnHost(sellerHost);
   const a = await requestDeliveryQuotation({ orderId, districtCode: destination.districtCode }, undefined, browserFetch);
-  const b = await call("/api/quotations", foreign.cookie, input);
+  const b = await buyer(sellerHost);
   expect(a.success).toBe(true);
   expect(b.status).toBe(201);
-  expect(b.headers.get("cache-control")).toBe("no-store");
+  expect(b.headers["cache-control"]).toBe("no-store");
   if (!a.success) throw new Error("Browser quotation failed");
   const first = a.data;
   const second = quotationResponseSchema.parse(await b.json());
@@ -694,7 +712,7 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   });
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(orderBefore);
   await withTenantIsolation(seller.companyId, async () => await prisma.order.update({ where: { id: orderId }, data: { cancelled: true } }));
-  const cancelled = await call("/api/quotations", foreign.cookie, input);
+  const cancelled = await buyer(sellerHost);
   expect(cancelled.status).toBe(422);
   expect(await cancelled.json()).toMatchObject({ code: "ORDER_CANCELLED" });
   expect(await requestDeliveryQuotation({ orderId, districtCode: destination.districtCode }, undefined, browserFetch))

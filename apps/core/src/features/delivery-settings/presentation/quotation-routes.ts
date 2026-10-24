@@ -28,11 +28,15 @@ quotationRoutes.post("/", (request, response, next) => {
 }, async (request, response: Response<unknown, AuthenticatedLocals & { quotationInput: CreateQuotationRequest; quotationCompanyId: string }>, next) => {
   const input = response.locals.quotationInput as CreateQuotationRequest;
   // Order-link authorization takes precedence over any seller session.
+  // The buyer's quotation is served on the brand host of the order's company; the seller's, on the app host only.
+  const hostCompanyId = (response.locals as { brandHostCompanyId?: string }).brandHostCompanyId;
+  if ((input.orderId !== undefined) !== (hostCompanyId !== undefined)) return apiError(response, 404, "CHECKOUT_UNAVAILABLE", "Checkout unavailable");
   if (input.orderId !== undefined) {
     const access = await orders.resolveBuyerAccess(input.orderId);
     if (!access.success) return access.error.code === "PERSISTENCE_UNAVAILABLE"
       ? apiError(response, 503, "SERVICE_UNAVAILABLE", "Checkout unavailable")
       : apiError(response, 404, "CHECKOUT_UNAVAILABLE", "Checkout unavailable");
+    if (access.data.companyId !== hostCompanyId) return apiError(response, 404, "CHECKOUT_UNAVAILABLE", "Checkout unavailable");
     const checkout = await orders.getCheckoutView({ companyId: access.data.companyId, orderId: access.data.orderId });
     if (!checkout.success) return checkout.error.code === "PERSISTENCE_UNAVAILABLE"
       ? apiError(response, 503, "SERVICE_UNAVAILABLE", "Checkout unavailable")

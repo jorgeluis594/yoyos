@@ -61,7 +61,7 @@ app.use("/api/orders", express.json({ limit: "100kb", verify: (_request, _respon
 app.post("/api/messages", mobileMessageParser);
 app.use("/api", express.json({ limit: "100kb" }));
 app.use("/api/buyer/orders", brandHostBuyerOwner, buyerPaymentRoutes(images));
-app.use("/api/quotations", quotationRoutes);
+app.use("/api/quotations", brandHostBuyerOwner, quotationRoutes);
 app.use("/api", loadApiAccess);
 
 app.get("/api/me", (_request, response: Response<unknown, AuthenticatedLocals>) => {

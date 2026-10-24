@@ -4,7 +4,9 @@ import { classifyHost } from "@core/src/features/catalog/domain/store-host";
 import { catalogStorefront } from "@core/src/features/catalog/composition";
 import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
 
-const buyerApiPath = /^\/api\/buyer\/orders(?:\/|$)/;
+/** What the checkout calls from its own origin: the buyer order APIs and the buyer-mode quotation. */
+const buyerApiPath = /^\/api\/(?:buyer\/orders|quotations)(?:\/|$)/;
+const appHostRefusedPath = /^\/api\/buyer\/orders(?:\/|$)/;
 const notFound = (response: Response) => response.status(404).set("Cache-Control", "no-store").json({ code: "NOT_FOUND", error: "Not found" });
 const scannerPath = /\.php$|^\/\.env|^\/\.git(?:\/|$)|^\/wp-/i;
 
@@ -27,7 +29,7 @@ function sendNoReferrer(response: Response) {
 export function brandHostEdge(request: Request, response: Response, next: NextFunction) {
   const host = classifyHost(request.hostname, storefrontConfig.host);
   bindRequestOperation({ storeHost: host.kind });
-  if (host.kind === "app") return buyerApiPath.test(request.path) ? notFound(response) : next();
+  if (host.kind === "app") return appHostRefusedPath.test(request.path) ? notFound(response) : next();
   sendNoReferrer(response);
   if (host.kind === "store" && buyerApiPath.test(request.path)) return next();
   if (/^\/api(?:\/|$)/.test(request.path)) return notFound(response);
