@@ -141,7 +141,11 @@ Set up, in order:
    curl -sS https://no-existe.yoyos.lat/ | grep -c 'Catálogo no disponible'                       # 1
    curl -sSI https://<published>.yoyos.lat/ | grep -iE '^(HTTP|referrer-policy)'                 # 200, no-referrer
    curl -sS https://<published>.yoyos.lat/ | grep -c 'noindex'                                   # 1
-   curl -sS -o /dev/null -w '%{http_code}\n' https://<published>.yoyos.lat/api/me                # 404
+   curl -sS -o /dev/null -w '%{http_code}\n' https://<published>.yoyos.lat/api/me                # 404 (seller API; only /api/buyer/orders/... passes, for the checkout)
+   curl -sS -o /dev/null -w '%{http_code}\n' https://no-existe.yoyos.lat/checkout/<company id>/<order id>   # 404, same «Catálogo no disponible» as /
+   curl -sSI https://<published>.yoyos.lat/checkout/<company id>/<order id> | grep -iE '^(HTTP|referrer-policy|cache-control)'   # 200, no-referrer, no-store
+   curl -sS -o /dev/null -w '%{http_code}\n' https://<published>.yoyos.lat/api/buyer/orders/<order id>/payment   # 200 or 409 for an order of that store, 404 for another company's order
+   curl -sS -o /dev/null -w '%{http_code}\n' https://app.yoyos.lat/checkout/<company id>/<order id>             # 404: the app host no longer serves the checkout
    curl -sS https://<published>.yoyos.lat/robots.txt                                             # Disallow: /
    curl -sSI https://app.yoyos.lat/catalogo/<company id> | grep -iE '^(HTTP|location|cache-control)'  # 308 to the brand host, no-store
    curl -sSI https://yoyos.lat/ | head -1                                                         # landing unchanged

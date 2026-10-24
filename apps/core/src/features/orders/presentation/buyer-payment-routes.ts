@@ -18,6 +18,9 @@ export function buyerPaymentRoutes(images: express.Router) {
         ? apiError(response, 400, "INVALID_INPUT", "Invalid order ID")
         : access.error.code === "ORDER_NOT_FOUND" ? apiError(response, 404, "ORDER_NOT_FOUND", "Order not found")
           : apiError(response, 503, "SERVICE_UNAVAILABLE", "Order unavailable");
+      // On a brand host only that host's company has orders; another company's order answers like a missing one.
+      const hostCompanyId = response.locals.brandHostCompanyId as string | undefined;
+      if (hostCompanyId !== undefined && hostCompanyId !== access.data.companyId) return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
       response.locals.buyerAccess = access.data;
       bindCompanyToRequest(access.data.companyId);
       return withTenantIsolation(access.data.companyId, next);

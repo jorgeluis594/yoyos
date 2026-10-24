@@ -5,7 +5,7 @@ import {
   checkSubdomainAvailability, getCatalogSettings, saveCatalogSubdomain, setCatalogPublication,
   type CatalogSettingsAccess, type CatalogSettingsDependencies, type CompanyId, type CatalogSettingsError, type StoredCatalogSettings,
 } from "@core/src/features/catalog/application/catalog-settings";
-import { resolveLegacyCatalogLink, resolveStorefront } from "@core/src/features/catalog/application/resolve-storefront";
+import { resolveBrandHostOwner, resolveLegacyCatalogLink, resolveStorefront } from "@core/src/features/catalog/application/resolve-storefront";
 import type { StoreHost } from "@core/src/features/catalog/domain/store-host";
 import { readCatalogSettings, resolveSubdomain, savePublication, saveSubdomain } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -44,6 +44,8 @@ export const catalogSettings = {
 /** The brand host's store in one round trip; the request keeps the answer, so nothing else reads the store again. */
 export const catalogStorefront = {
   resolve: (host: StoreHost) => resolveStorefront({ host }, { resolveSubdomain }),
+  /** For the checkout and buyer-API paths: the host's company even when the catalog is hidden. */
+  resolveOwner: (host: StoreHost) => resolveBrandHostOwner({ host }, { resolveSubdomain }),
 };
 
 export const catalogLegacy = {
