@@ -14,7 +14,7 @@ export type PaymentDialogKind = "receipt" | DecisionKind;
 type Step = "choose" | "approve" | "reject";
 
 type Props = Readonly<{ kind: PaymentDialogKind; paymentId: string; payment: Order["payments"][number] | null; order: Order; receiptUrl: string | null;
-  format: PaymentFormat; onClose: () => void; onDone: (paymentId: string) => void; onCloseAutoFocus: (event: Event) => void }>;
+  format: PaymentFormat; onClose: () => void; onDone: (paymentId: string) => void; onUncertain: (paymentId: string) => void; onCloseAutoFocus: (event: Event) => void }>;
 
 function ReceiptImage({ url, className }: { url: string; className: string }) {
   const { t } = useTranslation();
@@ -25,7 +25,7 @@ function ReceiptImage({ url, className }: { url: string; className: string }) {
   return <img key={attempt} src={url} alt={t("orders.receiptAlt")} loading="eager" onError={() => setFailed(true)} className={`mx-auto w-auto max-w-full rounded-md object-contain ${className}`} />;
 }
 
-export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, format, onClose, onDone, onCloseAutoFocus }: Props) {
+export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, format, onClose, onDone, onUncertain, onCloseAutoFocus }: Props) {
   const { t } = useTranslation();
   const [step, setStep] = useState<Step>(kind === "receipt" ? "choose" : kind === "reject" ? "reject" : "approve");
   // A failure is shown until the seller changes step or submits again; the fetcher keeps the last answer.
@@ -39,7 +39,8 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
     if (fetcher.state !== "idle" || !result || handled.current === result) return;
     handled.current = result;
     if ("success" in result && result.success) onDone(paymentId);
-  }, [fetcher.state, fetcher.data, paymentId, onDone]);
+    else if ("error" in result && result.error && paymentErrorKey(String(result.error)) === "orders.paymentUncertain") onUncertain(paymentId);
+  }, [fetcher.state, fetcher.data, paymentId, onDone, onUncertain]);
   const answer = fetcher.state === "idle" && fetcher.data !== dismissed ? fetcher.data : undefined;
   const failure = answer && "error" in answer && answer.error ? String(answer.error) : "";
   const clearFailure = () => setDismissed(fetcher.data);

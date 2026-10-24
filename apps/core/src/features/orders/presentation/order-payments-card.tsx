@@ -21,6 +21,23 @@ export function paymentRowActions(payment: Pick<Payment, "status">, order: Pick<
   return { reject: reviewable, approve: reviewable, void: payment.status === "confirmed" };
 }
 
+/** After a lost response the decision is unknown: that row stays blocked until the card reloads, and no row is decided while a reload runs. */
+export function paymentRowBlocked(paymentId: string, uncertain: Readonly<{ paymentId: string; order: unknown }> | null, order: unknown, idle: boolean) {
+  return !idle || (uncertain !== null && uncertain.paymentId === paymentId && uncertain.order === order);
+}
+
+function RowThumbnail({ url, label, onOpen }: { url: string; label: string; onOpen: (element: HTMLElement) => void }) {
+  const { t } = useTranslation();
+  const [attempt, setAttempt] = useState(0);
+  const [failed, setFailed] = useState(false);
+  if (failed) return <div role="alert" className="flex w-40 shrink-0 flex-col items-start gap-1 text-sm">{t("orders.receiptLoadFailed")}
+    <Button type="button" variant="outline" size="sm" className="min-h-touch md:min-h-control" onClick={() => { setFailed(false); setAttempt(attempt + 1); }}>{t("orders.receiptRetry")}</Button></div>;
+  return <button type="button" aria-label={label} onClick={event => onOpen(event.currentTarget)}
+    className="relative flex min-h-touch shrink-0 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:ring-ring">
+    <img key={attempt} src={url} alt="" loading="lazy" decoding="async" width={56} height={80} onError={() => setFailed(true)} className="h-20 w-14 rounded-md border object-cover" />
+    <span aria-hidden="true" className="absolute right-1 bottom-1 rounded bg-background/80 p-0.5"><Search className="size-icon-inline" /></span></button>;
+}
+
 export function paymentCardSummary(order: Readonly<{ cancelled: boolean; balanceDue: { amount: number }; deliveryCharge: { amount: number };
   payments: readonly Pick<Payment, "status">[] }>) {
   return {
@@ -64,6 +81,7 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
   }, [dialog, order.payments]);
   const dialogPayment = dialog ? order.payments.find(payment => payment.id === dialog.paymentId) ?? null : null;
   const idle = navigation.state === "idle";
+  const [uncertain, setUncertain] = useState<{ paymentId: string; order: Order } | null>(null);
   return <Card role="region" aria-labelledby="order-payments-title" className="min-w-0 max-xl:order-2">
     <CardHeader><CardTitle id="order-payments-title">{t("orders.payments")}</CardTitle></CardHeader>
     <CardContent className="flex flex-col gap-6">
@@ -83,6 +101,7 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
           const when = format.date(paymentDate(payment));
           const actions = paymentRowActions(payment, order);
           const receipt = receiptUrls[payment.id];
+          const blocked = paymentRowBlocked(payment.id, uncertain, order, idle);
           const method = payment.method ? t(payment.method === "digital_wallet" ? "orders.wallet" : "orders.bankTransfer") : null;
           const title = payment.status === "reported" ? t("orders.paymentReported")
             : payment.status === "rejected" ? t("orders.paymentRowRejected", { date: when }) : `${format.amount(payment.amount)} · ${method}`;
@@ -90,10 +109,7 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
             : payment.status === "confirmed" ? t("orders.paymentRowConfirmed", { date: when })
             : payment.status === "voided" ? t("orders.paymentRowVoided", { date: when }) : null;
           return <li key={payment.id} id={paymentRowId(payment.id)} tabIndex={-1} className="flex flex-wrap items-center gap-3 rounded-lg border p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
-            {receipt && <button type="button" aria-label={paymentActionName(t, "thumbnail", when)} onClick={event => open("receipt", payment.id, event.currentTarget)}
-              className="relative flex min-h-touch shrink-0 items-center justify-center rounded-md focus-visible:ring-2 focus-visible:ring-ring">
-              <img src={receipt} alt="" loading="lazy" decoding="async" width={56} height={80} className="h-20 w-14 rounded-md border object-cover" />
-              <span aria-hidden="true" className="absolute right-1 bottom-1 rounded bg-background/80 p-0.5"><Search className="size-icon-inline" /></span></button>}
+            {receipt && <RowThumbnail url={receipt} label={paymentActionName(t, "thumbnail", when)} onOpen={element => open("receipt", payment.id, element)} />}
             <div className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
               <p className="font-medium">{title}</p>
               {detail && <p className="text-muted-foreground">{detail}</p>}
@@ -102,9 +118,9 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
                 className="inline-flex min-h-control w-fit items-center text-link underline underline-offset-4 max-md:min-h-touch">{t("orders.viewReceipt")}</button>}
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              {actions.reject && <Button type="button" variant="outline" className="min-h-touch text-destructive md:min-h-control" aria-label={paymentActionName(t, "reject", when)}
+              {actions.reject && <Button type="button" variant="outline" className="min-h-touch text-destructive md:min-h-control" aria-label={paymentActionName(t, "reject", when)} disabled={blocked}
                 onClick={event => open("reject", payment.id, event.currentTarget)}>{t("orders.reject")}</Button>}
-              {actions.approve && <Button type="button" className="min-h-touch md:min-h-control" aria-label={paymentActionName(t, "approve", when)}
+              {actions.approve && <Button type="button" className="min-h-touch md:min-h-control" aria-label={paymentActionName(t, "approve", when)} disabled={blocked}
                 onClick={event => open("approve", payment.id, event.currentTarget)}>{t("orders.approve")}</Button>}
               {actions.void && <Form method="post"><input type="hidden" name="operation" value="void" /><input type="hidden" name="paymentId" value={payment.id} />
                 <Button type="submit" variant="outline" className="min-h-touch md:min-h-control" aria-label={paymentActionName(t, "void", when)} disabled={!idle}>{t("orders.voidPayment")}</Button></Form>}
@@ -119,7 +135,7 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
       </section>}
     </CardContent>
     {dialog && <PaymentDialog key={`${dialog.kind}-${dialog.paymentId}`} kind={dialog.kind} paymentId={dialog.paymentId} payment={dialogPayment} order={order}
-      receiptUrl={receiptUrls[dialog.paymentId] ?? null} format={format} onClose={() => setDialog(null)}
+      receiptUrl={receiptUrls[dialog.paymentId] ?? null} format={format} onClose={() => setDialog(null)} onUncertain={paymentId => setUncertain({ paymentId, order })}
       onDone={paymentId => { decided.current = true; pendingFocus.current = paymentId; setDialog(null); setSaved(true); }}
       onCloseAutoFocus={event => { event.preventDefault(); if (!decided.current) opener.current?.focus(); }} />}
   </Card>;

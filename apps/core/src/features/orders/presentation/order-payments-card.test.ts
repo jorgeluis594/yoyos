@@ -1,7 +1,7 @@
 import { createInstance } from "i18next";
 import { expect, test } from "vitest";
 import resources from "@core/app/locales";
-import { paymentActionName, paymentCardSummary, paymentRowActions } from "@core/src/features/orders/presentation/order-payments-card";
+import { paymentActionName, paymentCardSummary, paymentRowActions, paymentRowBlocked } from "@core/src/features/orders/presentation/order-payments-card";
 
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const order = (overrides: Partial<Parameters<typeof paymentCardSummary>[0]> = {}) =>
@@ -42,4 +42,24 @@ test("names each row action with the row date and time", async () => {
   expect(paymentActionName(i18n.t, "thumbnail", morning)).toBe("Ver comprobante del 23/10/2026 10:12 p. m.");
   expect(paymentActionName(i18n.t, "approve", morning)).toBe("Aprobar pago reportado el 23/10/2026 10:12 p. m.");
   for (const name of names) expect(name).toMatch(/\d{2}\/10\/2026/);
+});
+
+test("blocks the row after a lost response until the card reloads, and every row while it reloads", () => {
+  const order = {}, reloaded = {};
+  const uncertain = { paymentId: "a", order };
+  expect(paymentRowBlocked("a", uncertain, order, true)).toBe(true);
+  expect(paymentRowBlocked("b", uncertain, order, true)).toBe(false);
+  expect(paymentRowBlocked("a", uncertain, reloaded, true)).toBe(false);
+  expect(paymentRowBlocked("b", null, order, false)).toBe(true);
+});
+
+test("names the pt receipt link as its visible label and keeps the reported wording consistent", async () => {
+  const i18n = createInstance();
+  await i18n.init({ lng: "pt", resources, interpolation: { escapeValue: false } });
+  const when = "23/10/2026 10:12";
+  expect(i18n.t("orders.viewReceipt")).toBe("Ver comprovante");
+  expect(paymentActionName(i18n.t, "viewReceipt", when)).toContain(i18n.t("orders.viewReceipt"));
+  expect(paymentActionName(i18n.t, "viewReceipt", when)).not.toBe(paymentActionName(i18n.t, "thumbnail", when));
+  expect(i18n.t("orders.paymentReported")).toBe("Pagamento reportado, pendente de revisão");
+  expect(paymentActionName(i18n.t, "reject", when)).toBe("Rejeitar pagamento reportado em 23/10/2026 10:12");
 });
