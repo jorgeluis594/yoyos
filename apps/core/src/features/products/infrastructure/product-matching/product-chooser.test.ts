@@ -21,11 +21,19 @@ describe("product chooser", () => {
 
   test("adds the photo cut out of a screenshot after the customer image, and says so", async () => {
     const plain = await buildChooserPrompt(await input(1));
-    const prompt = await buildChooserPrompt({ ...await input(1), detail: await png(4, 4) });
+    const prompt = await buildChooserPrompt({ ...await input(1), detail: { kind: "post_photo", image: await png(4, 4) } });
     const texts = prompt.success ? prompt.data.parts.flatMap((part) => part.kind === "text" ? [part.text] : ["<image>"]) : [];
     expect(texts).toEqual(["Customer image:", "<image>", "Photo inside the customer image:", "<image>", "Candidate A:", "<image>"]);
     expect(prompt.success && prompt.data.labels).toEqual(["A"]);
-    expect(prompt.success && plain.success && prompt.data.instructions).toBe(`${plain.success && plain.data.instructions} ${detailInstructions}`);
+    expect(prompt.success && plain.success && prompt.data.instructions).toBe(`${plain.success && plain.data.instructions} ${detailInstructions.post_photo}`);
+  });
+
+  test("adds the brightened copy of a dim photo after the customer image, and says so", async () => {
+    const plain = await buildChooserPrompt(await input(1));
+    const prompt = await buildChooserPrompt({ ...await input(1), detail: { kind: "brightened", image: await png(4, 4) } });
+    const texts = prompt.success ? prompt.data.parts.flatMap((part) => part.kind === "text" ? [part.text] : ["<image>"]) : [];
+    expect(texts).toEqual(["Customer image:", "<image>", "Brightened copy of the customer image:", "<image>", "Candidate A:", "<image>"]);
+    expect(prompt.success && plain.success && prompt.data.instructions).toBe(`${plain.success && plain.data.instructions} ${detailInstructions.brightened}`);
   });
 
   test("maps the chosen label back to its product id", async () => {

@@ -39,8 +39,9 @@ export type IdentifyProductsError = Readonly<{
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
-/** `detail` is the photo cut out of `query` when it is a post or chat screenshot. */
-export type ChooseProduct = (input: Readonly<{ query: ImageBytes; detail?: ImageBytes; candidates: readonly Readonly<{ productId: ProductId; image: ImageBytes }>[] }>) =>
+/** `detail` is a second view of `query`: the photo cut out of a post or chat screenshot, or the brightened copy of a dim photo. */
+export type ChooserDetail = Readonly<{ kind: "post_photo" | "brightened"; image: ImageBytes }>;
+export type ChooseProduct = (input: Readonly<{ query: ImageBytes; detail?: ChooserDetail; candidates: readonly Readonly<{ productId: ProductId; image: ImageBytes }>[] }>) =>
   Promise<Result<VisualChoice, Readonly<{ code: "PRODUCT_MATCHER_UNAVAILABLE" | "INVALID_MATCHER_RESPONSE"; message: string }>>>;
 
 export type VisualSearch = Readonly<{
@@ -48,6 +49,8 @@ export type VisualSearch = Readonly<{
   candidates: number;
   minConfidence: MatchConfidence;
   embedImage: EmbedImage;
+  /** A dark or washed-out photo with its contrast stretched, or null for a clear one. */
+  brightenDimPhoto: (image: ImageBytes) => Promise<ImageBytes | null>;
   /** The photo inside a post or chat screenshot, or null for any other image. */
   cropPostPhoto: (image: ImageBytes) => Promise<ImageBytes | null>;
   hasIndexedProducts: (model: EmbeddingModel) => Promise<Result<boolean, PersistenceError>>;
@@ -86,9 +89,12 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<
   const indexed = await visual.hasIndexedProducts(visual.model);
   if (!indexed.success) return indexed;
   if (!indexed.data) return notFound("no_indexed_products");
-  // A screenshot is searched by the photo it shows, so the app screen around it does not pull other products closer.
-  const detail = await visual.cropPostPhoto(image);
-  const vector = await visual.embedImage(detail ?? image);
+  // A dim photo is searched by its brightened copy; a screenshot by the photo it shows, so the app screen around it does not pull
+  // other products closer. The chooser sees that view beside the image as it came.
+  const brightened = await visual.brightenDimPhoto(image);
+  const postPhoto = await visual.cropPostPhoto(brightened ?? image);
+  const detail: ChooserDetail | null = postPhoto ? { kind: "post_photo", image: postPhoto } : brightened ? { kind: "brightened", image: brightened } : null;
+  const vector = await visual.embedImage(detail?.image ?? image);
   if (!vector.success) return vector;
   const nearest = await visual.findNearestProductImages(vector.data, visual.model, visual.candidates);
   if (!nearest.success) return nearest;

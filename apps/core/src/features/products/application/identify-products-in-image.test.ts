@@ -13,12 +13,13 @@ const candidate = (productId: ProductId, n: number): VisualCandidate => ({ produ
 
 function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNREADABLE_IMAGE" | "QR_READER_UNAVAILABLE"; qrVariants?: (CatalogItem & { productId: ProductId; qrCode: VariantQrCode })[]; visual?: Partial<VisualSearch> | null }> = {}) {
   const calls: string[] = [];
-  const asked: { products: ProductId[]; embedded?: ImageBytes; query?: ImageBytes; detail?: ImageBytes } = { products: [] };
+  const asked: { products: ProductId[]; embedded?: ImageBytes; query?: ImageBytes; detail?: Readonly<{ kind: string; image: ImageBytes }> } = { products: [] };
   const called = <T>(name: string, value: T): T => { calls.push(name); return value; };
   const visual: VisualSearch = {
     model: "openai/test" as EmbeddingModel, candidates: 5, minConfidence: 0.8 as MatchConfidence,
     hasIndexedProducts: async () => called("hasIndexedProducts", ok(true)),
     embedImage: async (embedded) => { asked.embedded = embedded; return called("embedImage", ok([0.1, 0.2] as unknown as EmbeddingVector)); },
+    brightenDimPhoto: async () => null,
     cropPostPhoto: async () => null,
     findNearestProductImages: async () => called("findNearestProductImages", ok([candidate(productP, 1), candidate(productQ, 2)])),
     readImage: async () => called("readImage", ok(image)),
@@ -100,10 +101,19 @@ describe("identifyProductsInImage", () => {
     const photo = { bytes: new Uint8Array([2]), contentType: "image/jpeg" };
     const post = harness({ visual: { cropPostPhoto: async () => photo } });
     expect(await post.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
-    expect(post.asked).toMatchObject({ embedded: photo, query: image, detail: photo });
+    expect(post.asked).toMatchObject({ embedded: photo, query: image, detail: { kind: "post_photo", image: photo } });
     const plain = harness();
     await plain.run();
     expect(plain.asked).toMatchObject({ embedded: image, query: image, detail: undefined });
+  });
+
+  test("searches a dim photo by its brightened copy and shows the chooser both", async () => {
+    const bright = { bytes: new Uint8Array([3]), contentType: "image/jpeg" };
+    const cropped: ImageBytes[] = [];
+    const dim = harness({ visual: { brightenDimPhoto: async () => bright, cropPostPhoto: async (input) => { cropped.push(input); return null; } } });
+    expect(await dim.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
+    expect(dim.asked).toMatchObject({ embedded: bright, query: image, detail: { kind: "brightened", image: bright } });
+    expect(cropped).toEqual([bright]);
   });
 
   test("returns the chosen product, without choosing a variant, with its confidence and distances", async () => {
