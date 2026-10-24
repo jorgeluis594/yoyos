@@ -34,10 +34,12 @@ const orderedProducts = (expectations: readonly MessageExpectation[]) => new Set
 
 /** A product pick (text or visual) in a message case is right when an acceptable final order has that product. */
 function gradeMessageProduct(pick: string | null, expectations: readonly MessageExpectation[]): boolean | null {
+  // A declined photo leaves its product out of every order, so nothing says which product it showed.
+  if (expectations.some(({ tools }) => tools?.includes("decline_shown_product"))) return null;
   const products = orderedProducts(expectations);
   const expectsNoProduct = expectations.every(({ order, outcomes }) => !order?.length && outcomes.every((kind) => noProductOutcomes.has(kind)));
   if (pick === null) {
-    if (expectations.some(({ outcomes }) => outcomes.includes("not_identified"))) return true;
+    if (expectsNoProduct || expectations.some(({ outcomes }) => outcomes.includes("not_identified"))) return true;
     return products.size ? false : null;
   }
   if (products.has(pick as never)) return true;
