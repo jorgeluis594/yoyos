@@ -30,7 +30,6 @@ function fixture(initial: CheckoutOrder | null = base) {
     transaction: async (_companyId, work) => work(),
     findOrder: async () => ok(order),
     findOrderForUpdate: async () => ok(order),
-    saveEnabled: async (_access, at) => { writes.push("enabled"); order = { ...order!, checkoutEnabledAt: at }; return ok(null); },
     saveBuyer: async (_access, data) => { writes.push("buyer"); order = { ...order!, buyer: data }; return ok(null); },
     saveConfirmed: async (_access, at) => { writes.push("confirmed"); order = { ...order!, checkoutConfirmedAt: at }; return ok(null); },
   };
@@ -38,12 +37,12 @@ function fixture(initial: CheckoutOrder | null = base) {
   return { deps: { ...deps, findItemPhotos } satisfies CheckoutDependencies & GetOrderCheckoutDependencies, writes, stored: () => order, findItemPhotos };
 }
 
-test("enables once and preserves the original enable timestamp on reuse", async () => {
-  const f = fixture({ ...base, checkoutEnabledAt: null });
-  expect(await enableOrderCheckout(access.orderId, seller, now, f.deps)).toMatchObject({ data: { number: 1001, changed: true } });
-  expect(await enableOrderCheckout(access.orderId, seller, new Date("2027-01-01"), f.deps)).toMatchObject({ data: { changed: false } });
-  expect(f.stored()?.checkoutEnabledAt).toEqual(now);
-  expect(f.writes).toEqual(["enabled"]);
+test("enabling is an idempotent read that never writes or moves the enable timestamp", async () => {
+  const f = fixture();
+  for (let attempt = 0; attempt < 2; attempt += 1)
+    expect(await enableOrderCheckout(access.orderId, seller, f.deps)).toMatchObject({ data: { number: 1001 } });
+  expect(f.stored()?.checkoutEnabledAt).toEqual(base.checkoutEnabledAt);
+  expect(f.writes).toEqual([]);
 });
 
 test("public view exposes only checkout data and uses the order total, not a recomputed subtotal", async () => {
@@ -99,7 +98,7 @@ test("repeated confirmations return the existing summary even with stale total a
     .toMatchObject({ data: { changed: false, checkout: { buyer, state: { kind: "confirmed", confirmedAt: now } } } });
   expect(f.stored()).toEqual(first);
   expect(f.writes).toEqual(["buyer", "confirmed"]);
-  expect(await enableOrderCheckout(access.orderId, seller, now, f.deps)).toMatchObject({ data: { changed: false } });
+  expect(await enableOrderCheckout(access.orderId, seller, f.deps)).toMatchObject({ data: { number: 1001 } });
 });
 
 test("unavailable links do not disclose or mutate absent, disabled or mismatched orders", async () => {
@@ -108,7 +107,7 @@ test("unavailable links do not disclose or mutate absent, disabled or mismatched
     expect(await getOrderCheckout(access, f.deps)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
     expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, f.deps)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
     expect(f.writes).toEqual([]);
-    if (order?.checkoutEnabledAt !== null) expect(await enableOrderCheckout(access.orderId, seller, now, f.deps)).toMatchObject({ success: false });
+    expect(await enableOrderCheckout(access.orderId, seller, f.deps)).toMatchObject({ success: false });
   }
 });
 
@@ -116,7 +115,7 @@ test("cancellation blocks enable and confirm and takes precedence over existing 
   for (const checkoutConfirmedAt of [null, now]) {
     const f = fixture({ ...base, cancelled: true, checkoutConfirmedAt, buyer: { ...buyer, contactId: null } });
     expect(await getOrderCheckout(access, f.deps)).toMatchObject({ data: { checkout: { state: { kind: "cancelled" } } } });
-    expect(await enableOrderCheckout(access.orderId, seller, now, f.deps)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
+    expect(await enableOrderCheckout(access.orderId, seller, f.deps)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
     expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, f.deps)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
     expect(f.writes).toEqual([]);
   }

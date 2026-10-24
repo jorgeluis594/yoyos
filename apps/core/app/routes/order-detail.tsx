@@ -173,7 +173,7 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
   bindRequestOperation({ operation: "enable_checkout" });
   try {
     const result = await orders.enableCheckout(id.data as OrderId, { companyId: access.company.id, userId: access.user.id });
-    if (!result.success) return data({ url: null, success: false, error: true }, { status: result.error.code === "ORDER_CANCELLED" ? 409 : result.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 503, headers: headers() });
+    if (!result.success) return data({ url: null, success: false, error: true }, { status: result.error.code === "ORDER_CANCELLED" || result.error.code === "SUBDOMAIN_REQUIRED" ? 409 : result.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 503, headers: headers() });
     return data({ url: checkoutLinkSchema.parse(result.data).url, success: false, error: false }, { headers: headers() });
   } catch (cause) {
     bindRequestOperation({ outcome: "technical_failure" });

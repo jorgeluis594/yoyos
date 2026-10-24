@@ -288,6 +288,11 @@
   white-space: nowrap;
 }
 
+/* Beside the QR the column is narrow: the wide display faces (Antojo) must wrap the label instead of crossing the box. */
+[data-store-theme] [data-store-part="payment-details"] [data-store-part="total-label"] {
+  white-space: normal;
+}
+
 [data-store-theme] [data-store-part="total-amount"] {
   font-family: var(--store-font-body);
   font-size: var(--store-text-total);

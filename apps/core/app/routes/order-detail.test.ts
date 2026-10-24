@@ -35,6 +35,8 @@ test("seller action cannot expose a link for cancelled or unavailable orders", a
   expect(await action(args())).toMatchObject({ data: { url: null, error: true }, init: { status: 409 } });
   enable.mockResolvedValue(err({ code: "CHECKOUT_UNAVAILABLE", message: "Unavailable" }));
   expect(await action(args())).toMatchObject({ data: { url: null, error: true }, init: { status: 404 } });
+  enable.mockResolvedValue(err({ code: "SUBDOMAIN_REQUIRED", message: "The company has no catalog subdomain" }));
+  expect(await action(args())).toMatchObject({ data: { url: null, error: true }, init: { status: 409 } });
 });
 
 test.each(["confirm", "void"])("seller %s action dispatches payment operations without enabling checkout", async (operation) => {

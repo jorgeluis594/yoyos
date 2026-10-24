@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { browserExpect, expect, test } from "@core/tests/e2e/fixtures";
+import { brandHostHeaders, browserExpect, expect, publishCatalog, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
@@ -13,6 +13,7 @@ import { removeCompanyAppearance, rgb, saveCompanyAppearance } from "@core/tests
 import type { Page } from "@playwright/test";
 import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { chooseDistrict } from "@core/tests/e2e/district-combobox";
 
 const logoSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="#2F6B4F"/></svg>';
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
@@ -58,9 +59,11 @@ async function fixture({ delivery = true, photos = false }: { delivery?: boolean
     if (delivery) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "store",
       recipient: { name: "Recipient", phone: "+51999999999", identity: { kind: "absent" } }, pickupPoint: { name: "Tienda", address: "Historical address", instructions: null },
       settingsVersion: 0, recordedBy: { kind: "seller", userId } } } });
+    // The checkout opens on the store's brand host; a published catalog makes the checkout's own «no disponible» answer the unmatched links.
+    await publishCatalog(companyId);
     expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
   });
-  return { companyId, userId, orderId, path: `/checkout/${companyId}/${orderId}`,
+  return { companyId, userId, orderId, route: `/checkout/${companyId}/${orderId}`, headers: brandHostHeaders(subdomainOf(companyId)), path: storeUrl(subdomainOf(companyId), `/checkout/${companyId}/${orderId}`),
     cancel: () => withTenantIsolation(companyId, () => orders.cancel(orderId, { companyId, userId })),
     read: () => withTenantIsolation(companyId, async () => await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } })),
     async cleanup() {
@@ -143,7 +146,7 @@ test.describe("buyer checkout with appearance", () => {
     try {
       await saveCompanyAppearance(f.companyId, { theme: "boutique", withLogo: true });
       await page.route("**/test-images/**", (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg }));
-      const html = await (await page.request.get(f.path, { headers: { "x-request-id": requestId } })).text();
+      const html = await (await page.request.get(f.route, { headers: { ...f.headers, "x-request-id": requestId } })).text();
       expect(html).toContain("<style>[data-store-theme=");
       expect(html.toUpperCase()).toContain(boutique.colors.primary.toUpperCase());
       expect(html).toContain('data-color-scheme="fixed"');
@@ -200,7 +203,7 @@ test.describe("buyer checkout with appearance", () => {
     const f = await fixture();
     const requestId = `appearance-${randomUUID()}`;
     try {
-      const html = await (await page.request.get(f.path, { headers: { "x-request-id": requestId } })).text();
+      const html = await (await page.request.get(f.route, { headers: { ...f.headers, "x-request-id": requestId } })).text();
       expect(html).toContain('data-store-theme-id="classic"');
       expect(html.toUpperCase()).toContain(storeThemes.classic.colors.primary.toUpperCase());
       await expect.poll(() => requestLogs(requestId).some((event) => event.event === "http_request_completed" && event.storeAppearance === "default" && event.storeTheme === "classic")).toBe(true);
@@ -216,7 +219,7 @@ test.describe("buyer checkout with appearance", () => {
       await saveCompanyAppearance(f.companyId, { theme: "noche", withLogo: false });
       await page.emulateMedia({ colorScheme: "dark" });
       for (const path of [`/checkout/${f.companyId}/${randomUUID()}`, `/checkout/${randomUUID()}/${f.orderId}`, "/checkout/bad/1001"]) {
-        const response = await page.goto(path);
+        const response = await page.goto(storeUrl(subdomainOf(f.companyId), path));
         expect(response?.status()).toBe(404);
         await browserExpect(page.getByRole("heading", { name: "Enlace no disponible" })).toBeVisible();
         expect(await page.content()).not.toContain("data-store-theme");
@@ -241,9 +244,7 @@ test.describe("buyer checkout with appearance", () => {
         body: JSON.stringify({ id: receiptId, url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test-images/test%2F${receiptId}` }) }));
       await page.goto(f.path);
       await browserExpect.poll(() => primary(page)).toBe(boutique.colors.primary.toUpperCase());
-      await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-      await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-      await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+      await chooseDistrict(page, "150122");
       await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
       await page.getByLabel("Nombre", { exact: true }).fill("Ana");
       await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
@@ -298,15 +299,27 @@ test.describe("buyer checkout with appearance", () => {
         await browserExpect.poll(fill, { message: `${id}: the ticked check shows its state` }).not.toBe(unticked);
         await other.uncheck();
         await capture(page, `${id}-pending-390`);
+        // The open list is portaled, yet it stays inside the theme: same popover color and mode as the checkout.
+        await page.getByLabel("Departamento", { exact: true }).click();
+        const list = page.getByRole("listbox", { name: "Departamento", exact: true });
+        await browserExpect(list).toBeVisible();
+        expect(await list.evaluate((element) => element.closest("[data-store-theme]") !== null), `${id}: the list is inside the theme`).toBe(true);
+        await browserExpect(page.locator("[data-slot=combobox-content]")).toHaveCSS("background-color", rgb(storeThemes[id].colors.popover));
+        // The active option is marked by the theme's focus color, since some themes paint `accent` like the list itself.
+        await page.keyboard.press("ArrowDown");
+        const active = page.locator("[role=option][data-highlighted]");
+        await browserExpect(active).toHaveCount(1);
+        await browserExpect(active).toHaveCSS("outline-style", "solid");
+        await browserExpect(active).toHaveCSS("outline-width", "2px");
+        await browserExpect(active).toHaveCSS("outline-color", rgb(storeThemes[id].colors.ring));
+        await page.keyboard.press("Escape");
         await page.setViewportSize({ width: 1280, height: 900 });
         await expectThumbnails(page, id);
         await capture(page, `${id}-pending-desktop`);
         await page.setViewportSize({ width: 390, height: 844 });
 
         // Agency delivery chosen, S/ 8.00 on top of the two items.
-        await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-        await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-        await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+        await chooseDistrict(page, "150122");
         await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
         await page.getByLabel("Nombre", { exact: true }).fill("Ana");
         await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");

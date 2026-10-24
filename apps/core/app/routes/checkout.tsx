@@ -7,6 +7,7 @@ import { z } from "zod";
 import { useTranslation } from "react-i18next";
 import { Button } from "@core/app/components/ui/button";
 import { CheckoutBuyerDetails, CheckoutConfirmAction, CheckoutOrderSummary, CheckoutPayment, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
+import { brandHostCompanyContext } from "@core/app/brand-host-context";
 import { orders } from "@core/src/features/orders/composition";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
 import { checkoutFormSchema, otherPersonReceives, type CheckoutForm } from "@core/app/checkout-recipient";
@@ -90,10 +91,13 @@ async function loadPayment(orderId: string): Promise<BuyerPaymentView> {
   throw new Response(retry, { status: 503, headers: privacyHeaders });
 }
 
-export async function loader({ params }: LoaderFunctionArgs) {
+/** The checkout opens only on the brand host of the company that owns the order; any other pairing is «no disponible» and says nothing about the order. */
+const servedByHost = (context: LoaderFunctionArgs["context"], companyId: string | undefined) => companyId !== undefined && context.get(brandHostCompanyContext) === companyId;
+
+export async function loader({ params, context }: LoaderFunctionArgs) {
   bindRequestOperation({ operation: "get_checkout" });
   const path = checkoutPathSchema.safeParse(params);
-  if (!path.success) {
+  if (!path.success || !servedByHost(context, path.data.companyId)) {
     bindRequestOperation({ outcome: "unavailable" });
     throw new Response(unavailable, { status: 404, headers: privacyHeaders });
   }
@@ -126,10 +130,10 @@ const recipientFieldErrors = (recipient?: { name: string; phone: string }): NonN
 });
 const sentRecipient = (body: unknown) => (body as { delivery?: { selection?: { recipient?: { name: string; phone: string } } } } | null)?.delivery?.selection?.recipient;
 const formSchema = z.strictObject({ name: z.string(), phone: z.string(), expectedTotal: z.string(), delivery: z.string() });
-export async function action({ request, params }: ActionFunctionArgs) {
+export async function action({ request, params, context }: ActionFunctionArgs) {
   bindRequestOperation({ operation: "confirm_checkout" });
   const path = checkoutPathSchema.safeParse(params);
-  if (!path.success) {
+  if (!path.success || !servedByHost(context, path.data.companyId)) {
     bindRequestOperation({ outcome: "unavailable" });
     return response({ checkout: null, message: unavailable, unavailable: true }, 404);
   }
