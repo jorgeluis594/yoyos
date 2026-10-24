@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { browserExpect, expect, test } from "@core/tests/e2e/fixtures";
+import { brandHostHeaders, browserExpect, expect, publishCatalog, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
@@ -58,9 +58,11 @@ async function fixture({ delivery = true, photos = false }: { delivery?: boolean
     if (delivery) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "store",
       recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Tienda", address: "Historical address", instructions: null },
       settingsVersion: 0, recordedBy: { kind: "seller", userId } } } });
+    // The checkout opens on the store's brand host; a published catalog makes the checkout's own «no disponible» answer the unmatched links.
+    await publishCatalog(companyId);
     expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
   });
-  return { companyId, userId, orderId, path: `/checkout/${companyId}/${orderId}`,
+  return { companyId, userId, orderId, route: `/checkout/${companyId}/${orderId}`, headers: brandHostHeaders(subdomainOf(companyId)), path: storeUrl(subdomainOf(companyId), `/checkout/${companyId}/${orderId}`),
     cancel: () => withTenantIsolation(companyId, () => orders.cancel(orderId, { companyId, userId })),
     read: () => withTenantIsolation(companyId, async () => await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } })),
     async cleanup() {
@@ -143,7 +145,7 @@ test.describe("buyer checkout with appearance", () => {
     try {
       await saveCompanyAppearance(f.companyId, { theme: "boutique", withLogo: true });
       await page.route("**/test-images/**", (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", body: logoSvg }));
-      const html = await (await page.request.get(f.path, { headers: { "x-request-id": requestId } })).text();
+      const html = await (await page.request.get(f.route, { headers: { ...f.headers, "x-request-id": requestId } })).text();
       expect(html).toContain("<style>[data-store-theme=");
       expect(html.toUpperCase()).toContain(boutique.colors.primary.toUpperCase());
       expect(html).toContain('data-color-scheme="fixed"');
@@ -200,7 +202,7 @@ test.describe("buyer checkout with appearance", () => {
     const f = await fixture();
     const requestId = `appearance-${randomUUID()}`;
     try {
-      const html = await (await page.request.get(f.path, { headers: { "x-request-id": requestId } })).text();
+      const html = await (await page.request.get(f.route, { headers: { ...f.headers, "x-request-id": requestId } })).text();
       expect(html).toContain('data-store-theme-id="classic"');
       expect(html.toUpperCase()).toContain(storeThemes.classic.colors.primary.toUpperCase());
       await expect.poll(() => requestLogs(requestId).some((event) => event.event === "http_request_completed" && event.storeAppearance === "default" && event.storeTheme === "classic")).toBe(true);
@@ -216,7 +218,7 @@ test.describe("buyer checkout with appearance", () => {
       await saveCompanyAppearance(f.companyId, { theme: "noche", withLogo: false });
       await page.emulateMedia({ colorScheme: "dark" });
       for (const path of [`/checkout/${f.companyId}/${randomUUID()}`, `/checkout/${randomUUID()}/${f.orderId}`, "/checkout/bad/1001"]) {
-        const response = await page.goto(path);
+        const response = await page.goto(storeUrl(subdomainOf(f.companyId), path));
         expect(response?.status()).toBe(404);
         await browserExpect(page.getByRole("heading", { name: "Enlace no disponible" })).toBeVisible();
         expect(await page.content()).not.toContain("data-store-theme");

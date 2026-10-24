@@ -1,6 +1,6 @@
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { mkdir } from "node:fs/promises";
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, subdomainOf, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { products } from "@core/src/features/products/composition";
 import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
@@ -231,6 +231,8 @@ test("seller manages overlapping zones with delivery options and preserves an ed
     });
     const orderId = crypto.randomUUID();
     expect((await page.request.post("/api/orders", { data: { id: orderId, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    const owner = companyId;
+    await withTenantIsolation(owner, async () => { await prisma.company.update({ where: { id: owner }, data: { catalogSubdomain: subdomainOf(owner) } }); });
     const enabled = await page.request.post(`/api/orders/${orderId}/checkout-link`);
     expect(enabled.ok()).toBe(true);
     const buyerPage = await buyer.newPage();
@@ -408,6 +410,8 @@ test("seller creates Zona sur with Arequipa and Cusco complete and a Cayma buyer
     });
     const orderId = crypto.randomUUID();
     expect((await page.request.post("/api/orders", { data: { id: orderId, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    const owner = companyId;
+    await withTenantIsolation(owner, async () => { await prisma.company.update({ where: { id: owner }, data: { catalogSubdomain: subdomainOf(owner) } }); });
     const link = await page.request.post(`/api/orders/${orderId}/checkout-link`);
     expect(link.ok()).toBe(true);
     const buyerPage = await buyer.newPage();
