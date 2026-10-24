@@ -47,6 +47,6 @@ export function previewCheckout(companyName: string, state: PreviewState): Publi
 export function previewPaymentView(methods: readonly PreviewPaymentMethod[]): BuyerPaymentView {
   return {
     orderId: previewOrderId, total: pen(128), deliveryCharge: pen(10), availability: "available",
-    paidAmount: pen(0), balanceDue: pen(128), paymentStatus: "pending", settings: [...methods], payments: [],
+    paidAmount: pen(0), balanceDue: pen(128), paymentStatus: "pending", settings: [...methods], payments: [], rejectedReport: null,
   };
 }

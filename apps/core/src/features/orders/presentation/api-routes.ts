@@ -2,7 +2,7 @@ import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { cancelOrderResponseSchema, createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, registerPaymentResponseSchema, registerPaymentSchema, updateOrderShippingSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, registerPaymentResponseSchema, registerPaymentSchema, rejectPaymentSchema, updateOrderShippingSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
@@ -208,6 +208,19 @@ orderRoutes.post("/:id/payments/:paymentId/void", async (request, response: Resp
   try {
     const result = await orders.voidPayment({ orderId: parsedId.data as OrderId, paymentId: parsedPaymentId.data as PaymentId }, orderContext(response));
     return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+  } catch (error) { return unexpected(response, error); }
+});
+
+orderRoutes.post("/:id/payments/:paymentId/reject", async (request, response: Response<unknown, PrivateLocals>) => {
+  if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
+  const parsedId = orderId(request.params.id);
+  const parsedPaymentId = z.uuid().safeParse(request.params.paymentId);
+  const parsed = rejectPaymentSchema.safeParse(request.body);
+  if (!parsedId.success || !parsedPaymentId.success || !parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid rejection input");
+  try {
+    const result = await orders.rejectPayment({ orderId: parsedId.data as OrderId, paymentId: parsedPaymentId.data as PaymentId, reason: parsed.data.reason },
+      orderContext(response));
+    return result.success ? response.json(toOrderAggregateJson(result.data.order)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 

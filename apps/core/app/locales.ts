@@ -105,6 +105,7 @@ const es = {
     payments: "Pagos",
     paymentReported: "Pago reportado, pendiente de revisión",
     paymentVoided: "Pago anulado",
+    paymentRejected: "Pago rechazado",
     viewReceipt: "Ver captura", voidPayment: "Anular pago", manualPayment: "Registrar pago manual", paymentAmount: "Importe recibido",
     paymentMethod: "Medio de pago", wallet: "Billetera digital", bankTransfer: "Transferencia bancaria",
     deductStockIfPartial: "Descontar stock aunque sea un abono parcial", confirmPayment: "Confirmar pago",
@@ -135,7 +136,7 @@ const es = {
     provider: "Proveedor", holder: "Titular", bank: "Banco", account: "Cuenta", copyAccount: "Copiar cuenta", copyCci: "Copiar CCI", openImage: "Abrir imagen de pago",
     pendingTitle: "Pago pendiente de revisión", pendingBody: "El vendedor revisará la captura y confirmará el importe recibido.", attachTitle: "Adjunta tu comprobante", attachBody: "Adjunta tu comprobante en JPG, PNG o WEBP (hasta 10 MB). La tienda verificará el pago.",
     screenshot: "Captura del pago", selectImage: "Selecciona una imagen de tu comprobante", uploading: "Subiendo captura…", retryUpload: "Reintentar subida", ready: "Captura lista para enviar.", sending: "Enviando…", paid: "Ya pagué",
-    sentReceipts: "Comprobantes enviados", viewScreenshot: "Ver captura · {{status}}", status: { reported: "Pendiente", confirmed: "Confirmado", voided: "Anulado" },
+    sentReceipts: "Comprobantes enviados", viewScreenshot: "Ver captura · {{status}}", status: { reported: "Pendiente", confirmed: "Confirmado", voided: "Anulado", rejected: "Rechazado" },
   },
   emails: {
     ignore: "Si no solicitaste este correo, puedes ignorarlo.", fallback: "¿El botón no funciona? Copia este enlace en tu navegador:", accountCategory: "Tu cuenta", securityCategory: "Seguridad", verificationSubject: "Verifica tu correo de Yoyos", verificationPreview: "Verifica tu correo para continuar", verificationTitle: "Verifica tu correo", verificationBody: "Confirma tu dirección para empezar a usar Yoyos.", verificationAction: "Verificar correo", verificationEmailLabel: "Correo", verificationExpiryLabel: "Vence", verificationExpiryValue: "En 24 horas", resetSubject: "Recupera tu contraseña de Yoyos", resetPreview: "Recupera el acceso a tu cuenta Yoyos", resetTitle: "Restablece tu contraseña", resetBody: "Usa este enlace para elegir una contraseña nueva.", resetAction: "Cambiar contraseña", resetExpiry: "El enlace vence en 30 minutos.",
@@ -247,6 +248,7 @@ const pt = {
     payments: "Pagamentos",
     paymentReported: "Pagamento informado, aguardando revisão",
     paymentVoided: "Pagamento anulado",
+    paymentRejected: "Pagamento rejeitado",
     viewReceipt: "Ver comprovante", voidPayment: "Anular pagamento", manualPayment: "Registrar pagamento manual", paymentAmount: "Valor recebido",
     paymentMethod: "Meio de pagamento", wallet: "Carteira digital", bankTransfer: "Transferência bancária",
     deductStockIfPartial: "Descontar estoque mesmo com pagamento parcial", confirmPayment: "Confirmar pagamento",
@@ -277,7 +279,7 @@ const pt = {
     provider: "Provedor", holder: "Titular", bank: "Banco", account: "Conta", copyAccount: "Copiar conta", copyCci: "Copiar CCI", openImage: "Abrir imagem de pagamento",
     pendingTitle: "Pagamento pendente de revisão", pendingBody: "O vendedor revisará a captura e confirmará o valor recebido.", attachTitle: "Anexe seu comprovante", attachBody: "Anexe seu comprovante em JPG, PNG ou WEBP (até 10 MB). A loja verificará o pagamento.",
     screenshot: "Captura do pagamento", selectImage: "Selecione uma imagem do seu comprovante", uploading: "Enviando captura…", retryUpload: "Tentar enviar novamente", ready: "Captura pronta para enviar.", sending: "Enviando…", paid: "Já paguei",
-    sentReceipts: "Comprovantes enviados", viewScreenshot: "Ver captura · {{status}}", status: { reported: "Pendente", confirmed: "Confirmado", voided: "Anulado" },
+    sentReceipts: "Comprovantes enviados", viewScreenshot: "Ver captura · {{status}}", status: { reported: "Pendente", confirmed: "Confirmado", voided: "Anulado", rejected: "Rejeitado" },
   },
   emails: {
     ignore: "Se você não solicitou este e-mail, pode ignorá-lo.", fallback: "O botão não funciona? Copie este link no seu navegador:", accountCategory: "Sua conta", securityCategory: "Segurança", verificationSubject: "Verifique seu e-mail do Yoyos", verificationPreview: "Verifique seu e-mail para continuar", verificationTitle: "Verifique seu e-mail", verificationBody: "Confirme seu endereço para começar a usar o Yoyos.", verificationAction: "Verificar e-mail", verificationEmailLabel: "E-mail", verificationExpiryLabel: "Expira", verificationExpiryValue: "Em 24 horas", resetSubject: "Recupere sua senha do Yoyos", resetPreview: "Recupere o acesso à sua conta Yoyos", resetTitle: "Redefina sua senha", resetBody: "Use este link para escolher uma nova senha.", resetAction: "Alterar senha", resetExpiry: "O link expira em 30 minutos.",
