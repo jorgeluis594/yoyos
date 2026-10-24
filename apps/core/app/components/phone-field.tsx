@@ -1,5 +1,7 @@
 import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
+import { cn } from "@/lib/utils";
+import { useClientReady } from "@core/app/use-client-ready";
 import { Input } from "@core/app/components/ui/input";
 import { controlClass } from "@core/app/components/ui/field";
 import { defaultPhoneCountry, joinPhone, phoneCountries, splitPhone } from "@shared/phone";
@@ -24,12 +26,15 @@ const parts = (phone: string, fallback = defaultPhoneCountry): Parts => {
   return split ? { country: split.country, text: split.national } : { country: fallback, text: "" };
 };
 
+/** Server and browser disagree on country names, so the names only join the options once the client has hydrated. */
 function useCountryOptions(language: string) {
+  const ready = useClientReady();
   return useMemo(() => {
+    if (!ready) return phoneCountries.map(({ iso, dial }) => ({ iso, label: `${iso} +${dial}` }));
     const names = new Intl.DisplayNames([language], { type: "region" });
     return phoneCountries.map(({ iso, dial }) => ({ iso, label: `${iso} +${dial} · ${names.of(iso) ?? iso}`, name: names.of(iso) ?? iso }))
       .sort((a, b) => a.name.localeCompare(b.name, language));
-  }, [language]);
+  }, [language, ready]);
 }
 
 /** Country selector plus the number in national format; reports the E.164 phone ("" until digits are typed). */
@@ -48,12 +53,12 @@ export function PhoneField({ id, value, defaultValue = "", onChange, onBlur, inv
     const pasted = text.trimStart().startsWith("+") ? splitPhone(text) : null;
     update(pasted ? { country: pasted.country, text: pasted.national } : { country: state.country, text: text.replace(/[^\d\s().-]/g, "") });
   };
-  return <div data-store-part="phone" className="flex gap-2">
-    <select data-slot="select" aria-label={t("phoneField.country")} className={`${controlClass} w-[8.5rem] shrink-0`} value={state.country} disabled={disabled} onBlur={onBlur}
+  return <div data-store-part="phone" className="flex min-w-0 gap-2">
+    <select data-slot="select" aria-label={t("phoneField.country")} className={cn(controlClass, "w-[8.5rem] shrink-0")} value={state.country} disabled={disabled} onBlur={onBlur}
       onChange={event => update({ country: event.target.value, text: state.text })}>
       {options.map(option => <option key={option.iso} value={option.iso}>{option.label}</option>)}
     </select>
-    <Input id={id} type="tel" inputMode="tel" autoComplete="tel-national" required={required} disabled={disabled} placeholder={t("phoneField.placeholder")}
+    <Input id={id} className="min-w-0 flex-1" type="tel" inputMode="tel" autoComplete="tel-national" required={required} disabled={disabled} placeholder={t("phoneField.placeholder")}
       aria-invalid={invalid} aria-describedby={describedBy} value={state.text} onBlur={onBlur} onChange={event => type(event.target.value)} />
   </div>;
 }

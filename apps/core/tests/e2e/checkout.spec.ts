@@ -65,7 +65,7 @@ test("anonymous mobile buyer reviews fixed products, corrects prefilled data and
     expect(response?.headers()["referrer-policy"]).toBe("no-referrer");
     await browserExpect(page.getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
     await browserExpect(page.getByLabel("Nombre", { exact: true })).toHaveValue("");
-    await browserExpect(page.getByLabel("Teléfono", { exact: true })).toHaveValue("+51987654321");
+    await browserExpect(page.getByLabel("Teléfono", { exact: true })).toHaveValue("987654321");
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await browserExpect(page.getByText("Cuaderno", { exact: true })).toBeVisible();
     await page.getByLabel("Teléfono", { exact: true }).fill("invalid");
@@ -114,7 +114,7 @@ test("changed total preserves buyer input and needs an explicit new confirmation
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("alert")).toContainText("El total cambió");
     await browserExpect(page.getByLabel("Nombre", { exact: true })).toHaveValue("Ana");
-    await browserExpect(page.getByLabel("Teléfono", { exact: true })).toHaveValue("+51987654321");
+    await browserExpect(page.getByLabel("Teléfono", { exact: true })).toHaveValue("987654321");
     await browserExpect(page.getByText("S/ 12.00", { exact: true })).toBeVisible();
     expect((await f.read()).checkoutConfirmedAt).toBeNull();
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
@@ -336,8 +336,9 @@ test("buyer selects a district rate, preserves the form on price conflict and co
     expect(quoted).toHaveLength(1);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    await page.getByLabel("Nombre del destinatario").fill("Recipient");
-    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await page.getByLabel("Otra persona recibe el pedido").check();
+    await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+    await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
     await page.getByLabel("Dirección de entrega").fill("Street 123");
     await page.getByLabel("Indicaciones de entrega").fill("Door 3");
     await browserExpect(page.getByText("Subtotal de productos", { exact: true }).locator("..")).toContainText(/10[.,]00/);
@@ -393,8 +394,9 @@ test("buyer pickup confirms explicit zero without district or quotation", async 
     await browserExpect(page.getByText("Pickup address", { exact: true })).toBeVisible();
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    await page.getByLabel("Nombre del destinatario").fill("Recipient");
-    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await page.getByLabel("Otra persona recibe el pedido").check();
+    await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+    await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
     const before = await f.read();
     const missingDelivery = await page.request.post(f.path, { data: {
       buyer: { name: "Bypass", phone: "+51987654321" }, expectedTotal: { amount: 10, currency: "PEN" },
@@ -443,9 +445,10 @@ async function pickDistrict(page: Page, department: string, province: string, di
 async function fillRecipient(page: Page, document?: string) {
   await page.getByLabel("Nombre", { exact: true }).fill("Ana");
   await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-  await page.getByLabel("Nombre del destinatario").fill("Recipient");
-  await page.getByLabel("Teléfono del destinatario").fill("999");
-  if (document) await page.getByLabel("Documento del destinatario").fill(document);
+  await page.getByLabel("Otra persona recibe el pedido").check();
+  await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+  await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
+  if (document) await page.getByLabel("Documento de quien recibe", { exact: true }).fill(document);
 }
 
 const mode = (page: Page, value: string) => page.getByRole("radiogroup", { name: "Forma de entrega" }).locator(`input[value="${value}"]`);
@@ -553,7 +556,7 @@ test("buyer picks another agency after the seller disables the chosen one before
     await browserExpect(page.getByRole("alert")).toBeVisible();
     await browserExpect(agency.locator("option")).toHaveCount(2);
     await browserExpect(agency).toHaveValue(agencies[1]);
-    await browserExpect(page.getByLabel("Nombre del destinatario")).toHaveValue("Recipient");
+    await browserExpect(page.getByLabel("Nombre de quien recibe")).toHaveValue("Recipient");
     await browserExpect(page.getByLabel("Distrito", { exact: true })).toHaveValue("040103");
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
@@ -603,8 +606,9 @@ test("buyer waits for a district and recovers a failed quotation without losing 
     await page.goto(f.path);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    await page.getByLabel("Nombre del destinatario").fill("Recipient");
-    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await page.getByLabel("Otra persona recibe el pedido").check();
+    await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+    await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
     const confirm = page.getByRole("button", { name: "Confirmar pedido", exact: true });
     await browserExpect(confirm).toBeDisabled();
     expect(attempts).toBe(0);
@@ -615,7 +619,7 @@ test("buyer waits for a district and recovers a failed quotation without losing 
     await browserExpect(confirm).toBeDisabled();
     await browserExpect(page.getByText("Gratis", { exact: true })).toHaveCount(0);
     await browserExpect(page.getByLabel("Nombre", { exact: true })).toHaveValue("Ana");
-    await browserExpect(page.getByLabel("Nombre del destinatario")).toHaveValue("Recipient");
+    await browserExpect(page.getByLabel("Nombre de quien recibe")).toHaveValue("Recipient");
     await page.getByRole("button", { name: "Reintentar tarifas", exact: true }).click();
     await browserExpect(page.getByRole("status").filter({ hasText: "Consultando opciones de envío…" })).toBeVisible();
     await browserExpect(confirm).toBeDisabled();
@@ -649,8 +653,9 @@ test("buyer distinguishes uncovered shipping from an explicit free home rate", a
     await page.goto(f.path);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    await page.getByLabel("Nombre del destinatario").fill("Recipient");
-    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await page.getByLabel("Otra persona recibe el pedido").check();
+    await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+    await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
     await page.getByLabel("Departamento", { exact: true }).selectOption("04");
     await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
     await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
@@ -716,8 +721,9 @@ test("buyer keeps the selected district rate when an earlier real quotation arri
     await page.goto(f.path);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    await page.getByLabel("Nombre del destinatario").fill("Recipient");
-    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await page.getByLabel("Otra persona recibe el pedido").check();
+    await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+    await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
     await page.getByLabel("Departamento", { exact: true }).selectOption("15");
     await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
     await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
@@ -776,8 +782,9 @@ test("buyer pickup removes the shipping rate and ignores a quotation still in fl
     await page.goto(f.path);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    await page.getByLabel("Nombre del destinatario").fill("Recipient");
-    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await page.getByLabel("Otra persona recibe el pedido").check();
+    await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+    await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
     await page.getByLabel("Departamento", { exact: true }).selectOption("15");
     await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
     await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
@@ -838,15 +845,16 @@ test("buyer cannot use disabled pickup or confirm pickup disabled after opening 
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await mode("store").check();
-    await page.getByLabel("Nombre del destinatario").fill("Recipient");
-    await page.getByLabel("Teléfono del destinatario").fill("999");
+    await page.getByLabel("Otra persona recibe el pedido").check();
+    await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+    await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
     await browserExpect(page.getByText("Pickup address", { exact: true })).toBeVisible();
     const before = await f.read();
     expect((await savePickup(false, 1)).success).toBe(true);
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("alert")).toContainText("Revisa la entrega y vuelve a confirmar.");
     await browserExpect(page.getByLabel("Nombre", { exact: true })).toHaveValue("Ana");
-    await browserExpect(page.getByLabel("Nombre del destinatario")).toHaveValue("Recipient");
+    await browserExpect(page.getByLabel("Nombre de quien recibe")).toHaveValue("Recipient");
     expect(await f.read()).toEqual(before);
     expect(quotations).toBe(0);
     await page.reload();
@@ -900,6 +908,8 @@ test("buyer keeps a historical rate after its zone changes or replaces it with a
           expect(await rates.inputValue()).not.toBe(original);
           await browserExpect(page.getByLabel("Dirección de entrega")).toHaveValue("Historical street");
           await page.getByLabel("Dirección de entrega").fill("Replacement street");
+          await browserExpect(page.getByLabel("Otra persona recibe el pedido")).toBeChecked();
+          await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
         }
         await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
         await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
