@@ -54,7 +54,8 @@ function useSenderSave(initial: DispatchSenderResponse) {
       setState({ kind: "saved" });
     } finally { inflight.current = false; }
   }, []);
-  useEffect(() => () => clearTimeout(timer.current), []);
+  // Leaving the page flushes text typed since the last save; a request already in flight picks it up in its loop.
+  useEffect(() => () => void commit(), [commit]);
 
   const change = (field: keyof SenderDraft, value: string) => {
     const next = { ...latest.current, [field]: value };
@@ -63,7 +64,8 @@ function useSenderSave(initial: DispatchSenderResponse) {
     clearTimeout(timer.current);
     timer.current = setTimeout(() => void commit(), PICKUP_SAVE_DELAY_MS);
   };
-  const retry = () => { latest.current = state.kind === "failed" ? state.draft : latest.current; void commit(); };
+  // latest already holds the newest text, which includes the draft that failed.
+  const retry = () => void commit();
   return { draft, state, change, blur: () => void commit(), retry };
 }
 
