@@ -37,7 +37,8 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
     if (assigned) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home",
       recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
       recordedBy: { kind: "seller", userId } } } });
-    if (enabled) expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
+    // Orders are born enabled; a legacy row without the timestamp is simulated.
+    if (!enabled) await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: null } });
   });
   return { companyId, userId, orderId, path: `/checkout/${companyId}/${orderId}`,
     read: () => withTenantIsolation(companyId, async () => await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { buyer: true, payments: true } })),
@@ -205,7 +206,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     });
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("heading", { name: "Pedido #10000" })).toBeVisible();
-    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
     const link = page.getByLabel("Enlace del pedido", { exact: true });
     await browserExpect(link).toHaveValue(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/checkout/${companyId}/${orderId}`);
@@ -240,7 +241,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await browserExpect(table.getByRole("link", { name: "Pedido #10000" })).toBeVisible();
     await browserExpect(table.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
     await browserExpect(table.getByRole("link", { name: "Pedido #1001" })).toBeVisible();
-    await browserExpect(table.getByText("Pendiente de confirmación", { exact: true })).toHaveCount(0);
+    await browserExpect(table.getByText("Pendiente de confirmación", { exact: true })).toHaveCount(1);
   } finally {
     await buyer.close();
     await withTenantIsolation(companyId, async () => {
