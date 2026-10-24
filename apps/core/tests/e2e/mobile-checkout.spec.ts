@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
 import { startMobileWeb } from "@core/tests/e2e/mobile-web";
 import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -12,6 +12,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Mobile seller", companyName: "Mobile checkout", country: "PE" });
     const tenant = companyId;
+    await withTenantIsolation(tenant, async () => { await prisma.company.update({ where: { id: tenant }, data: { catalogSubdomain: subdomainOf(tenant) } }); });
     expect((await page.request.put("/api/delivery-settings", { data: {
       expectedVersion: 0, home: { enabled: false }, agency: { enabled: false },
       store: { enabled: true, pickupPoint: { name: "Tienda", address: "Lima", instructions: null } },
@@ -36,7 +37,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await page.getByRole("button", { name: "Copiar enlace", exact: true }).click();
     await browserExpect(page.getByText("Enlace copiado", { exact: true })).toBeVisible();
     const url = await page.evaluate(() => navigator.clipboard.readText());
-    expect(url).toBe(`http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/checkout/${tenant}/${id}`);
+    expect(url).toBe(storeUrl(subdomainOf(tenant), `/checkout/${tenant}/${id}`));
     const buyer = await buyerContext.newPage();
     await buyer.goto(url);
     await buyer.getByLabel("Nombre", { exact: true }).fill("Ana");

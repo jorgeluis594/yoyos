@@ -4,6 +4,7 @@ import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { bindCompanyToRequest, log } from "@core/src/shared/infrastructure/logger";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { orders } from "@core/src/features/orders/composition";
+import type { BrandHostLocals } from "@core/src/shared/infrastructure/brand-host-locals";
 import type { BuyerPaymentAccess } from "@core/src/features/orders/application/report-payment";
 import type { ImageId } from "@core/src/features/orders/domain/payment";
 import type { PaymentId } from "@core/src/features/orders/domain/order";
@@ -18,6 +19,9 @@ export function buyerPaymentRoutes(images: express.Router) {
         ? apiError(response, 400, "INVALID_INPUT", "Invalid order ID")
         : access.error.code === "ORDER_NOT_FOUND" ? apiError(response, 404, "ORDER_NOT_FOUND", "Order not found")
           : apiError(response, 503, "SERVICE_UNAVAILABLE", "Order unavailable");
+      // Only a brand host serves buyer APIs, and only for its own company: anything else answers like a missing order.
+      const hostCompanyId = (response.locals as BrandHostLocals).brandHostCompanyId;
+      if (hostCompanyId === undefined || hostCompanyId !== access.data.companyId) return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
       response.locals.buyerAccess = access.data;
       bindCompanyToRequest(access.data.companyId);
       return withTenantIsolation(access.data.companyId, next);
