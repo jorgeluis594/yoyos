@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useContext, useState, type ReactNode } from "react";
 import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
 import { Label } from "@/components/ui/label";
 import { SelectPortalContainer } from "@/components/ui/select";
@@ -47,9 +47,11 @@ export function LocationCombobox({ id, label, options, value, onChange, placehol
   const [query, setQuery] = useState("");
   // The list is portaled out of its field; inside a store theme it must stay in that subtree to take the theme's tokens.
   const [labelElement, setLabelElement] = useState<HTMLLabelElement | null>(null);
-  const themeRoot = labelElement?.closest<HTMLElement>("[data-store-theme]") ?? null;
+  // Outside a theme the container of an outer provider (a sheet, for instance) stays in force.
+  const outerContainer = useContext(SelectPortalContainer);
+  const portalContainer = labelElement?.closest<HTMLElement>("[data-store-theme]") ?? outerContainer;
   const selected = options.find(option => option.code === value) ?? null;
-  return <SelectPortalContainer.Provider value={themeRoot}>
+  return <SelectPortalContainer.Provider value={portalContainer}>
     <Label ref={setLabelElement} htmlFor={id}>{label}</Label>
     <Combobox items={options} value={selected} disabled={disabled} autoHighlight openOnInputClick
       itemToStringLabel={(option: LocationOption) => option.name} itemToStringValue={(option: LocationOption) => option.name} isItemEqualToValue={(a: LocationOption, b: LocationOption) => a.code === b.code}

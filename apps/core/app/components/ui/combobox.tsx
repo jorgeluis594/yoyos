@@ -44,11 +44,12 @@ function ComboboxEmpty({ className, ...props }: React.ComponentProps<typeof Comb
   return <ComboboxPrimitive.Empty data-slot="combobox-empty" className={cn("px-3 py-2 text-sm text-muted-foreground empty:hidden", className)} {...props} />;
 }
 
+/** The active option also takes the focus outline: some store themes set `accent` equal to `popover`, so the fill alone would not show it. */
 function ComboboxItem({ className, ...props }: React.ComponentProps<typeof ComboboxPrimitive.Item>) {
   return (
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
-      className={cn("flex min-h-10 cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[selected]:font-medium data-[disabled]:pointer-events-none data-[disabled]:opacity-50", className)}
+      className={cn("flex min-h-10 cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[highlighted]:outline-2 data-[highlighted]:-outline-offset-2 data-[highlighted]:outline-ring data-[selected]:font-medium data-[disabled]:pointer-events-none data-[disabled]:opacity-50", className)}
       {...props}
     />
   );

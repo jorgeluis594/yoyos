@@ -292,6 +292,12 @@ test.describe("buyer checkout with appearance", () => {
         await browserExpect(list).toBeVisible();
         expect(await list.evaluate((element) => element.closest("[data-store-theme]") !== null), `${id}: the list is inside the theme`).toBe(true);
         await browserExpect(page.locator("[data-slot=combobox-content]")).toHaveCSS("background-color", rgb(storeThemes[id].colors.popover));
+        // The active option is marked by the theme's focus color, since some themes paint `accent` like the list itself.
+        await page.keyboard.press("ArrowDown");
+        const active = page.locator("[role=option][data-highlighted]");
+        await browserExpect(active).toHaveCount(1);
+        await browserExpect(active).toHaveCSS("outline-width", "2px");
+        await browserExpect(active).toHaveCSS("outline-color", rgb(storeThemes[id].colors.ring));
         await page.keyboard.press("Escape");
         await page.setViewportSize({ width: 1280, height: 900 });
         await expectThumbnails(page, id);
