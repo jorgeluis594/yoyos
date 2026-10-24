@@ -1,6 +1,6 @@
 # Payment methods and order payments: product definition
 
-**Status:** definition ready to implement; the three questions were decided by the review gate (round 1) and await the founder's confirmation in the pull request. Today the web app has «Medios de cobro» (Settings → Medios de cobro) with a digital wallet (provider, holder, optional image) and a bank transfer; the order detail «Pagos» card lists payments with a confirmation form under each buyer report plus a second identical «Registrar pago manual» form; «Ver captura» opens the receipt in a new tab. Mobile shows the same payments in the order detail and confirms reports from a sheet. This draft complements [orders](../orders.md) and [checkout](../checkout.md). Todoist task 6hqMXcQmXQ4fMWc3, 23/10/2026. Mockups b1–b4 of 23/10/2026 are a reorganization reference; where they differ from this document, this document wins. This draft is the pipeline's working document, not a new permanent document (the founder's task: «son arreglos»): on merge only [orders](../orders.md) and [checkout](../checkout.md) receive the behavior changes, and the draft is deleted.
+**Status:** definition ready to implement. The three questions and the routine decisions were decided by the review gate (UX/UI and product reviewers, rounds 1 and 2) and await the founder's confirmation in the pull request. Today the web app has «Medios de cobro» (Settings → Medios de cobro) with a digital wallet (provider, holder, optional image) and a bank transfer; the order detail «Pagos» card lists payments with a confirmation form under each buyer report plus a second identical «Registrar pago manual» form; «Ver captura» opens the receipt in a new tab. Mobile shows the same payments in the order detail and confirms reports from a sheet. This draft complements [orders](../orders.md) and [checkout](../checkout.md). Todoist task 6hqMXcQmXQ4fMWc3, 23/10/2026. Mockups b1–b4 of 23/10/2026 are a reorganization reference; where they differ from this document, this document wins. This draft is the pipeline's working document, not a new permanent document (the founder's task: «son arreglos»): on merge only [orders](../orders.md) and [checkout](../checkout.md) receive the behavior changes, and the draft is deleted.
 
 ## Problem and situation
 
@@ -46,6 +46,7 @@ Meeting point with task 6hqMXP6qmJV5Fc73 (compact checkout payment): that task r
 - b3/b4 reorganization of the mobile payment section (reports stay in the current list and sheet; no receipt modal on mobile).
 - Changing the stock deduction rule or the voiding of confirmed payments.
 - Notifying the buyer of a rejection outside the checkout (WhatsApp, email): the seller tells them in chat.
+- Warning the seller outside «Medios de cobro» that their wallet is hidden from buyers: they learn it only in that field. Acceptable because no business is in production and the one-time check covers existing wallets. Trigger: sellers learning from buyers that the wallet is missing.
 - Aligning voiding in cancelled orders: today the web shows **Anular pago** in a cancelled order and mobile hides it. This known platform difference predates the task and stays as is.
 
 ## Flow
@@ -68,9 +69,9 @@ Meeting point with task 6hqMXP6qmJV5Fc73 (compact checkout payment): that task r
 **Reviewing a report in the receipt modal (web)**
 
 1. The seller taps the thumbnail or «Ver captura»: «Comprobante de pago» opens with the large image and, in its decision area, «Saldo pendiente del pedido S/ 70.00», **Rechazar** and **Aprobar**.
-2. **Aprobar** does not open a second dialog: the decision area of the same modal turns into «Importe recibido (S/)» (prefilled with the balance), «Medio de pago», the stock box under the rule, **Aprobar pago S/ 70.00** and **Cancelar**, with the receipt still visible (beside the fields on wide screens; above them at 390 px, where the modal scrolls and the image stays at the top). Focus goes to «Importe recibido».
+2. **Aprobar** does not open a second dialog: the decision area of the same modal turns into «Importe recibido (S/)» (prefilled with the balance), «Medio de pago», the stock box under the rule, **Aprobar pago S/ 70.00** and **Cancelar**, with the receipt still visible: beside the fields on wide screens; at 390 px a reduced copy of the receipt stays fixed at the top of the modal above the fields, so it stays readable while the phone keyboard is open and the seller types the amount. Focus goes to «Importe recibido».
 3. On success the modal closes, «Pago actualizado.» shows at the top of the «Pagos» card, and focus goes to the decided row.
-- **Rechazar** turns the decision area into «¿Rechazar este comprobante?», the same text and «Motivo (opcional, lo verá el comprador)», **Rechazar comprobante** and **Volver**, with the receipt still visible; focus goes to «Motivo». On success the modal closes and focus goes to the row, now «Pago rechazado».
+- **Rechazar** turns the decision area into «¿Rechazar este comprobante?», the same text and «Motivo (opcional, lo verá el comprador)», **Rechazar comprobante** and **Volver**, with the receipt still visible (fixed at the top at 390 px, as when approving); focus goes to «Motivo». On success the modal closes and focus goes to the row, now «Pago rechazado».
 - **Cancelar** / **Volver** return the decision area to **Rechazar** and **Aprobar**, keeping the modal open.
 - Any failure (no stock, already reviewed, no response, invalid amount) shows inside the modal, next to the buttons, never at the top of the card behind it; the modal stays open with what was typed.
 - The seller closes the modal with ×, Escape or a click outside without deciding: nothing is recorded, the report stays pending and focus returns to the thumbnail or «Ver captura» that opened it.
@@ -81,7 +82,7 @@ Meeting point with task 6hqMXP6qmJV5Fc73 (compact checkout payment): that task r
 
 **Reviewing a report (mobile)**
 
-1. In the order detail, the report row has **Revisar comprobante**, which opens the existing sheet with «Ver captura» (opens the receipt outside the app, as today), amount, method, the stock box under the rule, and confirm.
+1. In the order detail, the report row has **Revisar comprobante**, which opens the existing sheet with «Ver captura» (opens the receipt outside the app, as today), amount, method, the stock box under the rule, and its existing **Confirmar pago** button (mobile keeps «Confirmar pago»; it does not change to «Aprobar»).
 2. The sheet adds **Rechazar** (secondary). It shows «¿Rechazar este comprobante?», the same text, «Motivo (opcional, lo verá el comprador)», **Rechazar comprobante** and **Volver** inside the same sheet. On success the sheet closes and the row reads «Pago rechazado» with its reason. Failures are the same as on the web and show inside the sheet.
 
 **Buyer after a rejection**
@@ -100,12 +101,12 @@ Meeting point with task 6hqMXP6qmJV5Fc73 (compact checkout payment): that task r
   - Uploading/checking: «Revisando QR…».
   - Valid, just chosen: thumbnail, file name · size, «✓ QR válido», **Cambiar imagen**, **Quitar imagen**.
   - Valid, saved (on opening the page): thumbnail and «✓ QR válido», without file name or size, **Cambiar imagen**, **Quitar imagen**.
-  - Not a QR: red border, the chosen image's thumbnail, «Esta imagen no es un código QR. Sube la captura del QR de tu billetera.», **Cambiar imagen**.
+  - Not a QR: red border, the chosen image's thumbnail, «Esta imagen no es un código QR. Sube la captura del QR de tu billetera.», **Cambiar imagen**, **Quitar imagen** (returns the field to empty).
   - Wrong file: «Usa una imagen JPG, PNG o WEBP de hasta 10 MB.»
-  - Upload failed: on the field, «No pudimos subir la imagen. Inténtalo de nuevo.» with **Reintentar**; the previous image, if any, stays.
-  - Saved wallet that never passed the check (on opening the page): red field with «Tus compradores no ven esta billetera hasta que subas un QR válido.»
+  - Upload failed: on the field, the existing text «No se pudo subir la imagen. Inténtalo de nuevo.» with **Reintentar**; the previous image, if any, stays.
+  - Saved wallet that never passed the check (on opening the page): red field with «Tus compradores no ven esta billetera hasta que subas un QR válido.», the saved image's thumbnail if there is one, **Cambiar imagen** (or **Subir QR** without image) and **Quitar imagen**. While the wallet stays ticked, **Guardar cambios** is disabled with «Corrige el QR de cobro para guardar.», also for a seller who only came to change the bank transfer: the way out is to upload a valid QR or untick «Ofrecer billetera digital». This follows from the no-legacy decision and is intended.
   - Could not check: «No pudimos revisar el QR. Inténtalo de nuevo.» with **Reintentar**.
-- **Guardar cambios** is disabled only while the wallet is offered and its QR is missing («Sube el QR de cobro para guardar.») or was read and is not a QR («Corrige el QR de cobro para guardar.»). It stays enabled when the check could not run. Unticking «Ofrecer billetera digital» removes the requirement.
+- **Guardar cambios** is disabled while the wallet is offered and its QR is missing («Sube el QR de cobro para guardar.») or was read and is not a QR («Corrige el QR de cobro para guardar.»), and while the field shows «Subiendo imagen…» or «Revisando QR…» (the field's status line explains the wait), so a save always carries the image the seller sees. It stays enabled when the check could not run. Unticking «Ofrecer billetera digital» removes the requirement.
 - No text of the wallet says «Imagen opcional». «Transferencia bancaria» keeps Banco, Titular, Número de cuenta, CCI and its «Imagen opcional».
 - Saving failures keep everything typed: «Revisa los datos de cobro e inténtalo de nuevo.»
 
@@ -130,7 +131,7 @@ Meeting point with task 6hqMXP6qmJV5Fc73 (compact checkout payment): that task r
 - Closes with ×, Escape or a click outside. On opening, focus goes into the modal; on closing without deciding, it returns to the element that opened it; after deciding, to the decided row.
 
 **Aprobar pago / Registrar pago (web dialog from the row):**
-- «Importe recibido (S/)» prefilled with the balance when it is above zero, empty otherwise; «Medio de pago» Billetera digital / Transferencia bancaria; the stock box under the rule; main button «Aprobar pago S/ 70.00» (updates with the amount) or «Confirmar pago» for the manual one; **Cancelar**. The same fields form the modal's decision area.
+- «Importe recibido (S/)» prefilled with the balance when it is above zero, empty otherwise; «Medio de pago» Billetera digital / Transferencia bancaria; the stock box under the rule; main button «Aprobar pago S/ 70.00» (updates with the amount; reads «Aprobar pago» without an amount while the field is empty or invalid) or «Confirmar pago» for the manual one; **Cancelar**. The same fields form the modal's decision area.
 - Invalid amount: «Escribe un importe mayor a 0 con hasta 2 decimales.» next to the field.
 - Focus goes to «Importe recibido» on opening and returns to the row on closing.
 
@@ -139,6 +140,7 @@ Meeting point with task 6hqMXP6qmJV5Fc73 (compact checkout payment): that task r
 
 **Order detail payments (mobile):**
 - Keeps its current layout: «Registrar pago», list «Ver pagos», report rows with **Revisar comprobante** and the receipt opened outside the app.
+- While at least one report is pending and the order is not cancelled, the summary shows «Pago por revisar» under Saldo pendiente, so the seller knows there is a report without opening «Ver pagos».
 - Adds «Pago rechazado» rows with date, reason and «Ver captura»; today any non-reported, non-voided payment is labeled as confirmed, so this label is required, not cosmetic.
 - The review sheet adds **Rechazar** (Flow above) and shows «Descontar stock aunque sea abono parcial» only under the same rule as the web; the register sheet follows the same stock rule.
 - Mobile has no payment settings screen; nothing changes there.
@@ -156,10 +158,10 @@ Meeting point with task 6hqMXP6qmJV5Fc73 (compact checkout payment): that task r
 | --- | --- |
 | QR required | A wallet that is offered must have an image with a readable QR. A wallet that is not offered needs nothing. |
 | What counts as a valid QR | Yoyos decodes at least one QR in the image. Its content is not compared with the provider or holder. A Yape or Plin screenshot passes; a landscape photo or meme does not. |
-| When it is checked | When the image is chosen (to show «QR válido» at once) and again on saving, which is the check that counts. Any client saving payment methods gets the same rejection. |
+| When it is checked | When a new image is chosen (to show «QR válido» at once) and again on saving it, which is the check that counts. A save whose wallet image is unchanged and already passed does not read it again, so a checker outage never blocks unrelated edits (bank account, holder, unticking the wallet). Any client saving payment methods gets the same rejection. |
 | Validity is kept | A wallet saved with a QR that passed the save check stays offered to buyers and shown as valid in the panel until the seller changes its image. A later outage of the checker never hides it nor shows it as invalid. |
-| Never passed | A wallet never passed when it has no image or its image was read and holds no QR. Wallets saved before this version are checked once when it is installed; one whose image cannot be read as a QR counts as never passed. How that one-time check runs is resolved in implementation. |
-| Checker unavailable on save | Nothing is saved; the seller retries. Never saved "unchecked". |
+| Never passed | A wallet never passed when it has no image or its image was read and holds no QR. Wallets saved before this version are checked once when it is installed; one whose image is read and holds no QR counts as never passed. If the checker is unavailable during that check, it is retried and not recorded as a failure, so an outage at install never hides a wallet. How that one-time check runs is resolved in implementation. |
+| Checker unavailable on save | When the save carries a new wallet image, nothing is saved; the seller retries. Never saved "unchecked". |
 | Previously saved wallets | Same requirement, no transition period: one that never passed is not offered to buyers and the panel shows the QR error. No business is operating in production. |
 | Bank transfer | Unchanged; its image stays optional and is not checked as QR. |
 | Who sets the amount | The buyer's report carries only a receipt. The amount that reduces the balance is the one the seller types when approving. |
@@ -167,7 +169,7 @@ Meeting point with task 6hqMXP6qmJV5Fc73 (compact checkout payment): that task r
 | Stock box | Shown only when the stock was not yet deducted and the typed amount is below the pending balance. Example: total S/ 70.00, nothing received, amount S/ 70.00 → hidden, stock is deducted; amount S/ 30.00 → shown, unticked. With S/ 40.00 already received, S/ 30.00 covers the balance → hidden. Same for manual payment, web and mobile. |
 | Reject | Only a pending report can be rejected. It does not add to Recibido, does not change Pendiente and does not touch stock. Reason optional, up to 200 characters, seen by the buyer. |
 | After rejecting | Final. The buyer can send a new receipt, which is a new report. |
-| Repeating a decision | Repeating the same decision on the same report gives the same result and records nothing new: approving again with the same amount and method returns that confirmed payment; rejecting again returns that rejection with its original reason. A different decision, or approving with a different amount or method, on a report that is already decided is refused with «Este pago ya fue revisado.» and changes nothing. |
+| Repeating a decision | Repeating the same decision on the same report gives the same result and records nothing new: approving again with the same amount and method returns that confirmed payment, even if the stock box differs on the retry (the first result stands: no further stock deduction, no refusal); rejecting again returns that rejection with its original reason. A different decision, or approving with a different amount or method, on a report that is already decided is refused with «Este pago ya fue revisado.» and changes nothing. |
 | Several reports | Each row is decided independently. The buyer has one pending report at a time because the checkout hides the upload block while one is pending (a display rule, as today); Yoyos does not refuse a second report sent by other means, and each one is decided on its own row. |
 | Cancelled order | Reports cannot be approved or rejected and no manual payment is recorded; a pending report stays visible, read-only, and does not show «Pago por revisar». |
 | Company isolation | Only the seller of the order's business can approve, reject or record; anyone else is refused and nothing changes. |
@@ -194,7 +196,8 @@ Transitions: Reportado → Confirmado; Reportado → Rechazado; Confirmado → A
 | Offered wallet without QR, or image without QR | Field error (b2), **Guardar cambios** disabled; everything typed is kept | Upload another image or untick the wallet |
 | QR image upload fails | «No pudimos subir la imagen. Inténtalo de nuevo.» on the field; previous image kept | **Reintentar** |
 | QR checker unavailable on choosing | «No pudimos revisar el QR. Inténtalo de nuevo.»; **Guardar cambios** stays enabled | **Reintentar**, or save (the save check decides) |
-| QR checker unavailable on saving | «No pudimos revisar el QR. Inténtalo de nuevo.»; nothing saved; the previous configuration stays | **Reintentar** |
+| QR checker unavailable on saving a new image | «No pudimos revisar el QR. Inténtalo de nuevo.»; nothing saved; the previous configuration stays | **Reintentar** |
+| QR checker unavailable on a save that keeps the already-passed image | Nothing: the save proceeds | — |
 | QR checker unavailable while buyers or the panel load | Nothing: a wallet that passed stays offered and shown as valid | — |
 | Save not sent / no response | «Revisa los datos de cobro e inténtalo de nuevo.» with the form intact; on reload the page shows what is actually saved | Save again (saving is a full replacement, repeating does not duplicate) |
 | Approve succeeded | Dialog or modal closes; row «Pago confirmado», cells updated, «Pago actualizado.» at the top of the card; focus on the row | — |
@@ -229,7 +232,7 @@ The receipt is evidence seen by both. The rejection reason is also seen by the b
 - Anulado («Pago anulado»): a confirmed payment recorded by mistake, which stops counting.
 - Aprobar: the seller's action on a report, which records it as «Pago confirmado» with the amount they received.
 - QR de cobro: the image of the wallet QR the buyer scans. Required and validated; distinct from the buyer's receipt («captura»/«comprobante»).
-- Existing texts that do not change, on web and mobile: «Pago actualizado.» (success), «Pago reportado, pendiente de revisión» (reported row), «Historial de pagos» (list heading), «Revisar comprobante» (mobile action), «Ver captura · <estado>» (checkout list).
+- Existing texts that do not change, on web and mobile: «Pago actualizado.» (success), «Pago reportado, pendiente de revisión» (reported row), «Historial de pagos» (list heading), «Revisar comprobante» (mobile action), «Confirmar pago» (mobile review sheet button; the web says **Aprobar**), «No se pudo subir la imagen. Inténtalo de nuevo.» (image upload failure), «Ver captura · <estado>» (checkout list).
 
 ## Closed decisions
 
@@ -244,7 +247,7 @@ The receipt is evidence seen by both. The rejection reason is also seen by the b
 
 ## Questions decided by the review gate
 
-Decided by the UX/UI and product reviewers of the review gate (round 1, 23/10/2026), both with the same answer; the founder confirms them in the pull request.
+Decided by the UX/UI and product reviewers of the review gate (proposed in round 1, both with the same answer, and confirmed without objections in round 2, 23/10/2026), not by the founder; the founder confirms them in the pull request.
 
 | Question | Answer | Reason | Discarded alternative |
 | --- | --- | --- | --- |
@@ -278,22 +281,25 @@ Decided by the UX/UI and product reviewers of the review gate (round 1, 23/10/20
 22. On mobile, a rejected payment appears as «Pago rechazado» with its reason and «Ver captura», never as confirmed; the review sheet shows the stock box only when the amount does not cover the balance; **Rechazar** in the sheet with «El monto no coincide» leaves the row «Pago rechazado» and the balance unchanged.
 23. With Portuguese selected, the new texts appear in Portuguese on the web, mobile and checkout («Pagamento rejeitado», «Seu comprovante foi rejeitado», «Ver captura · Rejeitado»).
 24. The thumbnail and row actions have distinct accessible names that include the row's date and time.
+25. The seller records S/ 20.00 from «Registrar pago», gets no response and taps **Confirmar pago** again in the same open form: a single payment of S/ 20.00 results.
+26. While the field shows «Revisando QR…», **Guardar cambios** is disabled; when the QR image upload fails, the field shows «No se pudo subir la imagen. Inténtalo de nuevo.» with **Reintentar** and the previous image stays.
+27. With the QR checker unavailable, a seller whose wallet already passed changes the bank account number and saves: «Medios de cobro guardados.» and the wallet is still offered.
+28. On mobile, an order with a pending report shows «Pago por revisar» in the summary without opening «Ver pagos».
 
-## Open items and questions
+## Decisions taken by the review gate
 
-Questions: none.
+Decided by the UX/UI and product reviewers of the review gate (proposed in round 1, approved without objections in round 2, 23/10/2026), not by the founder; the founder confirms them in the pull request.
 
-Decided unless objected:
 - The report row and the modal show no amount or method (b3/b4 show «S/ 70.00 · Billetera digital (Plin)»): the buyer does not declare them. The modal shows «Saldo pendiente del pedido S/ 70.00» and the approve button shows the amount typed.
 - The stock box compares the amount with the pending balance, not the order total (the founder wrote "menor al total"), and is hidden once stock was deducted; with no prior payments both are the same.
 - **Aprobar** from the row opens a short dialog with amount (prefilled with the balance) and method, starting on Billetera digital as today; from the modal, the same fields replace the modal's buttons with the receipt still visible.
 - After a decision in the modal, the modal closes and the success text shows in the card; errors stay inside the modal.
 - Any readable QR is accepted; its content is not matched with the provider or holder.
-- The QR is checked on choosing the image and again on saving; only the save check counts, so a failed check on choosing does not disable saving.
-- A wallet that passed the save check stays offered regardless of later checker availability; wallets saved before this version are checked once on installing it.
+- The QR is checked on choosing a new image and again on saving it; only the save check counts, so a failed check on choosing does not disable saving; an unchanged image that already passed is not read again.
+- A wallet that passed the save check stays offered regardless of later checker availability; wallets saved before this version are checked once on installing it, and a checker outage during that check is retried, not recorded as never passed.
 - Unticking «Ofrecer billetera digital» removes the QR requirement.
 - «Rechazado» is final; a mistaken rejection is solved by the buyer sending the receipt again.
-- Repeating the same decision returns the same result; a different decision on a decided report is refused with «Este pago ya fue revisado.»
+- Repeating the same decision returns the same result (a different stock box on the retry does not change it); a different decision on a decided report is refused with «Este pago ya fue revisado.»
 - Rejection reason up to 200 characters (initial value, adjustable).
 - In cancelled orders reports cannot be approved or rejected, no manual payment is recorded, and a pending report is shown read-only without «Pago por revisar»; voiding stays as today on each platform (web shows **Anular pago**, mobile does not).
 - «Registrar pago» is shown only when Pendiente is above S/ 0.00; a report can still be approved when the balance is zero (overpayment notice as today).
@@ -301,3 +307,10 @@ Decided unless objected:
 - The buyer can upload again only when no report is pending and the balance is above zero; one pending report at a time stays a checkout display rule, not a refusal by Yoyos.
 - Existing texts «Pago actualizado.», «Pago reportado, pendiente de revisión», «Historial de pagos» and «Revisar comprobante» are kept on web and mobile.
 - Mobile keeps opening the receipt outside the app; no modal there.
+- At 390 px a reduced copy of the receipt stays fixed at the top of the modal while the seller types (round 2).
+- **Guardar cambios** is disabled while the QR is uploading or being checked, and «Quitar imagen» is offered in the not-a-QR and never-passed states (round 2).
+- Mobile shows «Pago por revisar» in the order summary while a report is pending and keeps «Confirmar pago» as its approve button (round 2).
+
+## Open items and questions
+
+Questions: none.
