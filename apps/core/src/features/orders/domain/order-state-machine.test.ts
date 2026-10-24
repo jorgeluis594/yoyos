@@ -1,7 +1,7 @@
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { describe, expect, test } from "vitest";
 import { buildPendingCatalogOrder, buildPendingOrder, orderStateMachine, type CourierId, type OrderAggregate, type DeliverySnapshot, type DeliveryPricing, type PeruDeliveryDistrict } from "@core/src/features/orders/domain/order-state-machine";
-import type { ConfirmedPayment } from "@core/src/features/orders/domain/payment";
+import type { ConfirmedPayment, RejectedPayment, ReportedPayment, RejectionReason } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
@@ -273,5 +273,57 @@ describe("appendItems", () => {
   test("appendItems adds variants without stock", () => {
     const result = orderStateMachine.appendItems({ ...order(), stockDeducted: false }, [variant(5, 7), variant(6, 3)], (() => { let n = 90; return () => id(n++) as OrderItemId; })());
     expect(result).toMatchObject({ success: true, data: { total: money(20), items: [{}, { id: id(90) }, { id: id(91) }] } });
+  });
+});
+
+describe("payment rejection", () => {
+  const receipt = id(40);
+  const reported = (n: number, reportedAt = paymentAt): ReportedPayment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId, status: "reported",
+    currency: "PEN", amount: null, method: null, data: { receiptImageId: receipt as ReportedPayment["data"]["receiptImageId"], reportedAt } });
+  const rejection = { rejectedBy: "seller" as UserId, rejectedAt: new Date("2026-10-01T12:00:00Z"), reason: "No coincide" as RejectionReason };
+  const withPayments = (...payments: OrderAggregate["payments"][number][]): OrderAggregate => ({ ...order(), payments });
+  const rejectedOf = (n: number, reportedAt = paymentAt): RejectedPayment => ({ ...reported(n, reportedAt), status: "rejected",
+    data: { report: reported(n, reportedAt).data, ...rejection } });
+
+  test("rejecting a report leaves paid amount, balance, stock and completion unchanged", () => {
+    const initial = withPayments(payment(5, 4), reported(6));
+    const next = orderStateMachine.rejectReportedPayment(initial, id(6) as PaymentId, rejection);
+    expect(next).toMatchObject({ success: true, data: { applied: true, order: { stockDeducted: false, completedAt: null,
+      payments: [{ id: id(5), status: "confirmed" }, { id: id(6), status: "rejected", data: { reason: "No coincide" } }] } } });
+    if (!next.success) return;
+    expect(orderStateMachine.getPaymentSummary(next.data.order)).toEqual(orderStateMachine.getPaymentSummary(withPayments(payment(5, 4))));
+    expect(orderStateMachine.rejectReportedPayment(next.data.order, id(6) as PaymentId, { ...rejection, reason: null }))
+      .toMatchObject({ success: true, data: { applied: false, order: next.data.order } });
+  });
+
+  test("refuses to reject a report in a cancelled order", () => {
+    expect(orderStateMachine.rejectReportedPayment({ ...withPayments(reported(6)), cancelled: true }, id(6) as PaymentId, rejection))
+      .toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
+    expect(orderStateMachine.rejectReportedPayment(withPayments(payment(5, 4)), id(5) as PaymentId, rejection))
+      .toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+    expect(orderStateMachine.rejectReportedPayment(withPayments(), id(5) as PaymentId, rejection))
+      .toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+  });
+
+  test("returns the latest report rejection only when no report is pending", () => {
+    const early = rejectedOf(6, new Date("2026-09-30T10:00:00Z"));
+    const late = rejectedOf(7, new Date("2026-09-30T11:00:00Z"));
+    expect(orderStateMachine.rejectionAwaitingNewReport(withPayments(late, early))).toEqual(late);
+    expect(orderStateMachine.rejectionAwaitingNewReport(withPayments(early, reported(8)))).toBeNull();
+    expect(orderStateMachine.rejectionAwaitingNewReport(withPayments(early, payment(5, 4)))).toEqual(early);
+    const confirmedFromReport = { ...payment(9, 4), data: { ...payment(9, 4).data,
+      evidence: { kind: "buyer_report" as const, report: { receiptImageId: receipt as ReportedPayment["data"]["receiptImageId"], reportedAt: new Date("2026-09-30T12:00:00Z") } } } };
+    expect(orderStateMachine.rejectionAwaitingNewReport(withPayments(early, confirmedFromReport))).toBeNull();
+    expect(orderStateMachine.rejectionAwaitingNewReport(withPayments())).toBeNull();
+  });
+
+  test("payment summary accepts a rejected payment in the order currency and counts nothing for it", () => {
+    expect(orderStateMachine.getPaymentSummary(withPayments(rejectedOf(6)))).toMatchObject({ success: true,
+      data: { status: "pending", paidAmount: money(0), balanceDue: money(10) } });
+    expect(orderStateMachine.getPaymentSummary(withPayments({ ...rejectedOf(6), currency: "USD" })))
+      .toMatchObject({ success: false, error: { code: "CURRENCY_MISMATCH" } });
+    expect(orderStateMachine.registerPayment(withPayments(rejectedOf(6)), payment(6, 4))).toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+    expect(orderStateMachine.voidConfirmedPayment(withPayments(rejectedOf(6)), id(6), "seller" as UserId, paymentAt))
+      .toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
   });
 });
