@@ -7,7 +7,7 @@ import { OptionSelector } from "@mobile/components/ui/option-selector";
 import { ThemedText } from "@mobile/components/themed-text";
 
 export type PaymentFieldsValue = Omit<DraftPayment, "paymentId">;
-export function PaymentFields({ value, onChange, currency, busy, compact = false }: { value: PaymentFieldsValue; onChange: (value: PaymentFieldsValue) => void; currency: string; busy: boolean; compact?: boolean }) {
+export function PaymentFields({ value, onChange, currency, busy, compact = false, showStockOption = true }: { value: PaymentFieldsValue; onChange: (value: PaymentFieldsValue) => void; currency: string; busy: boolean; compact?: boolean; showStockOption?: boolean }) {
   const { t } = useTranslation();
   return <View style={styles.fields}>
     <Field required disabled={busy}><FieldLabel>{t(compact ? 'amountShort' : 'paymentAmount')} ({currency})</FieldLabel>
@@ -15,8 +15,8 @@ export function PaymentFields({ value, onChange, currency, busy, compact = false
     <Field required disabled={busy}><FieldLabel>{t(compact ? 'methodShort' : 'paymentMethod')}</FieldLabel><OptionSelector options={[
       { value: "digital_wallet", label: t('wallet') }, { value: "bank_transfer", label: t('bankTransfer') }]}
       value={value.method} onValueChange={method => { if (method === "digital_wallet" || method === "bank_transfer") onChange({ ...value, method }); }} /></Field>
-    <View style={styles.toggle}><ThemedText style={styles.label}>{t('deductStockIfPartial')}</ThemedText>
-      <Switch disabled={busy} value={value.deductStockIfPartial} onValueChange={deductStockIfPartial => onChange({ ...value, deductStockIfPartial })} accessibilityLabel={t('deductStockIfPartial')} /></View>
+    {showStockOption ? <View style={styles.toggle}><ThemedText style={styles.label}>{t('deductStockIfPartial')}</ThemedText>
+      <Switch disabled={busy} value={value.deductStockIfPartial} onValueChange={deductStockIfPartial => onChange({ ...value, deductStockIfPartial })} accessibilityLabel={t('deductStockIfPartial')} /></View> : null}
   </View>;
 }
 const styles = StyleSheet.create({ fields: { gap: 12 }, toggle: { flexDirection: "row", alignItems: "center", gap: 16, minHeight: 48 }, label: { flex: 1 } });

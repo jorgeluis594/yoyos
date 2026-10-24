@@ -121,8 +121,8 @@ test("core resolves a committed lost response, offers manual verification and re
       await confirm(page);
       await committed;
       await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
-      await browserExpect(page.getByRole("button", { name: "Confirmar pago", exact: true })).toBeDisabled();
-      await browserExpect(page.getByRole("button", { name: "Anular pago", exact: true })).toBeDisabled();
+      await browserExpect(page.getByRole("button", { name: "¿Te pagaron por fuera? Registrar pago", exact: true })).toBeDisabled();
+      await browserExpect(page.getByRole("button", { name: /^Anular pago del/ })).toBeDisabled();
       await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toBeDisabled();
       release();
       if (uncertain) {

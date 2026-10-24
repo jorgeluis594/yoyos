@@ -5,7 +5,7 @@ import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { z } from "zod";
 import { createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderAggregateSchema, orderApiErrorSchema,
   orderCatalogSchema, setRatedOrderDeliverySchema, type SetRatedOrderDeliveryRequest, registerPaymentResponseSchema, registerPaymentSchema, type CreateRatedOrderRequest, type CreateOrderRequest, type UpdateOrderShippingRequest, updateOrderShippingSchema, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
-  type OrderAggregateResponse, type OrderApiError } from "@shared/contracts/orders";
+  rejectPaymentSchema, type OrderAggregateResponse, type OrderApiError } from "@shared/contracts/orders";
 import { err, ok } from "@shared/functional";
 import { imageResponseSchema } from "@shared/contracts/images";
 import type { Result } from "@shared/result";
@@ -14,7 +14,7 @@ import type { TransportError } from "@mobile/shared/application/transport-error"
 import type { OrderRequestError } from "@mobile/features/orders/application/order-operations";
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
-type Operation = "fulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "shipping";
+type Operation = "fulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "shipping" | "reject";
 
 const statusByCode: Record<OrderApiError["code"], number> = {
   INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413,
@@ -48,6 +48,8 @@ const errorSchemas = {
     "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "INVALID_TRANSITION", "ORDER_CANCELLED", "INSUFFICIENT_STOCK",
     "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
   void: httpErrorSchema(["ORDER_NOT_FOUND", "PAYMENT_NOT_FOUND", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "INVALID_ORDER"]),
+  reject: httpErrorSchema(["ORDER_NOT_FOUND", "PAYMENT_NOT_FOUND", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "ORDER_CANCELLED",
+    "INVALID_PAYMENT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
   delivery: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "CURRENCY_MISMATCH", "ORDER_CANCELLED", "DELIVERY_LOCKED",
     "DELIVERY_METHOD_DISABLED", "DELIVERY_UNAVAILABLE", "INSUFFICIENT_STOCK",
     "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE",
@@ -175,6 +177,13 @@ export function createOrderApi(request: Request) {
       if (!z.uuid().safeParse(orderId).success || !z.uuid().safeParse(paymentId).success)
         return err({ code: "INVALID_INPUT", message: "Invalid payment ID" });
       return response(await request(`/api/orders/${orderId}/payments/${paymentId}/void`, { method: "POST" }), orderAggregateSchema, "void");
+    },
+    rejectPayment: async (orderId: string, paymentId: string, reason: string | null): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
+      const parsed = rejectPaymentSchema.safeParse({ reason });
+      if (!z.uuid().safeParse(orderId).success || !z.uuid().safeParse(paymentId).success || !parsed.success)
+        return err({ code: "INVALID_INPUT", message: "Invalid rejection request" });
+      return response(await request(`/api/orders/${orderId}/payments/${paymentId}/reject`, { method: "POST", headers: { "content-type": "application/json" },
+        body: JSON.stringify(parsed.data) }), orderAggregateSchema, "reject");
     },
     registerPayment: async (orderId: string, input: RegisterPaymentRequest): Promise<Result<z.infer<typeof registerPaymentResponseSchema>, OrderRequestError>> => {
       const parsed = registerPaymentSchema.safeParse(input);

@@ -14,7 +14,12 @@ type PaymentIdentity = Readonly<{ id: PaymentId; orderId: OrderId }>;
 export type ReportedPayment = PaymentIdentity & Readonly<{ status: "reported"; currency: Currency; amount: null; method: null; data: ReportData }>;
 export type ConfirmedPayment = PaymentIdentity & Readonly<{ status: "confirmed"; amount: Money; method: PaymentMethod; data: ConfirmationData }>;
 export type VoidedPayment = PaymentIdentity & Readonly<{ status: "voided"; amount: Money; method: PaymentMethod; data: ConfirmationData & Readonly<{ voidedAt: Date; voidedBy: UserId }> }>;
-export type Payment = ReportedPayment | ConfirmedPayment | VoidedPayment;
+export type RejectionReason = string & { readonly __brand: "RejectionReason" };
+export type RejectedPayment = PaymentIdentity & Readonly<{ status: "rejected"; currency: Currency; amount: null; method: null;
+  data: Readonly<{ report: ReportData; rejectedAt: Date; rejectedBy: UserId; reason: RejectionReason | null }> }>;
+export type Payment = ReportedPayment | ConfirmedPayment | VoidedPayment | RejectedPayment;
+export type Rejection = Readonly<{ rejectedBy: UserId; rejectedAt: Date; reason: RejectionReason | null }>;
+export const maxRejectionReasonLength = 200;
 export type PaymentError = Readonly<{ code: "INVALID_PAYMENT" | "CURRENCY_MISMATCH" | "PAYMENT_CONFLICT" | "INVALID_TRANSITION" | "PAYMENT_NOT_FOUND"; message: string }>;
 
 const uuid = z.uuid();
@@ -24,6 +29,8 @@ const money = z.strictObject({ amount: z.number().finite().positive().refine((va
 const report = z.strictObject({ receiptImageId: uuid, reportedAt: date });
 const actor = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("seller"), userId: z.string().min(1) }), z.strictObject({ kind: z.literal("legacy") })]);
 const evidence = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("manual") }), z.strictObject({ kind: z.literal("buyer_report"), report })]);
+export const rejectionDataSchema = z.strictObject({ report, rejectedAt: date, rejectedBy: z.string().min(1),
+  reason: z.string().min(1).max(maxRejectionReasonLength).nullable() });
 const confirmation = z.strictObject({ confirmedAt: date, confirmedBy: actor, evidence });
 const identity = { id: uuid, orderId: uuid };
 const payment = z.discriminatedUnion("status", [
@@ -31,6 +38,7 @@ const payment = z.discriminatedUnion("status", [
   z.strictObject({ ...identity, status: z.literal("confirmed"), amount: money, method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmation }),
   z.strictObject({ ...identity, status: z.literal("voided"), amount: money, method: z.enum(["digital_wallet", "bank_transfer"]),
     data: confirmation.extend({ voidedAt: date, voidedBy: z.string().min(1) }) }),
+  z.strictObject({ ...identity, status: z.literal("rejected"), currency: z.enum(currencies), amount: z.null(), method: z.null(), data: rejectionDataSchema }),
 ]);
 
 export function parsePayment(value: unknown): Result<Payment, PaymentError> {
@@ -42,8 +50,9 @@ export function reportPayment(input: { id: PaymentId; orderId: OrderId; currency
   existing: Payment | null): Result<Payment, PaymentError> {
   if (existing) {
     const receipt = existing.status === "reported" ? existing.data.receiptImageId :
+      existing.status === "rejected" ? existing.data.report.receiptImageId :
       existing.data.evidence.kind === "buyer_report" ? existing.data.evidence.report.receiptImageId : null;
-    const currency = existing.status === "reported" ? existing.currency : existing.amount.currency;
+    const currency = existing.status === "reported" || existing.status === "rejected" ? existing.currency : existing.amount.currency;
     if (existing.id === input.id && existing.orderId === input.orderId && currency === input.currency && receipt === input.receiptImageId)
       return ok(existing);
     return err({ code: "PAYMENT_CONFLICT", message: "Payment ID has different evidence" });
@@ -56,6 +65,7 @@ export function confirmPayment(input: { id: PaymentId; orderId: OrderId; source:
   amount: Money; method: PaymentMethod; confirmedBy: UserId; confirmedAt: Date }, existing: Payment | null): Result<ConfirmedPayment, PaymentError> {
   if (existing && (existing.id !== input.id || existing.orderId !== input.orderId)) return err({ code: "PAYMENT_CONFLICT", message: "Payment belongs to another order" });
   if (existing?.status === "voided") return err({ code: "INVALID_TRANSITION", message: "Voided payment cannot be confirmed" });
+  if (existing?.status === "rejected") return err({ code: "PAYMENT_CONFLICT", message: "Rejected payment cannot be confirmed" });
   if (existing?.status === "reported" && input.source !== "buyer_report") return err({ code: "PAYMENT_CONFLICT", message: "Reported payment requires report confirmation" });
   if (existing?.status === "reported" && existing.currency !== input.amount.currency)
     return err({ code: "CURRENCY_MISMATCH", message: "Payment currency differs from report" });
@@ -76,7 +86,23 @@ export function confirmPayment(input: { id: PaymentId; orderId: OrderId; source:
 export function voidPayment(existing: Payment, voidedBy: UserId, voidedAt: Date): Result<VoidedPayment, PaymentError> {
   if (existing.status === "voided") return ok(existing);
   if (existing.status === "reported") return err({ code: "INVALID_TRANSITION", message: "Reported payment cannot be voided" });
+  if (existing.status === "rejected") return err({ code: "INVALID_TRANSITION", message: "Rejected payment cannot be voided" });
   const parsed = parsePayment({ ...existing, status: "voided", data: { ...existing.data, voidedAt, voidedBy } });
   return parsed.success && parsed.data.status === "voided" ? ok(parsed.data) : parsed.success
     ? err({ code: "INVALID_PAYMENT", message: "Invalid voided payment" }) : parsed;
+}
+
+export function parseRejectionReason(value: string | null): Result<RejectionReason | null, PaymentError> {
+  const trimmed = value?.trim() ?? "";
+  if (trimmed === "") return ok(null);
+  return trimmed.length > maxRejectionReasonLength ? err({ code: "INVALID_PAYMENT", message: "Rejection reason is too long" }) : ok(trimmed as RejectionReason);
+}
+
+export function rejectPayment(existing: Payment, rejection: Rejection): Result<RejectedPayment, PaymentError> {
+  if (existing.status === "rejected") return ok(existing);
+  if (existing.status !== "reported") return err({ code: "PAYMENT_CONFLICT", message: "Only a reported payment can be rejected" });
+  const parsed = parsePayment({ id: existing.id, orderId: existing.orderId, status: "rejected", currency: existing.currency, amount: null, method: null,
+    data: { report: existing.data, ...rejection } });
+  return parsed.success && parsed.data.status === "rejected" ? ok(parsed.data) : parsed.success
+    ? err({ code: "INVALID_PAYMENT", message: "Invalid rejected payment" }) : parsed;
 }

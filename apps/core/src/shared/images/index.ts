@@ -1,4 +1,4 @@
-import { getImage, readImageBytes as readBytes } from "@core/src/shared/images/application/images";
+import { getImage, getImages, readImageBytes as readBytes } from "@core/src/shared/images/application/images";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 
@@ -11,7 +11,9 @@ export async function findAvailablePublicImage(id: string) {
 
 export const resolvePublicImage = (id: string) => getImage(id, storage, imageRepository);
 
-export const readImageBytes = (imageId: string) => readBytes(imageId, storage, imageRepository);
+export const resolvePublicImages = (ids: readonly string[]) => getImages(ids, storage, imageRepository);
+
+export const readImageBytes = (imageId: string, options?: Readonly<{ signal: AbortSignal }>) => readBytes(imageId, storage, imageRepository, options);
 
 export type { ImageReadError } from "@core/src/shared/images/application/images";
 export type { DownloadedImage } from "@core/src/shared/images/application/images";

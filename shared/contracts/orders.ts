@@ -84,6 +84,8 @@ const reportDataSchema = z.strictObject({ receiptImageId: z.uuid(), reportedAt: 
 const confirmationDataSchema = z.strictObject({ confirmedAt: z.iso.datetime(),
   confirmedBy: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("seller"), userId: z.string().min(1) }), z.strictObject({ kind: z.literal("legacy") })]),
   evidence: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("manual") }), z.strictObject({ kind: z.literal("buyer_report"), report: reportDataSchema })]) });
+export const rejectionDataSchema = z.strictObject({ report: reportDataSchema, rejectedAt: z.iso.datetime(), rejectedBy: z.string().min(1),
+  reason: z.string().min(1).max(200).nullable() });
 const paymentIdentitySchema = { id: z.uuid(), orderId: z.uuid() };
 export const paymentSchema = z.discriminatedUnion("status", [
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("reported"), currency: z.enum(currencies),
@@ -92,6 +94,8 @@ export const paymentSchema = z.discriminatedUnion("status", [
     method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema }),
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("voided"), amount: moneySchema,
     method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema.extend({ voidedAt: z.iso.datetime(), voidedBy: z.string().min(1) }) }),
+  z.strictObject({ ...paymentIdentitySchema, status: z.literal("rejected"), currency: z.enum(currencies),
+    amount: z.null(), method: z.null(), data: rejectionDataSchema }),
 ]);
 export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string().nullable(), buyer: orderBuyerSchema.nullable(), source: orderSourceSchema,
   createdAt: z.iso.datetime(), scheduledDispatchDate: dispatchDateSchema.nullable(), shippedAt: z.iso.datetime().nullable(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
@@ -138,17 +142,21 @@ export const stockOutcomeSchema = z.discriminatedUnion("kind", [
 ]);
 export const registerPaymentResponseSchema = z.strictObject({ order: orderAggregateSchema, stock: stockOutcomeSchema });
 export type RegisterPaymentResponse = z.infer<typeof registerPaymentResponseSchema>;
+export const rejectPaymentSchema = z.strictObject({ reason: z.string().max(1000).nullable() });
+export type RejectPaymentRequest = z.infer<typeof rejectPaymentSchema>;
 export const reportPaymentSchema = z.strictObject({ paymentId: z.uuid(), receiptImageId: z.uuid() });
 export const reportPaymentResponseSchema = z.strictObject({ paymentId: z.uuid(), status: z.literal("reported") });
 export const buyerPaymentViewSchema = z.strictObject({ orderId: z.uuid(), total: moneySchema, deliveryCharge: moneySchema,
   availability: z.enum(["available", "delivery_quote_pending", "checkout_pending", "cancelled"]).default("available"),
   paidAmount: moneySchema, balanceDue: moneySchema, paymentStatus: z.enum(["pending", "paid"]),
   settings: z.array(z.discriminatedUnion("method", [
-    z.strictObject({ method: z.literal("digital_wallet"), provider: z.string(), holder: z.string(), imageUrl: z.url().nullable() }),
+    z.strictObject({ method: z.literal("digital_wallet"), provider: z.string(), holder: z.string(), imageUrl: z.url() }),
     z.strictObject({ method: z.literal("bank_transfer"), bank: z.string(), holder: z.string(), accountNumber: z.string().nullable(), cci: z.string().nullable(), imageUrl: z.url().nullable() }),
   ])),
-  payments: z.array(z.strictObject({ id: z.uuid(), status: z.enum(["reported", "confirmed", "voided"]),
-    amount: moneySchema.nullable(), method: z.enum(["digital_wallet", "bank_transfer"]).nullable(), receiptImageUrl: z.url().nullable() })) });
+  payments: z.array(z.strictObject({ id: z.uuid(), status: z.enum(["reported", "confirmed", "voided", "rejected"]),
+    amount: moneySchema.nullable(), method: z.enum(["digital_wallet", "bank_transfer"]).nullable(), receiptImageUrl: z.url().nullable(),
+    rejectionReason: z.string().nullable() })),
+  rejectedReport: z.strictObject({ reason: z.string().nullable() }).nullable() });
 export type BuyerPaymentView = z.infer<typeof buyerPaymentViewSchema>;
 
 export const listOrdersSchema = z.strictObject({

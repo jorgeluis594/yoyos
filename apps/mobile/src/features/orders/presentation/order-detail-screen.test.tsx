@@ -14,6 +14,7 @@ let mockFocus: () => void;
 let mockLoadFailed = false;
 const mockRegisterPayment = jest.fn();
 const mockVoidPayment = jest.fn();
+const mockRejectPayment = jest.fn();
 const mockEnableCheckout = jest.fn();
 const mockShip = jest.fn();
 const mockDeliver = jest.fn();
@@ -34,7 +35,7 @@ const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, company
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
     unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" } }] };
 let mockOrder = initialOrder;
-beforeEach(() => { mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockEnableCheckout.mockReset(); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
+beforeEach(() => { mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockEnableCheckout.mockReset(); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); mockRejectPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
 
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }),
   useLocalSearchParams: () => ({ id: mockId }),
@@ -50,6 +51,7 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   clearPendingOrderConfirmation: async () => ({ success: true, data: undefined }),
   registerPayment: (...args: unknown[]) => mockRegisterPayment(...args),
   voidPayment: (...args: unknown[]) => mockVoidPayment(...args),
+  rejectPayment: (...args: unknown[]) => mockRejectPayment(...args),
 } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
   status: "ready", user: { id: mockUserId }, company: { id: "00000000-0000-4000-8000-000000000001", country: mockCountry },
@@ -117,6 +119,23 @@ test("seller confirms a reported partial amount from the mobile order", async ()
     method: "digital_wallet", deductStockIfPartial: false,
   }));
   expect(screen.getByText("No hay stock suficiente para confirmar el pago.")).toBeTruthy();
+});
+
+test("never labels a rejected payment as confirmed", async () => {
+  const rejectedId = "00000000-0000-4000-8000-000000000097";
+  mockOrder = { ...initialOrder, status: "active", paymentStatus: "pending", completedAt: null,
+    paidAmount: { amount: 0, currency: "PEN" }, balanceDue: { amount: 12, currency: "PEN" },
+    deliveryStatus: "pending", stockDeducted: false,
+    payments: [{ id: rejectedId, orderId: mockId, status: "rejected", currency: "PEN", amount: null, method: null,
+      data: { report: { receiptImageId: "00000000-0000-4000-8000-000000000098", reportedAt: "2026-09-29T11:30:00.000Z" },
+        rejectedAt: "2026-09-29T12:00:00.000Z", rejectedBy: "seller", reason: "No coincide" } }] };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Saldo pendiente");
+  fireEvent.press(screen.getByRole("button", { name: "Ver pagos" }));
+  expect(screen.getByText("Pago rechazado")).toBeTruthy();
+  expect(screen.queryByText("Pago confirmado")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Anular pago" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Revisar comprobante" })).toBeNull();
 });
 
 test("seller can void a confirmed payment from mobile", async () => {
@@ -613,4 +632,119 @@ describe("WhatsApp orders", () => {
     expect(screen.queryByText("—")).toBeNull();
     expect(screen.queryByText("Público general")).toBeNull();
   });
+});
+
+const reportId = "00000000-0000-4000-8000-000000000099";
+const receiptId = "00000000-0000-4000-8000-000000000098";
+const report = { receiptImageId: receiptId, reportedAt: "2026-09-29T11:30:00.000Z" };
+const reportedOrder = (overrides: Partial<OrderAggregateResponse> = {}): OrderAggregateResponse => ({ ...initialOrder, status: "active", paymentStatus: "pending",
+  completedAt: null, paidAmount: { amount: 0, currency: "PEN" }, balanceDue: { amount: 12, currency: "PEN" }, deliveryStatus: "pending", stockDeducted: false,
+  payments: [{ id: reportId, orderId: mockId, status: "reported", currency: "PEN", amount: null, method: null, data: report }], ...overrides });
+
+test("labels a rejected payment as Pago rechazado with its reason and Ver captura", async () => {
+  mockOrder = reportedOrder({ payments: [{ id: reportId, orderId: mockId, status: "rejected", currency: "PEN", amount: null, method: null,
+    data: { report, rejectedAt: "2026-09-29T12:00:00.000Z", rejectedBy: "seller", reason: "El monto no coincide" } }] });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Saldo pendiente");
+  fireEvent.press(screen.getByRole("button", { name: "Ver pagos" }));
+  expect(screen.getByText("Pago rechazado")).toBeTruthy();
+  expect(screen.getByText("El monto no coincide")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Ver captura" })).toBeTruthy();
+  expect(screen.queryByText("Pago confirmado")).toBeNull();
+  expect(screen.queryByText("Pago por revisar")).toBeNull();
+});
+
+test("rejects a report from the review sheet with an optional reason", async () => {
+  const rejected = reportedOrder({ payments: [{ id: reportId, orderId: mockId, status: "rejected", currency: "PEN", amount: null, method: null,
+    data: { report, rejectedAt: "2026-09-29T12:00:00.000Z", rejectedBy: "seller", reason: "El monto no coincide" } }] });
+  mockRejectPayment.mockResolvedValueOnce({ kind: "already_reviewed" }).mockResolvedValueOnce({ kind: "rejected", order: rejected });
+  mockOrder = reportedOrder();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar" }));
+  expect(screen.getByText("¿Rechazar este comprobante?")).toBeTruthy();
+  expect(screen.getByText("El saldo seguirá pendiente y el comprador podrá enviar otro comprobante.")).toBeTruthy();
+  fireEvent.changeText(screen.getByLabelText("Motivo (opcional, lo verá el comprador)"), "  El monto no coincide ");
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar comprobante" }));
+  await screen.findByText("Este pago ya fue revisado.");
+  expect(mockRejectPayment).toHaveBeenLastCalledWith(mockId, reportId, "El monto no coincide");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Rechazar comprobante" })).toBeEnabled());
+  mockOrder = rejected;
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar comprobante" }));
+  await waitFor(() => expect(screen.queryByText("¿Rechazar este comprobante?")).toBeNull());
+  expect(screen.getByText("Pago rechazado")).toBeTruthy();
+  expect(screen.getByText("El monto no coincide")).toBeTruthy();
+});
+
+test("rejecting without a reason sends null and Volver returns to the review step", async () => {
+  mockRejectPayment.mockResolvedValue({ kind: "unknown" });
+  mockOrder = reportedOrder();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Volver" }));
+  expect(screen.getByRole("button", { name: "Confirmar pago" })).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar comprobante" }));
+  await screen.findByText("No sabemos si se guardó. Revisa el pedido antes de repetir.");
+  expect(mockRejectPayment).toHaveBeenCalledWith(mockId, reportId, null);
+});
+
+test("shows the partial stock box only when the amount is below the balance", async () => {
+  mockOrder = reportedOrder();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  expect(screen.queryByLabelText("Descontar stock con abono parcial")).toBeNull();
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "4.50");
+  expect(screen.getByLabelText("Descontar stock con abono parcial")).toBeTruthy();
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "12");
+  expect(screen.queryByLabelText("Descontar stock con abono parcial")).toBeNull();
+});
+
+test("hides the partial stock box when stock was already deducted", async () => {
+  mockOrder = reportedOrder({ stockDeducted: true });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "4.50");
+  expect(screen.queryByLabelText("Descontar stock con abono parcial")).toBeNull();
+});
+
+test("shows Pago por revisar while a report is pending", async () => {
+  mockOrder = reportedOrder();
+  const pending = render(<OrderDetailScreen />);
+  await pending.findByText("Saldo pendiente");
+  expect(pending.getByText("Pago por revisar")).toBeTruthy();
+  pending.unmount();
+  mockOrder = reportedOrder({ cancelled: true, status: "cancelled" });
+  const cancelled = render(<OrderDetailScreen />);
+  await cancelled.findByText("Saldo pendiente");
+  expect(cancelled.queryByText("Pago por revisar")).toBeNull();
+});
+
+test.each([
+  ["PAYMENT_CONFLICT", "Este pago ya fue revisado."],
+  ["INVALID_TRANSITION", "Este pago ya fue revisado."],
+  ["NETWORK_ERROR", "No sabemos si se guardó. Revisa el pedido antes de repetir."],
+])("confirming from the review sheet answers %s with its message and reloads the order", async (code, message) => {
+  const decided = reportedOrder({ payments: [{ id: reportId, orderId: mockId, status: "rejected", currency: "PEN", amount: null, method: null,
+    data: { report, rejectedAt: "2026-09-29T12:00:00.000Z", rejectedBy: "seller", reason: "El monto no coincide" } }] });
+  // Somebody else decided the report meanwhile: only a reload of the order can show it.
+  mockRegisterPayment.mockImplementation(async () => { mockOrder = decided; return { success: false, error: { code } }; });
+  mockOrder = reportedOrder();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  await screen.findByText(message);
+  await screen.findByText("Pago rechazado");
+  expect(mockRegisterPayment).toHaveBeenCalledTimes(1);
 });

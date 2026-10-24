@@ -60,3 +60,11 @@ const test = base.extend<{ page: Page; request: APIRequestContext }>({
 });
 
 export { browserExpect, expect, test };
+
+/** Typing or choosing a file before React hydrates is lost: React tags the DOM nodes it owns once it has hydrated them. */
+export async function waitForReactHydration(page: Page, selector: string) {
+  await page.waitForFunction((css) => {
+    const element = document.querySelector(css);
+    return element !== null && Object.keys(element).some((key) => key.startsWith("__reactProps"));
+  }, selector);
+}

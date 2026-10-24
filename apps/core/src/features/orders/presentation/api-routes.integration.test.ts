@@ -14,8 +14,9 @@ import { err, ok } from "@shared/functional";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
 import { quotationResponseSchema } from "@shared/contracts/quotations";
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
-import { cancelOrderResponseSchema, cancelOrderErrorSchema, orderAggregateSchema } from "@shared/contracts/orders";
+import { buyerPaymentViewSchema, cancelOrderResponseSchema, cancelOrderErrorSchema, orderAggregateSchema } from "@shared/contracts/orders";
 import { app } from "@core/src/app";
+import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { deleteAgencies, insertAgency, seededCourier, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
@@ -1051,4 +1052,206 @@ test("seller list and detail do not include unconfirmed catalog orders, and incl
 
   await confirm(completed);
   expect(await ids("/api/orders")).toEqual([completed]);
+});
+
+async function reportedOrder(seller: Awaited<ReturnType<typeof fixture>>, quantity = 1) {
+  const orderId = randomUUID();
+  const paymentId = randomUUID();
+  const imageId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity }] }, "POST")).status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date(),
+      buyer: { create: { name: "Ana", phone: "+51987654321" } } } });
+    await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } });
+  });
+  const buyerPath = `/api/buyer/orders/${orderId}`;
+  expect((await call(`${buyerPath}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
+  return { orderId, paymentId, imageId, buyerPath, reject: (cookie: string, reason: string | null = null, id = paymentId) =>
+    call(`/api/orders/${orderId}/payments/${id}/reject`, cookie, { reason }, "POST") };
+}
+
+const confirmBody = (paymentId: string, amount = 10) => ({ paymentId, source: "buyer_report", amount: { amount, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false });
+
+test("POST reject marks a reported payment rejected and keeps the balance", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  const stockBefore = await withTenantIsolation(seller.companyId, async () => await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } }));
+  const info = vi.spyOn(log, "info");
+  const rejected = await report.reject(seller.cookie, "  El monto no coincide ");
+  expect(rejected.status).toBe(200);
+  const body = orderAggregateSchema.parse(await rejected.json());
+  expect(body).toMatchObject({ paymentStatus: "pending", paidAmount: { amount: 0 }, balanceDue: { amount: 10 }, stockDeducted: false, completedAt: null,
+    payments: [{ id: report.paymentId, status: "rejected", amount: null, method: null, currency: "PEN",
+      data: { reason: "El monto no coincide", rejectedBy: seller.userId, report: { receiptImageId: report.imageId } } }] });
+  await withTenantIsolation(seller.companyId, async () => {
+    expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity).toBe(stockBefore.quantity);
+    expect(await prisma.payment.count()).toBe(1);
+  });
+  expect(info.mock.calls.map(([entry]) => entry)).toContainEqual({ event: "payment_rejected", companyId: seller.companyId, userId: seller.userId,
+    orderId: report.orderId, paymentId: report.paymentId, hasReason: true });
+  expect((await call(`/api/orders/${report.orderId}/payments/${report.paymentId}/reject`, seller.cookie, { reason: "x".repeat(1001) }, "POST")).status).toBe(400);
+  expect((await call(`/api/orders/${report.orderId}/payments/${report.paymentId}/reject`, seller.cookie, { }, "POST")).status).toBe(400);
+});
+
+test("POST reject answers 422 INVALID_PAYMENT for a reason longer than 200 characters", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  const response = await report.reject(seller.cookie, "x".repeat(201));
+  expect(response.status).toBe(422);
+  expect(await response.json()).toMatchObject({ code: "INVALID_PAYMENT" });
+  expect((await report.reject(seller.cookie, "   ")).status).toBe(200);
+});
+
+test("POST reject answers 409 PAYMENT_CONFLICT for a confirmed payment", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await call(`/api/orders/${report.orderId}/payments`, seller.cookie, confirmBody(report.paymentId), "POST")).status).toBe(200);
+  const response = await report.reject(seller.cookie, "tarde");
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "PAYMENT_CONFLICT" });
+  expect((await report.reject(seller.cookie, null, randomUUID())).status).toBe(404);
+});
+
+test("POST reject answers 409 ORDER_CANCELLED in a cancelled order", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await call(`/api/orders/${report.orderId}/cancel`, seller.cookie, undefined, "POST")).status).toBe(200);
+  const response = await report.reject(seller.cookie);
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "ORDER_CANCELLED" });
+});
+
+test("POST reject answers 404 for an order of another company", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("CL");
+  const report = await reportedOrder(seller);
+  const response = await report.reject(other.cookie);
+  expect(response.status).toBe(404);
+  expect(await response.json()).toMatchObject({ code: "ORDER_NOT_FOUND" });
+  expect((await call(`/api/orders/${report.orderId}/payments/${report.paymentId}/reject`, undefined, { reason: null }, "POST")).status).toBe(401);
+  await withTenantIsolation(seller.companyId, async () =>
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: report.paymentId } })).status).toBe("reported"));
+});
+
+test("repeating POST reject returns the same rejection", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  const first = await report.reject(seller.cookie, "Primero");
+  const debug = vi.spyOn(log, "debug");
+  const again = await report.reject(seller.cookie, "Otro motivo");
+  expect(again.status).toBe(200);
+  expect(await again.json()).toEqual(await first.json());
+  expect(debug.mock.calls.map(([entry]) => entry)).toContainEqual({ event: "payment_operation_replayed", operation: "reject", paymentId: report.paymentId });
+  expect((await report.reject(seller.cookie, "x".repeat(300))).status).toBe(200);
+});
+
+test("confirming a rejected payment answers 409 PAYMENT_CONFLICT", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await report.reject(seller.cookie, "No coincide")).status).toBe(200);
+  const response = await call(`/api/orders/${report.orderId}/payments`, seller.cookie, confirmBody(report.paymentId), "POST");
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "PAYMENT_CONFLICT" });
+  await withTenantIsolation(seller.companyId, async () =>
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: report.paymentId } })).status).toBe("rejected"));
+});
+
+test("POST void of a rejected payment answers 409 INVALID_TRANSITION", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await report.reject(seller.cookie)).status).toBe(200);
+  const response = await call(`/api/orders/${report.orderId}/payments/${report.paymentId}/void`, seller.cookie, undefined, "POST");
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "INVALID_TRANSITION" });
+});
+
+test("buyer view exposes the rejected status, its reason and rejectedReport", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  const pending = await (await call(`${report.buyerPath}/payment`)).json();
+  expect(pending).toMatchObject({ payments: [{ id: report.paymentId, status: "reported", rejectionReason: null }], rejectedReport: null });
+  expect((await report.reject(seller.cookie, "El monto no coincide")).status).toBe(200);
+  const view = await call(`${report.buyerPath}/payment`);
+  expect(view.status).toBe(200);
+  expect(buyerPaymentViewSchema.parse(await view.json())).toMatchObject({ balanceDue: { amount: 10 },
+    payments: [{ id: report.paymentId, status: "rejected", amount: null, method: null, rejectionReason: "El monto no coincide" }],
+    rejectedReport: { reason: "El monto no coincide" } });
+  const newPaymentId = randomUUID();
+  const newImageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => { await prisma.image.create({ data: { id: newImageId, storageKey: `test/${newImageId}` } }); });
+  expect((await call(`${report.buyerPath}/reports`, undefined, { paymentId: newPaymentId, receiptImageId: newImageId }, "POST")).status).toBe(201);
+  expect(await (await call(`${report.buyerPath}/payment`)).json()).toMatchObject({ rejectedReport: null,
+    payments: expect.arrayContaining([expect.objectContaining({ status: "rejected" }), expect.objectContaining({ id: newPaymentId, status: "reported" })]) });
+});
+
+test("buyer view resolves the bank transfer image and every receipt url with one image lookup", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await report.reject(seller.cookie)).status).toBe(200);
+  const secondImageId = randomUUID();
+  const bankImageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.image.create({ data: { id: secondImageId, storageKey: `test/${secondImageId}` } });
+    await prisma.image.create({ data: { id: bankImageId, storageKey: `test/${bankImageId}` } });
+    await prisma.companyPaymentSettings.create({ data: { companyId: seller.companyId, settings: [{ method: "bank_transfer", bank: "BCP", holder: "Ana",
+      accountNumber: "1234", cci: null, imageId: bankImageId }] } });
+  });
+  expect((await call(`${report.buyerPath}/reports`, undefined, { paymentId: randomUUID(), receiptImageId: secondImageId }, "POST")).status).toBe(201);
+  const findMany = vi.spyOn(imageRepository, "findMany");
+  const find = vi.spyOn(imageRepository, "find");
+  const view = await call(`${report.buyerPath}/payment`);
+  expect(view.status).toBe(200);
+  expect(findMany).toHaveBeenCalledTimes(1);
+  expect(findMany.mock.calls[0]?.[0]).toEqual(expect.arrayContaining([bankImageId, report.imageId, secondImageId]));
+  expect(find).not.toHaveBeenCalled();
+  expect(await view.json()).toMatchObject({ settings: [{ method: "bank_transfer", bank: "BCP" }], payments: expect.arrayContaining([expect.objectContaining({ status: "rejected" }), expect.objectContaining({ status: "reported" })]) });
+});
+
+test("buyer view drops a wallet whose image url does not resolve", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  const bankImageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.image.create({ data: { id: bankImageId, storageKey: `test/${bankImageId}` } });
+    await prisma.companyPaymentSettings.create({ data: { companyId: seller.companyId, settings: [
+      { method: "digital_wallet", provider: "Yape", holder: "Ana", qr: { status: "verified", imageId: randomUUID() } },
+      { method: "bank_transfer", bank: "BCP", holder: "Ana", accountNumber: "1234", cci: null, imageId: bankImageId }] } });
+  });
+  const view = await call(`${report.buyerPath}/payment`);
+  expect(view.status).toBe(200);
+  const parsed = buyerPaymentViewSchema.parse(await view.json());
+  expect(parsed.settings.map((setting) => setting.method)).toEqual(["bank_transfer"]);
+});
+
+test("repeating a buyer report after its rejection returns the rejected payment", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await report.reject(seller.cookie, "No coincide")).status).toBe(200);
+  const replay = await call(`${report.buyerPath}/reports`, undefined, { paymentId: report.paymentId, receiptImageId: report.imageId }, "POST");
+  expect(replay.status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.payment.count()).toBe(1);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: report.paymentId } })).status).toBe("rejected");
+  });
+  expect(await (await call(`${report.buyerPath}/payment`)).json()).toMatchObject({ payments: [{ id: report.paymentId, status: "rejected" }], rejectedReport: { reason: "No coincide" } });
+  const otherImageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => { await prisma.image.create({ data: { id: otherImageId, storageKey: `test/${otherImageId}` } }); });
+  expect((await call(`${report.buyerPath}/reports`, undefined, { paymentId: report.paymentId, receiptImageId: otherImageId }, "POST")).status).toBe(409);
+});
+
+test("repeating a manual payment after a lost response keeps a single payment", async () => {
+  const seller = await fixture("PE");
+  const id = randomUUID();
+  const paymentId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id, items: [{ variantId: seller.variantId, quantity: 4 }] })).status).toBe(201);
+  const manual = { paymentId, source: "manual", amount: { amount: 15, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false };
+  const first = await call(`/api/orders/${id}/payments`, seller.cookie, manual, "POST");
+  expect(first.status).toBe(200);
+  // The seller never saw that answer and presses «Confirmar pago» again with the same open form.
+  const repeated = await call(`/api/orders/${id}/payments`, seller.cookie, manual, "POST");
+  expect(repeated.status).toBe(200);
+  expect(await repeated.json()).toMatchObject({ order: { paidAmount: { amount: 15 }, balanceDue: { amount: 25 }, payments: [{ id: paymentId, status: "confirmed" }] } });
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.payment.count({ where: { orderId: id } })).toBe(1);
+  });
 });

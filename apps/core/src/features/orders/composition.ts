@@ -22,6 +22,7 @@ import { createOrder, type CreateOrderDependencies } from "@core/src/features/or
 import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
 import { reportPayment, type ReportPaymentDependencies } from "@core/src/features/orders/application/report-payment";
+import { rejectPayment, type RejectPaymentDependencies } from "@core/src/features/orders/application/reject-payment";
 import { voidPayment, type VoidPaymentDependencies } from "@core/src/features/orders/application/void-payment";
 import { registerImmediateSale, type RegisterImmediateSaleDependencies } from "@core/src/features/orders/application/register-immediate-sale";
 import { cancelOrder, type CancelOrderDependencies } from "@core/src/features/orders/application/cancel-order";
@@ -43,7 +44,7 @@ import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-messa
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import type { EventHandler } from "@core/src/shared/events/application/contracts";
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
-import { findAvailablePublicImage, readImageBytes, resolvePublicImage } from "@core/src/shared/images";
+import { findAvailablePublicImage, readImageBytes, resolvePublicImages } from "@core/src/shared/images";
 import { companyPaymentSettings } from "@core/src/features/companies";
 import type { ImageId, VariantId } from "@core/src/features/products/domain/product";
 import { orderStateMachine } from "@core/src/features/orders/domain/order-state-machine";
@@ -74,6 +75,7 @@ const stockTransaction: DeductStockDependencies["transaction"] = scopedOrderTran
 const paymentTransaction: RegisterPaymentDependencies["transaction"] = scopedOrderTransaction;
 const reportTransaction: ReportPaymentDependencies["transaction"] = scopedOrderTransaction;
 const voidTransaction: VoidPaymentDependencies["transaction"] = scopedOrderTransaction;
+const rejectTransaction: RejectPaymentDependencies["transaction"] = scopedOrderTransaction;
 const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = scopedOrderTransaction;
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
@@ -178,6 +180,17 @@ export async function resolveBuyerAccess(id: string) {
     : err({ code: "ORDER_NOT_FOUND" as const, message: "Order not found" }) : resolved;
 }
 
+function receiptImageId(payment: OrderAggregate["payments"][number]) {
+  if (payment.status === "reported") return payment.data.receiptImageId;
+  if (payment.status === "rejected") return payment.data.report.receiptImageId;
+  return payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
+}
+
+function rejectedReport(order: OrderAggregate): BuyerPaymentView["rejectedReport"] {
+  const rejected = orderStateMachine.rejectionAwaitingNewReport(order);
+  return rejected ? { reason: rejected.data.reason } : null;
+}
+
 export async function getBuyerPaymentView(id: string) {
   const access = await resolveBuyerAccess(id);
   if (!access.success) return access;
@@ -193,25 +206,26 @@ export async function getBuyerPaymentView(id: string) {
     if (!settings.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Payment settings unavailable" });
     const summary = orderStateMachine.getPaymentSummary(found.data);
     if (!summary.success) return summary;
-    const imageIds = [...settings.data.map((item) => item.imageId), ...found.data.payments.map((payment) =>
-      payment.status === "reported" ? payment.data.receiptImageId : payment.data.evidence.kind === "buyer_report"
-        ? payment.data.evidence.report.receiptImageId : null)].filter((value): value is NonNullable<typeof value> => value !== null);
-    const images = new Map<string, string | null>();
-    for (const imageId of new Set(imageIds)) {
-      const resolved = await resolvePublicImage(imageId);
-      if (!resolved.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Image unavailable" });
-      images.set(imageId, resolved.data?.url ?? null);
-    }
+    const settingImageIds = settings.data.map((item) => item.imageId);
+    const imageIds = [...settingImageIds, ...found.data.payments.map(receiptImageId)].filter((value): value is NonNullable<typeof value> => value !== null);
+    const resolved = await resolvePublicImages(imageIds);
+    if (!resolved.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Image unavailable" });
+    const images = new Map(resolved.data.images.map((image) => [image.id, image.url]));
     const availability = "available" as const;
+    // A wallet whose QR url does not resolve is not listed: a missing image never fails the whole view.
+    const offered: BuyerPaymentView["settings"] = settings.data.flatMap((item): BuyerPaymentView["settings"] => {
+      if (item.method === "bank_transfer") return [{ method: item.method, bank: item.bank, holder: item.holder, accountNumber: item.accountNumber, cci: item.cci,
+        imageUrl: item.imageId ? images.get(item.imageId) ?? null : null }];
+      const imageUrl = images.get(item.imageId);
+      return imageUrl ? [{ method: item.method, provider: item.provider, holder: item.holder, imageUrl }] : [];
+    });
     const view: BuyerPaymentView = { orderId: found.data.id, total: found.data.total, deliveryCharge: found.data.deliveryCharge, availability,
       paidAmount: summary.data.paidAmount, balanceDue: summary.data.balanceDue, paymentStatus: summary.data.status,
-      settings: (availability === "available" ? settings.data : []).map((item) => { const imageUrl = item.imageId ? images.get(item.imageId) ?? null : null;
-        return item.method === "digital_wallet" ? { method: item.method, provider: item.provider, holder: item.holder, imageUrl }
-          : { method: item.method, bank: item.bank, holder: item.holder, accountNumber: item.accountNumber, cci: item.cci, imageUrl }; }),
-      payments: found.data.payments.map((payment) => { const imageId = payment.status === "reported" ? payment.data.receiptImageId
-        : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
-      return { id: payment.id, status: payment.status, amount: payment.amount, method: payment.method,
-        receiptImageUrl: imageId ? images.get(imageId) ?? null : null }; }) };
+      settings: offered,
+      payments: found.data.payments.map((payment) => { const imageId = receiptImageId(payment);
+        return { id: payment.id, status: payment.status, amount: payment.amount, method: payment.method,
+          receiptImageUrl: imageId ? images.get(imageId) ?? null : null, rejectionReason: payment.status === "rejected" ? payment.data.reason : null }; }),
+      rejectedReport: rejectedReport(found.data) };
     return { success: true as const, data: view };
   });
 }
@@ -376,6 +390,16 @@ export const orders = {
         outcome: "applied", transactionOutcome: "committed" }, "payment_voided");
       else log.debug({ event: "payment_operation_replayed", operation: "void", paymentId: input.paymentId }, "payment_operation_replayed");
     }
+    return result;
+  },
+  rejectPayment: async (input: Parameters<typeof rejectPayment>[0], context: Parameters<typeof rejectPayment>[1]) => {
+    const result = await rejectPayment(input, context, { transaction: rejectTransaction, findOrderForUpdate, updatePayment, clock: () => new Date() });
+    if (result.success) {
+      if (result.data.applied) log.info({ event: "payment_rejected", companyId: context.companyId, userId: context.userId, orderId: input.orderId,
+        paymentId: input.paymentId, hasReason: input.reason !== null && input.reason.trim() !== "" }, "payment_rejected");
+      else log.debug({ event: "payment_operation_replayed", operation: "reject", paymentId: input.paymentId }, "payment_operation_replayed");
+    } else if (result.error.code === "PAYMENT_CONFLICT") log.debug({ event: "payment_operation_conflict", operation: "reject",
+      paymentId: input.paymentId, errorCode: result.error.code }, "payment_operation_conflict");
     return result;
   },
   deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
