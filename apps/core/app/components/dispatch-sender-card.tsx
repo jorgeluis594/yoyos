@@ -1,33 +1,19 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Send } from "lucide-react";
 import { useTranslation } from "react-i18next";
-import { dispatchSenderNameMaxLength, dispatchSenderPhoneMaxLength, dispatchSenderResponseSchema, type DispatchSenderResponse } from "@shared/contracts/dispatch-sender";
+import { dispatchSenderNameMaxLength, dispatchSenderPhoneMaxLength, type DispatchSenderResponse } from "@shared/contracts/dispatch-sender";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent } from "@core/app/components/ui/card";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
+import { saveSender, type SenderDraft } from "@core/app/lib/dispatch-sender-client";
 import { PICKUP_SAVE_DELAY_MS } from "@core/app/components/use-instant-delivery-settings";
 
-export type SenderDraft = Readonly<{ name: string; phone: string }>;
 export type SenderSaveState = Readonly<{ kind: "idle" | "saving" | "saved" }> | Readonly<{ kind: "failed"; draft: SenderDraft }>;
-export type SaveSenderResult = Readonly<{ kind: "saved"; sender: DispatchSenderResponse }> | Readonly<{ kind: "failed" }>;
-
-export const senderEndpoint = "/api/company/dispatch-sender";
 
 export const draftOf = (sender: DispatchSenderResponse): SenderDraft => ({ name: sender.configured.name ?? "", phone: sender.configured.phone ?? "" });
 export const sameDraft = (a: SenderDraft, b: SenderDraft) => a.name.trim() === b.name.trim() && a.phone.trim() === b.phone.trim();
-
-/** The sender is saved on its own endpoint: it has no version, so it never conflicts with the delivery settings. */
-export async function saveSender(draft: SenderDraft, send: typeof fetch = fetch): Promise<SaveSenderResult> {
-  try {
-    const response = await send(senderEndpoint, { method: "PUT", headers: { "content-type": "application/json" },
-      body: JSON.stringify({ name: draft.name.trim() || null, phone: draft.phone.trim() || null }) });
-    if (!response.ok) return { kind: "failed" };
-    const parsed = dispatchSenderResponseSchema.safeParse(await response.json());
-    return parsed.success ? { kind: "saved", sender: parsed.data } : { kind: "failed" };
-  } catch { return { kind: "failed" }; }
-}
 
 /** Saves on blur or after a short pause, one request at a time; the last text typed always ends up saved. */
 function useSenderSave(initial: DispatchSenderResponse) {

@@ -150,7 +150,6 @@ function SettingsForm({ loaded }: { loaded: LoadedSettings }) {
       </MethodRow>
       {(checked.home || checked.agency) && zonesState && <div className="p-4"><p className="text-sm text-muted-foreground">{t("deliverySettings.ratesByZone")} <TextLink href="#delivery-zones">{t("deliverySettings.goToZones")}</TextLink></p></div>}
     </FieldSet></CardContent></Card>
-    <DispatchSenderCard sender={loaded.sender} companyName={loaded.companyName} />
     {conflict && <Alert variant="destructive"><AlertDescription>{t("deliverySettings.conflict")}</AlertDescription>
       <Button type="button" variant="outline" className="mt-3 max-sm:w-full max-md:min-h-touch" onClick={() => void reloadAll()}>{t("deliverySettings.reload")}</Button></Alert>}
     <Dialog open={blocker.state === "blocked"} onOpenChange={open => { if (!open && blocker.state === "blocked") blocker.reset(); }}>
@@ -162,6 +161,7 @@ function SettingsForm({ loaded }: { loaded: LoadedSettings }) {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+    <DispatchSenderCard sender={loaded.sender} companyName={loaded.companyName} />
     {zonesState && <DeliveryZonesSection state={zonesState} couriers={settings.couriers} catalog={loaded.courierCatalog.couriers}
       pending={busy || !ready} error={zonesError} saved={lastZonesSaved} onReload={() => void reloadAll()}
       onSave={request => zonesFetcher.submit({ intent: "zones", ...request }, { method: "post", encType: "application/json" })} />}
