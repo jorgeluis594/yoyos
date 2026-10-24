@@ -15,6 +15,7 @@ import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { resolvePublicImages } from "@core/src/shared/images";
 import { ok, err } from "@shared/functional";
+import { paymentErrorKey } from "@core/src/features/orders/presentation/payment-decision-form";
 
 vi.mock("@core/src/shared/images", async (importOriginal) => ({ ...await importOriginal<typeof import("@core/src/shared/images")>(), resolvePublicImages: vi.fn() }));
 
@@ -172,5 +173,60 @@ test("order detail labels a rejected payment as Pago rechazado and never as conf
     const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));
     expect(html).toContain("Pago rechazado");
     expect(html).not.toContain("Pago confirmado");
+  } finally { router.dispose(); }
+});
+
+const builtOrder = () => {
+  const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const built = buildPendingOrder({ id: id(2) as OrderId, companyId: companyId as CompanyId, number: 1042 as OrderNumber, sellerId: "seller" as UserId,
+    customer: { kind: "general_public" }, createdAt: new Date("2026-10-17T12:00:00Z"),
+    items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Polo", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 45, currency: "PEN" } }] });
+  if (!built.success) throw new Error("expected order");
+  return { order: built.data, id };
+};
+
+test("reject action rejects the report and returns the updated order", async () => {
+  const { order, id } = builtOrder();
+  const reject = vi.spyOn(orders, "rejectPayment").mockResolvedValue(ok({ order, applied: true }));
+  const enable = vi.spyOn(orders, "enableCheckout");
+  const result = await action(args({ operation: "reject", paymentId: id(6), reason: "El monto no coincide" }));
+  expect(result).toMatchObject({ url: null, success: true, error: false, order: { id: orderId } });
+  expect(reject).toHaveBeenCalledWith({ orderId, paymentId: id(6), reason: "El monto no coincide" }, { companyId, userId: "authenticated-seller" });
+  expect(enable).not.toHaveBeenCalled();
+  await action(args({ operation: "reject", paymentId: id(6), reason: "" }));
+  expect(reject).toHaveBeenLastCalledWith({ orderId, paymentId: id(6), reason: "" }, { companyId, userId: "authenticated-seller" });
+  expect(await action(args({ operation: "reject", paymentId: "not-a-uuid" }))).toMatchObject({ success: false, error: "INVALID_INPUT" });
+});
+
+test("approve and reject map PAYMENT_CONFLICT to the already-reviewed message", async () => {
+  const { id } = builtOrder();
+  for (const code of ["PAYMENT_CONFLICT", "INVALID_TRANSITION"] as const) {
+    vi.spyOn(orders, "rejectPayment").mockResolvedValue(err({ code, message: "Reviewed" }));
+    vi.spyOn(orders, "registerPayment").mockResolvedValue(err({ code, message: "Reviewed" }));
+    expect(await action(args({ operation: "reject", paymentId: id(6), reason: "" }))).toMatchObject({ success: false, error: "ALREADY_REVIEWED" });
+    expect(await action(args({ operation: "confirm", paymentId: id(6), source: "buyer_report", amount: "70", currency: "PEN", method: "digital_wallet" })))
+      .toMatchObject({ success: false, error: "ALREADY_REVIEWED" });
+  }
+  expect(paymentErrorKey("ALREADY_REVIEWED")).toBe("orders.paymentAlreadyReviewed");
+  expect(paymentErrorKey("INSUFFICIENT_STOCK")).toBe("orders.paymentStockError");
+  expect(paymentErrorKey("NO_RESPONSE")).toBe("orders.paymentUncertain");
+});
+
+test("receipt thumbnails load lazily with fixed dimensions", async () => {
+  const i18n = createInstance();
+  await i18n.init({ lng: "es", resources });
+  const { order, id } = builtOrder();
+  const at = new Date("2026-10-17T13:00:00Z");
+  const withReport = { ...order, payments: [{ id: id(6), orderId: id(2), status: "reported", currency: "PEN", amount: null, method: null,
+    data: { receiptImageId: id(20), reportedAt: at } }] } as unknown as OrderAggregate;
+  const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
+    hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(withReport), base: "/es-PE/orders", manualPaymentId: id(5),
+      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery" } } } });
+  try {
+    const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));
+    expect(html).toMatch(/<img[^>]*src="https:\/\/cdn.example\/20.png"[^>]*loading="lazy"[^>]*decoding="async"[^>]*width="56"[^>]*height="80"/);
+    expect(html).toContain("Pago por revisar");
+    expect(html).toContain("Rechazar pago reportado el");
+    expect(html).not.toContain("Comprobante de pago");
   } finally { router.dispose(); }
 });
