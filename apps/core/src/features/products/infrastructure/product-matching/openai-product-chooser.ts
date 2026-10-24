@@ -43,7 +43,7 @@ export function createOpenAIProductChooser(config: OpenAIProductChooserConfig): 
       log.error({ event: "product_matcher_invalid_response", ...fields(), errorCode: choice.error.code, err: { answerType: answer?.type ?? null } }, "product_matcher_invalid_response");
       return choice;
     }
-    log.info({ event: "product_visual_match_completed", ...fields(), candidates: input.candidates.length, choice: choice.data.kind,
+    log.info({ event: "product_visual_match_completed", ...fields(), candidates: input.candidates.length, detail: input.detail?.kind ?? null, choice: choice.data.kind,
       confidence: choice.data.kind === "product" ? choice.data.confidence : undefined, showsProduct: choice.data.showsProduct,
       inputTokens: decision.usage?.input_tokens, outputTokens: decision.usage?.output_tokens }, "product_visual_match_completed");
     return choice;

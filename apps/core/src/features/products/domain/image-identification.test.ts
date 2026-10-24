@@ -35,7 +35,7 @@ describe("acceptVisualMatch", () => {
   });
 
   test("acceptVisualMatch rejects none as no_visual_match", () => {
-    expect(acceptVisualMatch({ kind: "none", showsProduct: 0.9 }, candidates, confidence(0.8))).toEqual({ kind: "rejected", reason: "no_visual_match" });
+    expect(acceptVisualMatch({ kind: "none", confidence: confidence(0.9), showsProduct: 0.9 }, candidates, confidence(0.8))).toEqual({ kind: "rejected", reason: "no_visual_match" });
   });
 
   test("acceptVisualMatch rejects a product that is not among the candidates", () => {
