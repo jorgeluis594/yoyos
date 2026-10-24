@@ -45,6 +45,21 @@ test("enabling is an idempotent read that never writes or moves the enable times
   expect(f.writes).toEqual([]);
 });
 
+test("the seller's link read takes no row lock and opens no transaction", async () => {
+  const f = fixture();
+  const forUpdate = vi.fn(f.deps.findOrderForUpdate);
+  const transaction = vi.fn(f.deps.transaction);
+  const deps = { ...f.deps, findOrderForUpdate: forUpdate, transaction };
+  expect(await enableOrderCheckout(access.orderId, seller, deps)).toMatchObject({ data: { number: 1001 } });
+  expect(forUpdate).not.toHaveBeenCalled();
+  expect(transaction).not.toHaveBeenCalled();
+});
+
+test("the seller's link read of another company's order is unavailable", async () => {
+  const f = fixture({ ...base, companyId: uuid(9) as CompanyId });
+  expect(await enableOrderCheckout(access.orderId, seller, { findOrder: f.deps.findOrder })).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+});
+
 test("public view exposes only checkout data and uses the order total, not a recomputed subtotal", async () => {
   const f = fixture({ ...base, buyer: { name: null, phone: buyer.phone, contactId: uuid(5) as ContactId } });
   const result = await getOrderCheckout(access, f.deps);

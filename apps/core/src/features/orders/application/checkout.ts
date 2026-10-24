@@ -46,19 +46,18 @@ function matches(order: CheckoutOrder | null, access: CheckoutAccess): order is 
   return order !== null && order.id === access.orderId && order.companyId === access.companyId;
 }
 
-export async function enableOrderCheckout(orderId: OrderId, context: OrderAccess, deps: Pick<CheckoutDependencies, "transaction" | "findOrderForUpdate">): Promise<Result<Readonly<{ number: OrderNumber }>, CheckoutError>> {
+/** The seller's read of an order's checkout: a plain tenant-scoped read, never a write or a row lock that would hold back a buyer confirming. */
+export async function enableOrderCheckout(orderId: OrderId, context: OrderAccess, deps: Pick<CheckoutDependencies, "findOrder">): Promise<Result<Readonly<{ number: OrderNumber }>, CheckoutError>> {
   const access = { companyId: context.companyId, orderId };
   if (!accessSchema.safeParse(access).success || !context.userId) return unavailable();
-  return deps.transaction<Readonly<{ number: OrderNumber }>>(access.companyId, async () => {
-    const found = await deps.findOrderForUpdate(access);
-    if (!found.success) return found;
-    if (!matches(found.data, access)) return unavailable();
-    const order = found.data;
-    const state = checkoutState(order);
-    if (!state.success) return state;
-    if (order.cancelled) return err({ code: "ORDER_CANCELLED", message: "Order is cancelled" });
-    return order.checkoutEnabledAt ? ok({ number: order.number }) : unavailable();
-  });
+  const found = await deps.findOrder(access);
+  if (!found.success) return found;
+  if (!matches(found.data, access)) return unavailable();
+  const order = found.data;
+  const state = checkoutState(order);
+  if (!state.success) return state;
+  if (order.cancelled) return err({ code: "ORDER_CANCELLED", message: "Order is cancelled" });
+  return order.checkoutEnabledAt ? ok({ number: order.number }) : unavailable();
 }
 
 export async function getOrderCheckout(access: CheckoutAccess, deps: GetOrderCheckoutDependencies): Promise<Result<CheckoutPage, CheckoutError>> {

@@ -78,23 +78,32 @@ test("checkout does not announce transitions before the outer commit succeeds", 
     buyer: null, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, items: [], itemsTotal: total, total, cancelled: false,
     checkoutEnabledAt: null, checkoutConfirmedAt: null };
   try {
-    for (const operation of ["enable", "confirm"] as const) {
-      findCheckoutOrderForUpdate.mockResolvedValueOnce(ok({ ...order, checkoutEnabledAt: new Date() }));
-      withinTransaction.mockImplementationOnce(async (work) => {
-        expect(await work()).toMatchObject({ success: true });
-        expect(info).not.toHaveBeenCalled();
-        throw new Prisma.PrismaClientUnknownRequestError("commit failed", { clientVersion: "7.10.0" });
-      });
-      const result = operation === "enable" ? await orders.enableCheckout(input.id, context)
-        : await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: total }, { companyId: context.companyId, orderId: input.id });
-      expect(result).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    findCheckoutOrderForUpdate.mockResolvedValueOnce(ok({ ...order, checkoutEnabledAt: new Date() }));
+    withinTransaction.mockImplementationOnce(async (work) => {
+      expect(await work()).toMatchObject({ success: true });
       expect(info).not.toHaveBeenCalled();
-    }
-    expect(error).toHaveBeenCalledTimes(2);
+      throw new Prisma.PrismaClientUnknownRequestError("commit failed", { clientVersion: "7.10.0" });
+    });
+    const result = await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: total }, { companyId: context.companyId, orderId: input.id });
+    expect(result).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(info).not.toHaveBeenCalled();
+    expect(error).toHaveBeenCalledTimes(1);
     expect(error.mock.calls.every(([fields]) => (fields as { event: string }).event === "unable_to_complete_order_transaction")).toBe(true);
   } finally {
     info.mockRestore(); error.mockRestore(); withinTransaction.mockReset(); findCheckoutOrderForUpdate.mockReset();
   }
+});
+
+test("the seller's checkout link read opens no transaction and takes no row lock", async () => {
+  const total = { amount: 1, currency: "PEN" as const };
+  findCheckoutOrder.mockResolvedValueOnce(ok({ id: input.id, companyId: context.companyId, companyName: "Store", number: 1001,
+    buyer: null, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, items: [], itemsTotal: total, total, cancelled: true,
+    fromCatalog: false, checkoutEnabledAt: new Date(), checkoutConfirmedAt: null }));
+  try {
+    expect(await orders.enableCheckout(input.id, context)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
+    expect(withinTransaction).not.toHaveBeenCalled();
+    expect(findCheckoutOrderForUpdate).not.toHaveBeenCalled();
+  } finally { findCheckoutOrder.mockReset(); }
 });
 
 const messageId = id(10) as ChatMessageId;
