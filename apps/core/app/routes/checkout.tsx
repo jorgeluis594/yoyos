@@ -9,6 +9,7 @@ import { Button } from "@core/app/components/ui/button";
 import { CheckoutBuyerDetails, CheckoutConfirmAction, CheckoutOrderSummary, CheckoutPayment, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
 import { orders } from "@core/src/features/orders/composition";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
+import { recipientForCheckout } from "@core/src/features/orders/domain/checkout-recipient";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import type { CheckoutDeliveryChange, CheckoutPage } from "@core/src/features/orders/application/checkout";
 import type { Money } from "@shared/money";
@@ -33,7 +34,7 @@ export const handle = { colorScheme: (data: unknown) => (data as Partial<PageDat
 export const meta = () => [{ title: "Revisa tu pedido" }, { name: "robots", content: "noindex, nofollow" }];
 const unavailable = "Enlace no disponible";
 const retry = "No se pudo completar la solicitud. Inténtalo de nuevo.";
-type PageData = { checkout: PublicCheckoutResponse | null; payment?: BuyerPaymentView; appearance?: PublicStoreAppearance | null; deliveryOptions?: CheckoutDeliveryOptions; message: string | null; fieldErrors?: { name?: string; phone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
+type PageData = { checkout: PublicCheckoutResponse | null; payment?: BuyerPaymentView; appearance?: PublicStoreAppearance | null; deliveryOptions?: CheckoutDeliveryOptions; message: string | null; fieldErrors?: { name?: string; phone?: string; recipientName?: string; recipientPhone?: string }; unavailable?: boolean; code?: string; currentPrice?: Money };
 const response = (value: PageData, status = 200) => data(value, { status, headers: privacyHeaders });
 
 function serialize({ checkout, photos }: CheckoutPage): PublicCheckoutResponse {
@@ -145,6 +146,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     for (const issue of parsed.error.issues) {
       if (issue.path[0] === "buyer" && issue.path[1] === "name") fieldErrors.name = "Ingresa tu nombre.";
       if (issue.path[0] === "buyer" && issue.path[1] === "phone") fieldErrors.phone = "Ingresa un teléfono con código de país, por ejemplo +51987654321.";
+      if (issue.path.join(".") === "delivery.selection.recipient.name") fieldErrors.recipientName = "Ingresa el nombre de quien recibe.";
     }
     return response({ checkout: null, message: "Revisa los datos del formulario.", fieldErrors }, 422);
   }
@@ -155,7 +157,9 @@ export async function action({ request, params }: ActionFunctionArgs) {
     let delivery: CheckoutDeliveryChange;
     if (parsed.data.delivery.kind === "keep") delivery = { kind: "keep" };
     else {
-      const selection = parseRatedDeliverySelection(parsed.data.delivery.selection);
+      const recipient = recipientForCheckout(parsed.data.delivery.selection, buyer.data, parsed.data.otherRecipient);
+      if (!recipient.success) return response({ checkout: null, message: "Revisa los datos de quien recibe.", fieldErrors: { recipientPhone: "Ingresa un teléfono con código de país, por ejemplo +51987654321." } }, 422);
+      const selection = parseRatedDeliverySelection(recipient.data);
       if (!selection.success) return response({ checkout: null, message: "Revisa el destino y los datos de entrega.", code: selection.error.code }, 422);
       delivery = { kind: "replace", selection: selection.data, expectedPrice: parsed.data.delivery.expectedPrice };
     }

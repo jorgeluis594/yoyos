@@ -13,7 +13,8 @@ export const checkoutDeliveryChangeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("keep") }),
   z.strictObject({ kind: z.literal("replace"), selection: ratedDeliverySelectionSchema, expectedPrice: checkoutMoneySchema }),
 ]);
-export const confirmCheckoutDeliverySchema = confirmCheckoutSchema.extend({ delivery: checkoutDeliveryChangeSchema });
+/** `otherRecipient` only travels with the form: it is never stored. Without it the buyer is the recipient. */
+export const confirmCheckoutDeliverySchema = confirmCheckoutSchema.extend({ delivery: checkoutDeliveryChangeSchema, otherRecipient: z.boolean().default(false) });
 export type ConfirmCheckoutDeliveryRequest = z.infer<typeof confirmCheckoutDeliverySchema>;
 export const checkoutLinkSchema = z.strictObject({ url: z.url() });
 export const checkoutDeliveryOptionsSchema = z.strictObject({
