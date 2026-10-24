@@ -213,6 +213,21 @@ test("checkout keep sets only the recipient name and phone of the kept delivery 
   expect(f.deps.saveDelivery).not.toHaveBeenCalled();
 });
 
+test("checkout keep leaves the recipient of a delivery that already progressed untouched and still confirms", async () => {
+  const f = deliveryFixture();
+  const kept = { ...f.order, deliveryCost: { amount: 30, currency: "PEN" as const }, deliveryCharge: { amount: 0, currency: "PEN" as const }, deliveryStatus: "shipped" as const, shippedAt: now,
+    delivery: { method: "home" as const, recipient: { name: "Seller typed", phone: "999", identity: { kind: "absent" as const } },
+    destination: { address: "Home street", country: "PE" as const, districtCode: "150101", district: "Old district", province: "Lima", department: "Lima", instructions: null },
+    pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 },
+    recordedBy: { kind: "seller" as const, userId: seller.userId } } } as unknown as typeof f.order;
+  f.deps = { ...f.deps, findOrderForUpdate: async () => ok(kept) };
+  const input = { ...f.input, expectedTotal: kept.total, delivery: { kind: "keep" as const, recipient: { name: "Ana", phone: "+51977909427" } } };
+  expect(await confirmCheckoutDelivery(input, access, now, f.deps)).toMatchObject({ data: { changed: true } });
+  expect(f.deps.saveDelivery).not.toHaveBeenCalled();
+  expect(f.deps.saveBuyer).toHaveBeenCalled();
+  expect(f.deps.saveConfirmed).toHaveBeenCalled();
+});
+
 test("checkout confirmation replay preserves buyer and delivery without resolving or writing again", async () => {
   const f = deliveryFixture();
   const confirmed = { ...f.order, buyer: { ...buyer, contactId: null }, checkoutConfirmedAt: now };

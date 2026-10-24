@@ -122,7 +122,8 @@ export async function confirmCheckoutDelivery(input: ConfirmCheckoutDeliveryInpu
     if (input.delivery.kind === "keep") {
       if (!order.delivery) return err({ code: "INVALID_CHECKOUT", message: "There is no delivery to keep" });
       const who = input.delivery.recipient;
-      if (who && (order.delivery.recipient.name !== who.name || order.delivery.recipient.phone !== who.phone))
+      // A delivery that has already progressed keeps its recipient: the confirmation goes through without rewriting it.
+      if (who && orderStateMachine.canSetDelivery(order).success && (order.delivery.recipient.name !== who.name || order.delivery.recipient.phone !== who.phone))
         next = { ...order, delivery: { ...order.delivery, recipient: { ...order.delivery.recipient, name: who.name, phone: who.phone } } as typeof order.delivery };
     } else {
       const allowed = orderStateMachine.canSetDelivery(order);

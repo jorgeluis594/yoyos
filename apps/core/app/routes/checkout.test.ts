@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import resources from "@core/app/locales";
 import { action, handle, headers, loader } from "@core/app/routes/checkout";
 import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
@@ -160,6 +161,8 @@ describe("recipient rule", () => {
     expect(await submit(selections(recipient(" ", "999")).home, { otherRecipient: true }))
       .toMatchObject({ init: { status: 422 }, data: { fieldErrors: { recipientName: "Ingresa el nombre de quien recibe.", recipientPhone: expect.any(String) } } });
     expect(await submit(selections(recipient(" ", "+14155552671")).home, { otherRecipient: true })).toMatchObject({ init: { status: 422 }, data: { fieldErrors: { recipientName: expect.any(String) } } });
+    const { fieldErrors } = (await submit(selections(recipient("Luis", "999")).home, { otherRecipient: true }) as unknown as { data: { fieldErrors: Record<string, string> } }).data;
+    expect(fieldErrors.recipientPhone).toBe(resources.es.translation.checkoutRecipient.phoneInvalid);
     expect(confirm).not.toHaveBeenCalled();
   });
 

@@ -122,7 +122,7 @@ export async function loader({ params }: LoaderFunctionArgs) {
 
 const recipientFieldErrors = (recipient?: { name: string; phone: string }): NonNullable<PageData["fieldErrors"]> => ({
   ...(!recipient?.name.trim() ? { recipientName: "Ingresa el nombre de quien recibe." } : {}),
-  ...(!recipient || !internationalPhonePattern.test(recipient.phone.trim()) ? { recipientPhone: "Ingresa un teléfono válido, por ejemplo 977 909 427." } : {}),
+  ...(!recipient || !internationalPhonePattern.test(recipient.phone.trim()) ? { recipientPhone: "Ingresa el teléfono de quien recibe, por ejemplo 977 909 427." } : {}),
 });
 const sentRecipient = (body: unknown) => (body as { delivery?: { selection?: { recipient?: { name: string; phone: string } } } } | null)?.delivery?.selection?.recipient;
 const formSchema = z.strictObject({ name: z.string(), phone: z.string(), expectedTotal: z.string(), delivery: z.string() });
