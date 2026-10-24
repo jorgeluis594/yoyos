@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { ok } from "@shared/functional";
-import { createChatToolRegistry, hasReadableText, toChangeVariantResolution, toolsForKind, type ChatToolContext, type ChatToolDependencies } from "@core/src/features/orders/application/chat-message-tools";
+import { createChatToolRegistry, hasReadableText, toChangeVariantResolution, toolsFor, type ChatToolContext, type ChatToolDependencies } from "@core/src/features/orders/application/chat-message-tools";
+import { toMentionedPriceArgs } from "@core/src/features/orders/application/chat-text-tools";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 
@@ -33,11 +34,17 @@ function strictViolations(schema: unknown, path = "$"): string[] {
 
 describe("chat tool registry", () => {
   test("offers each tool only for the kinds of message it serves", () => {
-    const names = (kind: ChatToolContext["kind"]) => toolsForKind(registry, kind).map(({ name }) => name).sort();
+    const names = (kind: ChatToolContext["kind"]) => toolsFor(registry, { kind, items: [] }).map(({ name }) => name).sort();
     expect(names("photo_product")).toEqual(["add_shown_product", "add_shown_product_with_details", "decline_shown_product", "no_intent"]);
     expect(names("photo_not_product")).toEqual(["no_intent", "report_request_with_non_product_image"]);
-    expect(names("text")).toEqual(["add_products", "change_item_quantity", "change_item_variant", "mark_order_ready", "no_intent", "remove_item",
+  });
+
+  test("offers the item tools only when the open order has items, and the report of a change without order otherwise", () => {
+    const orderItem = { label: "I1", variantId: item.variantId, productId, productName: "Polo", variantAttributes: { Talla: "M" }, quantity: 1, unitPrice: item.unitPrice };
+    const names = (items: ChatToolContext["items"]) => toolsFor(registry, { kind: "text", items }).map(({ name }) => name).sort();
+    expect(names([orderItem])).toEqual(["add_products", "change_item_quantity", "change_item_variant", "mark_order_ready", "no_intent", "remove_item",
       "report_unnamed_add", "report_variant_without_product", "set_item_mentioned_price"]);
+    expect(names([])).toEqual(["add_products", "mark_order_ready", "no_intent", "report_item_change_without_order", "report_unnamed_add", "report_variant_without_product"]);
   });
 
   test("builds a strict function schema for the tool with extracted arguments", () => {
@@ -60,7 +67,7 @@ describe("chat tool registry", () => {
     const many: ChatToolContext = { ...context, shown: [context.shown[0]!, { product: { productId: id(4) as ProductId, name: "Gorra", variants: [second] }, preselectedVariantId: null,
       identification: { method: "visual", productId: id(4) as ProductId, confidence: 0.9 } }] };
     const run = async (perEach: boolean) => {
-      const done = await registry.get("add_shown_product_with_details")!.parseAndResolve({ variantWords: [], quantity: 2, perEach, mentionedPrice: { amount: "20", units: 1, currency: "order_currency" } },
+      const done = await registry.get("add_shown_product_with_details")!.parseAndResolve({ variantWords: [], quantity: 2, perEach, mentionedPrice: { amount: "20", units: 1, currency: "not_named" } },
         many, new AbortController().signal);
       return done.success ? done.data.map((action) => action.kind === "add" ? [action.quantity, action.mentionedPrice] : action.kind) : done;
     };
@@ -69,9 +76,16 @@ describe("chat tool registry", () => {
   });
 
   test("drops a price stated in another currency instead of failing the message", async () => {
-    const done = await registry.get("add_shown_product_with_details")!.parseAndResolve({ variantWords: [], quantity: null, perEach: false,
-      mentionedPrice: { amount: "20", units: 1, currency: "other" } }, context, new AbortController().signal);
-    expect(done).toMatchObject({ success: true, data: [{ kind: "add", mentionedPrice: null, quantity: 1 }] });
+    const priced = (currency: string) => registry.get("add_shown_product_with_details")!.parseAndResolve({ variantWords: [], quantity: null, perEach: false,
+      mentionedPrice: { amount: "20", units: 1, currency } }, context, new AbortController().signal);
+    expect(await priced("other")).toMatchObject({ success: true, data: [{ kind: "add", mentionedPrice: null, quantity: 1 }] });
+    expect(await priced("USD")).toMatchObject({ success: true, data: [{ kind: "add", mentionedPrice: null }] });
+    expect(await priced("PEN")).toMatchObject({ success: true, data: [{ kind: "add", mentionedPrice: { amount: { amount: 20, currency: "PEN" }, units: 1 } }] });
+  });
+
+  test("keeps a price whose currency is not named or is the item's, and marks any other to be dropped", () => {
+    const stated = (currency: Parameters<typeof toMentionedPriceArgs>[0]["currency"]) => toMentionedPriceArgs({ amount: "20", units: 1, currency }, "PEN").currency;
+    expect([stated("not_named"), stated("PEN"), stated("USD"), stated("BRL"), stated("other")]).toEqual(["order_currency", "order_currency", "other", "other", "other"]);
   });
 });
 

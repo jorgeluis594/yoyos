@@ -4,7 +4,7 @@ import { orchestrate, type OrchestrateDependencies, type ToolCallPlan } from "@c
 import { executeToolCalls } from "@core/src/shared/ai-tools/application/execute-tool-calls";
 import type { AiError } from "@core/src/shared/ai-tools/application/ai-error";
 import type { ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
-import { toolsForKind, type ChatToolContext, type ChatToolRegistry, type ToolResolveError } from "@core/src/features/orders/application/chat-message-tools";
+import { toolsFor, type ChatToolContext, type ChatToolRegistry, type ToolResolveError } from "@core/src/features/orders/application/chat-message-tools";
 
 /** How the interpretation runs: the models choose, or the use case already knows the tool and no model is called. */
 export type InterpretationPlan =
@@ -49,7 +49,7 @@ export function createChatInterpreter(registry: ChatToolRegistry, ai: Orchestrat
     if (!ai) return err({ code: "AI_PROVIDER_UNAVAILABLE" as const, message: "Interpretation is not configured" });
     const plan = await orchestrate({
       messageParts: request.messageText === null ? [] : [{ kind: "text", text: request.messageText }],
-      contextText: request.contextText, context: request.context, tools: toolsForKind(registry, request.context.kind),
+      contextText: request.contextText, context: request.context, tools: toolsFor(registry, request.context),
     }, ai, signal);
     if (!plan.success) return plan;
     if (plan.data.kind === "calls") return execute(plan.data, 1);

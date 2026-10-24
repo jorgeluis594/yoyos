@@ -58,7 +58,7 @@ function buildDecisionRequest<Context>(input: OrchestrateInput<Context>, questio
     contextText: input.contextText,
     messageParts: input.messageParts,
     action: {
-      instructions: "Choose the one action the buyer's message asks for. Choose several when it asks for more than one.",
+      instructions: "Choose the one action the buyer's message asks for. Choose several when it asks for two or more different actions in one message.",
       choices: [
         ...input.tools.map((tool) => ({ value: tool.name, description: tool.description })),
         { value: SEVERAL, description: "The message asks for more than one of the actions" },
