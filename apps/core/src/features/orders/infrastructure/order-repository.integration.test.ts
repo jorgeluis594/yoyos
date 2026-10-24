@@ -14,6 +14,7 @@ import { orders, createConfiguredOrder } from "@core/src/features/orders/composi
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildPendingOrder, orderStateMachine, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
+import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import { deductProductStock } from "@core/src/features/products";
@@ -901,11 +902,13 @@ test("checkout enable and confirmation are idempotent under real concurrent tran
   const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
   try {
     const { access, context, order } = await pendingCheckout(f, f.contactId);
+    const subdomain = `t4-${randomUUID().slice(0, 8)}`;
+    await withTenantIsolation(f.companyId, async () => { await prisma.company.update({ where: { id: f.companyId }, data: { catalogSubdomain: subdomain } }); });
     expect(await orders.getCheckout(access)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
     const links = await Promise.all(Array.from({ length: 3 }, () => withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context))));
     expect(links.every((link) => link.success)).toBe(true);
     expect(new Set(links.flatMap((link) => link.success ? [link.data.url] : [])).size).toBe(1);
-    expect(links[0]).toMatchObject({ data: { url: `${process.env.BETTER_AUTH_URL}/checkout/${access.companyId}/${access.orderId}` } });
+    expect(links[0]).toMatchObject({ data: { url: `${storefrontConfig.baseUrl.protocol}//${subdomain}.${storefrontConfig.baseUrl.host}/checkout/${access.companyId}/${access.orderId}` } });
     expect(info.mock.calls.filter(([fields]) => typeof fields === "object" && fields && "event" in fields && fields.event === "order_checkout_enabled")).toHaveLength(1);
     const confirmations = await Promise.all(["Ana", "Other"].map((name) => orders.confirmCheckout(checkoutInput(name), access)));
     expect(confirmations.every((result) => result.success)).toBe(true);

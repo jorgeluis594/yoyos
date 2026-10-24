@@ -9,6 +9,7 @@ import { addDraftItem, emptyOrderDraft } from "@mobile/features/orders/domain/or
 import { createPendingOrderConfirmationStore } from "@mobile/features/orders/infrastructure/pending-order-confirmation";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { createDeliverySettingsApi } from "@mobile/features/delivery-settings/infrastructure/delivery-settings-api";
+import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
 import { randomUUID } from "node:crypto";
 import { request as httpRequest } from "node:http";
 import { afterAll, afterEach, expect, test, vi } from "vitest";
@@ -571,11 +572,15 @@ test("checkout-link HTTP requires the seller company and returns a stable UUID U
   expect((await call(path, "", {})).status).toBe(401);
   expect((await call(path, other.cookie, {})).status).toBe(404);
   expect((await call(path, owner.cookie, { companyId: other.companyId })).status).toBe(422);
+  const withoutSubdomain = await call(path, owner.cookie, {});
+  expect(withoutSubdomain.status).toBe(409);
+  expect(await withoutSubdomain.json()).toMatchObject({ code: "SUBDOMAIN_REQUIRED" });
+  const subdomain = (await brandHost(owner.companyId)).split(".")[0];
   const first = await call(path, owner.cookie, {});
   expect(first.status).toBe(200);
   expect(first.headers.get("cache-control")).toBe("no-store");
   const link = await first.json();
-  expect(link).toEqual({ url: `${process.env.BETTER_AUTH_URL}/checkout/${owner.companyId}/${id}` });
+  expect(link).toEqual({ url: `${storefrontConfig.baseUrl.protocol}//${subdomain}.${storefrontConfig.baseUrl.host}/checkout/${owner.companyId}/${id}` });
   expect(await (await call(path, owner.cookie, {})).json()).toEqual(link);
   await withTenantIsolation(owner.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true } }));
   expect((await call(path, owner.cookie, {})).status).toBe(409);
@@ -655,6 +660,7 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   expect((await call("/api/quotations", foreign.cookie, input)).status).toBe(404);
+  await brandHost(seller.companyId);
   expect((await call(`/api/orders/${orderId}/checkout-link`, seller.cookie, {})).status).toBe(200);
   expect((await call("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 0,
     zones: [0, 8, 8].map(amount => ({ kind: "new", name: "Private zone", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] })) }, "PUT")).status).toBe(200);
