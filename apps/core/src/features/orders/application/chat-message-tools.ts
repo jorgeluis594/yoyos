@@ -173,7 +173,8 @@ export function createChatToolRegistry(deps: ChatToolDependencies): ChatToolRegi
       name: "no_intent",
       description: "The message asks for nothing to be added, removed or changed: greetings, questions about prices, availability or delivery, addresses, thanks, "
         + "payment reports. Never a message that names a product to buy, even without a verb («polo premium blanco M x2», a list of products), "
-        + "or that only gives a size, color or quantity, even in one word («negro», «en L», «talla M»).",
+        + "or that only gives a size, color or quantity, even in one word («negro», «en L», «talla M»). "
+        + "A question followed by a request («tienes la gorra? si hay me la separas») asks for the product.",
       args: { kind: "none" }, schema: () => noArgs,
       resolve: async () => ok(report({ kind: "no_intent" })),
     }),
