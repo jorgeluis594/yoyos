@@ -537,7 +537,11 @@ test("checkout-link HTTP requires the seller company and returns a stable UUID U
   expect(first.headers.get("cache-control")).toBe("no-store");
   const link = await first.json();
   expect(link).toEqual({ url: `${process.env.BETTER_AUTH_URL}/checkout/${owner.companyId}/${id}` });
+  const stored = () => withTenantIsolation(owner.companyId, async () => await prisma.order.findUniqueOrThrow({ where: { id } }));
+  const created = await stored();
+  expect(created.checkoutEnabledAt).toEqual(created.createdAt);
   expect(await (await call(path, owner.cookie, {})).json()).toEqual(link);
+  expect(await stored()).toEqual(created);
   await withTenantIsolation(owner.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true } }));
   expect((await call(path, owner.cookie, {})).status).toBe(409);
 });
@@ -615,7 +619,6 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   expect(await before.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
-  expect((await call("/api/quotations", foreign.cookie, input)).status).toBe(404);
   expect((await call(`/api/orders/${orderId}/checkout-link`, seller.cookie, {})).status).toBe(200);
   expect((await call("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 0,
     zones: [0, 8, 8].map(amount => ({ kind: "new", name: "Private zone", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] })) }, "PUT")).status).toBe(200);

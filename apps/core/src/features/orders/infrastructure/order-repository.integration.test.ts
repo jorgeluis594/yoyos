@@ -859,7 +859,7 @@ test("buyer snapshots stay independent of contacts and preserve guest buyers in 
     if (!contactOrder.success || !guestOrder.success || !anonymousOrder.success || !foreignOrder.success) throw new Error("Fixture creation failed");
     await withTenantIsolation(a.companyId, async () => {
       await prisma.orderBuyer.create({ data: { orderId: contactOrder.data.id, contactId: a.contactId, phone: "+51999999999" } });
-      expect(await orderDetail(contactOrder.data.id, a)).toMatchObject({ data: { buyer: { contactId: a.contactId, name: null, phone: "+51999999999" }, checkoutEnabledAt: null, checkoutConfirmedAt: null } });
+      expect(await orderDetail(contactOrder.data.id, a)).toMatchObject({ data: { buyer: { contactId: a.contactId, name: null, phone: "+51999999999" }, checkoutEnabledAt: expect.any(Date), checkoutConfirmedAt: null } });
       await prisma.orderBuyer.create({ data: { orderId: guestOrder.data.id, name: "Guest", phone: "+14155552671" } });
       expect(await orderDetail(guestOrder.data.id, a)).toMatchObject({ data: { buyer: { contactId: null, name: "Guest" } } });
       const context = { companyId: a.companyId as CompanyId, userId: a.sellerId as UserId };
@@ -870,7 +870,7 @@ test("buyer snapshots stay independent of contacts and preserve guest buyers in 
       await expect(prisma.orderBuyer.create({ data: { companyId: b.companyId, orderId: anonymousOrder.data.id, phone: "+14155552671" } })).rejects.toThrow();
       await expect(prisma.orderBuyer.create({ data: { orderId: anonymousOrder.data.id, contactId: b.contactId, phone: "+14155552671" } })).rejects.toThrow();
       await expect(prisma.orderBuyer.create({ data: { orderId: guestOrder.data.id, phone: "+14155552671" } })).rejects.toThrow();
-      await expect(prisma.order.update({ where: { id: guestOrder.data.id }, data: { checkoutConfirmedAt: new Date() } })).rejects.toThrow();
+      await expect(prisma.order.update({ where: { id: guestOrder.data.id }, data: { checkoutEnabledAt: null, checkoutConfirmedAt: new Date() } })).rejects.toThrow();
     });
     expect(await systemPrisma.orderBuyer.findMany()).toEqual([]);
   } finally { await a.cleanup(); await b.cleanup(); }
@@ -901,12 +901,12 @@ test("checkout enable and confirmation are idempotent under real concurrent tran
   const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
   try {
     const { access, context, order } = await pendingCheckout(f, f.contactId);
-    expect(await orders.getCheckout(access)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+    expect(await orders.getCheckout(access)).toMatchObject({ data: { checkout: { state: { kind: "pending" } } } });
     const links = await Promise.all(Array.from({ length: 3 }, () => withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context))));
     expect(links.every((link) => link.success)).toBe(true);
     expect(new Set(links.flatMap((link) => link.success ? [link.data.url] : [])).size).toBe(1);
     expect(links[0]).toMatchObject({ data: { url: `${process.env.BETTER_AUTH_URL}/checkout/${access.companyId}/${access.orderId}` } });
-    expect(info.mock.calls.filter(([fields]) => typeof fields === "object" && fields && "event" in fields && fields.event === "order_checkout_enabled")).toHaveLength(1);
+    expect(info.mock.calls.filter(([fields]) => typeof fields === "object" && fields && "event" in fields && fields.event === "order_checkout_enabled")).toHaveLength(0);
     const confirmations = await Promise.all(["Ana", "Other"].map((name) => orders.confirmCheckout(checkoutInput(name), access)));
     expect(confirmations.every((result) => result.success)).toBe(true);
     expect(confirmations[0]).toEqual(confirmations[1]);
@@ -915,7 +915,7 @@ test("checkout enable and confirmation are idempotent under real concurrent tran
     expect(info.mock.calls.filter(([fields]) => typeof fields === "object" && fields && "event" in fields && fields.event === "order_checkout_confirmed")).toHaveLength(1);
     const stored = await withTenantIsolation(f.companyId, () => orderDetail(access.orderId, f));
     if (!stored.success) throw new Error("Unable to read confirmed order");
-    expect({ ...stored.data, buyer: order.buyer, checkoutEnabledAt: null, checkoutConfirmedAt: null }).toEqual(order);
+    expect({ ...stored.data, buyer: order.buyer, checkoutConfirmedAt: null }).toEqual(order);
     expect(stored.data.buyer?.contactId).toBe(f.contactId);
     await withTenantIsolation(f.companyId, async () => {
       expect(await prisma.orderBuyer.count({ where: { orderId: access.orderId } })).toBe(1);
@@ -1094,8 +1094,12 @@ test("public checkout checks company, live cancellation, enablement and complete
     const { access, context } = await pendingCheckout(f);
     const swapped: CheckoutAccess = { ...access, companyId: other.companyId as CompanyId };
     expect(await orders.getCheckout(swapped)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+    expect(await orders.getCheckout(access)).toMatchObject({ data: { checkout: { state: { kind: "pending" } } } });
+    // New orders are born enabled, so a legacy row without the timestamp is simulated.
+    await withTenantIsolation(f.companyId, async () => await prisma.order.update({ where: { id: access.orderId }, data: { checkoutEnabledAt: null } }));
     expect(await orders.confirmCheckout(checkoutInput(), access)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
-    await withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context));
+    expect(await withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context))).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
+    await withTenantIsolation(f.companyId, async () => await prisma.order.update({ where: { id: access.orderId }, data: { checkoutEnabledAt: new Date() } }));
     expect(await orders.confirmCheckout(checkoutInput(), swapped)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
     await withTenantIsolation(f.companyId, async () => {
       await prisma.order.update({ where: { id: access.orderId }, data: { checkoutEnabledAt: new Date("2000-01-01") } });
