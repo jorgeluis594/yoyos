@@ -12,7 +12,7 @@ function requestLogs(requestId: string) {
     .filter((event) => event.requestId === requestId);
 }
 
-test("buyer opens the brand host, adds two variants, continues to the app checkout, confirms and finds an empty cart back in the store", async ({ page }) => {
+test("buyer opens the brand host, adds two variants, continues to checkout on the brand host, confirms and finds an empty cart back in the store", async ({ page }) => {
   const email = `catalog-seller-${randomUUID()}@example.test`;
   const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Tienda del catálogo", country: "PE" });
   const buyer = await page.context().browser()!.newContext({ baseURL, viewport: { width: 390, height: 844 } });
