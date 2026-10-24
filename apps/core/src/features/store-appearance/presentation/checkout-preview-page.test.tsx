@@ -119,7 +119,7 @@ describe("CheckoutPreviewPage", () => {
 
   test.each(storeThemeIds)("paints the receipts link and the copy buttons with the %s theme's link color", async (theme) => {
     const bank: PreviewPaymentMethod = { method: "bank_transfer", bank: "Banco de ejemplo", holder: "Lima Studio", accountNumber: "000-1", cci: "00000000000000000001", imageUrl: null };
-    const view: BuyerPaymentView = { ...previewPaymentView([bank]), payments: [{ id: "00000000-0000-4000-8000-000000000001", status: "reported", amount: null, method: null, receiptImageUrl: "https://cdn.example/recibo.png" }] };
+    const view: BuyerPaymentView = { ...previewPaymentView([bank]), payments: [{ id: "00000000-0000-4000-8000-000000000001", status: "reported", amount: null, method: null, receiptImageUrl: "https://cdn.example/recibo.png", rejectionReason: null }] };
     const Stub = createRoutesStub([{ path: "/", Component: () =>
       <CheckoutShell appearance={{ logoUrl: null, theme }} checkout={previewCheckout("Lima Studio", "payment")}><CheckoutPayment view={view} /></CheckoutShell> }]);
     const container = document.body.appendChild(document.createElement("div"));

@@ -27,6 +27,7 @@ const reportData = z.strictObject({ receiptImageId: z.uuid(), reportedAt: dateTe
 const confirmationData = z.strictObject({ confirmedAt: dateText,
   confirmedBy: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("seller"), userId: z.string().min(1) }), z.strictObject({ kind: z.literal("legacy") })]),
   evidence: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("manual") }), z.strictObject({ kind: z.literal("buyer_report"), report: reportData })]) });
+const rejectedData = z.strictObject({ report: reportData, rejectedAt: dateText, rejectedBy: z.string().min(1), reason: z.string().min(1).max(200).nullable() });
 const voidedData = confirmationData.extend({ voidedAt: dateText, voidedBy: z.string().min(1) });
 
 export async function resolveBuyerOrderCompany(id: OrderId) {
@@ -79,6 +80,12 @@ function mapPaymentUnsafe(row: DbAggregate["payments"][number]): Payment {
     if (!parsed.success || row.amount !== null || row.method !== null) throw new InvalidStoredOrderError("Invalid stored payment report");
     candidate = { id: row.id, orderId: row.orderId, status: row.status, currency: row.currency,
       amount: null, method: null, data: { receiptImageId: parsed.data.receiptImageId, reportedAt: new Date(parsed.data.reportedAt) } };
+  } else if (row.status === "rejected") {
+    const parsed = rejectedData.safeParse(row.data);
+    if (!parsed.success || row.amount !== null || row.method !== null) throw new InvalidStoredOrderError("Invalid stored payment rejection");
+    candidate = { id: row.id, orderId: row.orderId, status: row.status, currency: row.currency, amount: null, method: null,
+      data: { report: { receiptImageId: parsed.data.report.receiptImageId, reportedAt: new Date(parsed.data.report.reportedAt) },
+        rejectedAt: new Date(parsed.data.rejectedAt), rejectedBy: parsed.data.rejectedBy, reason: parsed.data.reason } };
   } else if (row.status === "confirmed" || row.status === "voided") {
     const parsed = (row.status === "confirmed" ? confirmationData : voidedData).safeParse(row.data);
     if (!parsed.success || row.amount === null || (row.method !== "digital_wallet" && row.method !== "bank_transfer"))
@@ -108,6 +115,8 @@ function mapPayment(row: DbAggregate["payments"][number]): Payment {
 
 function paymentDataJson(payment: Payment): Prisma.InputJsonObject {
   if (payment.status === "reported") return { receiptImageId: payment.data.receiptImageId, reportedAt: payment.data.reportedAt.toISOString() };
+  if (payment.status === "rejected") return { report: { receiptImageId: payment.data.report.receiptImageId, reportedAt: payment.data.report.reportedAt.toISOString() },
+    rejectedAt: payment.data.rejectedAt.toISOString(), rejectedBy: payment.data.rejectedBy, reason: payment.data.reason };
   const evidence: Prisma.InputJsonObject = payment.data.evidence.kind === "manual" ? { kind: "manual" } :
     { kind: "buyer_report", report: { receiptImageId: payment.data.evidence.report.receiptImageId,
       reportedAt: payment.data.evidence.report.reportedAt.toISOString() } };
@@ -281,7 +290,7 @@ export async function savePayment(payment: Payment, companyId: CompanyId) {
   try {
     await prisma.payment.create({ data: { id: payment.id, companyId, orderId: payment.orderId,
       status: payment.status, amount: payment.amount ? new Prisma.Decimal(payment.amount.amount.toString()) : null,
-      currency: payment.status === "reported" ? payment.currency : payment.amount.currency,
+      currency: payment.amount ? payment.amount.currency : payment.currency,
       method: payment.method, data: paymentDataJson(payment) } });
     return ok<null>(null);
   } catch (cause) {

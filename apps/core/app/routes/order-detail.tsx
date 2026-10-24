@@ -34,7 +34,7 @@ import { orders } from "@core/src/features/orders/composition";
 import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
 import { orderDetailLoaderSchema, orderAggregateSchema, setRatedOrderDeliverySchema, registerPaymentSchema } from "@shared/contracts/orders";
 import type { OrderId, PaymentId, CompanyId, UserId } from "@core/src/features/orders/domain/order";
-import { resolvePublicImage } from "@core/src/shared/images";
+import { resolvePublicImages } from "@core/src/shared/images";
 import { Button } from "@core/app/components/ui/button";
 import { ErrorState } from "@core/app/components/ui/error-state";
 
@@ -43,13 +43,18 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
   const result = await orders.getAggregate((params.orderId ?? "") as OrderId,
     { companyId: access.company.id, userId: access.user.id });
   if (!result.success) throw new Response(result.error.message, { status: result.error.code === "ORDER_NOT_FOUND" ? 404 : result.error.code === "INVALID_ORDER" ? 400 : 503 });
-  const receiptUrls: Record<string, string> = {};
+  const receiptIds = new Map<string, string>();
   for (const payment of result.data.payments) {
-    const imageId = payment.status === "reported" ? payment.data.receiptImageId : payment.data.evidence.kind === "buyer_report"
-      ? payment.data.evidence.report.receiptImageId : null;
-    if (!imageId) continue;
-    const image = await resolvePublicImage(imageId);
-    if (image.success && image.data) receiptUrls[payment.id] = image.data.url;
+    const imageId = payment.status === "reported" ? payment.data.receiptImageId : payment.status === "rejected" ? payment.data.report.receiptImageId
+      : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
+    if (imageId) receiptIds.set(payment.id, imageId);
+  }
+  const images = await resolvePublicImages([...receiptIds.values()]);
+  const urls = new Map(images.success ? images.data.images.map((image) => [image.id, image.url]) : []);
+  const receiptUrls: Record<string, string> = {};
+  for (const [paymentId, imageId] of receiptIds) {
+    const url = urls.get(imageId);
+    if (url) receiptUrls[paymentId] = url;
   }
   const settings = await deliverySettings.get({ companyId: access.company.id, userId: access.user.id });
   return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(result.data), base: companyPath(new URL(request.url).pathname, access.company.country, "/orders"),
@@ -289,8 +294,8 @@ export default function OrderDetail() {
               <h3 id="payment-history-title" className="text-sm font-semibold">{t("orderDetail.paymentHistory")}</h3>
               {order.payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderDetail.noPayments")}</p> : <ul className="divide-y">{order.payments.map(payment => <li key={payment.id} className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto]">
                 <div className="flex flex-wrap items-start justify-between gap-3 text-sm">
-                  <div className="flex min-w-0 flex-col gap-1"><p className="font-medium">{t(payment.status === "reported" ? "orders.paymentReported" : payment.status === "voided" ? "orders.paymentVoided" : "orderDetail.confirmedPayment")}</p><p className="text-muted-foreground">{date(payment.status === "reported" ? payment.data.reportedAt : payment.data.confirmedAt)}</p>{payment.method && <p className="text-muted-foreground">{t(payment.method === "digital_wallet" ? "orders.wallet" : "orders.bankTransfer")}</p>}</div>
-                  {payment.status !== "reported" && <strong className="tabular-nums">{amount(payment.amount)}</strong>}
+                  <div className="flex min-w-0 flex-col gap-1"><p className="font-medium">{t(payment.status === "reported" ? "orders.paymentReported" : payment.status === "voided" ? "orders.paymentVoided" : payment.status === "rejected" ? "orders.paymentRejected" : "orderDetail.confirmedPayment")}</p><p className="text-muted-foreground">{date(payment.status === "reported" ? payment.data.reportedAt : payment.status === "rejected" ? payment.data.rejectedAt : payment.data.confirmedAt)}</p>{payment.method && <p className="text-muted-foreground">{t(payment.method === "digital_wallet" ? "orders.wallet" : "orders.bankTransfer")}</p>}</div>
+                  {payment.amount && <strong className="tabular-nums">{amount(payment.amount)}</strong>}
                 </div>
                 <div className="flex flex-wrap items-center gap-3 sm:justify-end">
                   {receiptUrls[payment.id] && <TextLink className="inline-flex min-h-control items-center text-sm font-normal max-md:min-h-touch" href={receiptUrls[payment.id]} target="_blank" rel="noreferrer">{t("orders.viewReceipt")}</TextLink>}

@@ -321,12 +321,13 @@ export default function OrderDetailScreen() {
               <Disclosure label={t('detailViewPayments')} open={paymentsOpen} onPress={() => setPaymentsOpen(!paymentsOpen)} />
               {paymentsOpen ? order.payments.map((payment) => {
                 const receiptImageId = payment.status === "reported" ? payment.data.receiptImageId
+                  : payment.status === "rejected" ? payment.data.report.receiptImageId
                   : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
                 return <View key={payment.id} style={[styles.payment, { borderColor: theme.border }]}>
                   <ThemedText style={styles.semibold}>{payment.status === "reported" ? t('paymentReported')
-                    : payment.status === "voided" ? t('paymentVoided') : t('detailPaymentConfirmed')}</ThemedText>
-                  {payment.status !== "reported" ? <MoneyRow label={t(payment.method === "digital_wallet" ? 'wallet' : 'bankTransfer')} value={format(payment.amount)} /> : null}
-                  <ThemedText type="small" themeColor="textSecondary">{date(payment.status === "reported" ? payment.data.reportedAt : payment.data.confirmedAt, locale)}</ThemedText>
+                    : payment.status === "voided" ? t('paymentVoided') : payment.status === "rejected" ? t('paymentRejected') : t('detailPaymentConfirmed')}</ThemedText>
+                  {payment.amount ? <MoneyRow label={t(payment.method === "digital_wallet" ? 'wallet' : 'bankTransfer')} value={format(payment.amount)} /> : null}
+                  <ThemedText type="small" themeColor="textSecondary">{date(payment.status === "reported" ? payment.data.reportedAt : payment.status === "rejected" ? payment.data.rejectedAt : payment.data.confirmedAt, locale)}</ThemedText>
                   {receiptImageId ? <Button variant="ghost" onPress={() => void viewReceipt(receiptImageId)}>{t('viewReceipt')}</Button> : null}
                   {payment.status === "reported" && !order.cancelled ? <Button variant="secondary" disabled={writeBusy} onPress={() => openEditor({ paymentId: payment.id, receiptImageId: payment.data.receiptImageId })}>{t('detailReviewPayment')}</Button> : null}
                   {payment.status === "confirmed" && !order.cancelled ? <Button variant="ghost" disabled={writeBusy} onPress={() => void voidPayment(payment.id)}>{t('voidPayment')}</Button> : null}
