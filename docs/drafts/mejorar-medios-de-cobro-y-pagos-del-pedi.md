@@ -23,7 +23,7 @@ The seller configures a digital wallet that always carries a real, readable paym
 
 1. «Medios de cobro» reorganized as b1/b2, without the «Así lo verá tu comprador» preview and without b1's «Número de celular» and provider dropdown: Proveedor stays free text. Bank transfer keeps all its fields; its image stays optional.
 2. Mandatory payment QR for the digital wallet, validated by Yoyos when the image is chosen and again on saving, on the web page and on any client that saves payment methods.
-3. No legacy path: a wallet that never passed the QR check is not offered to buyers and shows the QR error in the panel until the seller saves a valid one.
+3. No legacy path: a wallet that never passed the QR check is not offered to buyers, and the panel tells the seller so until they save it with a valid QR.
 4. New «Rechazado» outcome for a buyer report, with an optional reason that the buyer sees.
 5. Checkout: after a rejection, the upload block returns headed by the rejection and its reason; «Comprobantes enviados» shows the rejected receipt.
 6. Web «Pagos» card as b3: three summary cells, one row per payment (reports with **Rechazar** and **Aprobar**; confirmed with **Anular pago**; rejected and voided with their state), and «¿Te pagaron por fuera? Registrar pago» as a separate secondary action that opens its own form. The duplicated form disappears.
