@@ -5,7 +5,9 @@ import { useClientReady } from "@core/app/use-client-ready";
 import { useTranslation } from "react-i18next";
 import { isRouteErrorResponse, useFetcher, useLoaderData, type ActionFunctionArgs, type ClientActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { courierCatalogSchema, saveDeliverySettingsSchema, saveDeliveryZonesSchema, type CourierCatalogResponse, type DeliveryZonesResponse, type DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
+import { dispatchSenderResponseSchema, type DispatchSenderResponse } from "@shared/contracts/dispatch-sender";
 import { privateUserContext } from "@core/app/private-user-context";
+import { dispatchSender } from "@core/src/features/dispatch-sender/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { toDeliverySettingsResponse } from "@core/src/features/delivery-settings/presentation/settings-response";
 import { toDeliveryZonesResponse } from "@core/src/features/delivery-settings/presentation/zones-response";
@@ -20,6 +22,7 @@ import { Switch } from "@core/app/components/ui/switch";
 import { TextLink } from "@core/app/components/ui/text-link";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
+import { DispatchSenderCard } from "@core/app/components/dispatch-sender-card";
 import { DeliveryZonesSection, lacksCoverage } from "@core/app/components/delivery-zones-section";
 import { useInstantDeliverySettings, type RowSaveState, type SaveTarget } from "@core/app/components/use-instant-delivery-settings";
 import { ErrorState } from "@core/app/components/ui/error-state";
@@ -30,7 +33,10 @@ export async function loader({ context }: LoaderFunctionArgs) {
   if (!result.success) throw new Response("Unable to load delivery settings", { status: result.error.code === "PERSISTENCE_UNAVAILABLE" ? 503 : 500 });
   const catalog = await deliverySettings.getCourierCatalog({ companyId: access.company.id, userId: access.user.id });
   if (!catalog.success) throw new Response("Unable to load courier catalog", { status: catalog.error.code === "PERSISTENCE_UNAVAILABLE" ? 503 : 500 });
-  const settings = { ...toDeliverySettingsResponse(result.data), courierCatalog: courierCatalogSchema.parse({ couriers: catalog.data }) };
+  const sender = await dispatchSender.get(access.company.id);
+  if (!sender.success) throw new Response("Unable to load dispatch sender", { status: sender.error.code === "PERSISTENCE_UNAVAILABLE" ? 503 : 500 });
+  const settings = { ...toDeliverySettingsResponse(result.data), courierCatalog: courierCatalogSchema.parse({ couriers: catalog.data }),
+    sender: dispatchSenderResponseSchema.parse(sender.data), companyName: access.company.name };
   if (access.company.country !== "PE") return { ...settings, zones: null };
   const zones = await deliverySettings.getZones({ companyId: access.company.id, userId: access.user.id });
   if (!zones.success) throw new Response("Unable to load delivery zones", { status: 503 });
@@ -90,7 +96,7 @@ export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { ac
 }
 
 const pickupMaxLength = { name: 120, address: 500, instructions: 1000 } as const;
-type LoadedSettings = DeliverySettingsResponse & { courierCatalog: CourierCatalogResponse; zones: DeliveryZonesResponse | null };
+type LoadedSettings = DeliverySettingsResponse & { courierCatalog: CourierCatalogResponse; sender: DispatchSenderResponse; companyName: string; zones: DeliveryZonesResponse | null };
 
 function SettingsForm({ loaded }: { loaded: LoadedSettings }) {
   const { t } = useTranslation();
@@ -144,6 +150,7 @@ function SettingsForm({ loaded }: { loaded: LoadedSettings }) {
       </MethodRow>
       {(checked.home || checked.agency) && zonesState && <div className="p-4"><p className="text-sm text-muted-foreground">{t("deliverySettings.ratesByZone")} <TextLink href="#delivery-zones">{t("deliverySettings.goToZones")}</TextLink></p></div>}
     </FieldSet></CardContent></Card>
+    <DispatchSenderCard sender={loaded.sender} companyName={loaded.companyName} />
     {conflict && <Alert variant="destructive"><AlertDescription>{t("deliverySettings.conflict")}</AlertDescription>
       <Button type="button" variant="outline" className="mt-3 max-sm:w-full max-md:min-h-touch" onClick={() => void reloadAll()}>{t("deliverySettings.reload")}</Button></Alert>}
     <Dialog open={blocker.state === "blocked"} onOpenChange={open => { if (!open && blocker.state === "blocked") blocker.reset(); }}>
