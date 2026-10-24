@@ -1,6 +1,6 @@
 # Payment methods and order payments: technical design
 
-**Status:** draft for the review gate, round 3 (rounds 1 at `e3832cb2` and 2 at `a1e2a179` were rejected; sections 17 and 18 list what changed), no open questions. Based on [`docs/drafts/mejorar-medios-de-cobro-y-pagos-del-pedi.md`](mejorar-medios-de-cobro-y-pagos-del-pedi.md) (closed product definition, commit `d8d502a5`, adjusted in this round for wallets saved before this version). Base: branch `jorgeluis594/mejorar-medios-de-cobro-y-pagos-del-pedi`. This draft is the pipeline's working document, not permanent architecture documentation: on merge only `docs/orders.md` and `docs/checkout.md` receive the behavior changes, and both drafts are deleted.
+**Status:** draft for the review gate, round 4 (rounds 1 at `e3832cb2`, 2 at `a1e2a179` and 3 at `e22634d6` were rejected; sections 17, 18 and 19 list what changed), no open questions. Based on [`docs/drafts/mejorar-medios-de-cobro-y-pagos-del-pedi.md`](mejorar-medios-de-cobro-y-pagos-del-pedi.md) (closed product definition, commit `d8d502a5`, adjusted in this round for wallets saved before this version). Base: branch `jorgeluis594/mejorar-medios-de-cobro-y-pagos-del-pedi`. This draft is the pipeline's working document, not permanent architecture documentation: on merge only `docs/orders.md` and `docs/checkout.md` receive the behavior changes, and both drafts are deleted.
 
 ## 1. Technical goal
 
@@ -18,7 +18,7 @@ Web order detail (action) / mobile (POST …/reject) ──▶ orders.rejectPaym
 
 | Topic | Decision |
 | --- | --- |
-| QR reader location | `readQrCodes` moves from `features/products/infrastructure/qr-code-reader.ts` to `src/shared/images/infrastructure/qr-code-reader.ts`, together with its test and `qr-fixtures/`. Products imports it from there; `selectProductCode` stays in products. Reason: it is generic (sharp + zxing, no product knowledge), two features now use it, and importing products from companies would close the cycle companies → products → orders → companies. This changes what memory `b9ad8a84` records ("the QR reader and selectProductCode live in products"); happy-memory-maintainer updates it when T2 merges. |
+| QR reader location | `readQrCodes` moves from `features/products/infrastructure/qr-code-reader.ts` to `src/shared/images/infrastructure/qr-code-reader.ts`, together with its test and `qr-fixtures/`. Products imports it from there; `selectProductCode` stays in products. Reason: it is generic (sharp + zxing, no product knowledge), two features now use it, and importing products from companies would close the cycle companies → products → orders → companies. This changes what memory `b9ad8a84` records ("the QR reader and selectProductCode live in products"); happy-memory-maintainer updates it when T2 merges. Memory `ceeffc07` ("Payment as a discriminated union of reported, confirmed, and voided") is updated when T1 merges: a fourth variant `rejected`, final, reached only from `reported`, never counted toward coverage, stored in the same row. |
 | What "passed" means | At least one decoded QR (`readQrCodes` returns a non-empty list). `UNREADABLE_IMAGE` counts as "no QR". The content is not compared with provider or holder. |
 | QR validity storage | A save writes the wallet as `{ method, provider, holder, qr: { status: "verified", imageId } }` inside `CompanyPaymentSettings.settings` (JSON). No new table or column. A save from any client can only produce `verified`; nothing else is ever written. |
 | Re-reading on save | A save whose wallet `imageId` equals the stored `verified` image is not read again. Any other wallet image is read before saving. Images are immutable per id, so "passed" is a fact about the id. |
@@ -35,7 +35,7 @@ Web order detail (action) / mobile (POST …/reject) ──▶ orders.rejectPaym
 | Stock box rule | Pure function `offersPartialStockDeduction` in `shared/orders-payment.ts`, used by web and mobile: shown only when stock is not deducted and the amount is below `balanceDue`. Core keeps its current rule; a hidden box sends `deductStockIfPartial: false`. |
 | Web order detail split | `app/routes/order-detail.tsx` keeps loader and action; the «Pagos» card, the receipt dialog and the decision forms move to `src/features/orders/presentation/` components. The receipt dialog uses `app/components/ui/dialog.tsx`. Row thumbnails load lazily with fixed dimensions; only the dialog loads the receipt eagerly. |
 | Mobile | No new screen. The existing review sheet in `order-detail-screen.tsx` gains **Rechazar**; the API adapter gains `rejectPayment`. |
-| Task count | Four tasks in two waves (section 16). T1 also leaves every consumer of the `Payment` union compiling (minimal narrowing, no new UI), so each wave merges green. |
+| Task count | Four tasks in three waves (section 16): T1 alone; then T2 and T4 in parallel; then T3. T1 also leaves every consumer of the `Payment` union compiling (minimal narrowing, no new UI). Because T2 starts on T1's merged base, it may edit files and tests T1 created, so each task's tests pass on its own base. |
 
 ## 3. Verified current state
 
@@ -203,7 +203,12 @@ export type ImageReadError =
 
 export function readImageBytes(imageId: string, storage: ImageStorage, repository: ImageRepository,
   options?: Readonly<{ signal: AbortSignal }>): Promise<Result<Readonly<{ bytes: Uint8Array; contentType: string }>, ImageReadError>>;
-// ImageStorage.read(key, options?) passes the signal to the S3 GetObjectCommand (abortSignal); an abort maps to IMAGE_STORAGE_TIMEOUT.
+// ImageStorage.read(key, options?) passes the signal to the S3 GetObjectCommand (abortSignal) and keeps it for the body read
+// (transformToByteArray). The SDK rejects with AbortError before the headers and with Error { code: "ECONNRESET", message: "aborted" }
+// during the body (measured by the performance gate with the repo's SDK). Classify by `options.signal.aborted` after the catch, never by
+// the error name: aborted → storageCode IMAGE_STORAGE_TIMEOUT, otherwise IMAGE_STORAGE_UNAVAILABLE.
+// src/shared/images/index.ts (T2): the readImageBytes wrapper forwards options:
+//   export const readImageBytes = (imageId: string, options?: Readonly<{ signal: AbortSignal }>) => readBytes(imageId, storage, imageRepository, options);
 ```
 
 - `WalletQr`: validity is a variant, not a boolean next to a nullable id (guide 3.5). `unchecked` is produced only by the stored parser (§5.4); no save writes it.
@@ -321,7 +326,7 @@ Two concurrent saves: the last one wins, as today. The reuse decision compares t
 
 **Cost of a check:** one image-row lookup, an R2 GET of up to 10 MB, a sharp resize on the libuv threadpool and a zxing decode on the event loop. Measured by the performance gate on a 16-core machine: about 0.3 s wall and under 0.1 s of event-loop block for the worst case (4000×3000 noise JPEG), perhaps 3–5× more on a small VPS. Memory per check: the bytes (≤10 MB), the libvips decode buffers (up to ~96 MB for a large PNG) and a ≤16 MB RGBA buffer.
 
-- **Double read, accepted:** a newly chosen image is read by `POST /qr-checks` and again by `PUT`, because only the save check counts and nothing is stored by the first. It happens once per accepted wallet image, an interactive and rare setup action. Avoiding it would need a stored or cached "checked" token, which the product rejected (the save check is the one that counts). Trigger to revisit: `payment_qr_checked` `durationMs` p95 above 2 s on production hardware (the event is `info`, so production logs it).
+- **Double read, accepted:** a newly chosen image is read by `POST /qr-checks` and again by `PUT`, because only the save check counts and nothing is stored by the first. It happens once per accepted wallet image, an interactive and rare setup action. Avoiding it would need a stored or cached "checked" token, which the product rejected (the save check is the one that counts). Trigger to revisit: p95 of `payment_qr_checked.durationMs` over `outcome` ∈ {`qr_found`, `no_qr`} above 2 s on production hardware (the event is `info`, so production logs it). Busy answers and timeouts are excluded: they measure saturation and storage, not read-plus-decode cost.
 - **Load bound:** `detectQrCode` acquires one of `PAYMENT_QR_CHECK_SLOTS` per-process slots (environment value, initial 2; §11 expects 3–5× slower checks on a small VPS, so it is calibrated per environment) before reading the image and releases it in a `finally` when the decode ends, on success, failure `Result` or thrown error.
 - **Read deadline:** the image read gets `AbortSignal.timeout(PAYMENT_QR_CHECK_READ_TIMEOUT_MS)` (environment value, initial 10000). `createR2ImageStorage` sets no request timeout, so without it two stalled GETs would hold both slots and every check would answer `QR_CHECK_BUSY` until restart. An aborted read answers `QR_CHECK_UNAVAILABLE`, logged as `IMAGE_STORAGE_TIMEOUT`. The decode itself is synchronous and bounded by the image limits, so it needs no deadline.
 - Both values are read with the zod env pattern of `products/composition.ts` (`z.coerce.number().int().positive().default(…)`), documented in `apps/core/.env.example` and passed to the `web` service of `compose.prod.yaml` with the same defaults (`${PAYMENT_QR_CHECK_SLOTS:-2}`). The `migrate` service does not change. Without a free slot it answers `QR_CHECK_UNAVAILABLE` at once (no queue), logged with `errorCode: "QR_CHECK_BUSY"`. This bounds the memory and event-loop time QR checks take in the web process, which also serves checkout for every company. The WhatsApp product identification runs in the worker process and is not counted.
@@ -341,7 +346,7 @@ Two concurrent saves: the last one wins, as today. The reuse decision compares t
 | `apps/core/src/shared/images/application/images.ts` (+ test), `infrastructure/r2-image-storage.ts` | `ImageReadError.storageCode`, optional read `signal` (§6.1), T2. |
 | New `companies/infrastructure/qr-check-limiter.ts` (+ test) | `createQrCheckLimiter(slots)` → `run(work)`: answers busy without running `work` when no slot is free, releases in `finally`. T2. |
 | `apps/core/.env.example`, `compose.prod.yaml` (`web` only) | `PAYMENT_QR_CHECK_SLOTS=2`, `PAYMENT_QR_CHECK_READ_TIMEOUT_MS=10000`, T2. |
-| `apps/core/src/shared/images/index.ts` | New `resolvePublicImages(ids)` wrapping `getImages` (T1). T2 does not edit this file. |
+| `apps/core/src/shared/images/index.ts` | T1: new `resolvePublicImages(ids)` wrapping `getImages`. T2 (after T1): the `readImageBytes` wrapper forwards `options` (§6.1), so the `vi.mock` seam of §14 and the single storage instance stay. |
 | `companies/domain/payment-settings.ts` (+ test) | `WalletQr`, input and stored parsers, `offeredPaymentSettings`. |
 | `companies/application/payment-settings.ts` (+ test) | `savePaymentSettings` with QR, `checkPaymentQr`, `getOfferedPaymentSettings`, `getPaymentConfiguration`. |
 | `companies/infrastructure/payment-settings-repository.ts` (+ integration test) | Stored parser. |
@@ -362,7 +367,7 @@ Two concurrent saves: the last one wins, as today. The reuse decision compares t
 | New `orders/presentation/order-payments-card.tsx`, `receipt-dialog.tsx`, `payment-decision-form.tsx` | b3 card, b4 dialog with in-place decision area, approve/register/reject forms. Row actions, «Pago por revisar», «Registrar pago» visibility and per-row accessible names come from the pure `paymentRowActions` and `paymentCardSummary` of `order-payments-card.tsx`, unit-tested (§14). |
 | `orders/presentation/payment-fields.tsx` | Stock box shown with `offersPartialStockDeduction`. |
 | `orders/presentation/buyer-payment-content.tsx` | Rejection notice at the start of the upload block; `Rechazado` status with reason (T3). |
-| `apps/core/app/locales.ts` | T1: only `buyerPaymentContent.status.rejected` es «Rechazado» / pt «Rejeitado» (L138, L280), required by the typed i18n key, and `orders.paymentRejected` «Pago rechazado» / «Pagamento rejeitado» for the narrowed row. T2: `paymentSettings`. T3: `orderDetail`/`orders` payments and the rest of `buyerPaymentContent`. T1 and T2 edit different lines of the same file in parallel; the merge is textual and non-overlapping. |
+| `apps/core/app/locales.ts` | T1: only `buyerPaymentContent.status.rejected` es «Rechazado» / pt «Rejeitado» (L138, L280), required by the typed i18n key, and `orders.paymentRejected` «Pago rechazado» / «Pagamento rejeitado» for the narrowed row. T2: `paymentSettings`. T3: `orderDetail`/`orders` payments and the rest of `buyerPaymentContent`. The three edit it in sequence (T1, T2, T3). |
 | `apps/core/tests/e2e/buyer-payment.spec.ts` | T2: the settings save reads a real QR fixture from a fake S3 (`R2_ENDPOINT` at port+1000, as in `message-to-order.spec.ts`) instead of the browser-faked `/api/images`. T3: reject and resend journey. |
 | Mobile | §10. T1 adds only the exhaustive narrowing in `order-detail-screen.tsx` (rejected receipt from `data.report`, no amount row, date from `data.rejectedAt`, no actions) and the `paymentRejected` es/pt key, so no build ever labels a rejected payment as confirmed. |
 
@@ -374,14 +379,14 @@ Two concurrent saves: the last one wins, as today. The reuse decision compares t
 | `payment_operation_replayed` | debug | orders composition | `["operation": "reject", "paymentId"]` (existing event, new operation value) |
 | `payment_operation_conflict` | debug | orders composition | `["operation": "reject", "paymentId", "errorCode"]` (existing event) |
 | `company_payment_settings_saved` | info | companies composition | existing fields plus `walletQr: "read" \| "reused" \| "none"` and `qrDurationMs` (number when `walletQr` is `read`, else `null`) |
-| `payment_qr_checked` | info | companies composition (`detectQrCode`) | `["companyId", "stage": "choose" \| "save", "outcome": "qr_found" \| "no_qr" \| "unavailable", "durationMs"]` |
+| `payment_qr_checked` | info | companies composition (`detectQrCode`) | `["companyId", "stage": "choose" \| "save", "outcome": "qr_found" \| "no_qr" \| "unavailable", "durationMs"]`; `durationMs` is `null` for a busy answer (no read ran) |
 | `payment_qr_check_unavailable` | warn | companies composition (`detectQrCode`) | `["companyId", "stage": "choose" \| "save", "errorCode": "IMAGE_STORAGE_UNAVAILABLE" \| "IMAGE_STORAGE_CONFIG_ERROR" \| "PERSISTENCE_UNAVAILABLE" \| "IMAGE_STORAGE_TIMEOUT" \| "QR_READER_UNAVAILABLE" \| "QR_CHECK_BUSY"]` |
 
 An image without a QR is a business rejection: it returns a `Result` and is only counted in `payment_qr_checked` (`info`: a rare, seller-triggered event, so the volume is negligible). `durationMs` covers the image read and the decode and is what verifies the cost assumption of section 11 on production hardware. Never logged: rejection reason text, provider, holder, account data, image ids or URLs, QR contents.
 
 ## 14. Tests
 
-Every title names the task that writes it and must leave it green. A task passes its own tests on its own branch: no test needs code from a task of the same wave, and no file is edited by two tasks of the same wave. A test file edited by a later task (T3 after T1) is edited in sequence.
+Every title names the task that writes it and must leave it green. A task passes its own tests on its own branch: no test needs code from a task of the same wave, and no file is edited by two tasks of the same wave. A file edited by a later task (T2 after T1, T3 after T2) is edited in sequence, and the later task updates any earlier test its change affects.
 
 ### Unit (core)
 
@@ -413,7 +418,9 @@ Every title names the task that writes it and must leave it green. A task passes
 
 `src/shared/images/application/images.test.ts`
 - T2 `test("reports a storage configuration error with its own storageCode")`
-- T2 `test("reports an aborted image read as an IMAGE_STORAGE_TIMEOUT storage failure")`
+- T2 `test("reports an image read aborted before the response as an IMAGE_STORAGE_TIMEOUT storage failure")`
+- T2 `test("reports an image read aborted during the body as an IMAGE_STORAGE_TIMEOUT storage failure")` (fake body that rejects with `ECONNRESET` "aborted" after the signal fires)
+- T2 `test("reports a non-aborted storage error as IMAGE_STORAGE_UNAVAILABLE")`
 
 `companies/presentation/wallet-qr-field.test.ts` (pure `canSaveWalletQr`, no rendering)
 - T2 `test("disables save while the offered wallet has no qr image")`
@@ -455,6 +462,12 @@ Every title names the task that writes it and must leave it green. A task passes
 - T3 `test("offers Registrar pago only while Pendiente is above zero")`
 - T3 `test("names each row action with the row date and time")`
 
+`apps/core/app/routes/order-detail.test.ts` (Vitest unit, `test:unit`: renders with `renderToStaticMarkup`, spies on `orders` and `@core/src/shared/images` with `vi.spyOn`, no database)
+- T1 `test("loader resolves receipt urls for rejected payments with one image lookup")` (spies on `resolvePublicImages` and asserts one call with every receipt id)
+- T3 `test("reject action rejects the report and returns the updated order")`
+- T3 `test("approve and reject map PAYMENT_CONFLICT to the already-reviewed message")`
+- T3 `test("receipt thumbnails load lazily with fixed dimensions")`
+
 ### Integration (core, real database)
 
 Image bytes: the integration project has no image storage (`run-tests.sh`), so tests that read bytes `vi.mock` `readImageBytes` of `@core/src/shared/images` and serve the files of `qr-fixtures/` (pattern of `index-product-image.integration.test.ts`). `readQrCodes` runs for real.
@@ -490,15 +503,9 @@ Image bytes: the integration project has no image storage (`run-tests.sh`), so t
 - T1 `test("confirming a rejected payment answers 409 PAYMENT_CONFLICT")`
 - T1 `test("POST void of a rejected payment answers 409 INVALID_TRANSITION")`
 - T1 `test("buyer view exposes the rejected status, its reason and rejectedReport")`
-- T1 `test("buyer view resolves the wallet and every receipt url with one image lookup")`
+- T1 `test("buyer view resolves the bank transfer image and every receipt url with one image lookup")` (fixture: a bank transfer with image and no wallet, a shape T2 does not change)
 - T1 `test("repeating a buyer report after its rejection returns the rejected payment")`
 - T3 `test("buyer view drops a wallet whose image url does not resolve")`
-
-`apps/core/app/routes/order-detail.test.ts`
-- T1 `test("loader resolves receipt urls for rejected payments with one image lookup")`
-- T3 `test("reject action rejects the report and returns the updated order")`
-- T3 `test("approve and reject map PAYMENT_CONFLICT to the already-reviewed message")`
-- T3 `test("receipt thumbnails load lazily with fixed dimensions")`
 
 ### Unit (mobile)
 
@@ -531,7 +538,7 @@ Image bytes: the integration project has no image storage (`run-tests.sh`), so t
 - Verify that the QR-check route runs under `withTenantIsolation`, so `readImageBytes` cannot read another company's image.
 - Store-appearance needs no code change. Verify that its preview test still passes with offered-only methods.
 - Verify that `pnpm --dir apps/core typecheck` and `pnpm --dir apps/mobile typecheck` pass at the end of each task, not only at the end of the wave.
-- `locales.ts` is edited by T1 and T2 on different lines (wave 1) and by T3 (`orderDetail`, `orders`, `buyerPaymentContent`) after both merge.
+- `locales.ts` is edited in sequence: T1 (two keys), then T2 (`paymentSettings`), then T3 (`orderDetail`, `orders`, `buyerPaymentContent`).
 - `store-appearance/composition.test.ts` mocks `@core/src/features/companies`, so it cannot observe the offered-only rule; that rule is covered by `companies/offered-payment-methods.integration.test.ts` (T2).
 - Matching the QR content with provider or holder, undoing a rejection, and warning the seller outside «Medios de cobro» stay out (product draft).
 
@@ -540,14 +547,18 @@ Image bytes: the integration project has no image storage (`run-tests.sh`), so t
 ### Order and parallelism
 
 ```text
-Wave 1 (parallel):  T1 Rejected payment backend + contract + union narrowing      T2 Wallet QR end to end (backend, settings page)
-Wave 2 (parallel):  T3 Web order detail + checkout (after T1 and T2)      T4 Mobile (after T1)
+Wave 1:             T1 Rejected payment backend + contract + union narrowing
+Wave 2 (parallel):  T2 Wallet QR end to end (after T1)      T4 Mobile (after T1)
+Wave 3:             T3 Web order detail + checkout (after T2; may overlap T4, disjoint files)
 ```
 
-T1 and T2 edit disjoint files except `locales.ts`, where they touch different lines:
-- T1: `shared/contracts/orders.ts`, `shared/orders-payment.ts`, `features/orders/**` (domain, application, infrastructure, `composition.ts`, `presentation/api-routes.ts`, `presentation/order-json.ts`), `src/shared/images/index.ts`, the minimal narrowing in `app/routes/order-detail.tsx` and `apps/mobile/src/features/orders/presentation/order-detail-screen.tsx` (+ the mobile `paymentRejected` key), and `locales.ts` (`buyerPaymentContent.status.rejected`, `orders.paymentRejected`).
-- T2: `shared/contracts/payment-settings.ts`, `features/companies/**`, `src/shared/images/application/**` and `infrastructure/**` (not `index.ts`), the products import, `app/routes/payment-settings.tsx`, `locales.ts` (`paymentSettings`), `buyer-payment.spec.ts` setup, the new `companies/offered-payment-methods.integration.test.ts`, `.env.example` and the `web` service of `compose.prod.yaml`.
-- T3 and T4 edit disjoint files (core web vs `apps/mobile`). They build on T1's narrowing in `order-detail.tsx` and `order-detail-screen.tsx`, which are edited in sequence (wave 1, then wave 2).
+T1 and T2 are sequenced, not parallel: both touch `src/shared/images/index.ts`, `locales.ts` and the buyer view, and T2's offered-only `get` changes what T1's buyer view returns. Starting T2 on T1's merged base lets T2 edit those files and update any T1 test its change affects, so every task's tests pass on its own base.
+
+Files per task:
+- T1: `shared/contracts/orders.ts`, `shared/orders-payment.ts`, `features/orders/**` (domain, application, infrastructure, `composition.ts`, `presentation/api-routes.ts`, `presentation/order-json.ts`), `src/shared/images/index.ts` (`resolvePublicImages`), the minimal narrowing in `app/routes/order-detail.tsx` and `apps/mobile/src/features/orders/presentation/order-detail-screen.tsx` (+ the mobile `paymentRejected` key), and `locales.ts` (`buyerPaymentContent.status.rejected`, `orders.paymentRejected`).
+- T2: `shared/contracts/payment-settings.ts`, `features/companies/**`, `src/shared/images/**` (including the `readImageBytes` wrapper in `index.ts`), the products import, `app/routes/payment-settings.tsx`, `locales.ts` (`paymentSettings`), `buyer-payment.spec.ts` setup, the new `companies/offered-payment-methods.integration.test.ts`, `.env.example`, the `web` service of `compose.prod.yaml`, and any T1 buyer-view test its offered-only rule affects (`orders/presentation/api-routes.integration.test.ts`). No file under `apps/mobile`.
+- T4: only `apps/mobile/**` (`order-api.ts`, `order-operations.ts`, `order-detail-screen.tsx`, translations and their tests). No file under `apps/core` or `shared/`.
+- T2 and T4 are therefore disjoint. T3 edits only `apps/core` (web routes, orders presentation, `orders/composition.ts`, `locales.ts`, E2E) and is disjoint from T4, so it waits only for T2.
 
 ### T1. Rejected payment backend and contracts
 
@@ -569,7 +580,7 @@ T1 and T2 edit disjoint files except `locales.ts`, where they touch different li
 6. A buyer report resent with the id and receipt of a rejected payment returns that rejected payment and writes nothing; voiding a rejected payment returns `409 INVALID_TRANSITION`.
 7. The web order detail and mobile order detail show a rejected payment as «Pago rechazado», never «Pago confirmado».
 
-**Tests to leave green:** every §14 title tagged T1 (orders domain and application, `shared/orders-payment.test.ts`, the T1 titles of `order-repository` and `api-routes` integration, the T1 loader title of `order-detail.test.ts`, the T1 mobile title), the existing tests of those files, `pnpm --dir apps/core typecheck`, `pnpm --dir apps/mobile typecheck`, `pnpm --dir apps/mobile test`. None of them needs T2: the buyer view tests use a bank transfer or a pre-version wallet as stored today.
+**Tests to leave green:** every §14 title tagged T1 (orders domain and application, `shared/orders-payment.test.ts`, the T1 titles of `order-repository` and `api-routes` integration, the T1 loader title of `order-detail.test.ts`, the T1 mobile title), the existing tests of those files, `pnpm --dir apps/core typecheck`, `pnpm --dir apps/mobile typecheck`, `pnpm --dir apps/mobile test`. None of them depends on how a wallet is read: T1's buyer view fixtures use a bank transfer with image and no wallet, which T2 does not change.
 
 **Depends on:** nothing.
 
@@ -592,9 +603,9 @@ T1 and T2 edit disjoint files except `locales.ts`, where they touch different li
 4. The page shows «Revisando QR…» with save disabled, then «✓ QR válido» or the b2 error; a failed choose-time check leaves save enabled.
 5. With both check slots busy, a third check answers `503 QR_CHECK_UNAVAILABLE` without reading the image; a read that exceeds `PAYMENT_QR_CHECK_READ_TIMEOUT_MS` answers `503` and frees its slot; `payment_qr_checked` (`info`) carries `durationMs`.
 
-**Tests to leave green:** every §14 title tagged T2 (companies unit and integration, `qr-check-limiter`, `images.test.ts`, `wallet-qr-field.test.ts`, `offered-payment-methods.integration.test.ts`), the existing products QR reader test at its new path, `buyer-payment.spec.ts` (existing journey with the new setup), `store-appearance-buyer.spec.ts` and `store-appearance/composition.test.ts` unchanged, `pnpm --dir apps/core typecheck`. T2 edits no orders test file.
+**Tests to leave green:** every §14 title tagged T2 (companies unit and integration, `qr-check-limiter`, `images.test.ts`, `wallet-qr-field.test.ts`, `offered-payment-methods.integration.test.ts`), the existing products QR reader test at its new path, `buyer-payment.spec.ts` (existing journey with the new setup), `store-appearance-buyer.spec.ts` and `store-appearance/composition.test.ts` unchanged, `pnpm --dir apps/core typecheck`. Everything T1 left green, updated by T2 only where its offered-only rule changes the expected wallet.
 
-**Depends on:** nothing.
+**Depends on:** T1 (starts on its merged base).
 
 ### T3. Web order detail and checkout
 
@@ -618,7 +629,7 @@ T1 and T2 edit disjoint files except `locales.ts`, where they touch different li
 
 **Tests to leave green:** every §14 title tagged T3 (`order-payments-card.test.ts`, the T3 titles of `order-detail.test.ts` and `api-routes.integration.test.ts`, the two E2E journeys), everything T1 and T2 left green, `pnpm --dir apps/core typecheck`.
 
-**Depends on:** T1, T2 (`locales.ts` and E2E setup).
+**Depends on:** T1, T2 (`locales.ts`, E2E setup, buyer view). Not on T4.
 
 ### T4. Mobile payments
 
@@ -696,3 +707,24 @@ Decided unless objected (new in this round):
 - During the deploy window, old containers fail the payment view of a company that saved on a new container (accepted with no production).
 
 Deferred item with real risk (Todoist task only if the founder asks): remove the pre-version branch of `parseStoredPaymentSettings` once no stored wallet lacks `qr`, at the latest before the first business goes to production. Risk if forgotten: a permanent second stored shape that every future change to payment settings must keep reading.
+
+## 19. Review gate round 3
+
+Design rejected (2 blockers about wave-1 ownership); performance approved with 2 suggestions. The coordinator directed sequencing T1 and T2 instead of parallelizing them.
+
+| Finding | Resolution |
+| --- | --- |
+| Design B1: T1 buyer-view test needs a wallet that T2 later hides | T1's fixture is a bank transfer with image and no wallet, which T2 does not change. T2 now runs after T1 and may update any T1 test its rule affects (§14, §16). |
+| Design B2: T2 must edit `src/shared/images/index.ts` for the read deadline | T2 owns the `readImageBytes` wrapper forwarding `options` in `index.ts`; with T1 → T2 in sequence there is no shared-file overlap (§6.1, §12, §16). |
+| Waves (coordinator) | Wave 1 T1; wave 2 T2 ∥ T4 (disjoint: core and `shared/` vs `apps/mobile` only); wave 3 T3 after T2, may overlap T4 (§16). |
+| Design S1: memory `ceeffc07` goes stale | Listed for happy-memory-maintainer at T1's merge, next to `b9ad8a84` at T2's (§2). |
+| Design S2: `order-detail.test.ts` is a unit test | Moved under Unit (core): `test:unit`, `vi.spyOn` on `resolvePublicImages`, no database (§14). |
+| Design S3 / performance 1: abort during the body | The signal covers request and body; classification by `signal.aborted`, not by error name; tests for an abort before the response, during the body (`ECONNRESET` "aborted") and a non-aborted error (§6.1, §14). |
+| Performance 2: busy answers skew the p95 trigger | Busy answers log `durationMs: null`; the trigger is the p95 over `qr_found`/`no_qr` only (§11, §13). |
+
+Questions: none new.
+
+Decided unless objected (new in this round):
+- T1 alone in wave 1; T2 and T4 in parallel in wave 2; T3 in wave 3 after T2, possibly overlapping T4. Delivery takes one more sequential step than in round 3.
+- T2 may edit files and tests T1 created (`src/shared/images/index.ts`, buyer-view tests) when its rule changes what they expect.
+- Abort classification by `signal.aborted`; a busy check logs `durationMs: null`.
