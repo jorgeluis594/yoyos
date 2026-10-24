@@ -150,7 +150,7 @@ export const buyerPaymentViewSchema = z.strictObject({ orderId: z.uuid(), total:
   availability: z.enum(["available", "delivery_quote_pending", "checkout_pending", "cancelled"]).default("available"),
   paidAmount: moneySchema, balanceDue: moneySchema, paymentStatus: z.enum(["pending", "paid"]),
   settings: z.array(z.discriminatedUnion("method", [
-    z.strictObject({ method: z.literal("digital_wallet"), provider: z.string(), holder: z.string(), imageUrl: z.url().nullable() }),
+    z.strictObject({ method: z.literal("digital_wallet"), provider: z.string(), holder: z.string(), imageUrl: z.url() }),
     z.strictObject({ method: z.literal("bank_transfer"), bank: z.string(), holder: z.string(), accountNumber: z.string().nullable(), cci: z.string().nullable(), imageUrl: z.url().nullable() }),
   ])),
   payments: z.array(z.strictObject({ id: z.uuid(), status: z.enum(["reported", "confirmed", "voided", "rejected"]),

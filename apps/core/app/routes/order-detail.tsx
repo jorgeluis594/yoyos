@@ -4,8 +4,9 @@ import { isOrderId } from "@core/src/features/orders/domain/order";
 import { readCancellationOrder, verifyCancellation, cancellationMessage, type CancelOrderActionError, type CancellationClientResult, type CancellationUiState } from "@core/src/features/orders/presentation/cancellation-client";
 import { cancelOrderResponseSchema, type CancelOrderResponse, type OrderAggregateResponse } from "@shared/contracts/orders";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
-import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
-import { useState } from "react";
+import type { PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
+import { OrderPaymentsCard } from "@core/src/features/orders/presentation/order-payments-card";
+import { useMemo, useState } from "react";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
 import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
@@ -90,6 +91,11 @@ async function deliveryAction({ params, request, context }: ActionFunctionArgs) 
   }
 }
 
+/** A decision on a payment that somebody else already reviewed reads «Este pago ya fue revisado.» in every client. */
+function paymentErrorCode(code: string) {
+  return code === "PAYMENT_CONFLICT" || code === "INVALID_TRANSITION" ? "ALREADY_REVIEWED" : code;
+}
+
 export const headers = () => ({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
 
 export type CancelOrderActionResult = Readonly<{ operation: "cancel"; result: Result<CancelOrderResponse, CancelOrderActionError> }>;
@@ -97,6 +103,14 @@ export type CancelOrderActionResult = Readonly<{ operation: "cancel"; result: Re
 export async function clientAction({ request, params, serverAction }: ClientActionFunctionArgs) {
   if (request.headers.get("content-type")?.includes("application/json")) return serverAction<typeof action>();
   const operation = (await request.clone().formData()).get("operation");
+  if (operation === "confirm" || operation === "reject" || operation === "void") {
+    // A lost response leaves the decision unknown: the card reloads and the seller repeats it, which never records a second payment.
+    try { return await serverAction<typeof action>(); }
+    catch (cause) {
+      if (cause instanceof Response || isRouteErrorResponse(cause)) throw cause;
+      return { url: null, success: false, error: "NO_RESPONSE" } as const;
+    }
+  }
   if (operation !== "cancel" && operation !== "check-cancellation") return serverAction<typeof action>();
   const id = params.orderId ?? "";
   if (operation === "check-cancellation") return verifyCancellation(id, { code: "INTERNAL_ERROR", message: "Check current state before retrying" });
@@ -145,7 +159,7 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
       return { operation: "cancel", result: err({ code: "INTERNAL_ERROR", message: "Cancellation could not be confirmed" }) } satisfies CancelOrderActionResult;
     }
   }
-  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "ship" && operation !== "deliver")) {
+  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "reject" && operation !== "ship" && operation !== "deliver")) {
     bindRequestOperation({ outcome: "invalid_input" });
     return data({ url: null, success: false, error: true }, { status: 422, headers: headers() });
   }
@@ -162,18 +176,29 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
     const paymentId = z.uuid().safeParse(fields.get("paymentId"));
     if (!paymentId.success) return { url: null, success: false, error: "INVALID_INPUT" };
     const seller = { companyId: access.company.id, userId: access.user.id };
-    if (fields.get("operation") === "void") {
+    if (operation === "void") {
       const result = await orders.voidPayment({ orderId: id.data as OrderId, paymentId: paymentId.data as PaymentId }, seller);
-      return result.success ? { url: null, success: true, error: false } : { url: null, success: false, error: result.error.code };
+      return result.success ? { url: null, success: true, error: false } : { url: null, success: false, error: paymentErrorCode(result.error.code) };
     }
-    if (fields.get("operation") !== "confirm") return { url: null, success: false, error: "INVALID_INPUT" };
-    const parsed = registerPaymentSchema.safeParse({ paymentId: paymentId.data, source: fields.get("source"),
-      amount: { amount: Number(fields.get("amount")), currency: fields.get("currency") }, method: fields.get("method"),
-      deductStockIfPartial: fields.get("deductStockIfPartial") === "on" });
-    if (!parsed.success) return { url: null, success: false, error: "INVALID_INPUT" };
-    const result = await orders.registerPayment({ ...parsed.data, orderId: id.data as OrderId,
-      paymentId: parsed.data.paymentId as PaymentId }, seller);
-    return result.success ? { url: null, success: true, error: false } : { url: null, success: false, error: result.error.code };
+    try {
+      if (operation === "reject") {
+        const reason = z.string().max(1000).nullable().safeParse(fields.get("reason"));
+        if (!reason.success) return { url: null, success: false, error: "INVALID_INPUT" };
+        const result = await orders.rejectPayment({ orderId: id.data as OrderId, paymentId: paymentId.data as PaymentId, reason: reason.data }, seller);
+        return result.success ? { url: null, success: true, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data.order)) }
+          : { url: null, success: false, error: paymentErrorCode(result.error.code) };
+      }
+      const parsed = registerPaymentSchema.safeParse({ paymentId: paymentId.data, source: fields.get("source"),
+        amount: { amount: Number(fields.get("amount")), currency: fields.get("currency") }, method: fields.get("method"),
+        deductStockIfPartial: fields.get("deductStockIfPartial") === "on" });
+      if (!parsed.success) return { url: null, success: false, error: "INVALID_INPUT" };
+      const result = await orders.registerPayment({ ...parsed.data, orderId: id.data as OrderId,
+        paymentId: parsed.data.paymentId as PaymentId }, seller);
+      return result.success ? { url: null, success: true, error: false } : { url: null, success: false, error: paymentErrorCode(result.error.code) };
+    } catch (cause) {
+      log.error({ event: "order_payment_request_failed", operation, orderId: id.data, userId: access.user.id, errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle payment decision");
+      return { url: null, success: false, error: "INTERNAL_ERROR" };
+    }
   }
   bindRequestOperation({ operation: "enable_checkout" });
   try {
@@ -202,6 +227,7 @@ export default function OrderDetail() {
   const result = actionData && "operation" in actionData && actionData.operation === "delivery" ? actionData : undefined;
   const fulfillment = actionData && "operation" in actionData && (actionData.operation === "ship" || actionData.operation === "deliver") ? actionData : undefined;
   const navigation = useNavigation();
+  const voidResult = useMemo<PaymentDecisionResult | undefined>(() => actionData && !("operation" in actionData) ? { success: actionData.success, error: actionData.error === false ? false : String(actionData.error) } : undefined, [actionData]);
   const editable = !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
   const [editingDelivery, setEditingDelivery] = useState(false);
   const link = buyerLink(order);
@@ -277,36 +303,8 @@ export default function OrderDetail() {
           </CardContent>
         </Card>
 
-        <Card role="region" aria-labelledby="order-payments-title" className="min-w-0 max-xl:order-2">
-          <CardHeader><CardTitle id="order-payments-title">{t("orders.payments")}</CardTitle></CardHeader>
-          <CardContent className="flex flex-col gap-6">
-            <dl className="flex flex-col gap-3 text-sm tabular-nums sm:ml-auto sm:w-2/3">
-              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.subtotal")}</dt><dd>{amount(order.itemsTotal)}</dd></div>
-              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.deliveryCharge")}</dt><dd>{amount(order.deliveryCharge)}</dd></div>
-              <div className="flex justify-between gap-4 border-t pt-3 text-lg font-semibold"><dt>{t("orders.total")}:</dt>{" "}<dd>{amount(order.total)}</dd></div>
-              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.received")}</dt><dd>{amount(order.paidAmount)}</dd></div>
-              <div className="flex justify-between gap-4 font-medium"><dt>{t("orderDetail.balance")}</dt><dd>{amount(order.balanceDue)}</dd></div>
-              {order.overpaidAmount.amount > 0 && <Alert variant="warning"><AlertDescription>{t("orders.overpaid", { amount: amount(order.overpaidAmount) })}</AlertDescription></Alert>}
-            </dl>
-            {actionData?.error && !("operation" in actionData) && <Alert variant="destructive"><AlertDescription>{actionData.error === "INSUFFICIENT_STOCK" ? t("orders.paymentStockError") : t("orders.paymentSaveError")}</AlertDescription></Alert>}
-            {actionData?.success && !("operation" in actionData) && <Alert variant="success"><AlertDescription>{t("orders.paymentSaved")}</AlertDescription></Alert>}
-            <section className="flex flex-col gap-3 border-t pt-4" aria-labelledby="payment-history-title">
-              <h3 id="payment-history-title" className="text-sm font-semibold">{t("orderDetail.paymentHistory")}</h3>
-              {order.payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderDetail.noPayments")}</p> : <ul className="divide-y">{order.payments.map(payment => <li key={payment.id} className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <div className="flex flex-wrap items-start justify-between gap-3 text-sm">
-                  <div className="flex min-w-0 flex-col gap-1"><p className="font-medium">{t(payment.status === "reported" ? "orders.paymentReported" : payment.status === "voided" ? "orders.paymentVoided" : payment.status === "rejected" ? "orders.paymentRejected" : "orderDetail.confirmedPayment")}</p><p className="text-muted-foreground">{date(payment.status === "reported" ? payment.data.reportedAt : payment.status === "rejected" ? payment.data.rejectedAt : payment.data.confirmedAt)}</p>{payment.method && <p className="text-muted-foreground">{t(payment.method === "digital_wallet" ? "orders.wallet" : "orders.bankTransfer")}</p>}</div>
-                  {payment.amount && <strong className="tabular-nums">{amount(payment.amount)}</strong>}
-                </div>
-                <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-                  {receiptUrls[payment.id] && <TextLink className="inline-flex min-h-control items-center text-sm font-normal max-md:min-h-touch" href={receiptUrls[payment.id]} target="_blank" rel="noreferrer">{t("orders.viewReceipt")}</TextLink>}
-                  {payment.status === "confirmed" && <Form method="post"><input type="hidden" name="operation" value="void" /><input type="hidden" name="paymentId" value={payment.id} /><Button type="submit" variant="outline" disabled={navigation.state !== "idle"}>{t("orders.voidPayment")}</Button></Form>}
-                </div>
-                {payment.status === "reported" && !order.cancelled && <div className="sm:col-span-2"><PaymentForm paymentId={payment.id} source="buyer_report" currency={order.total.currency} balance={order.balanceDue.amount} /></div>}
-              </li>)}</ul>}
-            </section>
-            {!order.cancelled && order.balanceDue.amount > 0 && <section className="flex flex-col gap-3 border-t pt-4"><h3 className="text-sm font-semibold">{t("orders.manualPayment")}</h3><PaymentForm paymentId={manualPaymentId} source="manual" currency={order.total.currency} balance={order.balanceDue.amount} /></section>}
-          </CardContent>
-        </Card>
+        <OrderPaymentsCard order={order} receiptUrls={receiptUrls} manualPaymentId={manualPaymentId} format={{ amount, date }}
+          voidResult={voidResult} />
 
         <Card role="region" aria-labelledby="checkout-title" className="min-w-0 max-xl:order-5">
           <CardHeader className="flex-row flex-wrap items-center justify-between gap-3"><CardTitle id="checkout-title">{t("orders.checkout")}</CardTitle>{!order.cancelled && <checkout.Form method="post"><Button type="submit" variant="outline" disabled={checkout.state !== "idle"}>{t("orders.getCheckoutLink")}</Button></checkout.Form>}</CardHeader>
@@ -362,18 +360,6 @@ export default function OrderDetail() {
       </div>
     </fieldset>
   </section>;
-}
-
-function PaymentForm({ paymentId, source, currency, balance }: { paymentId: string; source: "manual" | "buyer_report"; currency: string; balance: number }) {
-  const { t } = useTranslation();
-  const navigation = useNavigation();
-  const [value, setValue] = useState<PaymentDraft>({ amount: balance.toFixed(2), method: "digital_wallet", deductStockIfPartial: false });
-  return <Form method="post" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-    <input type="hidden" name="operation" value="confirm" /><input type="hidden" name="source" value={source} />
-    <input type="hidden" name="paymentId" value={paymentId} /><input type="hidden" name="currency" value={currency} />
-    <PaymentFields value={value} onChange={setValue} />
-    <Button type="submit" disabled={navigation.state !== "idle"} className="h-control sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
-  </Form>;
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
