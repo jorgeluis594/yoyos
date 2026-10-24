@@ -3,7 +3,7 @@ import { imageUploadLimits } from "@shared/contracts/images";
 import { Alert } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { FileUpload, FileUploadActions, FileUploadDropzone, FileUploadPreview, FileUploadTrigger } from "@core/app/components/ui/file-upload";
-import { FieldDescription, FieldError, FieldLabel } from "@core/app/components/ui/field";
+import { Field, FieldDescription, FieldError, FieldLabel } from "@core/app/components/ui/field";
 
 export type WalletQrState =
   | Readonly<{ status: "empty" }>
@@ -47,8 +47,8 @@ export function WalletQrField({ state, url, onFile, onRetry, onRemove }: { state
   const busy = state.status === "uploading" || state.status === "checking";
   const hasImage = "imageId" in state && state.imageId !== null && url !== "";
   const invalid = state.status === "not_a_qr";
-  return <FileUpload accept={acceptedTypes.join(",")} disabled={busy} onFileSelect={onFile} data-testid="wallet-qr-field">
-    <FieldLabel>{t("paymentSettings.qrLabel")}</FieldLabel>
+  return <Field><FieldLabel>{t("paymentSettings.qrLabel")}</FieldLabel>
+    <FileUpload accept={acceptedTypes.join(",")} disabled={busy} onFileSelect={onFile} data-testid="wallet-qr-field">
     {!hasImage && !busy && <FileUploadDropzone aria-invalid={state.status === "wrong_file" || undefined}>{t("paymentSettings.uploadQr")}</FileUploadDropzone>}
     {state.status === "empty" && <FieldDescription>{t("paymentSettings.qrHelp")}</FieldDescription>}
     {busy && <Alert role="status">{state.status === "uploading" ? t("paymentSettings.uploading") : t("paymentSettings.checkingQr")}</Alert>}
@@ -66,5 +66,5 @@ export function WalletQrField({ state, url, onFile, onRetry, onRemove }: { state
     {state.status === "wrong_file" && <FieldError>{t("paymentSettings.wrongFile")}</FieldError>}
     {state.status === "upload_failed" && <FieldError>{t("paymentSettings.uploadError")} <Button type="button" size="sm" variant="outline" onClick={onRetry}>{t("paymentSettings.retry")}</Button></FieldError>}
     {state.status === "check_unavailable" && <FieldError>{t("paymentSettings.checkUnavailable")} <Button type="button" size="sm" variant="outline" onClick={onRetry}>{t("paymentSettings.retry")}</Button></FieldError>}
-  </FileUpload>;
+    </FileUpload></Field>;
 }
