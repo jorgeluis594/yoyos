@@ -34,7 +34,7 @@ export function OrderLinkCard({ cancelled, confirmed, link }: OrderLinkCardProps
             <a href={link.url} target="_blank" rel="noopener noreferrer" aria-label={t("orderLink.open")}><ExternalLink aria-hidden="true" /></a>
           </Button>
         </div>
-        <div aria-live="polite" className="text-sm">{copied ? t("orderLink.copied") : ""}</div>
+        <div role="status" aria-live="polite" className="text-sm">{copied ? t("orderLink.copied") : ""}</div>
         <p className="text-sm text-muted-foreground">{t("orderLink.help")}</p>
       </>}
       {!cancelled && link.kind === "subdomain_required" && <>
