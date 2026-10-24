@@ -98,7 +98,7 @@ function PrintBody({ orderIds, orderNumber }: Readonly<{ orderIds: readonly stri
       {current === "failed" && <Alert variant="destructive"><AlertDescription className="flex flex-wrap items-center justify-between gap-3">
         {t("dispatchLabels.error")}<Button type="button" variant="outline" onClick={() => setAttempt(attempt + 1)}>{t("dispatchLabels.retry")}</Button></AlertDescription></Alert>}
       {ready?.url && <figure className="flex flex-col gap-2">
-        <iframe ref={frame} src={ready.url} title={t("dispatchLabels.previewTitle")} className="h-[min(60dvh,28rem)] w-full rounded-[var(--radius-card)] border bg-muted/30" />
+        <iframe ref={frame} src={ready.url} title={t("dispatchLabels.previewTitle")} className="h-[min(42dvh,24rem)] w-full rounded-[var(--radius-card)] border bg-muted/30" />
         <figcaption className="text-center text-xs text-muted-foreground">{t(`dispatchLabels.preview_${ready.data.size}`)}</figcaption>
       </figure>}
       {ready && !ready.url && <p className="text-sm text-muted-foreground">{t("dispatchLabels.nothingPrintable")}</p>}
