@@ -33,6 +33,11 @@ export type RejectPaymentOutcome =
   | Readonly<{ kind: "already_reviewed" | "order_cancelled" | "unknown" }>
   | Readonly<{ kind: "failed"; error: OrderRequestError }>;
 const unknownResult = new Set<string>(["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", "INVALID_RESPONSE"] satisfies OrderRequestError["code"][]);
+/** How a failed payment confirmation reads to the seller: reviewed by somebody else, a lost answer to reload, or a plain failure. */
+export function confirmPaymentFailure(code: OrderRequestError["code"]): "already_reviewed" | "unknown" | "failed" {
+  if (code === "PAYMENT_CONFLICT" || code === "INVALID_TRANSITION") return "already_reviewed";
+  return unknownResult.has(code) ? "unknown" : "failed";
+}
 export type ConfirmOrderError = OrderRequestError | PendingOrderStoreError | CartError;
 export type ConfirmOrderOutcome =
   | Readonly<{ kind: "completed"; order: OrderAggregateResponse; shownTotal: Money }>

@@ -727,3 +727,23 @@ test("shows Pago por revisar while a report is pending", async () => {
   await cancelled.findByText("Saldo pendiente");
   expect(cancelled.queryByText("Pago por revisar")).toBeNull();
 });
+
+test.each([
+  ["PAYMENT_CONFLICT", "Este pago ya fue revisado."],
+  ["INVALID_TRANSITION", "Este pago ya fue revisado."],
+  ["NETWORK_ERROR", "No sabemos si se guardó. Revisa el pedido antes de repetir."],
+])("confirming from the review sheet answers %s with its message and reloads the order", async (code, message) => {
+  const decided = reportedOrder({ payments: [{ id: reportId, orderId: mockId, status: "rejected", currency: "PEN", amount: null, method: null,
+    data: { report, rejectedAt: "2026-09-29T12:00:00.000Z", rejectedBy: "seller", reason: "El monto no coincide" } }] });
+  // Somebody else decided the report meanwhile: only a reload of the order can show it.
+  mockRegisterPayment.mockImplementation(async () => { mockOrder = decided; return { success: false, error: { code } }; });
+  mockOrder = reportedOrder();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  await screen.findByText(message);
+  await screen.findByText("Pago rechazado");
+  expect(mockRegisterPayment).toHaveBeenCalledTimes(1);
+});
