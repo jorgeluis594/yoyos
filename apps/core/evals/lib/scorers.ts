@@ -69,8 +69,19 @@ function best<Expectation>(expectations: readonly Expectation[], score: (expecta
   return { passed: passes(winner.fields), fields: winner.fields, expectationIndex: winner.index };
 }
 
+const onlyNoIntent = (expectation: MessageExpectation) => expectation.outcomes.length === 1 && expectation.outcomes[0] === "no_intent";
+
+/**
+ * `ambiguous_intent` has the effect of `no_intent` (no change, no notice; docs/message-to-order.md «Ambiguous intent»), so it
+ * satisfies an expectation of no purchase intent, tool included.
+ */
+function asNoIntent(actual: MessageActual, expectation: MessageExpectation): MessageActual {
+  if (!onlyNoIntent(expectation) || actual.outcomes.length !== 1 || actual.outcomes[0] !== "ambiguous_intent") return actual;
+  return { ...actual, outcomes: ["no_intent"], tools: expectation.tools ?? actual.tools };
+}
+
 export function scoreMessage(actual: MessageActual, expectations: readonly MessageExpectation[], initial: readonly OrderLine[]): Scored {
-  const scored = best(expectations, (expectation) => scoreMessageFields(actual, expectation, initial));
+  const scored = best(expectations, (expectation) => scoreMessageFields(asNoIntent(actual, expectation), expectation, initial));
   // Price integrity is checked on every message, whatever the expectation.
   const unitPrice = unitPricesIntact(actual.order);
   return { ...scored, passed: scored.passed && unitPrice, fields: { ...scored.fields, unitPrice } };
@@ -88,13 +99,20 @@ export function scoreText(actual: TextActual, expectations: readonly TextExpecta
   });
 }
 
-export type ImageActual = Readonly<{ kind: "found"; products: readonly (ProductKey | null)[] } | { kind: "not_product" } | { kind: "not_found"; reason: string } | { kind: "error"; code: string }>;
+/** A found photo lists its products and, for a QR label, the color of each variant read (null for a visual match). */
+export type ImageActual = Readonly<{ kind: "found"; products: readonly (ProductKey | null)[]; colors: readonly (string | null)[] } | { kind: "not_product" }
+  | { kind: "not_found"; reason: string } | { kind: "error"; code: string }>;
 
+/** `identification` is the product; `color` is scored only when the expectation states it (a QR label of a known color). */
 export function scoreImage(actual: ImageActual, expectations: readonly ImageExpectation[]): Scored {
   return best(expectations, (expectation) => {
-    if (expectation.kind !== actual.kind) return { identification: false };
-    if (expectation.kind === "found" && actual.kind === "found") return { identification: actual.products.length === 1 && actual.products[0] === expectation.product };
-    return { identification: true };
+    const color = expectation.kind === "found" && expectation.color !== undefined ? false : null;
+    if (expectation.kind !== actual.kind) return { identification: false, color };
+    if (expectation.kind === "found" && actual.kind === "found") {
+      return { identification: actual.products.length === 1 && actual.products[0] === expectation.product,
+        color: expectation.color === undefined ? null : actual.colors.length === 1 && actual.colors[0] === expectation.color };
+    }
+    return { identification: true, color: null };
   });
 }
 
@@ -104,11 +122,13 @@ export const problemOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["
 /** Outcomes that change the order's items or notes. */
 export const changeOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["added", "removed", "quantity_lowered", "quantity_changed", "variant_changed", "mentioned_price_set"]);
 
-export type NoticeError = "false_notice" | "silent_error" | "wrong_change" | null;
+export type NoticeError = "false_notice" | "silent_error" | "wrong_change" | "missed_notice" | "dropped_request" | null;
 
 /**
  * How a failed message misled the seller. False notice: a change was expected and the seller got a problem notice instead.
- * Silent error: a notice was expected and an item changed without one. Wrong change: a change was expected and another one applied silently.
+ * Silent error: a notice was expected and an item changed without one. Wrong change: a change was expected (or nothing) and
+ * another one applied silently. Silent drops, where nothing changed and no notice was sent: a missed notice when a notice (a
+ * problem or «ready») was expected, a dropped request when a change was.
  */
 export function noticeErrorOf(passed: boolean, expected: readonly OutcomeKind[], actual: readonly OutcomeKind[]): NoticeError {
   if (passed) return null;
@@ -119,5 +139,10 @@ export function noticeErrorOf(passed: boolean, expected: readonly OutcomeKind[],
   if (expectedChange && !expectedProblem && actualProblem) return "false_notice";
   if (expectedProblem && !actualProblem && actualChange) return "silent_error";
   if (!expectedProblem && !actualProblem && actualChange) return "wrong_change";
+  // «ready» notifies the seller too (docs/message-to-order.md «That's all»), so losing it is a missed notice.
+  if (!actualProblem && !actualChange && !actual.includes("ready")) {
+    if (expectedProblem || expected.includes("ready")) return "missed_notice";
+    if (expectedChange) return "dropped_request";
+  }
   return null;
 }

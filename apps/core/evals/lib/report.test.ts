@@ -10,7 +10,8 @@ function record(over: Partial<CaseRecord> = {}): CaseRecord {
   return {
     caseId: "int-a", baseId: "int-a", pass: "interpretation", criterion: 1, kind: "trap", tags: [], repeat: 0, passed: true, exactPassed: true,
     fields: { tool: true, outcome: true }, expectationIndex: 0, judge: null, noticeError: null, expectedTool: "add_products", input: "text «x»",
-    expected: [], actual: {}, signature: "add_products|added|", certainties: [], latencyMs: 1000, calls: [call()], error: null, ...over,
+    expected: [], actual: {}, signature: "add_products|added|", certainties: [], trace: { decisions: [], extracted: [], textChoices: [] }, latencyMs: 1000,
+    retries: 0, calls: [call()], error: null, ...over,
   };
 }
 
@@ -40,14 +41,30 @@ describe("buildReport", () => {
     expect(report.fields).toEqual({ outcome: { total: 2, passed: 2, accuracy: 1 }, tool: { total: 1, passed: 0, accuracy: 0 } });
   });
 
-  test("lists false notices, silent errors and wrong silent changes", () => {
+  test("lists false notices, silent errors, wrong silent changes and silent drops", () => {
     const report = buildReport([
       record({ caseId: "a", passed: false, noticeError: "false_notice" }),
       record({ caseId: "b", passed: false, noticeError: "silent_error" }),
       record({ caseId: "c", passed: false, noticeError: "wrong_change" }),
+      record({ caseId: "d", passed: false, noticeError: "missed_notice" }),
+      record({ caseId: "e", passed: false, noticeError: "dropped_request" }),
     ], meta);
 
-    expect(report.notices).toEqual({ falseNotices: ["a"], silentErrors: ["b"], wrongChanges: ["c"] });
+    expect(report.notices).toEqual({ falseNotices: ["a"], silentErrors: ["b"], wrongChanges: ["c"], missedNotices: ["d"], droppedRequests: ["e"] });
+    expect(formatSummary(report, "run.json")).toContain("1 missed notices, 1 dropped requests");
+  });
+
+  test("known limitations are listed apart and left out of every score", () => {
+    const report = buildReport([record(), record({ caseId: "txt-calcetines", pass: "text", passed: false, tags: ["known-limitation"], signature: "not_found" })], meta);
+
+    expect(report.overall).toEqual({ total: 1, passed: 1, accuracy: 1 });
+    expect(report.byPass.text).toBeUndefined();
+    expect(report.knownLimitations).toEqual([{ caseId: "txt-calcetines", passed: false, signature: "not_found" }]);
+    expect(report.failures).toEqual([]);
+  });
+
+  test("retried attempts are counted apart from latency", () => {
+    expect(buildReport([record({ retries: 2 }), record({ caseId: "b" })], meta).retries).toEqual({ messages: 1, attempts: 2 });
   });
 
   test("a consistency case flips when its runs leave different results", () => {
@@ -59,15 +76,28 @@ describe("buildReport", () => {
     expect(report.consistency).toEqual({ cases: 2, repeats: 2, flipped: [{ caseId: "a", signatures: ["x", "y"] }] });
   });
 
-  test("calibration splits certainties of correct and wrong cases per pass and source", () => {
+  test("calibration compares each certainty with its own production gate and scores it by its own field", () => {
     const report = buildReport([
-      record({ certainties: [{ source: "action", confidence: 0.95 }] }),
-      record({ caseId: "b", passed: false, certainties: [{ source: "action", confidence: 0.85 }] }),
-      record({ caseId: "c", pass: "image", certainties: [{ source: "visual", confidence: 0.7 }] }),
+      record({ certainties: [{ source: "action", confidence: 0.65, gate: 0.6 }] }),
+      // The case fails on quantity, but the tool and the product were right.
+      record({ caseId: "b", passed: false, fields: { tool: true, product: true, quantity: false },
+        certainties: [{ source: "action", confidence: 0.55, gate: 0.6 }, { source: "text", confidence: 1, gate: 0.8 }] }),
+      record({ caseId: "c", passed: false, fields: { tool: false, outcome: false }, certainties: [{ source: "action", confidence: 0.9, gate: 0.6 }] }),
+      record({ caseId: "d", pass: "image", fields: { identification: true }, certainties: [{ source: "visual", confidence: 0.7, gate: 0.8 }] }),
     ], meta);
 
-    expect(report.calibration.interpretation!.action!.atThreshold).toEqual({ acceptedCorrect: 1, acceptedWrong: 1, rejectedCorrect: 0, rejectedWrong: 0 });
-    expect(report.calibration.image!.visual!.atThreshold).toEqual({ acceptedCorrect: 0, acceptedWrong: 0, rejectedCorrect: 1, rejectedWrong: 0 });
+    expect(report.calibration.interpretation!.action).toMatchObject({ field: "tool", atGate: { gate: 0.6, acceptedCorrect: 1, acceptedWrong: 1, rejectedCorrect: 1, rejectedWrong: 0 } });
+    expect(report.calibration.interpretation!.text!.atGate).toEqual({ gate: 0.8, acceptedCorrect: 1, acceptedWrong: 0, rejectedCorrect: 0, rejectedWrong: 0 });
+    expect(report.calibration.image!.visual).toMatchObject({ field: "identification", atGate: { rejectedCorrect: 1 } });
+    expect(report.gates).toEqual({ action: 0.6, text: 0.8, visual: 0.8 });
+  });
+
+  test("«none» answers are a source of their own and certainties of unscored fields are left out", () => {
+    const report = buildReport([record({ fields: { tool: true, product: false, variant: null },
+      certainties: [{ source: "text_none", confidence: 0.91, gate: 0.8 }, { source: "variant", confidence: 0.9, gate: 0.8 }] })], meta);
+
+    expect(Object.keys(report.calibration.interpretation!)).toEqual(["text_none"]);
+    expect(report.calibration.interpretation!.text_none!.atGate).toMatchObject({ acceptedWrong: 1 });
   });
 
   test("injection cases count allowed outcomes and unit price changes", () => {
@@ -116,9 +146,9 @@ test("percentile uses the nearest rank", () => {
 });
 
 test("calibration buckets cover 0 to 1 and count 1.0 in the top bucket", () => {
-  const calibration = calibrate([{ confidence: 1, correct: true }, { confidence: 0.79, correct: false }, { confidence: 0.2, correct: true }]);
+  const calibration = calibrate([{ confidence: 1, correct: true, gate: 0.8 }, { confidence: 0.79, correct: false, gate: 0.8 }, { confidence: 0.2, correct: true, gate: 0.8 }], "tool");
 
   expect(calibration.buckets.map(({ range }) => range)).toEqual(["0.0–0.5", "0.5–0.6", "0.6–0.7", "0.7–0.8", "0.8–0.9", "0.9–1.0"]);
   expect(calibration.buckets.at(-1)).toEqual({ range: "0.9–1.0", correct: 1, wrong: 0 });
-  expect(calibration.atThreshold).toEqual({ acceptedCorrect: 1, acceptedWrong: 0, rejectedCorrect: 1, rejectedWrong: 1 });
+  expect(calibration.atGate).toEqual({ gate: 0.8, acceptedCorrect: 1, acceptedWrong: 0, rejectedCorrect: 1, rejectedWrong: 1 });
 });

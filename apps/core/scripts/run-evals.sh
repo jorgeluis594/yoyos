@@ -8,8 +8,13 @@ if [ -n "${CI:-}" ]; then
   exit 1
 fi
 
+# A variable set in the shell wins, even when empty, as in evals/lib/eval-env.ts; otherwise .env decides.
 has_key() {
-  [ -n "$(printenv "$1" || true)" ] || grep -Eq "^$1=.+" .env 2>/dev/null
+  if printenv "$1" >/dev/null; then
+    [ -n "$(printenv "$1")" ]
+  else
+    grep -Eq "^$1=.+" .env 2>/dev/null
+  fi
 }
 
 if has_key OPENAI_API_KEY && has_key CLAUDE_API_KEY; then

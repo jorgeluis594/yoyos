@@ -20,6 +20,7 @@ import type { ImageBytes, MatchConfidence, VariantQrCode } from "@core/src/featu
 import type { TextIdentification } from "@core/src/features/products/domain/text-identification";
 import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ApplyChatMessageOutcome, type ApplyChatMessageError } from "@core/src/features/orders/application/apply-chat-message";
 import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
+import { ITEM_CHOICE_MIN_CONFIDENCE } from "@core/src/features/orders/application/chat-text-tools";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
 import { chatMessageDeadlineMs } from "@core/src/features/orders/application/chat-message-policy";
 import { allocateOrderNumber, findChatOrderTargetForUpdate, findOpenChatOrderCandidate, findOrderAggregate, recordProcessedMessage, saveItemChanges, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
@@ -30,26 +31,56 @@ import { ensureCustomerForContact, lockContact } from "@core/src/features/contac
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
-import { describeVariantId, evalId, variantIdOf, type ProductKey } from "@core/evals/fixtures/catalog";
+import { describeVariantId, evalId, productById, variantIdOf, type ProductKey } from "@core/evals/fixtures/catalog";
 import type { MessageInput, OrderLine } from "@core/evals/cases/schema";
 import { evalCompanyId, evalSellerId, readRegisteredImage, registerImageFile } from "@core/evals/lib/eval-catalog";
 
 /**
  * The production code path of message-to-order, wired as `orders/composition.ts` and `products/composition.ts` wire it, against the
  * test database. Faked: image storage (fixture files) and, in the interpretation pass only, the photo identification. Nothing publishes
- * events, so no notice reaches WhatsApp or push. Model certainties are observed by wrapping the model ports, never changed.
+ * events, so no notice reaches WhatsApp or push. Model answers are observed by wrapping the model ports, never changed.
  */
 
-export type Certainty = Readonly<{ source: "action" | "visual" | "text" | "variant"; confidence: number }>;
+/**
+ * A model certainty and the production gate it is compared with. `*_none` sources are answers that pick nothing (the text or variant
+ * chooser's «none»); they are reported apart, never as confident picks. `item` is the Decision choice of an order item or an amount,
+ * kept only for the tools that ran.
+ */
+export type CertaintySource = "action" | "visual" | "text" | "text_none" | "variant" | "variant_none" | "item";
+export type Certainty = Readonly<{ source: CertaintySource; confidence: number; gate: number; detail?: string }>;
 
-const observed = new AsyncLocalStorage<Certainty[]>();
-const observe = (certainty: Certainty) => observed.getStore()?.push(certainty);
+/** What the Decision API answered for the message: the action, the three highest tool predicates (the runner-ups), and the choices. */
+export type DecisionTrace = Readonly<{
+  action: string;
+  confidence: number;
+  predicates: readonly Readonly<{ tool: string; probability: number }>[];
+  choices: Readonly<Record<string, Readonly<{ value: string | boolean; confidence: number }>>>;
+}>;
 
-/** Runs `work` and returns the model certainties observed during it. */
-export async function observingCertainties<T>(work: () => Promise<T>): Promise<Readonly<{ value: T; certainties: readonly Certainty[] }>> {
-  const certainties: Certainty[] = [];
-  const value = await observed.run(certainties, work);
-  return { value, certainties };
+/** What the models decided while one case ran: certainties, Decision answers, extracted tool arguments and text choices. */
+export type Observation = {
+  certainties: Certainty[];
+  decisions: DecisionTrace[];
+  extracted: { tool: string; args: unknown }[];
+  textChoices: { mention: string; product: string | null; confidence: number }[];
+};
+
+const newObservation = (): Observation => ({ certainties: [], decisions: [], extracted: [], textChoices: [] });
+const observed = new AsyncLocalStorage<Observation>();
+const current = () => observed.getStore();
+const observe = (certainty: Certainty) => current()?.certainties.push(certainty);
+
+/** Runs `work` and returns what the models decided during it. */
+export async function observing<T>(work: () => Promise<T>): Promise<Readonly<{ value: T; observation: Observation }>> {
+  const observation = newObservation();
+  const value = await observed.run(observation, work);
+  return { value, observation };
+}
+
+/** Forgets what an earlier attempt observed, so a retried message reports only the scored attempt. */
+function resetObservation(): void {
+  const observation = current();
+  if (observation) Object.assign(observation, newObservation());
 }
 
 const inTenant = <T>(work: () => Promise<T>) => withTenantIsolation(evalCompanyId, async () => await work());
@@ -57,11 +88,34 @@ const inTenant = <T>(work: () => Promise<T>) => withTenantIsolation(evalCompanyI
 type Env = Readonly<Record<string, string | undefined>>;
 
 function observedAi(ai: OrchestrateDependencies): OrchestrateDependencies {
-  return { ...ai, decide: async (request, signal) => {
-    const answers = await ai.decide(request, signal);
-    if (answers.success) observe({ source: "action", confidence: answers.data.action.confidence });
-    return answers;
-  } };
+  return {
+    ...ai,
+    decide: async (request, signal) => {
+      const answers = await ai.decide(request, signal);
+      if (answers.success) {
+        const { action, predicates, choices } = answers.data;
+        observe({ source: "action", confidence: action.confidence, gate: ai.minActionConfidence, detail: action.choice });
+        const ranked = Object.entries(predicates).map(([tool, probability]) => ({ tool, probability })).sort((a, b) => b.probability - a.probability).slice(0, 3);
+        current()?.decisions.push({ action: action.choice, confidence: action.confidence, predicates: ranked, choices });
+      }
+      return answers;
+    },
+    extract: async (request, signal) => {
+      const calls = await ai.extract(request, signal);
+      if (calls.success) current()?.extracted.push(...calls.data.map(({ tool, args }) => ({ tool, args })));
+      return calls;
+    },
+  };
+}
+
+/**
+ * The item and amount choices of the tools that ran, gated in production by ITEM_CHOICE_MIN_CONFIDENCE. The Decision API answers
+ * the questions of every offered tool; only those of executed tools decided anything.
+ */
+export function itemCertainties(decision: DecisionTrace | undefined, tools: readonly string[]): readonly Certainty[] {
+  if (!decision) return [];
+  return Object.entries(decision.choices).filter(([id]) => tools.includes(id.split(":")[0]!))
+    .map(([id, answer]) => ({ source: "item" as const, confidence: answer.confidence, gate: ITEM_CHOICE_MIN_CONFIDENCE, detail: `${id}=${String(answer.value)}` }));
 }
 
 export type ProductionPath = ReturnType<typeof createProductionPath>;
@@ -73,20 +127,26 @@ export function createProductionPath(env: Env) {
   const visualSetup = createVisualSearch(env);
   if (!aiTools || !textMatching || !visualSetup.visual || !visualSetup.embedder) throw new Error("The production path needs OPENAI_API_KEY");
   const ai = observedAi(aiTools);
+  const textGate = textMatching.identification.minConfidence;
   const identification = { ...textMatching.identification, chooseTextProduct: async (input: Parameters<typeof textMatching.identification.chooseTextProduct>[0], signal: AbortSignal) => {
     const choice = await textMatching.identification.chooseTextProduct(input, signal);
-    if (choice.success) observe({ source: "text", confidence: choice.data.confidence });
+    if (choice.success) {
+      const product = choice.data.productId === null ? null : productById(choice.data.productId)?.key ?? choice.data.productId;
+      observe({ source: product === null ? "text_none" : "text", confidence: choice.data.confidence, gate: textGate, detail: `${input.mention} → ${product ?? "none"}` });
+      current()?.textChoices.push({ mention: input.mention, product, confidence: choice.data.confidence });
+    }
     return choice;
   } };
   const variants = { ...textMatching.variants, chooseVariant: async (...args: Parameters<typeof textMatching.variants.chooseVariant>) => {
     const choice = await textMatching.variants.chooseVariant(...args);
-    if (choice.success) observe({ source: "variant", confidence: choice.data.confidence });
+    if (choice.success) observe({ source: choice.data.variantId === null ? "variant_none" : "variant", confidence: choice.data.confidence, gate: textMatching.variants.minConfidence,
+      detail: `${args[0].words.join(" ")} → ${choice.data.variantId === null ? "none" : Object.values(describeVariantId(choice.data.variantId)?.attributes ?? {}).join(" ")}` });
     return choice;
   } };
   const visual = { ...visualSetup.visual, readImage: readRegisteredImage, chooseProduct: async (input: Parameters<NonNullable<typeof visualSetup.visual>["chooseProduct"]>[0]) => {
     const choice = await visualSetup.visual!.chooseProduct(input);
     // Only a chosen product has a certainty to calibrate; «no product» answers carry showsProduct, gated at 0.5 instead.
-    if (choice.success && choice.data.kind === "product") observe({ source: "visual", confidence: choice.data.confidence });
+    if (choice.success && choice.data.kind === "product") observe({ source: "visual", confidence: choice.data.confidence, gate: visualSetup.visual!.minConfidence });
     return choice;
   } };
   const imageIdentification: IdentifyProductsDependencies = {
@@ -107,6 +167,9 @@ export function createProductionPath(env: Env) {
   const readiness = { visualModel: visual.model, hasActiveProducts, hasIndexedProducts };
 
   return {
+    /** The production gates the certainties are compared with, as configured by the same env. */
+    gates: { action: aiTools.minActionConfidence, toolPredicate: aiTools.minToolPredicate, text: textGate, textUnclear: textMatching.identification.unclearMinProbability,
+      variant: textMatching.variants.minConfidence, visual: visualSetup.visual.minConfidence, item: ITEM_CHOICE_MIN_CONFIDENCE },
     embedder: visualSetup.embedder as ImageEmbedder,
     identifyImage: (image: ImageBytes) => inTenant(() => identifyProductsInImage(image, imageIdentification)),
     identifyText: (mention: string, priceHint: number | null) =>
@@ -233,6 +296,8 @@ export type AppliedMessage = Readonly<{
   /** The chat's latest order after the message, or null when the chat has none. */
   order: readonly AppliedLine[] | null;
   attempts: number;
+  /** Duration of the scored (last) applyChatMessage attempt: no chat creation, order seeding or earlier attempts. */
+  latencyMs: number;
 }>;
 
 async function chatOrderLines(chatId: string): Promise<readonly AppliedLine[] | null> {
@@ -267,10 +332,14 @@ async function applyMessage(input: MessageInput, photos: "fixed" | "real", wirin
     : { text: input.text });
   // Retryable failures are retried as the queue would; each attempt repeats every paid stage, as in production.
   let attempts = 0;
+  let latencyMs: number;
   let result: AppliedMessage["result"];
   do {
     attempts += 1;
+    resetObservation();
+    const started = performance.now();
     result = await inTenant(() => applyChatMessage({ companyId: evalCompanyId as CompanyId, messageId }, dependencies(wiring, identify), AbortSignal.timeout(chatMessageDeadlineMs)));
+    latencyMs = Math.round(performance.now() - started);
   } while (!result.success && isRetryableChatMessageError(result.error) && attempts < maxAttempts);
-  return { result, order: await chatOrderLines(chat.chatId), attempts };
+  return { result, order: await chatOrderLines(chat.chatId), attempts, latencyMs };
 }

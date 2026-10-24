@@ -62,13 +62,16 @@ retried up to three attempts, like the queue would.
 ## Cases
 
 `cases/*.ts` are TypeScript tables validated with Zod (`cases/schema.ts`) when loaded. Image cases are not written by hand: each
-manifest photo is one case, expected to be found (`match`, `label`), not identified (`no_match`) or not a product (`not_product`),
-with its `scenario` as kind; the first photo of each answer and the first worn photo are tagged `consistency`. End-to-end cases pick
+manifest photo outside `catalog/` is one case, expected to be found (`match`; `label` also by the color of the QR variant), not
+identified (`no_match`) or not a product (`not_product`), with its `scenario` as kind. `catalog/` photos are what the seller
+uploads: they are indexed and never used as queries, since they would match their own embedding; the first photo of each answer and the first worn photo are tagged `consistency`. End-to-end cases pick
 their photo from the manifest by product, folder and a hint (`photo({ folder: "customer", productKey: "polo-basico", hint: "worn" })`)
 and are left out when no photo matches. A case has an id, pass, criterion
 (1 interpretation, 2 non-product photos, 3 text identification, 4 arguments, 5 visual identification), kind, tags, the
 input (text, or photo plus caption, and the open order) and one or more acceptable expectations. Tags: `consistency` (run
-`EVAL_REPEATS` times; the report lists cases whose result flipped), `injection` (prompt injection attempts), `paraphrase`.
+`EVAL_REPEATS` times; the report lists cases whose result flipped), `injection` (prompt injection attempts), `paraphrase`, and
+`known-limitation` (beyond the documented design, such as a synonym that shares no letters with the product name: reported apart
+and left out of every score).
 
 To add a case, append it to the table of its pass and run `pnpm --dir apps/core test:unit` (the case tables are parsed there).
 State only what must happen: an omitted `order` means the open order stays as it was; an omitted `tools` leaves the tool
@@ -82,19 +85,25 @@ so runs stay comparable. Prompt injection cases are not paraphrased.
 
 Tool (as a set), outcomes (as a multiset), product, variant, quantity and mentioned price are exact matches against the final
 order; every message also checks that unit prices are the catalog prices. A case passes when it matches one acceptable
-expectation. Claude judges only cases with several acceptable expectations or marked `ambiguous`, with a `{pass, score,
+expectation. `ambiguous_intent` satisfies an expectation of `no_intent`, tool included: both change nothing and send no notice. Claude judges only cases with several acceptable expectations or marked `ambiguous`, with a `{pass, score,
 reason}` verdict; for an `ambiguous` case the judge's pass also counts. Price integrity can never be overruled by the judge.
 
 ## Report
 
 `eval-results/<run>.json` holds `report` and every case `record` (input, expected, actual, fields, judge verdict, observed
-certainties, latency, model calls). The report has:
+certainties with their gates, the `trace` of what the models decided, latency, retries, model calls). The trace keeps the Decision
+answers (chosen action, the three highest tool predicates as runner-ups, item and amount choices), the arguments the extraction
+model returned (mentions, variant words, quantity, price) and each text choice. The report has:
 
-- accuracy overall and per pass, criterion, kind, expected tool, tag, and per scored field;
-- false notices (a problem notice where a change was expected), silent errors (a change without the expected notice) and
-  wrong silent changes;
-- calibration per pass and certainty source (action, text, variant, visual): buckets of correct and wrong cases and the
-  accepted/rejected split at 0.8;
+- accuracy overall and per pass, criterion, kind, expected tool, tag, and per scored field; known limitations listed apart;
+- how failed messages misled the seller: false notices (a problem notice where a change was expected), silent errors (a change
+  without the expected notice), wrong silent changes, and silent drops, where nothing changed and no notice was sent: missed
+  notices (a problem or «ready» was expected) and dropped requests (a change was expected);
+- calibration per pass and certainty source at the production gate of that source (`gates`: action `MESSAGE_ACTION_MIN_CONFIDENCE`,
+  text and variant and visual `PRODUCT_MATCH_MIN_CONFIDENCE`, item `ITEM_CHOICE_MIN_CONFIDENCE`), each certainty scored by its own
+  field (tool for the action, product for text and visual, variant, outcome for item choices) rather than by the whole case.
+  «none» answers of the text and variant choosers are their own sources (`text_none`, `variant_none`), never confident picks;
 - consistency flips, prompt injection outcomes, judge rescues and disagreements;
-- p50/p95 latency per message, model calls, tokens and estimated cost per model and role;
-- Claude's grouping of the failed cases by cause.
+- p50/p95 latency of the scored model step only (no chat creation, order seeding or retried attempts; retries are counted apart),
+  model calls, tokens and estimated cost per model and role;
+- Claude's grouping of the failed cases by cause, from the records and certainties: hypotheses, not verified causes.

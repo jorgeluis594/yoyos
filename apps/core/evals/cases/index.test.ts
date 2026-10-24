@@ -28,6 +28,15 @@ describe("eval cases", () => {
     expect(paraphrase!.tags).toContain("paraphrase");
   });
 
+  test("no paraphrase repeats its base wording", () => {
+    const copies = allCases.filter((testCase) => testCase.paraphraseOf && testCase.pass !== "text" && testCase.pass !== "image").filter((testCase) => {
+      const base = allCases.find(({ id }) => id === testCase.paraphraseOf);
+      return base?.pass === testCase.pass && "text" in base.input && JSON.stringify(base.input) === JSON.stringify(testCase.input);
+    });
+
+    expect(copies.map(({ id }) => id)).toEqual([]);
+  });
+
   test("a paraphrase of an unknown case is rejected", () => {
     expect(() => withParaphrases(baseCases, [{ of: "missing", text: "hola" }])).toThrow("missing");
   });
@@ -47,14 +56,15 @@ describe("eval cases", () => {
     expect(selectCases(allCases, { ids: [id], skipParaphrases: true }).map(({ id: caseId }) => caseId)).toEqual([id]);
   });
 
-  test("each manifest photo is an image case scored by its expected answer, with one repeated photo per answer", () => {
+  test("each manifest photo but the indexed catalog ones is an image case scored by its expected answer, with one repeated photo per answer", () => {
     const images = casesOf(manifest).filter(({ pass }) => pass === "image");
 
     expect(images.find(({ id }) => id === "img-customer-polo-basico-blanco-worn")).toMatchObject({ criterion: 5, kind: "second-color-worn", expected: [{ kind: "found", product: "polo-basico" }] });
     expect(images.find(({ id }) => id === "img-customer-polo-oversize-repost")).toMatchObject({ kind: "repost-screenshot", expected: [{ kind: "found", product: "polo-oversize" }] });
     expect(images.find(({ id }) => id === "img-negative-polo-cuello-v-rojo")?.expected).toEqual([{ kind: "not_found" }]);
     expect(images.find(({ id }) => id === "img-non-product-yape-screenshot")).toMatchObject({ criterion: 2, expected: [{ kind: "not_product" }] });
-    expect(images.find(({ id }) => id === "img-label-polo-basico-negro-m")?.expected).toEqual([{ kind: "found", product: "polo-basico" }]);
+    expect(images.some(({ input }) => "file" in input && input.file.startsWith("catalog/"))).toBe(false);
+    expect(images.find(({ id }) => id === "img-label-polo-basico-negro-m")?.expected).toEqual([{ kind: "found", product: "polo-basico", color: "Negro" }]);
     expect(images.filter(({ tags }) => tags.includes("consistency")).map(({ id }) => id).sort()).toEqual(["img-customer-polo-basico-worn",
       "img-label-polo-basico-negro-m", "img-negative-polo-cuello-v-rojo", "img-non-product-yape-screenshot"]);
   });

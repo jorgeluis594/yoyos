@@ -3,7 +3,7 @@ import { needsJudge, type EvalCase, type ImageCase, type MessageCase, type TextC
 import type { Claude, JudgeVerdict } from "@core/evals/lib/claude";
 import { appendRecord, type CaseRecord } from "@core/evals/lib/case-record";
 import { metered, type ModelCall } from "@core/evals/lib/model-meter";
-import { observingCertainties, type AppliedMessage, type Certainty, type ProductionPath } from "@core/evals/lib/production";
+import { itemCertainties, observing, type AppliedMessage, type ProductionPath } from "@core/evals/lib/production";
 import { readFixtureImage } from "@core/evals/lib/eval-catalog";
 import { noticeErrorOf, scoreImage, scoreMessage, scoreText, type ImageActual, type MessageActual, type Scored, type TextActual } from "@core/evals/lib/scorers";
 import type { OutcomeKind } from "@core/evals/cases/schema";
@@ -35,7 +35,20 @@ function describeInput(testCase: EvalCase): string {
   return `${input.text !== undefined ? `text «${input.text}»` : `${photo}${input.caption ? ` caption «${input.caption}»` : ""}`}${order}`;
 }
 
-type Evaluated = Readonly<{ actual: unknown; scored: Scored; signature: string; noticeError: CaseRecord["noticeError"]; error: string | null }>;
+type Evaluated = Readonly<{
+  actual: unknown; scored: Scored; signature: string; noticeError: CaseRecord["noticeError"]; error: string | null;
+  /** The scored model step alone (setup excluded), and the attempts it took. */
+  latencyMs: number; attempts: number;
+  /** The tools that ran, whose item choices count as certainties. */
+  tools: readonly string[];
+}>;
+
+/** Times one step of a case. */
+async function timed<T>(work: () => Promise<T>): Promise<Readonly<{ value: T; latencyMs: number }>> {
+  const started = performance.now();
+  const value = await work();
+  return { value, latencyMs: Math.round(performance.now() - started) };
+}
 
 function judgePrompt(testCase: EvalCase, actual: unknown): string {
   return JSON.stringify({
@@ -53,12 +66,13 @@ export type RunCaseContext = Readonly<{ runId: string; path: ProductionPath; cla
 async function record(context: RunCaseContext, testCase: EvalCase, repeat: number, evaluate: () => Promise<Evaluated>): Promise<CaseRecord> {
   const started = performance.now();
   // A thrown case (a harness or infrastructure failure) is recorded as failed rather than dropped from the report.
-  const { value: observed, calls } = await metered("system", () => observingCertainties(() => evaluate().catch((cause: unknown): Evaluated => {
+  const { value: observed, calls } = await metered("system", () => observing(() => evaluate().catch((cause: unknown): Evaluated => {
     const error = cause instanceof Error ? cause.message : String(cause);
-    return { actual: { error }, scored: { passed: false, fields: {}, expectationIndex: 0 }, signature: "error", noticeError: null, error };
+    return { actual: { error }, scored: { passed: false, fields: {}, expectationIndex: 0 }, signature: "error", noticeError: null, error,
+      latencyMs: Math.round(performance.now() - started), attempts: 1, tools: [] };
   })));
-  const latencyMs = Math.round(performance.now() - started);
-  const { actual, scored, signature, noticeError, error } = observed.value;
+  const { actual, scored, signature, noticeError, error, latencyMs, attempts, tools } = observed.value;
+  const { observation } = observed;
   let judge: JudgeVerdict | null = null;
   let judgeCalls: readonly ModelCall[] = [];
   if (needsJudge(testCase) && repeat === 0) {
@@ -73,8 +87,9 @@ async function record(context: RunCaseContext, testCase: EvalCase, repeat: numbe
     repeat, passed, exactPassed: scored.passed, fields: scored.fields, expectationIndex: scored.expectationIndex, judge, noticeError,
     expectedTool: testCase.pass === "interpretation" || testCase.pass === "end_to_end" ? (testCase.expected[0]?.tools?.join("+") || "-") : "-",
     input: describeInput(testCase), expected: testCase.expected, actual, signature,
-    certainties: observed.certainties.map((certainty: Certainty) => ({ source: certainty.source, confidence: certainty.confidence })),
-    latencyMs, calls: [...calls, ...judgeCalls], error,
+    certainties: [...observation.certainties, ...itemCertainties(observation.decisions.at(-1), tools)],
+    trace: { decisions: observation.decisions, extracted: observation.extracted, textChoices: observation.textChoices },
+    latencyMs, retries: attempts - 1, calls: [...calls, ...judgeCalls], error,
   };
   await appendRecord(context.runId, entry);
   return entry;
@@ -87,13 +102,14 @@ export function runMessageCase(context: RunCaseContext, testCase: MessageCase, r
     const scored = scoreMessage(actual, testCase.expected, testCase.input.order);
     const expected = testCase.expected[scored.expectationIndex]!;
     return { actual: { ...actual, attempts: applied.attempts }, scored, signature: messageSignature(actual),
-      noticeError: noticeErrorOf(scored.passed, expected.outcomes, actual.outcomes), error: actual.error };
+      noticeError: noticeErrorOf(scored.passed, expected.outcomes, actual.outcomes), error: actual.error,
+      latencyMs: applied.latencyMs, attempts: applied.attempts, tools: actual.tools };
   });
 }
 
 export function runTextCase(context: RunCaseContext, testCase: TextCase, repeat: number): Promise<CaseRecord> {
   return record(context, testCase, repeat, async () => {
-    const identified = await context.path.identifyText(testCase.input.mention, testCase.input.priceHint);
+    const { value: identified, latencyMs } = await timed(() => context.path.identifyText(testCase.input.mention, testCase.input.priceHint));
     const first = identified.success ? identified.data[0] : undefined;
     const actual: TextActual = !identified.success ? { kind: "error", code: identified.error.code }
       : !first ? { kind: "error", code: "NO_RESULT" }
@@ -102,20 +118,25 @@ export function runTextCase(context: RunCaseContext, testCase: TextCase, repeat:
             : { kind: "not_found" };
     const scored = scoreText(actual, testCase.expected);
     const signature = actual.kind === "found" ? `found:${actual.product}` : actual.kind === "not_clear" ? `not_clear:${[...actual.products].sort().join("+")}` : actual.kind;
-    return { actual, scored, signature, noticeError: null, error: actual.kind === "error" ? actual.code : null };
+    return { actual, scored, signature, noticeError: null, error: actual.kind === "error" ? actual.code : null, latencyMs, attempts: 1, tools: [] };
   });
 }
 
 export function runImageCase(context: RunCaseContext, testCase: ImageCase, repeat: number): Promise<CaseRecord> {
   return record(context, testCase, repeat, async () => {
-    const identified = await context.path.identifyImage(await readFixtureImage(testCase.input.file));
+    const image = await readFixtureImage(testCase.input.file);
+    const { value: identified, latencyMs } = await timed(() => context.path.identifyImage(image));
     const data = identified.success ? identified.data : null;
+    const labelled = (variantIds: readonly string[]): ImageActual => {
+      const read = variantIds.map(describeVariantId);
+      return { kind: "found", products: read.map((variant) => variant?.product ?? null), colors: read.map((variant) => variant?.attributes.Color ?? null) };
+    };
     const actual: ImageActual = !data ? { kind: "error", code: identified.success ? "NO_RESULT" : identified.error.code }
-      : data.kind === "found" ? { kind: "found", products: data.method === "qr" ? data.items.map((item) => describeVariantId(item.variantId)?.product ?? null) : [keyOf(data.productId)] }
+      : data.kind === "found" ? (data.method === "qr" ? labelled(data.items.map(({ variantId }) => variantId)) : { kind: "found", products: [keyOf(data.productId)], colors: [null] })
         : data.kind === "not_found" ? { kind: "not_found", reason: data.reason } : { kind: "not_product" };
     const scored = scoreImage(actual, testCase.expected);
     const signature = actual.kind === "found" ? `found:${actual.products.join("+")}` : actual.kind;
     const method = data?.kind === "found" ? data.method : null;
-    return { actual: { ...actual, method }, scored, signature, noticeError: null, error: actual.kind === "error" ? actual.code : null };
+    return { actual: { ...actual, method }, scored, signature, noticeError: null, error: actual.kind === "error" ? actual.code : null, latencyMs, attempts: 1, tools: [] };
   });
 }

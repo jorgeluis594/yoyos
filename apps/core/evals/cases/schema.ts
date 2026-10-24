@@ -90,7 +90,8 @@ const textCase = z.strictObject({
 });
 
 export const imageExpectation = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("found"), product: productKey }),
+  /** `color`: the color of the variant a QR label must yield. */
+  z.strictObject({ kind: z.literal("found"), product: productKey, color: z.string().optional() }),
   z.strictObject({ kind: z.literal("not_product") }),
   z.strictObject({ kind: z.literal("not_found") }),
 ]);

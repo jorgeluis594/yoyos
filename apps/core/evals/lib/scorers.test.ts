@@ -48,6 +48,13 @@ describe("scoreMessage", () => {
     expect(scored).toMatchObject({ passed: true, expectationIndex: 1 });
   });
 
+  test("an ambiguous intent satisfies an expectation of no purchase intent, and nothing else", () => {
+    const noIntent = { tools: ["no_intent"], outcomes: ["no_intent" as const] };
+
+    expect(scoreMessage({ tools: [], outcomes: ["ambiguous_intent"], order: [] }, [noIntent], []).passed).toBe(true);
+    expect(scoreMessage({ tools: [], outcomes: ["ambiguous_intent"], order: [] }, [{ tools: ["mark_order_ready"], outcomes: ["ready"] }], []).passed).toBe(false);
+  });
+
   test("tools are a set and outcomes a multiset", () => {
     const two = { tools: ["add_products"], outcomes: ["added" as const, "added" as const] };
 
@@ -88,13 +95,21 @@ describe("scoreText", () => {
 
 describe("scoreImage", () => {
   test("a photo is identified when it yields exactly the expected product", () => {
-    expect(scoreImage({ kind: "found", products: ["polo-basico"] }, [{ kind: "found", product: "polo-basico" }]).passed).toBe(true);
-    expect(scoreImage({ kind: "found", products: ["polo-premium"] }, [{ kind: "found", product: "polo-basico" }]).passed).toBe(false);
+    expect(scoreImage({ kind: "found", products: ["polo-basico"], colors: [null] }, [{ kind: "found", product: "polo-basico" }]).passed).toBe(true);
+    expect(scoreImage({ kind: "found", products: ["polo-premium"], colors: [null] }, [{ kind: "found", product: "polo-basico" }]).passed).toBe(false);
+  });
+
+  test("a QR label must also yield the variant of its color", () => {
+    const label = [{ kind: "found" as const, product: "polo-basico" as const, color: "Negro" }];
+
+    expect(scoreImage({ kind: "found", products: ["polo-basico"], colors: ["Negro"] }, label)).toMatchObject({ passed: true, fields: { identification: true, color: true } });
+    expect(scoreImage({ kind: "found", products: ["polo-basico"], colors: ["Blanco"] }, label)).toMatchObject({ passed: false, fields: { identification: true, color: false } });
+    expect(scoreImage({ kind: "not_found", reason: "low_confidence" }, label).fields).toEqual({ identification: false, color: false });
   });
 
   test("a hard negative passes as not found and fails when matched", () => {
     expect(scoreImage({ kind: "not_found", reason: "low_confidence" }, [{ kind: "not_found" }]).passed).toBe(true);
-    expect(scoreImage({ kind: "found", products: ["polo-basico"] }, [{ kind: "not_found" }]).passed).toBe(false);
+    expect(scoreImage({ kind: "found", products: ["polo-basico"], colors: [null] }, [{ kind: "not_found" }]).passed).toBe(false);
   });
 });
 
@@ -112,7 +127,15 @@ describe("noticeErrorOf", () => {
     expect(noticeErrorOf(false, ["removed"], ["quantity_lowered"])).toBe("wrong_change");
   });
 
-  test("a passed case, or a miss that changes nothing, misleads nobody", () => {
+  test("nothing changed and no notice is a silent drop: a missed notice or a dropped request", () => {
+    expect(noticeErrorOf(false, ["variant_only"], ["ambiguous_intent"])).toBe("missed_notice");
+    expect(noticeErrorOf(false, ["added"], ["ambiguous_intent"])).toBe("dropped_request");
+    expect(noticeErrorOf(false, ["ready"], ["ambiguous_intent"])).toBe("missed_notice");
+    // Something changed, so it is not a drop: the lost «ready» counts as a wrong silent change.
+    expect(noticeErrorOf(false, ["removed", "ready"], ["removed"])).toBe("wrong_change");
+  });
+
+  test("a passed case, or a miss where nothing was expected to change, misleads nobody", () => {
     expect(noticeErrorOf(true, ["added"], ["variant_missing"])).toBeNull();
     expect(noticeErrorOf(false, ["no_intent"], ["ambiguous_intent"])).toBeNull();
   });

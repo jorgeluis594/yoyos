@@ -49,8 +49,11 @@ const endToEndTable = (photo: (pick: PhotoPick) => Readonly<{ file: string }>): 
     expected: [{ tools: ["add_products"], outcomes: ["added", "added"], order: [after("polo-basico", M_NEGRO, 2), after("gorra-trucker", { Color: "Rojo" })] }] },
   { id: "e2e-text-price-hint", pass: "end_to_end", criterion: 3, kind: "price-hint", tags: ["consistency"], input: { text: "el polo de 35 en M negro" },
     expected: [{ tools: ["add_products"], outcomes: ["added"], order: [after("polo-basico", M_NEGRO, 1, { amount: 35, units: 1 })] }] },
-  { id: "e2e-text-two-candidates", pass: "end_to_end", criterion: 3, kind: "two-candidates", input: { text: "quiero un polo" },
+  { id: "e2e-text-two-candidates", pass: "end_to_end", criterion: 3, kind: "two-candidates", input: { text: "quiero una gorra" },
     expected: [{ tools: ["add_products"], outcomes: ["not_clear"] }] },
+  { id: "e2e-text-five-polos", pass: "end_to_end", criterion: 3, kind: "many-candidates", input: { text: "quiero un polo" },
+    ambiguous: "Five polos match «polo»: «Producto no reconocido» or «Producto no claro» both notify the seller; adding one does not.",
+    expected: [{ tools: ["add_products"], outcomes: ["not_identified"] }, { tools: ["add_products"], outcomes: ["not_clear"] }] },
   { id: "e2e-text-nonexistent", pass: "end_to_end", criterion: 3, kind: "nonexistent", input: { text: "quiero una casaca de jean talla M" },
     expected: [{ tools: ["add_products"], outcomes: ["not_identified"] }] },
 ];
