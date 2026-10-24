@@ -83,7 +83,7 @@ const es = {
     label: "Enlace del pedido", copy: "Copiar enlace", open: "Abrir enlace en una pestaña nueva", copied: "Enlace copiado",
     help: "Comparte este enlace con el comprador para que confirme y pague.",
     subdomainRequired: "Elige el link de tu tienda para compartir este pedido.", goToAppearance: "Ir a Apariencia de la tienda",
-    unavailable: "No se pudo obtener el enlace. Inténtalo de nuevo.",
+    unavailable: "No se pudo obtener el enlace. Inténtalo de nuevo.", retry: "Reintentar",
   },
   orders: {
     estimatedBalance: "Saldo referencial", deliveryChargePending: "El cargo de entrega se calculará y añadirá al guardar.",
@@ -231,7 +231,7 @@ const pt = {
     label: "Link do pedido", copy: "Copiar link", open: "Abrir link em uma nova aba", copied: "Link copiado",
     help: "Compartilhe este link com o comprador para que ele confirme e pague.",
     subdomainRequired: "Escolha o link da sua loja para compartilhar este pedido.", goToAppearance: "Ir para Aparência da loja",
-    unavailable: "Não foi possível obter o link. Tente novamente.",
+    unavailable: "Não foi possível obter o link. Tente novamente.", retry: "Tentar novamente",
   },
   orders: {
     estimatedBalance: "Saldo estimado", deliveryChargePending: "O valor da entrega será calculado e adicionado ao salvar.",

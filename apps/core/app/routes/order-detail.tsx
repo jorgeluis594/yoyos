@@ -15,7 +15,7 @@ import { Badge } from "@core/app/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@core/app/components/ui/table";
-import { OrderLinkCard, type OrderLink } from "@core/app/components/order-link-card";
+import { OrderLinkCard, orderLinkState, type OrderLink } from "@core/app/components/order-link-card";
 import { catalogPublicationAnchor } from "@core/app/components/store-appearance-editor-actions";
 import { TextLink } from "@core/app/components/ui/text-link";
 import { z } from "zod";
@@ -292,8 +292,6 @@ export default function OrderDetail() {
             {!order.cancelled && order.balanceDue.amount > 0 && <section className="flex flex-col gap-3 border-t pt-4"><h3 className="text-sm font-semibold">{t("orders.manualPayment")}</h3><PaymentForm paymentId={manualPaymentId} source="manual" currency={order.total.currency} balance={order.balanceDue.amount} /></section>}
           </CardContent>
         </Card>
-
-        <OrderLinkCard cancelled={order.cancelled} confirmed={!!order.checkoutConfirmedAt} link={link} />
       </div>
 
       <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
@@ -301,6 +299,8 @@ export default function OrderDetail() {
           <CardHeader><CardTitle id="order-customer-title">{t("orders.customer")}</CardTitle></CardHeader>
           <CardContent className="flex flex-col gap-2"><p className="flex items-center gap-1.5 break-words font-medium">{order.source === "whatsapp" && <WhatsAppMark />}{orderBuyerText(order.buyer, t("orders.generalPublic"))}</p>{order.buyer?.phone && <dl className="text-sm"><dt className="text-muted-foreground">{t("orders.phoneAtSale")}</dt><dd className="mt-1 break-words">{order.buyer.phone}</dd></dl>}</CardContent>
         </Card>
+
+        <OrderLinkCard state={orderLinkState(order)} link={link} />
 
         <Card role="region" aria-labelledby="order-delivery-title" className="min-w-0 max-xl:order-4">
           <CardHeader className="flex-row flex-wrap items-center justify-between gap-3"><CardTitle id="order-delivery-title">{t("orders.delivery")}</CardTitle>{editable && settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) && <Button type="button" aria-expanded={editingDelivery} aria-controls="delivery-editor" onClick={() => setEditingDelivery(!editingDelivery)}>{t(editingDelivery ? "orderDetail.closeEditor" : order.delivery ? "orderDetail.editDelivery" : "orderDelivery.assign")}</Button>}</CardHeader>

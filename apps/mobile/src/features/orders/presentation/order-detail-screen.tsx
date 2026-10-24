@@ -10,7 +10,7 @@ import type { CancellationRequestError, CancellationRecoveryError } from "@mobil
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { PaymentFields, type PaymentFieldsValue } from "@mobile/features/orders/presentation/payment-fields";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, View } from "react-native";
+import { AccessibilityInfo, ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import * as Crypto from "expo-crypto";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -59,7 +59,7 @@ export default function OrderDetailScreen() {
   const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [checkoutLink, setCheckoutLink] = useState<CheckoutLinkState>({ kind: "loading" });
+  const [linkResult, setLinkResult] = useState<Readonly<{ orderId: string; link: Exclude<CheckoutLinkState, { kind: "loading" }> }> | null>(null);
   const [linkRefresh, setLinkRefresh] = useState(0);
   const linkRequest = useRef(0);
   const checkoutGeneration = useRef(0);
@@ -87,6 +87,8 @@ export default function OrderDetailScreen() {
   useLayoutEffect(() => { currentScope.current = scope; }, [scope]);
   const cancellationBusy = cancellation.kind === "submitting" || cancellation.kind === "verifying";
   const cancellationBlocked = cancellationBusy || cancellation.kind === "uncertain" || detailRefreshFailed;
+  // A result belongs to the order it was read for, so another order never shows this one's link while its own loads.
+  const checkoutLink: CheckoutLinkState = linkResult && linkResult.orderId === order?.id ? linkResult.link : { kind: "loading" };
   const { copied, copy: copyLink, open: openLink } = useCopyLink(checkoutLink.kind === "ready" ? checkoutLink.url : null);
   const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling;
   const reload = useCallback(async () => {
@@ -164,6 +166,7 @@ export default function OrderDetailScreen() {
   // The link is a read of the order's current brand-host URL, so it loads with the screen and again on every return (a subdomain may have been chosen meanwhile).
   const linkOrderId = order?.id;
   const linkCancelled = order?.cancelled ?? false;
+  useEffect(() => { if (copied) AccessibilityInfo.announceForAccessibility(translations.t("checkoutCopied")); }, [copied]);
   useEffect(() => {
     if (!linkOrderId || linkCancelled) return;
     const request = ++linkRequest.current;
@@ -171,9 +174,9 @@ export default function OrderDetailScreen() {
       try {
         const result = await orders.enableOrderCheckout(linkOrderId);
         if (request !== linkRequest.current) return;
-        setCheckoutLink(result.success ? { kind: "ready", url: result.data.url }
-          : result.error.code === "SUBDOMAIN_REQUIRED" ? { kind: "subdomain_required" } : { kind: "error" });
-      } catch { if (request === linkRequest.current) setCheckoutLink({ kind: "error" }); }
+        setLinkResult({ orderId: linkOrderId, link: result.success ? { kind: "ready", url: result.data.url }
+          : result.error.code === "SUBDOMAIN_REQUIRED" ? { kind: "subdomain_required" } : { kind: "error" } });
+      } catch { if (request === linkRequest.current) setLinkResult({ orderId: linkOrderId, link: { kind: "error" } }); }
     })();
     return () => { linkRequest.current += 1; };
   }, [linkOrderId, linkCancelled, linkRefresh]);
@@ -231,7 +234,7 @@ export default function OrderDetailScreen() {
   const format = (value: { amount: number; currency: string }) => money(value.amount, value.currency, locale);
   const reports = order.payments.filter((payment) => payment.status === "reported");
   const canEditDelivery = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
-  const checkoutState = t(order.cancelled ? "checkoutCancelled" : order.checkoutConfirmedAt ? "checkoutConfirmed" : "checkoutPending");
+  const checkoutState = order.cancelled ? t("checkoutCancelled") : order.checkoutConfirmedAt ? t("checkoutConfirmed") : order.status === "active" ? t("checkoutPending") : null;
   const openPayments = () => {
     setPaymentsOpen(true);
     scroll.current?.scrollTo({ y: summaryPosition.current + paymentPosition.current, animated: false });
@@ -392,7 +395,10 @@ export default function OrderDetailScreen() {
         </View> : null}
         <View style={[styles.card, styles.section, cardStyle]}>
           <View><ThemedText style={styles.semibold} accessibilityRole="header">{t('checkoutTitle')}</ThemedText>
-            <ThemedText type="small" themeColor="textSecondary">{checkoutState}</ThemedText></View>
+            {checkoutState ? <ThemedText type="small" themeColor="textSecondary">{checkoutState}</ThemedText> : null}</View>
+          {!order.cancelled && checkoutLink.kind === "loading" ? <View style={styles.linkLoading} accessibilityRole="progressbar" accessibilityLabel={t('checkoutLoading')}>
+            <ActivityIndicator color={theme.text} /><ThemedText type="small" themeColor="textSecondary">{t('checkoutLoading')}</ThemedText>
+          </View> : null}
           {!order.cancelled && checkoutLink.kind === "ready" ? <>
             <ThemedText type="small" selectable>{checkoutLink.url}</ThemedText>
             <Button variant="secondary" onPress={() => void copyLink()}>{t('copyCheckoutLink')}</Button>
@@ -407,7 +413,7 @@ export default function OrderDetailScreen() {
           </> : null}
           {!order.cancelled && checkoutLink.kind === "error" ? <>
             <ThemedText accessibilityRole="alert">{t('checkoutLinkError')}</ThemedText>
-            <Button variant="secondary" onPress={() => { setCheckoutLink({ kind: "loading" }); setLinkRefresh(count => count + 1); }}>{t('retry')}</Button>
+            <Button variant="secondary" onPress={() => { setLinkResult(null); setLinkRefresh(count => count + 1); }}>{t('retry')}</Button>
           </> : null}
         </View>
         <View style={[styles.card, styles.section, cardStyle]}>
@@ -505,6 +511,7 @@ const styles = StyleSheet.create({
   deliverySummary: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   deliveryIdentity: { flexGrow: 1, flexShrink: 1, flexBasis: 150 },
   action: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 4, borderRadius: 6, borderWidth: 2 },
+  linkLoading: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 12 },
   receiptNotice: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   section: { gap: 10 },
   product: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8, paddingVertical: 12 },

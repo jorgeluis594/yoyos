@@ -1,4 +1,4 @@
-import { Alert, Linking, Share, StyleSheet } from "react-native";
+import { AccessibilityInfo, Alert, Linking, Share, StyleSheet } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
@@ -249,6 +249,7 @@ test("home details show historical address, district, instructions and seller al
 const linkUrl = `https://fantasio.yoyos.lat/checkout/${initialOrder.companyId}/${mockId}`;
 
 test("the order link shows when the screen opens, without a get-link step or a disclosure", async () => {
+  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", completedAt: null, deliveredAt: null };
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Pendiente de confirmación");
   expect(await screen.findByText(linkUrl)).toBeTruthy();
@@ -651,4 +652,33 @@ describe("WhatsApp orders", () => {
     expect(screen.queryByText("—")).toBeNull();
     expect(screen.queryByText("Público general")).toBeNull();
   });
+});
+
+test("while the link loads the card says so instead of looking empty", async () => {
+  let release: (value: unknown) => void = () => undefined;
+  mockEnableCheckout.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const screen = render(<OrderDetailScreen />);
+  expect(await screen.findByText("Cargando enlace…")).toBeTruthy();
+  expect(screen.getByText("Enlace del pedido")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Copiar enlace" })).toBeNull();
+  await act(async () => release({ success: true, data: { url: linkUrl } }));
+  expect(await screen.findByText(linkUrl)).toBeTruthy();
+  expect(screen.queryByText("Cargando enlace…")).toBeNull();
+});
+
+test("a completed order the buyer never confirmed shows no pending state, like the history", async () => {
+  mockOrder = { ...initialOrder, checkoutEnabledAt: "2026-10-05T00:00:00.000Z" };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText(linkUrl);
+  expect(screen.queryByText("Pendiente de confirmación")).toBeNull();
+  expect(screen.queryByText("Confirmado por el comprador")).toBeNull();
+});
+
+test("the copy confirmation is also announced for VoiceOver", async () => {
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => undefined);
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText(linkUrl);
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Copiar enlace" })));
+  expect(announce).toHaveBeenCalledWith("Enlace copiado");
+  announce.mockRestore();
 });
