@@ -100,3 +100,10 @@ describe("eval cases", () => {
     expect([...scenarios]).toEqual(expect.arrayContaining(["worn", "in_hand", "repost", "screen", "bad", "color_variant_worn"]));
   });
 });
+
+test("second-color worn photos are known limitations, left out of the score", () => {
+  const second = allCases.filter(({ pass, kind }) => pass === "image" && kind === "color_variant_worn");
+
+  expect(second.length).toBeGreaterThan(0);
+  expect(second.every(({ tags }) => tags?.includes("known-limitation"))).toBe(true);
+});

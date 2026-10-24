@@ -41,8 +41,13 @@ function extraCallsOf(file: ResultFile): readonly ModelCall[] {
     durationMs: 0, status: 200 }];
 }
 
-export function rebuildResult(file: ResultFile): ResultFile {
-  const records = file.records.map((record) => backfillVisualPick(rescoreNotice(record)));
+/** Tags a record `known-limitation` when its base case is one now, so a later decision is reported without a rerun. */
+const withKnownLimitation = (knownLimitations: ReadonlySet<string>) => (record: CaseRecord): CaseRecord =>
+  knownLimitations.has(record.baseId) && !record.tags.includes("known-limitation") ? { ...record, tags: [...record.tags, "known-limitation"] } : record;
+
+/** `knownLimitations`: base case ids tagged `known-limitation` in the current cases. */
+export function rebuildResult(file: ResultFile, knownLimitations: ReadonlySet<string> = new Set()): ResultFile {
+  const records = file.records.map((record) => withKnownLimitation(knownLimitations)(backfillVisualPick(rescoreNotice(record))));
   const { runId, startedAt, finishedAt, settings, errorGroups } = file.report;
   const extraCalls = extraCallsOf(file);
   return { report: buildReport(records, { runId, startedAt, finishedAt, settings }, extraCalls, errorGroups), records, extraCalls };

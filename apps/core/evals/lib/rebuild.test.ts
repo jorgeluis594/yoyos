@@ -39,3 +39,12 @@ test("an old image record that met the visual gate gets its found product as the
   expect(records[0]!.certainties[0]!.pick).toBe("polo-rayas");
   expect(report.calibration.image!.visual!.atGate).toMatchObject({ acceptedCorrect: 1, unverified: 1 });
 });
+
+test("a case that is now a known limitation leaves the score on rebuild", () => {
+  const meta = { runId: "run", startedAt: "", finishedAt: "", settings: {} };
+
+  const { report } = rebuildResult({ report: buildReport([record], meta), records: [record] }, new Set([record.baseId]));
+
+  expect(report.overall.total).toBe(0);
+  expect(report.knownLimitations).toHaveLength(1);
+});

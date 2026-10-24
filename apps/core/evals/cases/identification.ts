@@ -79,6 +79,12 @@ const indistinguishablePair: readonly ProductKey[] = ["polo-basico", "polo-premi
 const inPair = (entry: ManifestEntry) => entry.folder === "customer" && entry.productKey !== null && indistinguishablePair.includes(entry.productKey);
 
 /**
+ * Founder decision (2026-10-24): a worn photo in the product's second color (`color_variant_worn`) is a known limitation while the
+ * catalog indexes one photo per product, in one color; a photo per color is a separate task. Reported apart, never scored.
+ */
+const secondColor = (entry: ManifestEntry) => entry.scenario === "color_variant_worn";
+
+/**
  * One image case per manifest photo (fixtures/image-manifest.ts) except the `catalog/` ones: those are what the seller uploads and are
  * indexed, so as queries they would match their own embedding. The first photo of each expected answer, and the first worn photo,
  * also run for consistency, so a new manifest keeps the repeated subset small and stable.
@@ -90,7 +96,8 @@ export function imageCasesFrom(manifest: ImageManifest | null): readonly EvalCas
     .concat(queries.find(({ scenario }) => scenario === "worn")).filter(Boolean));
   const fromManifest = queries.map((entry): EvalCaseInput => ({
     id: caseIdOf(entry), pass: "image", criterion: criterionOf(entry), kind: entry.scenario,
-    tags: [`folder:${entry.folder}`, ...(entry.local ? ["local"] : []), ...(inPair(entry) ? ["indistinguishable-pair"] : []), ...(repeated.has(entry) ? ["consistency"] : [])],
+    tags: [`folder:${entry.folder}`, ...(entry.local ? ["local"] : []), ...(inPair(entry) ? ["indistinguishable-pair"] : []),
+      ...(secondColor(entry) ? ["known-limitation"] : []), ...(repeated.has(entry) ? ["consistency"] : [])],
     input: { file: entry.file }, expected: inPair(entry) ? [expectationOf(entry), { kind: "not_found" }] : [expectationOf(entry)],
   }));
   return [...fromManifest, ...staticImageCases];

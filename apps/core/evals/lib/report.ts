@@ -260,7 +260,7 @@ export function formatSummary(report: EvalReport, path: string): string {
     `Eval run ${report.runId}`,
     line("overall", report.overall),
     ...section("By pass", report.byPass),
-    ...(report.byPass.end_to_end ? [line("end_to_end photo messages", report.endToEnd.photo), line("end_to_end text messages", report.endToEnd.text)] : []),
+    ...(report.endToEnd.photo.total && report.endToEnd.text.total ? [line("end_to_end photo messages", report.endToEnd.photo), line("end_to_end text messages", report.endToEnd.text)] : []),
     ...section("By criterion", report.byCriterion),
     ...section("By expected tool", report.byExpectedTool),
     ...section("Fields", report.fields),

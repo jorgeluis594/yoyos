@@ -115,6 +115,6 @@ model returned (mentions, variant words, quantity, price) and each text choice. 
 - Claude's grouping of the failed cases by cause, from the records and certainties: hypotheses, not verified causes.
 
 `pnpm --dir apps/core eval:report eval-results/<run>.json [...]` rebuilds a saved run's report from its records with no model call
-(`lib/rebuild.ts`): notices are rescored under the current rules and the calibration regraded; Claude's error groups and cost are
+(`lib/rebuild.ts`): notices are rescored under the current rules, the calibration regraded and current `known-limitation` tags applied; Claude's error groups and cost are
 kept. The first rebuild keeps the original file as `<run>.orig.json`. Records from before visual picks were kept get one only when
 the photo was found above the gate; the others stay ungraded.
