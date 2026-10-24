@@ -222,6 +222,28 @@ describe("applyChatMessage: photos", () => {
     expect(quantityOf(h.store, poloM.variantId)).toBeUndefined();
   });
 
+  test("int-photo-label-other-size: «en talla L» on the M Negro label adds L Negro", async () => {
+    const negroM = variant(5, "Polo básico", { Talla: "M", Color: "Negro" });
+    const negroL = variant(6, "Polo básico", { Talla: "L", Color: "Negro" });
+    const blancoL = variant(7, "Polo básico", { Talla: "L", Color: "Blanco" });
+    const h = harness({ message: photoMessage({ caption: "en talla L" }), identification: qr(negroM, productPolo), catalog: [{ productId: productPolo, name: "Polo básico", variants: [negroM, negroL, blancoL] }],
+      decision: () => answer("add_shown_product_with_details"),
+      extraction: () => [{ tool: "add_shown_product_with_details", args: { variantWords: ["talla", "L"], quantity: null, perEach: false, mentionedPrice: null } }] });
+    await h.run();
+    expect(quantityOf(h.store, negroL.variantId)).toBe(1);
+    expect(h.variantChoices).toEqual([]);
+  });
+
+  test("int-single-color-product: a text add names only the size when the color has a single sellable value", async () => {
+    const beigeM = variant(5, "Polo básico", { Talla: "M", Color: "Beige" });
+    const beigeL = variant(6, "Polo básico", { Talla: "L", Color: "Beige" });
+    const h = harness({ message: textMessage("un polo talla L"), identify: { polo: { kind: "found", productId: productPolo, confidence: 0.9 } }, catalog: [{ productId: productPolo, name: "Polo básico", variants: [beigeM, beigeL] }],
+      decision: () => answer("add_products"), extraction: () => [{ tool: "add_products", args: { lines: [{ productMention: "polo", variantWords: ["talla", "L"], quantity: null, mentionedPrice: null }] } }] });
+    await h.run();
+    expect(quantityOf(h.store, beigeL.variantId)).toBe(1);
+    expect(h.variantChoices).toEqual([]);
+  });
+
   test("adds one item per variant when two QR labels of a product are sent with a caption that names a variant", async () => {
     const identification: ImageIdentification = { kind: "found", method: "qr", unknownCodes: [], items: [{ ...poloM, productId: productPolo }, { ...poloL, productId: productPolo }] };
     const h = harness({ message: photoMessage({ caption: "2 en talla M" }), identification, decision: () => answer("add_shown_product_with_details"),
@@ -579,8 +601,8 @@ describe("applyChatMessage: text tools", () => {
   });
 
   test("reports quantity above limit for a text of 1000 units", async () => {
-    const h = harness({ message: textMessage("quiero 1000 polos negros M"), identify: { polos: found(productPolo) }, decision: () => decided("add_products"),
-      extraction: () => [addCall(add("polos", ["negros", "M"], 1000))] });
+    const h = harness({ message: textMessage("quiero 1000 polos M"), identify: { polos: found(productPolo) }, decision: () => decided("add_products"),
+      extraction: () => [addCall(add("polos", ["M"], 1000))] });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "quantity_above_limit", productId: productPolo }], noticeDue: true, createdOrder: false });
   });
 

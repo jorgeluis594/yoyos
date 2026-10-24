@@ -44,29 +44,37 @@ export const hasWords = (words: readonly string[]) => words.some((word) => norma
 
 export type VariantByNamedValues = Readonly<{ kind: "named"; item: CatalogItem }> | Readonly<{ kind: "not_sellable" }> | Readonly<{ kind: "undecided" }>;
 
+/** Words that carry no variant meaning in a request to change or choose one («cámbialo a talla L», «mejor que sea L»). */
+const fillerWords: ReadonlySet<string> = new Set(["a", "de", "en", "la", "el", "lo", "las", "los", "un", "una", "que", "sea", "mejor", "por", "para", "quiero",
+  "cambialo", "cambiala", "cambia", "cambiar", "pasalo", "pasala", "ponlo", "ponla", "talla", "color", "tamano"]);
+
 const valuesOf = (variants: readonly CatalogItem[], attribute: string) => [...new Set(variants.map(({ variantAttributes }) => variantAttributes[attribute] ?? ""))];
+const tokensOf = (text: string) => normalize(text).split(" ").filter((token) => token !== "");
+const containsWords = (text: string, part: string) => ` ${normalize(text)} `.includes(` ${normalize(part)} `);
+
+/** The values of `attribute` the words name; a value contained as whole words in another named value is part of it, not a second one. */
+function namedValuesOf(variants: readonly CatalogItem[], attribute: string, spoken: string): readonly string[] {
+  const named = valuesOf(variants, attribute).filter((value) => normalize(value) !== "" && containsWords(spoken, value));
+  return named.filter((value) => !named.some((other) => other !== value && containsWords(other, value)));
+}
 
 /**
  * The variant the words point at when they name only some attribute values: the named values override, the other attributes
  * keep the value of `base` (the variant being changed or the one a QR selected) and an attribute with a single sellable value
- * is filled in. `undecided` when the words name nothing or the rest cannot be settled; `not_sellable` when the combination does not exist.
+ * is filled in. `undecided` (the model decides) when the words name nothing, name two values of one attribute, hold any word that is
+ * neither a named value, an attribute name nor a filler, or leave an attribute open; `not_sellable` when the combination does not exist.
  */
 export function variantByNamedValues(variants: readonly CatalogItem[], words: readonly string[], base: CatalogItem | null): VariantByNamedValues {
-  const spoken = ` ${words.map(normalize).join(" ")} `;
-  const wanted = new Map<string, string>();
-  let namedAny = false;
-  for (const attribute of attributeNamesOf(variants)) {
-    const values = valuesOf(variants, attribute);
-    const named = values.filter((value) => normalize(value) !== "" && spoken.includes(` ${normalize(value)} `))
-      .sort((a, b) => normalize(b).length - normalize(a).length);
-    const [value] = named;
-    if (value !== undefined) { wanted.set(attribute, value); namedAny = true; continue; }
-    const [single] = values;
-    if (values.length === 1 && single !== undefined) wanted.set(attribute, single);
-    else if (base?.variantAttributes[attribute] !== undefined) wanted.set(attribute, base.variantAttributes[attribute]!);
-  }
-  if (!namedAny) return { kind: "undecided" };
-  const matches = variants.filter(({ variantAttributes }) => [...wanted].every(([attribute, value]) => (variantAttributes[attribute] ?? "") === value));
+  const spoken = words.map(normalize).join(" ");
+  const attributes = attributeNamesOf(variants).map((attribute) => ({ attribute, values: valuesOf(variants, attribute), named: namedValuesOf(variants, attribute, spoken) }));
+  const understood = new Set([...attributes.flatMap(({ named }) => named.flatMap(tokensOf)), ...attributes.flatMap(({ attribute }) => tokensOf(attribute)), ...fillerWords]);
+  const anyNamed = attributes.some(({ named }) => named.length > 0);
+  if (!anyNamed || attributes.some(({ named }) => named.length > 1) || !tokensOf(spoken).every((token) => understood.has(token))) return { kind: "undecided" };
+  const wanted = attributes.flatMap(({ attribute, values, named }) => {
+    const value = named[0] ?? (values.length === 1 ? values[0] : base?.variantAttributes[attribute]);
+    return value === undefined ? [] : [[attribute, value] as const];
+  });
+  const matches = variants.filter(({ variantAttributes }) => wanted.every(([attribute, value]) => (variantAttributes[attribute] ?? "") === value));
   const [match] = matches;
   if (!match) return { kind: "not_sellable" };
   return matches.length === 1 ? { kind: "named", item: match } : { kind: "undecided" };

@@ -120,6 +120,29 @@ describe("resolveVariant", () => {
       expect(h.asked).toEqual([]);
     });
 
+    test("two separate values of one attribute («M o L») go to the model instead of picking one", async () => {
+      const h = harness({ variantId: null, confidence: 0.9 });
+      expect(await resolveVariant({ product: sizes, words: ["M o L"], preselectedVariantId: null }, h.deps, signal)).toEqual(ok({ kind: "not_available" }));
+      expect(h.asked).toEqual([["M o L"]]);
+    });
+
+    test("«cámbialo de blanco a negro» never ends as the item's own variant", async () => {
+      const h = harness({ variantId: "variant-1" as VariantId, confidence: 0.9 });
+      await resolveVariant({ product: polos, words: ["de blanco a negro"], preselectedVariantId: "variant-4" as VariantId }, h.deps, signal);
+      expect(h.asked).toEqual([["de blanco a negro"]]);
+    });
+
+    test("a value contained in a longer named value is part of it («Azul» in «Azul marino»)", async () => {
+      const blues = product(variant(1, { Color: "Azul" }), variant(2, { Color: "Azul marino" }));
+      expect(await resolveVariant({ product: blues, words: ["azul marino"], preselectedVariantId: null }, harness().deps, signal)).toEqual(ok({ kind: "resolved", item: blues.variants[1] }));
+    });
+
+    test("«negro XL» on a M Blanco item is never silently M Negro when XL is not sold", async () => {
+      const h = harness({ variantId: null, confidence: 0.9 });
+      expect(await resolveVariant({ product: polos, words: ["negro", "XL"], preselectedVariantId: "variant-4" as VariantId }, h.deps, signal)).toEqual(ok({ kind: "not_available" }));
+      expect(h.asked).toEqual([["negro", "XL"]]);
+    });
+
     test("without a base variant the unnamed attribute stays open and the model decides as before", async () => {
       const h = harness({ variantId: null, confidence: 0.9 });
       expect(await resolveVariant({ product: polos, words: ["talla", "L"], preselectedVariantId: null }, h.deps, signal)).toEqual(ok({ kind: "not_available" }));
