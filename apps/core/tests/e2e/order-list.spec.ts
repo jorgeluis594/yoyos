@@ -45,7 +45,7 @@ test("seller scans units and independent states, searches orders and combines wo
     const row = (kind: string) => rows.filter({ hasText: `#${summaries.find((summary) => summary.kind === kind)!.number}` });
     await browserExpect(page.getByRole("navigation", { name: "Vistas de pedidos" }).getByRole("link", { name: "Todos", exact: true })).toHaveAttribute("aria-current", "page");
     await browserExpect(rows).toHaveCount(6);
-    await browserExpect(table.getByRole("columnheader")).toHaveText(["Pedido", "Cliente", "Fecha", "Unidades", "Total"]);
+    await browserExpect(table.getByRole("columnheader")).toHaveText(["", "Pedido", "Cliente", "Distrito", "Fecha", "Unidades", "Total"]);
     await browserExpect(row("partial").locator('[data-column="itemCount"]')).toHaveText("5");
     await row("partial").locator("summary").first().focus();
     await page.keyboard.press("Enter");

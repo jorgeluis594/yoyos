@@ -6,7 +6,7 @@ import { cn } from "cn";
 import { z } from "zod";
 import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
-import { BadgeDollarSign, Check, CircleCheck, CircleX, Coins, PackageCheck, Send, SlidersHorizontal, Truck } from "lucide-react";
+import { BadgeDollarSign, Check, CircleCheck, CircleX, Coins, PackageCheck, Send, SlidersHorizontal, TriangleAlert, Truck } from "lucide-react";
 import { Badge } from "@core/app/components/ui/badge";
 import { listOrderAggregatesSchema, orderListLoaderSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc } from "@shared/orders-date";
@@ -25,6 +25,12 @@ import { Pagination, PaginationContent, PaginationItem, PaginationNext, Paginati
 import { Empty, EmptyDescription, EmptyContent } from "@core/app/components/ui/empty";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@core/app/components/ui/select";
 import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
+import { Checkbox } from "@core/app/components/ui/checkbox";
+import { titleCase } from "@core/app/components/zone-entries";
+import { DispatchLabelPrintDialog } from "@core/src/features/dispatch-labels/presentation/dispatch-label-print-dialog";
+import { OrderLabelSelectionBar } from "@core/src/features/orders/presentation/order-label-selection-bar";
+import { pageSelectionState, selectionScope, skipReason, summarizeSelection, type SelectedOrder } from "@core/src/features/orders/presentation/order-label-selection";
+import { useOrderLabelSelection } from "@core/src/features/orders/presentation/use-order-label-selection";
 
 const salesTimeZone = "America/Lima";
 export async function loader({ request, context }: LoaderFunctionArgs) {
@@ -59,7 +65,16 @@ export default function OrderList() {
   const { list, filters, base } = useLoaderData<typeof loader>();
   const { search } = useLocation();
   type Sale = (typeof list.items)[number];
+  const labels = useOrderLabelSelection(selectionScope(base, filters));
+  const [printIds, setPrintIds] = useState<readonly string[]>([]);
+  const [printOpen, setPrintOpen] = useState(false);
+  const pageOrders: SelectedOrder[] = list.items;
+  const summary = summarizeSelection(labels.selection);
+  const pageState = pageSelectionState(labels.selection, pageOrders);
   const columns: TableColumn<Sale>[] = [
+    { id: "select", mobile: "actions", className: "w-10",
+      header: <Checkbox aria-label={t("dispatchLabels.selectPage")} disabled={pageOrders.length === 0} checked={pageState === "all" ? true : pageState === "some" ? "indeterminate" : false} onCheckedChange={() => labels.togglePage(pageOrders)} />,
+      cell: (item) => <Checkbox aria-label={t("dispatchLabels.selectOrder", { number: item.number })} checked={!!labels.selection[item.id]} onCheckedChange={() => labels.toggle(item)} /> },
     { id: "number", header: t("orders.listOrder"), mobile: "title", cell: (item) => <div className="flex flex-col items-start">
       <TextLink asChild><Link to={`${base}/${item.id}`} aria-label={t("orders.orderNumber", { number: item.number })}>#{item.number}</Link></TextLink>
       {item.source === "catalog" && <Badge variant="secondary">{t("orders.fromCatalog")}</Badge>}
@@ -68,11 +83,13 @@ export default function OrderList() {
         { kind: "delivery", state: item.deliveryStatus, label: `${t("orders.delivery")}: ${t(`orders.deliveryStatus.${item.deliveryStatus}`)}` },
       ] : [{ kind: "order", state: item.status, label: t(`orders.listStatus.${item.status}`) }]} />
       {item.checkoutEnabledAt && <span className="text-xs font-normal text-muted-foreground">{t(item.status === "cancelled" ? "orders.checkoutCancelled" : item.checkoutConfirmedAt ? "orders.checkoutConfirmed" : "orders.checkoutPending")}</span>}
+      <SkipWarning item={item} selected={!!labels.selection[item.id]} />
     </div> },
     { id: "customer", header: t("orders.customer"), mobile: "description", cell: (item) => <div className="flex flex-col gap-1">
       <TextLink asChild><Link to={`${base}/${item.id}`} className="inline-flex items-center gap-1.5">{item.source === "whatsapp" && <WhatsAppMark />}{orderBuyerText(item.buyer, t("orders.generalPublic"))}</Link></TextLink>
       {item.buyer?.name && item.buyer.phone && <span className="text-xs font-normal text-muted-foreground">{item.buyer.phone}</span>}
     </div> },
+    { id: "district", header: t("dispatchLabels.district"), mobile: "description", cell: (item) => item.district ? titleCase(item.district) : "—" },
     { id: "createdAt", header: t("orders.listDate"), mobile: "description", cell: (item) => <time dateTime={item.createdAt} className="flex flex-col gap-1">
       <span>{new Date(item.createdAt).toLocaleDateString(i18n.language === "pt" ? "pt-BR" : "es-PE", { dateStyle: "medium", timeZone: salesTimeZone })}</span>
       <span className="text-xs text-muted-foreground">{new Date(item.createdAt).toLocaleTimeString(i18n.language === "pt" ? "pt-BR" : "es-PE", { timeStyle: "short", timeZone: salesTimeZone })}</span>
@@ -91,7 +108,7 @@ export default function OrderList() {
     ...(filters.search ? { search: filters.search } : {}), view, page: String(page),
   })}`;
   const filtered = filters.customer !== "all" || !!filters.search || !!filters.createdFrom || !!filters.createdBefore || (filters.view ?? "all") !== "all";
-  return <section>
+  return <section className={summary.total > 0 ? "pb-20" : undefined}>
     <PageHeader>
       <PageHeader.Heading>
         <PageHeader.Title>{t("orders.title")}<PageHeader.Count>{list.total}</PageHeader.Count></PageHeader.Title>
@@ -104,14 +121,22 @@ export default function OrderList() {
       </Button>)}
     </nav>
     <FilterBar key={search} searchName="search" searchValue={filters.search ?? ""} searchLabel={t("orders.listSearch")} submitLabel={t("orders.listSearchSubmit")} hiddenFields={activeFilterInputs} action={<OrderFilterSheet key={search} filters={filters} base={base} />} />
-    <DataTable className="order-list-table mt-6" columns={columns} caption={t("orders.allOrders")} data={list.items} getRowId={(item) => item.id} emptyMessage={<Empty><EmptyDescription>{t(filtered ? "orders.emptyFiltered" : "orders.listEmpty")}</EmptyDescription>{filtered && <EmptyContent><Button asChild variant="link"><Link to={base}>{t("orders.clear")}</Link></Button></EmptyContent>}</Empty>} />
+    <DataTable className="order-list-table mt-6" columns={columns} caption={t("orders.allOrders")} data={list.items} getRowId={(item) => item.id} getRowClassName={(item) => labels.selection[item.id] ? "bg-muted/40" : ""} emptyMessage={<Empty><EmptyDescription>{t(filtered ? "orders.emptyFiltered" : "orders.listEmpty")}</EmptyDescription>{filtered && <EmptyContent><Button asChild variant="link"><Link to={base}>{t("orders.clear")}</Link></Button></EmptyContent>}</Empty>} />
     <Pagination aria-label={t("orders.pages")} className="mt-6 items-center justify-end gap-2"><span className="mr-auto text-sm text-muted-foreground">{t("orders.page", { page: list.page })}</span>
       <PaginationContent>
         {list.page > 1 && <PaginationItem><PaginationPrevious asChild><Link to={listUrl(list.page - 1)}>{t("orders.previous")}</Link></PaginationPrevious></PaginationItem>}
         {list.page * list.pageSize < list.total && <PaginationItem><PaginationNext asChild><Link to={listUrl(list.page + 1)}>{t("orders.next")}</Link></PaginationNext></PaginationItem>}
       </PaginationContent>
     </Pagination>
+    {summary.total > 0 && <OrderLabelSelectionBar summary={summary} onClear={labels.clear} onPrint={() => { setPrintIds(summary.printableIds); setPrintOpen(true); }} />}
+    <DispatchLabelPrintDialog open={printOpen} onOpenChange={setPrintOpen} orderIds={printIds} />
   </section>;
+}
+
+function SkipWarning({ item, selected }: { item: SelectedOrder; selected: boolean }) {
+  const { t } = useTranslation();
+  const reason = selected ? skipReason(item) : null;
+  return reason && <span className="flex items-center gap-1 text-xs font-normal text-[var(--warning)]"><TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" />{t(`dispatchLabels.rowSkip.${reason}`)}</span>;
 }
 
 function OrderStateIndicators({ states }: { states: { kind: "payment" | "delivery" | "order"; state: "pending" | "paid" | "shipped" | "delivered" | "completed" | "cancelled"; label: string }[] }) {
