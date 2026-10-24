@@ -14,7 +14,7 @@ function message(companyId: string, protocolId: string, content: object, directi
   const parsed = parseMobileMessage({ version: 1, message: { id: externalId, accountId, chatId: remoteChatId, whatsappMessageId: protocolId,
     direction, timestamp: 1791417600123, content } });
   expect(parsed).not.toBeNull();
-  return { ...parsed!, sentAt: parsed!.sentAt as Date, companyId: companyId as NewMobileMessage["companyId"], uploadedByUserId: uploader,
+  return { ...parsed!, sentAt: parsed!.sentAt as Date, companyId: companyId as NewMobileMessage["companyId"], uploadedByUserId: uploader, registeredBySessionId: "test-session",
     id: randomUUID() as NewMobileMessage["id"], receivedAt: new Date("2026-10-08T12:00:00.456Z") };
 }
 async function fixture() {
@@ -188,7 +188,7 @@ test("an unrelated message UUID collision fails and rolls back a new conversatio
       timestamp: 1791417600123, content: { type: "text", text: "other" } } });
     expect(parsed).not.toBeNull();
     const failed = await storeOnce({ ...parsed!, id: first.id, companyId: first.companyId,
-      uploadedByUserId: "other-uploader", receivedAt: new Date("2026-10-08T12:00:01.456Z") });
+      uploadedByUserId: "other-uploader", registeredBySessionId: "other-session", receivedAt: new Date("2026-10-08T12:00:01.456Z") });
     expect(failed).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
     await withTenantIsolation(f.companyId, async () => {
       expect(await prisma.contact.count({ where: { companyId: f.companyId } })).toBe(1);
@@ -253,7 +253,7 @@ test("account, chat, protocol and company identify independent messages; uploade
         content: { type: "text", text: "identity" } } });
       expect(parsed).not.toBeNull();
       return { ...parsed!, id: randomUUID() as NewMobileMessage["id"], companyId: companyId as NewMobileMessage["companyId"],
-        uploadedByUserId: "original", receivedAt: new Date("2026-10-08T12:00:00.456Z") };
+        uploadedByUserId: "original", registeredBySessionId: "test-session", receivedAt: new Date("2026-10-08T12:00:00.456Z") };
     };
     const inputs = [make(a.companyId, "123@lid", "456@lid", "same"), make(a.companyId, "789@lid", "456@lid", "same"),
       make(a.companyId, "123@lid", "999@lid", "same"), make(a.companyId, "123@lid", "456@lid", "different"),
@@ -276,7 +276,7 @@ function undated(companyId: string, protocolId: string): NewMobileMessage {
   const parsed = parseMobileMessage({ version: 1, message: { id: nativeId(accountId, remoteChatId, protocolId), accountId, chatId: remoteChatId,
     whatsappMessageId: protocolId, direction: "incoming", content: { type: "text", text: "no date" } } });
   expect(parsed).not.toBeNull();
-  return { ...parsed!, companyId: companyId as NewMobileMessage["companyId"], uploadedByUserId: "test-user",
+  return { ...parsed!, companyId: companyId as NewMobileMessage["companyId"], uploadedByUserId: "test-user", registeredBySessionId: "test-session",
     id: randomUUID() as NewMobileMessage["id"], receivedAt: new Date("2026-10-08T12:00:00.456Z") };
 }
 

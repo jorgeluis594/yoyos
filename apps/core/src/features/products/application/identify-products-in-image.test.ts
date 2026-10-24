@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import { identifyProductsInImage, type IdentifyProductsDependencies, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
-import type { CatalogItem, EmbeddingModel, EmbeddingVector, MatchConfidence, VariantQrCode, VisualCandidate } from "@core/src/features/products/domain/image-identification";
+import type { CatalogItem, EmbeddingModel, EmbeddingVector, ImageBytes, MatchConfidence, VariantQrCode, VisualCandidate } from "@core/src/features/products/domain/image-identification";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -11,18 +11,19 @@ const productQ = id(2) as ProductId;
 const item = (n: number): CatalogItem => ({ variantId: id(100 + n) as VariantId, productName: `Variant ${n}`, variantAttributes: {}, sku: null, unitPrice: { amount: 10, currency: "PEN" } });
 const candidate = (productId: ProductId, n: number): VisualCandidate => ({ productId, imageId: id(10 + n) as ImageId, distance: n / 10 });
 
-function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNREADABLE_IMAGE" | "QR_READER_UNAVAILABLE"; qrVariants?: (CatalogItem & { qrCode: VariantQrCode })[]; visual?: Partial<VisualSearch> | null }> = {}) {
+function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNREADABLE_IMAGE" | "QR_READER_UNAVAILABLE"; qrVariants?: (CatalogItem & { productId: ProductId; qrCode: VariantQrCode })[]; visual?: Partial<VisualSearch> | null }> = {}) {
   const calls: string[] = [];
-  const asked: { products: ProductId[] } = { products: [] };
+  const asked: { products: ProductId[]; embedded?: ImageBytes; query?: ImageBytes; detail?: Readonly<{ kind: string; image: ImageBytes }> } = { products: [] };
   const called = <T>(name: string, value: T): T => { calls.push(name); return value; };
   const visual: VisualSearch = {
     model: "openai/test" as EmbeddingModel, candidates: 5, minConfidence: 0.8 as MatchConfidence,
     hasIndexedProducts: async () => called("hasIndexedProducts", ok(true)),
-    embedImage: async () => called("embedImage", ok([0.1, 0.2] as unknown as EmbeddingVector)),
+    embedImage: async (embedded) => { asked.embedded = embedded; return called("embedImage", ok([0.1, 0.2] as unknown as EmbeddingVector)); },
+    brightenDimPhoto: async () => null,
+    cropPostPhoto: async () => null,
     findNearestProductImages: async () => called("findNearestProductImages", ok([candidate(productP, 1), candidate(productQ, 2)])),
     readImage: async () => called("readImage", ok(image)),
-    chooseProduct: async (input) => { asked.products = input.candidates.map(({ productId }) => productId); return called("chooseProduct", ok({ kind: "product", productId: productP, confidence: 0.9 as MatchConfidence })); },
-    findSellableVariantsOfProduct: async () => called("findSellableVariantsOfProduct", ok([item(1)])),
+    chooseProduct: async (input) => { Object.assign(asked, { products: input.candidates.map(({ productId }) => productId), query: input.query, detail: input.detail }); return called("chooseProduct", ok({ kind: "product", productId: productP, confidence: 0.9 as MatchConfidence, showsProduct: 0.95 })); },
     ...options.visual,
   };
   const deps: IdentifyProductsDependencies = {
@@ -33,7 +34,7 @@ function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNR
   return { calls, asked, run: () => identifyProductsInImage(image, deps) };
 }
 
-const qrVariant = (n: number) => ({ ...item(n), qrCode: id(200 + n) as VariantQrCode });
+const qrVariant = (n: number) => ({ ...item(n), productId: id(300 + n) as ProductId, qrCode: id(200 + n) as VariantQrCode });
 
 describe("identifyProductsInImage", () => {
   test("returns the QR variants without calling visual search", async () => {
@@ -57,12 +58,12 @@ describe("identifyProductsInImage", () => {
   test("runs visual search when the image has no QR code", async () => {
     const h = harness();
     expect(await h.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
-    expect(h.calls).toEqual(["readQrCodes", "hasIndexedProducts", "embedImage", "findNearestProductImages", "readImage", "readImage", "chooseProduct", "findSellableVariantsOfProduct"]);
+    expect(h.calls).toEqual(["readQrCodes", "hasIndexedProducts", "embedImage", "findNearestProductImages", "readImage", "readImage", "chooseProduct"]);
   });
 
-  test("stops with unrecognized_qr_code without calling visual search when the image only has non-product QR codes", async () => {
+  test("returns not product without calling visual search when the image only has non-product QR codes", async () => {
     const h = harness({ decoded: ["https://pay.example/yape"] });
-    expect(await h.run()).toEqual(ok({ kind: "not_found", reason: "unrecognized_qr_code" }));
+    expect(await h.run()).toEqual(ok({ kind: "not_product" }));
     expect(h.calls).toEqual(["readQrCodes"]);
   });
 
@@ -96,17 +97,51 @@ describe("identifyProductsInImage", () => {
     expect(await none.run()).toEqual(ok({ kind: "not_found", reason: "no_indexed_products" }));
   });
 
-  test("returns the only variant of the chosen product with its confidence and distances", async () => {
-    expect(await harness().run()).toEqual(ok({ kind: "found", method: "visual", items: [item(1)], confidence: 0.9, candidates: 2, topDistance: 0.1, chosenDistance: 0.1 }));
+  test("searches a post screenshot by the photo inside it and shows the chooser both", async () => {
+    const photo = { bytes: new Uint8Array([2]), contentType: "image/jpeg" };
+    const post = harness({ visual: { cropPostPhoto: async () => photo } });
+    expect(await post.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
+    expect(post.asked).toMatchObject({ embedded: photo, query: image, detail: { kind: "post_photo", image: photo } });
+    const plain = harness();
+    await plain.run();
+    expect(plain.asked).toMatchObject({ embedded: image, query: image, detail: undefined });
   });
 
-  test("returns low_confidence, no_visual_match or ambiguous_variant from the domain rules, with the candidate distances", async () => {
-    const low = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.6 as MatchConfidence }) } });
+  test("searches a dim photo by its brightened copy and shows the chooser both", async () => {
+    const bright = { bytes: new Uint8Array([3]), contentType: "image/jpeg" };
+    const cropped: ImageBytes[] = [];
+    const dim = harness({ visual: { brightenDimPhoto: async () => bright, cropPostPhoto: async (input) => { cropped.push(input); return null; } } });
+    expect(await dim.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
+    expect(dim.asked).toMatchObject({ embedded: bright, query: image, detail: { kind: "brightened", image: bright } });
+    expect(cropped).toEqual([bright]);
+  });
+
+  test("returns the chosen product, without choosing a variant, with its confidence and distances", async () => {
+    expect(await harness().run()).toEqual(ok({ kind: "found", method: "visual", productId: productP, confidence: 0.9, candidates: 2, topDistance: 0.1, chosenDistance: 0.1 }));
+  });
+
+  test("returns low_confidence or no_visual_match from the domain rules, with the candidate distances", async () => {
+    const low = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.6 as MatchConfidence, showsProduct: 0.9 }) } });
     expect(await low.run()).toEqual(ok({ kind: "not_found", reason: "low_confidence", topDistance: 0.1, chosenDistance: 0.2 }));
-    const none = harness({ visual: { chooseProduct: async () => ok({ kind: "none" }) } });
+    const none = harness({ visual: { chooseProduct: async () => ok({ kind: "none", confidence: 0.9 as MatchConfidence, showsProduct: 0.9 }) } });
     expect(await none.run()).toStrictEqual(ok({ kind: "not_found", reason: "no_visual_match", topDistance: 0.1 }));
-    const ambiguous = harness({ visual: { findSellableVariantsOfProduct: async () => ok([item(1), item(2)]) } });
-    expect(await ambiguous.run()).toEqual(ok({ kind: "not_found", reason: "ambiguous_variant", topDistance: 0.1, chosenDistance: 0.1 }));
+  });
+
+  test("returns not product when the chooser answers none and the photo does not show a product", async () => {
+    const h = harness({ visual: { chooseProduct: async () => ok({ kind: "none", confidence: 0.9 as MatchConfidence, showsProduct: 0.1 }) } });
+    expect(await h.run()).toStrictEqual(ok({ kind: "not_product", topDistance: 0.1 }));
+  });
+
+  test("returns not product when the chooser matches a candidate above the threshold but the photo does not show a product", async () => {
+    const selfie = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.83 as MatchConfidence, showsProduct: 0.08 }) } });
+    expect(await selfie.run()).toStrictEqual(ok({ kind: "not_product", topDistance: 0.1, chosenDistance: 0.2 }));
+  });
+
+  test("returns not found when the photo shows a product below the confidence threshold", async () => {
+    const low = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.6 as MatchConfidence, showsProduct: 0.5 }) } });
+    expect(await low.run()).toEqual(ok({ kind: "not_found", reason: "low_confidence", topDistance: 0.1, chosenDistance: 0.2 }));
+    const unsure = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.6 as MatchConfidence, showsProduct: 0.4 }) } });
+    expect(await unsure.run()).toEqual(ok({ kind: "not_product", topDistance: 0.1, chosenDistance: 0.2 }));
   });
 
   test("propagates embedder, matcher, storage and persistence failures", async () => {
@@ -117,7 +152,6 @@ describe("identifyProductsInImage", () => {
       [{ chooseProduct: async () => err({ code: "INVALID_MATCHER_RESPONSE", message: "x" }) }, "INVALID_MATCHER_RESPONSE"],
       [{ readImage: async () => err({ code: "IMAGE_STORAGE_UNAVAILABLE", message: "x" }) }, "IMAGE_STORAGE_UNAVAILABLE"],
       [{ findNearestProductImages: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "x" }) }, "PERSISTENCE_UNAVAILABLE"],
-      [{ findSellableVariantsOfProduct: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "x" }) }, "PERSISTENCE_UNAVAILABLE"],
     ];
     for (const [visual, code] of failures) expect(await harness({ visual }).run()).toMatchObject({ success: false, error: { code } });
     expect(await harness({ qrError: "QR_READER_UNAVAILABLE" }).run()).toMatchObject({ success: false, error: { code: "QR_READER_UNAVAILABLE" } });

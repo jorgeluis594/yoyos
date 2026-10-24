@@ -8,11 +8,12 @@ import type { ChatMessageId, ImageId, MobileMessageInput, MobileMessage, Registr
 const companyId = randomUUID() as RegistrationContext["companyId"];
 const messageId = randomUUID() as ChatMessageId;
 const receivedAt = new Date("2026-10-08T12:00:00.456Z");
-const context = { companyId, uploadedByUserId: "uploader" };
+const context = { companyId, uploadedByUserId: "uploader", registeredBySessionId: "session" };
+const chatId = randomUUID();
 const input = { externalId: "native" as MobileMessageInput["externalId"], accountId: "account" as MobileMessageInput["accountId"],
   remoteChatId: "chat" as MobileMessageInput["remoteChatId"], whatsappMessageId: "protocol" as MobileMessageInput["whatsappMessageId"],
   direction: "incoming" as const, sentAt: new Date(0), content: { type: "text" as const, text: "original" } };
-const message: MobileMessage = { ...input, ...context, id: messageId, chatId: randomUUID(), receivedAt, eventDispatchedAt: null };
+const message: MobileMessage = { ...input, ...context, id: messageId, chatId, receivedAt, eventDispatchedAt: null };
 const failure = { code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unavailable" };
 
 function dependencies(created = true, saved = message) {
@@ -53,10 +54,10 @@ test("does not look up images for text messages", async () => {
   expect(deps.findImage).not.toHaveBeenCalled();
 });
 
-test("publishes message_created with the message id as eventId", async () => {
+test("publishes message_created with the chat id and the message id as eventId", async () => {
   const deps = dependencies();
   await registerMobileMessage(input, context, deps);
-  expect(deps.dispatchMessageRecorded).toHaveBeenCalledWith({ companyId, messageId }, expect.objectContaining({ eventId: messageId }));
+  expect(deps.dispatchMessageRecorded).toHaveBeenCalledWith({ companyId, chatId, messageId }, expect.objectContaining({ eventId: messageId }));
 });
 
 test("publishes only after the store returns its committed row and then marks it", async () => {
@@ -65,7 +66,7 @@ test("publishes only after the store returns its committed row and then marks it
   deps.storeOnce.mockImplementation(async () => { committed = true; return ok({ created: true, message }); });
   deps.dispatchMessageRecorded.mockImplementation(async () => { expect(committed).toBe(true); return ok(undefined); });
   expect(await registerMobileMessage(input, context, deps)).toEqual(ok({ status: "stored", messageId, eventId: messageId, receivedAt }));
-  expect(deps.dispatchMessageRecorded).toHaveBeenCalledWith({ companyId, messageId }, { eventId: messageId, occurredAt: receivedAt.toISOString() });
+  expect(deps.dispatchMessageRecorded).toHaveBeenCalledWith({ companyId, chatId, messageId }, { eventId: messageId, occurredAt: receivedAt.toISOString() });
   expect(deps.markEventDispatched).toHaveBeenCalledWith(companyId, messageId, receivedAt);
   deps.storeOnce.mockResolvedValue(err(failure));
   deps.dispatchMessageRecorded.mockClear();
@@ -81,7 +82,7 @@ test("confirmed duplicate skips dispatch; pending duplicate uses the original ro
   const pending = dependencies(false);
   expect(await registerMobileMessage({ ...input, direction: "outgoing", content: { type: "text", text: "changed" } }, context, pending))
     .toEqual(ok({ status: "duplicate", messageId, eventId: messageId, receivedAt }));
-  expect(pending.dispatchMessageRecorded).toHaveBeenCalledWith({ companyId, messageId }, { eventId: messageId, occurredAt: receivedAt.toISOString() });
+  expect(pending.dispatchMessageRecorded).toHaveBeenCalledWith({ companyId, chatId, messageId }, { eventId: messageId, occurredAt: receivedAt.toISOString() });
 });
 
 test("dispatch and marker failures leave registration unsuccessful and allow identical retry", async () => {
@@ -95,7 +96,7 @@ test("dispatch and marker failures leave registration unsuccessful and allow ide
   expect(await registerMobileMessage(input, context, deps)).toMatchObject({ success: true, data: { eventId: messageId } });
   expect(deps.dispatchMessageRecorded.mock.calls).toHaveLength(3);
   for (const call of deps.dispatchMessageRecorded.mock.calls) expect(call).toEqual([
-    { companyId, messageId }, { eventId: messageId, occurredAt: receivedAt.toISOString() },
+    { companyId, chatId, messageId }, { eventId: messageId, occurredAt: receivedAt.toISOString() },
   ]);
 });
 

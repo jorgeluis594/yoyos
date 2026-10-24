@@ -21,6 +21,8 @@ import { storeAppearanceRoutes } from "@core/src/features/store-appearance/prese
 import { catalogRoutes } from "@core/src/features/catalog/presentation/api-routes";
 import { brandHostEdge } from "@core/src/features/catalog/presentation/brand-host-edge";
 import { buyerPaymentRoutes } from "@core/src/features/orders/presentation/buyer-payment-routes";
+import { sellerNoticeRoutes } from "@core/src/features/orders/presentation/seller-notice-routes";
+import { pushDeviceRoutes, pushDeviceUnregisterRoutes } from "@core/src/features/notifications/presentation/push-device-routes";
 import { log, requestLogging } from "@core/src/shared/infrastructure/logger";
 
 export const app = express();
@@ -55,6 +57,8 @@ app.use("/api/delivery-settings", (_request, response, next) => {
 app.use("/api/quotations", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
 app.use("/api/catalog", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
 app.use("/api/store-appearance", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
+app.use("/api/push-devices", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
+app.use("/api/seller-notices", (_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
 app.use("/api/orders", express.json({ limit: "100kb", verify: (_request, _response, body) => {
   if (hasDuplicateJsonKeys(body.toString("utf8"))) throw new Error("Duplicate JSON key");
 } }));
@@ -62,6 +66,7 @@ app.post("/api/messages", mobileMessageParser);
 app.use("/api", express.json({ limit: "100kb" }));
 app.use("/api/buyer/orders", buyerPaymentRoutes(images));
 app.use("/api/quotations", quotationRoutes);
+app.use("/api/push-devices", pushDeviceUnregisterRoutes);
 app.use("/api", loadApiAccess);
 
 app.get("/api/me", (_request, response: Response<unknown, AuthenticatedLocals>) => {
@@ -96,6 +101,8 @@ app.post("/api/company", async (request, response: Response<unknown, Authenticat
 
 app.use("/api", requireApiCompany);
 app.use("/api/messages", mobileMessageRoutes(registerMobileMessage));
+app.use("/api/push-devices", pushDeviceRoutes);
+app.use("/api/seller-notices", sellerNoticeRoutes);
 app.use("/api/company/payment-settings", paymentSettingsRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
@@ -111,7 +118,7 @@ app.use("/api", (_request, response: Response<unknown, PrivateLocals>) => {
 app.use("/api", (error: unknown, _request: express.Request, response: express.Response, _next: express.NextFunction) => {
   void _next;
   const pathname = _request.originalUrl.split("?", 1)[0];
-  const isFeatureRequest = ["/api/products", "/api/orders", "/api/delivery-settings", "/api/quotations", "/api/catalog", "/api/store-appearance"].some((base) => pathname === base || pathname.startsWith(`${base}/`));
+  const isFeatureRequest = ["/api/products", "/api/orders", "/api/delivery-settings", "/api/quotations", "/api/catalog", "/api/store-appearance", "/api/push-devices", "/api/seller-notices"].some((base) => pathname === base || pathname.startsWith(`${base}/`));
   if (pathname.startsWith("/api/orders") && typeof error === "object" && error !== null && "type" in error && error.type === "entity.verify.failed")
     return apiError(response, 400, "INVALID_INPUT", "Duplicate JSON key");
   if (error instanceof SyntaxError && "body" in error) return apiError(response, 400, isFeatureRequest ? "INVALID_INPUT" : "INVALID_COMPANY", "Invalid JSON", isFeatureRequest ? [{ field: "body", reason: "INVALID_JSON" }] : undefined);

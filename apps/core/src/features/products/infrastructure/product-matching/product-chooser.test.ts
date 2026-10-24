@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { describe, expect, test } from "vitest";
-import { buildChooserPrompt, parseChooserOutput, type ChooserInput } from "@core/src/features/products/infrastructure/product-matching/product-chooser";
+import { buildChooserPrompt, detailInstructions, parseChooserOutput, type ChooserInput } from "@core/src/features/products/infrastructure/product-matching/product-chooser";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 const png = async (width: number, height: number) => ({ bytes: new Uint8Array(await sharp({ create: { width, height, channels: 3, background: "#888" } }).png().toBuffer()), contentType: "image/png" });
@@ -19,17 +19,34 @@ describe("product chooser", () => {
     expect(JSON.stringify(prompt)).not.toContain("product-");
   });
 
+  test("adds the photo cut out of a screenshot after the customer image, and says so", async () => {
+    const plain = await buildChooserPrompt(await input(1));
+    const prompt = await buildChooserPrompt({ ...await input(1), detail: { kind: "post_photo", image: await png(4, 4) } });
+    const texts = prompt.success ? prompt.data.parts.flatMap((part) => part.kind === "text" ? [part.text] : ["<image>"]) : [];
+    expect(texts).toEqual(["Customer image:", "<image>", "Photo inside the customer image:", "<image>", "Candidate A:", "<image>"]);
+    expect(prompt.success && prompt.data.labels).toEqual(["A"]);
+    expect(prompt.success && plain.success && prompt.data.instructions).toBe(`${plain.success && plain.data.instructions} ${detailInstructions.post_photo}`);
+  });
+
+  test("adds the brightened copy of a dim photo after the customer image, and says so", async () => {
+    const plain = await buildChooserPrompt(await input(1));
+    const prompt = await buildChooserPrompt({ ...await input(1), detail: { kind: "brightened", image: await png(4, 4) } });
+    const texts = prompt.success ? prompt.data.parts.flatMap((part) => part.kind === "text" ? [part.text] : ["<image>"]) : [];
+    expect(texts).toEqual(["Customer image:", "<image>", "Brightened copy of the customer image:", "<image>", "Candidate A:", "<image>"]);
+    expect(prompt.success && plain.success && prompt.data.instructions).toBe(`${plain.success && plain.data.instructions} ${detailInstructions.brightened}`);
+  });
+
   test("maps the chosen label back to its product id", async () => {
-    expect(parseChooserOutput({ choice: "B", confidence: 0.85 }, await input(), ["A", "B", "C"]))
-      .toEqual({ success: true, data: { kind: "product", productId: "product-1", confidence: 0.85 } });
+    expect(parseChooserOutput({ choice: "B", confidence: 0.85, showsProduct: 0.9 }, await input(), ["A", "B", "C"]))
+      .toEqual({ success: true, data: { kind: "product", productId: "product-1", confidence: 0.85, showsProduct: 0.9 } });
   });
 
   test("maps none to a none choice", async () => {
-    expect(parseChooserOutput({ choice: "none", confidence: 0.4 }, await input(), ["A", "B", "C"])).toEqual({ success: true, data: { kind: "none" } });
+    expect(parseChooserOutput({ choice: "none", confidence: 0.4, showsProduct: 0.1 }, await input(), ["A", "B", "C"])).toEqual({ success: true, data: { kind: "none", confidence: 0.4, showsProduct: 0.1 } });
   });
 
   test("rejects an unknown label, a confidence outside 0 to 1, a missing field or extra fields as INVALID_MATCHER_RESPONSE", async () => {
-    const outputs = [{ choice: "D", confidence: 0.9 }, { choice: "A", confidence: 1.2 }, { choice: "A" }, { choice: "A", confidence: 0.9, reason: "x" }, "A", null];
+    const outputs = [{ choice: "D", confidence: 0.9, showsProduct: 0.9 }, { choice: "A", confidence: 1.2, showsProduct: 0.9 }, { choice: "A", confidence: 0.9 }, { choice: "A", confidence: 0.9, showsProduct: 1.5 }, { choice: "A" }, { choice: "A", confidence: 0.9, showsProduct: 0.9, reason: "x" }, "A", null];
     for (const output of outputs) {
       expect(parseChooserOutput(output, await input(), ["A", "B", "C"])).toMatchObject({ success: false, error: { code: "INVALID_MATCHER_RESPONSE" } });
     }

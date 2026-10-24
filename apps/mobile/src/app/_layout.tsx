@@ -13,12 +13,14 @@ import { OrderDraftProvider } from '@mobile/features/orders/presentation/order-d
 import { PendingOrderSyncProvider } from '@mobile/features/orders/presentation/pending-order-sync-provider';
 import { AccessGate } from '@/composition/access-gate';
 import * as auth from '@/composition/auth';
+import { installForegroundNoticeHandler } from '@/composition/notifications';
 import i18n, { languageForLocale } from '@mobile/i18n';
 import { openWhatsAppDatabase } from '@mobile/features/whatsapp/infrastructure/local-database';
 
 import '../global.css';
 
 SplashScreen.preventAutoHideAsync();
+installForegroundNoticeHandler();
 
 export default function TabLayout() {
   useEffect(() => {

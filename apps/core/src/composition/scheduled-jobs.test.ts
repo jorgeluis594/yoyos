@@ -1,22 +1,23 @@
 import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
-import { catalogOrderTtlDays, deleteExpiredCatalogOrdersJob, registerScheduledJobs, scheduledJobs } from "@core/src/composition/scheduled-jobs";
+import { catalogOrderTtlDays, deleteExpiredCatalogOrdersJob, registerScheduledJobs, reportBlockedChatKeysJob, scheduledJobs } from "@core/src/composition/scheduled-jobs";
 import { createInMemoryEventBus } from "@core/src/shared/events/infrastructure/in-memory-provider";
 import { log } from "@core/src/shared/infrastructure/logger";
 
+const noBlockedKeys = { listBlockedKeys: async () => ok([] as readonly string[]) };
 const context = { signal: new AbortController().signal, attempt: 1 };
 
 test("registers the daily catalog cleanup at 04:00 Lima and releases it on cleanup", async () => {
   const bus = createInMemoryEventBus();
-  const registered = await registerScheduledJobs(bus, scheduledJobs(7));
-  expect(bus.scheduled()).toEqual([expect.objectContaining({ name: "delete-expired-catalog-orders", cron: "0 4 * * *", tz: "America/Lima" })]);
+  const registered = await registerScheduledJobs(bus, scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] }));
+  expect(bus.scheduled()).toContainEqual(expect.objectContaining({ name: "delete-expired-catalog-orders", cron: "0 4 * * *", tz: "America/Lima" }));
   if (registered.success) await registered.data();
   expect(bus.scheduled()).toEqual([]);
 });
 
 test("releases already registered jobs when a later job cannot be scheduled", async () => {
   const bus = createInMemoryEventBus();
-  const [job] = scheduledJobs(7);
+  const [job] = scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] });
   expect(await registerScheduledJobs(bus, [job, job])).toMatchObject({ success: false, error: { code: "INVALID_SUBSCRIPTION" } });
   expect(bus.scheduled()).toEqual([]);
 });
@@ -43,4 +44,34 @@ test("cleanup job deletes before the ttl cutoff and fails for a retry when the l
   expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "catalog_order_cleanup_failed", errorCode: "PERSISTENCE_UNAVAILABLE" }), expect.any(String));
   info.mockRestore();
   error.mockRestore();
+});
+
+test("registers the blocked chat keys check every five minutes", async () => {
+  const bus = createInMemoryEventBus();
+  await registerScheduledJobs(bus, scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] }));
+  expect(bus.scheduled()).toContainEqual(expect.objectContaining({ name: "report-blocked-chat-keys", cron: "*/5 * * * *" }));
+});
+
+test("the blocked-keys check reports nothing when no ordered queue exists yet", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const reader = { listBlockedKeys: vi.fn(async () => ok([] as readonly string[])) };
+  expect(await reportBlockedChatKeysJob(reader, [])(context)).toEqual(ok(undefined));
+  expect(reader.listBlockedKeys).not.toHaveBeenCalled();
+  expect(await reportBlockedChatKeysJob(reader, ["apply-chat-message"])(context)).toEqual(ok(undefined));
+  expect(error).not.toHaveBeenCalled();
+  error.mockRestore();
+});
+
+test("logs orders_chat_queue_blocked with the blocked key count and succeeds", async () => {
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const reader = { listBlockedKeys: async () => ok(["chat-1", "chat-2"] as readonly string[]) };
+  expect(await reportBlockedChatKeysJob(reader, ["apply-chat-message"])(context)).toEqual(ok(undefined));
+  expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "orders_chat_queue_blocked", handler: "apply-chat-message", blockedKeys: 2 }), expect.any(String));
+  error.mockRestore();
+});
+
+test("fails for a retry when the blocked keys cannot be read", async () => {
+  const reader = { listBlockedKeys: async () => err({ code: "EVENT_BUS_UNAVAILABLE" as const, message: "down" }) };
+  expect(await reportBlockedChatKeysJob(reader, ["apply-chat-message"])(context))
+    .toEqual(err({ code: "EVENT_BUS_UNAVAILABLE", message: "down", retryable: true }));
 });

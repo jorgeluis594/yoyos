@@ -33,9 +33,14 @@ export function selectProductCode(decoded: readonly string[]): ScanSelection {
 export type CatalogItem = Readonly<{ variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; unitPrice: Money }>;
 export type MatchConfidence = number & { readonly __brand: "MatchConfidence" };
 export type VisualCandidate = Readonly<{ productId: ProductId; imageId: ImageId; distance: number }>;
+/** `showsProduct` is the probability that the first image shows a product offered for sale (not a payment screenshot, selfie, map or document). */
 export type VisualChoice =
-  | Readonly<{ kind: "product"; productId: ProductId; confidence: MatchConfidence }>
-  | Readonly<{ kind: "none" }>;
+  | Readonly<{ kind: "product"; productId: ProductId; confidence: MatchConfidence; showsProduct: number }>
+  | Readonly<{ kind: "none"; confidence: MatchConfidence; showsProduct: number }>;
+
+export const minShowsProduct = 0.5;
+
+export const showsProduct = (choice: VisualChoice) => choice.showsProduct >= minShowsProduct;
 
 export function parseMatchConfidence(value: number): MatchConfidence | null {
   return Number.isFinite(value) && value >= 0 && value <= 1 ? value as MatchConfidence : null;
@@ -47,11 +52,4 @@ export function acceptVisualMatch(choice: VisualChoice, candidates: readonly Vis
   if (choice.kind === "none" || !candidates.some(({ productId }) => productId === choice.productId)) return { kind: "rejected", reason: "no_visual_match" };
   if (choice.confidence < minConfidence) return { kind: "rejected", reason: "low_confidence" };
   return { kind: "accepted", productId: choice.productId, confidence: choice.confidence };
-}
-
-export function selectVisualVariant(variants: readonly CatalogItem[]):
-  Readonly<{ kind: "selected"; item: CatalogItem }> | Readonly<{ kind: "rejected"; reason: "no_visual_match" | "ambiguous_variant" }> {
-  const [item, ...rest] = variants;
-  if (!item) return { kind: "rejected", reason: "no_visual_match" };
-  return rest.length ? { kind: "rejected", reason: "ambiguous_variant" } : { kind: "selected", item };
 }

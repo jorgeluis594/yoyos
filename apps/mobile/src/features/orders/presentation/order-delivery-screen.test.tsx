@@ -38,7 +38,7 @@ const initialOrder: OrderAggregateResponse = { id: mockId, companyId: "00000000-
     status: "confirmed", method: "digital_wallet", data: { confirmedAt: "2026-09-29T12:00:00.000Z", confirmedBy: { kind: "seller", userId: "seller" }, evidence: { kind: "manual" } } }],
   items: [{ id: "00000000-0000-4000-8000-000000000005", variantId: "00000000-0000-4000-8000-000000000002",
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
-    unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" } }] };
+    unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" }, mentionedPrice: null }] };
 
 const load = jest.mocked(orders.loadOrderAggregate);
 const save = jest.mocked(orders.setDelivery);

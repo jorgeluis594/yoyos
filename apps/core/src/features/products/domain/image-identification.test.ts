@@ -1,14 +1,13 @@
 import { describe, expect, test } from "vitest";
 import {
-  acceptVisualMatch, parseEmbeddingVector, parseMatchConfidence, selectProductCode, selectVisualVariant,
-  type CatalogItem, type MatchConfidence, type VisualCandidate,
+  acceptVisualMatch, parseEmbeddingVector, parseMatchConfidence, selectProductCode,
+  type MatchConfidence, type VisualCandidate,
 } from "@core/src/features/products/domain/image-identification";
-import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const confidence = (value: number) => value as MatchConfidence;
 const candidates: VisualCandidate[] = [1, 2].map((n) => ({ productId: id(n) as ProductId, imageId: id(10 + n) as ImageId, distance: n / 10 }));
-const item = (n: number): CatalogItem => ({ variantId: id(100 + n) as VariantId, productName: "Polo", variantAttributes: {}, sku: null, unitPrice: { amount: 10, currency: "PEN" } });
 
 describe("selectProductCode", () => {
   test("selectProductCode skips with no_qr_code when nothing was decoded", () => {
@@ -26,36 +25,22 @@ describe("selectProductCode", () => {
 
 describe("acceptVisualMatch", () => {
   test("acceptVisualMatch accepts a chosen candidate at or above the minimum confidence", () => {
-    expect(acceptVisualMatch({ kind: "product", productId: id(2) as ProductId, confidence: confidence(0.8) }, candidates, confidence(0.8)))
+    expect(acceptVisualMatch({ kind: "product", productId: id(2) as ProductId, confidence: confidence(0.8), showsProduct: 0.9 }, candidates, confidence(0.8)))
       .toEqual({ kind: "accepted", productId: id(2), confidence: 0.8 });
   });
 
   test("acceptVisualMatch rejects a choice below the minimum confidence as low_confidence", () => {
-    expect(acceptVisualMatch({ kind: "product", productId: id(1) as ProductId, confidence: confidence(0.79) }, candidates, confidence(0.8)))
+    expect(acceptVisualMatch({ kind: "product", productId: id(1) as ProductId, confidence: confidence(0.79), showsProduct: 0.9 }, candidates, confidence(0.8)))
       .toEqual({ kind: "rejected", reason: "low_confidence" });
   });
 
   test("acceptVisualMatch rejects none as no_visual_match", () => {
-    expect(acceptVisualMatch({ kind: "none" }, candidates, confidence(0.8))).toEqual({ kind: "rejected", reason: "no_visual_match" });
+    expect(acceptVisualMatch({ kind: "none", confidence: confidence(0.9), showsProduct: 0.9 }, candidates, confidence(0.8))).toEqual({ kind: "rejected", reason: "no_visual_match" });
   });
 
   test("acceptVisualMatch rejects a product that is not among the candidates", () => {
-    expect(acceptVisualMatch({ kind: "product", productId: id(9) as ProductId, confidence: confidence(1) }, candidates, confidence(0.8)))
+    expect(acceptVisualMatch({ kind: "product", productId: id(9) as ProductId, confidence: confidence(1), showsProduct: 0.9 }, candidates, confidence(0.8)))
       .toEqual({ kind: "rejected", reason: "no_visual_match" });
-  });
-});
-
-describe("selectVisualVariant", () => {
-  test("selectVisualVariant selects the only sellable variant", () => {
-    expect(selectVisualVariant([item(1)])).toEqual({ kind: "selected", item: item(1) });
-  });
-
-  test("selectVisualVariant rejects a product with several variants as ambiguous_variant", () => {
-    expect(selectVisualVariant([item(1), item(2)])).toEqual({ kind: "rejected", reason: "ambiguous_variant" });
-  });
-
-  test("selectVisualVariant rejects a product without sellable variants as no_visual_match", () => {
-    expect(selectVisualVariant([])).toEqual({ kind: "rejected", reason: "no_visual_match" });
   });
 });
 

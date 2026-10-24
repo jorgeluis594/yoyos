@@ -42,6 +42,7 @@ export function createApiClient(session: SessionTransport, fetcher: typeof fetch
         response = await send(renewed.data);
         if (generation !== session.generation()) return err({ code: "OPERATION_CANCELLED", message: "Session changed" });
       }
+      if (response.status === 204) return ok(null);
       let body: unknown;
       try { body = await response.json(); }
       catch { return err({ code: "INVALID_RESPONSE", message: "Server returned invalid JSON" }); }

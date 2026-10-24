@@ -15,7 +15,7 @@ const nativeId = (protocol: string) => `wa-message:v1:${Buffer.from(JSON.stringi
 async function fixture() {
   const companyId = randomUUID() as RegistrationContext["companyId"];
   await withTenantIsolation(companyId, async () => await prisma.company.create({ data: { id: companyId, name: "Mobile dispatch", country: "PE" } }));
-  return { companyId, context: { companyId, uploadedByUserId: "test-user" }, cleanup: async () => {
+  return { companyId, context: { companyId, uploadedByUserId: "test-user", registeredBySessionId: "test-session" }, cleanup: async () => {
     // Published message_created jobs must not stay queued for a worker running on this database.
     const pool = new pg.Pool({ connectionString: process.env.DATABASE_URL });
     try { await pool.query("DELETE FROM pgboss.job WHERE data->>'name' = 'message_created' AND data->'payload'->>'companyId' = $1", [companyId]); }
@@ -96,9 +96,9 @@ test("a registered image message publishes message_created once with the message
     expect(stored).toMatchObject({ success: true, data: { status: "stored" } });
     const messageId = stored.success ? stored.data.messageId : "";
     expect(publish).toHaveBeenCalledTimes(1);
-    expect(publish).toHaveBeenCalledWith("message_created", { companyId: f.companyId, messageId }, expect.objectContaining({ eventId: messageId }));
     const row = await withTenantIsolation(f.companyId, async () => await prisma.chatMessage.findFirstOrThrow({ where: { companyId: f.companyId } }));
-    expect(row).toMatchObject({ id: messageId, imageId });
+    expect(publish).toHaveBeenCalledWith("message_created", { companyId: f.companyId, chatId: row.chatId, messageId }, expect.objectContaining({ eventId: messageId }));
+    expect(row).toMatchObject({ id: messageId, imageId, registeredBySessionId: "test-session" });
     expect(row.eventDispatchedAt).toBeInstanceOf(Date);
   } finally { await runtime.provider.stop(); delete events.__yoyosEvents; await f.cleanup(); }
 });

@@ -13,7 +13,9 @@ export type ContactId = string & { readonly __brand: "ContactId" };
 export type PositiveInteger = number & { readonly __brand: "PositiveInteger" };
 
 export type OrderCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: ContactId; name: string | null; phone: string | null }>;
-export type OrderItem = Readonly<{ id: OrderItemId; variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; quantity: PositiveInteger; unitPrice: Money; subtotal: Money }>;
+/** Price the buyer wrote in the chat for an item, in the order currency. Stored for display only: it never changes the unit price. */
+export type MentionedPrice = Readonly<{ amount: Money; units: number }>;
+export type OrderItem = Readonly<{ id: OrderItemId; variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; quantity: PositiveInteger; unitPrice: Money; subtotal: Money; mentionedPrice?: MentionedPrice | null }>;
 export type Order = OrderAggregate;
 export type PricedOrder = Pick<Order, "id" | "companyId" | "sellerId" | "createdAt" | "items" | "total"> & Readonly<{ customer: OrderCustomer }>;
 export type BuildOrderError = Readonly<{ code: "INVALID_ORDER" | "CURRENCY_MISMATCH"; message: string; item?: number }>;
@@ -55,7 +57,7 @@ export function buildOrder(input: BuildOrderInput): Result<PricedOrder, BuildOrd
     const nextTotal = total ? add(subtotal.data)(total) : ok(subtotal.data);
     if (!nextTotal.success || !validAmount(nextTotal.data.amount, maxTotalCents)) return err({ code: "INVALID_ORDER", message: "Total exceeds supported range", item: index });
     total = nextTotal.data;
-    items.push({ ...item, quantity: item.quantity as PositiveInteger, variantAttributes: { ...item.variantAttributes }, unitPrice: { ...item.unitPrice }, subtotal: subtotal.data });
+    items.push({ ...item, quantity: item.quantity as PositiveInteger, variantAttributes: { ...item.variantAttributes }, unitPrice: { ...item.unitPrice }, subtotal: subtotal.data, mentionedPrice: item.mentionedPrice ?? null });
   }
   return ok({ id: input.id, companyId: input.companyId, sellerId: input.sellerId,
     customer: input.customer.kind === "contact" ? { ...input.customer } : { kind: "general_public" },

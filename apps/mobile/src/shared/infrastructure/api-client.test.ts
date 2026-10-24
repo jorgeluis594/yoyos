@@ -95,3 +95,9 @@ test("a late 401 reuses the refreshed token and a logout discards late API respo
   release(Response.json({ status: "ready" }));
   expect(await result).toMatchObject({ success: false, error: { code: "OPERATION_CANCELLED" } });
 });
+
+test("a 204 answer succeeds without a body", async () => {
+  const session = { getToken: async () => ok("token"), renewToken: async () => ok("token"), generation: () => 1 };
+  const request = createApiClient(session, async () => new Response(null, { status: 204 }));
+  expect(await request("/api/push-devices/current", { method: "PUT", body: "{}" })).toEqual({ success: true, data: null });
+});

@@ -7,7 +7,7 @@ Sources of truth:
 - Domain and lifecycle: `apps/core/src/features/orders/domain/order.ts` and `order-state-machine.ts`.
 - JSON contracts: `shared/contracts/orders.ts`.
 - HTTP adapter: `apps/core/src/features/orders/presentation/api-routes.ts`.
-- Persistence: `apps/core/prisma/schema.prisma` (`Order`, `OrderItem`, `Payment`, `OrderBuyer`, `OrderMessage`).
+- Persistence: `apps/core/prisma/schema.prisma` (`Order`, `OrderItem`, `Payment`, `OrderBuyer`, `OrderMessage`, `ChatMessageOutcome`).
 
 ## Origin
 
@@ -16,7 +16,7 @@ Each order has one source, derived from stored data:
 | Source | Origin |
 | --- | --- |
 | `manual` | Created by a seller in core web or mobile. |
-| `whatsapp` | Created from an incoming chat message; see [message-to-order](message-to-order.md). |
+| `whatsapp` | Created from an incoming chat message, whose later messages may add, remove or change its items while it is open; see [message-to-order](message-to-order.md). |
 | `catalog` | Created by a buyer from the public catalog; it has no seller until the seller takes it. |
 
 Every other order requires a seller, taken from the authenticated session.
@@ -34,7 +34,15 @@ Every other order requires a seller, taken from the authenticated session.
 - An order uses one currency; mixing currencies returns `CURRENCY_MISMATCH`. Amounts that exceed the storage range are rejected, never truncated.
 - Items copy product name, variant attributes, SKU and unit price at creation. Later catalog edits do not change them, and deleting a product does not cascade to orders that reference it.
 - Each variant appears once per order, with its total quantity.
+- An order always has at least one item. Chat messages can remove an item, set its quantity or replace its variant (merging into the same variant if present), each recalculating subtotals and totals; removing the only item is refused. No route edits the items of an existing order from web or mobile.
 - `total = itemsTotal + deliveryCharge`.
+
+## Mentioned price
+
+An item may keep the price the buyer mentioned in a chat (`mentionedPrice: { amount, units } | null` in `shared/contracts/orders.ts`; columns `mentionedPriceAmount` and `mentionedPriceUnits` on `OrderItem`, both or none, amount positive, units 1 to 99). The currency is the order's. It never changes the unit price, subtotal or total; its rules are in [message-to-order](message-to-order.md#rules).
+
+- Order detail on web and mobile shows «El cliente mencionó S/ 30.00 por unidad», or «… S/ 50.00 por 3» when the buyer priced several units together, under the unit price and in the same money format, only when the mentioned amount differs from the unit price times its units. Web shows it in the item's row under the variant and price line; mobile in the item card under the price and in the item's accessibility label. The order list and the buyer's checkout never show it.
+- Reason it differs from the price comparison declined for manual sales: that compared the price shown to the seller with the stored one; this note records what the buyer said, which the seller may have to settle in the chat.
 
 ## Lifecycle
 
@@ -121,6 +129,7 @@ Day filters select whole inclusive days in `America/Lima`, converted to UTC inst
 - Products are searched by name; a variant is chosen and a quantity set. The shown price and stock guide the seller but do not reserve units.
 - The review stage sets payments, delivery, delivered/pending and scheduled dispatch date. Marking the order delivered requires the balance to be covered and quantities within the shown stock.
 - Confirming requires a connection. While offline the cart stays editable.
+- The order detail reloads when the screen gains focus, after **Obtener enlace** (so items and total next to the link are current), and when a seller notice for that chat arrives while it is open, at most once every 2 s.
 - Before sending, mobile stores the request in a per-company queue in secure storage (`infrastructure/pending-order-confirmation.ts`); if it cannot store it, it does not send. A double tap and the background sync share one request per sale.
 - When the result is uncertain, the sale stays queued and the seller can keep selling. The queue is sent automatically on sign-in, on returning to the app, on reconnecting and with exponential backoff with full jitter (up to 5 minutes). Each attempt first reads the ID in core and resends only on `ORDER_NOT_FOUND`.
 - A definitive rejection during sync stops retries; the sale appears in "Nueva venta" for review and is saved again with the same order and payment IDs. The queue survives restart and sign-out and is shown only in its company. An unreadable stored sale is shown as an error that can be discarded without blocking new sales.

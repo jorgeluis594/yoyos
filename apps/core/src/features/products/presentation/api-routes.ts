@@ -1,5 +1,6 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
+import { catalogSearchReadinessResponseSchema } from "@shared/contracts/catalog-search-readiness";
 import { createProductRequestSchema, productApiIssueSchema, productListQuerySchema, updateProductRequestSchema } from "@shared/contracts/products";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
@@ -80,6 +81,16 @@ productRoutes.get("/", async (request, response) => {
     const result = await products.list(parsed.data, { includeImages: true });
     if (!result.success) return sendOperationError(response, result.error);
     return response.json(toProductListResponse(result.data));
+  } catch (error) {
+    return handleUnexpected(response, error);
+  }
+});
+
+productRoutes.get("/search-readiness", async (_request, response) => {
+  try {
+    const readiness = await products.catalogSearchReadiness();
+    if (!readiness.success) return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
+    return response.json(catalogSearchReadinessResponseSchema.parse({ version: 1, state: readiness.data }));
   } catch (error) {
     return handleUnexpected(response, error);
   }

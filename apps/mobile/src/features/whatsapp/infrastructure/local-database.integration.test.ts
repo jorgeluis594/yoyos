@@ -8,12 +8,12 @@ const version = async (database: ReturnType<typeof openTestDatabase>) =>
 
 const v1 = `CREATE TABLE whatsapp_auth_entries (tenant_id TEXT); CREATE TABLE whatsapp_outbox (event_id TEXT); PRAGMA user_version = 1;`;
 
-test("upgrades a v1 database to v3 and drops the unused v1 tables", async () => {
+test("upgrades a v1 database to v4 and drops the unused v1 tables", async () => {
   const database = openTestDatabase();
   await database.execAsync(v1);
   await migrateWhatsAppDatabase(database);
   expect(await tables(database)).toEqual(["whatsapp_links", "whatsapp_messages"]);
-  expect(await version(database)).toBe(3);
+  expect(await version(database)).toBe(4);
   database.close();
 });
 
@@ -24,13 +24,13 @@ test("creates the v2 schema on a new database", async () => {
   database.close();
 });
 
-test("opens an existing v3 database without changes", async () => {
+test("opens an existing v4 database without changes", async () => {
   const database = openTestDatabase();
   await migrateWhatsAppDatabase(database);
   await database.runAsync("INSERT INTO whatsapp_links (id, company_id, linked_by_user_id, started_at) VALUES ('l', 'c', 'u', 1)", []);
   await migrateWhatsAppDatabase(database);
   expect(await database.getFirstAsync("SELECT id FROM whatsapp_links", [])).toMatchObject({ id: "l" });
-  expect(await version(database)).toBe(3);
+  expect(await version(database)).toBe(4);
   database.close();
 });
 
@@ -51,7 +51,7 @@ test("rolls back a failed upgrade and leaves user_version at 1", async () => {
   database.close();
 });
 
-test("a v2 database with pending messages opens as v3 without losing them", async () => {
+test("a v2 database with pending messages opens as v4 without losing them", async () => {
   const database = openTestDatabase();
   await migrateWhatsAppDatabase(database);
   await database.execAsync("ALTER TABLE whatsapp_messages DROP COLUMN core_image_id; PRAGMA user_version = 2;");
@@ -60,7 +60,7 @@ test("a v2 database with pending messages opens as v3 without losing them", asyn
     `INSERT INTO whatsapp_messages (id, link_id, company_id, account_id, chat_id, whatsapp_message_id, direction, arrival_seq, stored_at, content_type, text, sync_state, next_attempt_at)
      VALUES (?, 'l', 'c', '1@lid', '2@lid', ?, 'incoming', ?, 1, 'text', 'hi', 'pending', 1)`, [`m${n}`, `W${n}`, n]);
   await migrateWhatsAppDatabase(database);
-  expect(await version(database)).toBe(3);
+  expect(await version(database)).toBe(4);
   expect(await database.getAllAsync("SELECT id, sync_state, core_image_id FROM whatsapp_messages ORDER BY arrival_seq", []))
     .toEqual([{ id: "m1", sync_state: "pending", core_image_id: null }, { id: "m2", sync_state: "pending", core_image_id: null }]);
   database.close();

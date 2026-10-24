@@ -76,7 +76,7 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   const order = { ...summary, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null,
-      quantity: 1, unitPrice: total, subtotal: total }] };
+      quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
   const paths: string[] = [];
   const api = createOrderApi(async (path) => { paths.push(path); return ok(path.includes("/mixed?")
     ? { items: [summary], page: 1, pageSize: 20, total: 1 }
@@ -126,7 +126,7 @@ test("delivery API validates the complete authored snapshot and updated aggregat
   const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
     status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
-    items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
+    items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
   expect(await createOrderApi(async () => ok(order)).get(id(1))).toMatchObject({ success: true, data: { delivery, total } });
   const ratedPickup = { delivery: input.delivery, expectedPrice: zero };
   expect(await createOrderApi(async () => ok(order)).setDelivery(id(1), ratedPickup)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
@@ -238,7 +238,7 @@ function cancellationFixture() {
     createdAt: "2026-10-05T12:00:00.000Z", status: "cancelled", paymentStatus: "pending",
     deliveryStatus: "pending", cancelled: true, stockDeducted: true, delivery: null, payments: [],
     total, paidAmount: zero, balanceDue: total, overpaidAmount: zero, itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
-    items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
+    items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
 }
 
 test("cancellation validates ID and complete state then exposes only the application projection", async () => {

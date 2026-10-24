@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { FlatList, StyleSheet } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
@@ -18,6 +18,7 @@ type Load = { kind: "loading" } | { kind: "error" } | { kind: "ready"; items: re
 export default function ConversationsScreen() {
   const { t, i18n } = useTranslation();
   const router = useRouter();
+  const { noticeChatMissing } = useLocalSearchParams<{ noticeChatMissing?: string }>();
   const { state } = useAccess();
   const { runtime, status, messagesVersion } = useWhatsApp();
   const companyId = state.status === "ready" ? state.company.id : null;
@@ -46,7 +47,10 @@ export default function ConversationsScreen() {
         <FlatList
           data={load.items}
           keyExtractor={(item) => item.chatId}
-          ListHeaderComponent={<ThemedText type="title" accessibilityRole="header" style={styles.title}>{t("whatsappChats")}</ThemedText>}
+          ListHeaderComponent={<>
+            <ThemedText type="title" accessibilityRole="header" style={styles.title}>{t("whatsappChats")}</ThemedText>
+            {noticeChatMissing === "1" ? <ThemedText themeColor="textSecondary" accessibilityRole="alert" style={styles.gone}>{t("whatsappNoticeChatGone")}</ThemedText> : null}
+          </>}
           ListEmptyComponent={<ScreenState status="empty" title={t("whatsappNoChats")} description={t("whatsappNoChatsDescription")} />}
           renderItem={({ item }) => (
             <ListRow
@@ -62,4 +66,4 @@ export default function ConversationsScreen() {
   );
 }
 
-const styles = StyleSheet.create({ root: { flex: 1 }, title: { padding: 16 } });
+const styles = StyleSheet.create({ root: { flex: 1 }, title: { padding: 16 }, gone: { paddingHorizontal: 16, paddingBottom: 8 } });

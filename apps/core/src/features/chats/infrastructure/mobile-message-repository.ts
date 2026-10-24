@@ -27,6 +27,7 @@ const storedRowBase = z.object({
   receivedAt: storedDate,
   eventDispatchedAt: storedDate.nullable(),
   uploadedByUserId: z.string().min(1),
+  registeredBySessionId: z.string().min(1).nullable(),
   chat: z.object({ companyId: z.string(), contact: z.object({ companyId: z.string() }) }),
 });
 const storedRowSchema = z.union([
@@ -50,7 +51,7 @@ export function mapMobileMessage(row: MessageRow): Result<MobileMessage, Registe
     remoteChatId: identity.data.chatId as MobileMessage["remoteChatId"],
     whatsappMessageId: identity.data.whatsappMessageId as MobileMessage["whatsappMessageId"],
     direction: identity.data.direction, sentAt: row.sentAt, receivedAt: row.receivedAt,
-    uploadedByUserId: stored.data.uploadedByUserId, content: stored.data.type === "text"
+    uploadedByUserId: stored.data.uploadedByUserId, registeredBySessionId: stored.data.registeredBySessionId, content: stored.data.type === "text"
       ? { type: "text", text: stored.data.text }
       : { type: "image", caption: row.caption, imageId: stored.data.imageId as ImageId },
     eventDispatchedAt: row.eventDispatchedAt,
@@ -61,12 +62,12 @@ export const mobileMessageRepository = {
   async insertAndRead(input: NewMobileMessage, chatId: string): Promise<Result<StoreOutcome, RegisterMobileMessageError>> {
     try {
       const inserted = await prisma.$queryRaw<{ id: string }[]>`
-        INSERT INTO "ChatMessage" ("id", "companyId", "chatId", "externalId", "whatsappMessageId", "direction", "source", "type", "text", "caption", "sentAt", "receivedAt", "imageId", "uploadedByUserId")
+        INSERT INTO "ChatMessage" ("id", "companyId", "chatId", "externalId", "whatsappMessageId", "direction", "source", "type", "text", "caption", "sentAt", "receivedAt", "imageId", "uploadedByUserId", "registeredBySessionId")
         VALUES (${input.id}::uuid, ${input.companyId}::uuid, ${chatId}::uuid, ${input.externalId}, ${input.whatsappMessageId},
           ${input.direction}::"MessageDirection", ${input.direction === "incoming" ? "contact" : "seller"}::"MessageSource",
           ${input.content.type}::"MessageType", ${input.content.type === "text" ? input.content.text : null},
           ${input.content.type === "image" ? input.content.caption : null}, ${input.sentAt}, ${input.receivedAt},
-          ${input.content.type === "image" ? input.content.imageId : null}::uuid, ${input.uploadedByUserId})
+          ${input.content.type === "image" ? input.content.imageId : null}::uuid, ${input.uploadedByUserId}, ${input.registeredBySessionId})
         ON CONFLICT ("companyId", "chatId", "whatsappMessageId") DO NOTHING RETURNING "id"
       `;
       const row = await prisma.chatMessage.findFirst({ where: { companyId: input.companyId, chatId, whatsappMessageId: input.whatsappMessageId }, include: { chat: { include: { contact: true } } } });

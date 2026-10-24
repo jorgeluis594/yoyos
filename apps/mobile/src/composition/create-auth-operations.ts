@@ -4,7 +4,7 @@ import { completeCompany as runCompleteCompany } from "@mobile/features/users/ap
 import { createCompanyApi } from "@mobile/features/companies/infrastructure/company-api";
 import { restoreSession as runRestoreSession } from "@mobile/features/users/application/restore-session";
 import { signOut as runSignOut } from "@mobile/features/users/application/sign-out";
-import type { SignOutDependencies } from "@mobile/features/users/application/sign-out";
+import type { RemoteRevocation, SignOutDependencies } from "@mobile/features/users/application/sign-out";
 import { createAuthAdapter, type AuthClientBoundary, type SecureSessionStorage } from "@mobile/features/users/infrastructure/auth-adapter";
 import { createAccessApi } from "@mobile/features/users/infrastructure/access-api";
 import { createApiClient } from "@mobile/shared/infrastructure/api-client";
@@ -14,6 +14,8 @@ export function createAuthOperations(
   storage: SecureSessionStorage,
   fetcher: typeof fetch = fetch,
   coreUrl = "http://localhost:3000",
+  /** Runs after the remote revocation is known, e.g. to dismiss notices and queue a pending unregister. */
+  onSignedOut: (revocation: RemoteRevocation) => void | Promise<void> = () => {},
 ) {
   const auth = createAuthAdapter(client, storage, {
     accountVerificationUrl: `${coreUrl}/account-verified`,
@@ -37,7 +39,7 @@ export function createAuthOperations(
         invalidatePendingOperations: auth.invalidate,
         revokeSession: auth.revokeSession,
         clearLocalSession: auth.clearLocalSession,
-        clearPrivateState,
+        clearPrivateState: (revocation) => { clearPrivateState(); void onSignedOut(revocation); },
       };
       return runSignOut(dependencies);
     },

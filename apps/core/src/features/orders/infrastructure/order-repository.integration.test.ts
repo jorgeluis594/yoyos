@@ -12,11 +12,12 @@ import { expect, test, vi } from "vitest";
 import { ok, err } from "@shared/functional";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
-import { buildPendingOrder, orderStateMachine, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
+import { buildPendingOrder, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findChatOrderTargetForUpdate, recordProcessedMessage, saveItemChanges, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
-import { deductProductStock } from "@core/src/features/products";
+import { deductProductStock, findProductIdsOfVariants } from "@core/src/features/products";
+import { applyChatActions, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { ImageId } from "@core/src/features/orders/domain/payment";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -1708,40 +1709,85 @@ test("findOpenChatOrderCandidate ignores manual orders, other chats and orders t
   } finally { await chatCleanup(f); await f.cleanup(); }
 });
 
-test("saveAddedItems inserts new items and updates quantities and totals", async () => {
+test("saves removed items, changed quantities and mentioned prices and recalculates the total", async () => {
   const f = await fixture();
   try {
     const chat = await chatFixture(f);
     const order = chatOrder(f);
     await withTenantIsolation(f.companyId, async () => {
       await withinTransaction(() => savePendingOrder(order, chat.source));
-      const added = orderStateMachine.appendItems(order, [
-        { variantId: f.variantIds[0] as VariantId, productName: "Sample", variantAttributes: { Size: "M" }, sku: null, unitPrice: { amount: 99, currency: "PEN" } },
-        { variantId: f.variantIds[1] as VariantId, productName: "Other", variantAttributes: { Size: "L" }, sku: null, unitPrice: { amount: 5, currency: "PEN" } },
-      ], () => randomUUID() as never);
-      if (!added.success) throw new Error(added.error.message);
-      expect(await withinTransaction(() => saveAddedItems(added.data, order))).toEqual(ok(null));
+      const target = await withinTransaction(() => findChatOrderTargetForUpdate(chat.chatId, findProductIds));
+      if (!target.success || target.data.kind !== "open") throw new Error("Expected an open chat order");
+      const other = { variantId: f.variantIds[1] as VariantId, productName: "Other", variantAttributes: { Size: "L" }, sku: null, unitPrice: { amount: 5, currency: "PEN" as const } };
+      const identification = { method: "text" as const, productId: f.productId as never, confidence: 0.9 };
+      const actions: ResolvedChatAction[] = [
+        { kind: "add", item: other, quantity: 3 as PositiveInteger, mentionedPrice: { amount: { amount: 12.5, currency: "PEN" }, units: 3 }, identification },
+        { kind: "set_quantity", target: { kind: "variant", variantId: f.variantIds[0] as VariantId }, quantity: 4 },
+      ];
+      const applied = applyChatActions(target.data, actions, { newOrderId: () => randomUUID() as OrderId, newItemId: () => randomUUID() as never }, new Date(), { maxItemQuantity: 99 as PositiveInteger },
+        { number: 1 as OrderNumber, companyId: f.companyId as CompanyId, sellerId: f.sellerId as UserId, chatId: chat.chatId, contactId: f.contactId as ContactId });
+      if (!applied.success || applied.data.target.kind !== "open") throw new Error("Expected applied actions");
+      expect(await withinTransaction(() => saveItemChanges(applied.data.target.kind === "open" ? applied.data.target.order : order, applied.data.changes))).toEqual(ok(null));
       const stored = await findOrderAggregate(order.id, f.companyId as CompanyId);
-      expect(stored).toMatchObject({ success: true, data: { itemsTotal: { amount: 25 }, total: { amount: 25 } } });
       if (!stored.success || !stored.data) throw new Error("order missing");
-      expect(stored.data.items.map((item) => [item.variantId, item.quantity, item.unitPrice.amount, item.subtotal.amount]).sort())
-        .toEqual([[f.variantIds[0], 2, 10, 20], [f.variantIds[1], 1, 5, 5]].sort());
+      expect(stored.data).toMatchObject({ itemsTotal: { amount: 55 }, total: { amount: 55 } });
+      expect(stored.data.items.map((item) => [item.variantId, item.quantity, item.subtotal.amount, item.mentionedPrice?.amount.amount ?? null, item.mentionedPrice?.units ?? null]).sort())
+        .toEqual([[f.variantIds[0], 4, 40, null, null], [f.variantIds[1], 3, 15, 12.5, 3]].sort());
+      const removal = applyChatActions(applied.data.target, [{ kind: "remove", target: { kind: "variant", variantId: f.variantIds[0] as VariantId }, amount: "all" },
+        { kind: "set_mentioned_price", target: { kind: "variant", variantId: f.variantIds[1] as VariantId }, price: null }],
+      { newOrderId: () => randomUUID() as OrderId, newItemId: () => randomUUID() as never }, new Date(), { maxItemQuantity: 99 as PositiveInteger },
+      { number: 1 as OrderNumber, companyId: f.companyId as CompanyId, sellerId: f.sellerId as UserId, chatId: chat.chatId, contactId: f.contactId as ContactId });
+      if (!removal.success || removal.data.target.kind !== "open") throw new Error("Expected removal");
+      expect(await withinTransaction(() => saveItemChanges(removal.data.target.kind === "open" ? removal.data.target.order : order, removal.data.changes))).toEqual(ok(null));
+      const after = await findOrderAggregate(order.id, f.companyId as CompanyId);
+      expect(after).toMatchObject({ success: true, data: { itemsTotal: { amount: 15 }, items: [{ variantId: f.variantIds[1], quantity: 3 }] } });
     });
   } finally { await chatCleanup(f); await f.cleanup(); }
 });
 
-test("findProcessedMessage returns the order of a processed message", async () => {
+test("a mentioned price with only an amount or only units is rejected by the database", async () => {
   const f = await fixture();
   try {
     const chat = await chatFixture(f);
     const order = chatOrder(f);
     await withTenantIsolation(f.companyId, async () => {
-      expect(await findProcessedMessage(chat.messageId)).toEqual(ok(null));
-      await withinTransaction(async () => {
-        await savePendingOrder(order, chat.source);
-        return recordProcessedMessage(order.id, chat.messageId);
-      });
-      expect(await findProcessedMessage(chat.messageId)).toEqual(ok(order.id));
+      await withinTransaction(() => savePendingOrder(order, chat.source));
+      await expect(prisma.orderItem.updateMany({ where: { orderId: order.id }, data: { mentionedPriceAmount: new Prisma.Decimal("5") } })).rejects.toBeDefined();
+      await expect(prisma.orderItem.updateMany({ where: { orderId: order.id }, data: { mentionedPriceUnits: 2 } })).rejects.toBeDefined();
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+const findProductIds = findProductIdsOfVariants;
+
+test("findChatOrderTargetForUpdate fills the product of every item of the open order", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const order = chatOrder(f);
+    await withTenantIsolation(f.companyId, async () => {
+      await withinTransaction(() => savePendingOrder(order, chat.source));
+      const target = await withinTransaction(() => findChatOrderTargetForUpdate(chat.chatId, findProductIds));
+      expect(target).toMatchObject({ success: true, data: { kind: "open", order: { id: order.id } } });
+      if (target.success && target.data.kind === "open") expect([...target.data.productIds]).toEqual([[f.variantIds[0], f.productId]]);
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("findChatOrderTargetForUpdate says why the chat has no open order", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await withinTransaction(() => findChatOrderTargetForUpdate(chat.chatId, findProductIds))).toEqual(ok({ kind: "none" }));
+      const first = chatOrder(f, { createdAt: new Date("2026-10-01T00:00:00Z") });
+      await withinTransaction(() => savePendingOrder(first, chat.source));
+      await prisma.order.update({ where: { id: first.id }, data: { cancelled: true } });
+      expect(await withinTransaction(() => findChatOrderTargetForUpdate(chat.chatId, findProductIds))).toEqual(ok({ kind: "cancelled" }));
+      const second = chatOrder(f, { createdAt: new Date("2026-10-02T00:00:00Z") });
+      await withinTransaction(() => savePendingOrder(second, chat.source));
+      await prisma.order.update({ where: { id: second.id }, data: { stockDeducted: true, deliveryStatus: "shipped" } });
+      expect(await withinTransaction(() => findChatOrderTargetForUpdate(chat.chatId, findProductIds))).toEqual(ok({ kind: "closed", orderId: second.id, number: second.number }));
     });
   } finally { await chatCleanup(f); await f.cleanup(); }
 });
@@ -1755,7 +1801,7 @@ test("recordProcessedMessage maps a repeated message to MESSAGE_ALREADY_PROCESSE
       for (const order of [first, second]) await withinTransaction(() => savePendingOrder(order, chat.source));
       expect(await withinTransaction(() => recordProcessedMessage(first.id, chat.messageId))).toEqual(ok(null));
       expect(await withinTransaction(() => recordProcessedMessage(second.id, chat.messageId))).toMatchObject({ success: false, error: { code: "MESSAGE_ALREADY_PROCESSED" } });
-      expect(await findProcessedMessage(chat.messageId)).toEqual(ok(first.id));
+      expect(await prisma.orderMessage.findFirstOrThrow({ where: { messageId: chat.messageId } })).toMatchObject({ orderId: first.id });
     });
   } finally { await chatCleanup(f); await f.cleanup(); }
 });
@@ -1820,7 +1866,6 @@ test("tenant isolation hides customers and order messages of another company", a
     await withTenantIsolation(b.companyId, async () => {
       expect(await prisma.customer.count()).toBe(0);
       expect(await prisma.orderMessage.count()).toBe(0);
-      expect(await findProcessedMessage(chat.messageId)).toEqual(ok(null));
     });
   } finally { await chatCleanup(a, b); await a.cleanup(); await b.cleanup(); }
 });
@@ -1851,6 +1896,51 @@ test("derives source whatsapp for chat orders and manual otherwise", async () =>
       expect(summaries.data.items.map((item) => [item.id, item.source]).sort()).toEqual(expected);
     });
   } finally { await f.cleanup(); }
+});
+
+test("rejects a mentioned price with only an amount or only units", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const id = randomUUID();
+      expect((await immediateSale({ id, items: [{ variantId: f.variantIds[0], quantity: 1 }] }, f)).success).toBe(true);
+      const item = await prisma.orderItem.findFirstOrThrow({ where: { orderId: id } });
+      const update = (data: Prisma.OrderItemUpdateInput) => prisma.orderItem.update({ where: { id: item.id }, data });
+      const violation = (constraint: string) => ({ meta: { driverAdapterError: { cause: { originalCode: "23514", originalMessage: expect.stringContaining(`"${constraint}"`) } } } });
+      const rejected = async (data: Prisma.OrderItemUpdateInput, constraint: string) => {
+        const failure = await update(data).then(() => null, (error: unknown) => error);
+        expect(failure).toMatchObject(violation(constraint));
+      };
+      await rejected({ mentionedPriceAmount: new Prisma.Decimal("7.50") }, "OrderItem_mentioned_price_both_or_none");
+      await rejected({ mentionedPriceUnits: 2 }, "OrderItem_mentioned_price_both_or_none");
+      await rejected({ mentionedPriceAmount: new Prisma.Decimal("0"), mentionedPriceUnits: 1 }, "OrderItem_mentioned_price_amount_positive");
+      await rejected({ mentionedPriceAmount: new Prisma.Decimal("7.50"), mentionedPriceUnits: 0 }, "OrderItem_mentioned_price_units_range");
+      await rejected({ mentionedPriceAmount: new Prisma.Decimal("7.50"), mentionedPriceUnits: 100 }, "OrderItem_mentioned_price_units_range");
+      await update({ mentionedPriceAmount: new Prisma.Decimal("7.50"), mentionedPriceUnits: 99 });
+      expect(await prisma.orderItem.findUniqueOrThrow({ where: { id: item.id } })).toMatchObject({ mentionedPriceUnits: 99 });
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("keeps the chat message outcome of one company invisible to another", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  try {
+    const chat = await chatFixture(a);
+    await withTenantIsolation(a.companyId, async () => {
+      await prisma.chatMessageOutcome.create({ data: { messageId: chat.messageId, outcomes: [{ kind: "no_intent" }] } });
+      expect(await prisma.chatMessageOutcome.count()).toBe(1);
+      await prisma.chatMessage.update({ where: { companyId_id: { companyId: a.companyId, id: chat.messageId } }, data: { registeredBySessionId: "session-1" } });
+    });
+    await withTenantIsolation(b.companyId, async () => {
+      expect(await prisma.chatMessageOutcome.count()).toBe(0);
+      await expect(prisma.chatMessageOutcome.create({ data: { companyId: a.companyId, messageId: chat.messageId, outcomes: [] } })).rejects.toThrow();
+    });
+    await withTenantIsolation(a.companyId, async () => {
+      await expect(prisma.chatMessage.deleteMany()).rejects.toThrow();
+      await prisma.chatMessageOutcome.deleteMany();
+    });
+  } finally { await chatCleanup(a, b); await a.cleanup(); await b.cleanup(); }
 });
 
 test("reads the confirmation of a catalog order of the company and answers not_confirmed for another company's order", async () => {

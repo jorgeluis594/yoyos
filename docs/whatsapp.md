@@ -1,6 +1,6 @@
 # WhatsApp
 
-Yoyos reads the seller's WhatsApp conversations on the seller's phone. The mobile app links a WhatsApp account by QR, receives text and image messages, keeps them in an encrypted local database and registers each one in core, where other features (for example message-to-order) consume them.
+Yoyos reads the seller's WhatsApp conversations on the seller's phone. The mobile app links a WhatsApp account by QR, receives text and image messages, keeps them in an encrypted local database and registers each one in core, where other features consume them: [message-to-order](message-to-order.md) turns them into order changes, and [notifications](notifications.md) tells the seller when a message needs them.
 
 Where each part is documented:
 
@@ -25,7 +25,7 @@ core (features/chats): Contact → Chat → ChatMessage, then dispatch message_c
 
 | Decision | Reason |
 | --- | --- |
-| The WhatsApp session, decryption and reception live only on the phone. Core never receives WhatsApp on the phone's behalf, and Yoyos sends no push to wake the app. | The seller's credentials and conversations stay in the seller's custody. |
+| The WhatsApp session, decryption and reception live only on the phone. Core never receives WhatsApp on the phone's behalf. Seller notices are display-only pushes drawn by the operating system: they never wake the app, start reception or receive messages. | The seller's credentials and conversations stay in the seller's custody. |
 | The library is receive-only: no sending, no groups, no audio, video, documents or stickers. | The product needs to read sales conversations, not to write them. |
 | Linking is by QR only. One active WhatsApp account and one native client per installation. | Keeps one session and one durable queue per phone; changing account is `logout()` then a new QR. |
 | Reception does not require the app to be visible ("Live mode" with the screen on was rejected). Android keeps the client in a `remoteMessaging` foreground service. iOS does not receive while suspended. | Sellers keep using their phone; iOS offers no equivalent without a server receiver, which is excluded by the first decision. |
@@ -99,17 +99,17 @@ Each stored message has a sync state: `pending`, `synced`, `rejected` or `orphan
 
 ### Screens
 
-The link screen shows the connection state, the QR with its expiry (a new `connect()` requests a new QR), and non-blocking notices for `RECOVERY_BUFFER_FULL`, `HISTORY_LIMIT_REACHED` and `IDENTITY_UNAVAILABLE`. Conversations and messages are read from the local database, ordered by arrival. A chat is shown by its abbreviated LID because the library provides neither push name nor phone. Images are downloaded on demand and released when leaving the screen.
+The link screen shows the connection state, the QR with its expiry (a new `connect()` requests a new QR), and non-blocking notices for `RECOVERY_BUFFER_FULL`, `HISTORY_LIMIT_REACHED` and `IDENTITY_UNAVAILABLE`. It also hosts the notification permission prompt and the notices-off banner ([notifications](notifications.md#permission)), and a catalog hint loaded on focus from `GET /api/products/search-readiness`: with no active products, «Aún no tienes productos…»; with active products but none whose photo Yoyos can search yet, «Yoyos todavía no puede reconocer fotos de tus productos…»; both with **Ir a Productos**. Reason: in those states photo misses send no notice, so the hint is the only warning. Conversations and messages are read from the local database, ordered by arrival. A chat is shown by its abbreviated LID because the library provides neither push name nor phone. Images are downloaded on demand and released when leaving the screen. A chat opened from a notice scrolls to the notice's message and marks it ([notifications](notifications.md#opening-a-notice)); messages are found by their core message ID through the index `(company_id, core_message_id)`.
 
 ## Core: registering a message
 
 `POST /api/messages` ([`mobile-message-routes.ts`](../apps/core/src/features/chats/presentation/mobile-message-routes.ts), use case [`register-mobile-message.ts`](../apps/core/src/features/chats/application/register-mobile-message.ts)). Request and response shapes and limits are in [`shared/contracts/whatsapp-messages.ts`](../shared/contracts/whatsapp-messages.ts).
 
-- One message per request, authenticated with the Yoyos session. `companyId` and the uploading user come only from the session; the body cannot choose them. `accountId` is declared provenance, not proof of control of the WhatsApp account.
+- One message per request, authenticated with the Yoyos session. `companyId`, the uploading user and the registering session come only from the session; the body cannot choose them. The registering session (`registeredBySessionId`, first write wins) is the only recipient of the message's notices. `accountId` is declared provenance, not proof of control of the WhatsApp account.
 - The body is strict JSON of at most 100 KiB: unknown fields, duplicate keys and compressed bodies are rejected; `message.id` must decode to exactly its three identity fields. Responses use `Cache-Control: no-store`.
 - An image message must reference an image already uploaded to core (`imageId`); otherwise the response is 404 `IMAGE_NOT_FOUND`.
 - The message is stored as `Contact` (unique per company, account LID and chat LID) → `Chat` → `ChatMessage` (unique per company, chat and protocol message ID) in one transaction. The first write wins: a repetition never changes content, direction or dates. A `Contact` is not a customer; it may reference one.
-- After the commit, core dispatches `message_created` (`{ companyId, messageId }`, event ID = message ID, occurred at = first reception in core) and records `eventDispatchedAt`. `201 stored` means this request created the row; `200 duplicate` means it already existed. If the dispatch or its marker fails, the response is 503 and the row is kept; repeating the same POST completes the dispatch with the same event ID. Without another POST a pending dispatch is not recovered (no relay). Reason: no extra worker or outbox for this flow; the phone already retries until it gets 200/201.
+- After the commit, core dispatches `message_created` (`{ companyId, chatId, messageId }`, with the core chat ID as the per-chat ordering key; event ID = message ID, occurred at = first reception in core) and records `eventDispatchedAt`. `201 stored` means this request created the row; `200 duplicate` means it already existed. If the dispatch or its marker fails, the response is 503 and the row is kept; repeating the same POST completes the dispatch with the same event ID. Without another POST a pending dispatch is not recovered (no relay). Reason: no extra worker or outbox for this flow; the phone already retries until it gets 200/201.
 - Error responses carry only codes and static field paths, never received values or content.
 
 ## Security

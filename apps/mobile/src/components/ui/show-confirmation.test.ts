@@ -19,3 +19,15 @@ test('only confirms when accepted and marks destructive confirmations', () => {
   expect(onConfirm).toHaveBeenCalledTimes(1);
   alert.mockRestore();
 });
+
+test('reports the cancel button and a dismissal to the optional cancel handler', () => {
+  const alert = jest.spyOn(Alert, 'alert').mockImplementation(() => {});
+  const onCancel = jest.fn();
+  showConfirmation({ title: 'Avisos', confirmLabel: 'Activar avisos', cancelLabel: 'Ahora no', onConfirm: jest.fn(), onCancel });
+
+  const [, , buttons, options] = alert.mock.calls[0];
+  buttons?.[0].onPress?.();
+  options?.onDismiss?.();
+  expect(onCancel).toHaveBeenCalledTimes(2);
+  alert.mockRestore();
+});
