@@ -66,7 +66,7 @@ async function orderLink(order: OrderAggregate, companyId: CompanyId, appearance
   const url = await orders.checkoutUrl(companyId, order.id);
   if (url.success) return { kind: "ready", url: url.data };
   if (url.error.code === "SUBDOMAIN_REQUIRED") return { kind: "subdomain_required", appearancePath };
-  log.error({ event: "order_checkout_link_unavailable", companyId, orderId: order.id, errorCode: url.error.code }, "Unable to build the order link");
+  log.error({ event: "order_checkout_link_unavailable", companyId, orderNumber: order.number, errorCode: url.error.code }, "Unable to build the order link");
   return { kind: "unavailable" };
 }
 
