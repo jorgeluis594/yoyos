@@ -1,10 +1,19 @@
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
+import type { Server } from "node:http";
+import { afterAll, beforeAll } from "vitest";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { formatCurrency } from "@core/app/format-currency";
+import { startFakeS3 } from "@core/tests/e2e/fake-s3";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
+
+// The settings save reads the wallet QR from the object storage the e2e server uses (server-setup.ts points R2_ENDPOINT at port + 1000).
+let storage: Server;
+beforeAll(async () => { storage = await startFakeS3(Number(process.env.CORE_E2E_PORT ?? "4173") + 1000); });
+afterAll(async () => { await new Promise<void>((resolve) => storage?.close(() => resolve())); });
+const walletQr = new URL("../../src/shared/images/infrastructure/qr-fixtures/non-uuid-qr.jpg", import.meta.url);
 
 test("buyer reports a receipt and sees the seller confirmed balance", async ({ page, request }) => {
   const email = `buyer-payment-${crypto.randomUUID()}@example.test`;
@@ -22,20 +31,16 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     await page.getByLabel("Ofrecer billetera digital").check();
     await page.getByLabel("Proveedor").fill("Yape");
     await page.getByLabel("Titular").first().fill("Tienda");
-    const walletImageId = crypto.randomUUID();
-    await withTenantIsolation(tenantId, async () => await prisma.image.create({ data: { id: walletImageId, storageKey: `test/${walletImageId}` } }));
     await page.route("**/test-images/*", (route) => route.fulfill({ status: 200, contentType: "image/png", body: png }));
-    await page.route("**/api/images", (route) => route.fulfill({ status: 201, contentType: "application/json",
-      body: JSON.stringify({ id: walletImageId, url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test-images/test%2F${walletImageId}` }) }));
     const chooser = page.waitForEvent("filechooser");
-    await page.getByRole("button", { name: "Imagen opcional" }).first().click();
-    await (await chooser).setFiles({ name: "yape.png", mimeType: "image/png", buffer: png });
-    await browserExpect(page.getByRole("img", { name: "Imagen de instrucciones de pago" })).toBeVisible();
+    await page.getByRole("button", { name: "Subir QR" }).click();
+    await (await chooser).setFiles({ name: "plin.jpg", mimeType: "image/jpeg", buffer: await readFile(walletQr) });
+    await browserExpect(page.getByText("✓ QR válido")).toBeVisible();
     await page.getByLabel("Ofrecer transferencia bancaria").check();
     await page.getByLabel("Banco", { exact: true }).fill("BCP");
     await page.getByLabel("Titular").last().fill("Tienda");
     await page.getByLabel("CCI").fill("00200000000000000001");
-    await page.getByRole("button", { name: "Guardar medios de cobro" }).click();
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
     await browserExpect(page.getByText("Medios de cobro guardados.")).toBeVisible();
     const orderId = crypto.randomUUID();
     expect((await page.request.post("/api/orders/pending", { data: { id: orderId,

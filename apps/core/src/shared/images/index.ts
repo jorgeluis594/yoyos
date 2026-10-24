@@ -13,7 +13,7 @@ export const resolvePublicImage = (id: string) => getImage(id, storage, imageRep
 
 export const resolvePublicImages = (ids: readonly string[]) => getImages(ids, storage, imageRepository);
 
-export const readImageBytes = (imageId: string) => readBytes(imageId, storage, imageRepository);
+export const readImageBytes = (imageId: string, options?: Readonly<{ signal: AbortSignal }>) => readBytes(imageId, storage, imageRepository, options);
 
 export type { ImageReadError } from "@core/src/shared/images/application/images";
 export type { DownloadedImage } from "@core/src/shared/images/application/images";
