@@ -325,14 +325,26 @@ test("buyer selects a district rate, preserves the form on price conflict and co
     await page.goto(f.path);
     // One combobox per level: typing «villa» under Lima/Lima lists names only, never the ubigeo, and nothing overflows at 390 px.
     for (const [label, name] of [["Departamento", "Lima"], ["Provincia", "Lima"]] as const) {
-      await page.getByLabel(label, { exact: true }).fill(name);
+      await page.getByRole("combobox", { name: label, exact: true }).fill(name);
       await page.getByRole("option", { name, exact: true }).click();
     }
-    await page.getByLabel("Distrito", { exact: true }).fill("villa");
+    await page.getByRole("combobox", { name: "Distrito", exact: true }).fill("villa");
     await browserExpect(page.getByRole("option")).toHaveText(["Villa El Salvador", "Villa Maria del Triunfo"]);
     await browserExpect(page.getByText("Escribe para buscar y elige tu distrito en la misma lista.")).toBeVisible();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.keyboard.press("Escape");
+    // Departamento and Provincia keep two columns on the phone, with their labels and a long name inside their boxes.
+    await page.getByRole("combobox", { name: "Departamento", exact: true }).fill("Madre de Dios");
+    await page.getByRole("option", { name: "Madre de Dios", exact: true }).click();
+    const [department, province] = [await page.getByRole("combobox", { name: "Departamento", exact: true }).boundingBox(), await page.getByRole("combobox", { name: "Provincia", exact: true }).boundingBox()];
+    expect(Math.abs(department!.y - province!.y), "same row").toBeLessThan(2);
+    expect(department!.x + department!.width, "no overlap").toBeLessThanOrEqual(province!.x);
+    expect(province!.x + province!.width).toBeLessThanOrEqual(390);
+    await browserExpect(page.getByText("Departamento", { exact: true })).toBeVisible();
+    await page.getByRole("combobox", { name: "Departamento", exact: true }).fill("Lima");
+    await page.getByRole("option", { name: "Lima", exact: true }).click();
+    await page.getByRole("combobox", { name: "Provincia", exact: true }).fill("Lima");
+    await page.getByRole("option", { name: "Lima", exact: true }).click();
     await chooseDistrict(page, "150122");
     await browserExpect(page.getByLabel("Tarifa de envío").locator("option")).toHaveCount(3);
     await page.getByLabel("Tarifa de envío").selectOption({ index: 1 });

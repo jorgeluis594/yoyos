@@ -12,7 +12,7 @@ function names(districtCode: string) {
 }
 
 async function choose(page: Page, label: string, name: string) {
-  const input = page.getByLabel(label, { exact: true });
+  const input = page.getByRole("combobox", { name: label, exact: true });
   await input.click();
   await input.fill(name);
   await page.getByRole("option", { name, exact: true }).click();
@@ -32,5 +32,5 @@ export async function chooseDistrictInProvince(page: Page, districtCode: string)
 }
 
 export async function expectDistrict(page: Page, districtCode: string) {
-  await browserExpect(page.getByLabel("Distrito", { exact: true })).toHaveValue(names(districtCode).district);
+  await browserExpect(page.getByRole("combobox", { name: "Distrito", exact: true })).toHaveValue(names(districtCode).district);
 }

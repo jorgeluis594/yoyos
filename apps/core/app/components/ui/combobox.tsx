@@ -44,6 +44,16 @@ function ComboboxEmpty({ className, ...props }: React.ComponentProps<typeof Comb
   return <ComboboxPrimitive.Empty data-slot="combobox-empty" className={cn("px-3 py-2 text-sm text-muted-foreground empty:hidden", className)} {...props} />;
 }
 
+function ComboboxItem({ className, ...props }: React.ComponentProps<typeof ComboboxPrimitive.Item>) {
+  return (
+    <ComboboxPrimitive.Item
+      data-slot="combobox-item"
+      className={cn("flex min-h-10 cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[selected]:font-medium data-[disabled]:pointer-events-none data-[disabled]:opacity-50", className)}
+      {...props}
+    />
+  );
+}
+
 function ComboboxCheckboxItem({ className, children, ...props }: React.ComponentProps<typeof ComboboxPrimitive.Item>) {
   return (
     <ComboboxPrimitive.Item
@@ -59,4 +69,4 @@ function ComboboxCheckboxItem({ className, children, ...props }: React.Component
   );
 }
 
-export { Combobox, ComboboxInput, ComboboxContent, ComboboxList, ComboboxEmpty, ComboboxCheckboxItem };
+export { Combobox, ComboboxInput, ComboboxContent, ComboboxList, ComboboxEmpty, ComboboxItem, ComboboxCheckboxItem };

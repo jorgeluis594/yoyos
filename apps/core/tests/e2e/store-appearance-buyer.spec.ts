@@ -286,6 +286,13 @@ test.describe("buyer checkout with appearance", () => {
         const [label, field] = [await page.getByText("Nombre", { exact: true }).first().boundingBox(), await page.getByLabel("Nombre", { exact: true }).boundingBox()];
         expect(label!.y + label!.height, `${id}: the label sits above its field`).toBeLessThanOrEqual(field!.y + 1);
         await capture(page, `${id}-pending-390`);
+        // The open list is portaled, yet it stays inside the theme: same popover color and mode as the checkout.
+        await page.getByLabel("Departamento", { exact: true }).click();
+        const list = page.getByRole("listbox", { name: "Departamento", exact: true });
+        await browserExpect(list).toBeVisible();
+        expect(await list.evaluate((element) => element.closest("[data-store-theme]") !== null), `${id}: the list is inside the theme`).toBe(true);
+        await browserExpect(page.locator("[data-slot=combobox-content]")).toHaveCSS("background-color", rgb(storeThemes[id].colors.popover));
+        await page.keyboard.press("Escape");
         await page.setViewportSize({ width: 1280, height: 900 });
         await expectThumbnails(page, id);
         await capture(page, `${id}-pending-desktop`);

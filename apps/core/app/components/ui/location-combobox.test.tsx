@@ -59,6 +59,7 @@ test("exposes the combobox role with an accessible name and no code in the DOM",
   await type(input, "villa");
   expect(document.querySelector("[role=listbox]")).not.toBeNull();
   expect(document.body.textContent).not.toMatch(/\d{6}/);
+  expect(document.querySelector("[role=listbox]")?.getAttribute("aria-label")).toBe("Distrito");
 });
 
 test("typing villa lists the two matching districts with the match in bold", async () => {
@@ -128,4 +129,24 @@ test("disabled combobox cannot be focused for typing", async () => {
   await act(async () => root.render(<Harness />));
   mounted.push(() => root.unmount());
   expect(container.querySelector("input")!.disabled).toBe(true);
+});
+
+test("leaving the field after typing without choosing restores the chosen name and emits nothing", async () => {
+  const changes: (string | null)[] = [];
+  const input = await mount("150122", changes);
+  await type(input, "xyz");
+  await act(async () => { input.blur(); document.body.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })); });
+  expect(changes).toEqual([]);
+  expect(input.value).toBe("MIRAFLORES");
+});
+
+test("clearing the text reports no choice so dependents are invalidated", async () => {
+  const changes: (string | null)[] = [];
+  const input = await mount("150122", changes);
+  await act(async () => {
+    input.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, "");
+    input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "deleteContentBackward" }));
+  });
+  expect(changes).toEqual([null]);
 });

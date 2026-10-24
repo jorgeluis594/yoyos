@@ -6,8 +6,8 @@ import resources from "@core/app/locales";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, test } from "vitest";
-import { PeruDistrictSelect, filterPeruDistricts } from "@core/app/components/peru-district-select";
-import { getPeruDistrict, getPeruDistricts } from "@shared/peru-geography";
+import { PeruDistrictSelect } from "@core/app/components/peru-district-select";
+import { filterPeruDistricts, getPeruDistrict, getPeruDistricts } from "@shared/peru-geography";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -43,9 +43,9 @@ test("district search ignores accents and case and supports official codes withi
   expect(filterPeruDistricts(districts, "")).toEqual(districts);
 });
 
-test("themed, department and province stay in two columns on wide screens, inside one field of the group", () => {
+test("themed, department and province stay in two columns, also on phones, inside one field of the group", () => {
   const html = renderToStaticMarkup(withI18n(<PeruDistrictSelect themed value={district.code} onChange={() => undefined} />));
-  expect(html).toMatch(/data-store-part="field" class="min-w-0"><div class="grid min-w-0 gap-3 sm:grid-cols-2">[\s\S]*-department[\s\S]*-province/);
+  expect(html).toMatch(/data-store-part="field" class="min-w-0"><div class="grid min-w-0 gap-3 grid-cols-2">[\s\S]*-department[\s\S]*-province/);
 });
 
 const mounted: (() => void)[] = [];
@@ -88,4 +88,13 @@ test("choosing by name emits only the district code and changing a parent clears
   await choose(fields.department(), "arequipa");
   expect(fields.province().value).toBe("");
   expect(fields.district().disabled).toBe(true);
+});
+
+test("choosing the current department or province again keeps the children", async () => {
+  const changes: (string | null)[] = [];
+  const fields = await mount("150122", changes);
+  await choose(fields.department(), "lima");
+  await choose(fields.province(), "lima");
+  expect(changes).toEqual([]);
+  expect(fields.district().value).toBe("Miraflores");
 });

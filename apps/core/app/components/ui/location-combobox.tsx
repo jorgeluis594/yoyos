@@ -1,7 +1,7 @@
-import { Combobox as ComboboxPrimitive } from "@base-ui/react/combobox";
 import { useState, type ReactNode } from "react";
-import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxList } from "@/components/ui/combobox";
-import { cn } from "@/lib/utils";
+import { Combobox, ComboboxContent, ComboboxEmpty, ComboboxInput, ComboboxItem, ComboboxList } from "@/components/ui/combobox";
+import { Label } from "@/components/ui/label";
+import { SelectPortalContainer } from "@/components/ui/select";
 
 export type LocationOption = Readonly<{ code: string; name: string }>;
 
@@ -39,31 +39,30 @@ function OptionLabel({ name, query }: Readonly<{ name: string; query: string }>)
 }
 
 /** Search and choose in the same control: a single-choice WAI-ARIA combobox over named options (codes travel only in `onChange`). */
-export function LocationCombobox({ id, label, options, value, onChange, placeholder, emptyText, disabled = false, themed = false, describedBy, children }: Readonly<{
+export function LocationCombobox({ id, label, options, value, onChange, placeholder, emptyText, disabled = false, describedBy, children }: Readonly<{
   id: string; label: string; options: readonly LocationOption[]; value: string | null; onChange: (code: string | null) => void;
   placeholder: string; emptyText: string; disabled?: boolean;
-  /** Carries the hooks of the checkout themes; the seller views keep their own look. */
-  themed?: boolean; describedBy?: string; children?: ReactNode;
+  describedBy?: string; children?: ReactNode;
 }>) {
   const [query, setQuery] = useState("");
+  // The list is portaled out of its field; inside a store theme it must stay in that subtree to take the theme's tokens.
+  const [labelElement, setLabelElement] = useState<HTMLLabelElement | null>(null);
+  const themeRoot = labelElement?.closest<HTMLElement>("[data-store-theme]") ?? null;
   const selected = options.find(option => option.code === value) ?? null;
-  return <>
-    <label htmlFor={id} {...(themed ? { "data-slot": "label" } : {})} className="text-sm font-medium">{label}</label>
+  return <SelectPortalContainer.Provider value={themeRoot}>
+    <Label ref={setLabelElement} htmlFor={id}>{label}</Label>
     <Combobox items={options} value={selected} disabled={disabled} autoHighlight openOnInputClick
       itemToStringLabel={(option: LocationOption) => option.name} itemToStringValue={(option: LocationOption) => option.name} isItemEqualToValue={(a: LocationOption, b: LocationOption) => a.code === b.code}
       filter={(option: LocationOption, term: string) => matchesLocation(option.name, term)}
       onInputValueChange={(text, details) => setQuery(details.reason === "input-change" ? text : "")}
       onValueChange={(option: LocationOption | null) => onChange(option?.code ?? null)}>
-      <ComboboxInput id={id} placeholder={placeholder} aria-describedby={describedBy} {...(themed ? { "data-slot": "input" } : {})} />
+      <ComboboxInput id={id} placeholder={placeholder} aria-describedby={describedBy} data-slot="input" />
       <ComboboxContent>
         <ComboboxEmpty>{emptyText}</ComboboxEmpty>
-        <ComboboxList>{(option: LocationOption) =>
-          <ComboboxPrimitive.Item key={option.code} value={option} data-slot="combobox-item"
-            className={cn("flex min-h-10 cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[selected]:font-medium")}>
-            <OptionLabel name={option.name} query={query} />
-          </ComboboxPrimitive.Item>}</ComboboxList>
+        <ComboboxList aria-label={label}>{(option: LocationOption) =>
+          <ComboboxItem key={option.code} value={option}><OptionLabel name={option.name} query={query} /></ComboboxItem>}</ComboboxList>
       </ComboboxContent>
     </Combobox>
     {children}
-  </>;
+  </SelectPortalContainer.Provider>;
 }
