@@ -15,7 +15,8 @@
     "test:unit": "sh scripts/run-tests.sh unit",
     "test:integration": "sh scripts/run-tests.sh integration",
     "test:e2e": "sh scripts/run-tests.sh e2e",
-    "eval": "vitest run --config vitest.evals.config.ts",
+    "eval": "sh scripts/run-evals.sh",
+    "eval:report": "tsx evals/scripts/rebuild-report.ts",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
     "prisma:generate": "prisma generate"
@@ -33,6 +34,7 @@
   "packageManager": "pnpm@12.5.1",
   "type": "module",
   "devDependencies": {
+    "@anthropic-ai/sdk": "0.132.1",
     "@eslint/js": "^10.0.1",
     "@playwright/test": "^1.55.0",
     "@react-router/dev": "^7.9.4",
