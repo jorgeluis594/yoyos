@@ -5,14 +5,18 @@ import { createInstance } from "i18next";
 import { I18nextProvider } from "react-i18next";
 import resources from "@core/app/locales";
 import { afterEach, expect, test, vi } from "vitest";
-import OrderDetail, { action, buyerLink, clientAction, shouldRevalidate } from "@core/app/routes/order-detail";
+import OrderDetail, { action, buyerLink, clientAction, loader, shouldRevalidate } from "@core/app/routes/order-detail";
 import { buildPendingCatalogOrder, buildPendingOrder, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { orders } from "@core/src/features/orders/composition";
+import { deliverySettings } from "@core/src/features/delivery-settings";
+import { resolvePublicImages } from "@core/src/shared/images";
 import { ok, err } from "@shared/functional";
+
+vi.mock("@core/src/shared/images", async (importOriginal) => ({ ...await importOriginal<typeof import("@core/src/shared/images")>(), resolvePublicImages: vi.fn() }));
 
 const companyId = "00000000-0000-4000-8000-000000000001";
 const orderId = "00000000-0000-4000-8000-000000000002";
@@ -128,4 +132,45 @@ test("order detail shows «Desde el catálogo» and no seller for a catalog orde
   const fromSeller = render(manual.data);
   expect(fromSeller).not.toContain("Desde el catálogo");
   expect(fromSeller).toContain(seller);
+});
+
+test("loader resolves receipt urls for rejected payments with one image lookup", async () => {
+  const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const built = buildPendingOrder({ id: id(2) as OrderId, companyId: companyId as CompanyId, number: 1042 as OrderNumber, sellerId: "authenticated-seller" as UserId,
+    customer: { kind: "general_public" }, createdAt: new Date("2026-10-17T12:00:00Z"),
+    items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Polo", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 45, currency: "PEN" } }] });
+  if (!built.success) throw new Error("expected order");
+  const reportedAt = new Date("2026-10-17T13:00:00Z");
+  const rejected = (n: number, receipt: number) => ({ id: id(n), orderId: id(2), status: "rejected" as const, currency: "PEN" as const, amount: null, method: null,
+    data: { report: { receiptImageId: id(receipt), reportedAt }, rejectedAt: reportedAt, rejectedBy: "authenticated-seller", reason: null } });
+  const reported = { id: id(8), orderId: id(2), status: "reported" as const, currency: "PEN" as const, amount: null, method: null, data: { receiptImageId: id(30), reportedAt } };
+  const order = { ...built.data, payments: [rejected(6, 20), rejected(7, 21), reported] } as unknown as OrderAggregate;
+  vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(order));
+  vi.spyOn(deliverySettings, "get").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "unavailable" }));
+  vi.mocked(resolvePublicImages).mockResolvedValue(ok({ images: [{ id: id(20), url: "https://cdn.example/20.png" }, { id: id(30), url: "https://cdn.example/30.png" }], failures: [] }));
+  const result = await loader({ ...args(), request: new Request(`http://localhost/es-PE/orders/${orderId}`) } as never);
+  expect(resolvePublicImages).toHaveBeenCalledTimes(1);
+  expect(resolvePublicImages).toHaveBeenCalledWith(expect.arrayContaining([id(20), id(21), id(30)]));
+  expect(result.receiptUrls).toEqual({ [id(6)]: "https://cdn.example/20.png", [id(8)]: "https://cdn.example/30.png" });
+});
+
+test("order detail labels a rejected payment as Pago rechazado and never as confirmed", async () => {
+  const i18n = createInstance();
+  await i18n.init({ lng: "es", resources });
+  const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const built = buildPendingOrder({ id: id(2) as OrderId, companyId: companyId as CompanyId, number: 1042 as OrderNumber, sellerId: "seller" as UserId,
+    customer: { kind: "general_public" }, createdAt: new Date("2026-10-17T12:00:00Z"),
+    items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Polo", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 45, currency: "PEN" } }] });
+  if (!built.success) throw new Error("expected order");
+  const at = new Date("2026-10-17T13:00:00Z");
+  const order = { ...built.data, payments: [{ id: id(6), orderId: id(2), status: "rejected", currency: "PEN", amount: null, method: null,
+    data: { report: { receiptImageId: id(20), reportedAt: at }, rejectedAt: at, rejectedBy: "seller", reason: "No coincide" } }] } as unknown as OrderAggregate;
+  const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
+    hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order), base: "/es-PE/orders", manualPaymentId: id(5),
+      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery" } } } });
+  try {
+    const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));
+    expect(html).toContain("Pago rechazado");
+    expect(html).not.toContain("Pago confirmado");
+  } finally { router.dispose(); }
 });

@@ -119,6 +119,23 @@ test("seller confirms a reported partial amount from the mobile order", async ()
   expect(screen.getByText("No hay stock suficiente para confirmar el pago.")).toBeTruthy();
 });
 
+test("never labels a rejected payment as confirmed", async () => {
+  const rejectedId = "00000000-0000-4000-8000-000000000097";
+  mockOrder = { ...initialOrder, status: "active", paymentStatus: "pending", completedAt: null,
+    paidAmount: { amount: 0, currency: "PEN" }, balanceDue: { amount: 12, currency: "PEN" },
+    deliveryStatus: "pending", stockDeducted: false,
+    payments: [{ id: rejectedId, orderId: mockId, status: "rejected", currency: "PEN", amount: null, method: null,
+      data: { report: { receiptImageId: "00000000-0000-4000-8000-000000000098", reportedAt: "2026-09-29T11:30:00.000Z" },
+        rejectedAt: "2026-09-29T12:00:00.000Z", rejectedBy: "seller", reason: "No coincide" } }] };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Saldo pendiente");
+  fireEvent.press(screen.getByRole("button", { name: "Ver pagos" }));
+  expect(screen.getByText("Pago rechazado")).toBeTruthy();
+  expect(screen.queryByText("Pago confirmado")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Anular pago" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Revisar comprobante" })).toBeNull();
+});
+
 test("seller can void a confirmed payment from mobile", async () => {
   mockVoidPayment.mockResolvedValue({ success: true, data: { ...initialOrder, payments: [] } });
   const screen = render(<OrderDetailScreen />);
