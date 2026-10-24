@@ -10,7 +10,7 @@ import { CheckoutBuyerDetails, CheckoutConfirmAction, CheckoutOrderSummary, Chec
 import { orders } from "@core/src/features/orders/composition";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
 import { checkoutFormSchema, otherPersonReceives, type CheckoutForm } from "@core/app/checkout-recipient";
-import { internationalPhonePattern } from "@shared/phone";
+import { internationalPhonePattern, savedPhoneForForm } from "@shared/phone";
 import { recipientForCheckout, recipientForKeptDelivery, withBuyerAsRecipient } from "@core/src/features/orders/domain/checkout-recipient";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import type { CheckoutDeliveryChange, CheckoutPage } from "@core/src/features/orders/application/checkout";
@@ -209,8 +209,8 @@ export default function Checkout() {
   const checkout = initial.state.kind === "confirmed" ? initial : fetcher.data?.checkout ?? initial;
   const savedRecipient = initial.delivery?.recipient ?? null;
   const buyerForm = useForm<CheckoutForm>({ resolver: zodResolver(checkoutFormSchema), defaultValues: {
-    name: initial.buyer?.name ?? "", phone: initial.buyer?.phone ?? "", otherRecipient: otherPersonReceives(savedRecipient, initial.buyer),
-    recipientName: savedRecipient?.name ?? "", recipientPhone: savedRecipient?.phone ?? "" } });
+    name: initial.buyer?.name ?? "", phone: savedPhoneForForm(initial.buyer?.phone ?? ""), otherRecipient: otherPersonReceives(savedRecipient, initial.buyer),
+    recipientName: savedRecipient?.name ?? "", recipientPhone: savedPhoneForForm(savedRecipient?.phone ?? "") } });
   const name = useController({ name: "name", control: buyerForm.control });
   const phone = useController({ name: "phone", control: buyerForm.control });
   const other = useController({ name: "otherRecipient", control: buyerForm.control });

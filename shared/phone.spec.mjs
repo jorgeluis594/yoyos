@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { defaultPhoneCountry, internationalPhonePattern, joinPhone, phoneCountries, splitPhone } from "@shared/phone";
+import { defaultPhoneCountry, internationalPhonePattern, joinPhone, phoneCountries, savedPhoneForForm, splitPhone } from "@shared/phone";
 
 test("Peru is the default country and the list covers every country with a unique ISO code", () => {
   expect(defaultPhoneCountry).toBe("PE");
@@ -55,4 +55,11 @@ test("accepts a phone typed with spaces and rejects text without a known country
   expect(splitPhone("+")).toBeNull();
   expect(splitPhone("+999123")).toBeNull();
   expect(splitPhone("invalid")).toBeNull();
+});
+
+test("a saved phone that is not E.164 reaches the form as its digits under Peru, and an E.164 one is untouched", () => {
+  expect(savedPhoneForForm("+14155552671")).toBe("+14155552671");
+  expect(savedPhoneForForm(" +14155552671 ")).toBe("+14155552671");
+  expect(savedPhoneForForm("977 909 427")).toBe("+51977909427");
+  expect(savedPhoneForForm("")).toBe("");
 });

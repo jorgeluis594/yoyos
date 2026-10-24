@@ -35,7 +35,7 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
     if (!created.success) throw new Error("Order fixture failed");
     if (prefill !== "none") await prisma.orderBuyer.create({ data: { orderId, contactId, name: prefill === "full" ? "Anterior" : null, phone: "+51987654321" } });
     if (assigned) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home",
-      recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
+      recipient: { name: "Recipient", phone: "+51999999999", identity: { kind: "absent" } }, destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
       recordedBy: { kind: "seller", userId } } } });
     if (enabled) expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
   });
@@ -109,7 +109,7 @@ test("changed total preserves buyer input and needs an explicit new confirmation
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await withTenantIsolation(f.companyId, async () => {
       await prisma.order.update({ where: { id: f.orderId }, data: { total: 12, deliveryCost: 2, deliveryCharge: 2,
-        delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, destination: { address: "Address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: f.userId } } } });
+        delivery: { method: "home", recipient: { name: "Recipient", phone: "+51999999999", identity: { kind: "absent" } }, destination: { address: "Address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: f.userId } } } });
     });
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("alert")).toContainText("El total cambió");
@@ -200,7 +200,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     expect((await page.request.post("/api/orders", { data: { id: orderId, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     await withTenantIsolation(companyId, async () => {
       const stored = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
-      await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home", recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } },
+      await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home", recipient: { name: "Recipient", phone: "+51999999999", identity: { kind: "absent" } },
         destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: stored.sellerId } } } });
     });
     await page.goto(`/es-PE/orders/${orderId}`);
@@ -335,10 +335,10 @@ test("buyer selects a district rate, preserves the form on price conflict and co
     await rates.selectOption(firstRateId);
     expect(quoted).toHaveLength(1);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
-    await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    await page.getByLabel("Otra persona recibe el pedido").check();
-    await page.getByLabel("Nombre de quien recibe").fill("Recipient");
-    await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
+    await browserExpect(page.getByLabel("Otra persona recibe el pedido")).not.toBeChecked();
+    await page.getByLabel("País del teléfono").first().selectOption("PE");
+    await page.getByLabel("Teléfono", { exact: true }).fill("977 909 427");
+    await browserExpect(page.getByLabel("Nombre de quien recibe")).toHaveCount(0);
     await page.getByLabel("Dirección de entrega").fill("Street 123");
     await page.getByLabel("Indicaciones de entrega").fill("Door 3");
     await browserExpect(page.getByText("Subtotal de productos", { exact: true }).locator("..")).toContainText(/10[.,]00/);
@@ -373,7 +373,9 @@ test("buyer selects a district rate, preserves the form on price conflict and co
     const stored = await f.read();
     expect(stored.total.toNumber()).toBe(20);
     expect(stored.deliveryCharge.toNumber()).toBe(10);
-    expect(stored.delivery).toMatchObject({ method: "home", recordedBy: { kind: "buyer" }, destination: { districtCode: "150122", address: "Street 123" } });
+    expect(stored.delivery).toMatchObject({ method: "home", recordedBy: { kind: "buyer" }, destination: { districtCode: "150122", address: "Street 123" },
+      recipient: { name: "Ana", phone: "+51977909427" } });
+    expect(stored.buyer).toMatchObject({ name: "Ana", phone: "+51977909427" });
     expect(stored.payments).toEqual([]);
     expect(stored.stockDeducted).toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
@@ -408,9 +410,99 @@ test("buyer pickup confirms explicit zero without district or quotation", async 
     const stored = await f.read();
     expect(stored.total.toNumber()).toBe(10);
     expect(stored.deliveryCharge.toNumber()).toBe(0);
-    expect(stored.delivery).toMatchObject({ method: "store", recordedBy: { kind: "buyer" }, settingsVersion: 1 });
+    expect(stored.delivery).toMatchObject({ method: "store", recordedBy: { kind: "buyer" }, settingsVersion: 1,
+      recipient: { name: "Recipient", phone: "+51999999999" } });
+    expect(stored.buyer).toMatchObject({ name: "Ana", phone: "+51987654321" });
     expect(stored.delivery).not.toHaveProperty("pricing");
     expect(quotations).toBe(0);
+  } finally { await f.cleanup(); }
+});
+
+test("buyer pickup with nobody else receiving saves the buyer, typed in national format, as the recipient", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: false },
+        store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: null } } }, { companyId: f.companyId, userId: f.userId })).success).toBe(true);
+    });
+    await page.goto(f.path);
+    await page.getByRole("radio", { name: "Recojo en tienda · Gratis" }).check();
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await page.getByLabel("Teléfono", { exact: true }).fill("977 909 427");
+    await browserExpect(page.getByLabel("País del teléfono")).toHaveValue("PE");
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
+    const stored = await f.read();
+    expect(stored.buyer).toMatchObject({ name: "Ana", phone: "+51977909427" });
+    expect(stored.delivery).toMatchObject({ method: "store", recipient: { name: "Ana", phone: "+51977909427" } });
+  } finally { await f.cleanup(); }
+});
+
+async function saveRecipient(f: Awaited<ReturnType<typeof fixture>>, name: string, phone: string) {
+  await withTenantIsolation(f.companyId, async () => {
+    const order = await prisma.order.findUniqueOrThrow({ where: { id: f.orderId } });
+    await prisma.order.update({ where: { id: f.orderId }, data: { delivery: { ...(order.delivery as object), recipient: { name, phone, identity: { kind: "absent" } } } } });
+  });
+}
+
+test("a kept delivery saved for someone else opens with the check ticked and keeps the recipient the buyer confirms", async ({ page }) => {
+  const f = await fixture("full");
+  try {
+    await saveRecipient(f, "Recipient", "+51999999999");
+    await page.goto(f.path);
+    await browserExpect(page.getByRole("radiogroup", { name: "Forma de entrega" }).locator('input[value="keep"]')).toBeChecked();
+    await browserExpect(page.getByLabel("Otra persona recibe el pedido")).toBeChecked();
+    await browserExpect(page.getByLabel("Nombre de quien recibe")).toHaveValue("Recipient");
+    await browserExpect(page.getByLabel("Teléfono de quien recibe")).toHaveValue("999999999");
+    await browserExpect(page.getByText("Recibe: Recipient · +51999999999")).toBeVisible();
+    await page.getByLabel("Nombre de quien recibe").fill("Luis");
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
+    const stored = await f.read();
+    expect(stored.buyer).toMatchObject({ name: "Ana", phone: "+51987654321" });
+    expect(stored.delivery).toMatchObject({ method: "home", recipient: { name: "Luis", phone: "+51999999999" }, destination: { address: "Historical address" } });
+  } finally { await f.cleanup(); }
+});
+
+test("a kept delivery saved for the buyer opens unticked and follows the buyer's corrected data", async ({ page }) => {
+  const f = await fixture("full");
+  try {
+    await saveRecipient(f, "Anterior", "+51987654321");
+    await page.goto(f.path);
+    await browserExpect(page.getByLabel("Otra persona recibe el pedido")).not.toBeChecked();
+    await browserExpect(page.getByLabel("Nombre de quien recibe")).toHaveCount(0);
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await page.getByLabel("Teléfono", { exact: true }).fill("977 909 427");
+    await browserExpect(page.getByText("Recibe: Ana · +51977909427")).toBeVisible();
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
+    const stored = await f.read();
+    expect(stored.buyer).toMatchObject({ name: "Ana", phone: "+51977909427" });
+    expect(stored.delivery).toMatchObject({ method: "home", recipient: { name: "Ana", phone: "+51977909427" }, destination: { address: "Historical address" } });
+  } finally { await f.cleanup(); }
+});
+
+test("the recipient check sits beside its label and shows a checked state that differs from the unchecked one", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: false },
+        store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: null } } }, { companyId: f.companyId, userId: f.userId })).success).toBe(true);
+    });
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.goto(f.path);
+    await page.getByRole("radio", { name: "Recojo en tienda · Gratis" }).check();
+    const check = page.getByLabel("Otra persona recibe el pedido");
+    const label = page.locator('label[for="other-recipient"]');
+    const box = await check.boundingBox();
+    const text = await label.boundingBox();
+    expect(Math.abs((box?.y ?? 0) - (text?.y ?? 99)) < 12).toBe(true);
+    expect((box?.x ?? 0) + (box?.width ?? 0) <= (text?.x ?? 0) + 1).toBe(true);
+    const color = (target: typeof check) => target.evaluate(node => { const style = getComputedStyle(node); return `${style.backgroundColor}|${style.borderColor}`; });
+    const unchecked = await color(check);
+    await check.check();
+    await expect.poll(() => color(check)).not.toBe(unchecked);
   } finally { await f.cleanup(); }
 });
 
@@ -876,7 +968,7 @@ test("buyer keeps a historical rate after its zone changes or replaces it with a
         const quote = await deliverySettings.createQuotation({ companyId: f.companyId, country: "PE", districtCode: "150122", address: null, instructions: null });
         if (!quote.success) throw new Error(quote.error.message);
         const selection = parseRatedDeliverySelection({ method: "home", rateId: quote.data.rates[0].rate.id,
-          recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } },
+          recipient: { name: "Recipient", phone: "+51999999999", identity: { kind: "absent" } },
           destination: { districtCode: "150122", address: "Historical street", instructions: null } });
         if (!selection.success) throw new Error(selection.error.message);
         expect((await orders.setDelivery({ orderId: f.orderId, delivery: selection.data, expectedPrice: { amount: 8, currency: "PEN" } }, access)).success).toBe(true);

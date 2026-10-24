@@ -58,3 +58,8 @@ export function splitPhone(phone: string): SplitPhone | null {
   }
   return null;
 }
+
+/** A saved phone as the checkout form holds it: E.164 stays, any other phone becomes its digits under the default country, as the field shows it. */
+export function savedPhoneForForm(phone: string): string {
+  return splitPhone(phone) ? phone.trim() : joinPhone(defaultPhoneCountry, phone);
+}

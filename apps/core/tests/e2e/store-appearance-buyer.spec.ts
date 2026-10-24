@@ -56,7 +56,7 @@ async function fixture({ delivery = true, photos = false }: { delivery?: boolean
     if (!created.success) throw new Error("Order fixture failed");
     await prisma.orderBuyer.create({ data: { orderId, contactId, name: "Ana", phone: "+51987654321" } });
     if (delivery) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "store",
-      recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Tienda", address: "Historical address", instructions: null },
+      recipient: { name: "Recipient", phone: "+51999999999", identity: { kind: "absent" } }, pickupPoint: { name: "Tienda", address: "Historical address", instructions: null },
       settingsVersion: 0, recordedBy: { kind: "seller", userId } } } });
     expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
   });
@@ -287,6 +287,16 @@ test.describe("buyer checkout with appearance", () => {
         await page.getByText("Envío a agencia", { exact: true }).click();
         const [label, field] = [await page.getByText("Nombre", { exact: true }).first().boundingBox(), await page.getByLabel("Nombre", { exact: true }).boundingBox()];
         expect(label!.y + label!.height, `${id}: the label sits above its field`).toBeLessThanOrEqual(field!.y + 1);
+        // The recipient check keeps its box beside its label and fills with the theme's accent when ticked.
+        const other = page.getByLabel("Otra persona recibe el pedido");
+        const [box, text] = [await other.boundingBox(), await page.locator('label[for="other-recipient"]').boundingBox()];
+        expect(Math.abs(box!.y - text!.y), `${id}: the recipient check sits beside its label`).toBeLessThan(12);
+        expect(box!.x + box!.width, `${id}: the box comes before its label`).toBeLessThanOrEqual(text!.x + 1);
+        const fill = () => other.evaluate((node) => getComputedStyle(node).backgroundColor);
+        const unticked = await fill();
+        await other.check();
+        await browserExpect.poll(fill, { message: `${id}: the ticked check shows its state` }).not.toBe(unticked);
+        await other.uncheck();
         await capture(page, `${id}-pending-390`);
         await page.setViewportSize({ width: 1280, height: 900 });
         await expectThumbnails(page, id);
