@@ -25,7 +25,7 @@ describe("product chooser", () => {
   });
 
   test("maps none to a none choice", async () => {
-    expect(parseChooserOutput({ choice: "none", confidence: 0.4, showsProduct: 0.1 }, await input(), ["A", "B", "C"])).toEqual({ success: true, data: { kind: "none", showsProduct: 0.1 } });
+    expect(parseChooserOutput({ choice: "none", confidence: 0.4, showsProduct: 0.1 }, await input(), ["A", "B", "C"])).toEqual({ success: true, data: { kind: "none", confidence: 0.4, showsProduct: 0.1 } });
   });
 
   test("rejects an unknown label, a confidence outside 0 to 1, a missing field or extra fields as INVALID_MATCHER_RESPONSE", async () => {

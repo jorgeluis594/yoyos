@@ -100,7 +100,8 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<
   const chosen = available.find(({ candidate }) => candidate.productId === chosenId);
   const distances: VisualDistances = { topDistance: Math.min(...available.map(({ candidate }) => candidate.distance)),
     ...(chosen && { chosenDistance: chosen.candidate.distance }) };
-  // A photo that is not a product is no purchase intent, whatever the match said.
-  if (match.kind === "rejected") return showsProduct(choice.data) ? notFound(match.reason, distances) : ok({ kind: "not_product", ...distances });
+  // A photo that is not a product is no purchase intent, whatever the match said: a selfie in a knitted sweater can still resemble one.
+  if (!showsProduct(choice.data)) return ok({ kind: "not_product", ...distances });
+  if (match.kind === "rejected") return notFound(match.reason, distances);
   return ok({ kind: "found", method: "visual", productId: match.productId, confidence: match.confidence, candidates: available.length, ...distances });
 }

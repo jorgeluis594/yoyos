@@ -102,13 +102,18 @@ describe("identifyProductsInImage", () => {
   test("returns low_confidence or no_visual_match from the domain rules, with the candidate distances", async () => {
     const low = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.6 as MatchConfidence, showsProduct: 0.9 }) } });
     expect(await low.run()).toEqual(ok({ kind: "not_found", reason: "low_confidence", topDistance: 0.1, chosenDistance: 0.2 }));
-    const none = harness({ visual: { chooseProduct: async () => ok({ kind: "none", showsProduct: 0.9 }) } });
+    const none = harness({ visual: { chooseProduct: async () => ok({ kind: "none", confidence: 0.9 as MatchConfidence, showsProduct: 0.9 }) } });
     expect(await none.run()).toStrictEqual(ok({ kind: "not_found", reason: "no_visual_match", topDistance: 0.1 }));
   });
 
   test("returns not product when the chooser answers none and the photo does not show a product", async () => {
-    const h = harness({ visual: { chooseProduct: async () => ok({ kind: "none", showsProduct: 0.1 }) } });
+    const h = harness({ visual: { chooseProduct: async () => ok({ kind: "none", confidence: 0.9 as MatchConfidence, showsProduct: 0.1 }) } });
     expect(await h.run()).toStrictEqual(ok({ kind: "not_product", topDistance: 0.1 }));
+  });
+
+  test("returns not product when the chooser matches a candidate above the threshold but the photo does not show a product", async () => {
+    const selfie = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productQ, confidence: 0.83 as MatchConfidence, showsProduct: 0.08 }) } });
+    expect(await selfie.run()).toStrictEqual(ok({ kind: "not_product", topDistance: 0.1, chosenDistance: 0.2 }));
   });
 
   test("returns not found when the photo shows a product below the confidence threshold", async () => {

@@ -36,7 +36,7 @@ export function productChooserContract(harness: ChooserHarness) {
   });
 
   test("returns none when the provider answers none", async () => {
-    expect(await harness({ kind: "choice", choice: "none", confidence: 0.7, showsProduct: 0.1 }).choose(await input())).toEqual({ success: true, data: { kind: "none", showsProduct: 0.1 } });
+    expect(await harness({ kind: "choice", choice: "none", confidence: 0.7, showsProduct: 0.1 }).choose(await input())).toEqual({ success: true, data: { kind: "none", confidence: 0.7, showsProduct: 0.1 } });
   });
 
   test("returns INVALID_MATCHER_RESPONSE when the provider output is not the expected JSON", async () => {

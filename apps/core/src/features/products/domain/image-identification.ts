@@ -36,7 +36,7 @@ export type VisualCandidate = Readonly<{ productId: ProductId; imageId: ImageId;
 /** `showsProduct` is the probability that the first image shows a product offered for sale (not a payment screenshot, selfie, map or document). */
 export type VisualChoice =
   | Readonly<{ kind: "product"; productId: ProductId; confidence: MatchConfidence; showsProduct: number }>
-  | Readonly<{ kind: "none"; showsProduct: number }>;
+  | Readonly<{ kind: "none"; confidence: MatchConfidence; showsProduct: number }>;
 
 export const minShowsProduct = 0.5;
 
