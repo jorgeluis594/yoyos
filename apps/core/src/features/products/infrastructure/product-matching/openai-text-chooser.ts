@@ -90,7 +90,7 @@ export function createOpenAIVariantChooser(config: OpenAITextChooserConfig) {
     const labels = input.variants.map((_, index) => labelFor(index));
     const asked = await askChoice(config, {
       event: "product_variant_match", labels, descriptions: input.variants.map(describeVariant),
-      instructions: "Decide which variant the customer asks for. The words may be a plural, feminine or diminutive form of a value (rojas is Rojo, negrita is Negro, eme is M). "
+      instructions: "Decide which variant the customer asks for. The words may be a plural, feminine or diminutive form of a value (celestes is Celeste, grisecito is Gris, ele is L). "
         + `Answer with the option label, or "${NONE}" if no option is clearly the variant asked for.`,
       text: [`Customer words: ${input.words.join(" ")}`, "Variants:", ...input.variants.map((variant, index) => `${labels[index]}: ${describeVariant(variant)}`)].join("\n"),
     }, signal);

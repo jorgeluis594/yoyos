@@ -20,7 +20,7 @@ Argument sources:
 
 ## Orchestration
 
-1. One Decision request asks an `action` choice over the offered tool names plus `several`, one predicate per offered tool, and the questions of every offered tool that declares them. Its text is the fixed instructions, the feature's context and «The buyer's message:», followed by the message parts: without that label the model read the order summary as part of the request and chose right with low confidence. Several things through one action (several products or lines) are that action; `several` is only for two or more different actions. The feature decides which tools are offered for each message (`toolsFor` in orders).
+1. One Decision request asks an `action` choice over the offered tool names plus `several`, one predicate per offered tool, and the questions of every offered tool that declares them. Its text is the fixed instructions, the feature's context and «The buyer's message:», followed by the message parts: without that label the model read the order summary as part of the request and chose right with low confidence. Several things through one action are that action; `several` is only for two or more different actions. The feature decides which tools are offered for each message (`toolsFor` in orders).
 2. Action confidence below `MESSAGE_ACTION_MIN_CONFIDENCE` (default 0.6) → `ambiguous`, with no extraction call.
 3. The selected set is the chosen tool, or, for `several`, the tools whose predicate is at least `MESSAGE_TOOL_PREDICATE_MIN` (default 0.5); fewer than two → `ambiguous`.
 4. Tools of the set with source `none` or `decision` become calls with their Decision answers.

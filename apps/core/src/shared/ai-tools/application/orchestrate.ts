@@ -58,7 +58,7 @@ function buildDecisionRequest<Context>(input: OrchestrateInput<Context>, questio
     contextText: input.contextText,
     messageParts: input.messageParts,
     action: {
-      instructions: "Choose the one action the buyer's message asks for. A request for several things through the same action (several products, lines or units) is that one action. "
+      instructions: "Choose the one action the buyer's message asks for. A request for several things through the same action is that one action. "
         + "Choose several only when the message asks for two or more different actions of the list.",
       choices: [
         ...input.tools.map((tool) => ({ value: tool.name, description: tool.description })),
