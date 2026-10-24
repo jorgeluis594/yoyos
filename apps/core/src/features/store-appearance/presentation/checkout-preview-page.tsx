@@ -43,7 +43,7 @@ export function CheckoutPreviewPage({ companyName, appearance, state, paymentMet
           delivery={<CheckoutDeliveryFields orderId={previewOrderId} checkout={checkout} options={previewDeliveryOptions} recipient={{ name: "Ana Pérez", phone: "+51987654321" }} onChange={setDeliveryDraft} />} />
       </form>
       : <>
-        <CheckoutBuyerDetails buyer={checkout.buyer} />
+        <CheckoutBuyerDetails buyer={checkout.buyer} delivery={checkout.delivery} />
         <div onChangeCapture={stopUploads} onClickCapture={stopFilePicker}>
           <CheckoutPayment view={previewPaymentView(paymentMethods ?? samplePaymentMethods)}
             notice={paymentMethods === null && <p role="note" className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{t("storePreview.sampleMethods")}</p>} />

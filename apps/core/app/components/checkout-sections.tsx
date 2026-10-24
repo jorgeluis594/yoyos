@@ -126,9 +126,19 @@ export function CheckoutConfirmAction({ form, type, disabled, pending }: Readonl
   </div>;
 }
 
-export function CheckoutBuyerDetails({ buyer }: Readonly<{ buyer: PublicCheckoutResponse["buyer"] }>) {
+/** Where the order goes, in one line: the delivery mode and its address. */
+function deliverySummary(delivery: NonNullable<PublicCheckoutResponse["delivery"]>, mode: string): string {
+  const where = delivery.method === "home" ? `${delivery.destination.address}, ${delivery.destination.district}`
+    : delivery.method === "store" ? delivery.pickupPoint.address : `${delivery.agency.name} · ${delivery.agency.address}`;
+  return `${mode} · ${where}`;
+}
+
+/** «Datos del comprador» in two lines: name and phone, then how and where the order is delivered. */
+export function CheckoutBuyerDetails({ buyer, delivery }: Readonly<{ buyer: PublicCheckoutResponse["buyer"]; delivery: PublicCheckoutResponse["delivery"] }>) {
   const { t } = useTranslation();
-  return buyer && <section data-store-part="card" className={checkoutCard}><h2 data-store-part="section-title" className={sectionTitle}>{t("checkoutSections.buyerDetails")}</h2><div><p className="font-medium">{buyer.name}</p><p className="text-muted-foreground tabular-nums">{buyer.phone}</p></div></section>;
+  return buyer && <section data-store-part="card" className={checkoutCard}><h2 data-store-part="section-title" className={sectionTitle}>{t("checkoutSections.buyerDetails")}</h2>
+    <div><p className="font-medium">{buyer.name} <span className="font-normal text-muted-foreground tabular-nums">· {buyer.phone}</span></p>
+      {delivery && <p className="text-muted-foreground">{deliverySummary(delivery, t(`checkoutDelivery.method.${delivery.method}`))}</p>}</div></section>;
 }
 
 export function CheckoutPayment({ view, notice }: Readonly<{ view: BuyerPaymentView; notice?: ReactNode }>) {

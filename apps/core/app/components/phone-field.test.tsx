@@ -99,3 +99,33 @@ test("exposes the invalid state and description to assistive technology", async 
   expect(input.getAttribute("inputmode")).toBe("tel");
   root.unmount();
 });
+
+test("a saved phone that is not E.164 shows its digits under the default country", async () => {
+  const { select, input, unmount } = await mount("999123456");
+  expect(select.value).toBe("PE");
+  expect(input.value).toBe("999123456");
+  unmount();
+});
+
+test("the closed selector shows only the ISO code and the dial code of the chosen country", async () => {
+  const { select, unmount } = await mount();
+  expect(select.selectedOptions[0].textContent).toBe("PE +51");
+  await pick(select, "US");
+  expect(select.selectedOptions[0].textContent).toBe("US +1");
+  unmount();
+});
+
+test("typing «+» and the code character by character splits the phone like pasting it", async () => {
+  const { changes, select, input, unmount } = await mount();
+  await type(input, "+");
+  expect(input.value).toBe("+");
+  expect(changes.at(-1)).toBe("");
+  await type(input, "+3");
+  expect(input.value).toBe("+3");
+  await type(input, "+34");
+  expect(select.value).toBe("ES");
+  expect(input.value).toBe("");
+  await type(input, "612 345 678");
+  expect(changes.at(-1)).toBe("+34612345678");
+  unmount();
+});

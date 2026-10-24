@@ -103,7 +103,7 @@ describe("CheckoutOrderSummary", () => {
 
   const sameText = [
       "Lima Studio", "Pedido #1001", "Revisa los productos y el total de tu pedido.", "Tus datos", "Nombre", "Teléfono",
-      "Datos del comprador", "Ana Pérez", "+51987654321", "Productos",
+      "Datos del comprador", "Ana Pérez · +51987654321", "Productos",
       "Polo básico", "M", "2 × S/ 49.00", "S/ 98.00", "Taza blanca", "1 × S/ 20.00", "S/ 20.00", "Subtotal de productos", "S/ 118.00",
       "Entrega", "Selecciona una opción", "Total a pagar", "Selecciona entrega",
     ].join("");
@@ -112,7 +112,7 @@ describe("CheckoutOrderSummary", () => {
     const { container, unmount } = render(
       <CheckoutShell appearance={{ logoUrl: null, theme }} checkout={withPhotos} summary={<CheckoutOrderSummary checkout={withPhotos} deliveryDraft={null} />}>
         <CheckoutReviewFields message={null} name={{ defaultValue: "Ana" }} phone={{ defaultValue: "+51987654321" }} delivery={null} />
-        <CheckoutBuyerDetails buyer={withPhotos.buyer} />
+        <CheckoutBuyerDetails buyer={withPhotos.buyer} delivery={withPhotos.delivery} />
       </CheckoutShell>);
     // The thumbnails are the only content a theme adds, so their initials are left out, and so is the theme's stylesheet.
     const clone = container.cloneNode(true) as HTMLElement;
@@ -136,7 +136,7 @@ describe("CheckoutReviewFields recipient", () => {
   };
   const person = { name: { defaultValue: "Luis" }, phone: { defaultValue: "+14155552671" } };
 
-  test("offers no recipient check when the delivery keeps its saved recipient", () => {
+  test("offers no recipient check when the form leaves it out, as in the Apariencia preview", () => {
     const { container, unmount } = setup();
     expect(container.querySelector("[role=checkbox]")).toBeNull();
     unmount();
@@ -180,6 +180,29 @@ describe("CheckoutReviewFields recipient", () => {
     const { container, unmount } = setup();
     expect(container.textContent).not.toContain("Incluye el código de país");
     expect(container.querySelector("#buyer-phone")).not.toBeNull();
+    unmount();
+  });
+});
+
+describe("CheckoutBuyerDetails", () => {
+  const buyer = { name: "Ana Pérez", phone: "+51987654321" };
+  const render = (delivery: Parameters<typeof CheckoutBuyerDetails>[0]["delivery"]) => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    void act(() => root.render(withI18n(<CheckoutBuyerDetails buyer={buyer} delivery={delivery} />)));
+    return { lines: [...container.querySelectorAll("section div p")].map(line => line.textContent), unmount: () => root.unmount() };
+  };
+
+  test("shows the name and phone on the first line and the delivery mode and address on the second", () => {
+    const { lines, unmount } = render({ method: "store", recipient: { name: "Ana", phone: "+51987654321", identity: { kind: "absent" } },
+      pickupPoint: { name: "Tienda", address: "Av. Lima 123", instructions: null }, settingsVersion: 1 } as never);
+    expect(lines).toEqual(["Ana Pérez · +51987654321", "Recojo en tienda · Av. Lima 123"]);
+    unmount();
+  });
+
+  test("shows a single line while no delivery is saved", () => {
+    const { lines, unmount } = render(null);
+    expect(lines).toEqual(["Ana Pérez · +51987654321"]);
     unmount();
   });
 });

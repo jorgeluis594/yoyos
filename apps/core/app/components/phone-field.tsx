@@ -23,16 +23,17 @@ export type PhoneFieldProps = Readonly<{
 type Parts = Readonly<{ country: string; text: string }>;
 const parts = (phone: string, fallback = defaultPhoneCountry): Parts => {
   const split = splitPhone(phone);
-  return split ? { country: split.country, text: split.national } : { country: fallback, text: "" };
+  // A phone that is not E.164 (typed by the seller, imported from a contact) keeps showing its digits under the fallback country.
+  return split ? { country: split.country, text: split.national } : { country: fallback, text: phone.trim() };
 };
 
 /** Server and browser disagree on country names, so the names only join the options once the client has hydrated. */
 function useCountryOptions(language: string) {
   const ready = useClientReady();
   return useMemo(() => {
-    if (!ready) return phoneCountries.map(({ iso, dial }) => ({ iso, label: `${iso} +${dial}` }));
+    if (!ready) return phoneCountries.map(({ iso, dial }) => ({ iso, label: `${iso} +${dial}`, short: `${iso} +${dial}` }));
     const names = new Intl.DisplayNames([language], { type: "region" });
-    return phoneCountries.map(({ iso, dial }) => ({ iso, label: `${iso} +${dial} · ${names.of(iso) ?? iso}`, name: names.of(iso) ?? iso }))
+    return phoneCountries.map(({ iso, dial }) => ({ iso, label: `${iso} +${dial} · ${names.of(iso) ?? iso}`, short: `${iso} +${dial}`, name: names.of(iso) ?? iso }))
       .sort((a, b) => a.name.localeCompare(b.name, language));
   }, [language, ready]);
 }
@@ -50,13 +51,16 @@ export function PhoneField({ id, value, defaultValue = "", onChange, onBlur, inv
   }
   const update = (next: Parts) => { setState(next); onChange?.(joinPhone(next.country, next.text)); };
   const type = (text: string) => {
-    const pasted = text.trimStart().startsWith("+") ? splitPhone(text) : null;
-    update(pasted ? { country: pasted.country, text: pasted.national } : { country: state.country, text: text.replace(/[^\d\s().-]/g, "") });
+    // Typing «+» and a code works like pasting the whole phone: the code moves to the selector as soon as it is a known one.
+    const international = text.trimStart().startsWith("+");
+    const split = international ? splitPhone(text) : null;
+    update(split ? { country: split.country, text: split.national }
+      : { country: state.country, text: (international ? "+" : "") + text.replace(/[^\d\s().-]/g, "") });
   };
   return <div data-store-part="phone" className="flex min-w-0 gap-2">
     <select data-slot="select" aria-label={t("phoneField.country")} className={cn(controlClass, "w-[8.5rem] shrink-0")} value={state.country} disabled={disabled} onBlur={onBlur}
       onChange={event => update({ country: event.target.value, text: state.text })}>
-      {options.map(option => <option key={option.iso} value={option.iso}>{option.label}</option>)}
+      {options.map(option => <option key={option.iso} value={option.iso}>{option.iso === state.country ? option.short : option.label}</option>)}
     </select>
     <Input id={id} className="min-w-0 flex-1" type="tel" inputMode="tel" autoComplete="tel-national" required={required} disabled={disabled} placeholder={t("phoneField.placeholder")}
       aria-invalid={invalid} aria-describedby={describedBy} value={state.text} onBlur={onBlur} onChange={event => type(event.target.value)} />

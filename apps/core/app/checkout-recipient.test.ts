@@ -1,5 +1,5 @@
-import { expect, test } from "vitest";
-import { otherPersonReceives } from "@core/app/checkout-recipient";
+import { describe, expect, test } from "vitest";
+import { checkoutFormSchema, otherPersonReceives } from "@core/app/checkout-recipient";
 
 const buyer = { name: "Ana", phone: "+51977909427" };
 
@@ -21,4 +21,22 @@ test("without a saved delivery nobody else receives", () => {
 test("a saved delivery with no buyer data yet differs from the buyer", () => {
   expect(otherPersonReceives({ name: "Luis", phone: "999" }, null)).toBe(true);
   expect(otherPersonReceives({ name: "Luis", phone: "999" }, { name: null, phone: null })).toBe(true);
+});
+
+describe("checkout form", () => {
+  const form = { name: "Ana", phone: "+51977909427", otherRecipient: false, recipientName: "", recipientPhone: "" };
+  const paths = (value: unknown) => { const result = checkoutFormSchema.safeParse(value); return result.success ? [] : result.error.issues.map(issue => issue.path.join(".")); };
+
+  test("ignores the recipient fields when nobody else receives", () => {
+    expect(paths(form)).toEqual([]);
+  });
+
+  test("asks for the recipient's name and phone together when someone else receives", () => {
+    expect(paths({ ...form, otherRecipient: true })).toEqual(["recipientName", "recipientPhone"]);
+    expect(paths({ ...form, otherRecipient: true, recipientName: "Luis", recipientPhone: "+14155552671" })).toEqual([]);
+  });
+
+  test("reports the buyer's and the recipient's errors at once", () => {
+    expect(paths({ ...form, name: " ", otherRecipient: true, recipientName: "" })).toEqual(expect.arrayContaining(["name", "recipientName", "recipientPhone"]));
+  });
 });

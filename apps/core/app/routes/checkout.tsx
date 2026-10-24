@@ -9,7 +9,7 @@ import { Button } from "@core/app/components/ui/button";
 import { CheckoutBuyerDetails, CheckoutConfirmAction, CheckoutOrderSummary, CheckoutPayment, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
 import { orders } from "@core/src/features/orders/composition";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
-import { otherPersonReceives } from "@core/app/checkout-recipient";
+import { checkoutFormSchema, otherPersonReceives, type CheckoutForm } from "@core/app/checkout-recipient";
 import { internationalPhonePattern } from "@shared/phone";
 import { recipientForCheckout, recipientForKeptDelivery, withBuyerAsRecipient } from "@core/src/features/orders/domain/checkout-recipient";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
@@ -24,7 +24,7 @@ import { parseCompanyId } from "@core/src/features/store-appearance/domain/store
 import { defaultStoreTheme } from "@shared/store-themes";
 import type { ColorSchemeHandle } from "@core/app/color-scheme";
 import { publicStoreAppearanceSchema, type PublicStoreAppearance } from "@core/src/features/store-appearance/presentation/store-appearance-schemas";
-import { checkoutBuyerSchema, checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
+import { checkoutPathSchema, checkoutDeliveryOptionsSchema, confirmCheckoutDeliverySchema, publicCheckoutSchema, type CheckoutDeliveryOptions, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 
 const privacyHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 export const headers = () => privacyHeaders;
@@ -207,42 +207,40 @@ export default function Checkout() {
   const { orderId = "" } = useParams();
   const fetcher = useFetcher<typeof action>();
   const checkout = initial.state.kind === "confirmed" ? initial : fetcher.data?.checkout ?? initial;
-  const buyerForm = useForm<{ name: string; phone: string }>({ resolver: zodResolver(checkoutBuyerSchema),
-    defaultValues: { name: initial.buyer?.name ?? "", phone: initial.buyer?.phone ?? "" } });
+  const savedRecipient = initial.delivery?.recipient ?? null;
+  const buyerForm = useForm<CheckoutForm>({ resolver: zodResolver(checkoutFormSchema), defaultValues: {
+    name: initial.buyer?.name ?? "", phone: initial.buyer?.phone ?? "", otherRecipient: otherPersonReceives(savedRecipient, initial.buyer),
+    recipientName: savedRecipient?.name ?? "", recipientPhone: savedRecipient?.phone ?? "" } });
   const name = useController({ name: "name", control: buyerForm.control });
   const phone = useController({ name: "phone", control: buyerForm.control });
+  const other = useController({ name: "otherRecipient", control: buyerForm.control });
+  const recipientName = useController({ name: "recipientName", control: buyerForm.control });
+  const recipientPhone = useController({ name: "recipientPhone", control: buyerForm.control });
   const [deliveryDraft, setDeliveryDraft] = useState<CheckoutDeliveryDraft | null>(null);
-  const savedRecipient = initial.delivery?.recipient ?? null;
-  const [other, setOther] = useState(() => otherPersonReceives(savedRecipient, initial.buyer));
-  const [recipientName, setRecipientName] = useState(savedRecipient?.name ?? "");
-  const [recipientPhone, setRecipientPhone] = useState(savedRecipient?.phone ?? "");
-  const [recipientChecked, setRecipientChecked] = useState(false);
-  const recipient = other ? { name: recipientName, phone: recipientPhone } : { name: name.field.value, phone: phone.field.value };
-  const recipientInvalid = { name: other && !recipientName.trim(), phone: other && !internationalPhonePattern.test(recipientPhone.trim()) };
+  const recipient = other.field.value ? { name: recipientName.field.value, phone: recipientPhone.field.value } : { name: name.field.value, phone: phone.field.value };
   const total = checkoutTotal(checkout, deliveryDraft);
   const recoveryVersion = fetcher.data?.code && ["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "DELIVERY_METHOD_DISABLED"].includes(fetcher.data.code) ? fetcher.data : undefined;
   const pending = fetcher.state !== "idle";
   const errors = { name: name.fieldState.error ? t("checkoutPage.nameRequired") : fetcher.data?.fieldErrors?.name,
-    phone: phone.fieldState.error ? t("checkoutPage.phoneInvalid") : fetcher.data?.fieldErrors?.phone };
+    phone: phone.fieldState.error ? t("checkoutPage.phoneInvalid") : fetcher.data?.fieldErrors?.phone,
+    recipientName: recipientName.fieldState.error ? t("checkoutRecipient.nameRequired") : fetcher.data?.fieldErrors?.recipientName,
+    recipientPhone: recipientPhone.fieldState.error ? t("checkoutRecipient.phoneInvalid") : fetcher.data?.fieldErrors?.recipientPhone };
   if (fetcher.data?.unavailable) return <main className="mx-auto max-w-lg p-6"><h1 className="text-2xl font-semibold">{t("checkoutPage.unavailable")}</h1><p>{t("checkoutPage.askSeller")}</p></main>;
   const confirmable = checkout.state.kind === "pending";
   return <CheckoutShell appearance={initialData.appearance ?? null} checkout={checkout}
     summary={<CheckoutOrderSummary checkout={checkout} deliveryDraft={deliveryDraft}
       action={confirmable && <CheckoutConfirmAction form="checkout-form" type="submit" disabled={pending || !deliveryDraft || !total} pending={pending} />} />}>
-    {confirmable ? <fetcher.Form id="checkout-form" method="post" noValidate className="flex flex-col gap-4" onSubmit={buyerForm.handleSubmit(buyer => {
+    {confirmable ? <fetcher.Form id="checkout-form" method="post" noValidate className="flex flex-col gap-4" onSubmit={buyerForm.handleSubmit(form => {
       if (pending || !deliveryDraft || !total) return;
-      setRecipientChecked(true);
-      if (deliveryDraft.delivery.kind === "replace" && (recipientInvalid.name || recipientInvalid.phone)) return;
-      fetcher.submit({ buyer, delivery: deliveryDraft.delivery, expectedTotal: total, otherRecipient: other }, { method: "post", encType: "application/json" });
+      const { delivery } = deliveryDraft;
+      const kept = delivery.kind === "keep" && form.otherRecipient ? { kind: "keep" as const, recipient: { name: form.recipientName, phone: form.recipientPhone } } : delivery;
+      fetcher.submit({ buyer: { name: form.name, phone: form.phone }, delivery: kept, expectedTotal: total, otherRecipient: form.otherRecipient }, { method: "post", encType: "application/json" });
     })}>
       <CheckoutReviewFields message={fetcher.data?.message ?? null} name={name.field} nameError={errors.name} phone={phone.field} phoneError={errors.phone}
-        recipient={deliveryDraft?.delivery.kind === "keep" ? undefined : { other, onOtherChange: setOther,
-          name: { value: recipientName, onChange: event => setRecipientName(event.target.value) },
-          nameError: (recipientChecked && recipientInvalid.name ? t("checkoutRecipient.nameRequired") : undefined) ?? fetcher.data?.fieldErrors?.recipientName,
-          phone: { value: recipientPhone, onChange: setRecipientPhone },
-          phoneError: (recipientChecked && recipientInvalid.phone ? t("checkoutPage.phoneInvalid") : undefined) ?? fetcher.data?.fieldErrors?.recipientPhone }}
+        recipient={{ other: other.field.value, onOtherChange: other.field.onChange, name: { ...recipientName.field }, nameError: errors.recipientName,
+          phone: recipientPhone.field, phoneError: errors.recipientPhone }}
         delivery={<CheckoutDeliveryFields orderId={orderId} checkout={checkout} options={initialData.deliveryOptions!} recipient={recipient} onChange={setDeliveryDraft} recoveryVersion={recoveryVersion} disabled={pending} />} />
-    </fetcher.Form> : <CheckoutBuyerDetails buyer={checkout.buyer} />}
+    </fetcher.Form> : <CheckoutBuyerDetails buyer={checkout.buyer} delivery={checkout.delivery} />}
     {checkout.state.kind === "confirmed" && initialData.payment && <CheckoutPayment view={initialData.payment} />}
   </CheckoutShell>;
 }

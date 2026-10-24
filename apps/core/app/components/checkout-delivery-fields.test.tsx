@@ -41,6 +41,7 @@ test("historical delivery shows saved address and charge without consulting a cu
   } });
   expect(html).toContain("Conservar entrega actual");
   expect(html).toContain("Old street, Old district");
+  expect(html).toContain("Recibe: Ana · +51977909427");
   expect(html.replace(/\s/g, " ")).toContain("S/ 8.00");
   expect(html).not.toContain("Distrito de entrega");
   expect(html).not.toContain("Nombre del destinatario");

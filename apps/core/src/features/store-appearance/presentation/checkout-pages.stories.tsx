@@ -37,7 +37,7 @@ function CheckoutPage({ theme, state, logoUrl = null }: PageProps) {
         </CheckoutShell>
         : state === "cancelled"
         ? <CheckoutShell appearance={appearance} checkout={cancelled} summary={<CheckoutOrderSummary checkout={cancelled} deliveryDraft={null} />}>
-          <CheckoutBuyerDetails buyer={cancelled.buyer} />
+          <CheckoutBuyerDetails buyer={cancelled.buyer} delivery={cancelled.delivery} />
         </CheckoutShell>
         : <CheckoutPreviewPage companyName="Lima Studio" appearance={appearance} state={state} paymentMethods={null} />}
     </div></I18nextProvider>,
