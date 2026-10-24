@@ -127,12 +127,16 @@ describe("noticeErrorOf", () => {
     expect(noticeErrorOf(false, ["removed"], ["quantity_lowered"])).toBe("wrong_change");
   });
 
-  test("nothing changed and no notice is a silent drop: a missed notice or a dropped request", () => {
+  test("nothing changed and no notice: a missed notice when one was due, a dropped request when a change was", () => {
     expect(noticeErrorOf(false, ["variant_only"], ["ambiguous_intent"])).toBe("missed_notice");
     expect(noticeErrorOf(false, ["added"], ["ambiguous_intent"])).toBe("dropped_request");
     expect(noticeErrorOf(false, ["ready"], ["ambiguous_intent"])).toBe("missed_notice");
-    // Something changed, so it is not a drop: the lost «ready» counts as a wrong silent change.
-    expect(noticeErrorOf(false, ["removed", "ready"], ["removed"])).toBe("wrong_change");
+    expect(noticeErrorOf(false, ["only_item_kept"], ["ambiguous_intent"])).toBe("missed_notice");
+  });
+
+  test("a lost notice beside a right change is a missed notice, and another problem is a wrong notice", () => {
+    expect(noticeErrorOf(false, ["removed", "ready"], ["removed"])).toBe("missed_notice");
+    expect(noticeErrorOf(false, ["variant_missing"], ["not_identified"])).toBe("wrong_notice");
   });
 
   test("a passed case, or a miss where nothing was expected to change, misleads nobody", () => {

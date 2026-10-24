@@ -1,0 +1,49 @@
+import type { MessageExpectation, OutcomeKind } from "@core/evals/cases/schema";
+import type { CaseRecord } from "@core/evals/lib/case-record";
+import type { ModelCall } from "@core/evals/lib/model-meter";
+import { buildReport, type EvalReport } from "@core/evals/lib/report";
+import { noticeErrorOf } from "@core/evals/lib/scorers";
+
+/**
+ * Recomputes a run's report from the case records saved in its result JSON, with no model call: the report views can change
+ * without spending a run. Claude's error groups and the classifier's usage are kept as they were.
+ */
+
+export type ResultFile = Readonly<{ report: EvalReport; records: readonly CaseRecord[]; extraCalls?: readonly ModelCall[] }>;
+
+/** The notice error of a message record under the current rules: from its matched expectation and its actual outcomes. */
+export function rescoreNotice(record: CaseRecord): CaseRecord {
+  if (record.pass !== "interpretation" && record.pass !== "end_to_end") return record;
+  const expected = (record.expected as readonly MessageExpectation[])[record.expectationIndex]?.outcomes ?? [];
+  const actual = ((record.actual as { outcomes?: readonly OutcomeKind[] }).outcomes) ?? [];
+  return { ...record, noticeError: noticeErrorOf(record.exactPassed, expected, actual) };
+}
+
+/**
+ * Records from before visual picks were kept: an image case whose one visual certainty met the gate and found one product picked
+ * that product, so its pick is known. Below the gate it stays unknown and ungraded.
+ */
+export function backfillVisualPick(record: CaseRecord): CaseRecord {
+  const visual = record.certainties.filter(({ source }) => source === "visual");
+  const actual = record.actual as { kind?: string; products?: readonly string[] };
+  if (record.pass !== "image" || visual.length !== 1 || visual[0]!.pick !== undefined || visual[0]!.confidence < visual[0]!.gate) return record;
+  if (actual.kind !== "found" || actual.products?.length !== 1) return record;
+  return { ...record, certainties: record.certainties.map((certainty) => certainty === visual[0] ? { ...certainty, pick: actual.products![0]! } : certainty) };
+}
+
+/** Calls made outside the cases (the classifier). Older files did not keep them, so they are rebuilt from the report's usage. */
+function extraCallsOf(file: ResultFile): readonly ModelCall[] {
+  if (file.extraCalls) return file.extraCalls;
+  const classifier = file.report.usage.byRole.classifier;
+  if (!classifier?.calls) return [];
+  const model = String(file.report.settings.claudeModel ?? "claude-sonnet-5-5");
+  return [{ provider: "anthropic", role: "classifier", endpoint: "/v1/messages", model, inputTokens: classifier.inputTokens, outputTokens: classifier.outputTokens,
+    durationMs: 0, status: 200 }];
+}
+
+export function rebuildResult(file: ResultFile): ResultFile {
+  const records = file.records.map((record) => backfillVisualPick(rescoreNotice(record)));
+  const { runId, startedAt, finishedAt, settings, errorGroups } = file.report;
+  const extraCalls = extraCallsOf(file);
+  return { report: buildReport(records, { runId, startedAt, finishedAt, settings }, extraCalls, errorGroups), records, extraCalls };
+}

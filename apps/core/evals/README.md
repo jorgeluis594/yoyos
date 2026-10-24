@@ -98,14 +98,23 @@ answers (chosen action, the three highest tool predicates as runner-ups, item an
 model returned (mentions, variant words, quantity, price) and each text choice. The report has:
 
 - accuracy overall and per pass, criterion, kind, expected tool, tag, and per scored field; known limitations listed apart;
-- how failed messages misled the seller: false notices (a problem notice where a change was expected), silent errors (a change
-  without the expected notice), wrong silent changes, and silent drops, where nothing changed and no notice was sent: missed
-  notices (a problem or «ready» was expected) and dropped requests (a change was expected);
+- how failed messages misled the seller: false notices (a problem notice where a change was expected), wrong notices (another
+  problem notice than the expected one), silent errors (a change without the expected notice), missed notices (a problem, «ready»,
+  «only item kept» or new-order notice was due and none was sent, even beside a right change), wrong silent changes, and dropped
+  requests (a change was expected; nothing changed and no notice);
+- the end-to-end pass split into photo and text messages;
 - calibration per pass and certainty source at the production gate of that source (`gates`: action `MESSAGE_ACTION_MIN_CONFIDENCE`,
-  text and variant and visual `PRODUCT_MATCH_MIN_CONFIDENCE`, item `ITEM_CHOICE_MIN_CONFIDENCE`), each certainty scored by its own
-  field (tool for the action, product for text and visual, variant, outcome for item choices) rather than by the whole case.
-  «none» answers of the text and variant choosers are their own sources (`text_none`, `variant_none`), never confident picks;
+  text and variant and visual `PRODUCT_MATCH_MIN_CONFIDENCE`, item `ITEM_CHOICE_MIN_CONFIDENCE`). Each certainty records the model's
+  own `pick` and is graded by it (`lib/picks.ts`), not by the outcome, which below a gate the gate itself decides: the Decision's
+  action is right when it is the expected tool (`several` for several tools); a text, visual or variant pick when an acceptable final
+  order (or the text or image expectation) has that product or variant. Item choices and picks a case cannot grade are counted as
+  ungraded. «none» answers of the text and variant choosers are their own sources (`text_none`, `variant_none`);
 - consistency flips, prompt injection outcomes, judge rescues and disagreements;
 - p50/p95 latency of the scored model step only (no chat creation, order seeding or retried attempts; retries are counted apart),
   model calls, tokens and estimated cost per model and role;
 - Claude's grouping of the failed cases by cause, from the records and certainties: hypotheses, not verified causes.
+
+`pnpm --dir apps/core eval:report eval-results/<run>.json [...]` rebuilds a saved run's report from its records with no model call
+(`lib/rebuild.ts`): notices are rescored under the current rules and the calibration regraded; Claude's error groups and cost are
+kept. The first rebuild keeps the original file as `<run>.orig.json`. Records from before visual picks were kept get one only when
+the photo was found above the gate; the others stay ungraded.

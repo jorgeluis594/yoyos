@@ -122,27 +122,32 @@ export const problemOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["
 /** Outcomes that change the order's items or notes. */
 export const changeOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["added", "removed", "quantity_lowered", "quantity_changed", "variant_changed", "mentioned_price_set"]);
 
-export type NoticeError = "false_notice" | "silent_error" | "wrong_change" | "missed_notice" | "dropped_request" | null;
+export type NoticeError = "false_notice" | "silent_error" | "wrong_change" | "missed_notice" | "dropped_request" | "wrong_notice" | null;
+
+/** Outcomes that notify the seller without being a problem (domain/seller-notice.ts: «Revisa el pedido», «Pedido listo», new order). */
+export const orderNoticeOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["only_item_kept", "ready", "new_order_after_closed"]);
 
 /**
- * How a failed message misled the seller. False notice: a change was expected and the seller got a problem notice instead.
- * Silent error: a notice was expected and an item changed without one. Wrong change: a change was expected (or nothing) and
- * another one applied silently. Silent drops, where nothing changed and no notice was sent: a missed notice when a notice (a
- * problem or «ready») was expected, a dropped request when a change was.
+ * How a failed message misled the seller. False notice: a change was expected and the seller got a problem notice instead. Wrong
+ * notice: a problem notice of another kind than the expected one. Silent error: a notice was expected and an item changed without
+ * one. Missed notice: a notice (a problem, «ready», «only item kept» or a new order) was due and none was sent, whether or not
+ * something changed. Wrong change: another change applied silently. Dropped request: a change was expected and nothing changed,
+ * with no notice.
  */
 export function noticeErrorOf(passed: boolean, expected: readonly OutcomeKind[], actual: readonly OutcomeKind[]): NoticeError {
   if (passed) return null;
-  const expectedProblem = expected.some((kind) => problemOutcomes.has(kind));
-  const actualProblem = actual.some((kind) => problemOutcomes.has(kind));
+  const problems = (kinds: readonly OutcomeKind[]) => kinds.filter((kind) => problemOutcomes.has(kind));
+  const expectedProblem = problems(expected).length > 0;
+  const actualProblem = problems(actual).length > 0;
   const expectedChange = expected.some((kind) => changeOutcomes.has(kind));
   const actualChange = actual.some((kind) => changeOutcomes.has(kind));
+  const expectedNotice = expectedProblem || expected.some((kind) => orderNoticeOutcomes.has(kind));
+  const actualNotice = actualProblem || actual.some((kind) => orderNoticeOutcomes.has(kind));
   if (expectedChange && !expectedProblem && actualProblem) return "false_notice";
-  if (expectedProblem && !actualProblem && actualChange) return "silent_error";
+  if (expectedProblem && actualProblem && !sameMultiset(problems(expected), problems(actual))) return "wrong_notice";
+  if (expectedProblem && !actualProblem && actualChange && !expectedChange) return "silent_error";
+  if (expectedNotice && !actualNotice) return "missed_notice";
   if (!expectedProblem && !actualProblem && actualChange) return "wrong_change";
-  // «ready» notifies the seller too (docs/message-to-order.md «That's all»), so losing it is a missed notice.
-  if (!actualProblem && !actualChange && !actual.includes("ready")) {
-    if (expectedProblem || expected.includes("ready")) return "missed_notice";
-    if (expectedChange) return "dropped_request";
-  }
+  if (expectedChange && !actualChange && !actualNotice) return "dropped_request";
   return null;
 }

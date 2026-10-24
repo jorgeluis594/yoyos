@@ -29,7 +29,7 @@ export type CaseRecord = Readonly<{
   /** Compact form of the actual result: two runs with different signatures flipped. */
   signature: string;
   /** Model certainties with the production gate each one meets or misses (lib/production.ts `Certainty`). */
-  certainties: readonly Readonly<{ source: string; confidence: number; gate: number; detail?: string }>[];
+  certainties: readonly Readonly<{ source: string; confidence: number; gate: number; pick?: string | null; detail?: string }>[];
   /** What the models decided: Decision answers (action, top predicates, choices), extracted tool arguments and text choices. */
   trace: Readonly<{ decisions: readonly unknown[]; extracted: readonly unknown[]; textChoices: readonly unknown[] }>;
   /** The scored model step alone: no chat creation, order seeding or earlier retried attempts. */

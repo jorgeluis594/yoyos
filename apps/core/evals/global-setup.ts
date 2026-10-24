@@ -53,7 +53,8 @@ export default function setup(project: TestProject) {
     const report = buildReport(records, meta, classified.calls, classified.groups);
     await mkdir(resultsDir, { recursive: true });
     const path = join(resultsDir, `${runId}.json`);
-    await writeFile(path, `${JSON.stringify({ report, records }, null, 2)}\n`);
+    // The classifier's calls are kept so the report can be rebuilt from the file (lib/rebuild.ts).
+    await writeFile(path, `${JSON.stringify({ report, records, extraCalls: classified.calls }, null, 2)}\n`);
     await rm(runDir(runId), { recursive: true, force: true });
     console.log(`\n${formatSummary(report, path)}`);
   };

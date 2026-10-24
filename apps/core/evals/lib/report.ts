@@ -1,19 +1,20 @@
 import type { CaseRecord } from "@core/evals/lib/case-record";
 import { costOf, type ModelCall } from "@core/evals/lib/model-meter";
 import type { ErrorGroups } from "@core/evals/lib/claude";
+import { gradePick, pickOf } from "@core/evals/lib/picks";
 
 /** Aggregation of one run's case records into the report written to eval-results/. Pure: unit-tested in report.test.ts. */
 
 export type Tally = Readonly<{ total: number; passed: number; accuracy: number }>;
-export type Bucket = Readonly<{ range: string; correct: number; wrong: number }>;
+/** Right and wrong model picks in a confidence range; `unverified` picks the case cannot grade (lib/picks.ts). */
+export type Bucket = Readonly<{ range: string; correct: number; wrong: number; unverified: number }>;
+/** Calibration of one certainty source, graded by the model's own pick (lib/picks.ts), not by what its gate then decided. */
 export type Calibration = Readonly<{
-  /** The field that says whether the decision was right: tool for the action, product for text and visual, variant, outcome for items. */
-  field: string;
   buckets: readonly Bucket[];
-  /** At the production gate of the source: accepted (≥ gate) and rejected (< gate) certainties of right and wrong decisions. */
-  atGate: Readonly<{ gate: number | null; acceptedCorrect: number; acceptedWrong: number; rejectedCorrect: number; rejectedWrong: number }>;
+  /** At the production gate of the source: right and wrong picks accepted (≥ gate) and rejected (< gate); ungraded picks apart. */
+  atGate: Readonly<{ gate: number | null; acceptedCorrect: number; acceptedWrong: number; rejectedCorrect: number; rejectedWrong: number; unverified: number }>;
 }>;
-export type CalibrationPoint = Readonly<{ confidence: number; correct: boolean; gate: number }>;
+export type CalibrationPoint = Readonly<{ confidence: number; correct: boolean | null; gate: number }>;
 export type ModelUsage = Readonly<{ calls: number; inputTokens: number; outputTokens: number; costUsd: number | null }>;
 
 export type RunMeta = Readonly<{ runId: string; startedAt: string; finishedAt: string; settings: Readonly<Record<string, unknown>> }>;
@@ -33,7 +34,11 @@ export type EvalReport = Readonly<{
   judge: Readonly<{ judged: number; passed: number; rescued: readonly string[]; disagreed: readonly string[] }>;
   notices: Readonly<{ falseNotices: readonly string[]; silentErrors: readonly string[]; wrongChanges: readonly string[];
     /** Silent drops: nothing changed and no notice was sent, where a notice (missed) or a change (dropped) was expected. */
-    missedNotices: readonly string[]; droppedRequests: readonly string[] }>;
+    missedNotices: readonly string[]; droppedRequests: readonly string[];
+    /** A problem notice of another kind than the expected one («Producto no reconocido» where «Falta la variante» was due). */
+    wrongNotices: readonly string[] }>;
+  /** The end-to-end pass split by input: photo messages and text messages. */
+  endToEnd: Readonly<{ photo: Tally; text: Tally }>;
   /** Cases tagged `known-limitation`: beyond the documented design, listed here and left out of every score. */
   knownLimitations: readonly Readonly<{ caseId: string; passed: boolean; signature: string }>[];
   retries: Readonly<{ messages: number; attempts: number }>;
@@ -55,13 +60,15 @@ export type EvalReport = Readonly<{
     systemCostPerMessageUsd: number;
   }>;
   failures: readonly Readonly<{ caseId: string; pass: string; input: string; expected: unknown; actual: unknown; fields: unknown; error: string | null;
-    certainties: CaseRecord["certainties"]; extracted: readonly unknown[]; textChoices: readonly unknown[] }>[];
+    certainties: CaseRecord["certainties"]; decisions: readonly unknown[]; extracted: readonly unknown[]; textChoices: readonly unknown[] }>[];
   errorGroups: ErrorGroups["groups"];
 }>;
 
 export type ImageView = Readonly<{
   /** Buyer photos of the Polo básico or premium (founder rule): the exact product, not identified, or the other polo (the only error). */
-  indistinguishablePair: Readonly<{ total: number; exact: readonly string[]; notIdentified: readonly string[]; otherPolo: readonly string[]; other: readonly string[] }>;
+  indistinguishablePair: Readonly<{ total: number; exact: readonly string[]; notIdentified: readonly string[]; otherPolo: readonly string[]; other: readonly string[];
+    /** Cases where the vision chooser picked the other polo, at any confidence (only above the gate is it an error); needs recorded picks. */
+    otherPoloPicks: readonly Readonly<{ caseId: string; confidence: number }>[] }>;
   /** Photos that must not be identified where the vision chooser still picked a product at or above its gate. */
   negativesAboveGate: readonly Readonly<{ caseId: string; confidence: number; signature: string }>[];
   labels: Tally;
@@ -82,6 +89,9 @@ function imageView(records: readonly CaseRecord[]): ImageView {
       notIdentified: pair.filter(({ signature }) => signature === "not_found").map(({ caseId }) => caseId),
       otherPolo: otherPolo.map(({ caseId }) => caseId),
       other: pair.filter((record) => !otherPolo.includes(record) && record.signature !== "not_found" && record.signature !== `found:${expectedProduct(record)}`).map(({ caseId }) => caseId),
+      otherPoloPicks: pair.flatMap((record) => record.certainties.filter((certainty) => certainty.source === "visual")
+        .filter((certainty) => { const pick = pickOf(certainty); return typeof pick === "string" && /^polo-(basico|premium)$/.test(pick) && pick !== expectedProduct(record); })
+        .map(({ confidence }) => ({ caseId: record.caseId, confidence }))),
     },
     negativesAboveGate: images.filter((record) => (record.expected as readonly Readonly<{ kind: string }>[]).every(({ kind }) => kind !== "found"))
       .flatMap((record) => record.certainties.filter(({ source, confidence, gate }) => source === "visual" && confidence >= gate)
@@ -112,42 +122,30 @@ export function percentile(values: readonly number[], fraction: number): number 
   return ordered[Math.min(ordered.length - 1, Math.max(0, Math.ceil(fraction * ordered.length) - 1))]!;
 }
 
-const bucketEdges = [0, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0001];
+const bucketEdges = [0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0001];
 const bucketName = (low: number, high: number) => `${low.toFixed(1)}–${Math.min(high, 1).toFixed(1)}`;
-/** The fields that say whether each kind of certainty was right, in order of preference (the image and text passes score `identification`). */
-const fieldsOfSource: Readonly<Record<string, readonly string[]>> = {
-  action: ["tool"], text: ["product", "identification"], text_none: ["product", "identification"], visual: ["identification", "product"],
-  variant: ["variant"], variant_none: ["variant"], item: ["outcome"],
-};
-
 /** Each point is compared with its own production gate (lib/production.ts `gates`). */
-export function calibrate(points: readonly CalibrationPoint[], field: string): Calibration {
+export function calibrate(points: readonly CalibrationPoint[]): Calibration {
   const buckets = bucketEdges.slice(0, -1).map((low, index) => {
     const high = bucketEdges[index + 1]!;
     const inside = points.filter(({ confidence }) => confidence >= low && confidence < high);
-    return { range: bucketName(low, high), correct: inside.filter(({ correct }) => correct).length, wrong: inside.filter(({ correct }) => !correct).length };
+    return { range: bucketName(low, high), correct: inside.filter(({ correct }) => correct === true).length, wrong: inside.filter(({ correct }) => correct === false).length,
+      unverified: inside.filter(({ correct }) => correct === null).length };
   });
   const count = (accepted: boolean, correct: boolean) => points.filter((point) => (point.confidence >= point.gate) === accepted && point.correct === correct).length;
-  return { field, buckets, atGate: { gate: points[0]?.gate ?? null, acceptedCorrect: count(true, true), acceptedWrong: count(true, false),
-    rejectedCorrect: count(false, true), rejectedWrong: count(false, false) } };
+  return { buckets, atGate: { gate: points[0]?.gate ?? null, acceptedCorrect: count(true, true), acceptedWrong: count(true, false),
+    rejectedCorrect: count(false, true), rejectedWrong: count(false, false), unverified: points.filter(({ correct }) => correct === null).length } };
 }
 
-/**
- * Calibration points of one pass: each certainty scored by its own field, not by the whole case, so a right product with a wrong
- * quantity is a right text choice. Certainties whose field is unscored are left out.
- */
+/** Calibration points of one pass, per certainty source, each graded by the model's own pick. */
 function calibrationOf(records: readonly CaseRecord[]): Record<string, Calibration> {
-  const bySource = new Map<string, { field: string; points: CalibrationPoint[] }>();
+  const bySource = new Map<string, CalibrationPoint[]>();
   for (const record of records) {
     for (const certainty of record.certainties) {
-      const field = (fieldsOfSource[certainty.source] ?? []).find((name) => typeof record.fields[name] === "boolean");
-      if (!field) continue;
-      const group = bySource.get(certainty.source) ?? { field, points: [] };
-      group.points.push({ confidence: certainty.confidence, gate: certainty.gate, correct: record.fields[field] === true });
-      bySource.set(certainty.source, group);
+      bySource.set(certainty.source, [...(bySource.get(certainty.source) ?? []), { confidence: certainty.confidence, gate: certainty.gate, correct: gradePick(certainty, record) }]);
     }
   }
-  return Object.fromEntries([...bySource.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([source, { field, points }]) => [source, calibrate(points, field)]));
+  return Object.fromEntries([...bySource.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([source, points]) => [source, calibrate(points)]));
 }
 
 function usageOf(calls: readonly ModelCall[]): ModelUsage {
@@ -221,6 +219,11 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
       wrongChanges: scored.filter(({ noticeError }) => noticeError === "wrong_change").map(({ caseId }) => caseId),
       missedNotices: scored.filter(({ noticeError }) => noticeError === "missed_notice").map(({ caseId }) => caseId),
       droppedRequests: scored.filter(({ noticeError }) => noticeError === "dropped_request").map(({ caseId }) => caseId),
+      wrongNotices: scored.filter(({ noticeError }) => noticeError === "wrong_notice").map(({ caseId }) => caseId),
+    },
+    endToEnd: {
+      photo: tally(scored.filter(({ pass, input }) => pass === "end_to_end" && input.startsWith("photo"))),
+      text: tally(scored.filter(({ pass, input }) => pass === "end_to_end" && !input.startsWith("photo"))),
     },
     knownLimitations: known.map(({ caseId, passed, signature }) => ({ caseId, passed, signature })),
     image: imageView(scored),
@@ -241,7 +244,7 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
       systemCostPerMessageUsd: records.length && systemCost !== null ? round(systemCost / records.length, 6) : 0,
     },
     failures: scored.filter(({ passed }) => !passed).map(({ caseId, pass, input, expected, actual, fields: scores, error, certainties, trace }) =>
-      ({ caseId, pass, input, expected, actual, fields: scores, error, certainties, extracted: trace.extracted, textChoices: trace.textChoices })),
+      ({ caseId, pass, input, expected, actual, fields: scores, error, certainties, decisions: trace.decisions, extracted: trace.extracted, textChoices: trace.textChoices })),
     errorGroups,
   };
 }
@@ -257,16 +260,17 @@ export function formatSummary(report: EvalReport, path: string): string {
     `Eval run ${report.runId}`,
     line("overall", report.overall),
     ...section("By pass", report.byPass),
+    ...(report.byPass.end_to_end ? [line("end_to_end photo messages", report.endToEnd.photo), line("end_to_end text messages", report.endToEnd.text)] : []),
     ...section("By criterion", report.byCriterion),
     ...section("By expected tool", report.byExpectedTool),
     ...section("Fields", report.fields),
     `Notices: ${report.notices.falseNotices.length} false notices, ${report.notices.silentErrors.length} silent errors, ${report.notices.wrongChanges.length} wrong silent changes`,
-    `Silent drops (nothing changed, no notice): ${report.notices.missedNotices.length} missed notices, ${report.notices.droppedRequests.length} dropped requests`,
-    "Calibration at the production gates (accepted ≥ gate / rejected < gate; right / wrong by the source's own field)",
-    ...Object.entries(report.calibration).flatMap(([pass, sources]) => Object.entries(sources).map(([source, { field, atGate }]) =>
-      `  ${`${pass} ${source}`.padEnd(28)} gate ${atGate.gate ?? "-"} by ${field.padEnd(14)} accepted ${atGate.acceptedCorrect} right / ${atGate.acceptedWrong} wrong, rejected ${atGate.rejectedCorrect} right / ${atGate.rejectedWrong} wrong`)),
+    `Lost notices and drops: ${report.notices.missedNotices.length} missed notices (no notice where one was due), ${report.notices.droppedRequests.length} dropped requests (nothing changed, no notice), ${report.notices.wrongNotices.length} wrong notices`,
+    "Calibration at the production gates: the model's own picks, right / wrong, accepted (≥ gate) and rejected (< gate)",
+    ...Object.entries(report.calibration).flatMap(([pass, sources]) => Object.entries(sources).map(([source, { atGate }]) =>
+      `  ${`${pass} ${source}`.padEnd(28)} gate ${String(atGate.gate ?? "-").padEnd(4)} accepted ${atGate.acceptedCorrect} right / ${atGate.acceptedWrong} wrong, rejected ${atGate.rejectedCorrect} right / ${atGate.rejectedWrong} wrong${atGate.unverified ? `, ${atGate.unverified} ungraded` : ""}`)),
     ...(report.byPass.image ? [
-      `Image: indistinguishable pair ${report.image.indistinguishablePair.total} (exact ${report.image.indistinguishablePair.exact.length}, not identified ${report.image.indistinguishablePair.notIdentified.length}, other polo ${report.image.indistinguishablePair.otherPolo.length}${report.image.indistinguishablePair.otherPolo.length ? `: ${report.image.indistinguishablePair.otherPolo.join(", ")}` : ""}, other ${report.image.indistinguishablePair.other.length}); labels ${report.image.labels.passed}/${report.image.labels.total}; non-product ${report.image.nonProduct.passed}/${report.image.nonProduct.total}`,
+      `Image: indistinguishable pair ${report.image.indistinguishablePair.total} (exact ${report.image.indistinguishablePair.exact.length}, not identified ${report.image.indistinguishablePair.notIdentified.length}, other polo ${report.image.indistinguishablePair.otherPolo.length}${report.image.indistinguishablePair.otherPolo.length ? `: ${report.image.indistinguishablePair.otherPolo.join(", ")}` : ""}, other ${report.image.indistinguishablePair.other.length}; other-polo picks at any confidence ${report.image.indistinguishablePair.otherPoloPicks.length}); labels ${report.image.labels.passed}/${report.image.labels.total}; non-product ${report.image.nonProduct.passed}/${report.image.nonProduct.total}`,
       `Image negatives the vision chooser accepted at or above its gate: ${report.image.negativesAboveGate.length ? report.image.negativesAboveGate.map(({ caseId, confidence }) => `${caseId} ${confidence}`).join(", ") : "none"}`,
       ...section("Image by scenario", report.image.byScenario),
     ] : []),

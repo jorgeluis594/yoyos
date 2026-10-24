@@ -47,7 +47,11 @@ import { evalCompanyId, evalSellerId, readRegisteredImage, registerImageFile } f
  * kept only for the tools that ran.
  */
 export type CertaintySource = "action" | "visual" | "text" | "text_none" | "variant" | "variant_none" | "item";
-export type Certainty = Readonly<{ source: CertaintySource; confidence: number; gate: number; detail?: string }>;
+/**
+ * `pick` is the model's own answer, independent of what the gate then decided: the Decision's action, the product key chosen for a
+ * mention or a photo (null for «none»), or the chosen variant's attribute values joined by spaces. Calibration grades it.
+ */
+export type Certainty = Readonly<{ source: CertaintySource; confidence: number; gate: number; pick?: string | null; detail?: string }>;
 
 /** What the Decision API answered for the message: the action, the three highest tool predicates (the runner-ups), and the choices. */
 export type DecisionTrace = Readonly<{
@@ -94,7 +98,7 @@ function observedAi(ai: OrchestrateDependencies): OrchestrateDependencies {
       const answers = await ai.decide(request, signal);
       if (answers.success) {
         const { action, predicates, choices } = answers.data;
-        observe({ source: "action", confidence: action.confidence, gate: ai.minActionConfidence, detail: action.choice });
+        observe({ source: "action", confidence: action.confidence, gate: ai.minActionConfidence, pick: action.choice, detail: action.choice });
         const ranked = Object.entries(predicates).map(([tool, probability]) => ({ tool, probability })).sort((a, b) => b.probability - a.probability).slice(0, 3);
         current()?.decisions.push({ action: action.choice, confidence: action.confidence, predicates: ranked, choices });
       }
@@ -132,21 +136,27 @@ export function createProductionPath(env: Env) {
     const choice = await textMatching.identification.chooseTextProduct(input, signal);
     if (choice.success) {
       const product = choice.data.productId === null ? null : productById(choice.data.productId)?.key ?? choice.data.productId;
-      observe({ source: product === null ? "text_none" : "text", confidence: choice.data.confidence, gate: textGate, detail: `${input.mention} → ${product ?? "none"}` });
+      observe({ source: product === null ? "text_none" : "text", confidence: choice.data.confidence, gate: textGate, pick: product, detail: `${input.mention} → ${product ?? "none"}` });
       current()?.textChoices.push({ mention: input.mention, product, confidence: choice.data.confidence });
     }
     return choice;
   } };
   const variants = { ...textMatching.variants, chooseVariant: async (...args: Parameters<typeof textMatching.variants.chooseVariant>) => {
     const choice = await textMatching.variants.chooseVariant(...args);
-    if (choice.success) observe({ source: choice.data.variantId === null ? "variant_none" : "variant", confidence: choice.data.confidence, gate: textMatching.variants.minConfidence,
-      detail: `${args[0].words.join(" ")} → ${choice.data.variantId === null ? "none" : Object.values(describeVariantId(choice.data.variantId)?.attributes ?? {}).join(" ")}` });
+    if (choice.success) {
+      const values = choice.data.variantId === null ? null : Object.values(describeVariantId(choice.data.variantId)?.attributes ?? {}).join(" ");
+      observe({ source: values === null ? "variant_none" : "variant", confidence: choice.data.confidence, gate: textMatching.variants.minConfidence,
+        pick: values, detail: `${args[0].words.join(" ")} → ${values ?? "none"}` });
+    }
     return choice;
   } };
   const visual = { ...visualSetup.visual, readImage: readRegisteredImage, chooseProduct: async (input: Parameters<NonNullable<typeof visualSetup.visual>["chooseProduct"]>[0]) => {
     const choice = await visualSetup.visual!.chooseProduct(input);
     // Only a chosen product has a certainty to calibrate; «no product» answers carry showsProduct, gated at 0.5 instead.
-    if (choice.success && choice.data.kind === "product") observe({ source: "visual", confidence: choice.data.confidence, gate: visualSetup.visual!.minConfidence });
+    if (choice.success && choice.data.kind === "product") {
+      const product = productById(choice.data.productId)?.key ?? choice.data.productId;
+      observe({ source: "visual", confidence: choice.data.confidence, gate: visualSetup.visual!.minConfidence, pick: product, detail: product });
+    }
     return choice;
   } };
   const imageIdentification: IdentifyProductsDependencies = {

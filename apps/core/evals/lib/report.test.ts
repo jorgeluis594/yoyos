@@ -50,8 +50,8 @@ describe("buildReport", () => {
       record({ caseId: "e", passed: false, noticeError: "dropped_request" }),
     ], meta);
 
-    expect(report.notices).toEqual({ falseNotices: ["a"], silentErrors: ["b"], wrongChanges: ["c"], missedNotices: ["d"], droppedRequests: ["e"] });
-    expect(formatSummary(report, "run.json")).toContain("1 missed notices, 1 dropped requests");
+    expect(report.notices).toEqual({ falseNotices: ["a"], silentErrors: ["b"], wrongChanges: ["c"], missedNotices: ["d"], droppedRequests: ["e"], wrongNotices: [] });
+    expect(formatSummary(report, "run.json")).toContain("1 missed notices (no notice where one was due), 1 dropped requests");
   });
 
   test("known limitations are listed apart and left out of every score", () => {
@@ -76,28 +76,39 @@ describe("buildReport", () => {
     expect(report.consistency).toEqual({ cases: 2, repeats: 2, flipped: [{ caseId: "a", signatures: ["x", "y"] }] });
   });
 
-  test("calibration compares each certainty with its own production gate and scores it by its own field", () => {
+  test("calibration grades the model's own pick at each production gate, not what the gate decided", () => {
+    const add = [{ tools: ["add_products"], outcomes: ["added"], order: [{ product: "polo-basico", variant: { Talla: "M", Color: "Negro" }, quantity: 2, mentionedPrice: null }] }];
     const report = buildReport([
-      record({ certainties: [{ source: "action", confidence: 0.65, gate: 0.6 }] }),
-      // The case fails on quantity, but the tool and the product were right.
-      record({ caseId: "b", passed: false, fields: { tool: true, product: true, quantity: false },
-        certainties: [{ source: "action", confidence: 0.55, gate: 0.6 }, { source: "text", confidence: 1, gate: 0.8 }] }),
-      record({ caseId: "c", passed: false, fields: { tool: false, outcome: false }, certainties: [{ source: "action", confidence: 0.9, gate: 0.6 }] }),
-      record({ caseId: "d", pass: "image", fields: { identification: true }, certainties: [{ source: "visual", confidence: 0.7, gate: 0.8 }] }),
+      // Under the gate the Decision still chose the right tool: a right pick rejected, though the case fails on tool.
+      record({ caseId: "a", passed: false, fields: { tool: false }, expected: add, certainties: [{ source: "action", confidence: 0.5, gate: 0.6, pick: "add_products" }] }),
+      record({ caseId: "b", passed: false, expected: add, certainties: [{ source: "action", confidence: 0.4, gate: 0.6, pick: "no_intent" }] }),
+      // Above the gate a right text pick stays right when the case fails later, on quantity.
+      record({ caseId: "c", passed: false, fields: { tool: true, quantity: false }, expected: add,
+        certainties: [{ source: "action", confidence: 0.9, gate: 0.6, pick: "add_products" }, { source: "text", confidence: 1, gate: 0.8, pick: "polo-basico" },
+          { source: "variant", confidence: 0.9, gate: 0.8, pick: "M Negro" }] }),
+      record({ caseId: "d", pass: "image", expected: [{ kind: "found", product: "polo-rayas" }], certainties: [{ source: "visual", confidence: 0.7, gate: 0.8, pick: "polo-rayas" }] }),
+      record({ caseId: "e", pass: "image", expected: [{ kind: "not_product" }], certainties: [{ source: "visual", confidence: 0.83, gate: 0.8, pick: "chompa-tejida" }] }),
+      // Older records kept no visual pick: ungraded.
+      record({ caseId: "f", pass: "image", expected: [{ kind: "found", product: "polo-rayas" }], certainties: [{ source: "visual", confidence: 0.77, gate: 0.8 }] }),
     ], meta);
 
-    expect(report.calibration.interpretation!.action).toMatchObject({ field: "tool", atGate: { gate: 0.6, acceptedCorrect: 1, acceptedWrong: 1, rejectedCorrect: 1, rejectedWrong: 0 } });
-    expect(report.calibration.interpretation!.text!.atGate).toEqual({ gate: 0.8, acceptedCorrect: 1, acceptedWrong: 0, rejectedCorrect: 0, rejectedWrong: 0 });
-    expect(report.calibration.image!.visual).toMatchObject({ field: "identification", atGate: { rejectedCorrect: 1 } });
-    expect(report.gates).toEqual({ action: 0.6, text: 0.8, visual: 0.8 });
+    expect(report.calibration.interpretation!.action!.atGate).toEqual({ gate: 0.6, acceptedCorrect: 1, acceptedWrong: 0, rejectedCorrect: 1, rejectedWrong: 1, unverified: 0 });
+    expect(report.calibration.interpretation!.text!.atGate).toMatchObject({ acceptedCorrect: 1, acceptedWrong: 0 });
+    expect(report.calibration.interpretation!.variant!.atGate).toMatchObject({ acceptedCorrect: 1 });
+    expect(report.calibration.image!.visual!.atGate).toEqual({ gate: 0.8, acceptedCorrect: 0, acceptedWrong: 1, rejectedCorrect: 1, rejectedWrong: 0, unverified: 1 });
+    expect(report.gates).toEqual({ action: 0.6, text: 0.8, variant: 0.8, visual: 0.8 });
   });
 
-  test("«none» answers are a source of their own and certainties of unscored fields are left out", () => {
-    const report = buildReport([record({ fields: { tool: true, product: false, variant: null },
-      certainties: [{ source: "text_none", confidence: 0.91, gate: 0.8 }, { source: "variant", confidence: 0.9, gate: 0.8 }] })], meta);
+  test("item choices are shown as buckets only, ungraded", () => {
+    const report = buildReport([record({ certainties: [{ source: "item", confidence: 0.7, gate: 0.8, detail: "remove_item:item=I1" }] })], meta);
 
-    expect(Object.keys(report.calibration.interpretation!)).toEqual(["text_none"]);
-    expect(report.calibration.interpretation!.text_none!.atGate).toMatchObject({ acceptedWrong: 1 });
+    expect(report.calibration.interpretation!.item!.atGate).toMatchObject({ acceptedCorrect: 0, rejectedWrong: 0, unverified: 1 });
+  });
+
+  test("the end-to-end pass is also split into photo and text messages", () => {
+    const report = buildReport([record({ pass: "end_to_end", input: "photo customer/x.jpg caption «2»" }), record({ caseId: "b", pass: "end_to_end", passed: false, input: "text «quiero»" })], meta);
+
+    expect(report.endToEnd).toEqual({ photo: { total: 1, passed: 1, accuracy: 1 }, text: { total: 1, passed: 0, accuracy: 0 } });
   });
 
   test("the image view splits the near-identical polos and lists negatives accepted at the gate", () => {
@@ -110,7 +121,7 @@ describe("buildReport", () => {
       record({ caseId: "lab", pass: "image", kind: "printed_qr_label", tags: ["folder:label"], expected: [{ kind: "found", product: "polo-basico", color: "Negro" }] }),
     ], meta);
 
-    expect(report.image.indistinguishablePair).toEqual({ total: 4, exact: ["a"], notIdentified: ["b"], otherPolo: ["c"], other: ["d"] });
+    expect(report.image.indistinguishablePair).toEqual({ total: 4, exact: ["a"], notIdentified: ["b"], otherPolo: ["c"], other: ["d"], otherPoloPicks: [] });
     expect(report.image.negativesAboveGate).toEqual([{ caseId: "neg", confidence: 0.86, signature: "found:polo-basico" }]);
     expect(report.image.labels).toEqual({ total: 1, passed: 1, accuracy: 1 });
     expect(report.image.byScenario["polo-v-rojo"]).toEqual({ total: 1, passed: 0, accuracy: 0 });
@@ -162,9 +173,10 @@ test("percentile uses the nearest rank", () => {
 });
 
 test("calibration buckets cover 0 to 1 and count 1.0 in the top bucket", () => {
-  const calibration = calibrate([{ confidence: 1, correct: true, gate: 0.8 }, { confidence: 0.79, correct: false, gate: 0.8 }, { confidence: 0.2, correct: true, gate: 0.8 }], "tool");
+  const calibration = calibrate([{ confidence: 1, correct: true, gate: 0.8 }, { confidence: 0.79, correct: false, gate: 0.8 }, { confidence: 0.2, correct: true, gate: 0.8 },
+    { confidence: 0.5, correct: null, gate: 0.8 }]);
 
-  expect(calibration.buckets.map(({ range }) => range)).toEqual(["0.0–0.5", "0.5–0.6", "0.6–0.7", "0.7–0.8", "0.8–0.9", "0.9–1.0"]);
-  expect(calibration.buckets.at(-1)).toEqual({ range: "0.9–1.0", correct: 1, wrong: 0 });
-  expect(calibration.atGate).toEqual({ gate: 0.8, acceptedCorrect: 1, acceptedWrong: 0, rejectedCorrect: 1, rejectedWrong: 1 });
+  expect(calibration.buckets.map(({ range }) => range)).toEqual(["0.0–0.3", "0.3–0.4", "0.4–0.5", "0.5–0.6", "0.6–0.7", "0.7–0.8", "0.8–0.9", "0.9–1.0"]);
+  expect(calibration.buckets.at(-1)).toEqual({ range: "0.9–1.0", correct: 1, wrong: 0, unverified: 0 });
+  expect(calibration.atGate).toEqual({ gate: 0.8, acceptedCorrect: 1, acceptedWrong: 0, rejectedCorrect: 1, rejectedWrong: 1, unverified: 1 });
 });
