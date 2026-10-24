@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { ok } from "@shared/functional";
 import { createChatToolRegistry, hasReadableText, toChangeVariantResolution, toolsFor, type ChatToolContext, type ChatToolDependencies } from "@core/src/features/orders/application/chat-message-tools";
-import { toMentionedPriceArgs } from "@core/src/features/orders/application/chat-text-tools";
+import { priceHintOf, toMentionedPriceArgs } from "@core/src/features/orders/application/chat-text-tools";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 
@@ -92,6 +92,17 @@ describe("chat tool registry", () => {
     expect(await priced("other")).toMatchObject({ success: true, data: [{ kind: "add", mentionedPrice: null, quantity: 1 }] });
     expect(await priced("USD")).toMatchObject({ success: true, data: [{ kind: "add", mentionedPrice: null }] });
     expect(await priced("PEN")).toMatchObject({ success: true, data: [{ kind: "add", mentionedPrice: { amount: { amount: 20, currency: "PEN" }, units: 1 } }] });
+  });
+
+  test("hints the unit amount with the currency the buyer named, unless it is not the open order's or cannot be named", () => {
+    const stated = (amount: string, units: number, currency: "not_named" | "PEN" | "USD" | "other") => ({ amount, units, currency });
+    expect(priceHintOf(stated("35", 1, "PEN"), null)).toEqual({ priceHint: 35, priceHintCurrency: "PEN" });
+    expect(priceHintOf(stated("35", 1, "PEN"), "PEN")).toEqual({ priceHint: 35, priceHintCurrency: "PEN" });
+    expect(priceHintOf(stated("60", 4, "not_named"), "PEN")).toEqual({ priceHint: 15, priceHintCurrency: null });
+    expect(priceHintOf(stated("12", 1, "USD"), "PEN")).toEqual({ priceHint: null, priceHintCurrency: null });
+    expect(priceHintOf(stated("12", 1, "other"), null)).toEqual({ priceHint: null, priceHintCurrency: null });
+    expect(priceHintOf(stated("0", 1, "not_named"), null)).toEqual({ priceHint: null, priceHintCurrency: null });
+    expect(priceHintOf(null, "PEN")).toEqual({ priceHint: null, priceHintCurrency: null });
   });
 
   test("keeps a price whose currency is not named or is the item's, and marks any other to be dropped", () => {

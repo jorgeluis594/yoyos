@@ -492,7 +492,9 @@ describe("applyChatMessage: text tools", () => {
   const found = (productId: ProductId, confidence = 0.9): TextIdentification => ({ kind: "found", productId, confidence });
   const decided = (choice: string, choices: DecisionAnswers["choices"] = {}, predicates: Record<string, number> = {}, confidence = 0.95): DecisionAnswers =>
     ({ action: { choice, confidence }, predicates, choices });
-  const itemChoice = (tool: string, value: string, confidence = 0.95): DecisionAnswers["choices"] => ({ [`${tool}:item`]: { value, confidence } });
+  // The reference answer is only read when the order has a single item.
+  const itemChoice = (tool: string, value: string, confidence = 0.95, reference: "named" | "unnamed" = "named"): DecisionAnswers["choices"] =>
+    ({ [`${tool}:item`]: { value, confidence }, [`${tool}:reference`]: { value: reference, confidence: 0.9 } });
   const removal = (value: string, confidence = 0.95, amount: "all" | "one" = "all"): DecisionAnswers["choices"] =>
     ({ ...itemChoice("remove_item", value, confidence), "remove_item:amount": { value: amount, confidence: 0.95 } });
   const add = (productMention: string, variantWords: string[] = [], quantity: number | null = null) => ({ productMention, variantWords, quantity, mentionedPrice: null });
@@ -527,12 +529,12 @@ describe("applyChatMessage: text tools", () => {
     }
   });
 
-  test("gives no price hint for a price in another currency and the unit amount for a price stated for several units", async () => {
-    const hints: Array<number | null> = [];
+  test("gives no price hint for a price in another currency, the unit amount for several units, and the named currency without an order", async () => {
+    const hints: Array<[number | null, string | null]> = [];
     const only = (productId: ProductId, name: string): TextCandidate => ({ productId, name, minPrice: money(35), maxPrice: money(35), similarity: 0.9 });
     const textLookup: IdentifyProductInTextDependencies = {
       findTextCandidates: async (queries) => ok(queries.map(() => [only(productPolo, "Polo básico")])),
-      chooseTextProduct: async ({ priceHint }) => { hints.push(priceHint); return ok({ productId: null, confidence: 0, probabilities: [] }); },
+      chooseTextProduct: async ({ priceHint, priceHintCurrency }) => { hints.push([priceHint, priceHintCurrency ?? null]); return ok({ productId: null, confidence: 0, probabilities: [] }); },
       minConfidence: 0.8, unclearMinProbability: 0.25,
     };
     const h = harness({ message: textMessage("polo a 5 dólares y gorra 50 por 2"), textLookup, decision: () => decided("add_products"),
@@ -541,8 +543,8 @@ describe("applyChatMessage: text tools", () => {
         { productMention: "gorra", variantWords: [], quantity: null, mentionedPrice: { amount: "50", units: 2, currency: "not_named" } },
         { productMention: "polo", variantWords: [], quantity: null, mentionedPrice: { amount: "35", units: 1, currency: "PEN" } }] } }] });
     await h.run();
-    // Without an open order a named currency cannot be told from another one.
-    expect(hints).toEqual([null, 25, null]);
+    // Without an open order «35 soles» keeps its currency, so products compares it only with prices in soles.
+    expect(hints).toEqual([[null, null], [25, null], [35, "PEN"]]);
   });
 
   test("resolves ten add lines with one candidates query and at most four sequential model calls", async () => {
@@ -684,6 +686,16 @@ describe("applyChatMessage: text tools", () => {
   test("reports an unclear item for an unnamed reference when the order has two items", async () => {
     const h = harness({ message: textMessage("quítalo"), target: openWith(line(1, cap), line(2, poloM)), decision: () => decided("remove_item", removal("unnamed")) });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "unclear_item", namedItem: false }] });
+  });
+
+  test("records whether the message named the only item, while changing that item either way", async () => {
+    for (const [reference, namedItem] of [["unnamed", false], ["named", true]] as const) {
+      const h = harness({ message: textMessage("que sean cuatro"), target: openWith(line(1, cap)),
+        decision: () => decided("change_item_quantity", itemChoice("change_item_quantity", "I1", 0.95, reference)),
+        extraction: () => [{ tool: "change_item_quantity", args: { quantity: 4 } }] });
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "quantity_changed", variantId: cap.variantId, quantity: 4, namedItem }] });
+      expect(h.decisions[0]!.choices.find(({ id }) => id === "change_item_quantity:reference")?.choices.map(({ value }) => value)).toEqual(["named", "unnamed"]);
+    }
   });
 
   test("reports no open order for a removal when the chat has none, offering no item tool", async () => {

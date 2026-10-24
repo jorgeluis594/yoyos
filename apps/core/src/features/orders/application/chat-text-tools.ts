@@ -54,6 +54,16 @@ const choiceOf = <Value extends z.ZodType>(value: Value) => z.object({ value, co
 const itemChoice = (context: ChatToolContext) => choiceOf(z.enum([...context.items.map(({ label }) => label), ...itemSentinels] as unknown as [string, ...string[]]));
 const amountChoice = choiceOf(z.enum(["all", "one"]));
 type ItemChoice = z.output<ReturnType<typeof itemChoice>>;
+// Asked only with a single item, whose choice no longer says whether the message named it; it only sets `namedItem`, so it is not gated.
+const referenceChoice = choiceOf(z.enum(["named", "unnamed"]));
+type ReferenceChoice = z.output<typeof referenceChoice>;
+const isSingleItem = (context: ChatToolContext) => context.items.length === 1;
+
+/** The item tool's argument schema, plus the reference answer when the order has a single item. */
+function withReference<Shape extends z.ZodRawShape>(context: ChatToolContext, shape: Shape) {
+  const full = z.object({ ...shape, reference: referenceChoice.optional() });
+  return isSingleItem(context) ? full : z.object(shape) as unknown as typeof full;
+}
 
 const variantLabel = (item: ChatContextItem) => `${item.productName}${Object.values(item.variantAttributes).map((value) => ` ${value}`).join("")}`;
 
@@ -86,6 +96,19 @@ function itemQuestion(context: ChatToolContext, instructions: string): DecisionC
   };
 }
 
+const referenceQuestion: DecisionChoiceQuestion = {
+  name: "reference",
+  instructions: "Does the message name the item it refers to?",
+  choices: [
+    { value: "named", description: "It names the item by its product, size or color" },
+    { value: "unnamed", description: "It refers to the item without naming it (eso, sácalo nomás, que sean cuatro)" },
+  ],
+};
+
+/** The item question of an item tool and, with a single item, whether the message named it. */
+const itemQuestions = (context: ChatToolContext, instructions: string): readonly DecisionChoiceQuestion[] =>
+  [itemQuestion(context, instructions), ...(isSingleItem(context) ? [referenceQuestion] : [])];
+
 const amountQuestion: DecisionChoiceQuestion = {
   name: "amount",
   instructions: "Does the buyer remove the whole item or only one unit of it?",
@@ -98,7 +121,7 @@ const amountQuestion: DecisionChoiceQuestion = {
 const unclear = (namedItem: boolean, namedProductId: ProductId | null): ItemTarget => ({ kind: "unclear", namedItem, namedProductId });
 
 /** What the Decision step's item choice refers to, or why nothing can be changed. Never a model call of its own. */
-async function itemTargetOf(choice: ItemChoice, context: ChatToolContext, deps: ChatToolDependencies): Promise<Result<ItemTarget, ToolResolveError>> {
+async function itemTargetOf(choice: ItemChoice, context: ChatToolContext, deps: ChatToolDependencies, reference?: ReferenceChoice): Promise<Result<ItemTarget, ToolResolveError>> {
   // A reference that names nothing stays unnamed however unsure the choice is.
   if (choice.confidence < ITEM_CHOICE_MIN_CONFIDENCE || choice.value === "ambiguous") return ok(unclear(choice.value !== "unnamed", null));
   if (choice.value === "unnamed") return ok({ kind: "unnamed" });
@@ -108,7 +131,9 @@ async function itemTargetOf(choice: ItemChoice, context: ChatToolContext, deps: 
     return top.success ? ok(unclear(true, top.data?.productId ?? null)) : top;
   }
   const item = context.items.find(({ label }) => label === choice.value);
-  return ok(item ? { kind: "variant", variantId: item.variantId } : unclear(true, null));
+  if (!item) return ok(unclear(true, null));
+  // The only item referred to without a name is the unnamed reference the order domain records as not named.
+  return ok(isSingleItem(context) && reference?.value === "unnamed" ? { kind: "unnamed" } : { kind: "variant", variantId: item.variantId });
 }
 
 /** The order item a target names before the order is locked; an unnamed reference names it only for a single-item order. */
@@ -133,20 +158,24 @@ const addLine = z.object({
 });
 const addProductsArgs = z.object({ lines: z.array(addLine).min(1).max(MAX_ADD_LINES) });
 
+type PriceHint = Readonly<{ priceHint: number | null; priceHintCurrency: Currency | null }>;
+const noHint: PriceHint = { priceHint: null, priceHintCurrency: null };
+
 /**
- * The unit amount the buyer stated: products compares it with each candidate's price in that candidate's own currency. A named currency
- * is only a hint when the open order is in it; without an order only an amount with no currency is.
+ * The unit amount the buyer stated, for products to compare with the candidates' prices. A named currency travels with it, so «35 soles»
+ * in a chat without an order still tells products apart; a currency other than the open order's, or one the models cannot name, gives none.
  */
-function priceHintOf(line: z.output<typeof addLine>, orderCurrency: Currency | null): number | null {
-  const price = line.mentionedPrice;
-  if (!price || (price.currency !== "not_named" && price.currency !== orderCurrency) || price.units > 99) return null;
+export function priceHintOf(price: StatedPrice | null, orderCurrency: Currency | null): PriceHint {
+  if (!price || price.currency === "other" || price.units > 99) return noHint;
+  if (price.currency !== "not_named" && orderCurrency !== null && price.currency !== orderCurrency) return noHint;
   const amount = Number(price.amount);
-  return amount > 0 ? Math.round((amount / price.units) * 100) / 100 : null;
+  if (!(amount > 0)) return noHint;
+  return { priceHint: Math.round((amount / price.units) * 100) / 100, priceHintCurrency: price.currency === "not_named" ? null : price.currency };
 }
 
 async function addProducts(args: z.output<typeof addProductsArgs>, context: ChatToolContext, deps: ChatToolDependencies, signal: AbortSignal): Resolved {
   const orderCurrency = currencyOf(context, null);
-  const identified = await deps.identifyProductsInText(args.lines.map((line) => ({ mention: line.productMention, priceHint: priceHintOf(line, orderCurrency) })), signal);
+  const identified = await deps.identifyProductsInText(args.lines.map((line) => ({ mention: line.productMention, ...priceHintOf(line.mentionedPrice, orderCurrency) })), signal);
   if (!identified.success) return identified;
   const foundIds = [...new Set(identified.data.flatMap((entry) => entry.kind === "found" ? [entry.productId] : []))];
   const loaded = foundIds.length ? await deps.loadSellableVariants(foundIds) : ok<readonly ProductWithSellableVariants[]>([]);
@@ -175,9 +204,9 @@ async function addLineActions(line: z.output<typeof addLine>, identification: Te
 }
 
 // Item tools
-async function changeItemVariant(args: Readonly<{ item: ItemChoice; variantWords: readonly string[]; mentionedPrice: StatedPrice | null }>,
+async function changeItemVariant(args: Readonly<{ item: ItemChoice; reference?: ReferenceChoice; variantWords: readonly string[]; mentionedPrice: StatedPrice | null }>,
   context: ChatToolContext, deps: ChatToolDependencies, signal: AbortSignal): Resolved {
-  const target = await itemTargetOf(args.item, context, deps);
+  const target = await itemTargetOf(args.item, context, deps, args.reference);
   if (!target.success) return target;
   const item = contextItemOf(target.data, context);
   if (!item) return ok(cannotApply(target.data));
@@ -208,10 +237,10 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     defineTool({
       name: "remove_item",
       description: "The buyer asks to take an item out of the open order, or one unit of it: «quita la gorra», «sácalo», «ya no quiero el polo», «quita uno».",
-      args: { kind: "decision", questions: (context) => [itemQuestion(context, "Which item of the open order does the buyer ask to remove?"), amountQuestion] },
-      schema: (context) => z.object({ item: itemChoice(context), amount: amountChoice }),
+      args: { kind: "decision", questions: (context) => [...itemQuestions(context, "Which item of the open order does the buyer ask to remove?"), amountQuestion] },
+      schema: (context) => withReference(context, { item: itemChoice(context), amount: amountChoice }),
       resolve: async (args, context): Resolved => {
-        const target = await itemTargetOf(args.item, context, deps);
+        const target = await itemTargetOf(args.item, context, deps, args.reference);
         if (!target.success) return target;
         // With a single unit, removing the item and removing one unit are the same change, so how sure the amount is does not matter.
         const uncertain = args.amount.confidence < ITEM_CHOICE_MIN_CONFIDENCE && contextItemOf(target.data, context)?.quantity !== 1;
@@ -223,10 +252,10 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
       description: "The buyer changes how many units they want of a product already in the open order: «mejor que sean 3», «del polo solo 2». "
         + "Not for asking for products with a quantity («quiero 2 polos» adds them), not for taking an item out («quita el polo» removes it), "
         + "and never for asking for more of something the buyer does not name («dame 2 de ese», «otro igual»). Give the new quantity as stated.",
-      args: { kind: "extracted", questions: (context) => [itemQuestion(context, "Which item of the open order does the buyer change the quantity of?")] },
-      schema: (context) => z.object({ item: itemChoice(context), quantity: z.number().int().min(0) }),
+      args: { kind: "extracted", questions: (context) => itemQuestions(context, "Which item of the open order does the buyer change the quantity of?") },
+      schema: (context) => withReference(context, { item: itemChoice(context), quantity: z.number().int().min(0) }),
       resolve: async (args, context): Resolved => {
-        const target = await itemTargetOf(args.item, context, deps);
+        const target = await itemTargetOf(args.item, context, deps, args.reference);
         return target.success ? ok([{ kind: "set_quantity", target: target.data, quantity: args.quantity }]) : target;
       },
     }),
@@ -234,8 +263,8 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
       name: "change_item_variant",
       description: "The buyer explicitly asks to change an item of the open order to another variant (size, color), such as «cámbialo a talla L» or «mejor el polo en blanco». "
         + "Never for a text that only names a variant («en talla L», «la quiero en M»). Give the variant words as written and the price only if stated.",
-      args: { kind: "extracted", questions: (context) => [itemQuestion(context, "Which item of the open order does the buyer ask to change to another variant?")] },
-      schema: (context) => z.object({ item: itemChoice(context),
+      args: { kind: "extracted", questions: (context) => itemQuestions(context, "Which item of the open order does the buyer ask to change to another variant?") },
+      schema: (context) => withReference(context, { item: itemChoice(context),
         variantWords: z.array(z.string().max(60)).min(1).max(5).describe("The size and color words to change to as written, with any «talla» or «color» before them, never product words: «mejor el polito blanco» gives «blanco»."),
         mentionedPrice: mentionedPriceArgs.nullable() }),
       resolve: (args, context, signal) => changeItemVariant(args, context, deps, signal),
@@ -244,10 +273,10 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
       name: "set_item_mentioned_price",
       description: "The buyer states a price for a product already in the open order, without asking for a new product: «el polo a 30», «la gorra en 20 nomás». "
         + "A price written next to a product the buyer asks for is part of adding it. Give the price as stated.",
-      args: { kind: "extracted", questions: (context) => [itemQuestion(context, "Which item of the open order does the stated price refer to?")] },
-      schema: (context) => z.object({ item: itemChoice(context), mentionedPrice: mentionedPriceArgs }),
+      args: { kind: "extracted", questions: (context) => itemQuestions(context, "Which item of the open order does the stated price refer to?") },
+      schema: (context) => withReference(context, { item: itemChoice(context), mentionedPrice: mentionedPriceArgs }),
       resolve: async (args, context): Resolved => {
-        const target = await itemTargetOf(args.item, context, deps);
+        const target = await itemTargetOf(args.item, context, deps, args.reference);
         if (!target.success) return target;
         return ok([{ kind: "set_mentioned_price", target: target.data, price: priceOf(args.mentionedPrice, currencyOf(context, contextItemOf(target.data, context))) }]);
       },

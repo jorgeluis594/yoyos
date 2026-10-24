@@ -1,4 +1,5 @@
 import { err, ok } from "@shared/functional";
+import type { Currency } from "@shared/money";
 import type { Result } from "@shared/result";
 import type { ProductMatcherError, ProductRef, TextCandidate, TextChoice, TextIdentification, TextQuery } from "@core/src/features/products/domain/text-identification";
 
@@ -6,14 +7,17 @@ type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: str
 
 export type IdentifyProductInTextDependencies = Readonly<{
   findTextCandidates: (queries: readonly TextQuery[]) => Promise<Result<readonly (readonly TextCandidate[])[], PersistenceError>>;
-  chooseTextProduct: (input: Readonly<{ mention: string; priceHint: number | null; candidates: readonly TextCandidate[] }>, signal: AbortSignal)
+  chooseTextProduct: (input: Readonly<{ mention: string; priceHint: number | null; priceHintCurrency?: Currency | null; candidates: readonly TextCandidate[] }>, signal: AbortSignal)
     => Promise<Result<TextChoice, ProductMatcherError>>;
   minConfidence: number;
   unclearMinProbability: number;
 }>;
 
-/** `priceHint` is the amount the buyer stated, with no currency: each candidate is compared in its own currency. */
-export type TextMention = Readonly<{ mention: string; priceHint: number | null }>;
+/**
+ * `priceHint` is the per-unit amount the buyer stated. With `priceHintCurrency` it is compared only with candidates in that currency;
+ * without it, with each candidate in its own currency.
+ */
+export type TextMention = Readonly<{ mention: string; priceHint: number | null; priceHintCurrency?: Currency | null }>;
 export type IdentifyProductInTextError = PersistenceError | ProductMatcherError;
 
 const ref = ({ productId, name }: TextCandidate): ProductRef => ({ productId, name });
@@ -37,7 +41,7 @@ export async function identifyProductsInText(mentions: readonly TextMention[], d
   const identified = await Promise.all(mentions.map(async (line, index): Promise<Result<TextIdentification, IdentifyProductInTextError>> => {
     const candidates = found.data[index] ?? [];
     if (!candidates.length) return ok({ kind: "not_found" });
-    const choice = await deps.chooseTextProduct({ mention: line.mention, priceHint: line.priceHint, candidates }, signal);
+    const choice = await deps.chooseTextProduct({ mention: line.mention, priceHint: line.priceHint, priceHintCurrency: line.priceHintCurrency ?? null, candidates }, signal);
     return choice.success ? ok(decide(choice.data, candidates, deps)) : choice;
   }));
   const failed = identified.find((result) => !result.success);

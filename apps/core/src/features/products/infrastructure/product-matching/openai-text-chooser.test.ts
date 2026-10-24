@@ -41,6 +41,9 @@ describe("createOpenAITextProductChooser", () => {
     expect(texts[0]).toContain("B: Polo premium (50 PEN to 70 PEN, the customer's price)");
     expect(texts[0]).toContain("A: Polo básico (35 PEN)\n");
     expect(texts[1]).not.toContain("the customer's price");
+    await choose({ mention: "polo", priceHint: 60, priceHintCurrency: "USD", candidates }, signal);
+    expect(texts[2]).toContain("Customer words: polo, the one at 60 USD per unit\n");
+    expect(texts[2]).not.toContain("the customer's price");
     expect(texts[1]).toContain("Customer words: polo\n");
   });
 
