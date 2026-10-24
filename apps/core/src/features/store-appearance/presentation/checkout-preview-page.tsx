@@ -40,7 +40,7 @@ export function CheckoutPreviewPage({ companyName, appearance, state, paymentMet
     {state === "review"
       ? <form noValidate className="flex flex-col gap-4" onSubmit={keepFromSubmitting}>
         <CheckoutReviewFields message={null} name={{ defaultValue: "Ana Pérez" }} phone={{ defaultValue: "+51987654321" }}
-          delivery={<CheckoutDeliveryFields orderId={previewOrderId} checkout={checkout} options={previewDeliveryOptions} onChange={setDeliveryDraft} />} />
+          delivery={<CheckoutDeliveryFields orderId={previewOrderId} checkout={checkout} options={previewDeliveryOptions} recipient={{ name: "Ana Pérez", phone: "+51987654321" }} onChange={setDeliveryDraft} />} />
       </form>
       : <>
         <CheckoutBuyerDetails buyer={checkout.buyer} />

@@ -9,6 +9,8 @@ import { Button } from "@core/app/components/ui/button";
 import { CheckoutBuyerDetails, CheckoutConfirmAction, CheckoutOrderSummary, CheckoutPayment, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
 import { orders } from "@core/src/features/orders/composition";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
+import { otherPersonReceives } from "@core/app/checkout-recipient";
+import { internationalPhonePattern } from "@shared/phone";
 import { recipientForCheckout } from "@core/src/features/orders/domain/checkout-recipient";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import type { CheckoutDeliveryChange, CheckoutPage } from "@core/src/features/orders/application/checkout";
@@ -202,6 +204,13 @@ export default function Checkout() {
   const name = useController({ name: "name", control: buyerForm.control });
   const phone = useController({ name: "phone", control: buyerForm.control });
   const [deliveryDraft, setDeliveryDraft] = useState<CheckoutDeliveryDraft | null>(null);
+  const savedRecipient = initial.delivery?.recipient ?? null;
+  const [other, setOther] = useState(() => otherPersonReceives(savedRecipient, initial.buyer));
+  const [recipientName, setRecipientName] = useState(savedRecipient?.name ?? "");
+  const [recipientPhone, setRecipientPhone] = useState(savedRecipient?.phone ?? "");
+  const [recipientChecked, setRecipientChecked] = useState(false);
+  const recipient = other ? { name: recipientName, phone: recipientPhone } : { name: name.field.value, phone: phone.field.value };
+  const recipientInvalid = { name: other && !recipientName.trim(), phone: other && !internationalPhonePattern.test(recipientPhone.trim()) };
   const total = checkoutTotal(checkout, deliveryDraft);
   const recoveryVersion = fetcher.data?.code && ["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "DELIVERY_METHOD_DISABLED"].includes(fetcher.data.code) ? fetcher.data : undefined;
   const pending = fetcher.state !== "idle";
@@ -214,10 +223,17 @@ export default function Checkout() {
       action={confirmable && <CheckoutConfirmAction form="checkout-form" type="submit" disabled={pending || !deliveryDraft || !total} pending={pending} />} />}>
     {confirmable ? <fetcher.Form id="checkout-form" method="post" noValidate className="flex flex-col gap-4" onSubmit={buyerForm.handleSubmit(buyer => {
       if (pending || !deliveryDraft || !total) return;
-      fetcher.submit({ buyer, delivery: deliveryDraft.delivery, expectedTotal: total }, { method: "post", encType: "application/json" });
+      setRecipientChecked(true);
+      if (deliveryDraft.delivery.kind === "replace" && (recipientInvalid.name || recipientInvalid.phone)) return;
+      fetcher.submit({ buyer, delivery: deliveryDraft.delivery, expectedTotal: total, otherRecipient: other }, { method: "post", encType: "application/json" });
     })}>
       <CheckoutReviewFields message={fetcher.data?.message ?? null} name={name.field} nameError={errors.name} phone={phone.field} phoneError={errors.phone}
-        delivery={<CheckoutDeliveryFields orderId={orderId} checkout={checkout} options={initialData.deliveryOptions!} onChange={setDeliveryDraft} recoveryVersion={recoveryVersion} disabled={pending} />} />
+        recipient={deliveryDraft?.delivery.kind === "keep" ? undefined : { other, onOtherChange: setOther,
+          name: { value: recipientName, onChange: event => setRecipientName(event.target.value) },
+          nameError: (recipientChecked && recipientInvalid.name ? t("checkoutRecipient.nameRequired") : undefined) ?? fetcher.data?.fieldErrors?.recipientName,
+          phone: { value: recipientPhone, onChange: setRecipientPhone },
+          phoneError: (recipientChecked && recipientInvalid.phone ? t("checkoutPage.phoneInvalid") : undefined) ?? fetcher.data?.fieldErrors?.recipientPhone }}
+        delivery={<CheckoutDeliveryFields orderId={orderId} checkout={checkout} options={initialData.deliveryOptions!} recipient={recipient} onChange={setDeliveryDraft} recoveryVersion={recoveryVersion} disabled={pending} />} />
     </fetcher.Form> : <CheckoutBuyerDetails buyer={checkout.buyer} />}
     {checkout.state.kind === "confirmed" && initialData.payment && <CheckoutPayment view={initialData.payment} />}
   </CheckoutShell>;

@@ -33,7 +33,7 @@ function CheckoutPage({ theme, state, logoUrl = null }: PageProps) {
     element: <I18nextProvider i18n={i18n}><div className="-m-8">
       {state === "delivery"
         ? <CheckoutShell appearance={appearance} checkout={pending} summary={<CheckoutOrderSummary checkout={pending} deliveryDraft={null} />}>
-          <div data-store-part="card" className={checkoutCard}><CheckoutDeliveryFields orderId={previewOrderId} checkout={pending} options={deliveryOptions} onChange={() => undefined} /></div>
+          <div data-store-part="card" className={checkoutCard}><CheckoutDeliveryFields orderId={previewOrderId} checkout={pending} options={deliveryOptions} recipient={{ name: "Ana Pérez", phone: "+51987654321" }} onChange={() => undefined} /></div>
         </CheckoutShell>
         : state === "cancelled"
         ? <CheckoutShell appearance={appearance} checkout={cancelled} summary={<CheckoutOrderSummary checkout={cancelled} deliveryDraft={null} />}>

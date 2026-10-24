@@ -17,17 +17,17 @@ const checkout: PublicCheckoutResponse = { companyName: "Shop", number: 1001, bu
   items: [{ productName: "Product", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: total, subtotal: total }], state: { kind: "pending" } };
 const options = { home: { enabled: true }, agency: { enabled: false, covered: false }, store: { enabled: false as const, pickupPoint: null } };
 const pickup = { enabled: true as const, pickupPoint: { name: "Shop", address: "Street", instructions: null } };
-const render = (value = checkout, settings: CheckoutDeliveryOptions = options) => renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={value} options={settings} onChange={() => undefined} />));
+const render = (value = checkout, settings: CheckoutDeliveryOptions = options) => renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={value} options={settings} recipient={{ name: "Ana", phone: "+51977909427" }} onChange={() => undefined} />));
 
 test("delivery controls wait for client hydration before accepting selections", () => {
   expect(render()).toMatch(/<fieldset disabled=""/);
 });
 
-test("unassigned delivery asks for a district and recipient and never offers implicit free pickup", () => {
+test("unassigned delivery asks for a district, leaves the recipient to «Tus datos» and never offers implicit free pickup", () => {
   const html = render();
   expect(html).toContain("Distrito de entrega");
-  expect(html).toContain("Nombre del destinatario");
-  expect(html).toContain("Teléfono del destinatario");
+  expect(html).not.toContain("Nombre del destinatario");
+  expect(html).not.toContain("Teléfono del destinatario");
   expect(html).not.toContain("Conservar entrega actual");
   expect(html).not.toContain("Recojo en tienda");
   expect(html).not.toContain("Tarifa de envío");
@@ -72,14 +72,14 @@ test("hides Envío a agencia when the agency switch is off or the business has n
 
 test("pickup is offered explicitly only with an enabled configured point", () => {
   const html = renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={checkout}
-    options={{ ...options, store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }} onChange={() => undefined} />));
+    options={{ ...options, store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }} recipient={{ name: "Ana", phone: "+51977909427" }} onChange={() => undefined} />));
   expect(html).toContain("Recojo en tienda · Gratis");
 });
 
 test("pickup-only businesses show the configured point without offering shipping or a district", () => {
   const html = renderToStaticMarkup(withI18n(<CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={checkout}
     options={{ home: { enabled: false }, agency: { enabled: false, covered: false }, store: { enabled: true,
-      pickupPoint: { name: "Shop", address: "Pickup street", instructions: "Door 2" } } }} onChange={() => undefined} />));
+      pickupPoint: { name: "Shop", address: "Pickup street", instructions: "Door 2" } } }} recipient={{ name: "Ana", phone: "+51977909427" }} onChange={() => undefined} />));
   expect(html).toContain("Pickup street");
   expect(html).toContain("Door 2");
   expect(html).not.toContain('value="home"');
@@ -112,8 +112,8 @@ test("every text field and select of the delivery step sits in a field group, so
   const container = document.createElement("div");
   container.innerHTML = render();
   const controls = [...container.querySelectorAll("input:not([type=radio]):not([type=hidden]), select")];
-  expect(controls.map((control) => control.id)).toEqual(expect.arrayContaining(["delivery-name", "delivery-phone"]));
-  expect(controls.length).toBeGreaterThanOrEqual(6);
+  expect(controls.map((control) => control.id)).not.toEqual(expect.arrayContaining(["delivery-name"]));
+  expect(controls.length).toBeGreaterThanOrEqual(3);
   for (const control of controls) {
     expect(control.closest("[data-store-part=field-group]"), control.id).not.toBeNull();
     expect(control.closest("[data-store-part=field]"), control.id).not.toBeNull();

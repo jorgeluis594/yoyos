@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useMemo, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Input } from "@core/app/components/ui/input";
 import { controlClass } from "@core/app/components/ui/field";
@@ -37,9 +37,12 @@ export function PhoneField({ id, value, defaultValue = "", onChange, onBlur, inv
   const { t, i18n } = useTranslation();
   const options = useCountryOptions(i18n.language);
   const [state, setState] = useState<Parts>(() => parts(value ?? defaultValue));
-  useEffect(() => {
-    if (value !== undefined && joinPhone(state.country, state.text) !== value) setState(current => parts(value, current.country));
-  }, [value, state.country, state.text]);
+  // A controlled value changed from outside (a reset, a saved phone): follow it, unless it is what the user just typed.
+  const [seen, setSeen] = useState(value);
+  if (value !== seen) {
+    setSeen(value);
+    if (value !== undefined && joinPhone(state.country, state.text) !== value) setState(parts(value, state.country));
+  }
   const update = (next: Parts) => { setState(next); onChange?.(joinPhone(next.country, next.text)); };
   const type = (text: string) => {
     const pasted = text.trimStart().startsWith("+") ? splitPhone(text) : null;
