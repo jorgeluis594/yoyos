@@ -195,6 +195,24 @@ test("checkout keep requires an existing delivery and preserves historical price
   expect(f.deps.resolveSelectedDeliveryRate).not.toHaveBeenCalled();
 });
 
+test("checkout keep sets only the recipient name and phone of the kept delivery when told who receives", async () => {
+  const f = deliveryFixture();
+  const kept = { ...f.order, deliveryCost: { amount: 30, currency: "PEN" as const }, deliveryCharge: { amount: 0, currency: "PEN" as const }, delivery: { method: "home" as const, recipient: { name: "Seller typed", phone: "999", identity: { kind: "absent" as const } },
+    destination: { address: "Home street", country: "PE" as const, districtCode: "150101", district: "Old district", province: "Lima", department: "Lima", instructions: null },
+    pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 },
+    recordedBy: { kind: "seller" as const, userId: seller.userId } } } as unknown as typeof f.order;
+  f.deps = { ...f.deps, findOrderForUpdate: async () => ok(kept) };
+  const input = { ...f.input, expectedTotal: kept.total, delivery: { kind: "keep" as const, recipient: { name: "Ana", phone: "+51977909427" } } };
+  expect(await confirmCheckoutDelivery(input, access, now, f.deps)).toMatchObject({ data: { changed: true } });
+  expect(f.deps.saveDelivery).toHaveBeenCalledWith(access.orderId, access.companyId, expect.objectContaining({ delivery: expect.objectContaining({
+    method: "home", recipient: { name: "Ana", phone: "+51977909427", identity: { kind: "absent" } },
+    destination: expect.objectContaining({ address: "Home street" }) }) }));
+  vi.mocked(f.deps.saveDelivery).mockClear();
+  const same = { ...input, delivery: { kind: "keep" as const, recipient: { name: "Seller typed", phone: "999" } } };
+  await confirmCheckoutDelivery(same, access, now, f.deps);
+  expect(f.deps.saveDelivery).not.toHaveBeenCalled();
+});
+
 test("checkout confirmation replay preserves buyer and delivery without resolving or writing again", async () => {
   const f = deliveryFixture();
   const confirmed = { ...f.order, buyer: { ...buyer, contactId: null }, checkoutConfirmedAt: now };

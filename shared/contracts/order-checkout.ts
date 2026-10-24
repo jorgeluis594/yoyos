@@ -10,7 +10,8 @@ const checkoutMoneySchema = moneySchema.extend({ amount: z.number().finite().non
 export const confirmCheckoutSchema = z.strictObject({ buyer: checkoutBuyerSchema, expectedTotal: checkoutMoneySchema });
 export type ConfirmCheckoutRequest = z.infer<typeof confirmCheckoutSchema>;
 export const checkoutDeliveryChangeSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("keep") }),
+  /** `recipient` only travels with the form, to say who receives the delivery that is kept; it is never stored as such. */
+  z.strictObject({ kind: z.literal("keep"), recipient: z.strictObject({ name: z.string(), phone: z.string() }).optional() }),
   z.strictObject({ kind: z.literal("replace"), selection: ratedDeliverySelectionSchema, expectedPrice: checkoutMoneySchema }),
 ]);
 /** `otherRecipient` only travels with the form: it is never stored. Without it the buyer is the recipient. */

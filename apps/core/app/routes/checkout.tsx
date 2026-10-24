@@ -11,7 +11,7 @@ import { orders } from "@core/src/features/orders/composition";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
 import { otherPersonReceives } from "@core/app/checkout-recipient";
 import { internationalPhonePattern } from "@shared/phone";
-import { recipientForCheckout } from "@core/src/features/orders/domain/checkout-recipient";
+import { recipientForCheckout, recipientForKeptDelivery, withBuyerAsRecipient } from "@core/src/features/orders/domain/checkout-recipient";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import type { CheckoutDeliveryChange, CheckoutPage } from "@core/src/features/orders/application/checkout";
 import type { Money } from "@shared/money";
@@ -120,6 +120,11 @@ export async function loader({ params }: LoaderFunctionArgs) {
   return response({ checkout: serialize(result.data), deliveryOptions: options.data, appearance: branded, message: null });
 }
 
+const recipientFieldErrors = (recipient?: { name: string; phone: string }): NonNullable<PageData["fieldErrors"]> => ({
+  ...(!recipient?.name.trim() ? { recipientName: "Ingresa el nombre de quien recibe." } : {}),
+  ...(!recipient || !internationalPhonePattern.test(recipient.phone.trim()) ? { recipientPhone: "Ingresa un teléfono válido, por ejemplo 977 909 427." } : {}),
+});
+const sentRecipient = (body: unknown) => (body as { delivery?: { selection?: { recipient?: { name: string; phone: string } } } } | null)?.delivery?.selection?.recipient;
 const formSchema = z.strictObject({ name: z.string(), phone: z.string(), expectedTotal: z.string(), delivery: z.string() });
 export async function action({ request, params }: ActionFunctionArgs) {
   bindRequestOperation({ operation: "confirm_checkout" });
@@ -141,14 +146,14 @@ export async function action({ request, params }: ActionFunctionArgs) {
   } catch {
     body = null;
   }
-  const parsed = confirmCheckoutDeliverySchema.safeParse(body);
+  const parsed = confirmCheckoutDeliverySchema.safeParse(withBuyerAsRecipient(body));
   if (!parsed.success) {
     bindRequestOperation({ outcome: "invalid_input" });
     const fieldErrors: NonNullable<PageData["fieldErrors"]> = {};
     for (const issue of parsed.error.issues) {
       if (issue.path[0] === "buyer" && issue.path[1] === "name") fieldErrors.name = "Ingresa tu nombre.";
       if (issue.path[0] === "buyer" && issue.path[1] === "phone") fieldErrors.phone = "Ingresa un teléfono válido, por ejemplo 977 909 427.";
-      if (issue.path.join(".") === "delivery.selection.recipient.name") fieldErrors.recipientName = "Ingresa el nombre de quien recibe.";
+      if (issue.path.join(".") === "delivery.selection.recipient.name") Object.assign(fieldErrors, recipientFieldErrors(sentRecipient(body)));
     }
     return response({ checkout: null, message: "Revisa los datos del formulario.", fieldErrors }, 422);
   }
@@ -157,10 +162,13 @@ export async function action({ request, params }: ActionFunctionArgs) {
   const access = path.data as CheckoutAccess;
   try {
     let delivery: CheckoutDeliveryChange;
-    if (parsed.data.delivery.kind === "keep") delivery = { kind: "keep" };
-    else {
+    if (parsed.data.delivery.kind === "keep") {
+      const recipient = recipientForKeptDelivery(parsed.data.delivery.recipient, buyer.data, parsed.data.otherRecipient);
+      if (!recipient.success) return response({ checkout: null, message: "Revisa los datos de quien recibe.", fieldErrors: recipientFieldErrors(parsed.data.delivery.recipient) }, 422);
+      delivery = { kind: "keep", recipient: recipient.data };
+    } else {
       const recipient = recipientForCheckout(parsed.data.delivery.selection, buyer.data, parsed.data.otherRecipient);
-      if (!recipient.success) return response({ checkout: null, message: "Revisa los datos de quien recibe.", fieldErrors: { recipientPhone: "Ingresa un teléfono válido, por ejemplo 977 909 427." } }, 422);
+      if (!recipient.success) return response({ checkout: null, message: "Revisa los datos de quien recibe.", fieldErrors: recipientFieldErrors(parsed.data.delivery.selection.recipient) }, 422);
       const selection = parseRatedDeliverySelection(recipient.data);
       if (!selection.success) return response({ checkout: null, message: "Revisa el destino y los datos de entrega.", code: selection.error.code }, 422);
       delivery = { kind: "replace", selection: selection.data, expectedPrice: parsed.data.delivery.expectedPrice };
