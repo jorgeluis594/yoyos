@@ -98,8 +98,9 @@ export const translations = {
     orderDeliveryBuyer: "Registrada por comprador",
 
     orderNumber: "Pedido #{{number}}",
-    checkoutTitle: "Confirmación del comprador", checkoutDisabled: "Enlace aún no habilitado", checkoutPending: "Pendiente de confirmación", checkoutConfirmed: "Confirmado por el comprador", checkoutCancelled: "Pedido cancelado",
-    getCheckoutLink: "Obtener enlace", copyCheckoutLink: "Copiar enlace", checkoutCopied: "Enlace copiado", checkoutCopyManually: "Mantén pulsado el enlace para copiarlo.", checkoutLinkError: "No se pudo obtener el enlace. Inténtalo de nuevo.",
+    checkoutTitle: "Enlace del pedido", checkoutPending: "Pendiente de confirmación", checkoutConfirmed: "Confirmado por el comprador", checkoutCancelled: "Pedido cancelado",
+    copyCheckoutLink: "Copiar enlace", checkoutCopied: "Enlace copiado", shareCheckoutLink: "Compartir enlace", openCheckoutLink: "Abrir enlace",
+    checkoutHelp: "Comparte este enlace con el comprador para que confirme y pague.", checkoutSubdomainRequired: "Elige el link de tu tienda para compartir este pedido.", checkoutLinkError: "No se pudo obtener el enlace. Inténtalo de nuevo.",
     filterCreationDate: "Filtrar por fecha de creación",
     createdOn: "Creada el {{date}}",
     completedOn: "Completada el {{date}}",
@@ -300,8 +301,9 @@ export const translations = {
     orderDeliveryBuyer: "Registrada pelo comprador",
 
     orderNumber: "Pedido #{{number}}",
-    checkoutTitle: "Confirmação do comprador", checkoutDisabled: "Link ainda não habilitado", checkoutPending: "Aguardando confirmação", checkoutConfirmed: "Confirmado pelo comprador", checkoutCancelled: "Pedido cancelado",
-    getCheckoutLink: "Obter link", copyCheckoutLink: "Copiar link", checkoutCopied: "Link copiado", checkoutCopyManually: "Pressione e segure o link para copiar.", checkoutLinkError: "Não foi possível obter o link. Tente novamente.",
+    checkoutTitle: "Link do pedido", checkoutPending: "Aguardando confirmação", checkoutConfirmed: "Confirmado pelo comprador", checkoutCancelled: "Pedido cancelado",
+    copyCheckoutLink: "Copiar link", checkoutCopied: "Link copiado", shareCheckoutLink: "Compartilhar link", openCheckoutLink: "Abrir link",
+    checkoutHelp: "Compartilhe este link com o comprador para que ele confirme e pague.", checkoutSubdomainRequired: "Escolha o link da sua loja para compartilhar este pedido.", checkoutLinkError: "Não foi possível obter o link. Tente novamente.",
     filterCreationDate: "Filtrar por data de criação",
     createdOn: "Criado em {{date}}",
     completedOn: "Concluído em {{date}}",
