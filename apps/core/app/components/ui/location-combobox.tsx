@@ -50,7 +50,7 @@ export function LocationCombobox({ id, label, options, value, onChange, placehol
   return <>
     <label htmlFor={id} {...(themed ? { "data-slot": "label" } : {})} className="text-sm font-medium">{label}</label>
     <Combobox items={options} value={selected} disabled={disabled} autoHighlight openOnInputClick
-      itemToStringLabel={(option: LocationOption) => option.name} isItemEqualToValue={(a: LocationOption, b: LocationOption) => a.code === b.code}
+      itemToStringLabel={(option: LocationOption) => option.name} itemToStringValue={(option: LocationOption) => option.name} isItemEqualToValue={(a: LocationOption, b: LocationOption) => a.code === b.code}
       filter={(option: LocationOption, term: string) => matchesLocation(option.name, term)}
       onInputValueChange={(text, details) => setQuery(details.reason === "input-change" ? text : "")}
       onValueChange={(option: LocationOption | null) => onChange(option?.code ?? null)}>
