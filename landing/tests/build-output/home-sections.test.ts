@@ -7,7 +7,7 @@ const text = (node: HTMLElement | null | undefined): string => node?.text.replac
 const home = (variant: "minimal" | "full") => readPage(variant, "index.html");
 
 const heroAlt =
-  "Chat de WhatsApp con la foto de unas zapatillas que envió un cliente, junto al pedido #1004 que Yoyos armó con su total de S/ 358.00";
+  "Chat de WhatsApp con la foto de unas zapatillas que envió un cliente, junto al pedido #1004 que Yoyos armó con su total de S/ 179.00";
 
 const stepAlts = [
   "Formulario Nuevo producto en Yoyos con nombre, descripción, SKU, precio de venta, foto y stock inicial",
