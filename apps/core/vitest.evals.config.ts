@@ -10,7 +10,9 @@ export default defineConfig({
     include: ["evals/**/*.eval.ts"],
     env: loadEnv("evals", process.cwd(), ""),
     reporters: ["vitest-evals/reporter"],
-    testTimeout: 120_000,
+    globalSetup: ["./evals/global-setup.ts"],
+    testTimeout: 180_000,
     maxWorkers: 1,
+    fileParallelism: false,
   },
 });

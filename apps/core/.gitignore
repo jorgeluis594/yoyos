@@ -5,3 +5,6 @@ test-results/
 # Model files are fetched by pnpm models:fetch (models/README.md); only README and licenses are committed.
 /models/*/*/*.json
 /models/*/*/onnx/
+
+# AI eval results: one JSON report per run (evals/README.md)
+eval-results/
