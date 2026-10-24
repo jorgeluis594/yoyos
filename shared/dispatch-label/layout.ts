@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { DispatchLabel } from "@shared/dispatch-label/types";
-import { fitLabelLines } from "@shared/dispatch-label/label-text";
+import { fitLabelWords } from "@shared/dispatch-label/label-text";
 
 /** Page geometry in pixels at the given resolution; use dpi 72 and points for vector output (1 mm = 72 / 25.4 pt). */
 export type DispatchLabelGeometry = Readonly<{ widthPx: number; heightPx: number; dpiX: number; dpiY: number }>;
@@ -18,7 +18,7 @@ export type MeasureText = (text: string, sizePt: number) => number;
 
 const documentNames = { national_id: "DNI", passport: "Pasaporte", foreign_id: "CE" } as const;
 
-// fitLabelLines rejects blank lines, so collapse them (multiline inputs allow them).
+// fitLabelWords rejects blank lines, so collapse them (multiline inputs allow them).
 const singleBreaks = (text: string) => text.trim().replace(/\s*\n\s*/g, "\n");
 
 function items(label: DispatchLabel): Item[] {
@@ -43,7 +43,7 @@ function items(label: DispatchLabel): Item[] {
   return rows.filter((row): row is Item => row !== null);
 }
 
-/** Single layout used by every platform: wraps, then shrinks the font down to the minimum; never truncates. */
+/** Single layout used by every platform: wraps at word boundaries, then shrinks the font down to the minimum; never truncates. */
 export function layoutDispatchLabel(
   label: DispatchLabel, geometry: DispatchLabelGeometry, measure: MeasureText, typography: DispatchLabelTypography = defaultDispatchLabelTypography,
 ): Result<DispatchLabelLayout, DispatchLabelOverflowError> {
@@ -60,7 +60,7 @@ export function layoutDispatchLabel(
     rows.forEach((row, index) => {
       if (!fits) return;
       const itemPt = sizePt * row.scale;
-      const wrapped = fitLabelLines(row.text, width, (text) => measure(text, itemPt), Number.POSITIVE_INFINITY, false);
+      const wrapped = fitLabelWords(row.text, width, (text) => measure(text, itemPt));
       if (!wrapped) { fits = false; return; }
       if (index > 0 && rows[index - 1].block !== row.block) y += gap * 2;
       const lineHeight = Math.ceil(itemPt * geometry.dpiY / 72 * 1.16);
