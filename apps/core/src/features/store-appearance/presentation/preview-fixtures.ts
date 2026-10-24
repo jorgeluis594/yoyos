@@ -10,7 +10,7 @@ export const previewOrderId = "00000000-0000-4000-8000-000000000000";
 
 /** Sample methods shown, and labelled as such, when the company has not configured its own. */
 export const samplePaymentMethods: readonly PreviewPaymentMethod[] = [
-  { method: "digital_wallet", provider: "Billetera de ejemplo", holder: "Titular de ejemplo", imageUrl: null },
+  { method: "digital_wallet", provider: "Billetera de ejemplo", holder: "Titular de ejemplo", imageUrl: "/checkout-preview/sample-qr.svg" },
   { method: "bank_transfer", bank: "Banco de ejemplo", holder: "Titular de ejemplo", accountNumber: "000-0000000-0-00", cci: "00000000000000000000", imageUrl: null },
 ];
 

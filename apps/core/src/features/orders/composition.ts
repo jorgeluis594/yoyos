@@ -212,11 +212,16 @@ export async function getBuyerPaymentView(id: string) {
     if (!resolved.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Image unavailable" });
     const images = new Map(resolved.data.images.map((image) => [image.id, image.url]));
     const availability = "available" as const;
+    // A wallet whose QR url does not resolve is not listed: a missing image never fails the whole view.
+    const offered: BuyerPaymentView["settings"] = settings.data.flatMap((item): BuyerPaymentView["settings"] => {
+      if (item.method === "bank_transfer") return [{ method: item.method, bank: item.bank, holder: item.holder, accountNumber: item.accountNumber, cci: item.cci,
+        imageUrl: item.imageId ? images.get(item.imageId) ?? null : null }];
+      const imageUrl = images.get(item.imageId);
+      return imageUrl ? [{ method: item.method, provider: item.provider, holder: item.holder, imageUrl }] : [];
+    });
     const view: BuyerPaymentView = { orderId: found.data.id, total: found.data.total, deliveryCharge: found.data.deliveryCharge, availability,
       paidAmount: summary.data.paidAmount, balanceDue: summary.data.balanceDue, paymentStatus: summary.data.status,
-      settings: (availability === "available" ? settings.data : []).map((item) => { const imageUrl = item.imageId ? images.get(item.imageId) ?? null : null;
-        return item.method === "digital_wallet" ? { method: item.method, provider: item.provider, holder: item.holder, imageUrl }
-          : { method: item.method, bank: item.bank, holder: item.holder, accountNumber: item.accountNumber, cci: item.cci, imageUrl }; }),
+      settings: offered,
       payments: found.data.payments.map((payment) => { const imageId = receiptImageId(payment);
         return { id: payment.id, status: payment.status, amount: payment.amount, method: payment.method,
           receiptImageUrl: imageId ? images.get(imageId) ?? null : null, rejectionReason: payment.status === "rejected" ? payment.data.reason : null }; }),

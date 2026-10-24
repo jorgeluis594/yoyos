@@ -1207,6 +1207,22 @@ test("buyer view resolves the bank transfer image and every receipt url with one
   expect(await view.json()).toMatchObject({ settings: [{ method: "bank_transfer", bank: "BCP" }], payments: expect.arrayContaining([expect.objectContaining({ status: "rejected" }), expect.objectContaining({ status: "reported" })]) });
 });
 
+test("buyer view drops a wallet whose image url does not resolve", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  const bankImageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.image.create({ data: { id: bankImageId, storageKey: `test/${bankImageId}` } });
+    await prisma.companyPaymentSettings.create({ data: { companyId: seller.companyId, settings: [
+      { method: "digital_wallet", provider: "Yape", holder: "Ana", qr: { status: "verified", imageId: randomUUID() } },
+      { method: "bank_transfer", bank: "BCP", holder: "Ana", accountNumber: "1234", cci: null, imageId: bankImageId }] } });
+  });
+  const view = await call(`${report.buyerPath}/payment`);
+  expect(view.status).toBe(200);
+  const parsed = buyerPaymentViewSchema.parse(await view.json());
+  expect(parsed.settings.map((setting) => setting.method)).toEqual(["bank_transfer"]);
+});
+
 test("repeating a buyer report after its rejection returns the rejected payment", async () => {
   const seller = await fixture("PE");
   const report = await reportedOrder(seller);

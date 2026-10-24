@@ -16,7 +16,7 @@ import { previewCheckout, previewPaymentView, type PreviewState } from "@core/sr
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const appearance = { logoUrl: null, theme: "suave" } as const;
-const own: PreviewPaymentMethod[] = [{ method: "digital_wallet", provider: "Plin Lima", holder: "Lima Studio", imageUrl: null }];
+const own: PreviewPaymentMethod[] = [{ method: "digital_wallet", provider: "Plin Lima", holder: "Lima Studio", imageUrl: "https://cdn.example/own-qr.png" }];
 const i18n = createInstance();
 void i18n.use(initReactI18next).init({ lng: "es", resources });
 
