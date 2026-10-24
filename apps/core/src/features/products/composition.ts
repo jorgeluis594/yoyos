@@ -27,6 +27,7 @@ import type { ImageBytes, MatchConfidence, VariantQrCode } from "@core/src/featu
 import { findSellableVariantsByQrCodes } from "@core/src/features/products/infrastructure/order-stock";
 import { findNearestProductImages, hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
 import { readQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
+import { cropPostPhoto } from "@core/src/features/products/infrastructure/product-matching/post-photo";
 import { createOpenAIProductChooser } from "@core/src/features/products/infrastructure/product-matching/openai-product-chooser";
 import { MAX_CANDIDATES } from "@core/src/features/products/infrastructure/product-matching/product-chooser";
 import { findCatalogProduct, listCatalogProducts } from "@core/src/features/products/application/catalog-products";
@@ -124,7 +125,7 @@ export function createVisualSearch(env: Env): VisualSearchSetup {
   switch (config.PRODUCT_MATCHER_PROVIDER) {
     case "openai": chooseProduct = createOpenAIProductChooser({ client, model: config.PRODUCT_MATCHER_MODEL, timeoutMs: config.PRODUCT_MATCH_TIMEOUT_MS, companyId: getCompanyId });
   }
-  return { embedder, visual: { model: embedder.model, embedImage: embedder.embedImage, candidates: config.PRODUCT_MATCH_CANDIDATES,
+  return { embedder, visual: { model: embedder.model, embedImage: embedder.embedImage, cropPostPhoto, candidates: config.PRODUCT_MATCH_CANDIDATES,
     minConfidence: config.PRODUCT_MATCH_MIN_CONFIDENCE as MatchConfidence, chooseProduct,
     hasIndexedProducts, findNearestProductImages, readImage: (imageId) => readImageBytes(imageId, imageStorage, imageRepository) } };
 }

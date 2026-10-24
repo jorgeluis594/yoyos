@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { describe, expect, test } from "vitest";
-import { buildChooserPrompt, parseChooserOutput, type ChooserInput } from "@core/src/features/products/infrastructure/product-matching/product-chooser";
+import { buildChooserPrompt, detailInstructions, parseChooserOutput, type ChooserInput } from "@core/src/features/products/infrastructure/product-matching/product-chooser";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 const png = async (width: number, height: number) => ({ bytes: new Uint8Array(await sharp({ create: { width, height, channels: 3, background: "#888" } }).png().toBuffer()), contentType: "image/png" });
@@ -17,6 +17,15 @@ describe("product chooser", () => {
     const texts = prompt.success ? prompt.data.parts.flatMap((part) => part.kind === "text" ? [part.text] : ["<image>"]) : [];
     expect(texts).toEqual(["Customer image:", "<image>", "Candidate A:", "<image>", "Candidate B:", "<image>", "Candidate C:", "<image>"]);
     expect(JSON.stringify(prompt)).not.toContain("product-");
+  });
+
+  test("adds the photo cut out of a screenshot after the customer image, and says so", async () => {
+    const plain = await buildChooserPrompt(await input(1));
+    const prompt = await buildChooserPrompt({ ...await input(1), detail: await png(4, 4) });
+    const texts = prompt.success ? prompt.data.parts.flatMap((part) => part.kind === "text" ? [part.text] : ["<image>"]) : [];
+    expect(texts).toEqual(["Customer image:", "<image>", "Photo inside the customer image:", "<image>", "Candidate A:", "<image>"]);
+    expect(prompt.success && prompt.data.labels).toEqual(["A"]);
+    expect(prompt.success && plain.success && prompt.data.instructions).toBe(`${plain.success && plain.data.instructions} ${detailInstructions}`);
   });
 
   test("maps the chosen label back to its product id", async () => {

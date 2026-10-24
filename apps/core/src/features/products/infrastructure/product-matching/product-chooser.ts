@@ -26,6 +26,8 @@ export const chooserInstructions = "The first image was sent by a customer. Deci
   + "(same item, design and colour; ignore background, lighting, angle, overlays and text). "
   + `Answer with the candidate label, or "${NONE}" if no candidate is clearly the same product.`;
 
+export const detailInstructions = "The customer image is a screenshot; the photo inside it follows it, before the candidates. Compare that photo with the candidates.";
+
 export const labelFor = (index: number) => String.fromCharCode(65 + index);
 
 async function resize(image: ImageBytes): Promise<ImageBytes> {
@@ -38,12 +40,15 @@ async function resize(image: ImageBytes): Promise<ImageBytes> {
 export async function buildChooserPrompt(input: ChooserInput): Promise<Result<ChooserPrompt, ChooserError>> {
   if (!input.candidates.length || input.candidates.length > MAX_CANDIDATES) return err({ code: "INVALID_MATCHER_RESPONSE", message: "Unsupported number of candidates" });
   let images: ImageBytes[];
-  try { images = await Promise.all([input.query, ...input.candidates.map(({ image }) => image)].map(resize)); }
+  try { images = await Promise.all([input.query, ...input.detail ? [input.detail] : [], ...input.candidates.map(({ image }) => image)].map(resize)); }
   catch { return err({ code: "INVALID_MATCHER_RESPONSE", message: "Unable to prepare images" }); }
-  const [query, ...candidates] = images as [ImageBytes, ...ImageBytes[]];
+  const [query, ...rest] = images as [ImageBytes, ...ImageBytes[]];
+  const detail = input.detail ? rest.shift()! : null;
+  const candidates = rest;
   const labels = candidates.map((_, index) => labelFor(index));
-  return ok({ instructions: chooserInstructions, labels, parts: [
+  return ok({ instructions: detail ? `${chooserInstructions} ${detailInstructions}` : chooserInstructions, labels, parts: [
     { kind: "text", text: "Customer image:" }, { kind: "image", image: query },
+    ...detail ? [{ kind: "text", text: "Photo inside the customer image:" }, { kind: "image", image: detail }] satisfies PromptPart[] : [],
     ...candidates.flatMap((image, index): PromptPart[] => [{ kind: "text", text: `Candidate ${labels[index]}:` }, { kind: "image", image }]),
   ] });
 }

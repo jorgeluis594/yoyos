@@ -39,7 +39,8 @@ export type IdentifyProductsError = Readonly<{
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
-export type ChooseProduct = (input: Readonly<{ query: ImageBytes; candidates: readonly Readonly<{ productId: ProductId; image: ImageBytes }>[] }>) =>
+/** `detail` is the photo cut out of `query` when it is a post or chat screenshot. */
+export type ChooseProduct = (input: Readonly<{ query: ImageBytes; detail?: ImageBytes; candidates: readonly Readonly<{ productId: ProductId; image: ImageBytes }>[] }>) =>
   Promise<Result<VisualChoice, Readonly<{ code: "PRODUCT_MATCHER_UNAVAILABLE" | "INVALID_MATCHER_RESPONSE"; message: string }>>>;
 
 export type VisualSearch = Readonly<{
@@ -47,6 +48,8 @@ export type VisualSearch = Readonly<{
   candidates: number;
   minConfidence: MatchConfidence;
   embedImage: EmbedImage;
+  /** The photo inside a post or chat screenshot, or null for any other image. */
+  cropPostPhoto: (image: ImageBytes) => Promise<ImageBytes | null>;
   hasIndexedProducts: (model: EmbeddingModel) => Promise<Result<boolean, PersistenceError>>;
   findNearestProductImages: (vector: EmbeddingVector, model: EmbeddingModel, limit: number) =>
     Promise<Result<readonly VisualCandidate[], PersistenceError>>;
@@ -83,7 +86,9 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<
   const indexed = await visual.hasIndexedProducts(visual.model);
   if (!indexed.success) return indexed;
   if (!indexed.data) return notFound("no_indexed_products");
-  const vector = await visual.embedImage(image);
+  // A screenshot is searched by the photo it shows, so the app screen around it does not pull other products closer.
+  const detail = await visual.cropPostPhoto(image);
+  const vector = await visual.embedImage(detail ?? image);
   if (!vector.success) return vector;
   const nearest = await visual.findNearestProductImages(vector.data, visual.model, visual.candidates);
   if (!nearest.success) return nearest;
@@ -93,7 +98,7 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<
   // An image deleted after indexing only drops that candidate.
   const available = read.flatMap(({ candidate, image }) => image.success ? [{ candidate, image: image.data }] : []);
   if (!available.length) return notFound("no_indexed_products");
-  const choice = await visual.chooseProduct({ query: image, candidates: available.map(({ candidate, image }) => ({ productId: candidate.productId, image })) });
+  const choice = await visual.chooseProduct({ query: image, ...(detail && { detail }), candidates: available.map(({ candidate, image }) => ({ productId: candidate.productId, image })) });
   if (!choice.success) return choice;
   const match = acceptVisualMatch(choice.data, available.map(({ candidate }) => candidate), visual.minConfidence);
   const chosenId = choice.data.kind === "product" ? choice.data.productId : null;

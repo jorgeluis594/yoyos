@@ -1,7 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import { identifyProductsInImage, type IdentifyProductsDependencies, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
-import type { CatalogItem, EmbeddingModel, EmbeddingVector, MatchConfidence, VariantQrCode, VisualCandidate } from "@core/src/features/products/domain/image-identification";
+import type { CatalogItem, EmbeddingModel, EmbeddingVector, ImageBytes, MatchConfidence, VariantQrCode, VisualCandidate } from "@core/src/features/products/domain/image-identification";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -13,15 +13,16 @@ const candidate = (productId: ProductId, n: number): VisualCandidate => ({ produ
 
 function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNREADABLE_IMAGE" | "QR_READER_UNAVAILABLE"; qrVariants?: (CatalogItem & { productId: ProductId; qrCode: VariantQrCode })[]; visual?: Partial<VisualSearch> | null }> = {}) {
   const calls: string[] = [];
-  const asked: { products: ProductId[] } = { products: [] };
+  const asked: { products: ProductId[]; embedded?: ImageBytes; query?: ImageBytes; detail?: ImageBytes } = { products: [] };
   const called = <T>(name: string, value: T): T => { calls.push(name); return value; };
   const visual: VisualSearch = {
     model: "openai/test" as EmbeddingModel, candidates: 5, minConfidence: 0.8 as MatchConfidence,
     hasIndexedProducts: async () => called("hasIndexedProducts", ok(true)),
-    embedImage: async () => called("embedImage", ok([0.1, 0.2] as unknown as EmbeddingVector)),
+    embedImage: async (embedded) => { asked.embedded = embedded; return called("embedImage", ok([0.1, 0.2] as unknown as EmbeddingVector)); },
+    cropPostPhoto: async () => null,
     findNearestProductImages: async () => called("findNearestProductImages", ok([candidate(productP, 1), candidate(productQ, 2)])),
     readImage: async () => called("readImage", ok(image)),
-    chooseProduct: async (input) => { asked.products = input.candidates.map(({ productId }) => productId); return called("chooseProduct", ok({ kind: "product", productId: productP, confidence: 0.9 as MatchConfidence, showsProduct: 0.95 })); },
+    chooseProduct: async (input) => { Object.assign(asked, { products: input.candidates.map(({ productId }) => productId), query: input.query, detail: input.detail }); return called("chooseProduct", ok({ kind: "product", productId: productP, confidence: 0.9 as MatchConfidence, showsProduct: 0.95 })); },
     ...options.visual,
   };
   const deps: IdentifyProductsDependencies = {
@@ -93,6 +94,16 @@ describe("identifyProductsInImage", () => {
     expect(h.asked.products).toEqual([productP]);
     const none = harness({ visual: { readImage: async () => err({ code: "IMAGE_NOT_FOUND", message: "gone" }) } });
     expect(await none.run()).toEqual(ok({ kind: "not_found", reason: "no_indexed_products" }));
+  });
+
+  test("searches a post screenshot by the photo inside it and shows the chooser both", async () => {
+    const photo = { bytes: new Uint8Array([2]), contentType: "image/jpeg" };
+    const post = harness({ visual: { cropPostPhoto: async () => photo } });
+    expect(await post.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
+    expect(post.asked).toMatchObject({ embedded: photo, query: image, detail: photo });
+    const plain = harness();
+    await plain.run();
+    expect(plain.asked).toMatchObject({ embedded: image, query: image, detail: undefined });
   });
 
   test("returns the chosen product, without choosing a variant, with its confidence and distances", async () => {
