@@ -96,14 +96,14 @@ test("checkout does not announce transitions before the outer commit succeeds", 
 
 test("the seller's checkout link read opens no transaction and takes no row lock", async () => {
   const total = { amount: 1, currency: "PEN" as const };
-  findCheckoutOrder.mockResolvedValueOnce(ok({ id: input.id, companyId: context.companyId, companyName: "Store", number: 1001,
+  vi.mocked(findCheckoutOrder).mockResolvedValueOnce(ok({ id: input.id, companyId: context.companyId, companyName: "Store", number: 1001 as OrderNumber,
     buyer: null, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, items: [], itemsTotal: total, total, cancelled: true,
-    fromCatalog: false, checkoutEnabledAt: new Date(), checkoutConfirmedAt: null }));
+    fromCatalog: false, checkoutEnabledAt: new Date(), checkoutConfirmedAt: null } as never));
   try {
     expect(await orders.enableCheckout(input.id, context)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
     expect(withinTransaction).not.toHaveBeenCalled();
     expect(findCheckoutOrderForUpdate).not.toHaveBeenCalled();
-  } finally { findCheckoutOrder.mockReset(); }
+  } finally { vi.mocked(findCheckoutOrder).mockReset(); }
 });
 
 const messageId = id(10) as ChatMessageId;
