@@ -2,9 +2,9 @@
    translate/transform move, so the page renders complete and static when motion is off or unsupported.
    - [data-entrance]: above-the-fold rise on load; --motion-order staggers siblings.
    - [data-entrance="lift"]: the same rise without fading, for the hero card that holds the LCP image.
-   - [data-reveal]: below-the-fold rise driven by scroll position; only where view timelines exist.
-   - [data-reveal="capture"]: a larger reveal for app captures: they also grow slightly and, where a component sets
-     --motion-reveal-x, slide in from their side.
+   - [data-reveal]: below-the-fold rise driven by scroll position; only where view timelines exist. It goes on a
+     section's list or card, never on each item nor nested, because every scroll-driven animation is recomputed on
+     each scrolled frame.
    - [data-lift]: gentle hover lift for cards on pointers that hover.
    Entrance and reveal move `translate` so they compose with each component's own `transform`. */
 @media (prefers-reduced-motion: no-preference) {
@@ -19,14 +19,6 @@
     from {
       opacity: 0;
       translate: 0 var(--motion-reveal-rise);
-    }
-  }
-
-  @keyframes motion-reveal-capture {
-    from {
-      opacity: 0;
-      translate: var(--motion-reveal-x, 0) var(--motion-reveal-rise);
-      scale: 0.92;
     }
   }
 
@@ -60,10 +52,6 @@
   @supports (animation-timeline: view()) {
     [data-reveal] {
       animation: motion-reveal ease-out both;
-    }
-
-    [data-reveal="capture"] {
-      animation-name: motion-reveal-capture;
     }
 
     /* A separate rule so the minifier cannot fold the timeline into the shorthand, which Chromium rejects. The range
