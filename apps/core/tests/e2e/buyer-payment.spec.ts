@@ -48,7 +48,7 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     // Orders are born enabled; a legacy row without the timestamp is simulated.
     await withTenantIsolation(tenantId, async () => { await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: null } }); });
     await page.goto(`/es-PE/orders/${orderId}`);
-    await browserExpect(page.getByRole("link", { name: "Abrir checkout del pedido" })).toHaveCount(0);
+    await browserExpect(page.getByRole("textbox", { name: "Enlace del pedido" })).toHaveCount(0);
     expect((await request.get(`/api/buyer/orders/${orderId}/payment`, { headers: brand })).status()).toBe(409);
     expect((await request.get(`/api/buyer/orders/${orderId}/payment`)).status()).toBe(404);
     await withTenantIsolation(tenantId, async () => { await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } }); });
@@ -134,7 +134,7 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     expect(payment.status).toBe("reported");
     expect(payment.amount).toBeNull();
     await page.goto(`/es-PE/orders/${orderId}`);
-    await browserExpect(page.getByRole("link", { name: "Abrir checkout del pedido" })).toHaveAttribute("href", checkoutPath);
+    await browserExpect(page.getByRole("link", { name: "Abrir enlace en una pestaña nueva" })).toHaveAttribute("href", new RegExp(`${checkoutPath}$`));
     await browserExpect(page.getByRole("link", { name: "Ver captura" })).toBeVisible();
     const report = page.getByRole("listitem").filter({ hasText: "Pago reportado, pendiente de revisión" });
     await report.getByRole("combobox", { name: "Medio de pago" }).click();

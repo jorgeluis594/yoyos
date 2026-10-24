@@ -31,9 +31,9 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.goto(`${mobile.origin}/orders/${id}`, { timeout: 90_000 });
     await browserExpect(page.getByText("Pedido #10000", { exact: true })).toBeVisible({ timeout: 90000 });
-    await page.getByRole("button", { name: "Confirmación del comprador", exact: true }).click();
-    await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText(storeUrl(subdomainOf(tenant), `/checkout/${tenant}/${id}`), { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Obtener enlace", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Copiar enlace", exact: true }).click();
     await browserExpect(page.getByText("Enlace copiado", { exact: true })).toBeVisible();
     const url = await page.evaluate(() => navigator.clipboard.readText());
@@ -63,7 +63,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await browserExpect(page.getByRole("button").filter({ hasText: /#10001 ·/ }).getByLabel("El comprador aún no confirma su pedido", { exact: true })).toBeAttached();
     await browserExpect(page.getByRole("button").filter({ hasText: /#10002 ·/ }).getByText("Cancelado", { exact: true })).toBeVisible();
     await page.goto(`${mobile.origin}/orders/${historical}`);
-    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("No se pudo obtener el enlace. Inténtalo de nuevo.", { exact: true })).toBeVisible();
     await page.goto(`${mobile.origin}/orders/${cancelled}`);
     await browserExpect(page.getByText("Pedido cancelado", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Obtener enlace", exact: true })).toHaveCount(0);

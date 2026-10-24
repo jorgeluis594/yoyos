@@ -258,7 +258,7 @@ export default function OrderHistoryScreen() {
             {item.scheduledDispatchDate || item.courier ? <ThemedText type="small" themeColor="textSecondary">{[item.scheduledDispatchDate && t('orderListScheduledOn', { date: item.scheduledDispatchDate }), item.courier?.name].filter(Boolean).join(" · ")}</ThemedText> : null}
           </View>
           <ThemedText style={styles.amount}>{money(item.total.amount, item.total.currency, locale)}</ThemedText>
-          {item.checkoutEnabledAt && item.status !== "cancelled" ? <Pressable accessibilityRole="button" hitSlop={14} style={styles.checkout}
+          {item.checkoutEnabledAt && item.status !== "cancelled" && (item.checkoutConfirmedAt || item.status === "active") ? <Pressable accessibilityRole="button" hitSlop={14} style={styles.checkout}
             accessibilityLabel={t(item.checkoutConfirmedAt ? 'checkoutConfirmed' : 'orderListCheckoutPending')}
             onPress={() => notify(t(item.checkoutConfirmedAt ? 'checkoutConfirmed' : 'orderListCheckoutPending'))}>
             <SymbolView name={item.checkoutConfirmedAt ? { ios: "person.crop.circle.badge.checkmark", android: "how_to_reg" } : { ios: "hourglass", android: "pending_actions" }}

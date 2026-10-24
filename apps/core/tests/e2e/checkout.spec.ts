@@ -219,13 +219,20 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
       await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "home", recipient: { name: "Recipient", phone: "+51999999999", identity: { kind: "absent" } },
         destination: { address: "Historical address", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: stored.sellerId } } } });
     });
+    // Without a subdomain the card guides to the store link instead of showing one.
+    await page.goto(`/es-PE/orders/${orderId}`);
+    await browserExpect(page.getByText("Elige el link de tu tienda para compartir este pedido.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("textbox", { name: "Enlace del pedido", exact: true })).toHaveCount(0);
+    await page.getByRole("link", { name: "Ir a Apariencia de la tienda", exact: true }).click();
+    await browserExpect(page).toHaveURL(/\/es-PE\/settings\/store-appearance#catalog-publication$/);
     await withTenantIsolation(companyId, async () => { await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: subdomainOf(companyId) } }); });
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("heading", { name: "Pedido #10000" })).toBeVisible();
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
-    await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
-    const link = page.getByLabel("Enlace del pedido", { exact: true });
+    await browserExpect(page.getByRole("button", { name: "Obtener enlace", exact: true })).toHaveCount(0);
+    const link = page.getByRole("textbox", { name: "Enlace del pedido", exact: true });
     await browserExpect(link).toHaveValue(storeUrl(subdomainOf(companyId), `/checkout/${companyId}/${orderId}`));
+    await browserExpect(page.getByRole("link", { name: "Abrir enlace en una pestaña nueva", exact: true })).toHaveAttribute("target", "_blank");
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
     await page.getByRole("button", { name: "Copiar enlace", exact: true }).click();
@@ -238,7 +245,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     const copied = await page.evaluate(() => navigator.clipboard.readText());
     expect(await mobileApi.enableCheckout(orderId)).toEqual(ok({ url: copied }));
     expect(copied).toBe(await link.inputValue());
-    await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
+    await page.reload();
     await browserExpect(link).toHaveValue(copied);
     const buyerPage = await buyer.newPage();
     await buyerPage.goto(copied);

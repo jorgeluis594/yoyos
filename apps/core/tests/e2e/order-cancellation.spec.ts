@@ -145,7 +145,7 @@ test("core resolves a committed lost response, offers manual verification and re
 }, 120000);
 
 
-test("new loader data replaces a recovered active cancellation snapshot after checkout activation", async ({ page }) => {
+test("new loader data replaces a recovered active cancellation snapshot after a payment is registered", async ({ page }) => {
   const f = await fixture(page);
   try {
     const id = await f.create();
@@ -158,8 +158,9 @@ test("new loader data replaces a recovered active cancellation snapshot after ch
     await browserExpect(page.getByRole("alert")).toBeVisible();
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await page.unroute(dataRoute);
-    await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
-    await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
+    const manual = page.getByRole("heading", { name: "Registrar pago manual" }).locator("..");
+    await manual.getByRole("button", { name: "Confirmar pago" }).click();
+    await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
     expect((await f.detail(id)).checkoutEnabledAt).not.toBeNull();
   } finally { await f.cleanup(); }
 });
@@ -175,6 +176,6 @@ test("confirmed cancellation snapshot survives a failed detail refresh", async (
     await browserExpect(page.getByRole("alert")).toContainText("El pedido está cancelado, pero no se pudo actualizar el detalle");
     await browserExpect(page.getByRole("status")).toContainText("Pedido cancelado");
     await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toHaveCount(0);
-    await browserExpect(page.getByRole("button", { name: "Obtener enlace", exact: true })).toHaveCount(0);
+    await browserExpect(page.getByRole("textbox", { name: "Enlace del pedido" })).toHaveCount(0);
   } finally { await f.cleanup(); }
 });

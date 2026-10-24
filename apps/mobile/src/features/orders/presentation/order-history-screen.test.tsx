@@ -143,19 +143,24 @@ test("history distinguishes checkout states and preserves numbers beyond 9999", 
     { number: 9999, checkoutEnabledAt: date, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, status: "active" },
     { number: 10000, checkoutEnabledAt: date, checkoutConfirmedAt: date, status: "active" },
     { number: 10001, checkoutEnabledAt: date, checkoutConfirmedAt: date, status: "cancelled" },
+    { number: 10002, checkoutEnabledAt: date, checkoutConfirmedAt: null, status: "completed" },
+    { number: 10003, checkoutEnabledAt: date, checkoutConfirmedAt: null, status: "cancelled" },
+    { number: 10004, checkoutEnabledAt: date, checkoutConfirmedAt: date, status: "completed" },
   ];
-  mockLoadOrders.mockResolvedValue(ok({ page: 1, pageSize: 20, total: 4, items: states.map((state) => ({
+  mockLoadOrders.mockResolvedValue(ok({ page: 1, pageSize: 20, total: 7, items: states.map((state) => ({
     ...state, id: String(state.number), buyer: null, createdAt: date, completedAt: null,
     paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" },
   })) }));
   const screen = render(<OrderHistoryScreen />);
   await screen.findByText(/#10000 ·/);
-  expect(screen.getByLabelText("Confirmado por el comprador")).toBeTruthy();
+  // Only the active unconfirmed order waits for its buyer: a completed or cancelled one shows no pending shortcut.
+  expect(screen.getAllByLabelText("Confirmado por el comprador")).toHaveLength(2);
+  expect(screen.getAllByLabelText("El comprador aún no confirma su pedido")).toHaveLength(1);
   const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
   fireEvent.press(screen.getByLabelText("El comprador aún no confirma su pedido"));
   expect(alert).toHaveBeenCalledWith("El comprador aún no confirma su pedido");
   expect(mockPush).not.toHaveBeenCalled();
-  expect(screen.getByText("Cancelado")).toBeTruthy();
+  expect(screen.getAllByText("Cancelado")).toHaveLength(2);
   expect(screen.getByText(/#1001 ·/)).toBeTruthy();
 });
 

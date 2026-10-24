@@ -20,7 +20,7 @@ export const translations = {
     catalogYourLink: "Tu link: {{url}}", catalogLinkNotSent: "No pudimos guardar tu link. Revisa tu conexión.", catalogLinkSaveFailed: "No pudimos guardar tu link. Inténtalo de nuevo.",
     catalogLinkInDoubt: "No sabemos si tu link se guardó. Lo estamos revisando…", catalogLinkInDoubtOffline: "No sabemos si tu link se guardó. Revisa tu conexión.",
     catalogLinkNotSaved: "Tu link no se guardó.", catalogSubdomainRequired: "Elige el link de tu catálogo para poder publicarlo.",
-    catalogLinkChangeTitle: "¿Cambiar el link de tu catálogo?", catalogLinkChangeDescription: "{{host}} dejará de ser tuyo y otra tienda podrá usarlo. Si ya lo compartiste, tendrás que compartir el nuevo.",
+    catalogLinkChangeTitle: "¿Cambiar el link de tu catálogo?", catalogLinkChangeDescription: "{{host}} dejará de ser tuyo y otra tienda podrá usarlo. Los links de tu catálogo y de tus pedidos que ya compartiste dejarán de funcionar.",
     catalogLinkChange: "Cambiar link", catalogLinkKeep: "Mantener link actual", catalogHiddenNoLink: "Tu catálogo está oculto. Elige su link y publícalo desde Apariencia de la tienda.",
   },
   "pt-BR": {
@@ -44,7 +44,7 @@ export const translations = {
     catalogYourLink: "Seu link: {{url}}", catalogLinkNotSent: "Não foi possível salvar seu link. Verifique sua conexão.", catalogLinkSaveFailed: "Não foi possível salvar seu link. Tente novamente.",
     catalogLinkInDoubt: "Não sabemos se seu link foi salvo. Estamos verificando…", catalogLinkInDoubtOffline: "Não sabemos se seu link foi salvo. Verifique sua conexão.",
     catalogLinkNotSaved: "Seu link não foi salvo.", catalogSubdomainRequired: "Escolha o link do seu catálogo para poder publicá-lo.",
-    catalogLinkChangeTitle: "Alterar o link do seu catálogo?", catalogLinkChangeDescription: "{{host}} deixará de ser seu e outra loja poderá usá-lo. Se você já o compartilhou, precisará compartilhar o novo.",
+    catalogLinkChangeTitle: "Alterar o link do seu catálogo?", catalogLinkChangeDescription: "{{host}} deixará de ser seu e outra loja poderá usá-lo. Os links do seu catálogo e dos seus pedidos que você já compartilhou deixarão de funcionar.",
     catalogLinkChange: "Alterar link", catalogLinkKeep: "Manter link atual", catalogHiddenNoLink: "Seu catálogo está oculto. Escolha o link dele e publique-o em Aparência da loja.",
   },
 } as const;

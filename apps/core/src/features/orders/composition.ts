@@ -67,7 +67,7 @@ async function orderTransaction<T, E extends AppError>(callback: () => Promise<R
 
 const findOrderAggregate = rejectPendingCatalogOrder(findAnyOrderAggregate);
 const findOrderForUpdate = rejectPendingCatalogOrder(findAnyOrderForUpdate);
-const findSellerCheckoutOrderForUpdate = rejectPendingCatalogOrder(findAnyCheckoutOrderForUpdate);
+const findSellerCheckoutOrder = rejectPendingCatalogOrder(findCheckoutOrder);
 
 function scopedOrderTransaction<T, E extends AppError>(companyId: string, callback: () => Promise<Result<T, E>>): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
@@ -305,10 +305,10 @@ export const orders = {
   enableCheckout: async (orderId: OrderId, access: OrderAccess) => {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "enable_checkout" });
-    const result = await enableOrderCheckout(orderId, access, { ...checkoutDependencies, findOrderForUpdate: findSellerCheckoutOrderForUpdate });
+    const result = await withTenantIsolation(access.companyId, () => enableOrderCheckout(orderId, access, { findOrder: findSellerCheckoutOrder }));
     if (!result.success) { rejectedCheckout(result.error); return result; }
     const link = await checkoutUrl(access.companyId, orderId);
-    bindRequestOperation({ outcome: link.success ? "already_enabled" : link.error.code === "SUBDOMAIN_REQUIRED" ? "unavailable" : "technical_failure", orderNumber: result.data.number });
+    bindRequestOperation({ outcome: link.success ? "loaded" : link.error.code === "SUBDOMAIN_REQUIRED" ? "unavailable" : "technical_failure", orderNumber: result.data.number });
     return map(link, (url) => ({ url }));
   },
   getCheckout: (access: CheckoutAccess) => readCheckout(access, getCheckoutDependencies),

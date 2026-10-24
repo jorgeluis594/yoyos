@@ -132,3 +132,26 @@ test("order list shows «Desde el catálogo» for catalog orders only", async ()
     router.dispose();
   }
 });
+
+test("«Pendiente de confirmación» only marks active orders the buyer has not confirmed", async () => {
+  const i18n = createInstance();
+  await i18n.init({ lng: "es", resources });
+  const item = (number: number, status: string, confirmed: boolean) => ({ id: `sale-${number}`, number, source: "manual", buyer: null,
+    createdAt: "2026-10-17T12:00:00.000Z", itemCount: 1, balanceDue: { amount: 10, currency: "PEN" }, status, paymentStatus: "pending",
+    deliveryStatus: "pending", total: { amount: 10, currency: "PEN" }, checkoutEnabledAt: "2026-10-17T12:00:00.000Z",
+    checkoutConfirmedAt: confirmed ? "2026-10-17T12:05:00.000Z" : null, deliveredAt: null, completedAt: status === "completed" ? "2026-10-17T12:10:00.000Z" : null });
+  const items = [item(1, "active", false), item(2, "active", true), item(3, "completed", false), item(4, "completed", true), item(5, "cancelled", false)];
+  const router = createMemoryRouter([{ id: "orders", path: "/", element: createElement(OrderList), loader: () => null }], {
+    hydrationData: { loaderData: { orders: { list: { items, page: 1, pageSize: 20, total: 5 }, filters: { customer: "all", page: 1 }, contacts: [], customerSearch: "", base: "/es-PE/orders" } } },
+  });
+  try {
+    const rows = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))).split("<tr").slice(2);
+    expect(rows[0]).toContain("Pendiente de confirmación");
+    expect(rows[1]).toContain("Confirmado por el comprador");
+    expect(rows[2]).not.toContain("Pendiente de confirmación");
+    expect(rows[3]).toContain("Confirmado por el comprador");
+    expect(rows[4]).not.toContain("Pendiente de confirmación");
+  } finally {
+    router.dispose();
+  }
+});
