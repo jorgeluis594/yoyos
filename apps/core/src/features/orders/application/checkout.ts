@@ -13,7 +13,8 @@ import { checkoutState, checkoutView, checkExpectedTotal, parseBuyer,
 } from "@core/src/features/orders/domain/checkout";
 
 export type ConfirmOrderCheckoutInput = Readonly<{ buyer: BuyerData; expectedTotal: Money }>;
-export type CheckoutDeliveryChange = Readonly<{ kind: "keep" }> | Readonly<{ kind: "replace"; selection: RatedDeliverySelection; expectedPrice: Money }>;
+/** `recipient` names who receives the delivery that is kept; without it the kept delivery is untouched. */
+export type CheckoutDeliveryChange = Readonly<{ kind: "keep"; recipient?: Readonly<{ name: string; phone: string }> }> | Readonly<{ kind: "replace"; selection: RatedDeliverySelection; expectedPrice: Money }>;
 export type ConfirmCheckoutDeliveryInput = ConfirmOrderCheckoutInput & Readonly<{ delivery: CheckoutDeliveryChange }>;
 export type ConfirmCheckoutDeliveryError = CheckoutError | SetDeliveryError;
 export type ConfirmCheckoutDeliveryDependencies = Pick<CheckoutDependencies, "saveBuyer" | "saveConfirmed"> &
@@ -39,7 +40,7 @@ export type GetOrderCheckoutDependencies = Pick<CheckoutDependencies, "findOrder
 export type CheckoutPage = Readonly<{ checkout: CheckoutView; photos: ReadonlyMap<VariantId, string> }>;
 
 const accessSchema = z.strictObject({ companyId: z.uuid(), orderId: z.uuid() });
-const deliveryChangeSchema = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("keep") }),
+const deliveryChangeSchema = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("keep"), recipient: z.strictObject({ name: z.string().trim().min(1), phone: z.string().trim().min(1) }).optional() }),
   z.strictObject({ kind: z.literal("replace"), selection: z.unknown(), expectedPrice: z.unknown() })]);
 const unavailable = () => err({ code: "CHECKOUT_UNAVAILABLE" as const, message: "Checkout is unavailable" });
 function matches(order: CheckoutOrder | null, access: CheckoutAccess): order is CheckoutOrder {
@@ -117,6 +118,10 @@ export async function confirmCheckoutDelivery(input: ConfirmCheckoutDeliveryInpu
     let next = order;
     if (input.delivery.kind === "keep") {
       if (!order.delivery) return err({ code: "INVALID_CHECKOUT", message: "There is no delivery to keep" });
+      const who = input.delivery.recipient;
+      // A delivery that has already progressed keeps its recipient: the confirmation goes through without rewriting it.
+      if (who && orderStateMachine.canSetDelivery(order).success && (order.delivery.recipient.name !== who.name || order.delivery.recipient.phone !== who.phone))
+        next = { ...order, delivery: { ...order.delivery, recipient: { ...order.delivery.recipient, name: who.name, phone: who.phone } } as typeof order.delivery };
     } else {
       const allowed = orderStateMachine.canSetDelivery(order);
       if (!allowed.success) return allowed;

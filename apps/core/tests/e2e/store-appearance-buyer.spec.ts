@@ -57,7 +57,7 @@ async function fixture({ delivery = true, photos = false }: { delivery?: boolean
     if (!created.success) throw new Error("Order fixture failed");
     await prisma.orderBuyer.create({ data: { orderId, contactId, name: "Ana", phone: "+51987654321" } });
     if (delivery) await prisma.order.update({ where: { id: orderId }, data: { delivery: { method: "store",
-      recipient: { name: "Recipient", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Tienda", address: "Historical address", instructions: null },
+      recipient: { name: "Recipient", phone: "+51999999999", identity: { kind: "absent" } }, pickupPoint: { name: "Tienda", address: "Historical address", instructions: null },
       settingsVersion: 0, recordedBy: { kind: "seller", userId } } } });
     // The checkout opens on the store's brand host; a published catalog makes the checkout's own «no disponible» answer the unmatched links.
     await publishCatalog(companyId);
@@ -248,9 +248,10 @@ test.describe("buyer checkout with appearance", () => {
       await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
       await page.getByLabel("Nombre", { exact: true }).fill("Ana");
       await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-      await page.getByLabel("Nombre del destinatario").fill("Recipient");
-      await page.getByLabel("Teléfono del destinatario").fill("999");
-      await page.getByLabel("Documento del destinatario").fill("12345678");
+      await page.getByLabel("Otra persona recibe el pedido").check();
+      await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+      await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
+      await page.getByLabel("Documento de quien recibe", { exact: true }).fill("12345678");
       await browserExpect(page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) })).toContainText(/18[.,]00/);
       await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
       await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
@@ -287,6 +288,16 @@ test.describe("buyer checkout with appearance", () => {
         await page.getByText("Envío a agencia", { exact: true }).click();
         const [label, field] = [await page.getByText("Nombre", { exact: true }).first().boundingBox(), await page.getByLabel("Nombre", { exact: true }).boundingBox()];
         expect(label!.y + label!.height, `${id}: the label sits above its field`).toBeLessThanOrEqual(field!.y + 1);
+        // The recipient check keeps its box beside its label and fills with the theme's accent when ticked.
+        const other = page.getByLabel("Otra persona recibe el pedido");
+        const [box, text] = [await other.boundingBox(), await page.locator('label[for="other-recipient"]').boundingBox()];
+        expect(Math.abs(box!.y - text!.y), `${id}: the recipient check sits beside its label`).toBeLessThan(12);
+        expect(box!.x + box!.width, `${id}: the box comes before its label`).toBeLessThanOrEqual(text!.x + 1);
+        const fill = () => other.evaluate((node) => getComputedStyle(node).backgroundColor);
+        const unticked = await fill();
+        await other.check();
+        await browserExpect.poll(fill, { message: `${id}: the ticked check shows its state` }).not.toBe(unticked);
+        await other.uncheck();
         await capture(page, `${id}-pending-390`);
         // The open list is portaled, yet it stays inside the theme: same popover color and mode as the checkout.
         await page.getByLabel("Departamento", { exact: true }).click();
@@ -312,9 +323,10 @@ test.describe("buyer checkout with appearance", () => {
         await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
         await page.getByLabel("Nombre", { exact: true }).fill("Ana");
         await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-        await page.getByLabel("Nombre del destinatario").fill("Recipient");
-        await page.getByLabel("Teléfono del destinatario").fill("999");
-        await page.getByLabel("Documento del destinatario").fill("12345678");
+        await page.getByLabel("Otra persona recibe el pedido").check();
+        await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+        await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
+        await page.getByLabel("Documento de quien recibe", { exact: true }).fill("12345678");
         const total = page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) });
         await browserExpect(total).toContainText(/28[.,]00/);
         const confirm = page.getByRole("button", { name: "Confirmar pedido", exact: true });

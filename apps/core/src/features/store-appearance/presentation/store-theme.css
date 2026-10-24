@@ -74,6 +74,18 @@
   background-color: var(--accent-strong);
 }
 
+/* A checkbox is filled with the theme's strong accent when checked, so the state shows in every theme like the radios' dot does. */
+[data-store-theme] [data-slot="checkbox"] {
+  border-color: var(--control);
+  background-color: var(--input-surface);
+}
+
+[data-store-theme] [data-slot="checkbox"]:is([aria-checked="true"], [data-state="checked"], [data-checked]) {
+  border-color: var(--accent-strong);
+  background-color: var(--accent-strong);
+  color: var(--input-surface);
+}
+
 /*
  * Keyboard focus and invalid fields. The unlayered rules above replace the utilities' ring and border, so both states are declared here
  * with the theme's ring and destructive tokens. A native radio inside an option or payment chip leaves the ring to its parent, so one focus
@@ -196,6 +208,12 @@
   gap: var(--store-label-gap);
   padding: var(--store-field-padding);
   border-bottom: var(--store-field-separator);
+}
+
+/* A checkbox field keeps its box beside its label instead of stacking above it. */
+[data-store-theme] [data-store-part="field"][data-orientation="horizontal"] {
+  flex-direction: row;
+  align-items: flex-start;
 }
 
 [data-store-theme] [data-store-part="field"]:last-child {

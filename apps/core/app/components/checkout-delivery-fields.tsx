@@ -20,13 +20,15 @@ import { rateLabel } from "@core/app/rate-label";
 import { requestDeliveryQuotation, type QuotationRequestError } from "@core/src/features/delivery-settings/infrastructure/quotation-api";
 
 const draftSchema = z.object({ mode: z.enum(["", "keep", "home", "agency", "store"]), districtCode: z.string().nullable(), rateId: z.string(), agencyId: z.string(),
-  name: z.string(), phone: z.string(), address: z.string(), instructions: z.string(), document: z.string(),
+  address: z.string(), instructions: z.string(), document: z.string(),
   documentType: z.enum(["national_id", "passport", "foreign_id"]) });
 type Draft = z.infer<typeof draftSchema>;
 export type CheckoutDeliveryDraft = Readonly<{ delivery: ConfirmCheckoutDeliveryRequest["delivery"]; price: Money }>;
 
-export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, recoveryVersion = 0, disabled = false }: Readonly<{
+export function CheckoutDeliveryFields({ orderId, checkout, options, recipient, onChange, recoveryVersion = 0, disabled = false }: Readonly<{
   orderId: string; checkout: PublicCheckoutResponse; options: CheckoutDeliveryOptions;
+  /** Who receives the order: the buyer, or whoever «Otra persona recibe el pedido» names. */
+  recipient: Readonly<{ name: string; phone: string }>;
   onChange: (draft: CheckoutDeliveryDraft | null) => void; recoveryVersion?: number | object; disabled?: boolean;
 }>) {
   const { t, i18n } = useTranslation();
@@ -37,7 +39,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
   const districtRef = useRef<HTMLDivElement>(null);
   const form = useForm<Draft>({ resolver: zodResolver(draftSchema), defaultValues: {
     mode: saved ? "keep" : homeEnabled ? "home" : agencyEnabled ? "agency" : options.store.enabled ? "store" : "", districtCode: saved && "destination" in saved && "districtCode" in saved.destination ? saved.destination.districtCode : null,
-    rateId: "", agencyId: "", name: saved?.recipient.name ?? checkout.buyer?.name ?? "", phone: saved?.recipient.phone ?? checkout.buyer?.phone ?? "",
+    rateId: "", agencyId: "",
     address: saved?.method === "home" ? saved.destination.address : "", instructions: saved?.method === "home" ? saved.destination.instructions ?? "" : "",
     documentType: saved?.recipient.identity.kind === "document" ? saved.recipient.identity.documentType : "national_id",
     document: saved?.recipient.identity.kind === "document" ? saved.recipient.identity.document : "",
@@ -68,21 +70,21 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
     const identity = draft.mode === "agency" || draft.document?.trim()
       ? { kind: "document", documentType: draft.documentType, document: draft.document }
       : { kind: "absent" };
-    const recipient = { name: draft.name, phone: draft.phone, identity };
+    const recipientData = { name: recipient.name, phone: recipient.phone, identity };
     const price: Money | undefined = draft.mode === "store" && options.store.enabled ? { amount: 0, currency: checkout.total.currency } : draft.mode === "agency" ? choice?.price : rate?.price;
-    const selection = draft.mode === "store" ? { method: "store", recipient } : draft.mode === "home"
-      ? { method: "home", rateId: rate?.id, recipient, destination: { districtCode: draft.districtCode, address: draft.address, instructions: draft.instructions?.trim() || null } }
-      : { method: "agency", rateId: choice?.rateId, recipient, districtCode: draft.districtCode, agencyId: choice?.agency.id };
+    const selection = draft.mode === "store" ? { method: "store", recipient: recipientData } : draft.mode === "home"
+      ? { method: "home", rateId: rate?.id, recipient: recipientData, destination: { districtCode: draft.districtCode, address: draft.address, instructions: draft.instructions?.trim() || null } }
+      : { method: "agency", rateId: choice?.rateId, recipient: recipientData, districtCode: draft.districtCode, agencyId: choice?.agency.id };
     const parsed = checkoutDeliveryChangeSchema.safeParse({ kind: "replace", selection, expectedPrice: price });
     return price && parsed.success ? { delivery: parsed.data, price } : null;
-  }, [draft.mode, draft.name, draft.phone, draft.documentType, draft.document, draft.districtCode, draft.address, draft.instructions,
+  }, [draft.mode, recipient.name, recipient.phone, draft.documentType, draft.document, draft.districtCode, draft.address, draft.instructions,
     rate, choice, saved, checkout.deliveryCharge, checkout.total.currency, options.store.enabled]);
   useEffect(() => onChange(prepared), [prepared, onChange]);
   const amount = (price: Money) => price.amount === 0 ? t("checkoutDelivery.free") : formatCurrency(price.amount, price.currency, i18n.language);
   const changeMode = (mode: Draft["mode"]) => { form.setValue("mode", mode); form.setValue("rateId", ""); form.setValue("agencyId", ""); setReceived(null); };
   const changeDistrict = () => (districtRef.current?.querySelector<HTMLInputElement>('input[id$="-district"]:not(:disabled)') ?? districtRef.current?.querySelector<HTMLInputElement>('input[id$="-department"]'))?.focus();
-  const input = (name: "name" | "phone" | "address" | "instructions" | "document", label: string, required = false) => <Controller key={name} name={name} control={form.control} render={({ field }) =>
-    <Field data-store-part="field"><FieldLabel htmlFor={`delivery-${name}`}>{label}</FieldLabel><Input {...field} name={undefined} id={`delivery-${name}`} required={required} type={name === "phone" ? "tel" : "text"} /></Field>} />;
+  const input = (name: "address" | "instructions" | "document", label: string, required = false, describedBy?: string) => <Controller key={name} name={name} control={form.control} render={({ field }) =>
+    <Field data-store-part="field"><FieldLabel htmlFor={`delivery-${name}`}>{label}</FieldLabel><Input {...field} name={undefined} id={`delivery-${name}`} required={required} type="text" aria-describedby={describedBy} /></Field>} />;
   return <fieldset disabled={disabled || !ready} className="flex min-w-0 flex-col gap-4">
     <legend data-store-part="section-title" className="mb-4 text-lg font-semibold">{t("checkoutDelivery.title")}</legend>
     {!saved && !homeEnabled && !agencyEnabled && !options.store.enabled ? <p role="status" className="rounded-[var(--radius-control)] bg-muted p-4 text-sm text-muted-foreground">{t("checkoutDelivery.noModes")}</p>
@@ -97,7 +99,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
         </div>
       </div>} />}
     {draft.mode === "keep" && saved && <div className="space-y-1 rounded-[var(--radius-control)] bg-muted p-4 text-sm"><p className="font-medium">{t(`checkoutDelivery.method.${saved.method}`)} · {amount(checkout.deliveryCharge)}</p>
-      <p>{saved.method === "home" ? `${saved.destination.address}, ${saved.destination.district}` : saved.method === "store" ? saved.pickupPoint.address : `${saved.courier.name} · ${saved.agency.name} · ${saved.agency.address}`}</p><p className="text-muted-foreground">{t("checkoutDelivery.kept")}</p></div>}
+      <p>{saved.method === "home" ? `${saved.destination.address}, ${saved.destination.district}` : saved.method === "store" ? saved.pickupPoint.address : `${saved.courier.name} · ${saved.agency.name} · ${saved.agency.address}`}</p><p>{t("checkoutDelivery.receives", { name: recipient.name, phone: recipient.phone })}</p><p className="text-muted-foreground">{t("checkoutDelivery.kept")}</p></div>}
     {draft.mode === "store" && options.store.enabled && <div className="space-y-1 rounded-[var(--radius-control)] bg-muted p-4 text-sm"><p className="font-medium">{options.store.pickupPoint.name} · {t("checkoutDelivery.free")}</p><p>{options.store.pickupPoint.address}</p>{options.store.pickupPoint.instructions && <p>{options.store.pickupPoint.instructions}</p>}</div>}
     {quoting && <>
       <div ref={districtRef}><PeruDistrictSelect themed value={draft.districtCode ? getPeruDistrict(draft.districtCode)?.code ?? null : null} disabled={disabled} onChange={code => { form.setValue("districtCode", code); form.setValue("rateId", ""); form.setValue("agencyId", ""); }} /></div>
@@ -110,9 +112,8 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
         onChange={agencyId => form.setValue("agencyId", agencyId)} onChangeDistrict={changeDistrict} onSwitchToHome={() => changeMode("home")} amount={amount} />}
     </>}
     {draft.mode && draft.mode !== "keep" && <div data-store-part="field-group" className="flex flex-col gap-4">
-      {input("name", t("checkoutDelivery.recipientName"), true)}{input("phone", t("checkoutDelivery.recipientPhone"), true)}
       {rate && <>{input("address", t("checkoutDelivery.address"), true)}{input("instructions", t("checkoutDelivery.instructions"))}</>}
-      {draft.mode === "agency" && <><Controller name="documentType" control={form.control} render={({ field }) => <Field data-store-part="field"><FieldLabel htmlFor="delivery-document-type">{t("checkoutDelivery.documentType")}</FieldLabel><select id="delivery-document-type" data-slot="select" className={controlClass} value={field.value} onChange={field.onChange} onBlur={field.onBlur}><option value="national_id">{t("checkoutDelivery.documentTypes.national_id")}</option><option value="passport">{t("checkoutDelivery.documentTypes.passport")}</option><option value="foreign_id">{t("checkoutDelivery.documentTypes.foreign_id")}</option></select></Field>} />{input("document", t("checkoutDelivery.document"), true)}</>}
+      {draft.mode === "agency" && <><Controller name="documentType" control={form.control} render={({ field }) => <Field data-store-part="field"><FieldLabel htmlFor="delivery-document-type">{t("checkoutRecipient.documentType")}</FieldLabel><select id="delivery-document-type" data-slot="select" className={controlClass} value={field.value} onChange={field.onChange} onBlur={field.onBlur}><option value="national_id">{t("checkoutDelivery.documentTypes.national_id")}</option><option value="passport">{t("checkoutDelivery.documentTypes.passport")}</option><option value="foreign_id">{t("checkoutDelivery.documentTypes.foreign_id")}</option></select></Field>} />{input("document", t("checkoutRecipient.document"), true, "delivery-document-hint")}<p id="delivery-document-hint" className="-mt-2 text-sm text-muted-foreground">{t("checkoutRecipient.documentHint")}</p></>}
     </div>}
   </fieldset>;
 }

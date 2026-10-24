@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { RouterContextProvider, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import resources from "@core/app/locales";
 import { brandHostCompanyContext } from "@core/app/brand-host-context";
 import { action, handle, headers, loader } from "@core/app/routes/checkout";
 import { orders } from "@core/src/features/orders/composition";
@@ -125,7 +126,85 @@ test("delivery confirmation constructs domain selection and redirects to payment
   expect(result).toBeInstanceOf(Response);
   expect((result as Response).headers.get("Location")).toBe(`/checkout/${params.companyId}/${params.orderId}`);
   expect((result as Response).headers.get("Cache-Control")).toBe("no-store");
-  expect(confirm).toHaveBeenCalledWith({ ...body, delivery }, params);
+  expect(confirm).toHaveBeenCalledWith({ ...body, delivery: { ...delivery, selection: { ...delivery.selection, recipient: { ...delivery.selection.recipient, phone: body.buyer.phone } } } }, params);
+});
+
+describe("recipient rule", () => {
+  const recipient = (name: string, phone: string, identity: unknown = { kind: "absent" }) => ({ name, phone, identity });
+  const rateId = "00000000-0000-4000-8000-000000000010";
+  const selections = (who: ReturnType<typeof recipient>) => ({
+    home: { method: "home", rateId, recipient: who, destination: { districtCode: "150101", address: "Av. Lima 123", instructions: null } },
+    agency: { method: "agency", rateId, recipient: recipient(who.name, who.phone, { kind: "document", documentType: "national_id", document: "12345678" }), districtCode: "150101", agencyId: "00000000-0000-4000-8000-000000000011" },
+    store: { method: "store", recipient: who },
+  });
+  const submit = (selection: unknown, extra: Record<string, unknown> = {}) =>
+    action(args({ ...body, ...extra, delivery: { kind: "replace", selection, expectedPrice: { amount: 5, currency: "PEN" } } }));
+
+  test.each(["home", "agency", "store"] as const)("saves the buyer as the %s recipient when nobody else receives, ignoring the recipient fields sent", async (method) => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    expect(await submit(selections(recipient("Tampered", "+51900000000"))[method], { otherRecipient: false })).toBeInstanceOf(Response);
+    const sent = confirm.mock.calls[0][0].delivery;
+    expect(sent).toMatchObject({ kind: "replace", selection: { method, recipient: { name: "Ana", phone: "+51987654321" } } });
+  });
+
+  test("treats an absent flag as nobody else receiving", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    await submit(selections(recipient("Tampered", "+51900000000")).home);
+    expect(confirm.mock.calls[0][0].delivery).toMatchObject({ selection: { recipient: { name: "Ana", phone: "+51987654321" } } });
+  });
+
+  test("keeps the document of the agency recipient when the buyer is the recipient", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    await submit(selections(recipient("x", "y")).agency, { otherRecipient: false });
+    expect(confirm.mock.calls[0][0].delivery).toMatchObject({ selection: { recipient: { identity: { kind: "document", document: "12345678" } } } });
+  });
+
+  test.each(["home", "agency", "store"] as const)("saves another %s recipient and leaves the buyer unchanged when the flag is set", async (method) => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    expect(await submit(selections(recipient("Luis", "+14155552671"))[method], { otherRecipient: true })).toBeInstanceOf(Response);
+    const call = confirm.mock.calls[0][0];
+    expect(call.buyer).toEqual(body.buyer);
+    expect(call.delivery).toMatchObject({ selection: { method, recipient: { name: "Luis", phone: "+14155552671" } } });
+  });
+
+  test("requires a valid international recipient phone when someone else receives and answers in place", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery");
+    const result = await submit(selections(recipient("Luis", "999")).home, { otherRecipient: true });
+    expect(result).toMatchObject({ init: { status: 422 }, data: { fieldErrors: { recipientPhone: expect.any(String) } } });
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  test("requires the recipient name and phone together when someone else receives", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery");
+    expect(await submit(selections(recipient(" ", "999")).home, { otherRecipient: true }))
+      .toMatchObject({ init: { status: 422 }, data: { fieldErrors: { recipientName: "Ingresa el nombre de quien recibe.", recipientPhone: expect.any(String) } } });
+    expect(await submit(selections(recipient(" ", "+14155552671")).home, { otherRecipient: true })).toMatchObject({ init: { status: 422 }, data: { fieldErrors: { recipientName: expect.any(String) } } });
+    const { fieldErrors } = (await submit(selections(recipient("Luis", "999")).home, { otherRecipient: true }) as unknown as { data: { fieldErrors: Record<string, string> } }).data;
+    expect(fieldErrors.recipientPhone).toBe(resources.es.translation.checkoutRecipient.phoneInvalid);
+    expect(confirm).not.toHaveBeenCalled();
+  });
+
+  test("ignores empty or invalid recipient fields entirely when nobody else receives", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    expect(await submit(selections(recipient("", "")).home, { otherRecipient: false })).toBeInstanceOf(Response);
+    expect(confirm.mock.calls[0][0].delivery).toMatchObject({ selection: { recipient: { name: "Ana", phone: "+51987654321" } } });
+  });
+
+  test("a kept delivery goes to the buyer when nobody else receives, whatever recipient the client sent", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    await action(args({ ...body, otherRecipient: false, delivery: { kind: "keep", recipient: { name: "Tampered", phone: "+51900000000" } } }));
+    expect(confirm.mock.calls[0][0].delivery).toEqual({ kind: "keep", recipient: { name: "Ana", phone: "+51987654321" } });
+  });
+
+  test("a kept delivery goes to the person named when someone else receives, and needs a valid one", async () => {
+    const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
+    await action(args({ ...body, otherRecipient: true, delivery: { kind: "keep", recipient: { name: "Luis", phone: "+14155552671" } } }));
+    expect(confirm.mock.calls[0][0].delivery).toEqual({ kind: "keep", recipient: { name: "Luis", phone: "+14155552671" } });
+    confirm.mockClear();
+    expect(await action(args({ ...body, otherRecipient: true, delivery: { kind: "keep" } })))
+      .toMatchObject({ init: { status: 422 }, data: { fieldErrors: { recipientName: expect.any(String), recipientPhone: expect.any(String) } } });
+    expect(confirm).not.toHaveBeenCalled();
+  });
 });
 
 test("delivery price conflict preserves current checkout and returns the price for explicit reconfirmation", async () => {

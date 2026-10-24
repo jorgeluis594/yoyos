@@ -103,7 +103,7 @@ describe("CheckoutOrderSummary", () => {
 
   const sameText = [
       "Lima Studio", "Pedido #1001", "Revisa los productos y el total de tu pedido.", "Tus datos", "Nombre", "Teléfono",
-      "Incluye el código de país, por ejemplo +51987654321.", "Datos del comprador", "Ana Pérez", "+51987654321", "Productos",
+      "Datos del comprador", "Ana Pérez · +51987654321", "Productos",
       "Polo básico", "M", "2 × S/ 49.00", "S/ 98.00", "Taza blanca", "1 × S/ 20.00", "S/ 20.00", "Subtotal de productos", "S/ 118.00",
       "Entrega", "Selecciona una opción", "Total a pagar", "Selecciona entrega",
     ].join("");
@@ -112,17 +112,97 @@ describe("CheckoutOrderSummary", () => {
     const { container, unmount } = render(
       <CheckoutShell appearance={{ logoUrl: null, theme }} checkout={withPhotos} summary={<CheckoutOrderSummary checkout={withPhotos} deliveryDraft={null} />}>
         <CheckoutReviewFields message={null} name={{ defaultValue: "Ana" }} phone={{ defaultValue: "+51987654321" }} delivery={null} />
-        <CheckoutBuyerDetails buyer={withPhotos.buyer} />
+        <CheckoutBuyerDetails buyer={withPhotos.buyer} delivery={withPhotos.delivery} />
       </CheckoutShell>);
     // The thumbnails are the only content a theme adds, so their initials are left out, and so is the theme's stylesheet.
     const clone = container.cloneNode(true) as HTMLElement;
-    clone.querySelectorAll("[data-slot=product-thumbnail], style").forEach((added) => added.remove());
+    clone.querySelectorAll("[data-slot=product-thumbnail], style, option").forEach((added) => added.remove());
     expect(clone.textContent?.replaceAll("\u00a0", " ")).toBe(sameText);
     const group = container.querySelector("[data-store-part=field-group]")!;
     expect(group.querySelectorAll("[data-store-part=field]")).toHaveLength(2);
     expect(group.querySelectorAll("input")).toHaveLength(2);
     expect(container.querySelector("[data-store-part=header]")?.querySelector("[data-store-part=header-brand]")).not.toBeNull();
     expect(container.querySelector("h1[data-store-part=order-title]")?.textContent).toBe("Pedido #1001");
+    unmount();
+  });
+});
+
+describe("CheckoutReviewFields recipient", () => {
+  const setup = (recipient?: Parameters<typeof CheckoutReviewFields>[0]["recipient"]) => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    void act(() => root.render(withI18n(<CheckoutReviewFields message={null} name={{ defaultValue: "Ana" }} phone={{ defaultValue: "+51977909427" }} recipient={recipient} delivery={null} />)));
+    return { container, unmount: () => root.unmount() };
+  };
+  const person = { name: { defaultValue: "Luis" }, phone: { defaultValue: "+14155552671" } };
+
+  test("offers no recipient check when the form leaves it out, as in the Apariencia preview", () => {
+    const { container, unmount } = setup();
+    expect(container.querySelector("[role=checkbox]")).toBeNull();
+    unmount();
+  });
+
+  test("starts unchecked with the help and without the recipient fields", () => {
+    const { container, unmount } = setup({ other: false, onOtherChange: () => undefined, ...person });
+    const checkbox = container.querySelector("[role=checkbox]")!;
+    expect(checkbox.getAttribute("aria-checked")).toBe("false");
+    expect(container.querySelector(`label[for=${checkbox.id}]`)?.textContent).toBe("Otra persona recibe el pedido");
+    expect(container.textContent).toContain("Si no lo marcas, entregamos a tu nombre y teléfono.");
+    expect(checkbox.getAttribute("aria-describedby")).toBeTruthy();
+    expect(container.querySelector("#recipient-name")).toBeNull();
+    expect(container.querySelector("#recipient-phone")).toBeNull();
+    unmount();
+  });
+
+  test("checked, asks for the name and phone of who receives with the same country selector", () => {
+    const { container, unmount } = setup({ other: true, onOtherChange: () => undefined, ...person });
+    expect(container.querySelector("[role=checkbox]")!.getAttribute("aria-checked")).toBe("true");
+    expect(container.querySelector("label[for=recipient-name]")?.textContent).toBe("Nombre de quien recibe");
+    expect(container.querySelector("label[for=recipient-phone]")?.textContent).toBe("Teléfono de quien recibe");
+    expect(container.querySelector<HTMLInputElement>("#recipient-name")!.required).toBe(true);
+    expect(container.querySelector<HTMLInputElement>("#recipient-phone")!.required).toBe(true);
+    expect(container.querySelectorAll("select[aria-label='País del teléfono']")).toHaveLength(2);
+    unmount();
+  });
+
+  test("shows the recipient errors in place and toggles through the check", async () => {
+    const changes: boolean[] = [];
+    const { container, unmount } = setup({ other: true, onOtherChange: value => changes.push(value), ...person, nameError: "Falta el nombre", phoneError: "Teléfono inválido" });
+    expect(container.querySelector("#recipient-name-error")?.textContent).toBe("Falta el nombre");
+    expect(container.querySelector("#recipient-phone-error")?.textContent).toBe("Teléfono inválido");
+    expect(container.querySelector("#recipient-phone")!.getAttribute("aria-describedby")).toContain("recipient-phone-error");
+    await act(async () => container.querySelector<HTMLButtonElement>("[role=checkbox]")!.click());
+    expect(changes).toEqual([false]);
+    unmount();
+  });
+
+  test("the buyer phone has no country-code hint any more", () => {
+    const { container, unmount } = setup();
+    expect(container.textContent).not.toContain("Incluye el código de país");
+    expect(container.querySelector("#buyer-phone")).not.toBeNull();
+    unmount();
+  });
+});
+
+describe("CheckoutBuyerDetails", () => {
+  const buyer = { name: "Ana Pérez", phone: "+51987654321" };
+  const render = (delivery: Parameters<typeof CheckoutBuyerDetails>[0]["delivery"]) => {
+    const container = document.createElement("div");
+    const root = createRoot(container);
+    void act(() => root.render(withI18n(<CheckoutBuyerDetails buyer={buyer} delivery={delivery} />)));
+    return { lines: [...container.querySelectorAll("section div p")].map(line => line.textContent), unmount: () => root.unmount() };
+  };
+
+  test("shows the name and phone on the first line and the delivery mode and address on the second", () => {
+    const { lines, unmount } = render({ method: "store", recipient: { name: "Ana", phone: "+51987654321", identity: { kind: "absent" } },
+      pickupPoint: { name: "Tienda", address: "Av. Lima 123", instructions: null }, settingsVersion: 1 } as never);
+    expect(lines).toEqual(["Ana Pérez · +51987654321", "Recojo en tienda · Av. Lima 123"]);
+    unmount();
+  });
+
+  test("shows a single line while no delivery is saved", () => {
+    const { lines, unmount } = render(null);
+    expect(lines).toEqual(["Ana Pérez · +51987654321"]);
     unmount();
   });
 });

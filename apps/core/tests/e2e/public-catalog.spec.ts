@@ -79,8 +79,6 @@ test("buyer opens the brand host, adds two variants, continues to the app checko
     await buyerPage.getByLabel("Nombre", { exact: true }).fill("Ana");
     await buyerPage.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await buyerPage.getByLabel("Recojo en tienda · Gratis").check();
-    await buyerPage.getByLabel("Nombre del destinatario").fill("Ana");
-    await buyerPage.getByLabel("Teléfono del destinatario").fill("+51987654321");
     await buyerPage.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(buyerPage.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     await expect.poll(() => requestLogs(requestId).filter((event) => event.event === "order_checkout_confirmed")).toEqual([
