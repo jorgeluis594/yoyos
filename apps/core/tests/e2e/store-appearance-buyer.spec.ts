@@ -13,6 +13,7 @@ import { removeCompanyAppearance, rgb, saveCompanyAppearance } from "@core/tests
 import type { Page } from "@playwright/test";
 import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { chooseDistrict } from "@core/tests/e2e/district-combobox";
 
 const logoSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="#2F6B4F"/></svg>';
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
@@ -243,9 +244,7 @@ test.describe("buyer checkout with appearance", () => {
         body: JSON.stringify({ id: receiptId, url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test-images/test%2F${receiptId}` }) }));
       await page.goto(f.path);
       await browserExpect.poll(() => primary(page)).toBe(boutique.colors.primary.toUpperCase());
-      await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-      await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-      await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+      await chooseDistrict(page, "150122");
       await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
       await page.getByLabel("Nombre", { exact: true }).fill("Ana");
       await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
@@ -289,15 +288,27 @@ test.describe("buyer checkout with appearance", () => {
         const [label, field] = [await page.getByText("Nombre", { exact: true }).first().boundingBox(), await page.getByLabel("Nombre", { exact: true }).boundingBox()];
         expect(label!.y + label!.height, `${id}: the label sits above its field`).toBeLessThanOrEqual(field!.y + 1);
         await capture(page, `${id}-pending-390`);
+        // The open list is portaled, yet it stays inside the theme: same popover color and mode as the checkout.
+        await page.getByLabel("Departamento", { exact: true }).click();
+        const list = page.getByRole("listbox", { name: "Departamento", exact: true });
+        await browserExpect(list).toBeVisible();
+        expect(await list.evaluate((element) => element.closest("[data-store-theme]") !== null), `${id}: the list is inside the theme`).toBe(true);
+        await browserExpect(page.locator("[data-slot=combobox-content]")).toHaveCSS("background-color", rgb(storeThemes[id].colors.popover));
+        // The active option is marked by the theme's focus color, since some themes paint `accent` like the list itself.
+        await page.keyboard.press("ArrowDown");
+        const active = page.locator("[role=option][data-highlighted]");
+        await browserExpect(active).toHaveCount(1);
+        await browserExpect(active).toHaveCSS("outline-style", "solid");
+        await browserExpect(active).toHaveCSS("outline-width", "2px");
+        await browserExpect(active).toHaveCSS("outline-color", rgb(storeThemes[id].colors.ring));
+        await page.keyboard.press("Escape");
         await page.setViewportSize({ width: 1280, height: 900 });
         await expectThumbnails(page, id);
         await capture(page, `${id}-pending-desktop`);
         await page.setViewportSize({ width: 390, height: 844 });
 
         // Agency delivery chosen, S/ 8.00 on top of the two items.
-        await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-        await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-        await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+        await chooseDistrict(page, "150122");
         await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
         await page.getByLabel("Nombre", { exact: true }).fill("Ana");
         await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");

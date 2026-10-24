@@ -12,6 +12,7 @@ import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/or
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { chooseDistrict, chooseDistrictInProvince, expectDistrict } from "@core/tests/e2e/district-combobox";
 
 function requestLogs(requestId: string) {
   return readFileSync("test-results/server.jsonl", "utf8").trim().split("\n")
@@ -338,10 +339,29 @@ test("buyer selects a district rate, preserves the form on price conflict and co
     });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(f.path);
-    await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-    await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-    await page.getByLabel("Buscar distrito", { exact: true }).fill("miraflores");
-    await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    // One combobox per level: typing «villa» under Lima/Lima lists names only, never the ubigeo, and nothing overflows at 390 px.
+    for (const [label, name] of [["Departamento", "Lima"], ["Provincia", "Lima"]] as const) {
+      await page.getByRole("combobox", { name: label, exact: true }).fill(name);
+      await page.getByRole("option", { name, exact: true }).click();
+    }
+    await page.getByRole("combobox", { name: "Distrito", exact: true }).fill("villa");
+    await browserExpect(page.getByRole("option")).toHaveText(["Villa El Salvador", "Villa Maria del Triunfo"]);
+    await browserExpect(page.getByText("Escribe para buscar y elige tu distrito en la misma lista.")).toBeVisible();
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
+    await page.keyboard.press("Escape");
+    // Departamento and Provincia keep two columns on the phone, with their labels and a long name inside their boxes.
+    await page.getByRole("combobox", { name: "Departamento", exact: true }).fill("Madre de Dios");
+    await page.getByRole("option", { name: "Madre de Dios", exact: true }).click();
+    const [department, province] = [await page.getByRole("combobox", { name: "Departamento", exact: true }).boundingBox(), await page.getByRole("combobox", { name: "Provincia", exact: true }).boundingBox()];
+    expect(Math.abs(department!.y - province!.y), "same row").toBeLessThan(2);
+    expect(department!.x + department!.width, "no overlap").toBeLessThanOrEqual(province!.x);
+    expect(province!.x + province!.width).toBeLessThanOrEqual(390);
+    await browserExpect(page.getByText("Departamento", { exact: true })).toBeVisible();
+    await page.getByRole("combobox", { name: "Departamento", exact: true }).fill("Lima");
+    await page.getByRole("option", { name: "Lima", exact: true }).click();
+    await page.getByRole("combobox", { name: "Provincia", exact: true }).fill("Lima");
+    await page.getByRole("option", { name: "Lima", exact: true }).click();
+    await chooseDistrict(page, "150122");
     await browserExpect(page.getByLabel("Tarifa de envío").locator("option")).toHaveCount(3);
     await page.getByLabel("Tarifa de envío").selectOption({ index: 1 });
     const rates = page.getByLabel("Tarifa de envío");
@@ -450,10 +470,8 @@ async function waitForHydration(page: Page) {
   await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeEnabled();
 }
 
-async function pickDistrict(page: Page, department: string, province: string, district: string) {
-  await page.getByLabel("Departamento", { exact: true }).selectOption(department);
-  await page.getByLabel("Provincia", { exact: true }).selectOption(province);
-  await page.getByLabel("Distrito", { exact: true }).selectOption(district);
+async function pickDistrict(page: Page, _department: string, _province: string, district: string) {
+  await chooseDistrict(page, district);
 }
 
 async function fillRecipient(page: Page, document?: string) {
@@ -517,12 +535,12 @@ test("buyer moves from Cayma to Characato, sees the province agencies and switch
     const agency = page.getByLabel("Agencia de destino");
     await browserExpect(agency.locator("option")).toHaveCount(3);
     await agency.selectOption(agencies[0]);
-    await page.getByLabel("Distrito", { exact: true }).selectOption("040105");
+    await chooseDistrictInProvince(page, "040105");
     await browserExpect(page.getByText("No hay agencias en CHARACATO; te mostramos las de la provincia de AREQUIPA", { exact: true })).toBeVisible();
     await browserExpect(agency.locator("option")).toHaveCount(4);
     await browserExpect(agency).toHaveValue("");
     await mode(page, "home").check();
-    await browserExpect(page.getByLabel("Distrito", { exact: true })).toHaveValue("040105");
+    await expectDistrict(page, "040105");
     await browserExpect(agency).toHaveCount(0);
     const rates = page.getByLabel("Tarifa de envío");
     await browserExpect(rates.locator("option")).toHaveCount(2);
@@ -545,7 +563,7 @@ test("buyer without agencies in the department switches to home delivery from th
     await browserExpect(page.getByLabel("Distrito", { exact: true })).toBeFocused();
     await page.getByRole("button", { name: "Pasar a Entrega a domicilio" }).click();
     await browserExpect(mode(page, "home")).toBeChecked();
-    await browserExpect(page.getByLabel("Distrito", { exact: true })).toHaveValue("040701");
+    await expectDistrict(page, "040701");
     await browserExpect(page.getByLabel("Tarifa de envío").locator("option")).toHaveCount(2);
     await browserExpect(page.getByLabel("Tarifa de envío")).toContainText("Home Mollendo");
   } finally { await f.cleanup(); await deleteAgencies(agencies); }
@@ -570,7 +588,7 @@ test("buyer picks another agency after the seller disables the chosen one before
     await browserExpect(agency.locator("option")).toHaveCount(2);
     await browserExpect(agency).toHaveValue(agencies[1]);
     await browserExpect(page.getByLabel("Nombre del destinatario")).toHaveValue("Recipient");
-    await browserExpect(page.getByLabel("Distrito", { exact: true })).toHaveValue("040103");
+    await expectDistrict(page, "040103");
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     expect((await f.read()).delivery).toMatchObject({ agency: { id: agencies[1] } });
@@ -624,9 +642,7 @@ test("buyer waits for a district and recovers a failed quotation without losing 
     const confirm = page.getByRole("button", { name: "Confirmar pedido", exact: true });
     await browserExpect(confirm).toBeDisabled();
     expect(attempts).toBe(0);
-    await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-    await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-    await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    await chooseDistrict(page, "150122");
     await browserExpect(page.getByRole("alert")).toContainText("No se pudieron cargar las tarifas. Tus datos siguen aquí.");
     await browserExpect(confirm).toBeDisabled();
     await browserExpect(page.getByText("Gratis", { exact: true })).toHaveCount(0);
@@ -667,9 +683,7 @@ test("buyer distinguishes uncovered shipping from an explicit free home rate", a
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await page.getByLabel("Nombre del destinatario").fill("Recipient");
     await page.getByLabel("Teléfono del destinatario").fill("999");
-    await page.getByLabel("Departamento", { exact: true }).selectOption("04");
-    await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
-    await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+    await chooseDistrict(page, "040110");
     const confirm = page.getByRole("button", { name: "Confirmar pedido", exact: true });
     await browserExpect(page.getByText("No hay opciones de envío para este distrito. Elige otro distrito o recojo en tienda.", { exact: true })).toBeVisible();
     await browserExpect(confirm).toBeDisabled();
@@ -680,9 +694,7 @@ test("buyer distinguishes uncovered shipping from an explicit free home rate", a
     await browserExpect(page.getByText("Pickup address", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Door 2", { exact: true })).toBeVisible();
     await page.getByRole("radiogroup", { name: "Forma de entrega" }).locator('input[value="home"]').check();
-    await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-    await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-    await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    await chooseDistrict(page, "150122");
     const rates = page.getByLabel("Tarifa de envío");
     await browserExpect(rates.locator("option")).toHaveCount(2);
     await browserExpect(rates.locator("option").nth(1)).toContainText("Gratis");
@@ -734,14 +746,10 @@ test("buyer keeps the selected district rate when an earlier real quotation arri
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await page.getByLabel("Nombre del destinatario").fill("Recipient");
     await page.getByLabel("Teléfono del destinatario").fill("999");
-    await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-    await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-    await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    await chooseDistrict(page, "150122");
     await firstReceived;
     await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
-    await page.getByLabel("Departamento", { exact: true }).selectOption("04");
-    await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
-    await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+    await chooseDistrict(page, "040110");
     const rates = page.getByLabel("Tarifa de envío");
     await browserExpect(rates.locator("option")).toHaveCount(2);
     await rates.selectOption({ index: 1 });
@@ -751,7 +759,7 @@ test("buyer keeps the selected district rate when an earlier real quotation arri
     await firstDelivered;
     await browserExpect(rates).toHaveValue(selected);
     await browserExpect(rates.locator("option").nth(1)).toContainText(/12[.,]00/);
-    await browserExpect(page.getByLabel("Distrito", { exact: true })).toHaveValue("040110");
+    await expectDistrict(page, "040110");
     await browserExpect(page.getByText("Total a pagar", { exact: true }).locator("..")).toContainText(/22[.,]00/);
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
@@ -794,9 +802,7 @@ test("buyer pickup removes the shipping rate and ignores a quotation still in fl
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await page.getByLabel("Nombre del destinatario").fill("Recipient");
     await page.getByLabel("Teléfono del destinatario").fill("999");
-    await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-    await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-    await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    await chooseDistrict(page, "150122");
     const rate = page.getByLabel("Tarifa de envío");
     await browserExpect(rate.locator("option")).toHaveCount(2);
     await rate.selectOption({ index: 1 });
