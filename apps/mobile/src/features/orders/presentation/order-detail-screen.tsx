@@ -21,6 +21,7 @@ import { subtract } from "@shared/money";
 import { offersPartialStockDeduction } from "@shared/orders-payment";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { orders } from "@mobile/features/orders/composition";
+import { confirmPaymentFailure } from "@mobile/features/orders/application/order-operations";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
@@ -112,7 +113,12 @@ export default function OrderDetailScreen() {
       setOrder(result.data.order); setEditor(null); setPaymentsOpen(true);
       if (source === "manual") manualPaymentId.current = null;
     }
-    else setPaymentError(result.error.code === "INSUFFICIENT_STOCK" ? t("paymentStockError") : t("paymentSaveError"));
+    else {
+      const failure = confirmPaymentFailure(result.error.code);
+      setPaymentError(result.error.code === "INSUFFICIENT_STOCK" ? t("paymentStockError") : failure === "already_reviewed" ? t("paymentAlreadyReviewed")
+        : failure === "unknown" ? t("paymentUnknownResult") : t("paymentSaveError"));
+      if (failure !== "failed") { const refreshed = await orders.loadOrderAggregate(order.id); if (refreshed.success) setOrder(refreshed.data); }
+    }
     setSavingPayment(null);
   }
   async function rejectReport(paymentId: string, reason: string) {

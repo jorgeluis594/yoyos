@@ -1,5 +1,5 @@
 import { err, ok } from "@shared/functional";
-import { createOrderOperations } from "@mobile/features/orders/application/order-operations";
+import { confirmPaymentFailure, createOrderOperations } from "@mobile/features/orders/application/order-operations";
 import { addDraftItem, emptyOrderDraft } from "@mobile/features/orders/domain/order-draft";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
 import { createPendingOrderConfirmationStore } from "@mobile/features/orders/infrastructure/pending-order-confirmation";
@@ -298,4 +298,12 @@ test("maps a conflicting rejection to already reviewed", async () => {
   expect(await reject(failing("ORDER_CANCELLED", 409))).toEqual({ kind: "order_cancelled" });
   expect(await reject(createOrderApi(async () => err({ code: "NETWORK_ERROR", message: "Offline" })))).toEqual({ kind: "unknown" });
   expect(await reject(failing("INVALID_PAYMENT", 422))).toMatchObject({ kind: "failed", error: { code: "INVALID_PAYMENT" } });
+});
+
+test("maps a failed confirmation to already reviewed, a lost answer or a plain failure", () => {
+  expect(confirmPaymentFailure("PAYMENT_CONFLICT")).toBe("already_reviewed");
+  expect(confirmPaymentFailure("INVALID_TRANSITION")).toBe("already_reviewed");
+  for (const code of ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", "INVALID_RESPONSE"] as const) expect(confirmPaymentFailure(code)).toBe("unknown");
+  expect(confirmPaymentFailure("INVALID_PAYMENT")).toBe("failed");
+  expect(confirmPaymentFailure("INSUFFICIENT_STOCK")).toBe("failed");
 });
