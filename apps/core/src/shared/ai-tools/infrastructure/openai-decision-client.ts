@@ -30,7 +30,10 @@ function toQuestions(request: DecisionRequest): DecisionCreateParams["questions"
   ];
 }
 
-/** Maps the answers by question name; a refusal, a missing answer or an unknown choice is an invalid response. */
+/**
+ * Maps the answers by question name; a missing answer or an unknown choice is an invalid response, and so is a refused action. A refused
+ * predicate counts as probability 0 and a refused choice is left unanswered, so they fail the message only when its tool is selected.
+ */
 function parseAnswers(request: DecisionRequest, decision: OpenAI.Decision): Result<DecisionAnswers, AiError> {
   const byName = new Map(decision.answers.map((answer) => [answer.name, answer]));
   const action = byName.get(ACTION);
@@ -40,12 +43,14 @@ function parseAnswers(request: DecisionRequest, decision: OpenAI.Decision): Resu
   const predicates: Record<string, number> = {};
   for (const { tool } of request.predicates) {
     const answer = byName.get(predicateName(tool));
+    if (answer?.type === "refusal") { predicates[tool] = 0; continue; }
     if (answer?.type !== "predicate") return err(invalidAiResponse("The decision did not answer a predicate"));
     predicates[tool] = answer.probability;
   }
   const choices: Record<string, { value: string | boolean; confidence: number }> = {};
   for (const question of request.choices) {
     const answer = byName.get(choiceName(question.id));
+    if (answer?.type === "refusal") continue;
     if (answer?.type !== "choice" || !question.choices.some(({ value }) => value === answer.choice)) return err(invalidAiResponse("The decision did not answer a choice"));
     choices[question.id] = { value: answer.choice, confidence: answer.confidence };
   }
@@ -71,7 +76,7 @@ export function createOpenAiDecisionClient(config: OpenAiDecisionClientConfig) {
     }
     const answers = parseAnswers(request, decision);
     if (!answers.success) log.error({ event: "ai_decision_invalid_response", ...fields(), errorCode: answers.error.code }, "ai_decision_invalid_response");
-    else log.debug({ event: "ai_decision_completed", ...fields(), questions: request.predicates.length + request.choices.length + 1, chosenTool: answers.data.action.choice, confidence: answers.data.action.confidence, inputTokens: decision.usage?.input_tokens, outputTokens: decision.usage?.output_tokens }, "ai_decision_completed");
+    else log.debug({ event: "ai_decision_completed", ...fields(), refusals: decision.answers.filter(({ type }) => type === "refusal").length, questions: request.predicates.length + request.choices.length + 1, chosenTool: answers.data.action.choice, confidence: answers.data.action.confidence, inputTokens: decision.usage?.input_tokens, outputTokens: decision.usage?.output_tokens }, "ai_decision_completed");
     return answers;
   };
 }

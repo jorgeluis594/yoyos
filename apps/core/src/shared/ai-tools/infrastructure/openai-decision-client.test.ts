@@ -51,7 +51,7 @@ describe("createOpenAiDecisionClient", () => {
     expect(code(await pending)).toBe("DEADLINE_EXCEEDED");
   });
 
-  test("maps a refusal or an unknown choice to invalid AI response", async () => {
+  test("maps a refused action, a missing answer or an unknown choice to invalid AI response", async () => {
     const refusal = [{ type: "refusal", name: "action" }];
     const unknownChoice = answers.map((answer) => answer.name === "action" ? { ...answer, choice: "launch_missiles" } : answer);
     const unknownItem = answers.map((answer) => answer.name === "choice:remove_item:item" ? { ...answer, choice: "Z" } : answer);
@@ -59,6 +59,12 @@ describe("createOpenAiDecisionClient", () => {
       const result = await decide(async () => json({ model: "gpt-6-luna", usage: {}, answers: body })).decide(request, new AbortController().signal);
       expect(code(result)).toBe("INVALID_AI_RESPONSE");
     }
+  });
+
+  test("counts a refused predicate as 0 and leaves a refused choice unanswered instead of failing the decision", async () => {
+    const refused = answers.map((answer) => answer.name === "action" ? answer : { type: "refusal", name: answer.name });
+    const result = await decide(async () => json({ model: "gpt-6-luna", usage: {}, answers: refused })).decide(request, new AbortController().signal);
+    expect(result).toEqual({ success: true, data: { action: { choice: "remove_item", confidence: 0.9 }, predicates: { remove_item: 0 }, choices: {} } });
   });
 
   test("maps other 4xx to invalid AI response", async () => {
