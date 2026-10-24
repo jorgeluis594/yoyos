@@ -145,7 +145,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     const fieldErrors: NonNullable<PageData["fieldErrors"]> = {};
     for (const issue of parsed.error.issues) {
       if (issue.path[0] === "buyer" && issue.path[1] === "name") fieldErrors.name = "Ingresa tu nombre.";
-      if (issue.path[0] === "buyer" && issue.path[1] === "phone") fieldErrors.phone = "Ingresa un teléfono con código de país, por ejemplo +51987654321.";
+      if (issue.path[0] === "buyer" && issue.path[1] === "phone") fieldErrors.phone = "Ingresa un teléfono válido, por ejemplo 977 909 427.";
       if (issue.path.join(".") === "delivery.selection.recipient.name") fieldErrors.recipientName = "Ingresa el nombre de quien recibe.";
     }
     return response({ checkout: null, message: "Revisa los datos del formulario.", fieldErrors }, 422);
@@ -158,7 +158,7 @@ export async function action({ request, params }: ActionFunctionArgs) {
     if (parsed.data.delivery.kind === "keep") delivery = { kind: "keep" };
     else {
       const recipient = recipientForCheckout(parsed.data.delivery.selection, buyer.data, parsed.data.otherRecipient);
-      if (!recipient.success) return response({ checkout: null, message: "Revisa los datos de quien recibe.", fieldErrors: { recipientPhone: "Ingresa un teléfono con código de país, por ejemplo +51987654321." } }, 422);
+      if (!recipient.success) return response({ checkout: null, message: "Revisa los datos de quien recibe.", fieldErrors: { recipientPhone: "Ingresa un teléfono válido, por ejemplo 977 909 427." } }, 422);
       const selection = parseRatedDeliverySelection(recipient.data);
       if (!selection.success) return response({ checkout: null, message: "Revisa el destino y los datos de entrega.", code: selection.error.code }, 422);
       delivery = { kind: "replace", selection: selection.data, expectedPrice: parsed.data.delivery.expectedPrice };
