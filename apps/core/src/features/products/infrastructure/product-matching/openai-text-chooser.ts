@@ -54,6 +54,8 @@ async function askChoice(config: OpenAITextChooserConfig, question: Question, si
 
 const money = ({ amount, currency }: Money) => `${amount} ${currency}`;
 const priceRange = ({ minPrice, maxPrice }: TextCandidate) => minPrice.amount === maxPrice.amount ? money(minPrice) : `${money(minPrice)} to ${money(maxPrice)}`;
+/** Marks the candidates priced at the customer's amount, which the model otherwise weighs too little among similar names. */
+const atHint = ({ minPrice, maxPrice }: TextCandidate, hint: number | null) => hint !== null && minPrice.amount <= hint && hint <= maxPrice.amount ? ", the customer's price" : "";
 
 type TextChooserInput = Readonly<{ mention: string; priceHint: number | null; candidates: readonly TextCandidate[] }>;
 
@@ -63,10 +65,12 @@ export function createOpenAITextProductChooser(config: OpenAITextChooserConfig) 
     const labels = input.candidates.map((_, index) => labelFor(index));
     const asked = await askChoice(config, {
       event: "product_text_match", labels, descriptions: input.candidates.map(({ name }) => name),
-      instructions: "Decide which catalog product the customer is referring to. The customer's price, when given, is a hint to tell similar products apart, never a reason to reject the only product the words name. "
+      instructions: "Decide which catalog product the customer is referring to. The customer's price, when given, tells similar products apart: among similar names, "
+        + "the product at exactly that price is the one meant. A lower price may be an offer, never a reason to reject the only product the words name. "
         + `Answer with the option label, or "${NONE}" if no option is clearly the product.`,
-      text: [`Customer words: ${input.mention}`, input.priceHint ? `Price per unit the customer mentioned: ${input.priceHint}, to compare with each product's price in that product's own currency; it may be an offer below that price` : null,
-        "Catalog products:", ...input.candidates.map((candidate, index) => `${labels[index]}: ${candidate.name} (${priceRange(candidate)})`)].filter((line) => line !== null).join("\n"),
+      text: [`Customer words: ${input.mention}${input.priceHint ? `, the one at ${input.priceHint} per unit` : ""}`,
+        input.priceHint ? `Price per unit the customer mentioned: ${input.priceHint}, to compare with each product's price in that product's own currency` : null,
+        "Catalog products:", ...input.candidates.map((candidate, index) => `${labels[index]}: ${candidate.name} (${priceRange(candidate)}${atHint(candidate, input.priceHint)})`)].filter((line) => line !== null).join("\n"),
     }, signal);
     if (!asked.success) return asked;
     const byLabel = (label: string | null) => (label === null ? undefined : input.candidates[labels.indexOf(label)]);

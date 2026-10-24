@@ -26,9 +26,22 @@ describe("createOpenAITextProductChooser", () => {
       .toEqual({ success: true, data: { productId: "product-b", confidence: 0.9, probabilities: [{ productId: "product-a", probability: 0.08 }, { productId: "product-b", probability: 0.9 }] } });
     expect(Object.keys(body!).sort()).toEqual(["input", "model", "questions"]);
     const text = body!.input[0]!.content[0]!.text;
-    expect(text).toContain("el polo de 35");
+    expect(text).toContain("Customer words: el polo de 35, the one at 35 per unit\n");
     expect(text).toContain("Price per unit the customer mentioned: 35");
-    expect(text).toContain("B: Polo premium (50 PEN to 70 PEN)");
+    // Only the product priced at the hint is marked, so the model weighs it among similar names.
+    expect(text).toContain("A: Polo básico (35 PEN, the customer's price)");
+    expect(text).toMatch(/B: Polo premium \(50 PEN to 70 PEN\)$/);
+  });
+
+  test("marks a product whose price range holds the hint and none without a hint", async () => {
+    const texts: string[] = [];
+    const choose = createOpenAITextProductChooser(config(clientFor(async () => answer("B", 0.9, [["B", 0.9]]), (sent) => { texts.push(sent.input[0]!.content[0]!.text); })));
+    await choose({ mention: "polo", priceHint: 60, candidates }, signal);
+    await choose({ mention: "polo", priceHint: null, candidates }, signal);
+    expect(texts[0]).toContain("B: Polo premium (50 PEN to 70 PEN, the customer's price)");
+    expect(texts[0]).toContain("A: Polo básico (35 PEN)\n");
+    expect(texts[1]).not.toContain("the customer's price");
+    expect(texts[1]).toContain("Customer words: polo\n");
   });
 
   test("returns a null product when the answer is none", async () => {
