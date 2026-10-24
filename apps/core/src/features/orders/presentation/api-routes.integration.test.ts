@@ -1238,3 +1238,20 @@ test("repeating a buyer report after its rejection returns the rejected payment"
   await withTenantIsolation(seller.companyId, async () => { await prisma.image.create({ data: { id: otherImageId, storageKey: `test/${otherImageId}` } }); });
   expect((await call(`${report.buyerPath}/reports`, undefined, { paymentId: report.paymentId, receiptImageId: otherImageId }, "POST")).status).toBe(409);
 });
+
+test("repeating a manual payment after a lost response keeps a single payment", async () => {
+  const seller = await fixture("PE");
+  const id = randomUUID();
+  const paymentId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id, items: [{ variantId: seller.variantId, quantity: 4 }] })).status).toBe(201);
+  const manual = { paymentId, source: "manual", amount: { amount: 15, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false };
+  const first = await call(`/api/orders/${id}/payments`, seller.cookie, manual, "POST");
+  expect(first.status).toBe(200);
+  // The seller never saw that answer and presses «Confirmar pago» again with the same open form.
+  const repeated = await call(`/api/orders/${id}/payments`, seller.cookie, manual, "POST");
+  expect(repeated.status).toBe(200);
+  expect(await repeated.json()).toMatchObject({ order: { paidAmount: { amount: 15 }, balanceDue: { amount: 25 }, payments: [{ id: paymentId, status: "confirmed" }] } });
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.payment.count({ where: { orderId: id } })).toBe(1);
+  });
+});
