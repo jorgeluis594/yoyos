@@ -1,10 +1,10 @@
 # Payment methods and order payments: technical design
 
-**Status:** draft for the review gate, no open questions. Based on [`docs/drafts/mejorar-medios-de-cobro-y-pagos-del-pedi.md`](mejorar-medios-de-cobro-y-pagos-del-pedi.md) (closed product definition, commit `d8d502a5`). Base: branch `jorgeluis594/mejorar-medios-de-cobro-y-pagos-del-pedi`. This draft is the pipeline's working document, not permanent architecture documentation: on merge only `docs/orders.md` and `docs/checkout.md` receive the behavior changes, and both drafts are deleted.
+**Status:** draft for the review gate, round 2 (round 1 at `e3832cb2` was rejected; section 17 lists what changed), no open questions. Based on [`docs/drafts/mejorar-medios-de-cobro-y-pagos-del-pedi.md`](mejorar-medios-de-cobro-y-pagos-del-pedi.md) (closed product definition, commit `d8d502a5`, adjusted in this round for wallets saved before this version). Base: branch `jorgeluis594/mejorar-medios-de-cobro-y-pagos-del-pedi`. This draft is the pipeline's working document, not permanent architecture documentation: on merge only `docs/orders.md` and `docs/checkout.md` receive the behavior changes, and both drafts are deleted.
 
 ## 1. Technical goal
 
-Core rejects saving an offered digital wallet unless its image holds a QR that core decodes. It stores with the wallet whether its current image passed. Only wallets that passed reach buyers and the checkout preview. A pending buyer report gets a new final `rejected` payment state with an optional reason. Web, checkout and mobile read that state through the shared orders contract. The web order detail is reorganized into the b3 card and the b4 receipt dialog. Mobile adds rejection to its existing review sheet.
+Core rejects saving an offered digital wallet unless its image holds a QR that core decodes. It stores with the wallet that its current image passed. Only wallets that passed reach buyers and the checkout preview; a wallet saved before this version is read as unchecked until the seller saves it again. A pending buyer report gets a new final `rejected` payment state with an optional reason. Web, checkout and mobile read that state through the shared orders contract. The web order detail is reorganized into the b3 card and the b4 receipt dialog. Mobile adds rejection to its existing review sheet.
 
 ```text
 Settings page ──PUT/POST qr-checks──▶ companies.savePaymentSettings ──readImageBytes + readQrCodes──▶ stored wallet { qr: verified }
@@ -18,23 +18,24 @@ Web order detail (action) / mobile (POST …/reject) ──▶ orders.rejectPaym
 
 | Topic | Decision |
 | --- | --- |
-| QR reader location | `readQrCodes` moves from `features/products/infrastructure/qr-code-reader.ts` to `src/shared/images/infrastructure/qr-code-reader.ts`, together with its test and `qr-fixtures/`. Products imports it from there. Reason: it is generic (sharp + zxing, no product knowledge), two features now use it, and importing products from companies would close the cycle companies → products → orders → companies. |
+| QR reader location | `readQrCodes` moves from `features/products/infrastructure/qr-code-reader.ts` to `src/shared/images/infrastructure/qr-code-reader.ts`, together with its test and `qr-fixtures/`. Products imports it from there; `selectProductCode` stays in products. Reason: it is generic (sharp + zxing, no product knowledge), two features now use it, and importing products from companies would close the cycle companies → products → orders → companies. This changes what memory `b9ad8a84` records ("the QR reader and selectProductCode live in products"); happy-memory-maintainer updates it when T2 merges. |
 | What "passed" means | At least one decoded QR (`readQrCodes` returns a non-empty list). `UNREADABLE_IMAGE` counts as "no QR". The content is not compared with provider or holder. |
-| QR validity storage | The wallet stores `qr: { status: "verified", imageId } \| { status: "not_a_qr", imageId } \| { status: "missing" }` inside `CompanyPaymentSettings.settings` (JSON). No new table or column. A save from any client can only produce `verified`. `not_a_qr` and `missing` come only from the one-time check of wallets saved before this version. |
+| QR validity storage | A save writes the wallet as `{ method, provider, holder, qr: { status: "verified", imageId } }` inside `CompanyPaymentSettings.settings` (JSON). No new table or column. A save from any client can only produce `verified`; nothing else is ever written. |
 | Re-reading on save | A save whose wallet `imageId` equals the stored `verified` image is not read again. Any other wallet image is read before saving. Images are immutable per id, so "passed" is a fact about the id. |
-| Pre-existing wallets | One-time script `apps/core/scripts/verify-wallet-qr.ts` (`pnpm --dir apps/core payments:verify-wallet-qr`) runs in the release right after `scripts/migrate.ts` and before the new server version serves. It converts every wallet without `qr` to the new shape. A checker or storage outage is retried (3 attempts, 2 s, 4 s; initial values, adjustable) and the row is left unchanged; the script then exits with code 1 and is run again. The product code has no legacy branch: the stored parser requires `qr`. |
-| Choose-time check | New `POST /api/company/payment-settings/qr-checks` `{ imageId }` → `{ status: "verified" \| "not_a_qr" }`. It only informs the page; nothing is stored. |
-| Settings errors | Not a QR: `400 INVALID_PAYMENT_QR`. Checker or image storage unavailable: `503 QR_CHECK_UNAVAILABLE`. Image of another company or missing: `400 INVALID_IMAGE` (as today). Nothing is saved on any error. |
-| Offered methods | `companyPaymentSettings.get(companyId)` returns only the offered methods: bank transfer plus a wallet whose `qr.status` is `verified`, in today's shape with a non-null wallet `imageId`. Orders (`getBuyerPaymentView`) and store-appearance (`paymentMethods`) keep calling it unchanged. The settings page uses the new `companyPaymentSettings.getConfiguration(companyId)`. |
-| Rejected payment | New `RejectedPayment` variant of the existing `Payment` union, stored in the existing `Payment` row: `status = 'rejected'`, `amount`/`method` null, `data = { report, rejectedAt, rejectedBy, reason }`. No migration: `status` is a free `String` with no `CHECK`, and the variant rules live in domain (memory f358e2a0). |
+| Pre-existing wallets | Validated when read, with no script, no deploy step and no environment change (the founder allowed "una validación al leer o un script de una sola vez"; no business is in production). The stored parser has one rule: a stored wallet without a verified `qr` (the only other accepted stored shape is the pre-version `{ method, provider, holder, imageId: uuid \| null }`) parses as `{ status: "unchecked", imageId }`. An unchecked wallet is not offered to buyers and the panel shows it as needing a QR check; saving it, which reads the image like any new image, is the only way to make it `verified`. There is no other legacy code path. |
+| Choose-time check | New `POST /api/company/payment-settings/qr-checks` `{ imageId }` → `{ status: "verified" \| "not_a_qr" }`. It only informs the page; nothing is stored. The save reads the same image again (section 11, "Cost of a check"); this double read is accepted. |
+| Load bound | QR checks (choose-time and save) share a per-process limit of 2 concurrent checks (initial value, adjustable in code). A check that finds no free slot is not queued: it answers `503 QR_CHECK_UNAVAILABLE`, which the page already handles with **Reintentar**. |
+| Settings errors | Not a QR: `400 INVALID_PAYMENT_QR`. Checker or image storage unavailable, storage misconfigured, or no free check slot: `503 QR_CHECK_UNAVAILABLE` (each logged with its own `errorCode`). Image of another company or missing: `400 INVALID_IMAGE` (as today). Nothing is saved on any error. |
+| Offered methods | `companyPaymentSettings.get(companyId)` returns only the offered methods: bank transfer plus a wallet whose `qr.status` is `verified`, in today's shape with a non-null wallet `imageId`. An `unchecked` wallet is never offered. Orders (`getBuyerPaymentView`) and store-appearance (`paymentMethods`) keep calling it unchanged. The settings page uses the new `companyPaymentSettings.getConfiguration(companyId)`. |
+| Rejected payment | New `RejectedPayment` variant of the existing `Payment` union, stored in the existing `Payment` row: `status = 'rejected'`, `amount`/`method` null, `data = { report, rejectedAt, rejectedBy, reason }`. No migration: `status` is a free `String` with no `CHECK`, and the variant rules live in domain (memory `8f0d1d36`: `status` and `amount` in columns, variant data in JSONB). |
 | Reject endpoint | `POST /api/orders/:id/payments/:paymentId/reject` with body `{ reason: string \| null }`, returning `200` with `orderAggregateSchema`, like void. The web order detail calls the use case from its route action, like confirm and void. |
 | Rejection reason | Trimmed; empty → `null`; at most 200 characters after trimming (initial value, adjustable in code; it is a product limit, not an environment value). |
-| Repeated and crossed decisions | Rejecting a rejected payment returns it unchanged, with its original reason. Confirming with the same amount and method returns the existing confirmation; `register-payment.ts` already ignores `deductStockIfPartial` on that replay. Rejecting a confirmed or voided payment, or confirming a rejected one, returns `409 PAYMENT_CONFLICT`. The web and mobile map `PAYMENT_CONFLICT` and `INVALID_TRANSITION` from approve/reject to «Este pago ya fue revisado.» and reload. No new error code. |
-| Buyer view | `payments[]` gains the `rejected` status and `rejectionReason`. The view gains `rejectedReport: { reason } \| null`: the most recent buyer report (by `reportedAt`), when it is rejected and no report is pending. |
+| Repeated and crossed decisions | Rejecting a rejected payment returns it unchanged, with its original reason. Confirming with the same amount and method returns the existing confirmation; `register-payment.ts` already ignores `deductStockIfPartial` on that replay. Rejecting a confirmed or voided payment, or confirming a rejected one, returns `409 PAYMENT_CONFLICT`; voiding a rejected one returns `409 INVALID_TRANSITION`, as voiding a reported one does today. A buyer report replayed with the same payment id and receipt after the seller rejected it returns the rejected payment without writing, so a retried «Ya pagué» shows the rejection instead of an error. The web and mobile map `PAYMENT_CONFLICT` and `INVALID_TRANSITION` from approve/reject to «Este pago ya fue revisado.» and reload. No new error code. |
+| Buyer view | `payments[]` gains the `rejected` status and `rejectionReason`. The view gains `rejectedReport: { reason } \| null`: the most recent buyer report (by `reportedAt`), when it is rejected and no report is pending. Receipt and wallet image URLs are resolved with one batched lookup. From T3 on, a wallet whose image URL does not resolve is dropped from the view instead of failing it, and the wallet `imageUrl` becomes non-null. |
 | Stock box rule | Pure function `offersPartialStockDeduction` in `shared/orders-payment.ts`, used by web and mobile: shown only when stock is not deducted and the amount is below `balanceDue`. Core keeps its current rule; a hidden box sends `deductStockIfPartial: false`. |
-| Web order detail split | `app/routes/order-detail.tsx` keeps loader and action; the «Pagos» card, the receipt dialog and the decision forms move to `src/features/orders/presentation/` components. The receipt dialog uses `app/components/ui/dialog.tsx`. |
+| Web order detail split | `app/routes/order-detail.tsx` keeps loader and action; the «Pagos» card, the receipt dialog and the decision forms move to `src/features/orders/presentation/` components. The receipt dialog uses `app/components/ui/dialog.tsx`. Row thumbnails load lazily with fixed dimensions; only the dialog loads the receipt eagerly. |
 | Mobile | No new screen. The existing review sheet in `order-detail-screen.tsx` gains **Rechazar**; the API adapter gains `rejectPayment`. |
-| Task count | Four tasks in two waves (section 16). |
+| Task count | Four tasks in two waves (section 16). T1 also leaves every consumer of the `Payment` union compiling (minimal narrowing, no new UI), so each wave merges green. |
 
 ## 3. Verified current state
 
@@ -48,10 +49,11 @@ Web order detail (action) / mobile (POST …/reject) ──▶ orders.rejectPaym
 | Settings composition | `companies/composition.ts`, re-exported by `companies/index.ts` | `companyPaymentSettings = { get, save }`; save logs `company_payment_settings_saved`. |
 | Settings consumers | `orders/composition.ts` `getBuyerPaymentView` (~L187); `store-appearance/composition.ts` `paymentMethods` (L52, preview L76); `app/routes/payment-settings.tsx` (L20, L44) | All read `companyPaymentSettings.get`. |
 | QR reader | `features/products/infrastructure/qr-code-reader.ts`, test and `qr-fixtures/` | `ReadQrCodes = ({ bytes, contentType }) => Result<readonly string[], UNREADABLE_IMAGE \| QR_READER_UNAVAILABLE>`; used by `products/composition.ts` (L29, L129). |
-| Image bytes | `src/shared/images` `readImageBytes(imageId)` | `IMAGE_NOT_FOUND \| IMAGE_STORAGE_UNAVAILABLE \| PERSISTENCE_UNAVAILABLE`; company isolation through RLS `image_company_isolation` under `withTenantIsolation`. |
-| Payment domain | `orders/domain/payment.ts` | `Payment = Reported \| Confirmed \| Voided`; `parsePayment`, `reportPayment`, `confirmPayment` (idempotent on same data, `PAYMENT_CONFLICT` otherwise), `voidPayment`. |
-| State machine | `orders/domain/order-state-machine.ts` | `registerPayment`, `addReportedPayment`, `voidConfirmedPayment`, `planStockDeduction`, `paymentSummary` (counts only confirmed). |
-| Use cases | `orders/application/register-payment.ts`, `report-payment.ts`, `void-payment.ts` | Each runs `deps.transaction(companyId, …)` and `findOrderForUpdate` (row lock). A confirmation replay returns before any write. |
+| Image bytes | `src/shared/images` `readImageBytes(imageId)` | `IMAGE_NOT_FOUND \| IMAGE_STORAGE_UNAVAILABLE \| PERSISTENCE_UNAVAILABLE`; a storage configuration error (`IMAGE_STORAGE_CONFIG_ERROR`, missing `R2_*`) is folded into `IMAGE_STORAGE_UNAVAILABLE` (`images.ts:141`). Company isolation through RLS `image_company_isolation` under `withTenantIsolation`. |
+| Image URLs | `src/shared/images/application/images.ts` `getImage`, `getImages(ids)`; `index.ts` exports only `resolvePublicImage` (one id) | `getImages` resolves several ids with one `findMany`; per-image URL failures come back in `failures`. The order-detail loader (L46–52) and `getBuyerPaymentView` (L196–201) resolve one id per `await` today. |
+| Payment domain | `orders/domain/payment.ts` | `Payment = Reported \| Confirmed \| Voided`; `parsePayment`, `reportPayment` (replay compares id, order, currency and receipt; reads `existing.data.evidence` and `existing.amount.currency` for any non-reported payment), `confirmPayment` (idempotent on same data, `PAYMENT_CONFLICT` otherwise), `voidPayment` (non-reported, non-voided falls through to `parsePayment`). |
+| State machine | `orders/domain/order-state-machine.ts` | `registerPayment`, `addReportedPayment`, `voidConfirmedPayment`, `planStockDeduction`, `paymentSummary` (counts only confirmed; L211 reads `payment.amount.currency` for every non-reported payment). `message-order.ts` `isOpenForMessageItems` accepts only voided payments. |
+| Use cases | `orders/application/register-payment.ts`, `report-payment.ts`, `void-payment.ts` | Each runs `deps.transaction(companyId, …)` and `findOrderForUpdate` (row lock). A confirmation replay returns before any write; `report-payment.ts` returns the order without writing whenever the domain `reportPayment` accepts an existing payment (L31). |
 | Payment persistence | `orders/infrastructure/order-repository.ts`; Prisma `Payment` (`status String`, `amount Decimal?`, `method String?`, `data Json`) | `mapPaymentUnsafe` checks status-specific nulls and parses `data` per status; `updatePayment(payment, companyId, expectedStatus)` updates only when the stored status matches, else `PAYMENT_CONFLICT`. Payment `CHECK`s: `amount > 0`, supported currency; none on `status`. |
 | Orders API | `orders/presentation/api-routes.ts` | `POST /:id/payments`, `POST /:id/payments/:paymentId/void`; `operationError` maps 422/409/404/503. |
 | Buyer API and view | `orders/presentation/buyer-payment-routes.ts`; `orders/composition.ts` L181–217 | `GET /api/buyer/orders/:orderId/payment` → `buyerPaymentViewSchema`; payments as `{ id, status, amount, method, receiptImageUrl }`. |
@@ -60,17 +62,18 @@ Web order detail (action) / mobile (POST …/reject) ──▶ orders.rejectPaym
 | Web settings page | `apps/core/app/routes/payment-settings.tsx` (115 lines) | Loader, action building settings from form data, upload by `fetch("/api/images")`, local `ImageControl`. |
 | Checkout | `orders/presentation/buyer-payment-content.tsx` | Upload block hidden while a report is pending; «Comprobantes enviados» as `Ver captura · {status}`. |
 | Mobile orders | `apps/mobile/src/features/orders/infrastructure/order-api.ts`, `application/order-operations.ts`, `presentation/order-detail-screen.tsx`, `order-detail-translations.ts`, `translations.ts` | Uses `orderAggregateSchema` directly; `registerPayment`, `voidPayment`, `receiptUrl`; review sheet is a `pageSheet` modal (L419–439); any non-reported, non-voided payment is labelled confirmed. |
-| Scripts | `apps/core/scripts/*.ts` run with `tsx` from `package.json` | Pattern: iterate companies with `systemPrisma` and `withTenantIsolation`, `process.exitCode = 1` on failure, `$disconnect` in `finally`. |
+| Union consumers outside orders domain | `app/routes/order-detail.tsx` L48–49 and L292–293; `orders/presentation/order-json.ts` L25–30; `orders/composition.ts` L197–213; `orders/infrastructure/order-repository.ts` L284; `apps/mobile/.../order-detail-screen.tsx` L323–329; `buyer-payment-content.tsx` L95 with the typed i18n key `buyerPaymentContent.status.${status}` (`locales.ts` L138, L280) | Each reads `data.evidence`, `amount` or a status-keyed text for every non-reported payment, so the new variant stops them compiling. |
+| E2E images | `tests/e2e/buyer-payment.spec.ts` fakes `/api/images` and `/test-images/*` in the browser (`page.route`); `message-to-order.spec.ts` serves a fake S3 on port+1000 through `R2_ENDPOINT`; `store-appearance-buyer.spec.ts` also seeds payment settings | The server never holds real wallet bytes in `buyer-payment.spec.ts` today. |
 | Transactions | `src/shared/infrastructure/persistance.ts` | `withinTransaction`, `withTenantIsolation`, `withLockedForUpdate`, `requireActiveTransaction`. |
 | Logs | `orders/composition.ts` L346–377, repository, companies composition | `payment_confirmed`, `payment_reported`, `payment_voided`, `payment_operation_replayed`, `payment_operation_conflict`, `payment_confirmation_stock_rejected`, `company_payment_settings_saved`, … |
 
-Assumption: the release runs `scripts/migrate.ts` as a step before starting the server (no deployment file in the repository shows it). The one-time script is chained in the same place.
+Release: `compose.prod.yaml` (and `compose.yaml` locally) runs a `migrate` service (`create-role.sql && tsx scripts/migrate.ts && provision-role.sql`) that `web` and `worker` wait on, with no `R2_*` variables. This design adds nothing to it: pre-version wallets are handled when read (section 2), so the release, its environment and its failure behavior do not change.
 
 ## 4. Gaps this design closes
 
 1. Nothing validates that a wallet image holds a QR, and `imageId` is nullable for the wallet (§5.1, §6.1, §8.1).
 2. Validity is not stored, so it cannot survive a later checker outage (§6.1, §7).
-3. Wallets saved before this version have no validity (§5.4, §7).
+3. Wallets saved before this version have no validity (§5.4, §7: read as unchecked).
 4. Buyers and the checkout preview receive wallets without a valid QR (§5.3, §9).
 5. There is no choose-time QR check for the settings page (§5.2, §8.1).
 6. A buyer report cannot be rejected; the union, domain, persistence mapper, contract and API lack the state (§5.5, §6.2, §8.2).
@@ -97,7 +100,7 @@ Assumption: the release runs `scripts/migrate.ts` as a step before starting the 
   2. Check `imageAvailable` for every image (wallet and bank), as today.
   3. `load` the current settings.
   4. If the stored wallet is `{ status: "verified", imageId }` with the same `imageId`, keep it verified without reading.
-  5. Otherwise `detectQrCode(imageId)`: `no_qr` → `INVALID_PAYMENT_QR`; failure → `QR_CHECK_UNAVAILABLE`; `qr_found` → `{ status: "verified", imageId }`.
+  5. Otherwise, including an `unchecked` stored wallet with the same `imageId`, `detectQrCode(imageId)`: `no_qr` → `INVALID_PAYMENT_QR`; failure → `QR_CHECK_UNAVAILABLE`; `qr_found` → `{ status: "verified", imageId }`.
   6. `save` the full replacement and return it.
 
 ### 5.2 `checkPaymentQr` (companies, new)
@@ -108,23 +111,20 @@ Assumption: the release runs `scripts/migrate.ts` as a step before starting the 
 - **Output:** `"verified" | "not_a_qr"`.
 - **Errors:** `INVALID_IMAGE | QR_CHECK_UNAVAILABLE | PERSISTENCE_UNAVAILABLE`.
 - **Flow:** check the image belongs to the company; `detectQrCode`; map `qr_found` → `verified`, `no_qr` → `not_a_qr`. Nothing is written.
+- `detectQrCode` is composed in `companies/composition.ts` (§9) and is the same function for 5.1 and 5.2, so the load bound of section 11 covers both.
 
 ### 5.3 `getOfferedPaymentSettings` and `getPaymentConfiguration` (companies)
 
-- `getOfferedPaymentSettings(companyId, { load })` → `Result<readonly OfferedPaymentSetting[], SettingsFailure>`: `load`, then the pure `offeredPaymentSettings(settings)`. Exposed as `companyPaymentSettings.get` (same name and shape its consumers use today).
-- `getPaymentConfiguration(companyId, { load })` → stored settings with `qr`, for the settings page. Exposed as `companyPaymentSettings.getConfiguration`.
+- `getOfferedPaymentSettings(companyId, { load })` → `Result<readonly OfferedPaymentSetting[], SettingsFailure>`: `load`, then the pure `offeredPaymentSettings(settings)`, which drops an `unchecked` wallet. Exposed as `companyPaymentSettings.get` (same name and shape its consumers use today).
+- `getPaymentConfiguration(companyId, { load })` → stored settings with `qr` (`verified` or `unchecked`), for the settings page. Exposed as `companyPaymentSettings.getConfiguration`.
 
-### 5.4 One-time wallet QR verification (companies, script)
+### 5.4 Reading a wallet saved before this version (companies, no use case)
 
-- **Entry point:** `apps/core/scripts/verify-wallet-qr.ts`, run once per environment.
-- **Deps:** `systemPrisma` to list companies with a `CompanyPaymentSettings` row, then per company inside `withTenantIsolation`: a raw read of `settings`, `readImageBytes`, `readQrCodes`, `persistPaymentSettings`.
-- **Flow per company:**
-  1. Read the JSON with a local pre-version schema (wallet with `imageId: uuid | null`, no `qr`). A row already in the new shape is skipped (idempotent).
-  2. `imageId` null → `{ status: "missing" }`. Image not found → `{ status: "missing" }`.
-  3. Read the QR: found → `verified`; `no_qr` or `UNREADABLE_IMAGE` → `not_a_qr`.
-  4. `QR_READER_UNAVAILABLE`, `IMAGE_STORAGE_UNAVAILABLE` or `PERSISTENCE_UNAVAILABLE` → retry up to 3 attempts; if all fail, leave the row unchanged, log, and continue with the next company; the process ends with `exitCode = 1`.
-  5. Write the converted settings with `persistPaymentSettings`.
-- The local pre-version schema lives only in the script; it is deleted once every environment ran it (§15).
+- No script and no release step. `parseStoredPaymentSettings` (§6.1) reads the pre-version wallet `{ method, provider, holder, imageId: uuid | null }` as `{ status: "unchecked", imageId }`. Every other stored wallet must be `{ method, provider, holder, qr: { status: "verified", imageId } }`; anything else is still `INVALID_STORED_DATA`.
+- Effects, all from existing use cases: `get` (offered) drops it, so buyers and the checkout preview do not see it; `getConfiguration` returns it, so the panel shows its state (§12, settings page); `savePaymentSettings` reads its image on the next save (§5.1 step 5), which is the only way to make it `verified`.
+- A row is never rewritten on read. It changes only when the seller saves, so a checker outage can never turn a wallet into a failure.
+- Deploy window: if the previous version accepts a save while the new one already serves, it writes the pre-version shape, which the new version reads as `unchecked` (hidden until saved again). The company's checkout never fails because of it.
+- This parser rule is the whole compatibility cost and stays; removing it later needs no data change, only confirming that no stored row lacks `qr`.
 
 ### 5.5 `rejectPayment` (orders, new) — `orders/application/reject-payment.ts`
 
@@ -157,14 +157,21 @@ Flow:
 
 - Payments projection adds `rejected` and `rejectionReason` (`data.reason` of a rejected payment, otherwise `null`). The receipt of a rejected payment comes from `data.report.receiptImageId`.
 - `rejectedReport = rejectionAwaitingNewReport(order)` → `{ reason } | null`.
-- Settings come from `companyPaymentSettings.get`, which now returns only offered methods; the wallet `imageUrl` is always resolved.
+- Settings come from `companyPaymentSettings.get`, which now returns only offered methods.
+- Image URLs (wallet, bank and every receipt) are resolved with one call to the new `resolvePublicImages(ids)` export of `src/shared/images/index.ts` (it wraps `getImages`, one `findMany`), instead of one `resolvePublicImage` per id. A lookup failure keeps answering `PERSISTENCE_UNAVAILABLE`; a per-image URL failure gives `receiptImageUrl: null` for that receipt. Rejection makes receipts accumulate per order (report → reject → report), so the loop must not grow one query per receipt.
+- Wallet image URL (T1 keeps today's nullable `imageUrl`). T3 drops from `settings` a wallet whose URL does not resolve and makes the field non-null, matching the product rule "a wallet without a usable QR is not listed"; a missing image never fails the whole buyer view.
 
 ### 5.7 Existing use cases with an exact change
 
+- `reportPayment(input, existing)` (domain): an existing `rejected` payment with the same id, order, currency and receipt (`data.report.receiptImageId`, `currency`) → `ok(existing)`; any other `rejected` existing → `PAYMENT_CONFLICT`. `report-payment.ts` then returns the order without writing (its existing L31 branch), so the buyer's retried «Ya pagué» shows the rejection.
 - `confirmPayment` (domain): an existing `rejected` payment → `PAYMENT_CONFLICT`.
+- `voidPayment(existing)` (domain): an explicit `rejected` branch → `INVALID_TRANSITION`, before the fall-through to `parsePayment` (which would return `INVALID_PAYMENT`).
 - `orderStateMachine.registerPayment`: a `rejected` payment with the same id → `PAYMENT_CONFLICT`.
 - `voidConfirmedPayment`: a `rejected` payment → `INVALID_TRANSITION` (same as reported today).
-- `register-payment.ts`, `void-payment.ts`, `report-payment.ts`: no change.
+- `paymentSummary` (L211): the currency of a `rejected` payment is `payment.currency`, like a reported one; it adds nothing to `paidAmount`.
+- `order-repository.ts` insert and update (L284, L300): currency of a `rejected` payment is `payment.currency`.
+- `isOpenForMessageItems` (`message-order.ts:19`): no change. A rejected payment keeps the order closed to message items like any non-voided payment. It is unreachable in practice, because a buyer reports only after checkout confirmation and `checkoutConfirmedAt !== null` already closes the order; do not "fix" it to treat rejected like voided.
+- `register-payment.ts`, `void-payment.ts`, `report-payment.ts`: no code change (their behavior follows the domain).
 
 ## 6. Domain and typing
 
@@ -174,8 +181,7 @@ Flow:
 // companies/domain/payment-settings.ts
 export type WalletQr =
   | Readonly<{ status: "verified"; imageId: ImageId }>
-  | Readonly<{ status: "not_a_qr"; imageId: ImageId }>
-  | Readonly<{ status: "missing" }>;
+  | Readonly<{ status: "unchecked"; imageId: ImageId | null }>; // only from a wallet saved before this version
 export type DigitalWalletSetting = Readonly<{ method: "digital_wallet"; provider: string; holder: string; qr: WalletQr }>;
 export type BankTransferSetting = Readonly<{ method: "bank_transfer"; bank: string; holder: string; accountNumber: string | null; cci: string | null; imageId: ImageId | null }>;
 export type CompanyPaymentSettings = DigitalWalletSetting | BankTransferSetting;
@@ -188,9 +194,15 @@ export function parsePaymentSettingsInput(value: unknown): Result<readonly Payme
 export function parseStoredPaymentSettings(value: unknown): Result<readonly CompanyPaymentSettings[], PaymentSettingsError>;
 export function offeredPaymentSettings(settings: readonly CompanyPaymentSettings[]): readonly OfferedPaymentSetting[];
 export type QrCheckFailure = Readonly<{ code: "QR_CHECK_UNAVAILABLE" | "INVALID_IMAGE"; message: string }>;
+
+// src/shared/images/application/images.ts (T2): the storage variant keeps its code and says why
+export type ImageReadError =
+  | Readonly<{ code: "IMAGE_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE"; message: string }>
+  | Readonly<{ code: "IMAGE_STORAGE_UNAVAILABLE"; storageCode: "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR"; message: string }>;
 ```
 
-- `WalletQr`: validity is a variant, not a boolean next to a nullable id (guide 3.5).
+- `WalletQr`: validity is a variant, not a boolean next to a nullable id (guide 3.5). `unchecked` is produced only by the stored parser (§5.4); no save writes it.
+- `ImageReadError.storageCode`: products and orders keep reading `code` unchanged; only `detectQrCode` reads `storageCode` to log a misconfigured environment apart from an outage.
 - `PaymentSettingsInput` separate from `CompanyPaymentSettings`: a client sends an image and never sends `qr`; the server decides it.
 - `OfferedPaymentSetting`: the only shape consumers receive; it keeps today's field names so consumers do not change.
 - `ImageId` is the existing branded id used by images.
@@ -236,15 +248,15 @@ It returns `true` only when stock is not deducted, the amount is valid and the a
 
 - **No Prisma migration.** `Payment.status` is a `String` without `CHECK`; the rejection data is in `Payment.data`. `CompanyPaymentSettings.settings` is JSON.
 - **Payment row mapper** (`order-repository.ts`): `status = 'rejected'` requires `amount` and `method` null and parses `data` with `rejectionDataSchema` (`{ report, rejectedAt, rejectedBy, reason: string(1..200) | null }`, strict). Invalid stored data keeps raising `invalid_stored_payment`. `paymentDataJson` serializes the rejected variant.
-- **Settings repository:** `loadPaymentSettings` parses with `parseStoredPaymentSettings` (wallet requires `qr`); a row without `qr` is `INVALID_STORED_DATA`. `persistPaymentSettings` stores the full array, as today.
-- **Development data:** no business is in production. Seeds and fixtures that create wallets (`scripts/seed.ts`, if it seeds payment settings; E2E setup) store `qr: { status: "verified", imageId }` with a real QR fixture. The script converts any remaining development row.
+- **Settings repository:** `loadPaymentSettings` parses with `parseStoredPaymentSettings`: a wallet with `qr.status = "verified"`, or the pre-version shape read as `unchecked` (§5.4). Any other shape is `INVALID_STORED_DATA`, as today. `persistPaymentSettings` stores the full array, as today; it only ever writes verified wallets.
+- **Existing and development data:** no business is in production and no row is converted. Worktree and local databases keep their pre-version rows; they show as unchecked until saved. Fixtures that need an offered wallet (`buyer-payment.spec.ts`, `store-appearance-buyer.spec.ts`, integration tests) insert `qr: { status: "verified", imageId }` directly, or save through the page with a real QR fixture (§14). `scripts/seed.ts` does not seed payment settings (`grep digital_wallet scripts/` finds none).
 
 ## 8. Contracts between applications
 
 ### 8.1 `shared/contracts/payment-settings.ts`
 
 - `paymentSettingsInputSchema` (PUT body): wallet `{ method, provider, holder, imageId: z.uuid() }` (no longer nullable); bank unchanged.
-- `paymentSettingsResponseSchema` (GET and PUT 200): wallet `{ method, provider, holder, qr: { status: "verified", imageId } | { status: "not_a_qr", imageId } | { status: "missing" } }`; bank unchanged.
+- `paymentSettingsResponseSchema` (GET and PUT 200): wallet `{ method, provider, holder, qr: { status: "verified", imageId: uuid } | { status: "unchecked", imageId: uuid | null } }`; bank unchanged. PUT 200 always returns a `verified` wallet.
 - `paymentQrCheckSchema` `{ imageId: z.uuid() }` and `paymentQrCheckResponseSchema` `{ status: "verified" | "not_a_qr" }`.
 - Statuses: `400 INVALID_INPUT` (schema), `400 INVALID_PAYMENT_QR`, `400 INVALID_IMAGE`, `503 QR_CHECK_UNAVAILABLE`, `503 SERVICE_UNAVAILABLE`. Error envelope `{ code, error }` as today.
 - Only core consumes this contract (web and API). Mobile does not.
@@ -258,14 +270,14 @@ It returns `true` only when stock is not deducted, the amount is valid and the a
   - `payments[].status` adds `"rejected"`;
   - `payments[].rejectionReason: z.string().nullable()`;
   - `rejectedReport: z.strictObject({ reason: z.string().nullable() }).nullable()`;
-  - wallet `imageUrl` becomes `z.url()` (non-null).
+  - wallet `imageUrl` becomes `z.url()` (non-null) in T3, together with dropping a wallet whose URL does not resolve (§5.6). T1 leaves it nullable: until T2's offered-only `get` lands, a company can still have a wallet without image.
 - Mobile parses `orderAggregateSchema` and must handle the new variant (T4). The variant is additive. An older mobile build fails to parse an order with a rejected payment, which is acceptable with no production users.
 
 ## 9. Events and cross-feature integration
 
 - No event. Rejecting a report changes nothing in other features.
 - Companies exposes `companyPaymentSettings.get` (offered methods), `getConfiguration`, `save` and `checkQr` from `companies/composition.ts` via `companies/index.ts`.
-- Companies composes `detectQrCode` from `src/shared/images` `readImageBytes` and the moved `readQrCodes`: `UNREADABLE_IMAGE` → `no_qr`; empty list → `no_qr`; `IMAGE_NOT_FOUND` → `INVALID_IMAGE`; `IMAGE_STORAGE_UNAVAILABLE`, `PERSISTENCE_UNAVAILABLE` and `QR_READER_UNAVAILABLE` → `QR_CHECK_UNAVAILABLE`.
+- Companies composes `detectQrCode` from `src/shared/images` `readImageBytes` and the moved `readQrCodes`, behind the per-process slot limit (§11): no free slot → `QR_CHECK_UNAVAILABLE`; `UNREADABLE_IMAGE` → `no_qr`; empty list → `no_qr`; `IMAGE_NOT_FOUND` → `INVALID_IMAGE`; `IMAGE_STORAGE_UNAVAILABLE` (either `storageCode`), `PERSISTENCE_UNAVAILABLE` and `QR_READER_UNAVAILABLE` → `QR_CHECK_UNAVAILABLE`. The user outcome is the same for all of them (503, nothing saved); the log keeps them apart (§13).
 - Orders and store-appearance keep calling `companyPaymentSettings.get`, and now receive only offered methods. The checkout preview therefore follows the buyer rule without changes in store-appearance.
 
 ## 10. Mobile
@@ -295,12 +307,17 @@ The order lock serializes approve, reject and void on the same order, from web, 
 
 **Settings save:**
 1. Parse, then check images (under tenant isolation).
-2. Read the QR outside any transaction (slow I/O).
+2. Read the QR outside any transaction (slow I/O: R2 download plus decode). Never wrap the read in `withinTransaction`: it would hold a connection and the row across the download.
 3. Upsert the full array.
 
 Two concurrent saves: the last one wins, as today. The reuse decision compares the stored `verified` image id with the submitted one. Because image bytes are immutable per id, it stays correct under any interleaving. No lock is added.
 
 **QR check:** read-only.
+
+**Cost of a check:** one image-row lookup, an R2 GET of up to 10 MB, a sharp resize on the libuv threadpool and a zxing decode on the event loop. Measured by the performance gate on a 16-core machine: about 0.3 s wall and under 0.1 s of event-loop block for the worst case (4000×3000 noise JPEG), perhaps 3–5× more on a small VPS. Memory per check: the bytes (≤10 MB), the libvips decode buffers (up to ~96 MB for a large PNG) and a ≤16 MB RGBA buffer.
+
+- **Double read, accepted:** a newly chosen image is read by `POST /qr-checks` and again by `PUT`, because only the save check counts and nothing is stored by the first. It happens once per accepted wallet image, an interactive and rare setup action. Avoiding it would need a stored or cached "checked" token, which the product rejected (the save check is the one that counts). Trigger to revisit: `payment_qr_checked` `durationMs` p95 above 2 s on production hardware.
+- **Load bound:** `detectQrCode` acquires one of 2 per-process slots (initial value, adjustable in code) before reading the image and releases it when the decode ends, success or failure. Without a free slot it answers `QR_CHECK_UNAVAILABLE` at once (no queue), logged with `errorCode: "QR_CHECK_BUSY"`. This bounds the memory and event-loop time QR checks take in the web process, which also serves checkout for every company. The WhatsApp product identification keeps its own path and is not counted.
 
 **Duplicates:**
 - Approve uses the client `paymentId`, as today.
@@ -313,28 +330,31 @@ Two concurrent saves: the last one wins, as today. The reuse decision compares t
 | --- | --- |
 | `apps/core/src/shared/images/infrastructure/qr-code-reader.ts` (+ test, `qr-fixtures/`) | Moved from products, unchanged. |
 | `apps/core/src/features/products/composition.ts` | Import path of `readQrCodes`. |
+| `apps/core/src/shared/images/application/images.ts` (+ test) | `ImageReadError.storageCode` (§6.1), T2. |
+| `apps/core/src/shared/images/index.ts` | New `resolvePublicImages(ids)` wrapping `getImages` (T1). T2 does not edit this file. |
 | `companies/domain/payment-settings.ts` (+ test) | `WalletQr`, input and stored parsers, `offeredPaymentSettings`. |
 | `companies/application/payment-settings.ts` (+ test) | `savePaymentSettings` with QR, `checkPaymentQr`, `getOfferedPaymentSettings`, `getPaymentConfiguration`. |
 | `companies/infrastructure/payment-settings-repository.ts` (+ integration test) | Stored parser. |
 | `companies/presentation/payment-settings-routes.ts` (+ integration test) | PUT error mapping, `POST /qr-checks`, response schema. |
-| `companies/composition.ts` | `detectQrCode`, `get` (offered), `getConfiguration`, `save`, `checkQr`, logs. |
-| `apps/core/scripts/verify-wallet-qr.ts`, `apps/core/package.json` | One-time script and `payments:verify-wallet-qr` command. |
+| `companies/composition.ts` | `detectQrCode` with the slot limit, `get` (offered), `getConfiguration`, `save`, `checkQr`, logs. |
 | `shared/contracts/payment-settings.ts` | §8.1. |
-| `apps/core/app/routes/payment-settings.tsx`, new `companies/presentation/wallet-qr-field.tsx` | b1/b2 page, QR field states, choose-time check through `fetch`. |
+| `apps/core/app/routes/payment-settings.tsx`, new `companies/presentation/wallet-qr-field.tsx` | b1/b2 page, QR field states, choose-time check through `fetch`. The loader reads `getConfiguration`. An `unchecked` wallet with image shows its thumbnail and «Tus compradores no ven esta billetera hasta que la guardes con un QR válido.», with **Cambiar imagen**, **Quitar imagen** and **Guardar cambios** enabled (the save sends that `imageId` and core reads it); `400 INVALID_PAYMENT_QR` turns the field into the not-a-QR state, `503` into «No pudimos revisar el QR…». An `unchecked` wallet without image shows **Subir QR** with «Tus compradores no ven esta billetera hasta que subas un QR válido.» and save disabled by the existing missing-QR rule. |
 | `shared/contracts/orders.ts` | §8.2. |
 | `shared/orders-payment.ts` (+ test) | `offersPartialStockDeduction`. |
 | `orders/domain/payment.ts`, `order-state-machine.ts` (+ tests) | §6.2. |
 | `orders/application/reject-payment.ts` (+ test) | §5.5. |
-| `orders/infrastructure/order-repository.ts` (+ integration test) | Rejected mapper and serializer. |
+| `orders/infrastructure/order-repository.ts` (+ integration test) | Rejected mapper and serializer; currency of a rejected row (L284, L300). |
+| `orders/presentation/order-json.ts` | T1: a `rejected` branch serializing `data.report.reportedAt` and `data.rejectedAt`. |
 | `orders/presentation/api-routes.ts` (+ integration test) | Reject route. |
-| `orders/composition.ts` | `orders.rejectPayment` with logs; buyer view projection §5.6. |
-| `apps/core/app/routes/order-detail.tsx` (+ `order-detail.test.ts`) | Loader adds receipt URLs for rejected payments; action adds `operation=reject` and maps codes; renders the new components. |
+| `orders/composition.ts` | `orders.rejectPayment` with logs; buyer view projection §5.6 with `resolvePublicImages` (T1); dropping an unresolved wallet and the non-null `imageUrl` (T3). |
+| `apps/core/app/routes/order-detail.tsx` (+ `order-detail.test.ts`) | T1: exhaustive narrowing only (loader takes a rejected receipt from `data.report.receiptImageId` and resolves all receipt URLs with one `resolvePublicImages`; the row labels a rejected payment «Pago rechazado» with `data.rejectedAt`, no amount and no action, never «Pago confirmado»). T3: action adds `operation=reject` and maps codes; renders the new components. |
 | New `orders/presentation/order-payments-card.tsx`, `receipt-dialog.tsx`, `payment-decision-form.tsx` | b3 card, b4 dialog with in-place decision area, approve/register/reject forms. |
 | `orders/presentation/payment-fields.tsx` | Stock box shown with `offersPartialStockDeduction`. |
-| `orders/presentation/buyer-payment-content.tsx` | Rejection notice at the start of the upload block; `Rechazado` status with reason. |
-| `apps/core/app/locales.ts` | es/pt for `paymentSettings` (T2), `orderDetail`/`orders` payments and `buyerPaymentContent` (T3). |
-| `apps/core/tests/e2e/buyer-payment.spec.ts` | Wallet with a verified QR in setup (T2); reject and resend journey (T3). |
-| Mobile | §10. |
+| `orders/presentation/buyer-payment-content.tsx` | Rejection notice at the start of the upload block; `Rechazado` status with reason (T3). |
+| `apps/core/app/locales.ts` | T1: only `buyerPaymentContent.status.rejected` es «Rechazado» / pt «Rejeitado» (L138, L280), required by the typed i18n key, and `orders.paymentRejected` «Pago rechazado» / «Pagamento rejeitado» for the narrowed row. T2: `paymentSettings`. T3: `orderDetail`/`orders` payments and the rest of `buyerPaymentContent`. T1 and T2 edit different lines of the same file in parallel; the merge is textual and non-overlapping. |
+| `apps/core/tests/e2e/buyer-payment.spec.ts` | T2: the settings save reads a real QR fixture from a fake S3 (`R2_ENDPOINT` at port+1000, as in `message-to-order.spec.ts`) instead of the browser-faked `/api/images`. T3: reject and resend journey. |
+| `apps/core/tests/e2e/store-appearance-buyer.spec.ts` | T2: its seeded wallet stores `qr: { status: "verified", imageId }`. |
+| Mobile | §10. T1 adds only the exhaustive narrowing in `order-detail-screen.tsx` (rejected receipt from `data.report`, no amount row, date from `data.rejectedAt`, no actions) and the `paymentRejected` es/pt key, so no build ever labels a rejected payment as confirmed. |
 
 ## 13. Observability
 
@@ -343,12 +363,11 @@ Two concurrent saves: the last one wins, as today. The reuse decision compares t
 | `payment_rejected` | info | orders composition, after commit | `["companyId", "userId", "orderId", "paymentId", "hasReason"]` |
 | `payment_operation_replayed` | debug | orders composition | `["operation": "reject", "paymentId"]` (existing event, new operation value) |
 | `payment_operation_conflict` | debug | orders composition | `["operation": "reject", "paymentId", "errorCode"]` (existing event) |
-| `company_payment_settings_saved` | info | companies composition | existing fields plus `walletQr: "read" \| "reused" \| "none"` |
-| `payment_qr_check_unavailable` | warn | companies composition (`detectQrCode`) | `["companyId", "stage": "choose" \| "save", "errorCode"]` |
-| `wallet_qr_verification_completed` | info | script | `["companies", "verified", "notAQr", "missing", "failed", "durationMs"]` |
-| `wallet_qr_verification_failed` | error | script, per company after the last attempt | `["companyId", "errorCode", "attempts"]` |
+| `company_payment_settings_saved` | info | companies composition | existing fields plus `walletQr: "read" \| "reused" \| "none"` and `qrDurationMs` (number when `walletQr` is `read`, else `null`) |
+| `payment_qr_checked` | debug | companies composition (`detectQrCode`) | `["companyId", "stage": "choose" \| "save", "outcome": "qr_found" \| "no_qr" \| "unavailable", "durationMs"]` |
+| `payment_qr_check_unavailable` | warn | companies composition (`detectQrCode`) | `["companyId", "stage": "choose" \| "save", "errorCode": "IMAGE_STORAGE_UNAVAILABLE" \| "IMAGE_STORAGE_CONFIG_ERROR" \| "PERSISTENCE_UNAVAILABLE" \| "QR_READER_UNAVAILABLE" \| "QR_CHECK_BUSY"]` |
 
-An image without a QR is a business rejection: it returns a `Result` and is not logged. Never logged: rejection reason text, provider, holder, account data, image ids or URLs, QR contents.
+An image without a QR is a business rejection: it returns a `Result` and is only counted in the debug `payment_qr_checked`. `durationMs` covers the image read and the decode and is what verifies the cost assumption of section 11 on production hardware. Never logged: rejection reason text, provider, holder, account data, image ids or URLs, QR contents.
 
 ## 14. Tests
 
@@ -356,7 +375,9 @@ An image without a QR is a business rejection: it returns a `Result` and is not 
 
 `companies/domain/payment-settings.test.ts`
 - `test("rejects a wallet input without imageId")`
-- `test("parses a stored wallet only when it has a qr status")`
+- `test("parses a stored verified wallet with its qr image")`
+- `test("parses a wallet saved before this version as unchecked keeping its image or no image")`
+- `test("refuses a stored wallet in any other shape as invalid stored data")`
 - `test("offers a wallet only when its qr is verified and always offers bank transfer")`
 
 `companies/application/payment-settings.test.ts`
@@ -365,7 +386,13 @@ An image without a QR is a business rejection: it returns a `Result` and is not 
 - `test("does not save when the qr check is unavailable for a new image")`
 - `test("keeps an unchanged verified wallet image without reading it again")`
 - `test("saves bank changes while the qr check is unavailable when the wallet image is unchanged")`
+- `test("reads the image of an unchecked wallet on save and stores it verified when it holds a qr")`
+- `test("rejects saving an unchecked wallet whose image holds no qr and keeps it unchecked")`
 - `test("reports a choose-time qr check as verified or not_a_qr without writing")`
+
+`companies/composition.test.ts` (unit, fake reader)
+- `test("answers qr check unavailable without reading when every check slot is busy")`
+- `test("frees the check slot after a failed read")`
 
 `orders/domain/payment.test.ts`
 - `test("rejects a reported payment keeping its receipt and an optional trimmed reason")`
@@ -374,11 +401,15 @@ An image without a QR is a business rejection: it returns a `Result` and is not 
 - `test("returns an already rejected payment unchanged with its original reason")`
 - `test("refuses to reject a confirmed or voided payment")`
 - `test("refuses to confirm a rejected payment")`
+- `test("replaying a buyer report whose payment was rejected returns it without writing")`
+- `test("refuses a buyer report with the id of a rejected payment and another receipt")`
+- `test("refuses to void a rejected payment with INVALID_TRANSITION")`
 
 `orders/domain/order-state-machine.test.ts`
 - `test("rejecting a report leaves paid amount, balance, stock and completion unchanged")`
 - `test("refuses to reject a report in a cancelled order")`
 - `test("returns the latest report rejection only when no report is pending")`
+- `test("payment summary accepts a rejected payment in the order currency and counts nothing for it")`
 
 `orders/application/reject-payment.test.ts`
 - `test("rejects a pending report inside the order transaction")`
@@ -393,7 +424,7 @@ An image without a QR is a business rejection: it returns a `Result` and is not 
 
 `companies/infrastructure/payment-settings-repository.integration.test.ts`
 - `test("stores and reads a verified wallet qr per company")`
-- `test("reports a stored wallet without qr status as invalid stored data")`
+- `test("reads a row saved before this version as an unchecked wallet without rewriting it")`
 
 `companies/presentation/payment-settings-routes.integration.test.ts`
 - `test("PUT answers 400 INVALID_INPUT for an offered wallet without imageId")`
@@ -402,11 +433,9 @@ An image without a QR is a business rejection: it returns a `Result` and is not 
 - `test("PUT saves a wallet with a real Plin qr fixture as verified")`
 - `test("POST qr-checks answers not_a_qr for a landscape photo and verified for a qr")`
 - `test("POST qr-checks refuses an image of another company")`
+- `test("GET returns a pre-version wallet as unchecked and PUT with its image stores it verified")`
 
-`scripts/verify-wallet-qr` (integration test next to the script)
-- `test("converts pre-version wallets to verified, not_a_qr or missing")`
-- `test("leaves a wallet unchanged and exits with failure when the reader stays unavailable")`
-- `test("skips companies already in the new shape")`
+Image bytes in these tests: the integration project has no image storage (`run-tests.sh`), so they `vi.mock` `readImageBytes` of `@core/src/shared/images` and serve the files of `qr-fixtures/` (pattern of `index-product-image.integration.test.ts`). `readQrCodes` runs for real.
 
 `orders/infrastructure/order-repository.integration.test.ts`
 - `test("round-trips a rejected payment with its report and reason")`
@@ -420,6 +449,11 @@ An image without a QR is a business rejection: it returns a `Result` and is not 
 - `test("confirming a rejected payment answers 409 PAYMENT_CONFLICT")`
 - `test("buyer view exposes the rejected status, its reason and rejectedReport")`
 - `test("buyer view hides a wallet without a verified qr")`
+- `test("buyer view of a company with a pre-version wallet offers only bank transfer")`
+- `test("buyer view resolves the wallet and every receipt url with one image lookup")`
+- `test("repeating a buyer report after its rejection returns the rejected payment")`
+- `test("POST void of a rejected payment answers 409 INVALID_TRANSITION")`
+- T3: `test("buyer view drops a wallet whose image url does not resolve")`
 
 `orders/composition.test.ts`
 - `test("store-appearance preview and buyer view receive only offered payment methods")`
@@ -427,7 +461,8 @@ An image without a QR is a business rejection: it returns a `Result` and is not 
 `apps/core/app/routes/order-detail.test.ts`
 - `test("reject action rejects the report and returns the updated order")`
 - `test("approve and reject map PAYMENT_CONFLICT to the already-reviewed message")`
-- `test("loader resolves receipt urls for rejected payments")`
+- `test("loader resolves receipt urls for rejected payments")` (T1)
+- `test("receipt thumbnails load lazily with fixed dimensions")` (T3)
 
 ### Unit (mobile)
 
@@ -449,15 +484,15 @@ An image without a QR is a business rejection: it returns a `Result` and is not 
 - Settings page against b1/b2; QR of a real Yape and Plin screenshot accepted; a landscape photo refused.
 - Receipt dialog at 390 px: the reduced receipt stays readable with the keyboard open; ×, Escape and outside click close it; focus returns.
 - Mobile on a device: reject from the sheet, «Pago por revisar», «Ver captura» of a rejected payment.
-- Running the one-time script against the environment's data before the new version serves.
+- A worktree database with a wallet saved before this version: the panel shows it as needing a QR check, the checkout does not list it, and saving it with its QR makes it offered.
 
 ## 15. Limits and checks during implementation
 
-- The pre-version schema in `verify-wallet-qr.ts` and the script itself are removed in a later cleanup once every environment ran it. Until then they are the only code that knows the old shape.
+- The pre-version branch of `parseStoredPaymentSettings` is the only code that knows the old shape. It is not removed in this task (§5.4).
 - Verify that `readQrCodes` decodes the Yape and Plin fixtures in `qr-fixtures/` (memory b9ad8a84 says they decode). Add a payment-wallet screenshot fixture if none exists.
-- Verify whether `scripts/seed.ts` seeds payment settings and update it to the new shape.
 - Verify that the QR-check route runs under `withTenantIsolation`, so `readImageBytes` cannot read another company's image.
 - Store-appearance needs no code change. Verify that its preview test still passes with offered-only methods.
+- Verify that `pnpm --dir apps/core typecheck` and `pnpm --dir apps/mobile typecheck` pass at the end of each task, not only at the end of the wave.
 - `locales.ts` is edited by T2 (`paymentSettings`) and T3 (`orderDetail`, `orders`, `buyerPaymentContent`). T3 starts after T2 merges.
 - Matching the QR content with provider or holder, undoing a rejection, and warning the seller outside «Medios de cobro» stay out (product draft).
 
@@ -466,19 +501,24 @@ An image without a QR is a business rejection: it returns a `Result` and is not 
 ### Order and parallelism
 
 ```text
-Wave 1 (parallel):  T1 Rejected payment backend + contract      T2 Wallet QR end to end (backend, script, settings page)
+Wave 1 (parallel):  T1 Rejected payment backend + contract + union narrowing      T2 Wallet QR end to end (backend, settings page)
 Wave 2 (parallel):  T3 Web order detail + checkout (after T1 and T2)      T4 Mobile (after T1)
 ```
 
-T1 and T2 edit disjoint files: T1 edits `shared/contracts/orders.ts`, `shared/orders-payment.ts` and `features/orders/**` except presentation UI. T2 edits `shared/contracts/payment-settings.ts`, `features/companies/**`, `src/shared/images/**`, the products import, scripts, `app/routes/payment-settings.tsx`, `locales.ts` (`paymentSettings`) and the E2E setup. T3 and T4 edit disjoint files (core web vs `apps/mobile`).
+T1 and T2 edit disjoint files except `locales.ts`, where they touch different lines:
+- T1: `shared/contracts/orders.ts`, `shared/orders-payment.ts`, `features/orders/**` (domain, application, infrastructure, `composition.ts`, `presentation/api-routes.ts`, `presentation/order-json.ts`), `src/shared/images/index.ts`, the minimal narrowing in `app/routes/order-detail.tsx` and `apps/mobile/src/features/orders/presentation/order-detail-screen.tsx` (+ the mobile `paymentRejected` key), and `locales.ts` (`buyerPaymentContent.status.rejected`, `orders.paymentRejected`).
+- T2: `shared/contracts/payment-settings.ts`, `features/companies/**`, `src/shared/images/application/**` and `infrastructure/**` (not `index.ts`), the products import, `app/routes/payment-settings.tsx`, `locales.ts` (`paymentSettings`), `buyer-payment.spec.ts` setup and `store-appearance-buyer.spec.ts`.
+- T3 and T4 edit disjoint files (core web vs `apps/mobile`). They build on T1's narrowing in `order-detail.tsx` and `order-detail-screen.tsx`, which are edited in sequence (wave 1, then wave 2).
 
 ### T1. Rejected payment backend and contracts
 
 **Scope:**
-- §5.5–5.7, §6.2, §6.3, §7 (payment mapper), §8.2.
-- Reject API route, buyer view projection and `orders.rejectPayment` composition with logs.
+- §5.5–5.7, §6.2, §6.3, §7 (payment mapper), §8.2 (wallet `imageUrl` stays nullable).
+- Reject API route, buyer view projection with `resolvePublicImages`, and `orders.rejectPayment` composition with logs.
+- `resolvePublicImages` in `src/shared/images/index.ts`; the order-detail loader uses it too.
+- Minimal exhaustive narrowing so every consumer of the `Payment` union compiles and no surface labels a rejected payment as confirmed: `order-json.ts`, `app/routes/order-detail.tsx` (loader and row), mobile `order-detail-screen.tsx`, the typed i18n keys in `locales.ts` and the mobile `paymentRejected` key. No new action, form or layout.
 
-**Out of scope:** web UI, checkout UI, mobile, payment settings.
+**Out of scope:** reject UI on web and mobile, checkout rejection notice, payment settings, the non-null wallet `imageUrl` (T3).
 
 **Acceptance criteria:**
 1. Order #1042 with a pending report: `POST …/reject` with `{ reason: "El monto no coincide" }` returns the order with that payment `rejected` and the reason; `paidAmount` and `balanceDue` unchanged; stock unchanged.
@@ -487,29 +527,31 @@ T1 and T2 edit disjoint files: T1 edits `shared/contracts/orders.ts`, `shared/or
 4. `GET /api/buyer/orders/:orderId/payment` shows the payment `rejected` with `rejectionReason` and `rejectedReport.reason`; after a new report `rejectedReport` is `null`.
 5. `offersPartialStockDeduction` is false for S/ 70.00 on a S/ 70.00 balance and true for S/ 30.00.
 
-**Tests to leave green:** §14 unit (orders, shared), core integration (repository, api-routes, buyer view).
+6. A buyer report resent with the id and receipt of a rejected payment returns that rejected payment and writes nothing; voiding a rejected payment returns `409 INVALID_TRANSITION`.
+7. The web order detail and mobile order detail show a rejected payment as «Pago rechazado», never «Pago confirmado».
+
+**Tests to leave green:** §14 unit (orders, shared), core integration (repository, api-routes, buyer view), `order-detail.test.ts`, `pnpm --dir apps/core typecheck`, `pnpm --dir apps/mobile typecheck`, `pnpm --dir apps/mobile test`.
 
 **Depends on:** nothing.
 
 ### T2. Wallet QR end to end
 
 **Scope:**
-- §5.1–5.4, §6.1, §7 (settings), §8.1, §9 and the QR reader move.
-- The one-time script and its command.
-- The b1/b2 settings page with every QR field state and save rule from the product draft.
+- §5.1–5.4, §6.1 (including `ImageReadError.storageCode`), §7 (settings), §8.1, §9, the QR reader move and the check slot limit (§11).
+- The b1/b2 settings page with every QR field state and save rule from the product draft, including both unchecked states (§12).
 - The `paymentSettings` es/pt texts.
-- The E2E setup with a verified wallet QR.
+- The E2E setup with a verified wallet QR (fake S3 in `buyer-payment.spec.ts`, seeded `qr` in `store-appearance-buyer.spec.ts`).
 
-**Out of scope:** orders, checkout UI (it receives offered methods automatically), mobile.
+**Out of scope:** orders, checkout UI (it receives offered methods automatically), mobile, release files (`compose*.yaml` do not change).
 
 **Acceptance criteria:**
 1. `PUT /api/company/payment-settings` with an offered wallet without `imageId` → `400 INVALID_INPUT`; with a landscape photo → `400 INVALID_PAYMENT_QR`, previous settings intact; with the reader unavailable → `503 QR_CHECK_UNAVAILABLE`, nothing saved.
 2. A Plin QR fixture saves as `verified`; changing only the bank account with the reader unavailable succeeds and the wallet stays verified.
-3. A company whose stored wallet is `not_a_qr` or `missing` offers only bank transfer in the buyer view and the store preview; the settings page shows «Tus compradores no ven esta billetera…».
-4. The script converts pre-version rows and, with the reader unavailable, leaves them unchanged and exits 1.
-5. The page shows «Revisando QR…» with save disabled, then «✓ QR válido» or the b2 error; a failed choose-time check leaves save enabled.
+3. A company whose stored wallet was saved before this version (no `qr`) offers only bank transfer in the buyer view and the store preview, and its checkout loads. With image, the settings page shows the thumbnail, «Tus compradores no ven esta billetera hasta que la guardes con un QR válido.» and save enabled; saving with a Plin QR makes it offered; saving with a landscape photo shows the not-a-QR state. Without image, it shows **Subir QR** and save disabled.
+4. The page shows «Revisando QR…» with save disabled, then «✓ QR válido» or the b2 error; a failed choose-time check leaves save enabled.
+5. With both check slots busy, a third check answers `503 QR_CHECK_UNAVAILABLE` without reading the image; `payment_qr_checked` carries `durationMs`.
 
-**Tests to leave green:** §14 companies unit and integration, script integration, existing products QR reader test at its new path, `buyer-payment.spec.ts` (existing journey with the new setup).
+**Tests to leave green:** §14 companies unit and integration, existing products QR reader test at its new path, `buyer-payment.spec.ts` (existing journey with the new setup), `store-appearance-buyer.spec.ts`, `pnpm --dir apps/core typecheck`.
 
 **Depends on:** nothing.
 
@@ -519,6 +561,8 @@ T1 and T2 edit disjoint files: T1 edits `shared/contracts/orders.ts`, `shared/or
 - The b3 «Pagos» card, the b4 receipt dialog with the in-place decision area, and the approve, register and reject forms with focus, accessible names and failure placement from the product draft.
 - `operation=reject` in the route action.
 - Checkout rejection notice and `Rechazado` status.
+- Buyer view: drop a wallet whose image URL does not resolve and make the wallet `imageUrl` non-null (§5.6, §8.2).
+- Lazy row thumbnails (`loading="lazy"`, `decoding="async"`, fixed width and height); only the b4 dialog loads the receipt eagerly.
 - `orderDetail`/`orders`/`buyerPaymentContent` es/pt texts.
 - The two E2E journeys.
 
@@ -531,13 +575,13 @@ T1 and T2 edit disjoint files: T1 edits `shared/contracts/orders.ts`, `shared/or
 4. A `PAYMENT_CONFLICT` shows «Este pago ya fue revisado.» inside the dialog and reloads the card.
 5. The buyer sees «Tu comprobante fue rechazado» and «Motivo: El monto no coincide.» at the start of the upload block, and «Ver captura · Rechazado».
 
-**Tests to leave green:** `order-detail.test.ts`, the E2E journeys of §14.
+**Tests to leave green:** `order-detail.test.ts`, the T3 buyer view integration test, the E2E journeys of §14, `pnpm --dir apps/core typecheck`.
 
 **Depends on:** T1, T2 (`locales.ts` and E2E setup).
 
 ### T4. Mobile payments
 
-**Scope:** §10.
+**Scope:** §10, building on T1's narrowing of `order-detail-screen.tsx`.
 
 **Out of scope:** b3/b4 reorganization, a receipt modal, payment settings.
 
@@ -554,3 +598,32 @@ T1 and T2 edit disjoint files: T1 edits `shared/contracts/orders.ts`, `shared/or
 ### Final verification
 
 The manual checks of §14 and the product draft's acceptance criteria, with results in the pull request description.
+
+## 17. Review gate round 1
+
+Both reviewers (design and performance) rejected round 1. The coordinator consolidated the direction for the pre-existing wallets; the rest is applied as each reviewer asked.
+
+| Finding | Resolution |
+| --- | --- |
+| Design B1, performance 1, 2, 7: one-time script not wired, and wired as written it would stop every deploy (`migrate` service has no `R2_*`) | Script, release wiring and retries removed. Read-time rule (§2, §5.4, §7): a pre-version wallet parses as `unchecked`, is not offered and is made `verified` only by a save. No deploy step or environment change; the deploy window cannot break a checkout. The product draft was adjusted (its "Decisions taken by the review gate"). |
+| Design B2: `reportPayment`, `paymentSummary` and `voidPayment` cannot stay unchanged | §5.7: report replay on a rejected payment returns it without writing; another receipt → `PAYMENT_CONFLICT`; void → `409 INVALID_TRANSITION`; summary and repository read `payment.currency`. Test titles in §14. |
+| Design B3: T1 cannot merge green; non-null wallet `imageUrl` depends on T2 | T1 owns the minimal narrowing (`order-detail.tsx`, mobile `order-detail-screen.tsx`, `order-json.ts`, typed i18n keys) and runs core and mobile typecheck. The non-null `imageUrl` moves to T3 (§16). |
+| Design S1: memory references | `8f0d1d36` cited; the update of `b9ad8a84` is recorded (§2). |
+| Design S2: test seam for image bytes | `vi.mock` of `readImageBytes` with `qr-fixtures/` in integration; fake S3 in `buyer-payment.spec.ts`; seeded `qr` in `store-appearance-buyer.spec.ts` (§12, §14). |
+| Design S3: non-null wallet URL fails the whole buyer view | A wallet whose URL does not resolve is dropped (T3, §5.6). |
+| Design S4: storage configuration error grouped with outages | `ImageReadError.storageCode` keeps them apart in `payment_qr_check_unavailable` (§6.1, §13). |
+| Design S5: `isOpenForMessageItems` | Stated as unchanged and why (§5.7). |
+| Performance 3: double decode | Stated and accepted, with a trigger (§11). |
+| Performance 4: unbounded checks in the web process | Two slots per process, `503 QR_CHECK_UNAVAILABLE` when busy, `durationMs` logged (§2, §11, §13). |
+| Performance 5: N+1 receipt URL resolution | `resolvePublicImages` (one `findMany`) in the buyer view and the order-detail loader (§5.6, T1). |
+| Performance 6: full-size thumbnails | Lazy row thumbnails with fixed dimensions; only the dialog loads eagerly (§2, T3). |
+
+Questions: none new.
+
+Decided unless objected (new in this round):
+- A wallet saved before this version is read as `unchecked`: hidden from buyers, shown in the panel as needing a QR check, made `verified` only by a save that reads its image. With image, save stays enabled; without image, save is disabled by the existing missing-QR rule.
+- Saving an `unchecked` wallet reads its image even when unchanged, so a checker outage blocks that save (as with a new image); untick the wallet to save the bank alone.
+- Two concurrent QR checks per process (initial value); a busy check answers `503 QR_CHECK_UNAVAILABLE` with no queue.
+- The double read of a newly chosen image (choose-time plus save) is accepted.
+- A buyer report replayed after its rejection returns the rejection without writing.
+- The non-null wallet `imageUrl` and dropping an unresolved wallet land in T3; T1 adds the `«Pago rechazado»` labels needed so no build shows a rejected payment as confirmed.
