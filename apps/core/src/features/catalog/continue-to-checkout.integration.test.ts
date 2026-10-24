@@ -5,7 +5,7 @@ import { RouterContextProvider, type LoaderFunctionArgs } from "react-router";
 import type { CatalogSubdomain } from "@shared/catalog-subdomain";
 import { app } from "@core/src/app";
 import { loader as catalogLoader } from "@core/app/routes/catalog";
-import { loader as checkoutLoader } from "@core/app/routes/checkout";
+import { action as checkoutAction, loader as checkoutLoader } from "@core/app/routes/checkout";
 import { storeAppearance } from "@core/src/features/store-appearance/composition";
 import { catalogCart } from "@core/src/features/catalog/cart-composition";
 import { catalogStorefront } from "@core/src/features/catalog/composition";
@@ -164,6 +164,23 @@ test("check_order answers confirmed only for this store's confirmed order", asyn
   expect(await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: created.data.total }, { companyId: mine.companyId, orderId })).toMatchObject({ success: true });
   expect(await check(mine.companyId)).toMatchObject({ data: { order: "confirmed" } });
   expect(await check(other.companyId)).toMatchObject({ data: { order: "not_confirmed" } });
+});
+
+test("confirming company A's order on company B's published host goes through the middleware and answers «no disponible»", async () => {
+  const mine = await store();
+  const other = await store();
+  const orderId = randomUUID() as OrderId;
+  const created = await catalogCart.continueToCheckout({ orderId, lines: [line(mine.black, 1)] }, await storefrontOf(mine.companyId));
+  if (!created.success) throw new Error(created.error.code);
+  const context = new RouterContextProvider();
+  context.set(requestHostContext, `${subdomainOf(other.companyId)}.localhost`);
+  const params = { companyId: mine.companyId, orderId };
+  const form = new URLSearchParams({ name: "Ana", phone: "+51987654321", expectedTotal: String(created.data.total.amount), delivery: "{}" });
+  const request = new Request(`http://localhost/checkout/${mine.companyId}/${orderId}`, { method: "POST", body: form });
+  const answered = await storefrontMiddleware({ request, params, context } as never, async () => checkoutAction({ request, params, context } as never) as never);
+  expect(answered).toMatchObject({ data: { unavailable: true }, init: { status: 404 } });
+  const check = await cartAction({ request: cartRequest({ intent: "check_order", orderId }), context: await cartContext(mine.companyId) } as never);
+  expect(check).toMatchObject({ data: { order: "not_confirmed" } });
 });
 
 test("Continuar answers the full checkout URL on the store's brand host", async () => {

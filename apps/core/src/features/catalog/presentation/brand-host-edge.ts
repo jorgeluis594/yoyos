@@ -1,5 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
-import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
+import type { BrandHostLocals } from "@core/src/shared/infrastructure/brand-host-locals";
+import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { classifyHost } from "@core/src/features/catalog/domain/store-host";
 import { catalogStorefront } from "@core/src/features/catalog/composition";
 import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
@@ -48,9 +49,13 @@ export async function brandHostBuyerOwner(request: Request, response: Response, 
   if (host.kind !== "store") return next();
   try {
     const owner = await catalogStorefront.resolveOwner(host);
-    if (!owner.success) return response.status(503).set("Cache-Control", "no-store").json({ code: "SERVICE_UNAVAILABLE", error: "Order unavailable" });
+    if (!owner.success) {
+      log.error({ event: "buyer_api_owner_failed", errorCode: owner.error.code }, "Brand host owner lookup failed");
+      bindRequestOperation({ outcome: "technical_failure" });
+      return response.status(503).set("Cache-Control", "no-store").json({ code: "SERVICE_UNAVAILABLE", error: "Order unavailable" });
+    }
     if (!owner.data) return notFound(response);
-    response.locals.brandHostCompanyId = owner.data.companyId;
+    (response.locals as BrandHostLocals).brandHostCompanyId = owner.data.companyId;
     return next();
   } catch (cause) {
     return next(cause);

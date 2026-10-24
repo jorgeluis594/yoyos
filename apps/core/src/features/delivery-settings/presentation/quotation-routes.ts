@@ -4,6 +4,7 @@ import { orders } from "@core/src/features/orders";
 import { peruDeliveryDistrict } from "@shared/peru-geography";
 import type { QuotedDeliveryRate } from "@core/src/features/delivery-settings/domain/quotation";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
+import type { BrandHostLocals } from "@core/src/shared/infrastructure/brand-host-locals";
 import { apiError, loadApiAccess, requireApiCompany, type AuthenticatedLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { bindCompanyToRequest, bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
@@ -29,7 +30,7 @@ quotationRoutes.post("/", (request, response, next) => {
   const input = response.locals.quotationInput as CreateQuotationRequest;
   // Order-link authorization takes precedence over any seller session.
   // The buyer's quotation is served on the brand host of the order's company; the seller's, on the app host only.
-  const hostCompanyId = (response.locals as { brandHostCompanyId?: string }).brandHostCompanyId;
+  const hostCompanyId = (response.locals as BrandHostLocals).brandHostCompanyId;
   if ((input.orderId !== undefined) !== (hostCompanyId !== undefined)) return apiError(response, 404, "CHECKOUT_UNAVAILABLE", "Checkout unavailable");
   if (input.orderId !== undefined) {
     const access = await orders.resolveBuyerAccess(input.orderId);

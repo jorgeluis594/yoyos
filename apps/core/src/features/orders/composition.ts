@@ -307,8 +307,9 @@ export const orders = {
     bindRequestOperation({ operation: "enable_checkout" });
     const result = await enableOrderCheckout(orderId, access, { ...checkoutDependencies, findOrderForUpdate: findSellerCheckoutOrderForUpdate });
     if (!result.success) { rejectedCheckout(result.error); return result; }
-    bindRequestOperation({ outcome: "already_enabled", orderNumber: result.data.number });
-    return map(await checkoutUrl(access.companyId, orderId), (url) => ({ url }));
+    const link = await checkoutUrl(access.companyId, orderId);
+    bindRequestOperation({ outcome: link.success ? "already_enabled" : link.error.code === "SUBDOMAIN_REQUIRED" ? "unavailable" : "technical_failure", orderNumber: result.data.number });
+    return map(link, (url) => ({ url }));
   },
   getCheckout: (access: CheckoutAccess) => readCheckout(access, getCheckoutDependencies),
   getCheckoutView: async (access: CheckoutAccess) => map(await readCheckout(access, getCheckoutViewDependencies), ({ checkout }) => checkout),
