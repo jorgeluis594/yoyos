@@ -264,7 +264,7 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
     // The buyer sees the rejection first in the upload block and in the list of receipts, and sends another receipt.
     await page.goto(checkoutPath);
     await browserExpect(page.getByText("Tu comprobante fue rechazado")).toBeVisible();
-    await browserExpect(page.getByText("Motivo: El monto no coincide.")).toHaveCount(2);
+    await browserExpect(page.getByText("Motivo: El monto no coincide")).toHaveCount(2);
     await browserExpect(page.getByRole("link", { name: "Ver captura · Rechazado" })).toBeVisible();
     // A retried «Ya pagué» with the rejected payment answers «reported», yet the checkout keeps showing the refreshed rejection.
     const replay = await request.post(`/api/buyer/orders/${orderId}/reports`, { data: { paymentId: first.id, receiptImageId: (first.data as { receiptImageId: string }).receiptImageId } });
