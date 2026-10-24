@@ -69,7 +69,7 @@ export type ImageView = Readonly<{
   indistinguishablePair: Readonly<{ total: number; exact: readonly string[]; notIdentified: readonly string[]; otherPolo: readonly string[]; other: readonly string[];
     /** Cases where the vision chooser picked the other polo, at any confidence (only above the gate is it an error); needs recorded picks. */
     otherPoloPicks: readonly Readonly<{ caseId: string; confidence: number }>[] }>;
-  /** Photos that must not be identified where the vision chooser still picked a product at or above its gate. */
+  /** Photos that must not be identified where the vision chooser still picked a product at or above its gate; `signature` is what the cascade then decided (a «not_product» answer stops it). */
   negativesAboveGate: readonly Readonly<{ caseId: string; confidence: number; signature: string }>[];
   labels: Tally;
   nonProduct: Tally;
@@ -271,7 +271,8 @@ export function formatSummary(report: EvalReport, path: string): string {
       `  ${`${pass} ${source}`.padEnd(28)} gate ${String(atGate.gate ?? "-").padEnd(4)} accepted ${atGate.acceptedCorrect} right / ${atGate.acceptedWrong} wrong, rejected ${atGate.rejectedCorrect} right / ${atGate.rejectedWrong} wrong${atGate.unverified ? `, ${atGate.unverified} ungraded` : ""}`)),
     ...(report.byPass.image ? [
       `Image: indistinguishable pair ${report.image.indistinguishablePair.total} (exact ${report.image.indistinguishablePair.exact.length}, not identified ${report.image.indistinguishablePair.notIdentified.length}, other polo ${report.image.indistinguishablePair.otherPolo.length}${report.image.indistinguishablePair.otherPolo.length ? `: ${report.image.indistinguishablePair.otherPolo.join(", ")}` : ""}, other ${report.image.indistinguishablePair.other.length}; other-polo picks at any confidence ${report.image.indistinguishablePair.otherPoloPicks.length}); labels ${report.image.labels.passed}/${report.image.labels.total}; non-product ${report.image.nonProduct.passed}/${report.image.nonProduct.total}`,
-      `Image negatives the vision chooser accepted at or above its gate: ${report.image.negativesAboveGate.length ? report.image.negativesAboveGate.map(({ caseId, confidence }) => `${caseId} ${confidence}`).join(", ") : "none"}`,
+      `Image negatives the vision chooser picked at or above its gate (→ the cascade's result): ${report.image.negativesAboveGate.length
+        ? report.image.negativesAboveGate.map(({ caseId, confidence, signature }) => `${caseId} ${confidence} → ${signature}`).join(", ") : "none"}`,
       ...section("Image by scenario", report.image.byScenario),
     ] : []),
     `Known limitations (not scored): ${report.knownLimitations.length ? report.knownLimitations.map(({ caseId, passed }) => `${caseId} ${passed ? "passed" : "failed"}`).join(", ") : "none"}`,

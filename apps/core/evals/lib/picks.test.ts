@@ -43,6 +43,32 @@ describe("gradePick", () => {
     expect(gradePick({ source: "visual", confidence: 0.7, gate: 0.8, pick: "polo-rayas" }, record({ pass: "image", expected: [{ kind: "found", product: "polo-rayas" }] }))).toBe(true);
     expect(gradePick({ source: "visual", confidence: 0.83, gate: 0.8, pick: "chompa-tejida" }, record({ pass: "image", expected: [{ kind: "not_product" }] }))).toBe(false);
     expect(gradePick({ source: "visual", confidence: 0.83, gate: 0.8, pick: "chompa-tejida" }, record({ pass: "end_to_end", expected: [{ tools: [], outcomes: ["no_intent"] }] }))).toBe(false);
+    expect(gradePick({ source: "visual_none", confidence: 0.99, gate: 0.8, pick: null }, record({ pass: "end_to_end", expected: [{ tools: [], outcomes: ["no_intent"] }] }))).toBe(true);
+  });
+
+  test("a visual pick of a declined photo is ungraded: the order does not name the shown product", () => {
+    const decline = record({ pass: "end_to_end", expected: [{ tools: ["decline_shown_product"], outcomes: ["no_intent"] }, { tools: ["no_intent"], outcomes: ["no_intent"] }] });
+
+    expect(gradePick({ source: "visual", confidence: 1, gate: 0.8, pick: "polera-capucha" }, decline)).toBeNull();
+    expect(gradePick({ source: "visual_none", confidence: 1, gate: 0.8, pick: null }, decline)).toBeNull();
+  });
+
+  test("a visual «none» is right when the photo may end unidentified", () => {
+    expect(gradePick({ source: "visual_none", confidence: 0.9, gate: 0.8, pick: null }, record({ pass: "image", expected: [{ kind: "not_product" }] }))).toBe(true);
+    expect(gradePick({ source: "visual_none", confidence: 0.9, gate: 0.8, pick: null }, record({ pass: "image", expected: [{ kind: "found", product: "polo-basico" }, { kind: "not_found" }] }))).toBe(true);
+    expect(gradePick({ source: "visual_none", confidence: 0.9, gate: 0.8, pick: null }, record({ pass: "image", expected: [{ kind: "found", product: "polo-rayas" }] }))).toBe(false);
+  });
+
+  test("a shows-product pick is graded in the image pass only, by whether the photo is a product", () => {
+    const selfie = record({ pass: "image", expected: [{ kind: "not_product" }] });
+    const product = record({ pass: "image", expected: [{ kind: "found", product: "polo-rayas" }] });
+
+    expect(gradePick({ source: "shows_product", confidence: 0.2, gate: 0.5, pick: "not_product" }, selfie)).toBe(true);
+    expect(gradePick({ source: "shows_product", confidence: 0.9, gate: 0.5, pick: "product" }, selfie)).toBe(false);
+    expect(gradePick({ source: "shows_product", confidence: 0.9, gate: 0.5, pick: "product" }, product)).toBe(true);
+    expect(gradePick({ source: "shows_product", confidence: 0.9, gate: 0.5, pick: "product" }, record({ pass: "image", expected: [{ kind: "not_found" }] }))).toBe(true);
+    expect(gradePick({ source: "shows_product", confidence: 0.2, gate: 0.5, pick: "not_product" }, product)).toBe(false);
+    expect(gradePick({ source: "shows_product", confidence: 0.2, gate: 0.5, pick: "not_product" }, record({ pass: "end_to_end", expected: [{ outcomes: ["no_intent"] }] }))).toBeNull();
   });
 
   test("item choices and records without a pick are ungraded", () => {

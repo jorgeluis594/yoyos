@@ -16,7 +16,7 @@ import { readQrCodes } from "@core/src/features/products/infrastructure/qr-code-
 import { findSellableVariantsByQrCodes, loadSellableVariants } from "@core/src/features/products/infrastructure/order-stock";
 import { findProductIdsOfVariants } from "@core/src/features/products";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
-import type { ImageBytes, MatchConfidence, VariantQrCode } from "@core/src/features/products/domain/image-identification";
+import { minShowsProduct, type ImageBytes, type MatchConfidence, type VariantQrCode } from "@core/src/features/products/domain/image-identification";
 import type { TextIdentification } from "@core/src/features/products/domain/text-identification";
 import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ApplyChatMessageOutcome, type ApplyChatMessageError } from "@core/src/features/orders/application/apply-chat-message";
 import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
@@ -42,11 +42,12 @@ import { evalCompanyId, evalSellerId, readRegisteredImage, registerImageFile } f
  */
 
 /**
- * A model certainty and the production gate it is compared with. `*_none` sources are answers that pick nothing (the text or variant
- * chooser's «none»); they are reported apart, never as confident picks. `item` is the Decision choice of an order item or an amount,
+ * A model certainty and the production gate it is compared with. `*_none` sources are answers that pick nothing (the text, variant
+ * or vision chooser's «none»); they are reported apart, never as confident picks. `shows_product` is the vision chooser's probability
+ * that the photo shows a product, at its 0.5 gate, with «product» or «not_product» as pick. `item` is the Decision choice of an order item or an amount,
  * kept only for the tools that ran.
  */
-export type CertaintySource = "action" | "visual" | "text" | "text_none" | "variant" | "variant_none" | "item";
+export type CertaintySource = "action" | "visual" | "visual_none" | "shows_product" | "text" | "text_none" | "variant" | "variant_none" | "item";
 /**
  * `pick` is the model's own answer, independent of what the gate then decided: the Decision's action, the product key chosen for a
  * mention or a photo (null for «none»), or the chosen variant's attribute values joined by spaces. Calibration grades it.
@@ -152,10 +153,13 @@ export function createProductionPath(env: Env) {
   } };
   const visual = { ...visualSetup.visual, readImage: readRegisteredImage, chooseProduct: async (input: Parameters<NonNullable<typeof visualSetup.visual>["chooseProduct"]>[0]) => {
     const choice = await visualSetup.visual!.chooseProduct(input);
-    // Only a chosen product has a certainty to calibrate; «no product» answers carry showsProduct, gated at 0.5 instead.
-    if (choice.success && choice.data.kind === "product") {
-      const product = productById(choice.data.productId)?.key ?? choice.data.productId;
-      observe({ source: "visual", confidence: choice.data.confidence, gate: visualSetup.visual!.minConfidence, pick: product, detail: product });
+    // Every answer is recorded: the product or «none» (gated at the match confidence) and whether the photo shows a product (at 0.5).
+    if (choice.success) {
+      const product = choice.data.kind === "product" ? productById(choice.data.productId)?.key ?? choice.data.productId : null;
+      observe({ source: product === null ? "visual_none" : "visual", confidence: choice.data.confidence, gate: visualSetup.visual!.minConfidence,
+        pick: product, detail: product ?? "none" });
+      const shows = choice.data.showsProduct >= minShowsProduct ? "product" : "not_product";
+      observe({ source: "shows_product", confidence: choice.data.showsProduct, gate: minShowsProduct, pick: shows, detail: shows });
     }
     return choice;
   } };

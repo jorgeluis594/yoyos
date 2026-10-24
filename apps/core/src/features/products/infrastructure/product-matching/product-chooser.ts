@@ -2,7 +2,7 @@ import sharp from "sharp";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { ChooseProduct } from "@core/src/features/products/application/identify-products-in-image";
+import type { ChooseProduct, ChooserDetail } from "@core/src/features/products/application/identify-products-in-image";
 import { parseMatchConfidence, type ImageBytes, type VisualChoice } from "@core/src/features/products/domain/image-identification";
 
 // Shared by every provider so their choices and confidences stay comparable.
@@ -16,11 +16,21 @@ export const MAX_CANDIDATES = 26;
 const MAX_SIDE = 1024;
 
 export const SHOWS_PRODUCT = "shows_product";
-export const showsProductInstructions = "The first image shows a product offered for sale, not a payment or transfer screenshot, selfie, map or document.";
+// The answer gates every visual match, so it names what a buyer's product photo can look like as well as what is not one.
+export const showsProductInstructions = "The first image's main subject is an item a shop could sell, such as clothing, footwear or an accessory: "
+  + "photographed alone, worn (often without the face), held, on a screen, in a screenshot of a social media post, or dark, blurry or cropped. "
+  + "False when its main subject is a person's face (a selfie or portrait, whatever they wear), a building, house, street or place, "
+  + "a payment or transfer, a chat, a map, a receipt, a document or a meme.";
 
 export const chooserInstructions = "The first image was sent by a customer. Decide which candidate product image shows the same product "
   + "(same item, design and colour; ignore background, lighting, angle, overlays and text). "
   + `Answer with the candidate label, or "${NONE}" if no candidate is clearly the same product.`;
+
+export const detailInstructions: Readonly<Record<ChooserDetail["kind"], string>> = {
+  post_photo: "The customer image is a screenshot; the photo inside it follows it, before the candidates. Compare that photo with the candidates.",
+  brightened: "The customer image is dark or washed out; a brightened copy follows it, before the candidates. Use both to see the product; the copy's colours may be shifted.",
+};
+const detailTitles: Readonly<Record<ChooserDetail["kind"], string>> = { post_photo: "Photo inside the customer image:", brightened: "Brightened copy of the customer image:" };
 
 export const labelFor = (index: number) => String.fromCharCode(65 + index);
 
@@ -34,12 +44,15 @@ async function resize(image: ImageBytes): Promise<ImageBytes> {
 export async function buildChooserPrompt(input: ChooserInput): Promise<Result<ChooserPrompt, ChooserError>> {
   if (!input.candidates.length || input.candidates.length > MAX_CANDIDATES) return err({ code: "INVALID_MATCHER_RESPONSE", message: "Unsupported number of candidates" });
   let images: ImageBytes[];
-  try { images = await Promise.all([input.query, ...input.candidates.map(({ image }) => image)].map(resize)); }
+  try { images = await Promise.all([input.query, ...input.detail ? [input.detail.image] : [], ...input.candidates.map(({ image }) => image)].map(resize)); }
   catch { return err({ code: "INVALID_MATCHER_RESPONSE", message: "Unable to prepare images" }); }
-  const [query, ...candidates] = images as [ImageBytes, ...ImageBytes[]];
+  const [query, ...rest] = images as [ImageBytes, ...ImageBytes[]];
+  const detail = input.detail ? rest.shift()! : null;
+  const candidates = rest;
   const labels = candidates.map((_, index) => labelFor(index));
-  return ok({ instructions: chooserInstructions, labels, parts: [
+  return ok({ instructions: input.detail ? `${chooserInstructions} ${detailInstructions[input.detail.kind]}` : chooserInstructions, labels, parts: [
     { kind: "text", text: "Customer image:" }, { kind: "image", image: query },
+    ...input.detail && detail ? [{ kind: "text", text: detailTitles[input.detail.kind] }, { kind: "image", image: detail }] satisfies PromptPart[] : [],
     ...candidates.flatMap((image, index): PromptPart[] => [{ kind: "text", text: `Candidate ${labels[index]}:` }, { kind: "image", image }]),
   ] });
 }
@@ -52,9 +65,9 @@ export function chooserOutputSchema(labels: readonly string[]) {
 export function parseChooserOutput(output: unknown, input: ChooserInput, labels: readonly string[]): Result<VisualChoice, ChooserError> {
   const parsed = chooserOutputSchema(labels).safeParse(output);
   if (!parsed.success) return err({ code: "INVALID_MATCHER_RESPONSE", message: "Unexpected matcher output" });
-  if (parsed.data.choice === NONE) return ok({ kind: "none", showsProduct: parsed.data.showsProduct });
-  const candidate = input.candidates[labels.indexOf(parsed.data.choice)];
   const confidence = parseMatchConfidence(parsed.data.confidence);
+  if (parsed.data.choice === NONE && confidence !== null) return ok({ kind: "none", confidence, showsProduct: parsed.data.showsProduct });
+  const candidate = input.candidates[labels.indexOf(parsed.data.choice)];
   return candidate && confidence !== null ? ok({ kind: "product", productId: candidate.productId, confidence, showsProduct: parsed.data.showsProduct })
     : err({ code: "INVALID_MATCHER_RESPONSE", message: "Unexpected matcher output" });
 }
