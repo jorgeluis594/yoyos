@@ -54,5 +54,5 @@ export function buildCatalogOrder(input: BuildCatalogOrderInput): Result<OrderAg
   });
   const built = buildPendingCatalogOrder({ id: input.id, companyId: input.companyId, number: input.number,
     customer: { kind: "general_public" }, createdAt: input.now, items });
-  return built.success ? ok({ ...built.data, checkoutEnabledAt: new Date(input.now) }) : built;
+  return built;
 }

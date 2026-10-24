@@ -15,7 +15,7 @@ vi.mock("@core/src/shared/infrastructure/persistance", () => ({ withinTransactio
 vi.mock("@core/src/features/delivery-settings", () => ({ deliverySettings: { get: async () => ok({ version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }) } }));
 const { findCheckoutOrderForUpdate } = vi.hoisted(() => ({ findCheckoutOrderForUpdate: vi.fn() }));
 vi.mock("@core/src/features/orders/infrastructure/checkout-repository", () => ({
-  findCheckoutOrderForUpdate, findCheckoutOrder: vi.fn(), saveCheckoutEnabled: async () => ok(null),
+  findCheckoutOrderForUpdate, findCheckoutOrder: vi.fn(),
   saveCheckoutBuyer: async () => ok(null), saveCheckoutConfirmed: async () => ok(null),
 }));
 vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
@@ -79,8 +79,7 @@ test("checkout does not announce transitions before the outer commit succeeds", 
     checkoutEnabledAt: null, checkoutConfirmedAt: null };
   try {
     for (const operation of ["enable", "confirm"] as const) {
-      findCheckoutOrderForUpdate.mockResolvedValueOnce(ok({ ...order,
-        checkoutEnabledAt: operation === "confirm" ? new Date() : null }));
+      findCheckoutOrderForUpdate.mockResolvedValueOnce(ok({ ...order, checkoutEnabledAt: new Date() }));
       withinTransaction.mockImplementationOnce(async (work) => {
         expect(await work()).toMatchObject({ success: true });
         expect(info).not.toHaveBeenCalled();
