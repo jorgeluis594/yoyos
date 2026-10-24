@@ -70,8 +70,11 @@ test("a cancelled order gets no link and no lookup", async () => {
 test("a failed subdomain read leaves the page with an unavailable link instead of failing it", async () => {
   vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(aggregate()));
   vi.spyOn(orders, "checkoutUrl").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }));
-  vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const failure = vi.spyOn(log, "error").mockImplementation(() => undefined);
   expect(await loader(loaderArgs())).toMatchObject({ link: { kind: "unavailable" }, order: { id: orderId } });
+  const [payload] = failure.mock.calls[0] as unknown as [Record<string, unknown>];
+  expect(payload).toMatchObject({ event: "order_checkout_link_unavailable", companyId, orderNumber: 1042 });
+  expect(payload).not.toHaveProperty("orderId");
 });
 
 test.each(["confirm", "void"])("seller %s action dispatches payment operations without enabling checkout", async (operation) => {
