@@ -1,4 +1,4 @@
-import { fitLabelLines } from "@mobile/features/products/infrastructure/label-text";
+import { fitLabelLines } from "@shared/dispatch-label/label-text";
 
 const measure = (value: string) => Array.from(value).length;
 

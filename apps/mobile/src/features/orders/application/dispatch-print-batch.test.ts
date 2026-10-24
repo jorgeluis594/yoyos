@@ -3,11 +3,11 @@ import { createPrintingOperations } from "@mobile/features/printing/application/
 import type { PrinterAdapter, SendError } from "@mobile/features/printing/application/contracts";
 import { productLabelFormat, type AdapterId, type CopyCount, type PrinterId, type PrinterLocator, type PrinterSelection } from "@mobile/features/printing/domain/printing";
 import { resolveUnknown, runDispatchBatch, type DispatchPrintEntry } from "@mobile/features/orders/application/dispatch-print-batch";
-import type { DispatchLabel } from "@mobile/features/orders/domain/dispatch-label";
+import type { DispatchLabel } from "@shared/dispatch-label/types";
 
 const chosen: PrinterSelection = { printer: { id: "p" as PrinterId, adapterId: "brother" as AdapterId, displayName: "Brother", model: "QL-810W" }, locator: "l" as PrinterLocator };
 const profile = { widthPx: 696, heightPx: 1109, dpiX: 300, dpiY: 300 };
-const label: DispatchLabel = { sender: "Yoyos", scheduledDate: null, method: "home", courier: null, recipient: { name: "Ana", phone: "999", document: null },
+const label: DispatchLabel = { sender: { name: "Yoyos", phone: null }, orderNumber: 1001, scheduledDate: null, method: "home", courier: null, recipient: { name: "Ana", phone: "999", document: null },
   destination: { address: "Calle 1", location: { department: "Lima", province: "Lima", district: "Miraflores" }, reference: null } };
 const entries = (...ids: string[]): DispatchPrintEntry[] => ids.map((orderId) => ({ orderId, label, state: { status: "pending" } }));
 const execution = { isSessionCurrent: () => true, onStage: () => undefined };
