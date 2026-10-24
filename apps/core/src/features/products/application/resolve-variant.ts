@@ -1,7 +1,7 @@
 import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { VariantId } from "@core/src/features/products/domain/product";
-import { attributeNamesOf, hasWords, variantsNamedBy, type ProductMatcherError, type ProductWithSellableVariants, type VariantChoice, type VariantChoiceInput, type VariantResolution }
+import { attributeNamesOf, hasWords, variantByNamedValues, type ProductMatcherError, type ProductWithSellableVariants, type VariantChoice, type VariantChoiceInput, type VariantResolution }
   from "@core/src/features/products/domain/text-identification";
 
 export type ResolveVariantDependencies = Readonly<{
@@ -23,10 +23,11 @@ export async function resolveVariant(
     if (preselected) return ok({ kind: "resolved", item: preselected });
     return variants.length === 1 ? ok({ kind: "resolved", item: only }) : ok({ kind: "missing", attributeNames: attributeNamesOf(variants) });
   }
-  // The words win over a QR-selected variant: the customer asked for another one.
-  const named = variantsNamedBy(variants, input.words);
-  const [exact] = named;
-  if (exact && named.length === 1) return ok({ kind: "resolved", item: exact });
+  // The words win over the base variant (QR-selected or being changed) only for the attributes they name; it keeps the rest.
+  const base = variants.find(({ variantId }) => variantId === input.preselectedVariantId) ?? null;
+  const named = variantByNamedValues(variants, input.words, base);
+  if (named.kind === "named") return ok({ kind: "resolved", item: named.item });
+  if (named.kind === "not_sellable") return ok({ kind: "not_available" });
   const choice = await deps.chooseVariant({ words: input.words, variants }, signal);
   if (!choice.success) return choice;
   const chosen = variants.find(({ variantId }) => variantId === choice.data.variantId);

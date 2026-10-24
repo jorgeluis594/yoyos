@@ -724,6 +724,17 @@ describe("applyChatMessage: text tools", () => {
     expect(quantities(h.store)).toEqual({ [poloL.variantId]: 2 });
   });
 
+  test("int-change-variant: changes only the named attribute and keeps the color of the item", async () => {
+    const negroM = variant(5, "Polo básico", { Talla: "M", Color: "Negro" });
+    const negroL = variant(6, "Polo básico", { Talla: "L", Color: "Negro" });
+    const blancoL = variant(7, "Polo básico", { Talla: "L", Color: "Blanco" });
+    const h = harness({ message: textMessage("cámbialo a talla L"), target: openWith(line(1, negroM, 2)), catalog: [{ productId: productPolo, name: "Polo básico", variants: [negroM, negroL, blancoL] }],
+      decision: () => decided("change_item_variant", itemChoice("change_item_variant", "I1")),
+      extraction: () => [{ tool: "change_item_variant", args: { variantWords: ["talla", "L"], mentionedPrice: null } }] });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "variant_changed", fromVariantId: negroM.variantId, toVariantId: negroL.variantId }] });
+    expect(h.variantChoices).toEqual([]);
+  });
+
   test("reports a variant that is not available and keeps the item when the new variant does not exist", async () => {
     const h = harness({ message: textMessage("mejor en XL"), target: openWith(line(1, poloM)), decision: () => decided("change_item_variant", itemChoice("change_item_variant", "I1")),
       extraction: () => [{ tool: "change_item_variant", args: { variantWords: ["XL"], mentionedPrice: null } }] });

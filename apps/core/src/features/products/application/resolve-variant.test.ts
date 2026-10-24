@@ -76,4 +76,60 @@ describe("resolveVariant", () => {
     const deps: ResolveVariantDependencies = { chooseVariant: async () => err({ code: "PRODUCT_MATCHER_UNAVAILABLE", message: "x" }), minConfidence: 0.8 };
     expect(await resolveVariant({ product: sizes, words: ["grande"], preselectedVariantId: null }, deps, signal)).toMatchObject({ success: false, error: { code: "PRODUCT_MATCHER_UNAVAILABLE" } });
   });
+
+  describe("with attributes the words do not name", () => {
+    const polos = product(
+      variant(1, { Talla: "M", Color: "Negro" }), variant(2, { Talla: "L", Color: "Negro" }),
+      variant(3, { Talla: "L", Color: "Blanco" }), variant(4, { Talla: "M", Color: "Blanco" }),
+    );
+
+    test("int-change-variant: «talla L» on a M Negro polo keeps the Negro color without asking the model", async () => {
+      const h = harness();
+      expect(await resolveVariant({ product: polos, words: ["talla", "L"], preselectedVariantId: "variant-1" as VariantId }, h.deps, signal))
+        .toEqual(ok({ kind: "resolved", item: polos.variants[1] }));
+      expect(h.asked).toEqual([]);
+    });
+
+    test("int-change-variant-mejor: «mejor que sea L» overrides only the size", async () => {
+      const h = harness();
+      expect(await resolveVariant({ product: polos, words: ["mejor", "que", "sea", "L"], preselectedVariantId: "variant-4" as VariantId }, h.deps, signal))
+        .toEqual(ok({ kind: "resolved", item: polos.variants[2] }));
+    });
+
+    test("int-photo-label-other-size: a caption naming another size keeps the QR variant's color", async () => {
+      expect(await resolveVariant({ product: polos, words: ["L"], preselectedVariantId: "variant-4" as VariantId }, harness().deps, signal))
+        .toEqual(ok({ kind: "resolved", item: polos.variants[2] }));
+    });
+
+    test("overrides several attributes when the words name them", async () => {
+      expect(await resolveVariant({ product: polos, words: ["blanco", "L"], preselectedVariantId: "variant-1" as VariantId }, harness().deps, signal))
+        .toEqual(ok({ kind: "resolved", item: polos.variants[2] }));
+    });
+
+    test("int-single-color-product: an attribute with a single sellable value is never required", async () => {
+      const beige = product(variant(1, { Talla: "M", Color: "Beige" }), variant(2, { Talla: "L", Color: "Beige" }));
+      const h = harness();
+      expect(await resolveVariant({ product: beige, words: ["talla", "L"], preselectedVariantId: null }, h.deps, signal)).toEqual(ok({ kind: "resolved", item: beige.variants[1] }));
+      expect(h.asked).toEqual([]);
+    });
+
+    test("reports a variant not available when the kept attributes make the combination unsellable", async () => {
+      const partial = product(variant(1, { Talla: "M", Color: "Negro" }), variant(2, { Talla: "L", Color: "Blanco" }));
+      const h = harness({ variantId: "variant-2" as VariantId, confidence: 0.99 });
+      expect(await resolveVariant({ product: partial, words: ["talla", "L"], preselectedVariantId: "variant-1" as VariantId }, h.deps, signal)).toEqual(ok({ kind: "not_available" }));
+      expect(h.asked).toEqual([]);
+    });
+
+    test("without a base variant the unnamed attribute stays open and the model decides as before", async () => {
+      const h = harness({ variantId: null, confidence: 0.9 });
+      expect(await resolveVariant({ product: polos, words: ["talla", "L"], preselectedVariantId: null }, h.deps, signal)).toEqual(ok({ kind: "not_available" }));
+      expect(h.asked).toEqual([["talla", "L"]]);
+    });
+
+    test("words that name no attribute value still go to the model even with a base variant", async () => {
+      const h = harness({ variantId: "variant-2" as VariantId, confidence: 0.9 });
+      expect(await resolveVariant({ product: polos, words: ["la grande"], preselectedVariantId: "variant-1" as VariantId }, h.deps, signal)).toEqual(ok({ kind: "resolved", item: polos.variants[1] }));
+      expect(h.asked).toEqual([["la grande"]]);
+    });
+  });
 });

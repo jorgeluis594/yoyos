@@ -154,7 +154,7 @@ async function changeItemVariant(args: Readonly<{ item: ItemChoice; variantWords
   if (!loaded.success) return loaded;
   const product = loaded.data.find(({ productId }) => productId === item.productId);
   if (!product) return ok([{ kind: "change_variant", target: target.data, to: { kind: "not_available", productId: item.productId }, mentionedPrice: null }]);
-  const resolution = await deps.resolveVariant({ product, words: args.variantWords, preselectedVariantId: null }, signal);
+  const resolution = await deps.resolveVariant({ product, words: args.variantWords, preselectedVariantId: item.variantId }, signal);
   if (!resolution.success) return resolution;
   const to = toChangeVariantResolution(resolution.data, item.productId);
   const mentionedPrice = to.kind === "resolved" ? priceOf(args.mentionedPrice, to.item.unitPrice.currency) : null;

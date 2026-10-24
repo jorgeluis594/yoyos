@@ -37,16 +37,37 @@ export type ProductMatcherError = Readonly<{ code: "PRODUCT_MATCHER_UNAVAILABLE"
 
 const normalize = (value: string) => value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase().replace(/\s+/g, " ").trim();
 
-/** Variants whose every attribute value appears as whole words in the customer's words, ignoring case and accents. */
-export function variantsNamedBy(variants: readonly CatalogItem[], words: readonly string[]): readonly CatalogItem[] {
-  const spoken = ` ${words.map(normalize).join(" ")} `;
-  return variants.filter(({ variantAttributes }) => {
-    const values = Object.values(variantAttributes).map(normalize);
-    return values.length > 0 && values.every((value) => value !== "" && spoken.includes(` ${value} `));
-  });
-}
-
 export const attributeNamesOf = (variants: readonly CatalogItem[]): readonly string[] =>
   [...new Set(variants.flatMap(({ variantAttributes }) => Object.keys(variantAttributes)))];
 
 export const hasWords = (words: readonly string[]) => words.some((word) => normalize(word) !== "");
+
+export type VariantByNamedValues = Readonly<{ kind: "named"; item: CatalogItem }> | Readonly<{ kind: "not_sellable" }> | Readonly<{ kind: "undecided" }>;
+
+const valuesOf = (variants: readonly CatalogItem[], attribute: string) => [...new Set(variants.map(({ variantAttributes }) => variantAttributes[attribute] ?? ""))];
+
+/**
+ * The variant the words point at when they name only some attribute values: the named values override, the other attributes
+ * keep the value of `base` (the variant being changed or the one a QR selected) and an attribute with a single sellable value
+ * is filled in. `undecided` when the words name nothing or the rest cannot be settled; `not_sellable` when the combination does not exist.
+ */
+export function variantByNamedValues(variants: readonly CatalogItem[], words: readonly string[], base: CatalogItem | null): VariantByNamedValues {
+  const spoken = ` ${words.map(normalize).join(" ")} `;
+  const wanted = new Map<string, string>();
+  let namedAny = false;
+  for (const attribute of attributeNamesOf(variants)) {
+    const values = valuesOf(variants, attribute);
+    const named = values.filter((value) => normalize(value) !== "" && spoken.includes(` ${normalize(value)} `))
+      .sort((a, b) => normalize(b).length - normalize(a).length);
+    const [value] = named;
+    if (value !== undefined) { wanted.set(attribute, value); namedAny = true; continue; }
+    const [single] = values;
+    if (values.length === 1 && single !== undefined) wanted.set(attribute, single);
+    else if (base?.variantAttributes[attribute] !== undefined) wanted.set(attribute, base.variantAttributes[attribute]!);
+  }
+  if (!namedAny) return { kind: "undecided" };
+  const matches = variants.filter(({ variantAttributes }) => [...wanted].every(([attribute, value]) => (variantAttributes[attribute] ?? "") === value));
+  const [match] = matches;
+  if (!match) return { kind: "not_sellable" };
+  return matches.length === 1 ? { kind: "named", item: match } : { kind: "undecided" };
+}
