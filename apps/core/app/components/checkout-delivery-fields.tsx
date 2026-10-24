@@ -80,7 +80,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, onChange, r
   useEffect(() => onChange(prepared), [prepared, onChange]);
   const amount = (price: Money) => price.amount === 0 ? t("checkoutDelivery.free") : formatCurrency(price.amount, price.currency, i18n.language);
   const changeMode = (mode: Draft["mode"]) => { form.setValue("mode", mode); form.setValue("rateId", ""); form.setValue("agencyId", ""); setReceived(null); };
-  const changeDistrict = () => (districtRef.current?.querySelector<HTMLSelectElement>('select[id$="-district"]:not(:disabled)') ?? districtRef.current?.querySelector<HTMLSelectElement>('select[id$="-department"]'))?.focus();
+  const changeDistrict = () => (districtRef.current?.querySelector<HTMLInputElement>('input[id$="-district"]:not(:disabled)') ?? districtRef.current?.querySelector<HTMLInputElement>('input[id$="-department"]'))?.focus();
   const input = (name: "name" | "phone" | "address" | "instructions" | "document", label: string, required = false) => <Controller key={name} name={name} control={form.control} render={({ field }) =>
     <Field data-store-part="field"><FieldLabel htmlFor={`delivery-${name}`}>{label}</FieldLabel><Input {...field} name={undefined} id={`delivery-${name}`} required={required} type={name === "phone" ? "tel" : "text"} /></Field>} />;
   return <fieldset disabled={disabled || !ready} className="flex min-w-0 flex-col gap-4">

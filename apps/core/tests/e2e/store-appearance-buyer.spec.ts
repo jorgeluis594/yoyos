@@ -13,6 +13,7 @@ import { removeCompanyAppearance, rgb, saveCompanyAppearance } from "@core/tests
 import type { Page } from "@playwright/test";
 import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { chooseDistrict } from "@core/tests/e2e/district-combobox";
 
 const logoSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="#2F6B4F"/></svg>';
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
@@ -241,9 +242,7 @@ test.describe("buyer checkout with appearance", () => {
         body: JSON.stringify({ id: receiptId, url: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}/test-images/test%2F${receiptId}` }) }));
       await page.goto(f.path);
       await browserExpect.poll(() => primary(page)).toBe(boutique.colors.primary.toUpperCase());
-      await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-      await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-      await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+      await chooseDistrict(page, "150122");
       await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
       await page.getByLabel("Nombre", { exact: true }).fill("Ana");
       await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
@@ -293,9 +292,7 @@ test.describe("buyer checkout with appearance", () => {
         await page.setViewportSize({ width: 390, height: 844 });
 
         // Agency delivery chosen, S/ 8.00 on top of the two items.
-        await page.getByLabel("Departamento", { exact: true }).selectOption("15");
-        await page.getByLabel("Provincia", { exact: true }).selectOption("1501");
-        await page.getByLabel("Distrito", { exact: true }).selectOption("150122");
+        await chooseDistrict(page, "150122");
         await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
         await page.getByLabel("Nombre", { exact: true }).fill("Ana");
         await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
