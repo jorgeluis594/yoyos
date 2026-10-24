@@ -247,9 +247,10 @@ test.describe("buyer checkout with appearance", () => {
       await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
       await page.getByLabel("Nombre", { exact: true }).fill("Ana");
       await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-      await page.getByLabel("Nombre del destinatario").fill("Recipient");
-      await page.getByLabel("Teléfono del destinatario").fill("999");
-      await page.getByLabel("Documento del destinatario").fill("12345678");
+      await page.getByLabel("Otra persona recibe el pedido").check();
+      await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+      await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
+      await page.getByLabel("Documento de quien recibe", { exact: true }).fill("12345678");
       await browserExpect(page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) })).toContainText(/18[.,]00/);
       await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
       await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
@@ -299,9 +300,10 @@ test.describe("buyer checkout with appearance", () => {
         await browserExpect(page.getByLabel("Agencia de destino")).toHaveValue(agencies[0]);
         await page.getByLabel("Nombre", { exact: true }).fill("Ana");
         await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-        await page.getByLabel("Nombre del destinatario").fill("Recipient");
-        await page.getByLabel("Teléfono del destinatario").fill("999");
-        await page.getByLabel("Documento del destinatario").fill("12345678");
+        await page.getByLabel("Otra persona recibe el pedido").check();
+        await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+        await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
+        await page.getByLabel("Documento de quien recibe", { exact: true }).fill("12345678");
         const total = page.locator("dl > div").filter({ has: page.getByText("Total a pagar", { exact: true }) });
         await browserExpect(total).toContainText(/28[.,]00/);
         const confirm = page.getByRole("button", { name: "Confirmar pedido", exact: true });
