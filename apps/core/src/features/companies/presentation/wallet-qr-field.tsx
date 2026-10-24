@@ -76,7 +76,7 @@ export function WalletQrField({ state, url, onFile, onRetry, onRemove }: { state
     {busy && <Alert role="status">{state.status === "uploading" ? t("paymentSettings.uploading") : t("paymentSettings.checkingQr")}</Alert>}
     {hasImage && <div data-testid="wallet-qr-box" aria-invalid={invalid || undefined}
       className={`flex items-center gap-4 rounded-[var(--radius-card)] border bg-card p-3 ${invalid ? "border-destructive" : "border-border"}`}>
-      <FileUploadPreview src={url} alt={t("paymentSettings.imagePreview")} className="size-20 max-h-20 shrink-0 object-cover" />
+      <FileUploadPreview src={url} alt={t("paymentSettings.imagePreview")} className="size-20 max-h-20 shrink-0 object-contain" />
       <div className="flex min-w-0 flex-col gap-2">
         {fileInfo && <p className="truncate text-sm">{fileInfo}</p>}
         {state.status === "valid" && <p className="text-sm font-medium">{t("paymentSettings.qrValid")}</p>}

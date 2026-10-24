@@ -82,6 +82,8 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
   const dialogPayment = dialog ? order.payments.find(payment => payment.id === dialog.paymentId) ?? null : null;
   const idle = navigation.state === "idle";
   const [uncertain, setUncertain] = useState<{ paymentId: string; order: Order } | null>(null);
+  // The order seen when the decision was sent: the lost answer is blocked only until the card shows a newer one.
+  const submitted = useRef<{ paymentId: string; order: Order } | null>(null);
   return <Card role="region" aria-labelledby="order-payments-title" className="min-w-0 max-xl:order-2">
     <CardHeader><CardTitle id="order-payments-title">{t("orders.payments")}</CardTitle></CardHeader>
     <CardContent className="flex flex-col gap-6">
@@ -135,7 +137,8 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
       </section>}
     </CardContent>
     {dialog && <PaymentDialog key={`${dialog.kind}-${dialog.paymentId}`} kind={dialog.kind} paymentId={dialog.paymentId} payment={dialogPayment} order={order}
-      receiptUrl={receiptUrls[dialog.paymentId] ?? null} format={format} onClose={() => setDialog(null)} onUncertain={paymentId => setUncertain({ paymentId, order })}
+      receiptUrl={receiptUrls[dialog.paymentId] ?? null} format={format} onClose={() => setDialog(null)} onSubmitted={paymentId => { submitted.current = { paymentId, order }; }}
+      onUncertain={paymentId => setUncertain(submitted.current?.paymentId === paymentId ? submitted.current : null)}
       onDone={paymentId => { decided.current = true; pendingFocus.current = paymentId; setDialog(null); setSaved(true); }}
       onCloseAutoFocus={event => { event.preventDefault(); if (!decided.current) opener.current?.focus(); }} />}
   </Card>;

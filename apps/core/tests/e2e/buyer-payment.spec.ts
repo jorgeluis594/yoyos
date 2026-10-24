@@ -1,5 +1,6 @@
 import { mkdir, readFile } from "node:fs/promises";
 import type { Server } from "node:http";
+import type { Route } from "@playwright/test";
 import { afterAll, beforeAll } from "vitest";
 import { browserExpect, expect, prepareVerifiedCompany, test, waitForReactHydration } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
@@ -292,6 +293,22 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
     await page.goto(checkoutPath);
     await sendReceipt();
     await page.goto(`/es-PE/orders/${orderId}`);
+
+    // A lost response leaves the decision unknown: the row waits for the reload and then lets the seller repeat it.
+    const isOrderData = (url: URL) => url.pathname.endsWith(`/orders/${orderId}.data`);
+    const loseAnswer = (route: Route) => route.request().method() === "POST" ? route.abort() : route.continue();
+    await page.route(isOrderData, loseAnswer);
+    await page.getByRole("button", { name: /^Rechazar pago reportado el/ }).click();
+    const lost = page.getByRole("dialog", { name: "¿Rechazar este comprobante?" });
+    await lost.getByRole("button", { name: "Rechazar comprobante" }).click();
+    await browserExpect(lost.getByText("No sabemos si se guardó. Revisa el pedido antes de repetir.")).toBeVisible();
+    await page.keyboard.press("Escape");
+    await browserExpect(lost).toHaveCount(0);
+    await browserExpect(page.getByRole("button", { name: /^Rechazar pago reportado el/ })).toBeEnabled();
+    await browserExpect(page.getByRole("button", { name: /^Aprobar pago reportado el/ })).toBeEnabled();
+    await page.unroute(isOrderData, loseAnswer);
+    expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId, status: "reported" } }))).toBe(1);
+
     await page.getByRole("button", { name: /^Ver captura del/ }).first().click();
     const review = page.getByRole("dialog", { name: "Comprobante de pago" });
     await review.getByRole("button", { name: "Rechazar", exact: true }).click();
