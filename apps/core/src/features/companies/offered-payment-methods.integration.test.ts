@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, expect, test } from "vitest";
+import { afterAll, expect, test, vi } from "vitest";
+import { ok } from "@shared/functional";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { orders } from "@core/src/features/orders";
 import { storeAppearance } from "@core/src/features/store-appearance/composition";
+
+// The integration project has no image storage: URLs are faked so that a verified wallet's QR resolves, as it does in production.
+vi.mock("@core/src/shared/images", async (importOriginal) => ({ ...await importOriginal<typeof import("@core/src/shared/images")>(),
+  resolvePublicImages: vi.fn(async (ids: readonly string[]) => ok({ images: ids.map((id) => ({ id, url: `https://cdn.example/${id}` })), failures: [] })) }));
 
 const companies: string[] = [];
 
