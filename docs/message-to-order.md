@@ -43,6 +43,15 @@ message_created ─▶ apply-chat-message (ordered per chat)
 apply-chat-message-dead-letter: record failed → publish notice → release the chat
 ```
 
+### What the models are offered
+
+How the tools are offered changes how sure the models are, never what a rule allows ([ai-tools](ai-tools.md)).
+
+- Tools follow the message kind (photo of a product, photo of something else, text). The item tools (remove, quantity, variant, mentioned price) are offered only when the open order has items; otherwise one report takes their place and the order domain reports `no_open_order` or `order_closed`. An item tool fits «quiero 2 polos» almost as well as adding does, and every offered tool spreads the Decision's confidence.
+- Each item tool asks its own item question. With a single item that item is offered, described as named or not, and `unnamed` is not asked: both fit «quítalo», and the split certainty fell under 0.8. With two or more items `unnamed` and `ambiguous` are offered and an unnamed reference stays `unclear_item`.
+- The models name the currency they read (not named, a currency code, or another one); the tool keeps a price only when no currency is named or it is the item's. Quantity idioms are spelled out in the argument descriptions («un par» 2, «media docena» 6, «x2» 2, «a 20 c/u» is one unit).
+- A stated price helps text identification as a per-unit amount: the chooser reads «polo, the one at 35 per unit» and sees which candidates have that price. A lower price may be an offer and never rejects the only product named.
+
 ## Messages that count
 
 | Message | Behavior | Reason |
