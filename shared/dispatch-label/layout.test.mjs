@@ -98,3 +98,40 @@ test("the page geometry can be given in points for vector output", () => {
   const pointsMeasure = (text, sizePt) => Array.from(text).length * sizePt * 0.5;
   assert.ok(layoutDispatchLabel(home, points, pointsMeasure).success);
 });
+
+const withName = (name) => lines({ ...home, recipient: { ...home.recipient, name } });
+const withAddress = (address) => lines({ ...home, destination: { ...home.destination, address } });
+
+test("a name wraps at the space instead of inside a word", () => {
+  const text = withName("Jorge Gonzalez Ramírez");
+  assert.deepEqual(text.slice(1, 3), ["Jorge Gonzalez", "Ramírez"]);
+});
+
+test("addresses and districts never split a word that fits on a line", () => {
+  const text = withAddress("Mz. B Lote 4 Urbanización Las Magnolias y Los Cedros 1234").concat(lines(home));
+  for (const word of ["Mz.", "Lote", "Magnolias", "Miraflores,"]) assert.ok(text.some((line) => line.split(" ").includes(word)), word);
+  const label = { ...home, destination: { ...home.destination, location: { ...location, district: "Miraflores", province: "Lima" } } };
+  assert.ok(lines(label).includes("Miraflores, Lima, Lima"));
+});
+
+test("a word longer than the line splits by character without hyphen and the next word follows the last fragment", () => {
+  const result = layout({ ...home, destination: { ...home.destination, address: "Av. " + "x".repeat(40) + " Sur" } }, { ...profile, heightPx: 3000 });
+  assert.ok(result.success);
+  const text = result.data.lines.map((line) => line.text);
+  const start = text.indexOf("Av.");
+  assert.ok(start >= 0);
+  const fragments = text.slice(start + 1, text.findIndex((line) => line.endsWith(" Sur")) + 1);
+  assert.ok(fragments.length >= 2);
+  assert.equal(fragments.join("").replace(" Sur", ""), "x".repeat(40));
+  assert.ok(fragments.every((line) => !line.includes("-")));
+  assert.ok(fragments.at(-1).endsWith(" Sur"));
+});
+
+test("an explicit newline still forces a break", () => {
+  assert.ok(withAddress("Mz A\nLote 4").join("|").includes("Mz A|Lote 4"));
+});
+
+test("no line starts or ends with a space", () => {
+  const text = withAddress("Calle   larga   número  " + "palabra ".repeat(12)).concat(withName("Jorge  Gonzalez   Ramírez"));
+  assert.ok(text.every((line) => line === line.trim() && line.length > 0));
+});
