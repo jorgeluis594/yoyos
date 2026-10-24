@@ -71,14 +71,16 @@ test("shows the checkout with sample data and labelled sample payment methods", 
 test("shows the company's real payment methods in the payment state", async ({ page }) => {
   await withCompany(async () => {
     await page.goto("/es-PE/settings/payments");
-    await page.getByLabel("Ofrecer billetera digital").check();
-    await page.getByLabel("Proveedor").fill("Plin Lima");
+    // A wallet needs a checked QR image, so the saved method is a bank transfer.
+    await page.getByLabel("Ofrecer transferencia bancaria").check();
+    await page.getByLabel("Banco", { exact: true }).fill("BCP Lima");
     await page.getByLabel("Titular").first().fill("Lima Studio");
-    await page.getByRole("button", { name: "Guardar medios de cobro" }).click();
+    await page.getByLabel("CCI").fill("00200000000000000001");
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
     await browserExpect(page.getByText("Medios de cobro guardados.")).toBeVisible();
     await openPreview(page);
     await post(page, update({ state: "payment" }));
-    await browserExpect(page.getByRole("radio", { name: "Plin Lima" })).toBeVisible();
+    await browserExpect(page.getByRole("radio", { name: "Transferencia", exact: true })).toBeVisible();
     await browserExpect(page.getByRole("note")).toHaveCount(0);
   }, page);
 });

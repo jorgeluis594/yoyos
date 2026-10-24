@@ -1,9 +1,10 @@
-import { createServer, type Server } from "node:http";
+import type { Server } from "node:http";
 import { readFileSync } from "node:fs";
 import { afterAll, afterEach, beforeAll } from "vitest";
 import { listOrderAggregatesResponseSchema } from "@shared/contracts/orders";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { startFakeS3 } from "@core/tests/e2e/fake-s3";
 import { startMobileWeb } from "@core/tests/e2e/mobile-web";
 import type { Page } from "@playwright/test";
 
@@ -22,18 +23,6 @@ const label = (name: string) => readFileSync(new URL(name, fixtures));
 const firstQr = "3f2b8c1e-5a47-4d0e-9b6a-1c7d2e8f4a90";
 const secondQr = "9d4e7a12-6b3c-4f85-a0d1-52e8c9b7f316";
 
-// Minimal path-style S3: PUT stores the object, GET returns it. The SDK sends aws-chunked bodies, which are decoded here.
-function decodeAwsChunked(body: Buffer) {
-  const parts: Buffer[] = [];
-  for (let offset = 0; ;) {
-    const headerEnd = body.indexOf("\r\n", offset);
-    const size = parseInt(body.subarray(offset, headerEnd).toString().split(";")[0], 16);
-    if (!size) return Buffer.concat(parts);
-    parts.push(body.subarray(headerEnd + 2, headerEnd + 2 + size));
-    offset = headerEnd + 2 + size + 2;
-  }
-}
-const objects = new Map<string, { bytes: Buffer; contentType: string }>();
 let storage: Server;
 
 const accounts: Array<{ email: string; companyId?: string }> = [];
@@ -41,23 +30,7 @@ let runtime: ReturnType<typeof import("@core/src/composition/event-bus")["create
 const globalEvents = globalThis as typeof globalThis & { __yoyosEvents?: typeof runtime };
 
 beforeAll(async () => {
-  storage = createServer((request, response) => {
-    const chunks: Buffer[] = [];
-    request.on("data", (chunk: Buffer) => chunks.push(chunk));
-    request.on("end", () => {
-      const key = request.url!.split("?")[0];
-      if (request.method === "PUT") {
-        const body = Buffer.concat(chunks);
-        const chunked = String(request.headers["x-amz-content-sha256"]).startsWith("STREAMING-");
-        objects.set(key, { bytes: chunked ? decodeAwsChunked(body) : body, contentType: String(request.headers["content-type"]) });
-        return response.writeHead(200).end();
-      }
-      const object = objects.get(key);
-      if (!object) return response.writeHead(404, { "content-type": "application/xml" }).end("<Error><Code>NoSuchKey</Code></Error>");
-      response.writeHead(200, { "content-type": object.contentType }).end(object.bytes);
-    });
-  });
-  await new Promise<void>(resolve => storage.listen(storagePort, "127.0.0.1", resolve));
+  storage = await startFakeS3(storagePort);
   // Consume message_created in this process with the real bus, handler and QR reader; the server only publishes.
   const { createEventBusRuntime } = await import("@core/src/composition/event-bus");
   runtime = createEventBusRuntime(true);
