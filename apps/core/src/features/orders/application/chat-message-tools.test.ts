@@ -47,6 +47,17 @@ describe("chat tool registry", () => {
     expect(names([])).toEqual(["add_products", "mark_order_ready", "no_intent", "report_item_change_without_order", "report_unnamed_add", "report_variant_without_product"]);
   });
 
+  test("asks for an unnamed reference only when the order has two or more items, since with one it means that item", () => {
+    const line = (label: string) => ({ label, variantId: item.variantId, productId, productName: "Polo", variantAttributes: { Talla: "M" }, quantity: 1, unitPrice: item.unitPrice });
+    const itemChoices = (items: ChatToolContext["items"]) => ["remove_item", "change_item_quantity", "change_item_variant", "set_item_mentioned_price"].map((name) => {
+      const args = registry.get(name)!.args;
+      const question = args.kind === "none" ? undefined : args.questions?.({ kind: "text", caption: "quítalo", items, shown: [] }).find((entry) => entry.name === "item");
+      return question?.choices.map(({ value }) => value);
+    });
+    for (const choices of itemChoices([line("I1")])) expect(choices).toEqual(["I1", "not_in_order"]);
+    for (const choices of itemChoices([line("I1"), line("I2")])) expect(choices).toEqual(["I1", "I2", "unnamed", "not_in_order", "ambiguous"]);
+  });
+
   test("builds a strict function schema for the tool with extracted arguments", () => {
     const tool = registry.get("add_shown_product_with_details")!;
     const schema = tool.jsonSchema(context);

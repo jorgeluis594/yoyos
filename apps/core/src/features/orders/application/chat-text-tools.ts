@@ -57,8 +57,23 @@ type ItemChoice = z.output<ReturnType<typeof itemChoice>>;
 
 const variantLabel = (item: ChatContextItem) => `${item.productName}${Object.values(item.variantAttributes).map((value) => ` ${value}`).join("")}`;
 
-/** Each item tool asks its own question, so a message about two items («agrega una gorra y quita el polo») is read per action. */
+/**
+ * Each item tool asks its own question, so a message about two items («agrega una gorra y quita el polo») is read per action. With a
+ * single item a reference without a name means that item (docs/message-to-order.md), so `unnamed` is not offered: both choices fit
+ * «quítalo» and the split confidence fell under ITEM_CHOICE_MIN_CONFIDENCE.
+ */
 function itemQuestion(context: ChatToolContext, instructions: string): DecisionChoiceQuestion {
+  const [only, ...others] = context.items;
+  if (only && others.length === 0) {
+    return {
+      name: "item",
+      instructions,
+      choices: [
+        { value: only.label, description: `${variantLabel(only)}, the only item of the open order, also when the message does not name it (ese, quítalo, mejor que sean 3)` },
+        { value: "not_in_order", description: "The message names a product the open order does not contain" },
+      ],
+    };
+  }
   return {
     name: "item",
     instructions,
