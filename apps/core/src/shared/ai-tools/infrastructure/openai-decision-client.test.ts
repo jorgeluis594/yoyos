@@ -37,6 +37,15 @@ describe("createOpenAiDecisionClient", () => {
     expect(body.questions.map(({ name, type }) => `${type}:${name}`)).toEqual(["choice:action", "predicate:predicate:remove_item", "choice:choice:remove_item:item"]);
   });
 
+  test("labels the buyer's message after the context so the models do not read the order as the request", async () => {
+    const { decide: run, bodies } = decide(async () => json({ model: "gpt-6-luna", answers }));
+    await run(request, new AbortController().signal);
+    const [message] = (bodies[0] as { input: { content: { type: string; text?: string }[] }[] }).input;
+    expect(message!.content.map(({ type }) => type)).toEqual(["input_text", "input_text"]);
+    expect(message!.content[0]!.text).toMatch(/Order: A, B\n\nThe buyer's message:$/);
+    expect(message!.content[1]!.text).toBe("quita la gorra");
+  });
+
   test("maps timeout, network, 429 and 5xx to AI provider unavailable", async () => {
     for (const respond of [hangUntilAborted, () => Promise.reject(new TypeError("fetch failed")), async () => json({ error: { message: "x" } }, 429), async () => json({ error: { message: "x" } }, 503)]) {
       const result = await decide(respond).decide(request, new AbortController().signal);

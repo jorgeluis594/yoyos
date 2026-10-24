@@ -66,7 +66,7 @@ export function createOpenAiDecisionClient(config: OpenAiDecisionClientConfig) {
     try {
       decision = await config.client.decisions.create({
         model: DECISION_MODEL,
-        input: [{ role: "user", content: [{ type: "input_text", text: `${INSTRUCTIONS}\n\n${request.contextText}` }, ...toDecisionInput(request.messageParts)] }],
+        input: [{ role: "user", content: [{ type: "input_text", text: `${INSTRUCTIONS}\n\n${request.contextText}\n\nThe buyer's message:` }, ...toDecisionInput(request.messageParts)] }],
         questions: toQuestions(request),
       }, { timeout: config.timeoutMs, maxRetries: 0, signal }); // the event bus owns retries
     } catch (cause) {
