@@ -68,6 +68,9 @@
 .data-table-container > div:not([data-mobile-table]) [data-slot="table"] { min-width: max-content; }
 
 .order-list-table [data-slot="table-cell"] { vertical-align: top; }
+/* Same width as the table's own container: where it reflows to cards the header checkbox is hidden, so this one takes over. */
+.order-list-section { container-type: inline-size; }
+.order-list-select-page { display: none; }
 .order-state-indicator summary { width: 2.5rem; height: 1rem; }
 .order-state-indicator summary::-webkit-details-marker { display: none; }
 @media (max-width: 48rem) {
@@ -75,6 +78,10 @@
 }
 
 @container (width < 48rem) {
+  .order-list-select-page { display: flex; }
+  /* The visible box stays 16px; its tap area grows to the touch-target size. */
+  .order-list-select-page [data-slot="checkbox"]::after,
+  [data-mobile-table="true"] [data-slot="checkbox"]::after { inset: calc((1rem - var(--touch-target-min-size)) / 2); }
   [data-mobile-table="true"] [data-slot="table-container"] { overflow: visible; }
   [data-mobile-table="true"] table,
   [data-mobile-table="true"] tbody { display: block; min-width: 0; }

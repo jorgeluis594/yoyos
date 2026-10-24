@@ -23,6 +23,13 @@ export function exclusionText(t: TFunction, exclusion: DispatchLabelExclusion): 
     : t(`dispatchLabels.excluded.${exclusion.code}`);
 }
 
+/** Phone browsers and browsers without a PDF viewer show an empty frame, so they get a link to the PDF instead. */
+export function canPreviewPdfInline(): boolean {
+  if (typeof navigator === "undefined") return true;
+  if (navigator.pdfViewerEnabled === false) return false;
+  return !window.matchMedia?.("(pointer: coarse)").matches;
+}
+
 type Loaded = Readonly<{ key: string; outcome: "failed" | Readonly<{ data: CreateDispatchLabelsResponse; url: string | null }> }>;
 
 type Props = Readonly<{
@@ -56,6 +63,7 @@ function PrintBody({ orderIds, orderNumber }: Readonly<{ orderIds: readonly stri
   const [attempt, setAttempt] = useState(0);
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const frame = useRef<HTMLIFrameElement>(null);
+  const [inline] = useState(canPreviewPdfInline);
   const ids = orderIds.join(",");
   const key = `${ids}|${size}|${attempt}`;
   const current = loaded?.key === key ? loaded.outcome : null;
@@ -83,6 +91,7 @@ function PrintBody({ orderIds, orderNumber }: Readonly<{ orderIds: readonly stri
   };
   const print = () => {
     if (!ready?.url) return;
+    if (!inline) { window.open(ready.url, "_blank", "noopener"); return; }
     try { frame.current?.contentWindow?.focus(); frame.current?.contentWindow?.print(); }
     catch { window.open(ready.url, "_blank", "noopener"); }
   };
@@ -97,7 +106,11 @@ function PrintBody({ orderIds, orderNumber }: Readonly<{ orderIds: readonly stri
       {current === null && <p role="status" className="flex h-64 items-center justify-center rounded-[var(--radius-card)] border bg-muted/30 text-sm text-muted-foreground">{t("dispatchLabels.loading")}</p>}
       {current === "failed" && <Alert variant="destructive"><AlertDescription className="flex flex-wrap items-center justify-between gap-3">
         {t("dispatchLabels.error")}<Button type="button" variant="outline" onClick={() => setAttempt(attempt + 1)}>{t("dispatchLabels.retry")}</Button></AlertDescription></Alert>}
-      {ready?.url && <figure className="flex flex-col gap-2">
+      {ready?.url && !inline && <div className="flex flex-col items-start gap-3 rounded-[var(--radius-card)] border bg-muted/30 p-4 text-sm">
+        <p>{t("dispatchLabels.noInlinePreview")}</p>
+        <Button asChild variant="outline"><a href={ready.url} target="_blank" rel="noreferrer">{t("dispatchLabels.openPdf")}</a></Button>
+      </div>}
+      {ready?.url && inline && <figure className="flex flex-col gap-2">
         <iframe ref={frame} src={ready.url} title={t("dispatchLabels.previewTitle")} className="h-[min(42dvh,24rem)] w-full rounded-[var(--radius-card)] border bg-muted/30" />
         <figcaption className="text-center text-xs text-muted-foreground">{t(`dispatchLabels.preview_${ready.data.size}`)}</figcaption>
       </figure>}

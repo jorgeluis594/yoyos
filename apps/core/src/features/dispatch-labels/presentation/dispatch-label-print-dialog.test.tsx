@@ -33,11 +33,18 @@ beforeEach(() => {
     requests.push(JSON.parse(String(init?.body)));
     return (answers.shift() ?? (async () => { throw new Error("unexpected request"); }))();
   }));
+  setDevice({});
   URL.createObjectURL = vi.fn(() => "blob:preview");
   URL.revokeObjectURL = vi.fn();
   container = document.body.appendChild(document.createElement("div"));
 });
 afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove(); vi.unstubAllGlobals(); vi.restoreAllMocks(); });
+
+/** `pdfViewerEnabled` and the coarse pointer decide whether the browser can show a PDF inline. */
+function setDevice({ pdfViewerEnabled, coarse = false }: { pdfViewerEnabled?: boolean; coarse?: boolean }) {
+  Object.defineProperty(navigator, "pdfViewerEnabled", { value: pdfViewerEnabled, configurable: true });
+  window.matchMedia = ((query: string) => ({ matches: coarse && query.includes("coarse"), media: query, addEventListener: () => undefined, removeEventListener: () => undefined })) as unknown as typeof window.matchMedia;
+}
 
 const json = (body: CreateDispatchLabelsResponse, status = 200) => async () => Response.json(body, { status });
 
@@ -167,4 +174,36 @@ test("several orders download with the date in Lima", async () => {
 
     expect(downloads).toEqual(["rotulos-2026-10-23.pdf"]);
   } finally { vi.useRealTimers(); }
+});
+
+test.each([
+  ["a browser without a PDF viewer", { pdfViewerEnabled: false }],
+  ["a phone with a coarse pointer", { pdfViewerEnabled: true, coarse: true }],
+  ["a coarse pointer that does not say whether it has a viewer", { coarse: true }],
+])("on %s the empty preview is replaced by a note and a link, and Imprimir opens the PDF in a new tab", async (_name, device) => {
+  setDevice(device);
+  answers.push(json(ready()));
+  const open = vi.spyOn(window, "open").mockReturnValue(null);
+
+  await mount({ orderIds: [first], orderNumber: 7 });
+
+  expect(frame()).toBeNull();
+  expect(body().textContent).toContain("Tu navegador no muestra el PDF aquí");
+  const openLink = body().querySelector<HTMLAnchorElement>('a[target="_blank"]')!;
+  expect(openLink.textContent).toBe("Abrir PDF");
+  expect(openLink.getAttribute("rel")).toBe("noreferrer");
+  expect(openLink.getAttribute("href")).toBe("blob:preview");
+  expect(button("Descargar PDF")?.disabled).toBe(false);
+  await act(async () => button("Imprimir")!.click());
+  expect(open).toHaveBeenCalledWith("blob:preview", "_blank", "noopener");
+});
+
+test("a desktop browser with a PDF viewer keeps the inline preview", async () => {
+  setDevice({ pdfViewerEnabled: true });
+  answers.push(json(ready()));
+
+  await mount({ orderIds: [first], orderNumber: 7 });
+
+  expect(frame()).not.toBeNull();
+  expect(body().textContent).not.toContain("Tu navegador no muestra el PDF aquí");
 });

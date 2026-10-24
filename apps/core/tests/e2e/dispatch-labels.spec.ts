@@ -50,12 +50,16 @@ async function cleanup(companyId: string | undefined, email: string) {
   });
 }
 
+/** Headless Chromium has no PDF viewer; a desktop browser does, and that is what the inline preview needs. */
+const withPdfViewer = (page: Page) => page.addInitScript(() => Object.defineProperty(navigator, "pdfViewerEnabled", { get: () => true }));
+
 const snapshot = (companyId: string) => withTenantIsolation(companyId, async () => JSON.stringify(await prisma.order.findMany({ orderBy: { number: "asc" } }), (_key, value) => typeof value === "bigint" ? value.toString() : value));
 
 test("seller prints one label from the order detail, switches to A4 and sees why a pickup order has none", async ({ page }) => {
   const email = `dispatch-labels-one-${randomUUID()}@example.test`;
   let companyId: string | undefined;
   try {
+    await withPdfViewer(page);
     const prepared = await prepareOrders(page, email);
     companyId = prepared.companyId;
     const { home: homeOrder, pickup } = prepared.orders;
@@ -110,6 +114,7 @@ test("seller selects orders across pages, sees what will be skipped and prints o
   const email = `dispatch-labels-bulk-${randomUUID()}@example.test`;
   let companyId: string | undefined;
   try {
+    await withPdfViewer(page);
     const prepared = await prepareOrders(page, email);
     companyId = prepared.companyId;
     const { filler0, home: homeOrder, none, cancelled } = prepared.orders;
@@ -151,6 +156,17 @@ test("seller selects orders across pages, sees what will be skipped and prints o
     await browserExpect(row(cancelled.number)).toContainText("Cancelado · se omitirá");
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+    // Phones have no table header: a visible control selects the page, and a row checkbox answers taps well outside its 16 px box.
+    const selectPage = page.getByRole("checkbox", { name: "Seleccionar página" });
+    await browserExpect(selectPage).toBeVisible();
+    const target = (await pick(homeOrder.number).boundingBox())!;
+    expect(target.width).toBeLessThan(20);
+    await browserExpect(pick(homeOrder.number)).toBeChecked();
+    await page.mouse.click(target.x + target.width / 2 + 20, target.y + target.height / 2);
+    await browserExpect(pick(homeOrder.number)).not.toBeChecked();
+    await selectPage.click();
+    await browserExpect(selectPage).toBeChecked();
+    await browserExpect(pick(none.number)).toBeChecked();
     await page.screenshot({ path: "test-results/dispatch-label-bulk-bar-mobile.png", animations: "disabled" });
     await page.setViewportSize({ width: 1280, height: 900 });
 
@@ -160,5 +176,25 @@ test("seller selects orders across pages, sees what will be skipped and prints o
     await browserExpect(pick(filler0.number)).not.toBeChecked();
 
     expect(await snapshot(companyId)).toBe(before);
+  } finally { await cleanup(companyId, email); }
+});
+
+test("a browser that cannot show PDFs inline gets a note and opens the PDF in a new tab", async ({ page }) => {
+  const email = `dispatch-labels-noviewer-${randomUUID()}@example.test`;
+  let companyId: string | undefined;
+  try {
+    const prepared = await prepareOrders(page, email);
+    companyId = prepared.companyId;
+    await page.goto(`/es-PE/orders/${prepared.orders.home.id}`);
+    await page.getByRole("button", { name: "Imprimir rótulo", exact: true }).click();
+    const dialog = page.getByRole("dialog", { name: /Imprimir rótulo/ });
+
+    await browserExpect(dialog.getByText("Tu navegador no muestra el PDF aquí")).toBeVisible();
+    await browserExpect(dialog.locator("iframe")).toHaveCount(0);
+    await browserExpect(dialog.getByRole("link", { name: "Abrir PDF" })).toHaveAttribute("href", /^blob:/);
+    const popup = page.waitForEvent("popup");
+    await dialog.getByRole("button", { name: "Imprimir", exact: true }).click();
+    // Headless Chromium downloads the PDF instead of showing it, so the tab opening is what can be observed here; its URL is unit-tested.
+    await popup;
   } finally { await cleanup(companyId, email); }
 });

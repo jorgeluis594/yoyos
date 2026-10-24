@@ -121,7 +121,13 @@ export default function OrderList() {
       </Button>)}
     </nav>
     <FilterBar key={search} searchName="search" searchValue={filters.search ?? ""} searchLabel={t("orders.listSearch")} submitLabel={t("orders.listSearchSubmit")} hiddenFields={activeFilterInputs} action={<OrderFilterSheet key={search} filters={filters} base={base} />} />
-    <DataTable className="order-list-table mt-6" columns={columns} caption={t("orders.allOrders")} data={list.items} getRowId={(item) => item.id} getRowClassName={(item) => labels.selection[item.id] ? "bg-muted/40" : ""} emptyMessage={<Empty><EmptyDescription>{t(filtered ? "orders.emptyFiltered" : "orders.listEmpty")}</EmptyDescription>{filtered && <EmptyContent><Button asChild variant="link"><Link to={base}>{t("orders.clear")}</Link></Button></EmptyContent>}</Empty>} />
+    <div className="order-list-section mt-6">
+      <label className="order-list-select-page flex min-h-touch items-center gap-3 px-1 text-sm font-medium">
+        <Checkbox aria-label={t("dispatchLabels.selectPageShort")} disabled={pageOrders.length === 0} checked={pageState === "all" ? true : pageState === "some" ? "indeterminate" : false} onCheckedChange={() => labels.togglePage(pageOrders)} />
+        <span aria-hidden="true">{t("dispatchLabels.selectPageShort")}</span>
+      </label>
+      <DataTable className="order-list-table" columns={columns} caption={t("orders.allOrders")} data={list.items} getRowId={(item) => item.id} getRowClassName={(item) => labels.selection[item.id] ? "bg-muted/40" : ""} emptyMessage={<Empty><EmptyDescription>{t(filtered ? "orders.emptyFiltered" : "orders.listEmpty")}</EmptyDescription>{filtered && <EmptyContent><Button asChild variant="link"><Link to={base}>{t("orders.clear")}</Link></Button></EmptyContent>}</Empty>} />
+    </div>
     <Pagination aria-label={t("orders.pages")} className="mt-6 items-center justify-end gap-2"><span className="mr-auto text-sm text-muted-foreground">{t("orders.page", { page: list.page })}</span>
       <PaginationContent>
         {list.page > 1 && <PaginationItem><PaginationPrevious asChild><Link to={listUrl(list.page - 1)}>{t("orders.previous")}</Link></PaginationPrevious></PaginationItem>}

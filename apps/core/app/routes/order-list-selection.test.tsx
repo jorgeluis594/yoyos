@@ -132,3 +132,19 @@ test("the print button opens the dialog with only the printable orders", async (
   expect(requests).toEqual([{ orderIds: [id(1)], size: "label_62x100" }]);
   expect(document.body.querySelector('[role="dialog"]')?.textContent).toContain("Imprimir rótulos");
 });
+
+test("the narrow-screen control selects the page like the header checkbox and mirrors its state", async () => {
+  await mount();
+  const narrow = () => container.querySelector<HTMLElement>('[role="checkbox"][aria-label="Seleccionar página"]')!;
+
+  await click(narrow());
+  expect(bar()?.textContent).toContain("3 pedidos seleccionados");
+  expect(narrow().getAttribute("aria-checked")).toBe("true");
+  expect(checkbox("Seleccionar los pedidos de esta página").getAttribute("aria-checked")).toBe("true");
+
+  await click(checkbox("Seleccionar el pedido #1"));
+  expect(narrow().getAttribute("aria-checked")).toBe("mixed");
+  await click(narrow());
+  await click(narrow());
+  expect(bar()).toBeNull();
+});
