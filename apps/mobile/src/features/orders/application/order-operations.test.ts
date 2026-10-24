@@ -288,3 +288,14 @@ test("saved review reconstructs current products while preserving missing refere
   expect(await operations.loadPendingOrderReview(companyId, id(7))).toMatchObject({ success: false, error: { code: "PENDING_CONFIRMATION" } });
   expect(await store.read(companyId, id(3))).toEqual(ok(original));
 });
+
+test("maps a conflicting rejection to already reviewed", async () => {
+  const failing = (code: string, status: number) => createOrderApi(async () => err({ code: "API_ERROR", message: "Failed",
+    http: { status, body: { code, error: "Failed" } } }));
+  const reject = (api: ReturnType<typeof createOrderApi>) => createOrderOperations(api, storage()).rejectPayment(id(1), id(2), null);
+  expect(await reject(failing("PAYMENT_CONFLICT", 409))).toEqual({ kind: "already_reviewed" });
+  expect(await reject(failing("INVALID_TRANSITION", 409))).toEqual({ kind: "already_reviewed" });
+  expect(await reject(failing("ORDER_CANCELLED", 409))).toEqual({ kind: "order_cancelled" });
+  expect(await reject(createOrderApi(async () => err({ code: "NETWORK_ERROR", message: "Offline" })))).toEqual({ kind: "unknown" });
+  expect(await reject(failing("INVALID_PAYMENT", 422))).toMatchObject({ kind: "failed", error: { code: "INVALID_PAYMENT" } });
+});
