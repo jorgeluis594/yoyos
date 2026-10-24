@@ -296,6 +296,7 @@ test.describe("buyer checkout with appearance", () => {
         await page.keyboard.press("ArrowDown");
         const active = page.locator("[role=option][data-highlighted]");
         await browserExpect(active).toHaveCount(1);
+        await browserExpect(active).toHaveCSS("outline-style", "solid");
         await browserExpect(active).toHaveCSS("outline-width", "2px");
         await browserExpect(active).toHaveCSS("outline-color", rgb(storeThemes[id].colors.ring));
         await page.keyboard.press("Escape");

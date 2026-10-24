@@ -49,7 +49,7 @@ function ComboboxItem({ className, ...props }: React.ComponentProps<typeof Combo
   return (
     <ComboboxPrimitive.Item
       data-slot="combobox-item"
-      className={cn("flex min-h-10 cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[highlighted]:outline-2 data-[highlighted]:-outline-offset-2 data-[highlighted]:outline-ring data-[selected]:font-medium data-[disabled]:pointer-events-none data-[disabled]:opacity-50", className)}
+      className={cn("flex min-h-10 cursor-default items-center rounded-sm px-2 py-1.5 text-sm outline-none select-none data-[highlighted]:bg-accent data-[highlighted]:text-accent-foreground data-[highlighted]:outline-solid data-[highlighted]:outline-2 data-[highlighted]:-outline-offset-2 data-[highlighted]:outline-ring data-[selected]:font-medium data-[disabled]:pointer-events-none data-[disabled]:opacity-50", className)}
       {...props}
     />
   );
