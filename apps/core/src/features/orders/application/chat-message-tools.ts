@@ -3,7 +3,6 @@ import { ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import { defineTool, defineToolRegistry, type RegisteredTool, type ToolRegistry } from "@core/src/shared/ai-tools/application/tool-registry";
-import { parseMentionedPrice, type MentionedPriceArgs } from "@core/src/features/orders/domain/mentioned-price";
 import type { ReportOutcome, ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
 import type { ProductIdentification } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
@@ -11,7 +10,7 @@ import type { ProductId, VariantId } from "@core/src/features/products/domain/pr
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
 import type { ProductMatcherError, ProductWithSellableVariants, VariantResolution } from "@core/src/features/products/domain/text-identification";
 import type { identifyProductsInText, findTopTextCandidate } from "@core/src/features/products/application/identify-product-in-text";
-import { createChatTextTools, mentionedPriceArgs } from "@core/src/features/orders/application/chat-text-tools";
+import { createChatTextTools, mentionedPriceArgs, priceOf } from "@core/src/features/orders/application/chat-text-tools";
 import type { resolveVariant } from "@core/src/features/products/application/resolve-variant";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
@@ -62,26 +61,36 @@ export type ChatToolDependencies = Readonly<{
 export type ChatToolRegistry = ToolRegistry<ChatToolContext, ResolvedChatAction, ToolResolveError>;
 export type ChatTool = RegisteredTool<ChatToolContext, ResolvedChatAction, ToolResolveError>;
 
-/** The kinds of message each tool is offered for. */
-export const chatToolKinds: Readonly<Record<string, readonly ChatMessageKind[]>> = {
-  add_shown_product: ["photo_product"],
-  add_shown_product_with_details: ["photo_product"],
-  decline_shown_product: ["photo_product"],
-  report_request_with_non_product_image: ["photo_not_product"],
-  no_intent: ["photo_product", "photo_not_product", "text"],
-  add_products: ["text"],
-  remove_item: ["text"],
-  change_item_quantity: ["text"],
-  change_item_variant: ["text"],
-  set_item_mentioned_price: ["text"],
-  mark_order_ready: ["text"],
-  report_variant_without_product: ["text"],
-  report_unnamed_add: ["text"],
+/** When a tool is offered: the kinds of message it serves and, when it matters, whether the open order has items. */
+type ToolOffer = Readonly<{ kinds: readonly ChatMessageKind[]; items?: "some" | "none" }>;
+
+/**
+ * Tools that act on an item are offered only when the order has items, and one report takes their place otherwise: every offered tool
+ * spreads the Decision's confidence, and an item tool fits «quiero 3 mochilas» or «a 45 soles» almost as well as adding does.
+ */
+export const chatToolOffers: Readonly<Record<string, ToolOffer>> = {
+  add_shown_product: { kinds: ["photo_product"] },
+  add_shown_product_with_details: { kinds: ["photo_product"] },
+  decline_shown_product: { kinds: ["photo_product"] },
+  report_request_with_non_product_image: { kinds: ["photo_not_product"] },
+  no_intent: { kinds: ["photo_product", "photo_not_product", "text"] },
+  add_products: { kinds: ["text"] },
+  remove_item: { kinds: ["text"], items: "some" },
+  change_item_quantity: { kinds: ["text"], items: "some" },
+  change_item_variant: { kinds: ["text"], items: "some" },
+  set_item_mentioned_price: { kinds: ["text"], items: "some" },
+  mark_order_ready: { kinds: ["text"] },
+  report_variant_without_product: { kinds: ["text"] },
+  report_unnamed_add: { kinds: ["text"] },
+  report_item_change_without_order: { kinds: ["text"], items: "none" },
 };
 
-/** The registered tools offered for a kind of message. */
-export function toolsForKind(registry: ChatToolRegistry, kind: ChatMessageKind): readonly ChatTool[] {
-  return registry.tools.filter((tool) => chatToolKinds[tool.name]?.includes(kind));
+const offeredFor = (offer: ToolOffer | undefined, context: Pick<ChatToolContext, "kind" | "items">) =>
+  !!offer && offer.kinds.includes(context.kind) && (!offer.items || (offer.items === "some") === (context.items.length > 0));
+
+/** The registered tools offered for a message, by its kind and the items of its open order. */
+export function toolsFor(registry: ChatToolRegistry, context: Pick<ChatToolContext, "kind" | "items">): readonly ChatTool[] {
+  return registry.tools.filter((tool) => offeredFor(chatToolOffers[tool.name], context));
 }
 
 /** A caption without a letter or digit (an emoji, punctuation) says nothing a model could read. */
@@ -99,7 +108,7 @@ const noArgs = z.object({});
 
 const report = (outcome: ReportOutcome): readonly ResolvedChatAction[] => [{ kind: "report", outcome }];
 
-type Details = Readonly<{ words: readonly string[]; quantity: number | null; perEach: boolean; mentionedPrice: MentionedPriceArgs | null }>;
+type Details = Readonly<{ words: readonly string[]; quantity: number | null; perEach: boolean; mentionedPrice: DetailsArgs["mentionedPrice"] }>;
 
 /** Adds what the photo shows. The variant, quantity and price come only from the caption; the product always comes from the photo. */
 async function addShownProducts(context: ChatToolContext, deps: ChatToolDependencies, signal: AbortSignal, details: Details): Promise<Result<readonly ResolvedChatAction[], ToolResolveError>> {
@@ -119,11 +128,11 @@ async function addShownProducts(context: ChatToolContext, deps: ChatToolDependen
     const item = resolution.data.item;
     if (!resolved.some((other) => other.item.variantId === item.variantId)) resolved.push({ entry, item });
   }
-  // A quantity or price is only unambiguous for a single thing; «2 de cada uno» spreads over the products of the photo.
+  // A quantity or price is only unambiguous for a single thing; «tres de cada uno» spreads over the products of the photo.
   const single = resolved.length + actions.length === 1;
   for (const { entry, item } of resolved) {
     const quantity = (details.perEach || single ? details.quantity ?? 1 : 1) as PositiveInteger;
-    const mentionedPrice = single && details.mentionedPrice ? parseMentionedPrice(details.mentionedPrice, item.unitPrice.currency) : null;
+    const mentionedPrice = single ? priceOf(details.mentionedPrice, item.unitPrice.currency) : null;
     actions.push({ kind: "add", item, quantity, mentionedPrice, identification: entry.identification });
   }
   return ok(actions);
@@ -134,13 +143,14 @@ export function createChatToolRegistry(deps: ChatToolDependencies): ChatToolRegi
   return defineToolRegistry<ChatToolContext, ResolvedChatAction, ToolResolveError>([
     defineTool({
       name: "add_shown_product",
-      description: "The buyer wants the product in the photo. The caption states no variant, quantity or price for it.",
+      description: "The buyer wants the product in the photo, and the caption gives no size, color, quantity or price for it.",
       args: { kind: "none" }, schema: () => noArgs,
       resolve: (_args, context, signal) => addShownProducts(context, deps, signal, { words: [], quantity: null, perEach: false, mentionedPrice: null }),
     }),
     defineTool({
       name: "add_shown_product_with_details",
-      description: "The caption states a variant (size, color), a quantity (including «2 de cada uno») or a price for the product in the photo. "
+      description: "The caption gives a size, color, quantity (including «tres de cada uno») or price for the product in the photo, even in one or two words "
+        + "(«en XS», «talla XS», «XS celeste», «3»). "
         + "Give the variant words as written, the quantity only if stated, perEach true when the quantity is for each product of the photo, and the price as stated.",
       args: { kind: "extracted" }, schema: () => detailsArgs,
       resolve: (args: DetailsArgs, context, signal) => addShownProducts(context, deps, signal,
@@ -154,13 +164,17 @@ export function createChatToolRegistry(deps: ChatToolDependencies): ChatToolRegi
     }),
     defineTool({
       name: "report_request_with_non_product_image",
-      description: "The image is not a product and the caption asks to add, remove or change something in the order.",
+      description: "The image is not a product and the caption asks to add, remove or change something in the order, "
+        + "even when it names the product to add («y súmale una mochila»).",
       args: { kind: "none" }, schema: () => noArgs,
       resolve: async () => ok(report({ kind: "image_with_request" })),
     }),
     defineTool({
       name: "no_intent",
-      description: "Greetings, questions, addresses, thanks, payment reports: the message asks nothing of the order.",
+      description: "The message asks for nothing to be added, removed or changed: greetings, questions about prices, availability or delivery, addresses, thanks, "
+        + "payment reports. Never a message that names a product to buy, even without a verb («chaleco acolchado celeste XS x3», a list of products), "
+        + "or that only gives a size, color or quantity, even in one word («celeste», «en XS», «talla XS»). "
+        + "A question followed by a request («hay la casaca? si queda me la guardas») asks for the product.",
       args: { kind: "none" }, schema: () => noArgs,
       resolve: async () => ok(report({ kind: "no_intent" })),
     }),

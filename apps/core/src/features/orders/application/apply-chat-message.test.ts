@@ -197,7 +197,7 @@ describe("applyChatMessage: photos", () => {
   test("keeps the mentioned price of a caption as a note on the added item", async () => {
     const h = harness({ message: photoMessage({ caption: "a 20 soles" }), identification: visual(productCap),
       decision: () => answer("add_shown_product_with_details"),
-      extraction: () => [{ tool: "add_shown_product_with_details", args: { variantWords: [], quantity: null, perEach: false, mentionedPrice: { amount: "20", units: 1, currency: "order_currency" } } }] });
+      extraction: () => [{ tool: "add_shown_product_with_details", args: { variantWords: [], quantity: null, perEach: false, mentionedPrice: { amount: "20", units: 1, currency: "not_named" } } }] });
     await h.run();
     const [order] = [...h.store.orders.values()];
     expect(order!.items[0]).toMatchObject({ unitPrice: money(25), mentionedPrice: { amount: money(20), units: 1 } });
@@ -311,6 +311,7 @@ describe("applyChatMessage: photos", () => {
     const h = harness({ message: photoMessage({ caption: "y agrégame una gorra negra" }), identification: notProduct, decision: () => answer("report_request_with_non_product_image") });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "image_with_request" }], noticeDue: true });
     expect(h.decisions[0]!.action.choices.map(({ value }) => value).sort()).toEqual(["no_intent", "report_request_with_non_product_image", "several"]);
+    expect(h.decisions[0]!.contextText).toContain("The photo does not show a catalog product.");
   });
 
   test("records no intent for a transfer screenshot whose caption only reports the payment", async () => {
@@ -491,7 +492,9 @@ describe("applyChatMessage: text tools", () => {
   const found = (productId: ProductId, confidence = 0.9): TextIdentification => ({ kind: "found", productId, confidence });
   const decided = (choice: string, choices: DecisionAnswers["choices"] = {}, predicates: Record<string, number> = {}, confidence = 0.95): DecisionAnswers =>
     ({ action: { choice, confidence }, predicates, choices });
-  const itemChoice = (tool: string, value: string, confidence = 0.95): DecisionAnswers["choices"] => ({ [`${tool}:item`]: { value, confidence } });
+  // The reference answer is only read when the order has a single item.
+  const itemChoice = (tool: string, value: string, confidence = 0.95, reference: "named" | "unnamed" = "named"): DecisionAnswers["choices"] =>
+    ({ [`${tool}:item`]: { value, confidence }, [`${tool}:reference`]: { value: reference, confidence: 0.9 } });
   const removal = (value: string, confidence = 0.95, amount: "all" | "one" = "all"): DecisionAnswers["choices"] =>
     ({ ...itemChoice("remove_item", value, confidence), "remove_item:amount": { value: amount, confidence: 0.95 } });
   const add = (productMention: string, variantWords: string[] = [], quantity: number | null = null) => ({ productMention, variantWords, quantity, mentionedPrice: null });
@@ -520,26 +523,28 @@ describe("applyChatMessage: text tools", () => {
     for (const target of [undefined, capAndPolo()]) {
       const hints: Array<number | null> = [];
       const h = harness({ message: textMessage("el polo de 35"), target, textLookup: textLookup(hints), decision: () => decided("add_products"),
-        extraction: () => [{ tool: "add_products", args: { lines: [{ productMention: "polo", variantWords: ["M"], quantity: null, mentionedPrice: { amount: "35", units: 1, currency: "order_currency" } }] } }] });
+        extraction: () => [{ tool: "add_products", args: { lines: [{ productMention: "polo", variantWords: ["M"], quantity: null, mentionedPrice: { amount: "35", units: 1, currency: "not_named" } }] } }] });
       expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: poloM.variantId, identification: { productId: productPolo } }] });
       expect(hints).toEqual([35]);
     }
   });
 
-  test("gives no price hint for a price in another currency and the unit amount for a price stated for several units", async () => {
-    const hints: Array<number | null> = [];
+  test("gives no price hint for a price in another currency, the unit amount for several units, and the named currency without an order", async () => {
+    const hints: Array<[number | null, string | null]> = [];
     const only = (productId: ProductId, name: string): TextCandidate => ({ productId, name, minPrice: money(35), maxPrice: money(35), similarity: 0.9 });
     const textLookup: IdentifyProductInTextDependencies = {
       findTextCandidates: async (queries) => ok(queries.map(() => [only(productPolo, "Polo básico")])),
-      chooseTextProduct: async ({ priceHint }) => { hints.push(priceHint); return ok({ productId: null, confidence: 0, probabilities: [] }); },
+      chooseTextProduct: async ({ priceHint, priceHintCurrency }) => { hints.push([priceHint, priceHintCurrency ?? null]); return ok({ productId: null, confidence: 0, probabilities: [] }); },
       minConfidence: 0.8, unclearMinProbability: 0.25,
     };
     const h = harness({ message: textMessage("polo a 5 dólares y gorra 50 por 2"), textLookup, decision: () => decided("add_products"),
       extraction: () => [{ tool: "add_products", args: { lines: [
         { productMention: "polo", variantWords: [], quantity: null, mentionedPrice: { amount: "5", units: 1, currency: "other" } },
-        { productMention: "gorra", variantWords: [], quantity: null, mentionedPrice: { amount: "50", units: 2, currency: "order_currency" } }] } }] });
+        { productMention: "gorra", variantWords: [], quantity: null, mentionedPrice: { amount: "50", units: 2, currency: "not_named" } },
+        { productMention: "polo", variantWords: [], quantity: null, mentionedPrice: { amount: "35", units: 1, currency: "PEN" } }] } }] });
     await h.run();
-    expect(hints).toEqual([null, 25]);
+    // Without an open order «35 soles» keeps its currency, so products compares it only with prices in soles.
+    expect(hints).toEqual([[null, null], [25, null], [35, "PEN"]]);
   });
 
   test("resolves ten add lines with one candidates query and at most four sequential model calls", async () => {
@@ -607,14 +612,18 @@ describe("applyChatMessage: text tools", () => {
   });
 
   test("keeps the mentioned price of a text line as a note and drops one in another currency", async () => {
-    const priced = (currency: "order_currency" | "other") => harness({ message: textMessage("una gorra a 20"), identify: { gorra: found(productCap) }, decision: () => decided("add_products"),
+    const priced = (currency: string) => harness({ message: textMessage("una gorra a 20"), identify: { gorra: found(productCap) }, decision: () => decided("add_products"),
       extraction: () => [{ tool: "add_products", args: { lines: [{ productMention: "gorra", variantWords: [], quantity: null, mentionedPrice: { amount: "20", units: 1, currency } }] } }] });
-    const kept = priced("order_currency");
-    await kept.run();
-    expect([...kept.store.orders.values()][0]!.items[0]).toMatchObject({ mentionedPrice: { amount: money(20), units: 1 } });
-    const dropped = priced("other");
-    await dropped.run();
-    expect([...dropped.store.orders.values()][0]!.items[0]!.mentionedPrice).toBeNull();
+    for (const currency of ["not_named", "PEN"]) {
+      const kept = priced(currency);
+      await kept.run();
+      expect([...kept.store.orders.values()][0]!.items[0]).toMatchObject({ mentionedPrice: { amount: money(20), units: 1 } });
+    }
+    for (const currency of ["USD", "other"]) {
+      const dropped = priced(currency);
+      await dropped.run();
+      expect([...dropped.store.orders.values()][0]!.items[0]!.mentionedPrice).toBeNull();
+    }
   });
 
   test("adds to the open order and creates neither a customer nor a number", async () => {
@@ -647,10 +656,17 @@ describe("applyChatMessage: text tools", () => {
   test("reports an unclear item when the decision step cannot tell which item or how many", async () => {
     const ambiguous = harness({ message: textMessage("quita el polo"), target: twoPolos(), decision: () => decided("remove_item", removal("ambiguous")) });
     expect(await succeeded(ambiguous.run())).toMatchObject({ outcomes: [{ kind: "unclear_item", namedItem: true }] });
-    const unsureAmount = harness({ message: textMessage("quita un polo"), target: twoPolos(),
+    const unsureAmount = harness({ message: textMessage("quita un polo"), target: openWith(line(1, poloM, 3), line(2, poloL)),
       decision: () => decided("remove_item", { ...itemChoice("remove_item", "I1"), "remove_item:amount": { value: "one", confidence: 0.4 } }) });
     expect(await succeeded(unsureAmount.run())).toMatchObject({ outcomes: [{ kind: "unclear_item" }] });
-    expect(quantities(unsureAmount.store)).toEqual({ [poloM.variantId]: 1, [poloL.variantId]: 1 });
+    expect(quantities(unsureAmount.store)).toEqual({ [poloM.variantId]: 3, [poloL.variantId]: 1 });
+  });
+
+  test("removes an item of one unit however unsure the amount choice is, since the whole item and one unit are the same", async () => {
+    const h = harness({ message: textMessage("saca la gorrita"), target: capAndPolo(),
+      decision: () => decided("remove_item", { ...itemChoice("remove_item", "I1"), "remove_item:amount": { value: "all", confidence: 0.58 } }) });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "removed", variantId: cap.variantId, namedItem: true }] });
+    expect(quantities(h.store)).toEqual({ [poloM.variantId]: 1 });
   });
 
   test("does not call an unnamed reference a named item when the choice is below the minimum", async () => {
@@ -672,9 +688,21 @@ describe("applyChatMessage: text tools", () => {
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "unclear_item", namedItem: false }] });
   });
 
-  test("reports no open order for a removal when the chat has none", async () => {
-    const h = harness({ message: textMessage("quita la gorra"), decision: () => decided("remove_item", removal("unnamed")) });
+  test("records whether the message named the only item, while changing that item either way", async () => {
+    for (const [reference, namedItem] of [["unnamed", false], ["named", true]] as const) {
+      const h = harness({ message: textMessage("que sean cuatro"), target: openWith(line(1, cap)),
+        decision: () => decided("change_item_quantity", itemChoice("change_item_quantity", "I1", 0.95, reference)),
+        extraction: () => [{ tool: "change_item_quantity", args: { quantity: 4 } }] });
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "quantity_changed", variantId: cap.variantId, quantity: 4, namedItem }] });
+      expect(h.decisions[0]!.choices.find(({ id }) => id === "change_item_quantity:reference")?.choices.map(({ value }) => value)).toEqual(["named", "unnamed"]);
+    }
+  });
+
+  test("reports no open order for a removal when the chat has none, offering no item tool", async () => {
+    const h = harness({ message: textMessage("quita la gorra"), decision: () => decided("report_item_change_without_order") });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "no_open_order" }], noticeDue: true });
+    expect(h.decisions[0]!.action.choices.map(({ value }) => value)).not.toContain("remove_item");
+    expect(h.decisions[0]!.choices).toEqual([]);
   });
 
   test("runs two tools without extracted arguments without calling the extraction model", async () => {
@@ -772,15 +800,21 @@ describe("applyChatMessage: text tools", () => {
     expect(quantities(h.store)).toEqual({ [poloM.variantId]: 1 });
   });
 
-  test("reports no open order for a variant change when the chat has no order", async () => {
-    const h = harness({ message: textMessage("mejor en talla L"), decision: () => decided("change_item_variant", itemChoice("change_item_variant", "unnamed")),
-      extraction: () => [{ tool: "change_item_variant", args: { variantWords: ["L"], mentionedPrice: null } }] });
+  test("reports the closed order for a change once the chat's order closed", async () => {
+    const h = harness({ message: textMessage("quita la gorra"), target: { kind: "closed", orderId: id(9) as OrderId, number: 1023 as OrderNumber },
+      decision: () => decided("report_item_change_without_order") });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "order_closed", orderId: id(9) }], noticeDue: true });
+  });
+
+  test("reports no open order for a variant change when the chat has no order, without an extraction call", async () => {
+    const h = harness({ message: textMessage("cámbialo a talla L"), decision: () => decided("report_item_change_without_order") });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "no_open_order" }] });
+    expect(h.extractions).toHaveLength(0);
   });
 
   test("sets the mentioned price of the chosen item as a note", async () => {
     const h = harness({ message: textMessage("la gorra a 20"), target: capAndPolo(), decision: () => decided("set_item_mentioned_price", itemChoice("set_item_mentioned_price", "I1")),
-      extraction: () => [{ tool: "set_item_mentioned_price", args: { mentionedPrice: { amount: "50", units: 3, currency: "order_currency" } } }] });
+      extraction: () => [{ tool: "set_item_mentioned_price", args: { mentionedPrice: { amount: "50", units: 3, currency: "not_named" } } }] });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "mentioned_price_set", variantId: cap.variantId }] });
     expect([...h.store.orders.values()][0]!.items[0]).toMatchObject({ mentionedPrice: { amount: money(50), units: 3 } });
   });
@@ -801,9 +835,9 @@ describe("applyChatMessage: text tools", () => {
   test("runs the photo with «a 20 soles», «la gorra en 25 está bien» and «quita la gorra» in sequence: the note appears, disappears and goes with the item", async () => {
     const texts: Record<string, { decision: DecisionAnswers; extraction?: readonly ToolCall[] }> = {
       "a 20 soles": { decision: answer("add_shown_product_with_details"),
-        extraction: [{ tool: "add_shown_product_with_details", args: { variantWords: [], quantity: null, perEach: false, mentionedPrice: { amount: "20", units: 1, currency: "order_currency" } } }] },
+        extraction: [{ tool: "add_shown_product_with_details", args: { variantWords: [], quantity: null, perEach: false, mentionedPrice: { amount: "20", units: 1, currency: "not_named" } } }] },
       "la gorra en 25 está bien": { decision: decided("set_item_mentioned_price", itemChoice("set_item_mentioned_price", "I2")),
-        extraction: [{ tool: "set_item_mentioned_price", args: { mentionedPrice: { amount: "25", units: 1, currency: "order_currency" } } }] },
+        extraction: [{ tool: "set_item_mentioned_price", args: { mentionedPrice: { amount: "25", units: 1, currency: "not_named" } } }] },
       "quita la gorra": { decision: decided("remove_item", removal("I2")) },
     };
     const target = openWith(line(1, poloM));

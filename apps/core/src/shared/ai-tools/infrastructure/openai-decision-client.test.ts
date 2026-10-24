@@ -37,6 +37,15 @@ describe("createOpenAiDecisionClient", () => {
     expect(body.questions.map(({ name, type }) => `${type}:${name}`)).toEqual(["choice:action", "predicate:predicate:remove_item", "choice:choice:remove_item:item"]);
   });
 
+  test("labels the buyer's message after the context so the models do not read the order as the request", async () => {
+    const { decide: run, bodies } = decide(async () => json({ model: "gpt-6-luna", answers }));
+    await run(request, new AbortController().signal);
+    const [message] = (bodies[0] as { input: { content: { type: string; text?: string }[] }[] }).input;
+    expect(message!.content.map(({ type }) => type)).toEqual(["input_text", "input_text"]);
+    expect(message!.content[0]!.text).toMatch(/Order: A, B\n\nThe buyer's message:$/);
+    expect(message!.content[1]!.text).toBe("quita la gorra");
+  });
+
   test("maps timeout, network, 429 and 5xx to AI provider unavailable", async () => {
     for (const respond of [hangUntilAborted, () => Promise.reject(new TypeError("fetch failed")), async () => json({ error: { message: "x" } }, 429), async () => json({ error: { message: "x" } }, 503)]) {
       const result = await decide(respond).decide(request, new AbortController().signal);
@@ -51,7 +60,7 @@ describe("createOpenAiDecisionClient", () => {
     expect(code(await pending)).toBe("DEADLINE_EXCEEDED");
   });
 
-  test("maps a refusal or an unknown choice to invalid AI response", async () => {
+  test("maps a refused action, a missing answer or an unknown choice to invalid AI response", async () => {
     const refusal = [{ type: "refusal", name: "action" }];
     const unknownChoice = answers.map((answer) => answer.name === "action" ? { ...answer, choice: "launch_missiles" } : answer);
     const unknownItem = answers.map((answer) => answer.name === "choice:remove_item:item" ? { ...answer, choice: "Z" } : answer);
@@ -59,6 +68,12 @@ describe("createOpenAiDecisionClient", () => {
       const result = await decide(async () => json({ model: "gpt-6-luna", usage: {}, answers: body })).decide(request, new AbortController().signal);
       expect(code(result)).toBe("INVALID_AI_RESPONSE");
     }
+  });
+
+  test("counts a refused predicate as 0 and leaves a refused choice unanswered instead of failing the decision", async () => {
+    const refused = answers.map((answer) => answer.name === "action" ? answer : { type: "refusal", name: answer.name });
+    const result = await decide(async () => json({ model: "gpt-6-luna", usage: {}, answers: refused })).decide(request, new AbortController().signal);
+    expect(result).toEqual({ success: true, data: { action: { choice: "remove_item", confidence: 0.9 }, predicates: { remove_item: 0 }, choices: {} } });
   });
 
   test("maps other 4xx to invalid AI response", async () => {

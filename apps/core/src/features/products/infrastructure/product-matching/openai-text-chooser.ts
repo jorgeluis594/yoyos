@@ -1,7 +1,7 @@
 import OpenAI from "openai";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
-import type { Money } from "@shared/money";
+import type { Currency, Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
@@ -54,19 +54,26 @@ async function askChoice(config: OpenAITextChooserConfig, question: Question, si
 
 const money = ({ amount, currency }: Money) => `${amount} ${currency}`;
 const priceRange = ({ minPrice, maxPrice }: TextCandidate) => minPrice.amount === maxPrice.amount ? money(minPrice) : `${money(minPrice)} to ${money(maxPrice)}`;
+/** Marks the candidates priced at the customer's amount, which the model otherwise weighs too little among similar names. */
+const atHint = ({ minPrice, maxPrice }: TextCandidate, hint: number | null, currency: Currency | null) =>
+  hint !== null && (currency === null || minPrice.currency === currency) && minPrice.amount <= hint && hint <= maxPrice.amount ? ", the customer's price" : "";
 
-type TextChooserInput = Readonly<{ mention: string; priceHint: number | null; candidates: readonly TextCandidate[] }>;
+type TextChooserInput = Readonly<{ mention: string; priceHint: number | null; priceHintCurrency?: Currency | null; candidates: readonly TextCandidate[] }>;
 
 /** Chooses the catalog product a customer's words name; the price the customer mentioned is a hint, never a requirement. */
 export function createOpenAITextProductChooser(config: OpenAITextChooserConfig) {
   return async (input: TextChooserInput, signal: AbortSignal): Promise<Result<TextChoice, ProductMatcherError>> => {
     const labels = input.candidates.map((_, index) => labelFor(index));
+    const currency = input.priceHintCurrency ?? null;
+    const hintText = currency ? `${input.priceHint} ${currency}` : `${input.priceHint}`;
     const asked = await askChoice(config, {
       event: "product_text_match", labels, descriptions: input.candidates.map(({ name }) => name),
-      instructions: "Decide which catalog product the customer is referring to. The customer's price, when given, is a hint to tell similar products apart. "
+      instructions: "Decide which catalog product the customer is referring to. The customer's price, when given, tells similar products apart: among similar names, "
+        + "the product at exactly that price is the one meant. A lower price may be an offer, never a reason to reject the only product the words name. "
         + `Answer with the option label, or "${NONE}" if no option is clearly the product.`,
-      text: [`Customer words: ${input.mention}`, input.priceHint ? `Price the customer mentioned: ${input.priceHint}, to compare with each product's price in that product's own currency` : null,
-        "Catalog products:", ...input.candidates.map((candidate, index) => `${labels[index]}: ${candidate.name} (${priceRange(candidate)})`)].filter((line) => line !== null).join("\n"),
+      text: [`Customer words: ${input.mention}${input.priceHint ? `, the one at ${hintText} per unit` : ""}`,
+        input.priceHint ? `Price per unit the customer mentioned: ${hintText}, to compare with ${currency ? `the products priced in ${currency}` : "each product's price in that product's own currency"}` : null,
+        "Catalog products:", ...input.candidates.map((candidate, index) => `${labels[index]}: ${candidate.name} (${priceRange(candidate)}${atHint(candidate, input.priceHint, currency)})`)].filter((line) => line !== null).join("\n"),
     }, signal);
     if (!asked.success) return asked;
     const byLabel = (label: string | null) => (label === null ? undefined : input.candidates[labels.indexOf(label)]);
@@ -83,7 +90,8 @@ export function createOpenAIVariantChooser(config: OpenAITextChooserConfig) {
     const labels = input.variants.map((_, index) => labelFor(index));
     const asked = await askChoice(config, {
       event: "product_variant_match", labels, descriptions: input.variants.map(describeVariant),
-      instructions: `Decide which variant the customer asks for. Answer with the option label, or "${NONE}" if no option is clearly the variant asked for.`,
+      instructions: "Decide which variant the customer asks for. The words may be a plural, feminine or diminutive form of a value (celestes is Celeste, grisecito is Gris, ele is L). "
+        + `Answer with the option label, or "${NONE}" if no option is clearly the variant asked for.`,
       text: [`Customer words: ${input.words.join(" ")}`, "Variants:", ...input.variants.map((variant, index) => `${labels[index]}: ${describeVariant(variant)}`)].join("\n"),
     }, signal);
     if (!asked.success) return asked;

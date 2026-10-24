@@ -14,7 +14,7 @@ export const EXTRACTION_INSTRUCTIONS = [
   "Only the given tools exist.",
   "Use the item labels exactly.",
   "Copy product words as written.",
-  "Never invent quantities or prices.",
+  "Never invent quantities or prices: the quantities and prices of the open order are not stated by the buyer.",
 ].join("\n");
 
 function parseArguments(raw: string): Result<unknown, AiError> {
