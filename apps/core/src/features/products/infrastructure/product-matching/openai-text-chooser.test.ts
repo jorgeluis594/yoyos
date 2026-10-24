@@ -27,7 +27,7 @@ describe("createOpenAITextProductChooser", () => {
     expect(Object.keys(body!).sort()).toEqual(["input", "model", "questions"]);
     const text = body!.input[0]!.content[0]!.text;
     expect(text).toContain("el polo de 35");
-    expect(text).toContain("Price the customer mentioned: 35");
+    expect(text).toContain("Price per unit the customer mentioned: 35");
     expect(text).toContain("B: Polo premium (50 PEN to 70 PEN)");
   });
 

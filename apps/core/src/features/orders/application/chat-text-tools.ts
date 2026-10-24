@@ -26,7 +26,7 @@ export const mentionedPriceArgs = z.object({
   // The models name the currency they read; whether it is the order's is decided against the item's catalog price, which they do not know.
   currency: z.enum(["not_named", ...currencies, "other"]).describe("The currency the buyer names, as its code (soles PEN, dólares USD, reais BRL); "
     + "not_named when the buyer names none; other for any other currency."),
-});
+}).describe("Only a price the buyer writes in this message, never a unit price of the open order.");
 type StatedPrice = z.output<typeof mentionedPriceArgs>;
 
 /** A price is in the order's currency when the buyer names no currency or names the item's own; any other is marked to be dropped. */
@@ -113,7 +113,7 @@ export const priceOf = (args: StatedPrice | null, currency: Money["currency"] | 
 const addLine = z.object({
   productMention: z.string().max(120),
   variantWords: z.array(z.string().max(60)).max(5),
-  quantity: z.number().int().min(1).nullable().describe("The units the buyer asks for, in digits or words: «un par» is 2, «media docena» 6, «una docena» 12, «x2» 2. Null when not stated."),
+  quantity: z.number().int().min(1).nullable().describe("The units the buyer asks for, in digits or words: «un par» is 2, «media docena» 6, «una docena» 12, «x2» 2. Only the units of this line: «2 gorras, una negra y una roja» is two lines of 1. Null when not stated."),
   mentionedPrice: mentionedPriceArgs.nullable(),
 });
 const addProductsArgs = z.object({ lines: z.array(addLine).min(1).max(MAX_ADD_LINES) });
@@ -184,8 +184,8 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
   return [
     defineTool({
       name: "add_products",
-      description: "The buyer asks to add products they name to the order («agrégame una gorra trucker», «quiero 2 polos negros M», «me separas la chompa»). "
-        + "A message that only names a product with its size, color, quantity or price («polo básico talla M blanco», «el polo de 35 en M negro») also asks for it. "
+      description: "The buyer asks to add one or several products they name to the order, in one line or several («agrégame una gorra trucker», «quiero 2 polos negros M», «me separas la chompa»). "
+        + "A message that only names a product the open order does not have, with its size, color, quantity («x2») or price («polo básico talla M blanco», «el polo de 35 en M negro») also asks for it. "
         + "Give each product as the buyer wrote it (without quantity or variant), its variant words as written, the quantity only if stated, and the price only if stated.",
       args: { kind: "extracted" }, schema: () => addProductsArgs,
       resolve: (args, context, signal) => addProducts(args, context, deps, signal),
@@ -237,14 +237,15 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     }),
     defineTool({
       name: "mark_order_ready",
-      description: "The buyer says the order is complete or confirms it (listo, eso es todo, eso nomás, confirmo, así nomás está bien), "
-        + "alone or after another request in the same message («quita la gorra y listo»).",
+      description: "The buyer says the order is complete or confirms it (listo, eso es todo, eso nomás, confirmo, así nomás está bien). "
+        + "After another request in the same message («quita la gorra y listo», «agrega el polo y eso es todo») it is a second action: the message asks for several.",
       args: { kind: "none" }, schema: () => noArgs,
       resolve: async (): Resolved => ok([{ kind: "ready" }]),
     }),
     defineTool({
       name: "report_variant_without_product",
-      description: "The text only names a size or color (en talla L, la quiero en M, negro), with no product name and no verb that changes an item.",
+      description: "The text gives only a size or color, even in a single word, with no product name and no verb that changes an item (cambia, mejor): «en talla L», «la quiero en M», «negro», «talla L». "
+        + "«Quiero» with only a size or color is this report, never a change or an add.",
       args: { kind: "none" }, schema: () => noArgs, resolve: reportOnly({ kind: "variant_only" }),
     }),
     defineTool({

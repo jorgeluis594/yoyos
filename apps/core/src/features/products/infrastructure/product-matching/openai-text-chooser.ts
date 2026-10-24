@@ -63,9 +63,9 @@ export function createOpenAITextProductChooser(config: OpenAITextChooserConfig) 
     const labels = input.candidates.map((_, index) => labelFor(index));
     const asked = await askChoice(config, {
       event: "product_text_match", labels, descriptions: input.candidates.map(({ name }) => name),
-      instructions: "Decide which catalog product the customer is referring to. The customer's price, when given, is a hint to tell similar products apart. "
+      instructions: "Decide which catalog product the customer is referring to. The customer's price, when given, is a hint to tell similar products apart, never a reason to reject the only product the words name. "
         + `Answer with the option label, or "${NONE}" if no option is clearly the product.`,
-      text: [`Customer words: ${input.mention}`, input.priceHint ? `Price the customer mentioned: ${input.priceHint}, to compare with each product's price in that product's own currency` : null,
+      text: [`Customer words: ${input.mention}`, input.priceHint ? `Price per unit the customer mentioned: ${input.priceHint}, to compare with each product's price in that product's own currency; it may be an offer below that price` : null,
         "Catalog products:", ...input.candidates.map((candidate, index) => `${labels[index]}: ${candidate.name} (${priceRange(candidate)})`)].filter((line) => line !== null).join("\n"),
     }, signal);
     if (!asked.success) return asked;
@@ -83,7 +83,8 @@ export function createOpenAIVariantChooser(config: OpenAITextChooserConfig) {
     const labels = input.variants.map((_, index) => labelFor(index));
     const asked = await askChoice(config, {
       event: "product_variant_match", labels, descriptions: input.variants.map(describeVariant),
-      instructions: `Decide which variant the customer asks for. Answer with the option label, or "${NONE}" if no option is clearly the variant asked for.`,
+      instructions: "Decide which variant the customer asks for. The words may be a plural, feminine or diminutive form of a value (rojas is Rojo, negrita is Negro, eme is M). "
+        + `Answer with the option label, or "${NONE}" if no option is clearly the variant asked for.`,
       text: [`Customer words: ${input.words.join(" ")}`, "Variants:", ...input.variants.map((variant, index) => `${labels[index]}: ${describeVariant(variant)}`)].join("\n"),
     }, signal);
     if (!asked.success) return asked;

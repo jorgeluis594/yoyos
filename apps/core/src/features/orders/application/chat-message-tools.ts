@@ -164,14 +164,16 @@ export function createChatToolRegistry(deps: ChatToolDependencies): ChatToolRegi
     }),
     defineTool({
       name: "report_request_with_non_product_image",
-      description: "The image is not a product and the caption asks to add, remove or change something in the order.",
+      description: "The image is not a product and the caption asks to add, remove or change something in the order, "
+        + "even when it names the product to add («y ponme una gorra negra»).",
       args: { kind: "none" }, schema: () => noArgs,
       resolve: async () => ok(report({ kind: "image_with_request" })),
     }),
     defineTool({
       name: "no_intent",
       description: "The message asks for nothing to be added, removed or changed: greetings, questions about prices, availability or delivery, addresses, thanks, "
-        + "payment reports. Never a message that names a product to buy, even without a verb, or that only gives a size, color or quantity.",
+        + "payment reports. Never a message that names a product to buy, even without a verb («polo premium blanco M x2», a list of products), "
+        + "or that only gives a size, color or quantity, even in one word («negro», «en L», «talla M»).",
       args: { kind: "none" }, schema: () => noArgs,
       resolve: async () => ok(report({ kind: "no_intent" })),
     }),
