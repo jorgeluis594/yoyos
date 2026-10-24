@@ -126,8 +126,8 @@ export const priceOf = (args: StatedPrice | null, currency: Money["currency"] | 
 
 // add_products
 const addLine = z.object({
-  productMention: z.string().max(120),
-  variantWords: z.array(z.string().max(60)).max(5),
+  productMention: z.string().max(120).describe("The product words only, without size, color, quantity or price: «polo premium blanco M x2» is «polo premium»."),
+  variantWords: z.array(z.string().max(60)).max(5).describe("The size and color words as written, with any «talla» or «color» before them, never product words: «polo premium blanco talla M» gives «blanco», «talla M»."),
   quantity: z.number().int().min(1).nullable().describe("The units the buyer asks for, in digits or words: «un par» is 2, «media docena» 6, «una docena» 12, «x2» 2. Only the units of this line: «2 gorras, una negra y una roja» is two lines of 1. Null when not stated."),
   mentionedPrice: mentionedPriceArgs.nullable(),
 });
@@ -235,7 +235,9 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
       description: "The buyer explicitly asks to change an item of the open order to another variant (size, color), such as «cámbialo a talla L» or «mejor el polo en blanco». "
         + "Never for a text that only names a variant («en talla L», «la quiero en M»). Give the variant words as written and the price only if stated.",
       args: { kind: "extracted", questions: (context) => [itemQuestion(context, "Which item of the open order does the buyer ask to change to another variant?")] },
-      schema: (context) => z.object({ item: itemChoice(context), variantWords: z.array(z.string().max(60)).min(1).max(5), mentionedPrice: mentionedPriceArgs.nullable() }),
+      schema: (context) => z.object({ item: itemChoice(context),
+        variantWords: z.array(z.string().max(60)).min(1).max(5).describe("The size and color words to change to as written, with any «talla» or «color» before them, never product words: «mejor el polito blanco» gives «blanco»."),
+        mentionedPrice: mentionedPriceArgs.nullable() }),
       resolve: (args, context, signal) => changeItemVariant(args, context, deps, signal),
     }),
     defineTool({
