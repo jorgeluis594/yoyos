@@ -1,17 +1,9 @@
 import { fileURLToPath } from "node:url";
 import PDFDocument from "pdfkit";
 import { err, ok } from "@shared/functional";
-import type { Result } from "@shared/result";
 import type { DispatchLabelSize } from "@shared/contracts/dispatch-labels";
-import type { DispatchLabelGeometry, DispatchLabelLayout, MeasureText } from "@shared/dispatch-label/layout";
-
-export type LabelPdfError = Readonly<{ code: "PDF_RENDER_FAILED"; message: string }>;
-export type LabelPdf = Readonly<{
-  geometry: DispatchLabelGeometry;
-  /** Width in points of the text in Inter, the same font `render` draws with. */
-  measure: MeasureText;
-  render: (layouts: readonly DispatchLabelLayout[]) => Promise<Result<Buffer, LabelPdfError>>;
-}>;
+import type { DispatchLabelGeometry } from "@shared/dispatch-label/layout";
+import type { LabelPdf } from "@core/src/features/dispatch-labels/application/create-dispatch-labels";
 
 const pointsPerMm = 72 / 25.4;
 const fontPath = fileURLToPath(new URL("../../../../assets/fonts/InterVariable.ttf", import.meta.url));

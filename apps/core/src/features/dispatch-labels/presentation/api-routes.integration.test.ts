@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, expect, test } from "vitest";
 import { app } from "@core/src/app";
+import { dispatchLabels } from "@core/src/features/dispatch-labels/composition";
+import { createLabelPdf } from "@core/src/features/dispatch-labels/infrastructure/label-pdf";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const server = app.listen(0, "127.0.0.1");
@@ -126,16 +128,26 @@ test("prints home and agency orders, explains every exclusion and keeps companie
   });
 });
 
-test("a seller with a configured sender prints with it and the PDF grows with the label count", async () => {
+test("the configured sender reaches every label and the PDF grows with the label count", async () => {
   const mine = await seller();
   const saved = await fetch(`${base}/api/company/dispatch-sender`, { method: "PUT", headers: { origin, "content-type": "application/json", cookie: mine.cookie },
     body: JSON.stringify({ name: "Fantastidog", phone: "977 000 111" }) });
   expect(saved.status).toBe(200);
-  const orders = [];
+  const orders: { id: string; number: number }[] = [];
   for (let index = 0; index < 7; index++) orders.push(await mine.order(index % 2 ? agency() : home()));
   const result = await (await post({ orderIds: orders.map((item) => item.id), size: "a4" }, mine.cookie)).json();
   expect(result.printed).toHaveLength(7);
   expect(pdfPages(result.pdf)).toHaveLength(2);
+
+  // Same composition the endpoint uses, with a spy on what is drawn.
+  const drawn: string[][] = [];
+  const created = await withTenantIsolation(mine.companyId, () => dispatchLabels.create(mine.companyId, { orderIds: orders.map((item) => item.id), size: "label_62x100" }, (size) => {
+    const pdf = createLabelPdf(size);
+    return { ...pdf, render: (layouts) => { drawn.push(...layouts.map((layout) => layout.lines.map((line) => line.text))); return pdf.render(layouts); } };
+  }));
+  expect(created.success).toBe(true);
+  expect(drawn).toHaveLength(7);
+  for (const lines of drawn) expect(lines.slice(0, 2)).toEqual(["Fantastidog", "Cel. 977 000 111"]);
 });
 
 test("rejects invalid requests: more than 100 ids, none, duplicates, bad ids, unknown size and non-JSON", async () => {

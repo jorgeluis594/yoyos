@@ -3,9 +3,17 @@ import type { Result } from "@shared/result";
 import type { DispatchLabelSize } from "@shared/contracts/dispatch-labels";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { prepareOrderDispatchLabel } from "@shared/dispatch-label/build";
-import { layoutDispatchLabel, type DispatchLabelLayout } from "@shared/dispatch-label/layout";
+import { layoutDispatchLabel, type DispatchLabelGeometry, type DispatchLabelLayout, type MeasureText } from "@shared/dispatch-label/layout";
 import type { DispatchLabelExclusion, DispatchLabelSender } from "@shared/dispatch-label/types";
-import type { LabelPdf } from "@core/src/features/dispatch-labels/infrastructure/label-pdf";
+
+export type LabelPdfError = Readonly<{ code: "PDF_RENDER_FAILED"; message: string }>;
+/** Port implemented by the PDF adapter: measures and draws with the same font, so the fit check matches the output. */
+export type LabelPdf = Readonly<{
+  geometry: DispatchLabelGeometry;
+  /** Width in points of the text in the PDF font. */
+  measure: MeasureText;
+  render: (layouts: readonly DispatchLabelLayout[]) => Promise<Result<Buffer, LabelPdfError>>;
+}>;
 
 type OrderRef = Readonly<{ orderId: string; orderNumber: number }>;
 /** Same shape as the response contract, with the shared (readonly) exclusion type. */
@@ -42,8 +50,9 @@ export async function createDispatchLabels(
       if (laidOut.success) layout = laidOut.data;
       return laidOut.success;
     });
+    // A ready label without a layout never fit, so it is excluded: every order ends in exactly one list.
     if (prepared.status === "ready" && layout) { layouts.push(layout); response.printed.push({ orderId, orderNumber: order.number }); }
-    else if (prepared.status === "excluded") response.excluded.push({ orderId, orderNumber: order.number, exclusion: prepared.exclusion });
+    else response.excluded.push({ orderId, orderNumber: order.number, exclusion: prepared.status === "excluded" ? prepared.exclusion : { code: "LABEL_CONTENT_OVERFLOW" } });
   }
   if (!layouts.length) return ok({ pdf: null, size: request.size, ...response });
   const rendered = await pdf.render(layouts);
