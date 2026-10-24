@@ -2,7 +2,7 @@ import { applicationEventBus } from "@core/src/composition/event-bus";
 import type { EventBusError } from "@core/src/shared/events/application/contracts";
 import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
 import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type CheckoutPhotoError, type GetOrderCheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
-import { findCheckoutOrder, findCheckoutOrderForUpdate as findAnyCheckoutOrderForUpdate, saveCheckoutEnabled, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
+import { findCheckoutOrder, findCheckoutOrderForUpdate as findAnyCheckoutOrderForUpdate, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { canAccessBuyerPayment, type CheckoutAccess, type CheckoutError } from "@core/src/features/orders/domain/checkout";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
@@ -148,7 +148,7 @@ export function createConfiguredOrder(input: CreateCompleteOrderInput, context: 
 
 const checkoutDependencies: CheckoutDependencies = { transaction: scopedOrderTransaction,
   findOrder: findCheckoutOrder, findOrderForUpdate: findAnyCheckoutOrderForUpdate,
-  saveEnabled: saveCheckoutEnabled, saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
+  saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
 };
 /** Photos are decorative: the failure is logged here, where it is known, and the use case falls back to markers. */
 async function findItemPhotos(variantIds: readonly VariantId[]): Promise<Result<ReadonlyMap<VariantId, string>, CheckoutPhotoError>> {
@@ -305,10 +305,9 @@ export const orders = {
   enableCheckout: async (orderId: OrderId, access: OrderAccess) => {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "enable_checkout" });
-    const result = await enableOrderCheckout(orderId, access, new Date(), { ...checkoutDependencies, findOrderForUpdate: findSellerCheckoutOrderForUpdate });
+    const result = await enableOrderCheckout(orderId, access, { ...checkoutDependencies, findOrderForUpdate: findSellerCheckoutOrderForUpdate });
     if (!result.success) { rejectedCheckout(result.error); return result; }
-    bindRequestOperation({ outcome: result.data.changed ? "enabled" : "already_enabled", orderNumber: result.data.number });
-    if (result.data.changed) log.info({ event: "order_checkout_enabled", companyId: access.companyId, orderNumber: result.data.number, userId: access.userId }, "Order checkout enabled");
+    bindRequestOperation({ outcome: "already_enabled", orderNumber: result.data.number });
     return map(await checkoutUrl(access.companyId, orderId), (url) => ({ url }));
   },
   getCheckout: (access: CheckoutAccess) => readCheckout(access, getCheckoutDependencies),

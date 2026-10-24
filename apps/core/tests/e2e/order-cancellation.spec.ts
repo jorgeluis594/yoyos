@@ -156,11 +156,10 @@ test("new loader data replaces a recovered active cancellation snapshot after ch
     await confirm(page);
     await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toBeEnabled();
     await browserExpect(page.getByRole("alert")).toBeVisible();
-    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await page.unroute(dataRoute);
     await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toHaveCount(0);
     expect((await f.detail(id)).checkoutEnabledAt).not.toBeNull();
   } finally { await f.cleanup(); }
 });

@@ -45,6 +45,8 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     expect((await page.request.post("/api/orders/pending", { data: { id: orderId,
       items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Tienda", address: "Av. Arequipa 123, Lima", instructions: null } } } })).ok()).toBe(true);
+    // Orders are born enabled; a legacy row without the timestamp is simulated.
+    await withTenantIsolation(tenantId, async () => { await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: null } }); });
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("link", { name: "Abrir checkout del pedido" })).toHaveCount(0);
     expect((await request.get(`/api/buyer/orders/${orderId}/payment`, { headers: brand })).status()).toBe(409);

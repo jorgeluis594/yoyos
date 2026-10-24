@@ -26,7 +26,6 @@ export type CheckoutDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, CheckoutError>>) => Promise<Result<T, CheckoutError>>;
   findOrder: (access: CheckoutAccess) => Promise<Result<CheckoutOrder | null, CheckoutError>>;
   findOrderForUpdate: (access: CheckoutAccess) => Promise<Result<CheckoutOrder | null, CheckoutError>>;
-  saveEnabled: (access: CheckoutAccess, at: Date) => Promise<Result<null, CheckoutError>>;
   saveBuyer: (access: CheckoutAccess, buyer: ConfirmedBuyer) => Promise<Result<null, CheckoutError>>;
   saveConfirmed: (access: CheckoutAccess, at: Date) => Promise<Result<null, CheckoutError>>;
 }>;
@@ -47,10 +46,10 @@ function matches(order: CheckoutOrder | null, access: CheckoutAccess): order is 
   return order !== null && order.id === access.orderId && order.companyId === access.companyId;
 }
 
-export async function enableOrderCheckout(orderId: OrderId, context: OrderAccess, now: Date, deps: Pick<CheckoutDependencies, "transaction" | "findOrderForUpdate" | "saveEnabled">): Promise<Result<Readonly<{ number: OrderNumber; changed: boolean }>, CheckoutError>> {
+export async function enableOrderCheckout(orderId: OrderId, context: OrderAccess, deps: Pick<CheckoutDependencies, "transaction" | "findOrderForUpdate">): Promise<Result<Readonly<{ number: OrderNumber }>, CheckoutError>> {
   const access = { companyId: context.companyId, orderId };
-  if (!accessSchema.safeParse(access).success || !context.userId || !z.date().safeParse(now).success) return unavailable();
-  return deps.transaction<Readonly<{ number: OrderNumber; changed: boolean }>>(access.companyId, async () => {
+  if (!accessSchema.safeParse(access).success || !context.userId) return unavailable();
+  return deps.transaction<Readonly<{ number: OrderNumber }>>(access.companyId, async () => {
     const found = await deps.findOrderForUpdate(access);
     if (!found.success) return found;
     if (!matches(found.data, access)) return unavailable();
@@ -58,9 +57,7 @@ export async function enableOrderCheckout(orderId: OrderId, context: OrderAccess
     const state = checkoutState(order);
     if (!state.success) return state;
     if (order.cancelled) return err({ code: "ORDER_CANCELLED", message: "Order is cancelled" });
-    if (order.checkoutEnabledAt) return ok({ number: order.number, changed: false });
-    const saved = await deps.saveEnabled(access, now);
-    return saved.success ? ok({ number: order.number, changed: true }) : saved;
+    return order.checkoutEnabledAt ? ok({ number: order.number }) : unavailable();
   });
 }
 
@@ -76,7 +73,7 @@ export async function getOrderCheckout(access: CheckoutAccess, deps: GetOrderChe
   return ok({ checkout: checkout.data, photos: photos.success ? photos.data : new Map() });
 }
 
-export async function confirmOrderCheckout(input: ConfirmOrderCheckoutInput, access: CheckoutAccess, now: Date, deps: Omit<CheckoutDependencies, "findOrder" | "saveEnabled">): Promise<Result<CheckoutMutation, CheckoutError>> {
+export async function confirmOrderCheckout(input: ConfirmOrderCheckoutInput, access: CheckoutAccess, now: Date, deps: Omit<CheckoutDependencies, "findOrder">): Promise<Result<CheckoutMutation, CheckoutError>> {
   if (!accessSchema.safeParse(access).success || !z.date().safeParse(now).success) return unavailable();
   return deps.transaction<CheckoutMutation>(access.companyId, async () => {
     const found = await deps.findOrderForUpdate(access);

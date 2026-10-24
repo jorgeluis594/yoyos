@@ -39,7 +39,8 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
       recordedBy: { kind: "seller", userId } } } });
     // The checkout lives on the brand host; the catalog stays hidden, which the checkout must not care about.
     await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: subdomainOf(companyId) } });
-    if (enabled) expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
+    // Orders are born enabled; a legacy row without the timestamp is simulated.
+    if (!enabled) await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: null } });
   });
   return { companyId, userId, orderId, route: `/checkout/${companyId}/${orderId}`, path: storeUrl(subdomainOf(companyId), `/checkout/${companyId}/${orderId}`), host: (route: string) => storeUrl(subdomainOf(companyId), route),
     read: () => withTenantIsolation(companyId, async () => await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { buyer: true, payments: true } })),
@@ -220,7 +221,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await withTenantIsolation(companyId, async () => { await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: subdomainOf(companyId) } }); });
     await page.goto(`/es-PE/orders/${orderId}`);
     await browserExpect(page.getByRole("heading", { name: "Pedido #10000" })).toBeVisible();
-    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
     const link = page.getByLabel("Enlace del pedido", { exact: true });
     await browserExpect(link).toHaveValue(storeUrl(subdomainOf(companyId), `/checkout/${companyId}/${orderId}`));
@@ -255,7 +256,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await browserExpect(table.getByRole("link", { name: "Pedido #10000" })).toBeVisible();
     await browserExpect(table.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
     await browserExpect(table.getByRole("link", { name: "Pedido #1001" })).toBeVisible();
-    await browserExpect(table.getByText("Pendiente de confirmación", { exact: true })).toHaveCount(0);
+    await browserExpect(table.getByText("Pendiente de confirmación", { exact: true })).toHaveCount(1);
   } finally {
     await buyer.close();
     await withTenantIsolation(companyId, async () => {

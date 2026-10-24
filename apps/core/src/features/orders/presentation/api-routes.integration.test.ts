@@ -596,7 +596,11 @@ test("checkout-link HTTP requires the seller company and returns a stable UUID U
   expect(first.headers.get("cache-control")).toBe("no-store");
   const link = await first.json();
   expect(link).toEqual({ url: `${storefrontConfig.baseUrl.protocol}//${subdomain}.${storefrontConfig.baseUrl.host}/checkout/${owner.companyId}/${id}` });
+  const stored = () => withTenantIsolation(owner.companyId, async () => await prisma.order.findUniqueOrThrow({ where: { id } }));
+  const created = await stored();
+  expect(created.checkoutEnabledAt).toEqual(created.createdAt);
   expect(await (await call(path, owner.cookie, {})).json()).toEqual(link);
+  expect(await stored()).toEqual(created);
   await withTenantIsolation(owner.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true } }));
   expect((await call(path, owner.cookie, {})).status).toBe(409);
 });
