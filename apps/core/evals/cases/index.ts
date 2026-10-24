@@ -3,13 +3,13 @@ import { interpretationCases } from "@core/evals/cases/interpretation";
 import { endToEndCaseIds, endToEndCasesFrom } from "@core/evals/cases/end-to-end";
 import { imageCasesFrom, textCases } from "@core/evals/cases/identification";
 import { paraphrases } from "@core/evals/cases/paraphrases";
-import { imagesDirOf, readImageManifest, type ImageManifest } from "@core/evals/fixtures/image-manifest";
+import { readPhotoManifest, type ImageManifest } from "@core/evals/fixtures/image-manifest";
 
 /** Every base case; the photo cases come from the photo manifest, and without one only the photo-free cases remain. */
 export const baseCasesOf = (manifest: ImageManifest | null): readonly EvalCaseInput[] =>
   [...interpretationCases, ...textCases, ...imageCasesFrom(manifest), ...endToEndCasesFrom(manifest)];
 
-export const imageManifest = readImageManifest(imagesDirOf(process.env));
+export const imageManifest = readPhotoManifest(process.env);
 export const baseCases = baseCasesOf(imageManifest);
 
 /** A paraphrase is its base case with the buyer's words replaced; it keeps the expectations and is tagged `paraphrase`. */

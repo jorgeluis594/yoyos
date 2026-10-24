@@ -122,5 +122,9 @@ export function parseCases(input: readonly EvalCaseInput[]): readonly EvalCase[]
   return cases;
 }
 
-/** Cases whose docs allow several answers, or marked ambiguous, are also graded by the Claude judge. */
-export const needsJudge = (testCase: EvalCase) => testCase.ambiguous !== undefined || testCase.expected.length > 1;
+/**
+ * Cases whose docs allow several answers, or marked ambiguous, are also graded by the Claude judge. The indistinguishable pair has a
+ * founder rule instead (cases/identification.ts), so no judge.
+ */
+export const needsJudge = (testCase: EvalCase) => testCase.ambiguous !== undefined
+  || (testCase.expected.length > 1 && !testCase.tags.includes("indistinguishable-pair"));

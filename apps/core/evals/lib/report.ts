@@ -37,6 +37,8 @@ export type EvalReport = Readonly<{
   /** Cases tagged `known-limitation`: beyond the documented design, listed here and left out of every score. */
   knownLimitations: readonly Readonly<{ caseId: string; passed: boolean; signature: string }>[];
   retries: Readonly<{ messages: number; attempts: number }>;
+  /** Image pass views: the near-identical polos, negatives the vision chooser accepted, labels and non-product photos. */
+  image: ImageView;
   calibration: Readonly<Record<string, Readonly<Record<string, Calibration>>>>;
   /** The production gate each certainty source was compared with, as the run's env configured it. */
   gates: Readonly<Record<string, number>>;
@@ -56,6 +58,39 @@ export type EvalReport = Readonly<{
     certainties: CaseRecord["certainties"]; extracted: readonly unknown[]; textChoices: readonly unknown[] }>[];
   errorGroups: ErrorGroups["groups"];
 }>;
+
+export type ImageView = Readonly<{
+  /** Buyer photos of the Polo básico or premium (founder rule): the exact product, not identified, or the other polo (the only error). */
+  indistinguishablePair: Readonly<{ total: number; exact: readonly string[]; notIdentified: readonly string[]; otherPolo: readonly string[]; other: readonly string[] }>;
+  /** Photos that must not be identified where the vision chooser still picked a product at or above its gate. */
+  negativesAboveGate: readonly Readonly<{ caseId: string; confidence: number; signature: string }>[];
+  labels: Tally;
+  nonProduct: Tally;
+  byScenario: Readonly<Record<string, Tally>>;
+}>;
+
+function imageView(records: readonly CaseRecord[]): ImageView {
+  const images = records.filter(({ pass }) => pass === "image");
+  const pair = images.filter(({ tags }) => tags.includes("indistinguishable-pair"));
+  const expectedProduct = (record: CaseRecord) => (record.expected as readonly Readonly<{ product?: string }>[])[0]?.product;
+  const otherPolo = pair.filter((record) => record.signature.startsWith("found:") && record.signature !== `found:${expectedProduct(record)}`
+    && /^found:polo-(basico|premium)$/.test(record.signature));
+  return {
+    indistinguishablePair: {
+      total: pair.length,
+      exact: pair.filter((record) => record.signature === `found:${expectedProduct(record)}`).map(({ caseId }) => caseId),
+      notIdentified: pair.filter(({ signature }) => signature === "not_found").map(({ caseId }) => caseId),
+      otherPolo: otherPolo.map(({ caseId }) => caseId),
+      other: pair.filter((record) => !otherPolo.includes(record) && record.signature !== "not_found" && record.signature !== `found:${expectedProduct(record)}`).map(({ caseId }) => caseId),
+    },
+    negativesAboveGate: images.filter((record) => (record.expected as readonly Readonly<{ kind: string }>[]).every(({ kind }) => kind !== "found"))
+      .flatMap((record) => record.certainties.filter(({ source, confidence, gate }) => source === "visual" && confidence >= gate)
+        .map(({ confidence }) => ({ caseId: record.caseId, confidence, signature: record.signature }))),
+    labels: tally(images.filter(({ tags }) => tags.includes("folder:label"))),
+    nonProduct: tally(images.filter(({ tags }) => tags.includes("folder:non-product"))),
+    byScenario: groupBy(images, ({ kind }) => [kind]),
+  };
+}
 
 const tally = (records: readonly CaseRecord[]): Tally => {
   const passed = records.filter((record) => record.passed).length;
@@ -188,6 +223,7 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
       droppedRequests: scored.filter(({ noticeError }) => noticeError === "dropped_request").map(({ caseId }) => caseId),
     },
     knownLimitations: known.map(({ caseId, passed, signature }) => ({ caseId, passed, signature })),
+    image: imageView(scored),
     retries: { messages: records.filter(({ retries }) => retries > 0).length, attempts: records.reduce((sum, { retries }) => sum + retries, 0) },
     calibration,
     gates: Object.fromEntries(records.flatMap(({ certainties }) => certainties.map(({ source, gate }) => [source, gate] as const)).sort(([a], [b]) => a.localeCompare(b))),
@@ -229,6 +265,11 @@ export function formatSummary(report: EvalReport, path: string): string {
     "Calibration at the production gates (accepted ≥ gate / rejected < gate; right / wrong by the source's own field)",
     ...Object.entries(report.calibration).flatMap(([pass, sources]) => Object.entries(sources).map(([source, { field, atGate }]) =>
       `  ${`${pass} ${source}`.padEnd(28)} gate ${atGate.gate ?? "-"} by ${field.padEnd(14)} accepted ${atGate.acceptedCorrect} right / ${atGate.acceptedWrong} wrong, rejected ${atGate.rejectedCorrect} right / ${atGate.rejectedWrong} wrong`)),
+    ...(report.byPass.image ? [
+      `Image: indistinguishable pair ${report.image.indistinguishablePair.total} (exact ${report.image.indistinguishablePair.exact.length}, not identified ${report.image.indistinguishablePair.notIdentified.length}, other polo ${report.image.indistinguishablePair.otherPolo.length}${report.image.indistinguishablePair.otherPolo.length ? `: ${report.image.indistinguishablePair.otherPolo.join(", ")}` : ""}, other ${report.image.indistinguishablePair.other.length}); labels ${report.image.labels.passed}/${report.image.labels.total}; non-product ${report.image.nonProduct.passed}/${report.image.nonProduct.total}`,
+      `Image negatives the vision chooser accepted at or above its gate: ${report.image.negativesAboveGate.length ? report.image.negativesAboveGate.map(({ caseId, confidence }) => `${caseId} ${confidence}`).join(", ") : "none"}`,
+      ...section("Image by scenario", report.image.byScenario),
+    ] : []),
     `Known limitations (not scored): ${report.knownLimitations.length ? report.knownLimitations.map(({ caseId, passed }) => `${caseId} ${passed ? "passed" : "failed"}`).join(", ") : "none"}`,
     `Consistency: ${report.consistency.flipped.length} of ${report.consistency.cases} cases flipped over ${report.consistency.repeats} runs`,
     `Injection: ${report.injection.allowed}/${report.injection.total} allowed outcomes, ${report.injection.priceChanged.length} price changes`,

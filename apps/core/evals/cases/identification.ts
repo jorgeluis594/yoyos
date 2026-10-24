@@ -1,5 +1,6 @@
 import type { EvalCaseInput, ImageExpectation } from "@core/evals/cases/schema";
 import type { ImageManifest, ManifestEntry } from "@core/evals/fixtures/image-manifest";
+import type { ProductKey } from "@core/evals/fixtures/catalog";
 
 /**
  * Identification passes. Text: the product words as the extraction model passes them, with the buyer's unit price as a hint
@@ -64,7 +65,18 @@ const expectationOf = (entry: ManifestEntry): ImageExpectation => entry.expected
 /** Payment screens, selfies, maps and documents are criterion 2; every photo of a product, sold or not, is criterion 5. */
 const criterionOf = (entry: ManifestEntry) => entry.expected === "not_product" ? 2 : 5;
 
-const caseIdOf = (file: string) => `img-${file.replace(/\.[a-z]+$/i, "").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+const caseIdOf = (entry: ManifestEntry) => {
+  const name = `${entry.folder}/${entry.file.split("/").at(-1)!}`;
+  return `img-${entry.local ? "local-" : ""}${name.replace(/\.[a-z]+$/i, "").replace(/[^a-z0-9]+/gi, "-").toLowerCase()}`;
+};
+
+/**
+ * Founder decision (2026-10-24): the Polo básico and the Polo premium are near-identical plain tees in photos. A buyer photo of either
+ * passes as the exact product or as not identified («Producto no reconocido»); only the other polo fails. Tagged `indistinguishable-pair`
+ * and reported apart.
+ */
+const indistinguishablePair: readonly ProductKey[] = ["polo-basico", "polo-premium"];
+const inPair = (entry: ManifestEntry) => entry.folder === "customer" && entry.productKey !== null && indistinguishablePair.includes(entry.productKey);
 
 /**
  * One image case per manifest photo (fixtures/image-manifest.ts) except the `catalog/` ones: those are what the seller uploads and are
@@ -77,9 +89,9 @@ export function imageCasesFrom(manifest: ImageManifest | null): readonly EvalCas
   const repeated = new Set(["match", "no_match", "not_product", "label"].map((expected) => queries.find((entry) => entry.expected === expected))
     .concat(queries.find(({ scenario }) => scenario === "worn")).filter(Boolean));
   const fromManifest = queries.map((entry): EvalCaseInput => ({
-    id: caseIdOf(entry.file), pass: "image", criterion: criterionOf(entry), kind: entry.scenario,
-    tags: [`folder:${entry.folder}`, ...(repeated.has(entry) ? ["consistency"] : [])],
-    input: { file: entry.file }, expected: [expectationOf(entry)],
+    id: caseIdOf(entry), pass: "image", criterion: criterionOf(entry), kind: entry.scenario,
+    tags: [`folder:${entry.folder}`, ...(entry.local ? ["local"] : []), ...(inPair(entry) ? ["indistinguishable-pair"] : []), ...(repeated.has(entry) ? ["consistency"] : [])],
+    input: { file: entry.file }, expected: inPair(entry) ? [expectationOf(entry), { kind: "not_found" }] : [expectationOf(entry)],
   }));
   return [...fromManifest, ...staticImageCases];
 }

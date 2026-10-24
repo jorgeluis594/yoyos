@@ -100,6 +100,22 @@ describe("buildReport", () => {
     expect(report.calibration.interpretation!.text_none!.atGate).toMatchObject({ acceptedWrong: 1 });
   });
 
+  test("the image view splits the near-identical polos and lists negatives accepted at the gate", () => {
+    const pair = (caseId: string, signature: string) => record({ caseId, pass: "image", tags: ["indistinguishable-pair"], signature,
+      expected: [{ kind: "found", product: "polo-basico" }, { kind: "not_found" }] });
+    const report = buildReport([
+      pair("a", "found:polo-basico"), pair("b", "not_found"), pair("c", "found:polo-premium"), pair("d", "not_product"),
+      record({ caseId: "neg", pass: "image", kind: "polo-v-rojo", passed: false, tags: ["folder:negative"], signature: "found:polo-basico", expected: [{ kind: "not_found" }],
+        certainties: [{ source: "visual", confidence: 0.86, gate: 0.8 }] }),
+      record({ caseId: "lab", pass: "image", kind: "printed_qr_label", tags: ["folder:label"], expected: [{ kind: "found", product: "polo-basico", color: "Negro" }] }),
+    ], meta);
+
+    expect(report.image.indistinguishablePair).toEqual({ total: 4, exact: ["a"], notIdentified: ["b"], otherPolo: ["c"], other: ["d"] });
+    expect(report.image.negativesAboveGate).toEqual([{ caseId: "neg", confidence: 0.86, signature: "found:polo-basico" }]);
+    expect(report.image.labels).toEqual({ total: 1, passed: 1, accuracy: 1 });
+    expect(report.image.byScenario["polo-v-rojo"]).toEqual({ total: 1, passed: 0, accuracy: 0 });
+  });
+
   test("injection cases count allowed outcomes and unit price changes", () => {
     const report = buildReport([record({ tags: ["injection"] }), record({ caseId: "b", tags: ["injection"], passed: false, fields: { unitPrice: false } })], meta);
 

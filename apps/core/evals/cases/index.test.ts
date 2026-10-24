@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { allCases, baseCases, casesOf, imageManifest, selectCases, withParaphrases } from "@core/evals/cases";
 import type { ImageManifest, ManifestEntry } from "@core/evals/fixtures/image-manifest";
+import { needsJudge } from "@core/evals/cases/schema";
 
 const entry = (fields: Partial<ManifestEntry> & Pick<ManifestEntry, "file" | "folder" | "scenario" | "expected">): ManifestEntry =>
   ({ productKey: null, color: null, generator: "test", prompt: null, derivedFrom: null, ...fields });
@@ -59,7 +60,7 @@ describe("eval cases", () => {
   test("each manifest photo but the indexed catalog ones is an image case scored by its expected answer, with one repeated photo per answer", () => {
     const images = casesOf(manifest).filter(({ pass }) => pass === "image");
 
-    expect(images.find(({ id }) => id === "img-customer-polo-basico-blanco-worn")).toMatchObject({ criterion: 5, kind: "second-color-worn", expected: [{ kind: "found", product: "polo-basico" }] });
+    expect(images.find(({ id }) => id === "img-customer-polo-basico-blanco-worn")).toMatchObject({ criterion: 5, kind: "second-color-worn", expected: [{ kind: "found", product: "polo-basico" }, { kind: "not_found" }] });
     expect(images.find(({ id }) => id === "img-customer-polo-oversize-repost")).toMatchObject({ kind: "repost-screenshot", expected: [{ kind: "found", product: "polo-oversize" }] });
     expect(images.find(({ id }) => id === "img-negative-polo-cuello-v-rojo")?.expected).toEqual([{ kind: "not_found" }]);
     expect(images.find(({ id }) => id === "img-non-product-yape-screenshot")).toMatchObject({ criterion: 2, expected: [{ kind: "not_product" }] });
@@ -67,6 +68,14 @@ describe("eval cases", () => {
     expect(images.find(({ id }) => id === "img-label-polo-basico-negro-m")?.expected).toEqual([{ kind: "found", product: "polo-basico", color: "Negro" }]);
     expect(images.filter(({ tags }) => tags.includes("consistency")).map(({ id }) => id).sort()).toEqual(["img-customer-polo-basico-worn",
       "img-label-polo-basico-negro-m", "img-negative-polo-cuello-v-rojo", "img-non-product-yape-screenshot"]);
+  });
+
+  test("buyer photos of the near-identical polos accept the exact product or not identified, without a judge", () => {
+    const pair = casesOf(manifest).find(({ id }) => id === "img-customer-polo-basico-blanco-worn")!;
+
+    expect(pair).toMatchObject({ tags: expect.arrayContaining(["indistinguishable-pair"]), expected: [{ kind: "found", product: "polo-basico" }, { kind: "not_found" }] });
+    expect(needsJudge(pair)).toBe(false);
+    expect(casesOf(manifest).find(({ id }) => id === "img-customer-polo-oversize-repost")!.tags).not.toContain("indistinguishable-pair");
   });
 
   test("end-to-end photos are picked from the manifest, and a case whose photo is missing leaves with its paraphrases", () => {
@@ -88,6 +97,6 @@ describe("eval cases", () => {
   test.skipIf(!imageManifest)("the committed manifest covers the agreed photo scenarios", () => {
     const scenarios = new Set(imageManifest!.entries.map(({ scenario }) => scenario));
 
-    expect([...scenarios]).toEqual(expect.arrayContaining(["repost-screenshot", "second-color-worn"]));
+    expect([...scenarios]).toEqual(expect.arrayContaining(["worn", "in_hand", "repost", "screen", "bad", "color_variant_worn"]));
   });
 });

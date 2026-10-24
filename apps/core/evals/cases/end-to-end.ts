@@ -9,6 +9,9 @@ import { after, kept, line, L_NEGRO, M_NEGRO } from "@core/evals/cases/builders"
 
 const polo = line("polo-basico", M_NEGRO);
 
+/** The Polo básico and premium look alike in photos (founder rule, cases/identification.ts): «Producto no reconocido» is also right. */
+const pairNotIdentified = { outcomes: ["not_identified" as const] };
+
 /** Stands for a photo the manifest does not have; its case is dropped. */
 const missingPhoto = { file: "-" } as const;
 
@@ -24,15 +27,17 @@ export function endToEndCasesFrom(manifest: ImageManifest | null): readonly Eval
 export const endToEndCaseIds = () => endToEndTable(() => missingPhoto).map(({ id }) => id);
 
 const endToEndTable = (photo: (pick: PhotoPick) => Readonly<{ file: string }>): readonly EvalCaseInput[] => [
-  { id: "e2e-photo-worn-caption", pass: "end_to_end", criterion: 5, kind: "photo-caption", input: { photo: photo({ folder: "customer", productKey: "polo-basico", hint: "worn" }), caption: "talla M negro porfa" },
-    expected: [{ tools: ["add_shown_product_with_details"], outcomes: ["added"], order: [after("polo-basico", M_NEGRO)] }] },
-  { id: "e2e-photo-variant-missing", pass: "end_to_end", criterion: 5, kind: "photo", input: { photo: photo({ folder: "customer", productKey: "gorra-trucker" }) },
+  { id: "e2e-photo-worn-caption", pass: "end_to_end", criterion: 5, kind: "photo-caption", tags: ["indistinguishable-pair"],
+    input: { photo: photo({ folder: "customer", productKey: "polo-basico", scenario: "worn" }), caption: "talla M negro porfa" },
+    expected: [{ tools: ["add_shown_product_with_details"], outcomes: ["added"], order: [after("polo-basico", M_NEGRO)] }, pairNotIdentified] },
+  { id: "e2e-photo-variant-missing", pass: "end_to_end", criterion: 5, kind: "photo", input: { photo: photo({ folder: "customer", productKey: "gorra-trucker", scenario: "in_hand" }) },
     expected: [{ tools: ["add_shown_product"], outcomes: ["variant_missing"] }] },
-  { id: "e2e-photo-single-variant", pass: "end_to_end", criterion: 5, kind: "photo", input: { photo: photo({ folder: "customer", productKey: "chompa-tejida" }), order: [polo] },
+  { id: "e2e-photo-single-variant", pass: "end_to_end", criterion: 5, kind: "photo", input: { photo: photo({ folder: "customer", productKey: "chompa-tejida", scenario: "worn" }), order: [polo] },
     expected: [{ tools: ["add_shown_product"], outcomes: ["added"], order: [kept(polo), after("chompa-tejida", { Talla: "Única" })] }] },
-  { id: "e2e-photo-premium-details", pass: "end_to_end", criterion: 5, kind: "photo-caption", input: { photo: photo({ folder: "customer", productKey: "polo-premium" }), caption: "2 en L blanco" },
-    expected: [{ tools: ["add_shown_product_with_details"], outcomes: ["added"], order: [after("polo-premium", { Talla: "L", Color: "Blanco" }, 2)] }] },
-  { id: "e2e-photo-decline", pass: "end_to_end", criterion: 1, kind: "photo-caption", input: { photo: photo({ folder: "customer", productKey: "polera-capucha" }), caption: "no lo quiero", order: [polo] },
+  { id: "e2e-photo-premium-details", pass: "end_to_end", criterion: 5, kind: "photo-caption", tags: ["indistinguishable-pair"],
+    input: { photo: photo({ folder: "customer", productKey: "polo-premium", scenario: "color_variant_worn" }), caption: "2 en L blanco" },
+    expected: [{ tools: ["add_shown_product_with_details"], outcomes: ["added"], order: [after("polo-premium", { Talla: "L", Color: "Blanco" }, 2)] }, pairNotIdentified] },
+  { id: "e2e-photo-decline", pass: "end_to_end", criterion: 1, kind: "photo-caption", input: { photo: photo({ folder: "customer", productKey: "polera-capucha", scenario: "in_hand" }), caption: "no lo quiero", order: [polo] },
     expected: [{ tools: ["decline_shown_product"], outcomes: ["no_intent"] }, { tools: ["no_intent"], outcomes: ["no_intent"] }] },
   { id: "e2e-yape-caption", pass: "end_to_end", criterion: 2, kind: "payment", input: { photo: photo({ folder: "non-product", hint: "yape" }), caption: "ya te yapeé", order: [polo] },
     expected: [{ tools: ["no_intent"], outcomes: ["no_intent"] }] },

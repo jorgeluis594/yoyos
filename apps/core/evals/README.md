@@ -30,6 +30,7 @@ and only `smoke.eval.ts` runs. It refuses to run when `CI` is set, and it is not
 | `EVAL_REPEATS` | Runs of each `consistency` case (default 3; 1 turns the check off). |
 | `EVAL_SKIP_PARAPHRASES` | `1` runs base cases only. |
 | `EVAL_IMAGES_DIR` | Photo folder with its `manifest.json`, relative to `apps/core` (default `evals/fixtures/images`). |
+| `EVAL_LOCAL_IMAGES_DIR` | Local, gitignored folder of real captures with its own manifest, merged at run time (default `evals/fixtures/images-local`). Never commit real captures. |
 
 The local image embedder needs its model files: `pnpm --dir apps/core models:fetch`.
 
@@ -44,7 +45,8 @@ as free. Run evals on purpose, never in a loop.
 
 All data is synthetic: a Peruvian fashion catalog (`fixtures/catalog.ts`: polos, gorras, poleras, near-duplicate names, two
 products without photos, PEN prices, Talla/Color variants), Peruvian-Spanish chat texts in the cases, and generated phone-style
-photos listed in `fixtures/images/manifest.json` (fields and sources in `fixtures/images/README.md`). Each suite seeds that catalog
+photos listed in `fixtures/images/manifest.json` (fields and sources in `fixtures/images/README.md`), plus any real captures in the
+gitignored `fixtures/images-local/`. Each suite seeds that catalog
 into the test database; the photo suites also index its catalog photos with the real embedder. Without a manifest the image
 suite skips with a message and the end-to-end suite runs only its text cases.
 
