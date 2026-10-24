@@ -20,6 +20,10 @@ function AmountRows({ view, money }: Readonly<{ view: BuyerPaymentView; money: (
   </dl>;
 }
 
+function Field({ label, children, className = "" }: Readonly<{ label: string; children: ReactNode; className?: string }>) {
+  return <div className={`min-w-0 ${className}`}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="text-sm break-words">{children}</dd></div>;
+}
+
 export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
   const { t } = useTranslation();
   const revalidator = useRevalidator();
@@ -60,7 +64,7 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
 
   function removeFile() {
     setFile(null); setImageId(null); setError(""); setSuccess(false); paymentId.current = null;
-    if (input.current) input.current.value = "";
+    if (input.current) { input.current.value = ""; input.current.focus(); }
   }
 
   async function submit() {
@@ -80,8 +84,6 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
     } finally { setSubmitting(false); }
   }
 
-  const Field = ({ label, children, className = "" }: { label: string; children: ReactNode; className?: string }) =>
-    <div className={`min-w-0 ${className}`}><dt className="text-xs text-muted-foreground">{label}</dt><dd className="text-sm break-words">{children}</dd></div>;
   const copyButton = (value: string, label: string, text: string) =>
     <Button size="sm" variant="ghost" className="h-7 px-2 text-[var(--link)]" onClick={() => void copy(value, label)}>{text}</Button>;
   const unavailable = view.availability !== "available" || view.paymentStatus === "paid";
@@ -93,7 +95,7 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
         {view.settings.length === 0 ? <><p className="text-muted-foreground">{t("buyerPaymentContent.noSettings")}</p><AmountRows view={view} money={money} /></> :
           <div className="flex flex-col gap-3"><fieldset className="flex flex-wrap gap-2"><legend className="sr-only">{t("buyerPaymentContent.paymentMethod")}</legend>{view.settings.map(setting => <label key={setting.method} data-store-part="payment-method" className="flex min-h-11 min-w-32 flex-1 cursor-pointer items-center gap-2 rounded-md border px-3 py-2 text-sm break-words has-[:checked]:border-primary has-[:checked]:bg-accent"><input type="radio" data-slot="radio-group-item" name="payment-method" value={setting.method} checked={selectedMethod === setting.method} onChange={() => setMethod(setting.method)} className="accent-[var(--accent-strong,var(--primary))]" />{setting.method === "digital_wallet" ? setting.provider : t("buyerPaymentContent.transfer")}</label>)}</fieldset>
           {view.settings.filter(setting => setting.method === selectedMethod).map((setting) => <article key={setting.method} data-store-part="payment-details" className="flex gap-3 rounded-md border p-3 sm:gap-4 sm:p-4">
-            {setting.imageUrl && <a href={setting.imageUrl} target="_blank" rel="noreferrer" aria-label={t("buyerPaymentContent.openImage")} data-store-part="payment-image" className="block size-28 shrink-0"><img src={setting.imageUrl} alt={t("buyerPaymentContent.instructions", { method: t(setting.method === "digital_wallet" ? "buyerPaymentContent.walletLower" : "buyerPaymentContent.bankTransferLower") })} className="size-28 rounded-md object-contain" /></a>}
+            {setting.imageUrl && <a href={setting.imageUrl} target="_blank" rel="noreferrer" aria-label={t("buyerPaymentContent.openImage")} data-store-part="payment-image" className="block size-[8.5rem] shrink-0"><img src={setting.imageUrl} alt={t("buyerPaymentContent.instructions", { method: t(setting.method === "digital_wallet" ? "buyerPaymentContent.walletLower" : "buyerPaymentContent.bankTransferLower") })} className="size-full rounded-md object-contain" /></a>}
             <div className="flex min-w-0 flex-1 flex-col gap-2">
               <h3 className="text-sm font-semibold">{t(setting.method === "digital_wallet" ? "buyerPaymentContent.wallet" : "buyerPaymentContent.bankTransfer")}</h3>
               <dl className="grid grid-cols-2 gap-x-3 gap-y-1">{setting.method === "digital_wallet" ? <><Field label={t("buyerPaymentContent.provider")}>{setting.provider}</Field><Field label={t("buyerPaymentContent.holder")}>{setting.holder}</Field></> : <><Field label={t("buyerPaymentContent.bank")}>{setting.bank}</Field><Field label={t("buyerPaymentContent.holder")}>{setting.holder}</Field>{setting.accountNumber && <Field className="col-span-2" label={t("buyerPaymentContent.account")}><span className="tabular-nums break-all">{setting.accountNumber}</span> {copyButton(setting.accountNumber, t("buyerPaymentContent.account"), t("buyerPaymentContent.copyAccount"))}</Field>}{setting.cci && <Field className="col-span-2" label="CCI"><span className="tabular-nums break-all">{setting.cci}</span> {copyButton(setting.cci, "CCI", t("buyerPaymentContent.copyCci"))}</Field>}</>}</dl>
@@ -105,14 +107,14 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
       {pendingReport || success ? <section data-store-part="card" role="status" className={card}><h2 data-store-part="section-title" className="font-semibold">{t("buyerPaymentContent.pendingTitle")}</h2><p className="mt-1 text-muted-foreground">{t("buyerPaymentContent.pendingBody")}</p></section>
         : view.settings.length > 0 && <section data-store-part="card" className={`flex flex-col gap-2 ${card}`}><h2 data-store-part="section-title" className={sectionTitle}>{t("buyerPaymentContent.attachTitle")}</h2>
           <div className="flex flex-col gap-2 rounded-lg border border-dashed border-input bg-background p-3 focus-within:outline-2 focus-within:outline-ring sm:flex-row sm:items-center sm:justify-between">
-            <label htmlFor="receipt" className="flex min-w-0 cursor-pointer items-center gap-3 text-sm font-medium"><Upload className="size-5 shrink-0 text-primary" aria-hidden="true" /><span className="flex min-w-0 flex-col"><span>{t("buyerPaymentContent.screenshot")}</span><span className="text-xs font-normal text-muted-foreground">{t("buyerPaymentContent.receiptHint")}</span></span>
+            <label htmlFor="receipt" className="flex shrink-0 cursor-pointer items-center gap-3 text-sm font-medium"><Upload className="size-5 shrink-0 text-primary" aria-hidden="true" /><span className="flex min-w-0 flex-col"><span>{t("buyerPaymentContent.screenshot")}</span><span className="text-xs font-normal text-muted-foreground">{t("buyerPaymentContent.receiptHint")}</span></span>
               <input className="sr-only" id="receipt" ref={input} type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading || submitting} onChange={(event) => {
                 const selected = event.target.files?.[0] ?? null;
                 setFile(selected); setImageId(null); paymentId.current = null; setSuccess(false);
                 if (selected) void upload(selected);
               }} /></label>
-            {file && <div data-testid="receipt-file" className="flex min-w-0 items-center gap-2 rounded-md border bg-card px-2 py-1 text-sm"><span className="min-w-0 flex-1 truncate">{file.name}</span><span className="shrink-0 text-xs text-muted-foreground">{fileSize(file.size)}</span>
-              <button type="button" aria-label={t("buyerPaymentContent.removeFile")} disabled={uploading || submitting} onClick={removeFile} className="inline-flex size-8 shrink-0 items-center justify-center rounded-md hover:bg-accent disabled:opacity-50"><X className="size-4" aria-hidden="true" /></button></div>}
+            {file && <div data-testid="receipt-file" className="flex min-w-0 items-center sm:max-w-[55%] gap-2 rounded-md border bg-card px-2 py-1 text-sm"><span className="min-w-0 flex-1 truncate">{file.name}</span><span className="shrink-0 text-xs text-muted-foreground">{fileSize(file.size)}</span>
+              <Button type="button" variant="ghost" size="icon-sm" aria-label={t("buyerPaymentContent.removeFile")} disabled={uploading || submitting} onClick={removeFile}><X aria-hidden="true" /></Button></div>}
           </div>
           <p className="text-sm text-muted-foreground">{t("buyerPaymentContent.attachBody")}</p>
           {uploading && <p role="status" className="text-sm text-muted-foreground">{t("buyerPaymentContent.uploading")}</p>}

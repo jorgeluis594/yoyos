@@ -56,8 +56,9 @@ describe("BuyerPaymentContent", () => {
     const details = container.querySelector("[data-store-part=payment-details]")!;
     const qr = details.querySelector("[data-store-part=payment-image] img")!;
     expect(qr.getAttribute("src")).toBe("https://cdn.example/qr.png");
-    expect(qr.className).toMatch(/size-\d+|h-\d+/);
-    expect(qr.className).not.toContain("w-full");
+    const plate = details.querySelector("[data-store-part=payment-image]")!;
+    expect(plate.className).toContain("size-[8.5rem]");
+    expect(qr.className).toContain("size-full");
     const row = (label: string) => [...details.querySelectorAll("dt")].find((term) => term.textContent === label)?.nextElementSibling?.textContent;
     expect(row("Proveedor")).toBe("Plin");
     expect(row("Titular")).toBe("Jorge");
@@ -75,6 +76,17 @@ describe("BuyerPaymentContent", () => {
     expect(container.querySelector("[role=status]")?.textContent).toBe("Cuenta copiada.");
     await act(async () => button(container, "Copiar CCI")!.click());
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith("00200000000000000001");
+  });
+
+  test("keeps the focus on the copy button after copying", async () => {
+    const container = await mount(base);
+    await act(async () => container.querySelector<HTMLInputElement>("input[value=bank_transfer]")!.click());
+    const copy = button(container, "Copiar CCI") as HTMLButtonElement;
+    act(() => copy.focus());
+    await act(async () => copy.click());
+    expect(container.querySelector("[role=status]")?.textContent).toBe("CCI copiada.");
+    expect(document.activeElement).toBe(button(container, "Copiar CCI"));
+    expect(document.activeElement).toBe(copy);
   });
 
   test("uploads the receipt, lists its name and size in the row and submits it", async () => {
@@ -103,6 +115,29 @@ describe("BuyerPaymentContent", () => {
     expect(container.querySelector("[data-testid=receipt-file]")).toBeNull();
     expect(container.textContent).not.toContain("Captura lista para enviar.");
     expect((button(container, "Ya pagué") as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("moves the focus to the file control after removing the file", async () => {
+    mockUpload();
+    const container = await mount(base);
+    await pick(container, png());
+    await act(async () => button(container, "Quitar archivo")!.click());
+    expect(document.activeElement).toBe(container.querySelector("input[type=file]"));
+  });
+
+  test("shows only the verification sentence below the attach row, not the format twice", async () => {
+    const container = await mount(base);
+    expect(container.textContent).toContain("La tienda verificará el pago.");
+    expect(container.textContent?.match(/hasta 10 MB/g)).toHaveLength(1);
+  });
+
+  test("keeps the amounts card and no payment form when the order is paid or unavailable", async () => {
+    for (const view of [{ ...base, paymentStatus: "paid" as const }, { ...base, availability: "cancelled" as const }]) {
+      const container = await mount(view);
+      expect(container.querySelector("section[aria-label='Resumen del pedido']")?.textContent).toContain("Saldo pendiente");
+      expect(container.querySelector("input[type=file]")).toBeNull();
+      act(() => root?.unmount());
+    }
   });
 
   test("rejects an unsupported file and offers a retry when the upload fails", async () => {
