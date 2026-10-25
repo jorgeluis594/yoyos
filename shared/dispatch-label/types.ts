@@ -40,3 +40,6 @@ export type DispatchLabelPreparation<ReadError> =
   | Readonly<{ status: "ready"; orderId: string; label: DispatchLabel }>
   | Readonly<{ status: "excluded"; orderId: string; exclusion: DispatchLabelExclusion }>
   | Readonly<{ status: "read-error"; orderId: string; error: ReadError }>;
+
+/** Paper of one print job: one 62 x 100 mm label per page, or an A4 sheet of six cells. */
+export type DispatchLabelSize = "label_62x100" | "a4";

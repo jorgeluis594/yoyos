@@ -1,6 +1,8 @@
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { DispatchLabel, DispatchLabelDocument, DispatchLabelExclusion, DispatchLabelMissingField, DispatchLabelSender } from "@shared/dispatch-label/types";
 
+/** The order a label is built from: the order aggregate as the API serves it. */
+export type DispatchLabelOrder = OrderAggregateResponse;
 type Field = readonly [DispatchLabelMissingField, string | null | undefined];
 type Delivery = NonNullable<OrderAggregateResponse["delivery"]>;
 export type ClassifiedDispatchLabel = Readonly<{ label: DispatchLabel }> | Readonly<{ exclusion: DispatchLabelExclusion }>;

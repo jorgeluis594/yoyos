@@ -1,8 +1,8 @@
 import { z } from "zod";
-import type { DispatchLabelExclusion } from "@shared/dispatch-label/types";
+import type { DispatchLabelExclusion, DispatchLabelSize as SharedDispatchLabelSize } from "@shared/dispatch-label/types";
 
 export const dispatchLabelMaxOrders = 100;
-export const dispatchLabelSizes = ["label_62x100", "a4"] as const;
+export const dispatchLabelSizes = ["label_62x100", "a4"] as const satisfies readonly SharedDispatchLabelSize[];
 
 const missingFieldSchema = z.enum([
   "recipientName", "recipientPhone", "recipientDocument", "department", "province", "district", "address", "courier", "agency",

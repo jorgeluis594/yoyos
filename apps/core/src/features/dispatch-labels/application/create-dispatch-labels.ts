@@ -1,10 +1,8 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { DispatchLabelSize } from "@shared/contracts/dispatch-labels";
-import type { OrderAggregateResponse } from "@shared/contracts/orders";
-import { prepareOrderDispatchLabel } from "@shared/dispatch-label/build";
+import { prepareOrderDispatchLabel, type DispatchLabelOrder } from "@shared/dispatch-label/build";
 import { layoutDispatchLabel, type DispatchLabelGeometry, type DispatchLabelLayout, type MeasureText } from "@shared/dispatch-label/layout";
-import type { DispatchLabelExclusion, DispatchLabelSender } from "@shared/dispatch-label/types";
+import type { DispatchLabelExclusion, DispatchLabelSender, DispatchLabelSize } from "@shared/dispatch-label/types";
 
 export type LabelPdfError = Readonly<{ code: "PDF_RENDER_FAILED"; message: string }>;
 /** Port implemented by the PDF adapter: measures and draws with the same font, so the fit check matches the output. */
@@ -24,7 +22,7 @@ export type CreateDispatchLabelsError = Readonly<{ code: "PERSISTENCE_UNAVAILABL
 
 export type CreateDispatchLabelsDependencies = Readonly<{
   /** The company's orders among these ids, in one query; unknown ids are simply absent. */
-  loadOrders: (orderIds: readonly string[]) => Promise<Result<readonly OrderAggregateResponse[], CreateDispatchLabelsError>>;
+  loadOrders: (orderIds: readonly string[]) => Promise<Result<readonly DispatchLabelOrder[], CreateDispatchLabelsError>>;
   /** The effective sender of the company, read live. */
   loadSender: () => Promise<Result<DispatchLabelSender, CreateDispatchLabelsError>>;
   createPdf: (size: DispatchLabelSize) => LabelPdf;
