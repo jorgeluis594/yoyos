@@ -1,7 +1,7 @@
 import { describe, expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
-import type { DispatchLabelLayout } from "@shared/dispatch-label/layout";
+import { defaultDispatchLabelTypography, type DispatchLabelLayout } from "@shared/dispatch-label/layout";
 import { createDispatchLabels, type CreateDispatchLabelsDependencies } from "@core/src/features/dispatch-labels/application/create-dispatch-labels";
 
 const uuid = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -19,7 +19,8 @@ const order = (n: number, patch: object = {}) => ({ id: uuid(n), number: 1000 + 
 function dependencies(orders: OrderAggregateResponse[], overrides: Partial<CreateDispatchLabelsDependencies> = {}) {
   const rendered: DispatchLabelLayout[][] = [];
   const createPdf = vi.fn((size: "label_62x100" | "a4") => ({
-    geometry: { widthPx: 175.75, heightPx: 283.46, dpiX: 72, dpiY: 72 },
+    geometry: { widthPx: 175.75, heightPx: 283.46, dpiX: 72, dpiY: 72, paddingMm: 2 },
+    typography: defaultDispatchLabelTypography,
     measure: (text: string, sizePt: number) => text.length * sizePt * 0.5,
     render: async (layouts: readonly DispatchLabelLayout[]) => { rendered.push([...layouts]); return ok(Buffer.from(`pdf:${size}:${layouts.length}`)); },
   }));
@@ -65,7 +66,7 @@ describe("createDispatchLabels", () => {
     const { deps, rendered } = dependencies([order(1)], { loadSender: async () => ok({ name: "Mi Negocio", phone: null }) });
     await createDispatchLabels({ orderIds: [uuid(1)], size: "label_62x100" }, deps);
     const texts = rendered[0][0].lines.map((line) => line.text);
-    expect(texts[0]).toBe("Mi Negocio");
+    expect(texts.slice(0, 2)).toEqual(["REMITENTE", "Mi Negocio"]);
     expect(texts.some((text) => text.startsWith("Cel. 977"))).toBe(false);
     expect(texts).toContain("Pedido #1001");
   });

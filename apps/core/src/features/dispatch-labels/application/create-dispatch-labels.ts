@@ -1,14 +1,15 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { prepareOrderDispatchLabel, type DispatchLabelOrder } from "@shared/dispatch-label/build";
-import { layoutDispatchLabel, type DispatchLabelGeometry, type DispatchLabelLayout, type MeasureText } from "@shared/dispatch-label/layout";
+import { layoutDispatchLabel, type DispatchLabelGeometry, type DispatchLabelLayout, type DispatchLabelTypography, type MeasureText } from "@shared/dispatch-label/layout";
 import type { DispatchLabelExclusion, DispatchLabelSender, DispatchLabelSize } from "@shared/dispatch-label/types";
 
 export type LabelPdfError = Readonly<{ code: "PDF_RENDER_FAILED"; message: string }>;
 /** Port implemented by the PDF adapter: measures and draws with the same font, so the fit check matches the output. */
 export type LabelPdf = Readonly<{
   geometry: DispatchLabelGeometry;
-  /** Width in points of the text in the PDF font. */
+  typography: DispatchLabelTypography;
+  /** Width in points of the text in the PDF font of that weight. */
   measure: MeasureText;
   render: (layouts: readonly DispatchLabelLayout[]) => Promise<Result<Buffer, LabelPdfError>>;
 }>;
@@ -44,7 +45,7 @@ export async function createDispatchLabels(
     if (!order) { response.notFound.push(orderId); continue; }
     let layout: DispatchLabelLayout | null = null;
     const prepared = prepareOrderDispatchLabel(order, sender.data, (label) => {
-      const laidOut = layoutDispatchLabel(label, pdf.geometry, pdf.measure);
+      const laidOut = layoutDispatchLabel(label, pdf.geometry, pdf.measure, pdf.typography);
       if (laidOut.success) layout = laidOut.data;
       return laidOut.success;
     });

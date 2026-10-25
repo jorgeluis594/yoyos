@@ -147,7 +147,8 @@ test("the configured sender reaches every label and the PDF grows with the label
   }));
   expect(created.success).toBe(true);
   expect(drawn).toHaveLength(7);
-  for (const lines of drawn) expect(lines.slice(0, 2)).toEqual(["Fantastidog", "Cel. 977 000 111"]);
+  // On the 62 mm roll the name and phone do not fit together, so they break at the separator.
+  for (const lines of drawn) expect(lines.slice(0, 3)).toEqual(["REMITENTE", "Fantastidog", "Cel. 977 000 111"]);
 });
 
 test("rejects invalid requests: more than 100 ids, none, duplicates, bad ids, unknown size and non-JSON", async () => {

@@ -45,16 +45,21 @@ Each order gets **one** label; there are no copies or multi-package numbering.
 - Printing never changes order status or dates, and nothing about printing is stored on the order. Shipped and delivered orders can be reprinted.
 - The label uses the order's stored delivery snapshot, never recomputed data. Only the sender is company data, read when the label is prepared. It is not an official courier waybill and does not list products, QR codes or a logo. Reason: a QR would confuse the courier, which uses its own codes.
 - Web and mobile print the same label: building, classification and layout live in one shared module, [`shared/dispatch-label`](../shared/dispatch-label), with the text measurement injected by each platform (Skia on Android, the PDF font on the server). Both measure with the Inter font, so "content exceeds the label space" excludes the same orders on both.
-- The label's fixed text (`Cel.`, `Ref:`, document names, `Pedido #`) is always in Spanish, whatever the interface language. Reason: labels exist only for Peruvian home and agency delivery.
+- The label's fixed text (headings, `Cel.`, `Ref:`, `Courier:`, document names, `Pedido #`) is always in Spanish, whatever the interface language. Reason: labels exist only for Peruvian home and agency delivery.
 
-| Block | Content |
+The label prints in black only, in sections separated by thin full-width rules. Each section except the footer sits under a small bold uppercase heading.
+
+| Section | Content |
 | --- | --- |
-| Sender | The company's dispatch sender: name, and `Cel. <phone>` on a second line when a phone is set. |
-| Recipient | Name, phone, and document when present. |
-| Destination | Home: buyer's address, department, province and district. Agency: the chosen agency's name, address and district. Reference when present. |
-| Footer | Courier (agency only), then a small line `Pedido #<number>`, followed by ` · dd/mm/yyyy` when a dispatch date is scheduled. |
+| **REMITENTE** | The company's dispatch sender: name, then `Cel. <phone>` when a phone is set. |
+| **DESTINATARIO** | Name in bold and largest, then `Cel. <phone>` and the document when present. |
+| **ENTREGA A DOMICILIO** or **RECOJO EN AGENCIA** | Agency: the agency name in bold first. Then the address, and the location in bold uppercase, district first (`MIRAFLORES · LIMA · LIMA`). Home adds `Ref: <reference>` when present. |
+| Footer (no heading) | Pinned to the bottom: `Courier: <name>` (agency only), then `Pedido #<number>` in bold, followed by ` · dd/mm/yyyy` when a dispatch date is scheduled. |
 
-- Block order, line sizes and gaps follow the app format: there are no block headings or extra rules. The order number line and the sender phone use the smallest scale the label already uses, so nothing prints below the minimum font size. Reason: sender, recipient and address stay the main content.
+- Parts written with ` · ` share a line while they fit and break at the separator otherwise. Reason: short data stays compact, and long data never splits mid-phone or mid-place.
+- Headings, rules and bold mark where each block starts. Reason: without them the sender, recipient and destination read as one block of text.
+- The district goes first and in bold. Reason: couriers sort packages by district.
+- Black only, no gray or fills. Reason: the Brother printer is thermal and prints no shades.
 
 ### Sender
 
@@ -99,9 +104,9 @@ The web panel prints labels as a PDF generated on the server; it does not talk t
   - Changing the size regenerates the PDF with the same ready and excluded orders. The size is not remembered: every opening starts on 62 × 100 mm.
   - Orders the server excluded are listed under the preview with their number and reason, including those the list cannot predict ("missing data", "content exceeds the label space") and orders not found in the company; the PDF then has fewer labels than requested. When no order is ready, there is no PDF and only the reasons are shown.
   - Where the browser cannot show a PDF inline (phones and browsers without a PDF viewer), the dialog offers to open the PDF in a new tab instead of the preview, and **Imprimir** opens it there.
-- **PDF formats:** every label is exactly 62 × 100 mm, portrait, with the same layout, fit check and exclusions in both sizes.
-  - 62 × 100 mm: one label per page, for the Brother roll.
-  - A4: portrait sheets with a centered grid of 3 columns × 2 rows (6 labels), filled left to right and top to bottom in the order of the selection, with dashed cut lines; the last sheet may be partly empty. Reason: sellers without a label printer print on plain paper, and keeping the label size fixed keeps content and rules identical.
+- **PDF formats:** both sizes use the same layout and exclusions; the fit check runs per size, so an order that overflows one size may fit the other.
+  - 62 × 100 mm: one label per page, for the Brother roll, with a 2 mm inner padding and text starting at 12 pt.
+  - A4: portrait sheets of 2 columns × 3 rows of 105 × 99 mm cells that fill the page (the common 6-up adhesive sheet), filled left to right and top to bottom in the order of the selection. Each cell keeps a 6 mm inner padding and text starts at 16 pt. Dashed cut lines are drawn only on the inner edges of used cells; the last sheet may be partly empty. Reason: sellers without a label printer print on plain paper or adhesive sheets, and the padding clears office printers' unprintable margin.
 - Generating a PDF is read-only and keeps every rule in [Labels](#labels): it never changes the order.
 
 ## Printer and batch
