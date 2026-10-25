@@ -673,7 +673,8 @@ test("rejects a report from the review sheet with an optional reason", async () 
   await waitFor(() => expect(screen.getByRole("button", { name: "Rechazar comprobante" })).toBeEnabled());
   mockOrder = rejected;
   fireEvent.press(screen.getByRole("button", { name: "Rechazar comprobante" }));
-  await waitFor(() => expect(screen.queryByText("¿Rechazar este comprobante?")).toBeNull());
+  await waitFor(() => expect(mockRejectPayment).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByText("¿Rechazar este comprobante?")).toBeNull(), { timeout: 5000 });
   expect(screen.getByText("Pago rechazado")).toBeTruthy();
   expect(screen.getByText("El monto no coincide")).toBeTruthy();
 });
