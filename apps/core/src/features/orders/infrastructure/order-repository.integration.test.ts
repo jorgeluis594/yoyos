@@ -110,6 +110,35 @@ test("reports a company receipt once without changing coverage or stock", async 
   } finally { await f.cleanup(); }
 });
 
+test("round-trips a rejected payment with its report and reason", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const paymentId = randomUUID() as PaymentId;
+      const receiptImageId = randomUUID() as ImageId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      await orders.create({ id: orderId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context);
+      await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date(),
+        buyer: { create: { name: "Ana", phone: "+51987654321" } } } });
+      await prisma.image.create({ data: { id: receiptImageId, storageKey: `test/${receiptImageId}` } });
+      expect(await orders.reportPayment({ paymentId, receiptImageId }, { kind: "buyer", companyId: context.companyId, orderId })).toMatchObject({ success: true });
+      const rejected = await orders.rejectPayment({ orderId, paymentId, reason: "El monto no coincide" }, context);
+      expect(rejected).toMatchObject({ success: true, data: { applied: true } });
+      const row = await prisma.payment.findUniqueOrThrow({ where: { id: paymentId } });
+      expect(row).toMatchObject({ status: "rejected", amount: null, method: null, currency: "PEN" });
+      expect(row.data).toMatchObject({ report: { receiptImageId }, rejectedBy: context.userId, reason: "El monto no coincide" });
+      const loaded = await orderDetail(orderId, f);
+      expect(loaded).toMatchObject({ success: true, data: { stockDeducted: false, payments: [{ id: paymentId, status: "rejected", currency: "PEN",
+        data: { report: { receiptImageId, reportedAt: expect.any(Date) }, rejectedAt: expect.any(Date), rejectedBy: context.userId, reason: "El monto no coincide" } }] } });
+      if (!rejected.success || !loaded.success) return;
+      expect(loaded.data.payments).toEqual(rejected.data.order.payments);
+      await prisma.payment.update({ where: { id: paymentId }, data: { amount: new Prisma.Decimal("1") } });
+      expect(await orderDetail(orderId, f)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+    });
+  } finally { await f.cleanup(); }
+});
+
 test("confirms a report and voids a delivered payment without changing stock or delivery", async () => {
   const f = await fixture();
   try {

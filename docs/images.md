@@ -15,6 +15,7 @@ Code: `apps/core/src/shared/images/` (application, R2 adapter, record repository
 | Uploads go through core, not directly to the provider | No temporary authorization or upload confirmation flow is needed. |
 | Original bytes are stored; no conversion, thumbnails or variants | No requirement for them. |
 | Feature rules (who may change a product photo, how many images) stay in each feature | The storage port receives no entity type or id. |
+| The QR reader (`infrastructure/qr-code-reader.ts`) lives in this module; what a decoded QR means stays in each feature | It is generic, products (code identification) and payment settings (wallet QR) both use it, and placing it in products would create a dependency cycle between features. |
 
 ## API
 

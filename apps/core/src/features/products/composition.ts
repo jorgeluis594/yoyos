@@ -26,7 +26,7 @@ import { identifyProductsInImage, type VisualSearch } from "@core/src/features/p
 import type { ImageBytes, MatchConfidence, VariantQrCode } from "@core/src/features/products/domain/image-identification";
 import { findSellableVariantsByQrCodes, findSellableVariantsOfProduct } from "@core/src/features/products/infrastructure/order-stock";
 import { findNearestProductImages, hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
-import { readQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
+import { readQrCodes } from "@core/src/shared/images/infrastructure/qr-code-reader";
 import { createOpenAIProductChooser } from "@core/src/features/products/infrastructure/product-matching/openai-product-chooser";
 import { MAX_CANDIDATES } from "@core/src/features/products/infrastructure/product-matching/product-chooser";
 import { findCatalogProduct, listCatalogProducts } from "@core/src/features/products/application/catalog-products";

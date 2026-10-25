@@ -35,7 +35,6 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
   const [uploading, setUploading] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
-  const [success, setSuccess] = useState(false);
   const paymentId = useRef<string | null>(null);
   const input = useRef<HTMLInputElement>(null);
   const money = (value: typeof view.total) => formatCurrency(value.amount, value.currency, "es-PE");
@@ -63,7 +62,7 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
   }
 
   function removeFile() {
-    setFile(null); setImageId(null); setError(""); setSuccess(false); paymentId.current = null;
+    setFile(null); setImageId(null); setError(""); paymentId.current = null;
     if (input.current) { input.current.value = ""; input.current.focus(); }
   }
 
@@ -77,8 +76,9 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
         headers: { "content-type": "application/json" }, body: JSON.stringify({ paymentId: paymentId.current, receiptImageId: imageId }) });
       const parsed = reportPaymentResponseSchema.safeParse(await response.json());
       if (!response.ok || !parsed.success) throw new Error("report");
-      setSuccess(true);
-      revalidator.revalidate();
+      // The answer is always «reported», even when the seller already rejected this payment: the state shown comes from the refreshed view.
+      setFile(null); setImageId(null); paymentId.current = null;
+      await revalidator.revalidate();
     } catch {
       setError(t("buyerPaymentContent.reportFailed"));
     } finally { setSubmitting(false); }
@@ -104,13 +104,16 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
           </article>)}</div>}
         {copied && <p role="status" className="text-sm text-muted-foreground">{copied}</p>}
       </section>
-      {pendingReport || success ? <section data-store-part="card" role="status" className={card}><h2 data-store-part="section-title" className="font-semibold">{t("buyerPaymentContent.pendingTitle")}</h2><p className="mt-1 text-muted-foreground">{t("buyerPaymentContent.pendingBody")}</p></section>
-        : view.settings.length > 0 && <section data-store-part="card" className={`flex flex-col gap-2 ${card}`}><h2 data-store-part="section-title" className={sectionTitle}>{t("buyerPaymentContent.attachTitle")}</h2>
+      {pendingReport ? <section data-store-part="card" role="status" className={card}><h2 data-store-part="section-title" className="font-semibold">{t("buyerPaymentContent.pendingTitle")}</h2><p className="mt-1 text-muted-foreground">{t("buyerPaymentContent.pendingBody")}</p></section>
+        : view.settings.length > 0 && <section data-store-part="card" className={`flex flex-col gap-2 ${card}`}>
+          {view.rejectedReport && <div role="status" className="flex flex-col gap-1 rounded-md border border-destructive/40 bg-destructive/5 p-3 text-sm"><h2 data-store-part="section-title" className="font-semibold">{t("buyerPaymentContent.rejectedTitle")}</h2>
+            {view.rejectedReport.reason && <p>{t("buyerPaymentContent.rejectedReason", { reason: view.rejectedReport.reason })}</p>}<p className="text-muted-foreground">{t("buyerPaymentContent.rejectedBody")}</p></div>}
+          <h2 data-store-part="section-title" className={sectionTitle}>{t("buyerPaymentContent.attachTitle")}</h2>
           <div className="flex flex-col gap-2 rounded-lg border border-dashed border-input bg-background p-3 focus-within:outline-2 focus-within:outline-ring sm:flex-row sm:items-center sm:justify-between">
             <label htmlFor="receipt" className="flex shrink-0 cursor-pointer items-center gap-3 text-sm font-medium"><Upload className="size-5 shrink-0 text-primary" aria-hidden="true" /><span className="flex min-w-0 flex-col"><span>{t("buyerPaymentContent.screenshot")}</span><span className="text-xs font-normal text-muted-foreground">{t("buyerPaymentContent.receiptHint")}</span></span>
               <input className="sr-only" id="receipt" ref={input} type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading || submitting} onChange={(event) => {
                 const selected = event.target.files?.[0] ?? null;
-                setFile(selected); setImageId(null); paymentId.current = null; setSuccess(false);
+                setFile(selected); setImageId(null); paymentId.current = null;
                 if (selected) void upload(selected);
               }} /></label>
             {file && <div data-testid="receipt-file" className="flex min-w-0 items-center sm:max-w-[55%] gap-2 rounded-md border bg-card px-2 py-1 text-sm"><span className="min-w-0 flex-1 truncate">{file.name}</span><span className="shrink-0 text-xs text-muted-foreground">{fileSize(file.size)}</span>
@@ -124,6 +127,6 @@ export function BuyerPaymentContent({ view }: { view: BuyerPaymentView }) {
           <Button type="button" className="h-12 w-full text-base" disabled={!imageId || uploading || submitting} onClick={() => void submit()}>{submitting ? t("buyerPaymentContent.sending") : t("buyerPaymentContent.paid")}</Button>
         </section>}
     </>}
-    {view.payments.some((payment) => payment.receiptImageUrl) && <section className="flex flex-col gap-1"><h2 data-store-part="section-title" className={sectionTitle}>{t("buyerPaymentContent.sentReceipts")}</h2><ul className="flex flex-col gap-1 text-sm">{view.payments.filter((payment) => payment.receiptImageUrl).map((payment) => <li key={payment.id}><a className="text-[var(--link)] underline underline-offset-4" href={payment.receiptImageUrl!} target="_blank" rel="noreferrer">{t("buyerPaymentContent.viewScreenshot", { status: t(`buyerPaymentContent.status.${payment.status}`) })}</a></li>)}</ul></section>}
+    {view.payments.some((payment) => payment.receiptImageUrl) && <section className="flex flex-col gap-1"><h2 data-store-part="section-title" className={sectionTitle}>{t("buyerPaymentContent.sentReceipts")}</h2><ul className="flex flex-col gap-1 text-sm">{view.payments.filter((payment) => payment.receiptImageUrl).map((payment) => <li key={payment.id}><a className="text-[var(--link)] underline underline-offset-4" href={payment.receiptImageUrl!} target="_blank" rel="noreferrer">{t("buyerPaymentContent.viewScreenshot", { status: t(`buyerPaymentContent.status.${payment.status}`) })}</a>{payment.status === "rejected" && payment.rejectionReason && <p className="text-muted-foreground">{t("buyerPaymentContent.rejectedReason", { reason: payment.rejectionReason })}</p>}</li>)}</ul></section>}
   </div>;
 }

@@ -29,7 +29,7 @@ export type SellerStoreAppearance =
 export type SavedStoreAppearance = Readonly<{ appearance: StoreAppearance; logoUrl: string | null }>;
 
 export type PreviewPaymentMethod =
-  | Readonly<{ method: "digital_wallet"; provider: string; holder: string; imageUrl: string | null }>
+  | Readonly<{ method: "digital_wallet"; provider: string; holder: string; imageUrl: string }>
   | Readonly<{ method: "bank_transfer"; bank: string; holder: string; accountNumber: string | null; cci: string | null; imageUrl: string | null }>;
 
 export type StorePreview = Readonly<{
