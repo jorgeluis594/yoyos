@@ -29,7 +29,7 @@ afterEach(() => vi.restoreAllMocks());
 test("Continuar answers the checkout url, line issues and the closed catalog without caching", async () => {
   const continueToCheckout = vi.spyOn(catalogCart, "continueToCheckout").mockResolvedValue(ok({ id: id(2) } as OrderAggregate));
   const created = await action(post(cart, "198.51.100.1"));
-  expect(created).toMatchObject({ data: { checkoutUrl: expect.stringMatching(new RegExp(`/checkout/${id(1)}/${id(2)}$`)) }, init: { status: 200, headers: { "Cache-Control": "no-store" } } });
+  expect(created).toMatchObject({ data: { checkoutUrl: expect.stringMatching(new RegExp(`/checkout/${id(2)}$`)) }, init: { status: 200, headers: { "Cache-Control": "no-store" } } });
   expect(continueToCheckout).toHaveBeenCalledWith({ orderId: id(2), lines: cart.lines }, published);
   continueToCheckout.mockResolvedValue(err({ code: "LINES_UNAVAILABLE", message: "x", issues: [{ variantId: id(3) as VariantId, reason: "insufficient", available: 1 }] }));
   expect(await action(post(cart, "198.51.100.1"))).toMatchObject({ data: { code: "LINES_UNAVAILABLE", issues: [{ reason: "insufficient", available: 1 }] }, init: { status: 409 } });

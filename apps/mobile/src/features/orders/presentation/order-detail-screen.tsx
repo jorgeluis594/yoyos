@@ -9,9 +9,8 @@ import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import type { CancellationRequestError, CancellationRecoveryError } from "@mobile/features/orders/application/cancel-order";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { PaymentFields, type PaymentFieldsValue } from "@mobile/features/orders/presentation/payment-fields";
-import * as Clipboard from "expo-clipboard";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AccessibilityInfo, ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import * as Crypto from "expo-crypto";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -32,6 +31,7 @@ import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { deliveryMethodLabel, deliveryStatusLabel, documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
+import { useCopyLink } from "@mobile/features/catalog/presentation/use-copy-link";
 import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
@@ -46,6 +46,12 @@ export type CancellationUiState =
   | Readonly<{ kind: "failed"; error: CancellationRequestError }>
   | Readonly<{ kind: "uncertain"; orderId: string; cause: CancellationRecoveryError }>;
 
+type CheckoutLinkState =
+  | Readonly<{ kind: "loading" }>
+  | Readonly<{ kind: "ready"; url: string }>
+  | Readonly<{ kind: "subdomain_required" }>
+  | Readonly<{ kind: "error" }>;
+
 export default function OrderDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
@@ -57,9 +63,9 @@ export default function OrderDetailScreen() {
   const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [checkoutUrl, setCheckoutUrl] = useState("");
-  const [checkoutBusy, setCheckoutBusy] = useState(false);
-  const [checkoutMessage, setCheckoutMessage] = useState("");
+  const [linkResult, setLinkResult] = useState<Readonly<{ orderId: string; link: Exclude<CheckoutLinkState, { kind: "loading" }> }> | null>(null);
+  const [linkRefresh, setLinkRefresh] = useState(0);
+  const linkRequest = useRef(0);
   const checkoutGeneration = useRef(0);
   const [paymentError, setPaymentError] = useState("");
   const [savingPayment, setSavingPayment] = useState<string | null>(null);
@@ -74,8 +80,6 @@ export default function OrderDetailScreen() {
   const summaryPosition = useRef(0);
   const [paymentsOpen, setPaymentsOpen] = useState(false);
   const [deliveryOpen, setDeliveryOpen] = useState(false);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [checkoutUrlOpen, setCheckoutUrlOpen] = useState(false);
   const [internalOpen, setInternalOpen] = useState(false);
   const [editor, setEditor] = useState<"manual" | { paymentId: string; receiptImageId: string } | null>(null);
   const [rejection, setRejection] = useState<{ reason: string } | null>(null);
@@ -88,7 +92,10 @@ export default function OrderDetailScreen() {
   useLayoutEffect(() => { currentScope.current = scope; }, [scope]);
   const cancellationBusy = cancellation.kind === "submitting" || cancellation.kind === "verifying";
   const cancellationBlocked = cancellationBusy || cancellation.kind === "uncertain" || detailRefreshFailed;
-  const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling || checkoutBusy;
+  // A result belongs to the order it was read for, so another order never shows this one's link while its own loads.
+  const checkoutLink: CheckoutLinkState = linkResult && linkResult.orderId === order?.id ? linkResult.link : { kind: "loading" };
+  const { copied, copy: copyLink, open: openLink } = useCopyLink(checkoutLink.kind === "ready" ? checkoutLink.url : null);
+  const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling;
   const reload = useCallback(async () => {
     const generation = checkoutGeneration.current;
     const requestScope = scope;
@@ -172,7 +179,7 @@ export default function OrderDetailScreen() {
   useFocusEffect(useCallback(() => {
     checkoutGeneration.current += 1;
     cancellationLock.current = false; setCancellation({ kind: "idle" }); setDetailRefreshFailed(false);
-    setCheckoutUrl(""); setCheckoutUrlOpen(false); setCheckoutMessage("");
+    setLinkRefresh(count => count + 1);
     if (companyId) void reload();
     return () => {
       checkoutGeneration.current += 1;
@@ -180,20 +187,25 @@ export default function OrderDetailScreen() {
     };
   }, [companyId, id, notice, clear, reload]));
 
-  async function obtainCheckoutLink() {
-    if (cancellationLock.current || writeBusy || order?.cancelled) return;
-    const generation = checkoutGeneration.current;
-    setCheckoutBusy(true); setCheckoutMessage("");
-    try {
-      const result = await orders.enableOrderCheckout(id);
-      if (generation !== checkoutGeneration.current) return;
-      if (result.success) { await reload(); if (generation === checkoutGeneration.current) setCheckoutUrl(result.data.url); }
-      else setCheckoutMessage(t("checkoutLinkError"));
-    } catch { if (generation === checkoutGeneration.current) setCheckoutMessage(t("checkoutLinkError")); }
-    finally { setCheckoutBusy(false); }
-  }
+  // The link is a read of the order's current brand-host URL, so it loads with the screen and again on every return (a subdomain may have been chosen meanwhile).
+  const linkOrderId = order?.id;
+  const linkCancelled = order?.cancelled ?? false;
+  useEffect(() => { if (copied) AccessibilityInfo.announceForAccessibility(translations.t("checkoutCopied")); }, [copied]);
+  useEffect(() => {
+    if (!linkOrderId || linkCancelled) return;
+    const request = ++linkRequest.current;
+    void (async () => {
+      try {
+        const result = await orders.enableOrderCheckout(linkOrderId);
+        if (request !== linkRequest.current) return;
+        setLinkResult({ orderId: linkOrderId, link: result.success ? { kind: "ready", url: result.data.url }
+          : result.error.code === "SUBDOMAIN_REQUIRED" ? { kind: "subdomain_required" } : { kind: "error" } });
+      } catch { if (request === linkRequest.current) setLinkResult({ orderId: linkOrderId, link: { kind: "error" } }); }
+    })();
+    return () => { linkRequest.current += 1; };
+  }, [linkOrderId, linkCancelled, linkRefresh]);
   async function runCancellation(verify: boolean) {
-    if (!order || cancellationBusy || cancellationLock.current || savingPayment || fulfilling || checkoutBusy) return;
+    if (!order || cancellationBusy || cancellationLock.current || savingPayment || fulfilling) return;
     if (!verify && (cancellationBlocked || order.cancelled || order.status !== "active" || order.deliveryStatus !== "pending")) return;
     const generation = checkoutGeneration.current;
     const requestScope = scope;
@@ -201,7 +213,7 @@ export default function OrderDetailScreen() {
     cancellationLock.current = true;
     setCancellation({ kind: verify ? "verifying" : "submitting", orderId: order.id });
     setDetailRefreshFailed(false);
-    setCheckoutUrl(""); setCheckoutUrlOpen(false); setCheckoutMessage(""); setEditor(null);
+    setEditor(null);
     let confirmed = false;
     try {
       const result = await orders[verify ? "checkCancellation" : "cancelOrder"](order.id);
@@ -233,14 +245,6 @@ export default function OrderDetailScreen() {
       confirmLabel: t("orderCancellation.cancel"), cancelLabel: t("orderCancellation.keep"), destructive: true,
       onConfirm: () => { if (generation === checkoutGeneration.current && requestScope === currentScope.current) void runCancellation(false); } });
   }
-  async function copyCheckoutLink() {
-    try {
-      const copied = await Clipboard.setStringAsync(checkoutUrl);
-      setCheckoutMessage(t(copied ? "checkoutCopied" : "checkoutCopyManually"));
-      if (!copied) setCheckoutUrlOpen(true);
-    } catch { setCheckoutUrlOpen(true); setCheckoutMessage(t("checkoutCopyManually")); }
-  }
-
   if (state.status !== "ready") return null;
   if (loading) return <ScreenState status="loading" title={t('loadingOrder')} />;
   if (!order || error) return <ScreenState status="error" title={t('openOrderError')} description={error} onRetry={() => void reload()} />;
@@ -254,7 +258,7 @@ export default function OrderDetailScreen() {
   const format = (value: { amount: number; currency: string }) => money(value.amount, value.currency, locale);
   const reports = order.payments.filter((payment) => payment.status === "reported");
   const canEditDelivery = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
-  const checkoutState = t(order.cancelled ? "checkoutCancelled" : order.checkoutConfirmedAt ? "checkoutConfirmed" : order.checkoutEnabledAt ? "checkoutPending" : "checkoutDisabled");
+  const checkoutState = order.cancelled ? t("checkoutCancelled") : order.checkoutConfirmedAt ? t("checkoutConfirmed") : order.status === "active" ? t("checkoutPending") : null;
   const openPayments = () => {
     setPaymentsOpen(true);
     scroll.current?.scrollTo({ y: summaryPosition.current + paymentPosition.current, animated: false });
@@ -417,14 +421,26 @@ export default function OrderDetailScreen() {
           </View> : null}
         </View> : null}
         <View style={[styles.card, styles.section, cardStyle]}>
-          <Disclosure label={t('checkoutTitle')} description={checkoutState} open={checkoutOpen} onPress={() => setCheckoutOpen(!checkoutOpen)} />
-          {checkoutOpen && !order.cancelled ? <>
-            {checkoutUrl ? <>
-              <OrderAction label={t('copyCheckoutLink')} onPress={() => void copyCheckoutLink()} />
-              <Disclosure label={t('viewCheckoutLink')} open={checkoutUrlOpen} onPress={() => setCheckoutUrlOpen(!checkoutUrlOpen)} />
-              {checkoutUrlOpen ? <ThemedText type="small" themeColor="textSecondary" selectable>{checkoutUrl}</ThemedText> : null}
-            </> : <OrderAction label={t('getCheckoutLink')} disabled={writeBusy} loading={checkoutBusy} onPress={() => void obtainCheckoutLink()} />}
-            {checkoutMessage ? <ThemedText accessibilityRole="alert">{checkoutMessage}</ThemedText> : null}
+          <View><ThemedText style={styles.semibold} accessibilityRole="header">{t('checkoutTitle')}</ThemedText>
+            {checkoutState ? <ThemedText type="small" themeColor="textSecondary">{checkoutState}</ThemedText> : null}</View>
+          {!order.cancelled && checkoutLink.kind === "loading" ? <View style={styles.linkLoading} accessibilityRole="progressbar" accessibilityLabel={t('checkoutLoading')}>
+            <ActivityIndicator color={theme.text} /><ThemedText type="small" themeColor="textSecondary">{t('checkoutLoading')}</ThemedText>
+          </View> : null}
+          {!order.cancelled && checkoutLink.kind === "ready" ? <>
+            <ThemedText type="small" selectable>{checkoutLink.url}</ThemedText>
+            <Button variant="secondary" onPress={() => void copyLink()}>{t('copyCheckoutLink')}</Button>
+            <Button variant="secondary" onPress={() => void Share.share({ message: checkoutLink.url }).catch(() => undefined)}>{t('shareCheckoutLink')}</Button>
+            <Button variant="secondary" onPress={openLink}>{t('openCheckoutLink')}</Button>
+            {copied ? <ThemedText accessibilityLiveRegion="polite">{t('checkoutCopied')}</ThemedText> : null}
+            <ThemedText type="small" themeColor="textSecondary">{t('checkoutHelp')}</ThemedText>
+          </> : null}
+          {!order.cancelled && checkoutLink.kind === "subdomain_required" ? <>
+            <ThemedText>{t('checkoutSubdomainRequired')}</ThemedText>
+            <Button variant="secondary" onPress={() => router.push("/settings/appearance?focus=catalog")}>{t('catalogGoToAppearance')}</Button>
+          </> : null}
+          {!order.cancelled && checkoutLink.kind === "error" ? <>
+            <ThemedText accessibilityRole="alert">{t('checkoutLinkError')}</ThemedText>
+            <Button variant="secondary" onPress={() => { setLinkResult(null); setLinkRefresh(count => count + 1); }}>{t('retry')}</Button>
           </> : null}
         </View>
         <View style={[styles.card, styles.section, cardStyle]}>
@@ -526,6 +542,7 @@ const styles = StyleSheet.create({
   deliverySummary: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   deliveryIdentity: { flexGrow: 1, flexShrink: 1, flexBasis: 150 },
   action: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 4, borderRadius: 6, borderWidth: 2 },
+  linkLoading: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 12 },
   receiptNotice: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   section: { gap: 10 },
   product: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8, paddingVertical: 12 },

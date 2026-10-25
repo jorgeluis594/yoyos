@@ -46,7 +46,7 @@ test("migration keeps existing orders valid and the number sequence continues", 
 
     migrate(migrations.slice(firstCatalogMigration));
 
-    expect((await db.query(`SELECT * FROM "Order" ORDER BY number`)).rows).toEqual(before.map((row) => ({ ...row, fromCatalog: false })));
+    expect((await db.query(`SELECT * FROM "Order" ORDER BY number`)).rows).toEqual(before.map((row) => ({ ...row, fromCatalog: false, checkoutEnabledAt: row.createdAt })));
     const next = await db.query(`UPDATE "Company" SET "nextOrderNumber" = "nextOrderNumber" + 1 WHERE id = $1 RETURNING "nextOrderNumber" - 1 AS number`, [companyId]);
     expect(next.rows[0].number).toBe("1004");
     expect((await db.query(`SELECT "catalogPublished" FROM "Company" WHERE id = $1`, [companyId])).rows[0].catalogPublished).toBe(false);
@@ -63,5 +63,28 @@ test("database rejects an order without seller that is not from the catalog, and
       .rejects.toMatchObject({ code: "23514", constraint: "Order_catalog_without_chat" });
     await insertOrder(db, { companyId, number: 1001, sellerId: null, fromCatalog: true });
     expect((await db.query(`SELECT count(*)::int AS count FROM "Order"`)).rows[0].count).toBe(1);
+  });
+});
+
+test("checkout enabling migration enables every order without one, keeping existing enable timestamps", async () => {
+  const name = migrations.findIndex((entry) => entry.endsWith("_enable_checkout_on_existing_orders"));
+  expect(name).toBeGreaterThan(0);
+  await withScratchDatabase(async (db, migrate) => {
+    migrate(migrations.slice(0, name));
+    const companyId = randomUUID();
+    const sellerId = randomUUID();
+    await db.query(`INSERT INTO "Company" (id, name, country, "nextOrderNumber") VALUES ($1, 'Store', 'PE', 1005)`, [companyId]);
+    await db.query(`INSERT INTO "user" (id, name, email, "companyId", "updatedAt") VALUES ($1, 'Seller', $2, $3, now())`, [sellerId, `${sellerId}@example.test`, companyId]);
+    for (const number of [1001, 1002, 1003, 1004]) await insertOrder(db, { companyId, number, sellerId });
+    await db.query(`UPDATE "Order" SET "createdAt" = '2026-01-01T10:00:00Z' WHERE number IN (1001, 1002, 1003)`);
+    await db.query(`UPDATE "Order" SET cancelled = true WHERE number = 1002`);
+    await db.query(`UPDATE "Order" SET "completedAt" = '2026-01-05T10:00:00Z' WHERE number = 1003`);
+    await db.query(`UPDATE "Order" SET "checkoutEnabledAt" = '2026-01-02T10:00:00' WHERE number = 1004`);
+    const existing = (await db.query(`SELECT "checkoutEnabledAt" FROM "Order" WHERE number = 1004`)).rows[0].checkoutEnabledAt;
+
+    migrate(migrations.slice(name));
+
+    const rows = (await db.query(`SELECT number, "createdAt", "checkoutEnabledAt" FROM "Order" ORDER BY number`)).rows;
+    expect(rows.map((row) => row.checkoutEnabledAt)).toEqual([rows[0].createdAt, rows[1].createdAt, rows[2].createdAt, existing]);
   });
 });

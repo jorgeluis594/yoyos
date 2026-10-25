@@ -2,7 +2,7 @@ import { mkdir, readFile } from "node:fs/promises";
 import type { Server } from "node:http";
 import type { Route } from "@playwright/test";
 import { afterAll, beforeAll } from "vitest";
-import { browserExpect, expect, prepareVerifiedCompany, test, waitForReactHydration } from "@core/tests/e2e/fixtures";
+import { brandHostHeaders, browserExpect, expect, prepareVerifiedCompany, storeUrl, subdomainOf, test, waitForReactHydration } from "@core/tests/e2e/fixtures";
 import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { formatCurrency } from "@core/app/format-currency";
@@ -22,6 +22,10 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Vendedora", companyName: "Tienda", country: "PE" });
     const tenantId = companyId;
+    const subdomain = subdomainOf(tenantId);
+    const brand = brandHostHeaders(subdomain);
+    // The checkout lives on the store's brand host, whatever the catalog publication.
+    await withTenantIsolation(tenantId, async () => { await prisma.company.update({ where: { id: tenantId }, data: { catalogSubdomain: subdomain } }); });
     const product = await withTenantIsolation(tenantId, () => products.create({ name: "Cuaderno", currency: "PEN",
       variants: [{ attributes: {}, sku: `PAY-${crypto.randomUUID()}`, salePrice: 12.5, initialStock: 2 }] }));
     expect(product.success).toBe(true);
@@ -47,28 +51,30 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
     expect((await page.request.post("/api/orders/pending", { data: { id: orderId,
       items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Tienda", address: "Av. Arequipa 123, Lima", instructions: null } } } })).ok()).toBe(true);
+    // Orders are born enabled; a legacy row without the timestamp is simulated.
+    await withTenantIsolation(tenantId, async () => { await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: null } }); });
     await page.goto(`/es-PE/orders/${orderId}`);
-    await browserExpect(page.getByRole("link", { name: "Abrir checkout del pedido" })).toHaveCount(0);
-    expect((await request.get(`/api/buyer/orders/${orderId}/payment`)).status()).toBe(409);
+    await browserExpect(page.getByRole("textbox", { name: "Enlace del pedido" })).toHaveCount(0);
+    expect((await request.get(`/api/buyer/orders/${orderId}/payment`, { headers: brand })).status()).toBe(409);
+    expect((await request.get(`/api/buyer/orders/${orderId}/payment`)).status()).toBe(404);
     await withTenantIsolation(tenantId, async () => { await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } }); });
-    const checkoutPath = `/checkout/${tenantId}/${orderId}`;
-    await page.goto(checkoutPath);
+    const checkoutPath = `/checkout/${orderId}`;
+    const checkoutAddress = storeUrl(subdomain, checkoutPath);
+    await page.goto(checkoutAddress);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana Torres");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
-    expect((await request.post(`/api/buyer/orders/${orderId}/reports`, { data: { paymentId: crypto.randomUUID(), receiptImageId: crypto.randomUUID() } })).status()).toBe(409);
+    expect((await request.post(`/api/buyer/orders/${orderId}/reports`, { headers: brand, data: { paymentId: crypto.randomUUID(), receiptImageId: crypto.randomUUID() } })).status()).toBe(409);
     await page.getByRole("radio", { name: "Recojo en tienda · Gratis" }).check();
-    await page.getByLabel("Nombre del destinatario").fill("Ana Torres");
-    await page.getByLabel("Teléfono del destinatario").fill("+51987654321");
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
-    await browserExpect(page).toHaveURL(new RegExp(`${checkoutPath}$`));
+    await browserExpect(page).toHaveURL(checkoutAddress);
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado" })).toBeVisible();
-    const opened = await page.goto(checkoutPath);
+    const opened = await page.goto(checkoutAddress);
     expect(opened?.status()).toBe(200);
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado" })).toBeVisible();
     expect((await request.get(`/pago/${orderId}`, { maxRedirects: 0 })).status()).toBe(404);
     await page.goto(`/pago/${orderId}`);
     await browserExpect(page.getByRole("heading", { name: "Página no encontrada" })).toBeVisible();
-    await page.goto(checkoutPath);
+    await page.goto(checkoutAddress);
     await browserExpect(page.getByRole("radio", { name: "Yape" })).toBeVisible();
     await browserExpect(page.getByRole("img", { name: "Instrucciones de billetera digital" })).toBeVisible();
     await page.getByRole("radio", { name: "Transferencia", exact: true }).check();
@@ -134,7 +140,7 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
     expect(payment.status).toBe("reported");
     expect(payment.amount).toBeNull();
     await page.goto(`/es-PE/orders/${orderId}`);
-    await browserExpect(page.getByRole("link", { name: "Abrir checkout del pedido" })).toHaveAttribute("href", checkoutPath);
+    await browserExpect(page.getByRole("link", { name: "Abrir enlace en una pestaña nueva" })).toHaveAttribute("href", new RegExp(`${checkoutPath}$`));
     // One report: one row with thumbnail, «Ver captura», Rechazar and Aprobar, the manual payment as a separate action and no open form.
     const report = page.getByRole("listitem").filter({ hasText: "Pago reportado, pendiente de revisión" });
     await browserExpect(report).toHaveCount(1);
@@ -164,7 +170,7 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
     await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
     await browserExpect(page.getByRole("listitem").filter({ hasText: "Pago confirmado" })).toBeFocused();
     expect((await withTenantIsolation(tenantId, async () => await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } }))).status).toBe("confirmed");
-    await page.goto(checkoutPath);
+    await page.goto(checkoutAddress);
     await browserExpect(page.getByRole("heading", { name: "Pedido pagado" })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
     await page.goto(`/es-PE/orders/${orderId}`);
@@ -179,7 +185,7 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
     await manualResponse;
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId, status: "confirmed" } }))).toBe(1);
     await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
-    await page.goto(checkoutPath);
+    await page.goto(checkoutAddress);
     await browserExpect(page.getByRole("heading", { name: "Pedido pagado" })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
   } finally {
@@ -204,6 +210,9 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
   const email = `buyer-reject-${crypto.randomUUID()}@example.test`;
   try {
     const tenantId = await prepareVerifiedCompany(page, { email, name: "Vendedora", companyName: "Tienda", country: "PE" });
+    const subdomain = subdomainOf(tenantId);
+    const brand = brandHostHeaders(subdomain);
+    await withTenantIsolation(tenantId, async () => { await prisma.company.update({ where: { id: tenantId }, data: { catalogSubdomain: subdomain } }); });
     const product = await withTenantIsolation(tenantId, () => products.create({ name: "Cuaderno", currency: "PEN",
       variants: [{ attributes: {}, sku: `REJ-${crypto.randomUUID()}`, salePrice: 12.5, initialStock: 2 }] }));
     expect(product.success).toBe(true);
@@ -221,7 +230,7 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true }, agency: { enabled: false },
       store: { enabled: true, pickupPoint: { name: "Tienda", address: "Av. Arequipa 123, Lima", instructions: null } } } })).ok()).toBe(true);
     await withTenantIsolation(tenantId, async () => { await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } }); });
-    const checkoutPath = `/checkout/${tenantId}/${orderId}`;
+    const checkoutPath = storeUrl(subdomain, `/checkout/${orderId}`);
     await page.goto(checkoutPath);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana Torres");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
@@ -268,7 +277,7 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
     await browserExpect(page.getByText("Motivo: El monto no coincide")).toHaveCount(2);
     await browserExpect(page.getByRole("link", { name: "Ver captura · Rechazado" })).toBeVisible();
     // A retried «Ya pagué» with the rejected payment answers «reported», yet the checkout keeps showing the refreshed rejection.
-    const replay = await request.post(`/api/buyer/orders/${orderId}/reports`, { data: { paymentId: first.id, receiptImageId: (first.data as { receiptImageId: string }).receiptImageId } });
+    const replay = await request.post(`/api/buyer/orders/${orderId}/reports`, { headers: brand, data: { paymentId: first.id, receiptImageId: (first.data as { receiptImageId: string }).receiptImageId } });
     expect((await replay.json()).status).toBe("reported");
     await page.reload();
     await browserExpect(page.getByText("Tu comprobante fue rechazado")).toBeVisible();

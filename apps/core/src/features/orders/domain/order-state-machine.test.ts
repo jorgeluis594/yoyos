@@ -67,6 +67,17 @@ describe("pending order construction", () => {
     }
     expect(buildPendingCatalogOrder(input)).toMatchObject({ success: true, data: { sellerId: null, fromCatalog: true } });
   });
+
+  test("every creation path enables the checkout at the creation instant", () => {
+    const input = { number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId,
+      customer: { kind: "general_public" as const }, createdAt,
+      items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {},
+        sku: null, quantity: 1, unitPrice: money(10) }] };
+    for (const built of [buildPendingOrder({ ...input, sellerId: "seller" as UserId }), buildPendingCatalogOrder(input)]) {
+      expect(built).toMatchObject({ success: true, data: { checkoutEnabledAt: createdAt, checkoutConfirmedAt: null } });
+      if (built.success) expect(built.data.checkoutEnabledAt).not.toBe(createdAt);
+    }
+  });
 });
 
 describe("order payment and lifecycle", () => {

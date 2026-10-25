@@ -12,6 +12,9 @@ export const subdomainOf = (companyId: string) => `s${companyId.replaceAll("-", 
 /** The brand address of `subdomain`, e.g. `http://fantasio.localhost:4173/productos/…`. `CATALOG_BASE_URL` is `http://localhost:<port>` in E2E. */
 export const storeUrl = (subdomain: string, path = "/") => `http://${subdomain}.localhost:${port}${path}`;
 
+/** The `Host` header of a brand address: the test process resolves hosts by itself, so API calls go to the app address with this header. */
+export const brandHostHeaders = (subdomain: string) => ({ host: new URL(storeUrl(subdomain)).host });
+
 /** Gives the company its subdomain and publishes its catalog directly, for specs about the buyer. Returns the brand address. */
 export async function publishCatalog(companyId: string, subdomain = subdomainOf(companyId)) {
   await withTenantIsolation(companyId, async () => await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: subdomain, catalogPublished: true } }));

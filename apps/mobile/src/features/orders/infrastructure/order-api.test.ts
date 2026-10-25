@@ -168,14 +168,14 @@ test("delivery API validates the complete authored snapshot and updated aggregat
 
 test("checkout link adapter validates IDs, responses and operation-specific failures", async () => {
   const calls: string[] = [];
-  const url = `https://shop.example/checkout/${id(2)}/${id(1)}`;
+  const url = `https://shop.example/checkout/${id(2)}`;
   const api = createOrderApi(async (path) => { calls.push(path); return ok({ url }); });
   expect(await api.enableCheckout("1001")).toMatchObject({ error: { code: "INVALID_INPUT" } });
   expect(calls).toEqual([]);
   expect(await api.enableCheckout(id(1))).toEqual(ok({ url }));
   expect(calls).toEqual([`/api/orders/${id(1)}/checkout-link`]);
   expect(await createOrderApi(async () => ok({ url: "bad" })).enableCheckout(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
-  for (const [code, status] of [["ORDER_CANCELLED", 409], ["ORDER_NOT_FOUND", 404], ["INVALID_INPUT", 422]] as const) {
+  for (const [code, status] of [["ORDER_CANCELLED", 409], ["SUBDOMAIN_REQUIRED", 409], ["ORDER_NOT_FOUND", 404], ["INVALID_INPUT", 422]] as const) {
     const failed = createOrderApi(async () => err({ code: "API_ERROR", message: "failure", http: { status, body: { code, error: "Rejected" } } }));
     expect(await failed.enableCheckout(id(1))).toMatchObject({ error: { code } });
   }

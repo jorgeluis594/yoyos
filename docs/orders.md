@@ -108,6 +108,8 @@ Company, seller, prices, totals, statuses and dates come from core; extra fields
 
 The endpoint also accepts the fixed body `payment: { method: "digital_wallet" }` with `delivery: { method: "handover" }`, which registers an immediate sale paid in full and delivered by hand (`registerImmediateSale`). `POST /api/orders/pending` and `POST /api/orders/immediate-sale` remain for clients that still call them.
 
+Every order, from any source, is created with its buyer checkout enabled, so its link exists from the start ([Checkout · Link and access](checkout.md#link-and-access)).
+
 Every successful creation returns `201` with `orderAggregateSchema`.
 
 ### Errors
@@ -144,7 +146,7 @@ All under `/api/orders`, authenticated, scoped to the session company and sent w
 | Reject a buyer report (body `{ reason: string \| null }`) | `POST /:id/payments/:paymentId/reject` |
 | Set delivery / update shipping and dispatch date | `PUT /:id/delivery`, `PATCH /:id/shipping` |
 | Deduct stock, ship, deliver, cancel | `POST /:id/deduct-stock`, `/ship`, `/deliver`, `/cancel` |
-| Enable the buyer checkout link | `POST /:orderId/checkout-link` |
+| Read the buyer checkout link (idempotent, used by mobile; `409 SUBDOMAIN_REQUIRED` or `409 ORDER_CANCELLED`) | `POST /:orderId/checkout-link` |
 
 `GET /` and `GET /:id` serve the older completed-sales contract (`orderSchema`, `listOrdersResponseSchema`).
 

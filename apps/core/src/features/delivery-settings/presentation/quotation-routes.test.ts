@@ -14,6 +14,8 @@ const servers: import("node:http").Server[] = [];
 async function request() {
   const app = express();
   app.use(express.json());
+  // The buyer's quotation is served on the brand host of the order's company.
+  app.use((_request, response, next) => { response.locals.brandHostCompanyId = companyId; next(); });
   app.use("/api/quotations", quotationRoutes);
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);

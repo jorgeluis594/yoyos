@@ -30,17 +30,6 @@ const confirmationData = z.strictObject({ confirmedAt: dateText,
 const rejectedData = z.strictObject({ report: reportData, rejectedAt: dateText, rejectedBy: z.string().min(1), reason: z.string().min(1).max(200).nullable() });
 const voidedData = confirmationData.extend({ voidedAt: dateText, voidedBy: z.string().min(1) });
 
-export async function resolveBuyerOrderCompany(id: OrderId) {
-  try {
-    const rows = await systemPrisma.$queryRaw<{ companyId: string | null }[]>`SELECT public.resolve_buyer_order_company(${id}::uuid) AS "companyId"`;
-    return ok(rows[0]?.companyId ?? null);
-  } catch (cause) {
-    if (!knownFailure(cause)) throw cause;
-    log.error({ event: "unable_to_resolve_buyer_order", err: cause }, "unable_to_resolve_buyer_order");
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to resolve buyer order" });
-  }
-}
-
 /** Definer function: returns only company ids, so each delete still runs under RLS. */
 export async function listCompaniesWithExpiredCatalogOrders(cutoff: Date) {
   try {
