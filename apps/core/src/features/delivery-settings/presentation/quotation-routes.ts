@@ -32,12 +32,12 @@ quotationRoutes.post("/", (request, response, next) => {
   // The buyer's quotation is served on the brand host of the order's company; the seller's, on the app host only.
   const hostCompanyId = (response.locals as BrandHostLocals).brandHostCompanyId;
   if ((input.orderId !== undefined) !== (hostCompanyId !== undefined)) return apiError(response, 404, "CHECKOUT_UNAVAILABLE", "Checkout unavailable");
-  if (input.orderId !== undefined) {
-    const access = await orders.resolveBuyerAccess(input.orderId);
+  if (input.orderId !== undefined && hostCompanyId !== undefined) {
+    bindCompanyToRequest(hostCompanyId);
+    const access = await orders.resolveBuyerAccess(input.orderId, hostCompanyId);
     if (!access.success) return access.error.code === "PERSISTENCE_UNAVAILABLE"
       ? apiError(response, 503, "SERVICE_UNAVAILABLE", "Checkout unavailable")
       : apiError(response, 404, "CHECKOUT_UNAVAILABLE", "Checkout unavailable");
-    if (access.data.companyId !== hostCompanyId) return apiError(response, 404, "CHECKOUT_UNAVAILABLE", "Checkout unavailable");
     const checkout = await orders.getCheckoutView({ companyId: access.data.companyId, orderId: access.data.orderId });
     if (!checkout.success) return checkout.error.code === "PERSISTENCE_UNAVAILABLE"
       ? apiError(response, 503, "SERVICE_UNAVAILABLE", "Checkout unavailable")
@@ -45,7 +45,6 @@ quotationRoutes.post("/", (request, response, next) => {
         checkout.error.code === "CHECKOUT_UNAVAILABLE" ? "CHECKOUT_UNAVAILABLE" : "INTERNAL_ERROR", "Checkout unavailable");
     if (checkout.data.state.kind === "cancelled") return apiError(response, 422, "ORDER_CANCELLED", "Order cancelled");
     response.locals.quotationCompanyId = access.data.companyId;
-    bindCompanyToRequest(access.data.companyId);
     return withTenantIsolation(access.data.companyId, next);
   }
   return loadApiAccess(request, response, () => requireApiCompany(request, response, () => {

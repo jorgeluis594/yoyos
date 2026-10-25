@@ -35,7 +35,7 @@ import { getOrderAggregate } from "@core/src/features/orders/application/read-or
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
-import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, resolveBuyerOrderCompany, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
+import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariant, findSellableVariants, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
@@ -174,17 +174,17 @@ function rejectedCheckout(error: CheckoutError) {
   bindRequestOperation({ outcome: outcomes[error.code] });
 }
 
-export async function resolveBuyerAccess(id: string) {
+/** The buyer's company is the brand host's: the order is read by id under that tenant, so another company's order is simply not found. */
+export async function resolveBuyerAccess(id: string, hostCompanyId: CompanyId) {
   if (!z.uuid().safeParse(id).success) return err({ code: "INVALID_ORDER" as const, message: "Invalid order ID" });
-  const resolved = await resolveBuyerOrderCompany(id as OrderId);
-  return resolved.success ? resolved.data ? { success: true as const, data: { kind: "buyer" as const,
-    companyId: resolved.data as CompanyId, orderId: id as OrderId } }
-    : err({ code: "ORDER_NOT_FOUND" as const, message: "Order not found" }) : resolved;
+  const found = await withTenantIsolation(hostCompanyId, () => orderExists(id));
+  return found.success ? found.data ? { success: true as const, data: { kind: "buyer" as const, companyId: hostCompanyId, orderId: id as OrderId } }
+    : err({ code: "ORDER_NOT_FOUND" as const, message: "Order not found" }) : found;
 }
 
-export async function getBuyerPaymentView(id: string) {
-  const access = await resolveBuyerAccess(id);
-  if (!access.success) return access;
+export async function getBuyerPaymentView(id: string, hostCompanyId: CompanyId) {
+  if (!z.uuid().safeParse(id).success) return err({ code: "INVALID_ORDER" as const, message: "Invalid order ID" });
+  const access = { data: { companyId: hostCompanyId, orderId: id as OrderId } };
   return withTenantIsolation(access.data.companyId, async () => {
     const [found, settings] = await Promise.all([
       // A pending catalog order is not found here either: payment starts only after the buyer confirms.

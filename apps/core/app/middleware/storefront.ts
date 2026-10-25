@@ -49,8 +49,8 @@ async function serveCheckout(host: Parameters<typeof catalogStorefront.resolveOw
   if (owner.data.published) return;
   const target = checkoutOrderPath.exec(path);
   if (!target) throw refuse({ kind: "catalog_unavailable" }, 404);
-  const access = await orders.resolveBuyerAccess(target[1]);
-  if (access.success && access.data.companyId === owner.data.companyId) return;
+  const access = await orders.resolveBuyerAccess(target[1], owner.data.companyId);
+  if (access.success) return;
   const failed = !access.success && access.error.code !== "INVALID_ORDER" && access.error.code !== "ORDER_NOT_FOUND";
   throw failed ? refuse({ kind: "catalog_load_error" }, 503) : refuse({ kind: "catalog_unavailable" }, 404);
 }

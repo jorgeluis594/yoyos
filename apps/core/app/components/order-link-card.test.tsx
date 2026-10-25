@@ -16,7 +16,7 @@ let root: Root | undefined;
 let container: HTMLDivElement;
 afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove(); vi.unstubAllGlobals(); });
 
-const url = "https://fantasio.yoyos.lat/checkout/7bf00000-0000-4000-8000-000000000001/7bf00000-0000-4000-8000-000000000002";
+const url = "https://fantasio.yoyos.lat/checkout/7bf00000-0000-4000-8000-000000000002";
 const ready: OrderLinkCardProps = { state: "pending", link: { kind: "ready", url } };
 
 async function mount(props: OrderLinkCardProps, lng = "es") {

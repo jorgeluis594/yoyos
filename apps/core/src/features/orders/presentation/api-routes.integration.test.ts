@@ -259,7 +259,7 @@ test("buyer order link resolves one company and reports only its receipt", async
   const view = await callBuyer(`${path}/payment`);
   expect(view.status).toBe(200);
   expect(await view.json()).toMatchObject({ orderId, total: { amount: 10, currency: "PEN" }, balanceDue: { amount: 10 }, payments: [] });
-  expect((await callBuyer("/api/buyer/orders/not-a-uuid/payment")).status).toBe(400);
+  expect((await callBuyer("/api/buyer/orders/not-a-uuid/payment")).status).toBe(404);
   expect((await callBuyer(`/api/buyer/orders/${randomUUID()}/payment`)).status).toBe(404);
   expect((await callBuyer(`${path}/reports`, undefined, { paymentId, receiptImageId: randomUUID() }, "POST")).status).toBe(422);
   const foreignImageId = randomUUID();
@@ -850,7 +850,12 @@ test("buyer APIs answer on the company's brand host only: not on the app host, n
   const foreign = await callOnHost(await brandHost(other.companyId), path);
   const missing = await callOnHost(own, `/api/buyer/orders/${randomUUID()}/payment`);
   expect(foreign.status).toBe(404);
-  expect(await foreign.json()).toEqual(await missing.json());
+  const missingBody = await missing.json();
+  expect(await foreign.json()).toEqual(missingBody);
+  // An id that is not a UUID answers exactly like an unknown one.
+  const malformed = await callOnHost(own, "/api/buyer/orders/not-a-uuid/payment");
+  expect(malformed.status).toBe(missing.status);
+  expect(await malformed.json()).toEqual(missingBody);
   const unheld = await callOnHost(`no-existe-${randomUUID().slice(0, 8)}.localhost:${port}`, path);
   expect(unheld.status).toBe(404);
   expect(await unheld.json()).toEqual({ code: "NOT_FOUND", error: "Not found" });
@@ -875,7 +880,7 @@ test("public checkout delivery action persists buyer pickup and redirects to exi
     store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } });
   const input = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: { amount: 10, currency: "PEN" }, delivery: { kind: "replace",
     selection: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } } };
-  const result = await confirmCheckoutAction({ params: { orderId }, context: hostContext(seller.companyId), request: new Request(`${base}/checkout/${seller.companyId}/${orderId}`, {
+  const result = await confirmCheckoutAction({ params: { orderId }, context: hostContext(seller.companyId), request: new Request(`${base}/checkout/${orderId}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input),
   }) } as unknown as ActionFunctionArgs);
   expect(result).toBeInstanceOf(Response);

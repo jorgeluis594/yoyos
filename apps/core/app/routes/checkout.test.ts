@@ -310,7 +310,7 @@ test("confirmed checkout keeps its saved summary and loads the payment view with
   const settings = vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions");
   expect(await loader({ params, context } as unknown as LoaderFunctionArgs)).toMatchObject({
     data: { checkout: { total, state: { kind: "confirmed" } }, payment: paymentView }, init: { headers: headers() } });
-  expect(payment).toHaveBeenCalledWith(params.orderId);
+  expect(payment).toHaveBeenCalledWith(params.orderId, companyId);
   expect(settings).not.toHaveBeenCalled();
 });
 

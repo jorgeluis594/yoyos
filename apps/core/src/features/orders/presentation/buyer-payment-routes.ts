@@ -14,16 +14,15 @@ export function buyerPaymentRoutes(images: express.Router) {
   router.use((_request, response, next) => { response.set("Cache-Control", "no-store"); next(); });
   router.use("/:orderId", async (request, response, next) => {
     try {
-      const access = await orders.resolveBuyerAccess(request.params.orderId as string);
-      if (!access.success) return access.error.code === "INVALID_ORDER"
-        ? apiError(response, 400, "INVALID_INPUT", "Invalid order ID")
-        : access.error.code === "ORDER_NOT_FOUND" ? apiError(response, 404, "ORDER_NOT_FOUND", "Order not found")
-          : apiError(response, 503, "SERVICE_UNAVAILABLE", "Order unavailable");
-      // Only a brand host serves buyer APIs, and only for its own company: anything else answers like a missing order.
+      // Only a brand host serves buyer APIs, and only for its own company: the order is read under that tenant, so anything else answers like a missing order.
       const hostCompanyId = (response.locals as BrandHostLocals).brandHostCompanyId;
-      if (hostCompanyId === undefined || hostCompanyId !== access.data.companyId) return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
+      if (hostCompanyId === undefined) return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
+      bindCompanyToRequest(hostCompanyId);
+      const access = await orders.resolveBuyerAccess(request.params.orderId as string, hostCompanyId);
+      if (!access.success) return access.error.code === "INVALID_ORDER" || access.error.code === "ORDER_NOT_FOUND"
+        ? apiError(response, 404, "ORDER_NOT_FOUND", "Order not found")
+        : apiError(response, 503, "SERVICE_UNAVAILABLE", "Order unavailable");
       response.locals.buyerAccess = access.data;
-      bindCompanyToRequest(access.data.companyId);
       return withTenantIsolation(access.data.companyId, next);
     } catch (error) {
       log.error({ event: "buyer_payment_access_failed", err: error }, "Buyer payment access failed");
@@ -32,7 +31,7 @@ export function buyerPaymentRoutes(images: express.Router) {
   });
   router.get("/:orderId/payment", async (request, response) => {
     try {
-      const result = await orders.getBuyerPaymentView(request.params.orderId as string);
+      const result = await orders.getBuyerPaymentView(request.params.orderId as string, (response.locals.buyerAccess as BuyerPaymentAccess).companyId);
       if (!result.success) return apiError(response, result.error.code === "ORDER_NOT_FOUND" ? 404 :
         result.error.code === "CHECKOUT_UNAVAILABLE" || result.error.code === "ORDER_CANCELLED" ? 409 : 503,
         result.error.code === "ORDER_NOT_FOUND" ? "ORDER_NOT_FOUND" : result.error.code === "CHECKOUT_UNAVAILABLE" ? "CHECKOUT_UNAVAILABLE"

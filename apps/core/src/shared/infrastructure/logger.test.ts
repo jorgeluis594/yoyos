@@ -217,6 +217,7 @@ it("names the four routes of the feature in New Relic without capturing one anot
   const require = createRequire(import.meta.url);
   const rules: { pattern: string; name: string }[] = require("../../../newrelic.cjs").config.rules.name;
   const nameOf = (path: string) => rules.find((rule) => new RegExp(rule.pattern).test(path))?.name;
+  expect(nameOf("/checkout/0b6f3a5e-0000-4000-8000-000000000000")).toBe("checkout");
   expect(nameOf("/checkout/6d2a7c1e-0000-4000-8000-000000000000/0b6f3a5e-0000-4000-8000-000000000000")).toBe("checkout");
   expect(nameOf("/es-PE/settings/store-appearance")).toBe("settings/store-appearance");
   expect(nameOf("/es-PE/settings/store-appearance.data")).toBe("settings/store-appearance");

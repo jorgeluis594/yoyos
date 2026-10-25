@@ -81,8 +81,8 @@ async function loadAppearance(companyId: string): Promise<PublicStoreAppearance 
   return appearance;
 }
 
-async function loadPayment(orderId: string): Promise<BuyerPaymentView> {
-  const payment = await orders.getBuyerPaymentView(orderId);
+async function loadPayment(access: CheckoutAccess): Promise<BuyerPaymentView> {
+  const payment = await orders.getBuyerPaymentView(access.orderId, access.companyId);
   if (!payment.success) log.error({ event: "order_checkout_payment_unavailable", errorCode: payment.error.code }, "Checkout payment view unavailable");
   const parsed = payment.success ? buyerPaymentViewSchema.safeParse(payment.data) : null;
   if (parsed?.success) return parsed.data;
@@ -111,7 +111,7 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
     { status: result.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 503, headers: privacyHeaders });
   const appearance = loadAppearance(access.companyId);
   if (result.data.checkout.state.kind === "confirmed") {
-    const [payment, branded] = await Promise.all([loadPayment(access.orderId), appearance]);
+    const [payment, branded] = await Promise.all([loadPayment(access), appearance]);
     return response({ checkout: serialize(result.data), payment, appearance: branded, message: null });
   }
   if (result.data.checkout.state.kind !== "pending") return response({ checkout: serialize(result.data), appearance: await appearance, message: null });

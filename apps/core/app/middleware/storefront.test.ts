@@ -168,7 +168,7 @@ test("serves the checkout of an order of the host company when the catalog is hi
   const { next, thrown } = await run(checkoutPath, "oculto.localhost");
   expect(thrown).toBeNull();
   expect(next).toHaveBeenCalledOnce();
-  expect(access).toHaveBeenCalledWith(orderId);
+  expect(access).toHaveBeenCalledWith(orderId, companyId);
   expect(storefront).not.toHaveBeenCalled();
 });
 
@@ -180,13 +180,14 @@ test("refuses with the byte-identical «Catálogo no disponible» a hidden or un
   expect(unknown.next).not.toHaveBeenCalled();
   expect(JSON.stringify(body(unknown.thrown))).toBe(reference404);
   owns(false);
-  buyerAccess("00000000-0000-4000-8000-0000000000ff");
+  // Another company's order is not found under the host company's tenant.
+  vi.spyOn(orders, "resolveBuyerAccess").mockResolvedValue(err({ code: "ORDER_NOT_FOUND", message: "x" }) as never);
   for (const path of [checkoutPath, `${checkoutPath}.data`, `/checkout/${companyId}/${orderId}`, "/checkout/x", "/checkout"]) {
     const { thrown, next } = await run(path, "oculto.localhost");
     expect(next).not.toHaveBeenCalled();
     expect(JSON.stringify(body(thrown))).toBe(reference404);
   }
-  vi.spyOn(orders, "resolveBuyerAccess").mockResolvedValue(err({ code: "ORDER_NOT_FOUND", message: "x" }) as never);
+  vi.spyOn(orders, "resolveBuyerAccess").mockResolvedValue(err({ code: "INVALID_ORDER", message: "x" }) as never);
   expect(JSON.stringify(body((await run(checkoutPath, "oculto.localhost")).thrown))).toBe(reference404);
 });
 
