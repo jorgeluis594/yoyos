@@ -3,6 +3,7 @@ import { afterAll, expect, test, vi } from "vitest";
 import { ok } from "@shared/functional";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { orders } from "@core/src/features/orders";
+import type { CompanyId } from "@core/src/features/orders/domain/order";
 import { storeAppearance } from "@core/src/features/store-appearance/composition";
 
 // The integration project has no image storage: URLs are faked so that a verified wallet's QR resolves, as it does in production.
@@ -49,8 +50,8 @@ async function company(settings: readonly unknown[]) {
   return { companyId, orderId };
 }
 
-const buyerMethods = async (orderId: string) => {
-  const view = await orders.getBuyerPaymentView(orderId);
+const buyerMethods = async ({ companyId, orderId }: { companyId: string; orderId: string }) => {
+  const view = await orders.getBuyerPaymentView(orderId, companyId as CompanyId);
   if (!view.success) throw new Error(`buyer view failed: ${view.error.code}`);
   return view.data.settings.map((setting) => setting.method);
 };
@@ -60,14 +61,13 @@ test("buyer view hides a wallet without a verified qr", async () => {
   const verified = await company([walletRow({ qr: { status: "verified", imageId: withImage } }), bank]);
   await withTenantIsolation(verified.companyId, async () => await prisma.image.create({ data: { id: withImage, storageKey: `test/${withImage}` } }));
   const unchecked = await company([walletRow({ imageId: withImage }), bank]);
-  expect(await buyerMethods(verified.orderId)).toEqual(["digital_wallet", "bank_transfer"]);
-  expect(await buyerMethods(unchecked.orderId)).toEqual(["bank_transfer"]);
+  expect(await buyerMethods(verified)).toEqual(["digital_wallet", "bank_transfer"]);
+  expect(await buyerMethods(unchecked)).toEqual(["bank_transfer"]);
 });
 
 test("buyer view of a company with a pre-version wallet offers only bank transfer", async () => {
   for (const preVersion of [walletRow({ imageId: null }), walletRow({ imageId })]) {
-    const { orderId } = await company([preVersion, bank]);
-    expect(await buyerMethods(orderId)).toEqual(["bank_transfer"]);
+    expect(await buyerMethods(await company([preVersion, bank]))).toEqual(["bank_transfer"]);
   }
 });
 

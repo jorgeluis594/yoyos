@@ -35,7 +35,10 @@ test("a bare seller post no longer enables or reads the checkout link", async ()
   expect(enable).not.toHaveBeenCalled();
 });
 
-beforeEach(() => { vi.spyOn(deliverySettings, "get").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "unused" })); });
+beforeEach(() => {
+  vi.spyOn(deliverySettings, "get").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "unused" }));
+  vi.mocked(resolvePublicImages).mockReset().mockResolvedValue(ok({ images: [], failures: [] }));
+});
 const loaderArgs = (company: Record<string, unknown> = { id: companyId, country: "PE" }) => ({ params: { orderId },
   context: { get: () => ({ company, user: { id: "authenticated-seller" } }) },
   request: new Request(`http://localhost/es-PE/orders/${orderId}`),
@@ -177,6 +180,7 @@ test("loader resolves receipt urls for rejected payments with one image lookup",
   const reported = { id: id(8), orderId: id(2), status: "reported" as const, currency: "PEN" as const, amount: null, method: null, data: { receiptImageId: id(30), reportedAt } };
   const order = { ...built.data, payments: [rejected(6, 20), rejected(7, 21), reported] } as unknown as OrderAggregate;
   vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(order));
+  vi.spyOn(orders, "checkoutUrl").mockResolvedValue(ok(`https://fantasio.yoyos.lat/checkout/${id(2)}`));
   vi.spyOn(deliverySettings, "get").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "unavailable" }));
   vi.mocked(resolvePublicImages).mockResolvedValue(ok({ images: [{ id: id(20), url: "https://cdn.example/20.png" }, { id: id(30), url: "https://cdn.example/30.png" }], failures: [] }));
   const result = await loader({ ...args(), request: new Request(`http://localhost/es-PE/orders/${orderId}`) } as never);
@@ -198,7 +202,7 @@ test("order detail labels a rejected payment as Pago rechazado and never as conf
     data: { report: { receiptImageId: id(20), reportedAt: at }, rejectedAt: at, rejectedBy: "seller", reason: "No coincide" } }] } as unknown as OrderAggregate;
   const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
     hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order), base: "/es-PE/orders", manualPaymentId: id(5),
-      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery" } } } });
+      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" } } } } });
   try {
     const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));
     expect(html).toContain("Pago rechazado");
@@ -251,7 +255,7 @@ test("receipt thumbnails load lazily with fixed dimensions", async () => {
     data: { receiptImageId: id(20), reportedAt: at } }] } as unknown as OrderAggregate;
   const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
     hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(withReport), base: "/es-PE/orders", manualPaymentId: id(5),
-      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery" } } } });
+      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" } } } } });
   try {
     const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));
     expect(html).toMatch(/<img[^>]*src="https:\/\/cdn.example\/20.png"[^>]*loading="lazy"[^>]*decoding="async"[^>]*width="56"[^>]*height="80"/);
