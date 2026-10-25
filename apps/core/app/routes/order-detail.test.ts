@@ -168,6 +168,25 @@ test("order detail shows «Desde el catálogo» and no seller for a catalog orde
   expect(fromSeller).toContain(seller);
 });
 
+test("order detail offers «Imprimir rótulo» for any order, cancelled included, because the dialog explains why there is no label", async () => {
+  const i18n = createInstance();
+  await i18n.init({ lng: "es", resources });
+  const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const built = buildPendingOrder({ id: id(2) as OrderId, companyId: companyId as CompanyId, number: 1042 as OrderNumber, customer: { kind: "general_public" },
+    createdAt: new Date("2026-10-17T12:00:00Z"), sellerId: id(9) as UserId,
+    items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Polo", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 45, currency: "PEN" as const } }] });
+  if (!built.success) throw new Error("expected order");
+  const render = (order: OrderAggregate) => {
+    const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
+      hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order), base: "/es-PE/orders", manualPaymentId: id(5), receiptUrls: {},
+        settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" } } } } });
+    try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
+    finally { router.dispose(); }
+  };
+  expect(render(built.data)).toContain("Imprimir rótulo</button>");
+  expect(render({ ...built.data, cancelled: true })).toContain("Imprimir rótulo");
+});
+
 test("loader resolves receipt urls for rejected payments with one image lookup", async () => {
   const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
   const built = buildPendingOrder({ id: id(2) as OrderId, companyId: companyId as CompanyId, number: 1042 as OrderNumber, sellerId: "authenticated-seller" as UserId,

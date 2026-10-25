@@ -246,6 +246,23 @@ export async function findOrderAggregate(id: OrderId, companyId: CompanyId, oper
   }
 }
 
+/** The company's orders among these ids in one query (unknown ids are absent); catalog orders still awaiting buyer confirmation are not visible. */
+export async function findOrderAggregatesByIds(ids: readonly OrderId[], companyId: CompanyId) {
+  if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+  try {
+    const rows = await prisma.order.findMany({ where: { companyId, id: { in: [...ids] }, NOT: { fromCatalog: true, checkoutConfirmedAt: null } }, include: aggregateInclude });
+    return ok(rows.map((row) => mapAggregate(row, "read_orders_by_ids")));
+  } catch (cause) {
+    if (cause instanceof InvalidStoredOrderError) {
+      if (!(cause instanceof InvalidStoredDeliveryError)) log.error({ event: "order_checkout_data_invalid", errorCode: "INVALID_STORED_ORDER", err: cause }, "Invalid stored order");
+      return err({ code: "INVALID_ORDER" as const, message: "Invalid stored order" });
+    }
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_load_orders_by_ids", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_load_orders_by_ids");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to load orders" });
+  }
+}
+
 export async function findOrderForUpdate(id: OrderId, companyId: CompanyId, operation?: string) {
   requireActiveTransaction(companyId);
   try {

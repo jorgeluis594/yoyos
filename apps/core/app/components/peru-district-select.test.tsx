@@ -90,6 +90,29 @@ test("choosing by name emits only the district code and changing a parent clears
   expect(fields.district().disabled).toBe(true);
 });
 
+test("a parent re-render while typing keeps the typed district query", async () => {
+  let rerender = () => undefined as void;
+  function Harness() {
+    const [, setTick] = useState(0);
+    rerender = () => setTick(tick => tick + 1);
+    return withI18n(<PeruDistrictSelect value={"040101" as never} onChange={() => undefined} />);
+  }
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => root.render(<Harness />));
+  mounted.push(() => root.unmount());
+  const district = document.querySelector<HTMLInputElement>('input[id$="-district"]')!;
+  expect(district.value).toBe("Arequipa");
+  await act(async () => {
+    district.focus();
+    Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(district, "Miraflores");
+    district.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: "Miraflores" }));
+  });
+  await act(async () => rerender());
+  expect(district.value).toBe("Miraflores");
+});
+
 test("choosing the current department or province again keeps the children", async () => {
   const changes: (string | null)[] = [];
   const fields = await mount("150122", changes);

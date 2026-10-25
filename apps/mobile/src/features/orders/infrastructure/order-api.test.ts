@@ -302,6 +302,17 @@ test("order API patches shipping only with a valid body and order ID", async () 
   expect(request).toHaveBeenCalledWith(`/api/orders/${id(1)}/shipping`, expect.objectContaining({ method: "PATCH", body: JSON.stringify({ scheduledDispatchDate: null }) }));
 });
 
+test("order API reads the effective dispatch sender and rejects malformed or failed replies", async () => {
+  const paths: string[] = [];
+  const reply = { configured: { name: null, phone: "977000111" }, effective: { name: "Mi tienda", phone: "977000111" } };
+  const api = createOrderApi(async (path) => { paths.push(path); return ok(reply); });
+  expect(await api.getDispatchSender()).toEqual(ok({ name: "Mi tienda", phone: "977000111" }));
+  expect(paths).toEqual(["/api/company/dispatch-sender"]);
+  expect(await createOrderApi(async () => ok({ effective: { name: "" } })).getDispatchSender()).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  const down: TransportError = { code: "NETWORK_ERROR", message: "offline" };
+  expect(await createOrderApi(async () => err(down)).getDispatchSender()).toMatchObject({ success: false, error: { code: "NETWORK_ERROR" } });
+});
+
 test("rejectPayment posts the reason and parses the order aggregate", async () => {
   const calls: [string, RequestInit | undefined][] = [];
   const order = { unexpected: true };

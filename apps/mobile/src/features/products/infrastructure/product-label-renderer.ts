@@ -8,7 +8,7 @@ import type { Result } from "@shared/result";
 import type { RenderError } from "@mobile/features/printing/application/contracts";
 import type { RenderProfile, RenderedDocument } from "@mobile/features/printing/domain/printing";
 import type { ProductLabel } from "@mobile/features/products/domain/product-label";
-import { fitLabelLines } from "@mobile/features/products/infrastructure/label-text";
+import { fitLabelLines } from "@shared/dispatch-label/label-text";
 
 const fontAsset = require("../../../../assets/fonts/InterVariable.ttf");
 let fontData: Promise<Awaited<ReturnType<typeof Skia.Data.fromURI>>> | null = null;

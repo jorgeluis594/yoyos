@@ -21,7 +21,7 @@ jobs:
       - run: pnpm --dir shared install --frozen-lockfile
       - run: pnpm --dir apps/core install --frozen-lockfile
       - run: pnpm --dir apps/mobile install --frozen-lockfile
-      - run: pnpm exec tsx --test ../../shared/*.test.mjs ../../shared/contracts/*.test.mjs
+      - run: pnpm exec tsx --test ../../shared/*.test.mjs ../../shared/contracts/*.test.mjs ../../shared/dispatch-label/*.test.mjs
         working-directory: apps/core
       - run: pnpm prisma:generate
         working-directory: apps/core

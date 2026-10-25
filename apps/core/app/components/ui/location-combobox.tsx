@@ -33,6 +33,11 @@ export function highlightMatch(name: string, query: string): Readonly<{ before: 
   return { before: chars.slice(0, from).join(""), match: chars.slice(from, to).join(""), after: chars.slice(to).join("") };
 }
 
+// Stable references: base-ui compares its props by identity and re-renders every item when they change.
+const optionName = (option: LocationOption) => option.name;
+const sameOption = (a: LocationOption, b: LocationOption) => a.code === b.code;
+const filterOption = (option: LocationOption, term: string) => matchesLocation(option.name, term);
+
 function OptionLabel({ name, query }: Readonly<{ name: string; query: string }>) {
   const parts = highlightMatch(name, query);
   return parts ? <span>{parts.before}<strong className="font-semibold">{parts.match}</strong>{parts.after}</span> : <span>{name}</span>;
@@ -54,8 +59,7 @@ export function LocationCombobox({ id, label, options, value, onChange, placehol
   return <SelectPortalContainer.Provider value={portalContainer}>
     <Label ref={setLabelElement} htmlFor={id}>{label}</Label>
     <Combobox items={options} value={selected} disabled={disabled} autoHighlight openOnInputClick
-      itemToStringLabel={(option: LocationOption) => option.name} itemToStringValue={(option: LocationOption) => option.name} isItemEqualToValue={(a: LocationOption, b: LocationOption) => a.code === b.code}
-      filter={(option: LocationOption, term: string) => matchesLocation(option.name, term)}
+      itemToStringLabel={optionName} itemToStringValue={optionName} isItemEqualToValue={sameOption} filter={filterOption}
       onInputValueChange={(text, details) => setQuery(details.reason === "input-change" ? text : "")}
       onValueChange={(option: LocationOption | null) => onChange(option?.code ?? null)}>
       <ComboboxInput id={id} placeholder={placeholder} aria-describedby={describedBy} data-slot="input" />

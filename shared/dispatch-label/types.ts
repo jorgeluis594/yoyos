@@ -18,8 +18,11 @@ type AgencyDispatchLabel = Readonly<{
   courier: string;
 }>;
 
+/** Effective sender: the stored name (or the company name when empty) and an optional phone. */
+export type DispatchLabelSender = Readonly<{ name: string; phone: string | null }>;
+
 /** Only what the renderer draws; no payments, stock or network objects. `scheduledDate` is a calendar day (YYYY-MM-DD). */
-export type DispatchLabel = Readonly<{ sender: string; scheduledDate: string | null }> & (HomeDispatchLabel | AgencyDispatchLabel);
+export type DispatchLabel = Readonly<{ sender: DispatchLabelSender; orderNumber: number; scheduledDate: string | null }> & (HomeDispatchLabel | AgencyDispatchLabel);
 
 export type DispatchLabelMissingField =
   | "recipientName" | "recipientPhone" | "recipientDocument" | "department" | "province" | "district"
@@ -37,3 +40,6 @@ export type DispatchLabelPreparation<ReadError> =
   | Readonly<{ status: "ready"; orderId: string; label: DispatchLabel }>
   | Readonly<{ status: "excluded"; orderId: string; exclusion: DispatchLabelExclusion }>
   | Readonly<{ status: "read-error"; orderId: string; error: ReadError }>;
+
+/** Paper of one print job: one 62 x 100 mm label per page, or an A4 sheet of six cells. */
+export type DispatchLabelSize = "label_62x100" | "a4";
