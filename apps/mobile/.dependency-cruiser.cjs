@@ -1,6 +1,8 @@
 // Enforces the dependency rules in docs/architecture.md.
 // Existing violations are listed in .dependency-cruiser-known-violations.json;
-// `pnpm deps:check` fails only on new ones.
+// `pnpm deps:check` fails only on new ones. They are debt, not precedent: after fixing
+// one, run `pnpm deps:baseline` to shrink the list, and never regenerate it to accept
+// a new violation.
 const TEST_FILE = "\\.(test|spec|integration)\\.tsx?$";
 
 /** @type {import('dependency-cruiser').IConfiguration} */
