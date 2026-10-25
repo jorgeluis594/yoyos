@@ -148,6 +148,10 @@ The arrows describe allowed source dependencies, not runtime flow (entry point â
 
 These dependency rules are mandatory and non-negotiable. Every implementation and refactor must comply; convenience, reuse, and feature-specific documentation do not justify exceptions.
 
+dependency-cruiser enforces these rules in `apps/core` and `apps/mobile` through each app's `.dependency-cruiser.cjs`. CI runs `pnpm deps:check` in both. Type-only imports of another feature's domain or application are allowed; runtime access goes through its composition files. Zod is allowed in domain and application because it is a validation library, not a framework or SDK. Test files are exempt from the layer rules so tests can wire real adapters.
+
+Existing violations are recorded in `.dependency-cruiser-known-violations.json` and ignored by the check, so only new violations fail; they remain debt to fix, not precedent. After fixing one, run `pnpm deps:baseline` to shrink the file. Never regenerate the baseline to accept a new violation.
+
 Dependency rules apply to types and schemas as well as executable code. Domain and application must not depend on transport DTOs, wire-format schemas, persistence models, or provider-specific representations, even when these are plain data or live in `shared/`. Inner layers define the contracts they need; adapters translate between those contracts and external representations.
 
 Export only what other features or application entry points actually need. Do not expose repositories or technical clients through public exports just to bypass a boundary.

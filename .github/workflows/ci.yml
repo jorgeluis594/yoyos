@@ -33,6 +33,8 @@ jobs:
         working-directory: apps/core
       - run: pnpm typecheck
         working-directory: apps/core
+      - run: pnpm deps:check
+        working-directory: apps/core
       - run: pnpm test:unit
         working-directory: apps/core
       # The real-model test loads the local image model offline from apps/core/models (models/README.md).
@@ -67,6 +69,8 @@ jobs:
       - run: pnpm lint
         working-directory: apps/mobile
       - run: pnpm typecheck
+        working-directory: apps/mobile
+      - run: pnpm deps:check
         working-directory: apps/mobile
       - run: pnpm test
         working-directory: apps/mobile

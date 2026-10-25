@@ -17,6 +17,8 @@
     "test:e2e": "sh scripts/run-tests.sh e2e",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",
+    "deps:check": "depcruise app src tests --config .dependency-cruiser.cjs --ignore-known",
+    "deps:baseline": "depcruise app src tests --config .dependency-cruiser.cjs --output-type baseline --output-to .dependency-cruiser-known-violations.json",
     "prisma:generate": "prisma generate"
   },
   "keywords": [],
@@ -44,6 +46,7 @@
     "@types/pg": "8.23.1",
     "@types/react": "^19.3.0",
     "@types/react-dom": "^19.3.0",
+    "dependency-cruiser": "18.5.0",
     "eslint": "^9.39.5",
     "eslint-plugin-react": "^7.37.5",
     "eslint-plugin-react-hooks": "^7.1.1",

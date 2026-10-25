@@ -1,0 +1,1012 @@
+[
+  {
+    "type": "dependency",
+    "from": "src/features/products/application/identify-products-in-image.ts",
+    "to": "src/features/products/infrastructure/qr-code-reader.ts",
+    "unresolvedTo": "@core/src/features/products/infrastructure/qr-code-reader",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "application-imports-adapter"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/domain/type-contracts.ts",
+    "to": "src/features/products/application/create.ts",
+    "unresolvedTo": "@core/src/features/products/application/create",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "domain-imports-outer-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/domain/type-contracts.ts",
+    "to": "src/features/products/application/get.ts",
+    "unresolvedTo": "@core/src/features/products/application/get",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "domain-imports-outer-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/domain/type-contracts.ts",
+    "to": "src/features/products/application/update.ts",
+    "unresolvedTo": "@core/src/features/products/application/update",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "domain-imports-outer-layer"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/catalog/browse-composition.ts",
+    "to": "src/features/store-appearance/presentation/store-appearance-schemas.ts",
+    "unresolvedTo": "@core/src/features/store-appearance/presentation/store-appearance-schemas",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/catalog/presentation/cart-schemas.ts",
+    "to": "src/features/orders/domain/catalog-order.ts",
+    "unresolvedTo": "@core/src/features/orders/domain/catalog-order",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/presentation/rated-delivery-form.tsx",
+    "to": "src/features/delivery-settings/infrastructure/quotation-api.ts",
+    "unresolvedTo": "@core/src/features/delivery-settings/infrastructure/quotation-api",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/users/application/account-links.ts",
+    "to": "../../shared/contracts/account-actions.ts",
+    "unresolvedTo": "@shared/contracts/account-actions",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/users/application/register.ts",
+    "to": "../../shared/contracts/account-actions.ts",
+    "unresolvedTo": "@shared/contracts/account-actions",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "cycle",
+    "from": "src/composition/event-bus.ts",
+    "to": "src/composition/event-handlers.ts",
+    "unresolvedTo": "@core/src/composition/event-handlers",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/composition/event-handlers.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/composition.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/composition/event-bus.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/composition/event-handlers.ts",
+    "to": "src/features/products/composition.ts",
+    "unresolvedTo": "@core/src/features/products/composition",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/products/composition.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/composition/event-bus.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/composition/event-handlers.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/composition/event-handlers.ts",
+    "to": "src/features/products/index.ts",
+    "unresolvedTo": "@core/src/features/products",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/products/index.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/products/application/restore-cancelled-order-stock.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "export"
+        ]
+      },
+      {
+        "name": "src/features/orders/index.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/composition.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "export"
+        ]
+      },
+      {
+        "name": "src/composition/event-bus.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/composition/event-handlers.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/features/chats/index.ts",
+    "to": "src/features/chats/register-mobile-message.ts",
+    "unresolvedTo": "@core/src/features/chats/register-mobile-message",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "export"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/chats/register-mobile-message.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "export"
+        ]
+      },
+      {
+        "name": "src/features/chats/infrastructure/mobile-message-dispatch.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/composition/event-bus.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/composition/event-handlers.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/composition.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/chats/index.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/features/orders/composition.ts",
+    "to": "src/features/products/composition.ts",
+    "unresolvedTo": "@core/src/features/products/composition",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/products/composition.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/composition/event-bus.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/composition/event-handlers.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/composition.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/features/orders/composition.ts",
+    "to": "src/features/products/index.ts",
+    "unresolvedTo": "@core/src/features/products",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/products/index.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/products/application/restore-cancelled-order-stock.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "export"
+        ]
+      },
+      {
+        "name": "src/features/orders/index.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/composition.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "export"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/features/orders/domain/checkout.ts",
+    "to": "src/features/orders/domain/order-state-machine.ts",
+    "unresolvedTo": "@core/src/features/orders/domain/order-state-machine",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/orders/domain/order-state-machine.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/domain/checkout.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/features/orders/domain/checkout.ts",
+    "to": "src/features/orders/domain/order.ts",
+    "unresolvedTo": "@core/src/features/orders/domain/order",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/orders/domain/order.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/domain/order-state-machine.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/domain/checkout.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/features/orders/domain/message-order.ts",
+    "to": "src/features/orders/domain/order-state-machine.ts",
+    "unresolvedTo": "@core/src/features/orders/domain/order-state-machine",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/orders/domain/order-state-machine.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/domain/message-order.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/features/orders/domain/order-state-machine.ts",
+    "to": "src/features/orders/domain/order.ts",
+    "unresolvedTo": "@core/src/features/orders/domain/order",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/orders/domain/order.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/domain/order-state-machine.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/features/orders/domain/order-state-machine.ts",
+    "to": "src/features/orders/domain/payment.ts",
+    "unresolvedTo": "@core/src/features/orders/domain/payment",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/orders/domain/payment.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/domain/order.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/orders/domain/order-state-machine.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/features/products/application/create.ts",
+    "to": "src/features/products/application/repository.ts",
+    "unresolvedTo": "@core/src/features/products/application/repository",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/products/application/repository.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/products/application/create.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/features/products/application/list.ts",
+    "to": "src/features/products/application/repository.ts",
+    "unresolvedTo": "@core/src/features/products/application/repository",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/products/application/repository.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/products/application/list.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/features/products/application/repository.ts",
+    "to": "src/features/products/application/update.ts",
+    "unresolvedTo": "@core/src/features/products/application/update",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/features/products/application/update.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      },
+      {
+        "name": "src/features/products/application/repository.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "cycle",
+    "from": "src/shared/infrastructure/current-user.ts",
+    "to": "src/shared/infrastructure/jwt-verifier.ts",
+    "unresolvedTo": "@core/src/shared/infrastructure/jwt-verifier",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "no-circular"
+    },
+    "cycle": [
+      {
+        "name": "src/shared/infrastructure/jwt-verifier.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "import"
+        ]
+      },
+      {
+        "name": "src/shared/infrastructure/current-user.ts",
+        "dependencyTypes": [
+          "aliased",
+          "aliased-tsconfig",
+          "aliased-tsconfig-paths",
+          "local",
+          "type-only",
+          "import"
+        ]
+      }
+    ]
+  },
+  {
+    "type": "dependency",
+    "from": "app/components/agency-picker.tsx",
+    "to": "src/features/delivery-settings/infrastructure/agency-catalog-api.ts",
+    "unresolvedTo": "@core/src/features/delivery-settings/infrastructure/agency-catalog-api",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "web-imports-feature-infrastructure"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "app/components/checkout-delivery-fields.tsx",
+    "to": "src/features/delivery-settings/infrastructure/quotation-api.ts",
+    "unresolvedTo": "@core/src/features/delivery-settings/infrastructure/quotation-api",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "web-imports-feature-infrastructure"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "app/middleware/storefront.ts",
+    "to": "src/features/catalog/infrastructure/storefront-config.ts",
+    "unresolvedTo": "@core/src/features/catalog/infrastructure/storefront-config",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "web-imports-feature-infrastructure"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "app/register.ts",
+    "to": "src/features/users/infrastructure/register-adapters.ts",
+    "unresolvedTo": "@core/src/features/users/infrastructure/register-adapters",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "web-imports-feature-infrastructure"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "app/routes/legacy-catalog-redirect.ts",
+    "to": "src/features/catalog/infrastructure/storefront-config.ts",
+    "unresolvedTo": "@core/src/features/catalog/infrastructure/storefront-config",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "web-imports-feature-infrastructure"
+    }
+  }
+]
