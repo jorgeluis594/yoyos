@@ -144,10 +144,39 @@ describe("readImageBytes", () => {
     expect(await readImageBytes(id, storage, repository)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
   });
 
-  it("maps storage configuration errors to IMAGE_STORAGE_UNAVAILABLE", async () => {
+  it("reports a storage configuration error with its own storageCode", async () => {
     const { storage, repository } = setup();
     vi.mocked(storage.read).mockResolvedValueOnce({ success: false, error: { code: "IMAGE_STORAGE_CONFIG_ERROR", message: "bad config" } });
-    expect(await readImageBytes(id, storage, repository)).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE" } });
+    expect(await readImageBytes(id, storage, repository)).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", storageCode: "IMAGE_STORAGE_CONFIG_ERROR" } });
+  });
+
+  it("reports an image read aborted before the response as an IMAGE_STORAGE_TIMEOUT storage failure", async () => {
+    const { storage, repository } = setup();
+    const controller = new AbortController();
+    vi.mocked(storage.read).mockImplementationOnce(async () => {
+      controller.abort();
+      return { success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "aborted" } };
+    });
+    expect(await readImageBytes(id, storage, repository, { signal: controller.signal })).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", storageCode: "IMAGE_STORAGE_TIMEOUT" } });
+    expect(storage.read).toHaveBeenCalledWith("remote", { signal: controller.signal });
+  });
+
+  it("reports an image read aborted during the body as an IMAGE_STORAGE_TIMEOUT storage failure", async () => {
+    const { storage, repository } = setup();
+    const controller = new AbortController();
+    vi.mocked(storage.read).mockImplementationOnce(async () => {
+      controller.abort();
+      // The SDK surfaces a body abort as ECONNRESET "aborted", which the adapter folds into IMAGE_STORAGE_UNAVAILABLE.
+      return { success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "Image is unavailable" } };
+    });
+    expect(await readImageBytes(id, storage, repository, { signal: controller.signal })).toMatchObject({ success: false, error: { storageCode: "IMAGE_STORAGE_TIMEOUT" } });
+  });
+
+  it("reports a non-aborted storage error as IMAGE_STORAGE_UNAVAILABLE", async () => {
+    const { storage, repository } = setup();
+    const controller = new AbortController();
+    vi.mocked(storage.read).mockResolvedValueOnce({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "down" } });
+    expect(await readImageBytes(id, storage, repository, { signal: controller.signal })).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", storageCode: "IMAGE_STORAGE_UNAVAILABLE" } });
   });
 
   it("maps repository failures to PERSISTENCE_UNAVAILABLE", async () => {

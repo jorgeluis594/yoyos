@@ -145,7 +145,7 @@ describe("getPublicStoreAppearance", () => {
 });
 
 describe("getStorePreview", () => {
-  const wallet = { method: "digital_wallet", provider: "Yape", holder: "Ana", imageUrl: null } as const;
+  const wallet = { method: "digital_wallet", provider: "Yape", holder: "Ana", imageUrl: "https://cdn.example/qr.png" } as const;
   const preview = (overrides: Partial<PreviewDependencies> = {}): PreviewDependencies => ({
     companyName: async () => ok("Lima Studio"), paymentMethods: async () => ok([wallet]), ...overrides,
   });

@@ -301,7 +301,7 @@ test("failed current configuration does not manufacture free shipping or enabled
 });
 
 const paymentView = { orderId: params.orderId, total, deliveryCharge: { amount: 0, currency: "PEN" as const }, availability: "available" as const,
-  paidAmount: { amount: 0, currency: "PEN" as const }, balanceDue: total, paymentStatus: "pending" as const, settings: [], payments: [] };
+  paidAmount: { amount: 0, currency: "PEN" as const }, balanceDue: total, paymentStatus: "pending" as const, settings: [], payments: [], rejectedReport: null };
 const confirmed = ok(page({ ...view, buyer: body.buyer, state: { kind: "confirmed" as const, confirmedAt: new Date("2026-10-05T00:00:00Z") } }));
 
 test("confirmed checkout keeps its saved summary and loads the payment view without requiring current delivery settings", async () => {

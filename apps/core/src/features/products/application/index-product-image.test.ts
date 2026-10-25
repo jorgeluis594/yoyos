@@ -41,7 +41,7 @@ test("skips a product without image, a missing product and an already indexed im
 
 test("propagates image storage and embedder failures without saving", async () => {
   const failures = [
-    { readImage: async () => err({ code: "IMAGE_STORAGE_UNAVAILABLE" as const, message: "down" }) },
+    { readImage: async () => err({ code: "IMAGE_STORAGE_UNAVAILABLE" as const, storageCode: "IMAGE_STORAGE_UNAVAILABLE" as const, message: "down" }) },
     { embedImage: async () => err({ code: "EMBEDDER_UNAVAILABLE" as const, message: "503" }) },
     { embedImage: async () => err({ code: "INVALID_EMBEDDING" as const, message: "length" }) },
   ];

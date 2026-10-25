@@ -301,3 +301,20 @@ test("order API patches shipping only with a valid body and order ID", async () 
   expect(await api.updateShipping(id(1), { scheduledDispatchDate: null })).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
   expect(request).toHaveBeenCalledWith(`/api/orders/${id(1)}/shipping`, expect.objectContaining({ method: "PATCH", body: JSON.stringify({ scheduledDispatchDate: null }) }));
 });
+
+test("rejectPayment posts the reason and parses the order aggregate", async () => {
+  const calls: [string, RequestInit | undefined][] = [];
+  const order = { unexpected: true };
+  const api = createOrderApi(async (path, init) => { calls.push([path, init]); return ok(order); });
+  expect(await api.rejectPayment(id(1), id(2), "El monto no coincide")).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  expect(calls[0][0]).toBe(`/api/orders/${id(1)}/payments/${id(2)}/reject`);
+  expect(calls[0][1]?.method).toBe("POST");
+  expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ reason: "El monto no coincide" });
+  await api.rejectPayment(id(1), id(2), null);
+  expect(JSON.parse(String(calls[1][1]?.body))).toEqual({ reason: null });
+  expect(await api.rejectPayment("bad", id(2), null)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(calls).toHaveLength(2);
+  const conflict = createOrderApi(async () => err({ code: "API_ERROR", message: "Conflict",
+    http: { status: 409, body: { code: "PAYMENT_CONFLICT", error: "Reviewed" } } }));
+  expect(await conflict.rejectPayment(id(1), id(2), null)).toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+});

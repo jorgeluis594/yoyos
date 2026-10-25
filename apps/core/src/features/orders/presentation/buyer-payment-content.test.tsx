@@ -104,7 +104,9 @@ describe("BuyerPaymentContent", () => {
     fetchSpy.mockResolvedValue(new Response(JSON.stringify({ paymentId: orderId, status: "reported" }), { status: 201 }));
     await act(async () => submit.click());
     expect(fetchSpy).toHaveBeenLastCalledWith(`/api/buyer/orders/${orderId}/reports`, expect.objectContaining({ method: "POST" }));
-    expect(container.textContent).toContain("Pago pendiente de revisión");
+    // The pending notice comes from the refreshed view, not from the report answer: here only the sent file is cleared.
+    expect(container.querySelector("[data-testid=receipt-file]")).toBeNull();
+    expect(container.querySelector("[role=alert]")).toBeNull();
   });
 
   test("removes the chosen file and disables the submit button again", async () => {

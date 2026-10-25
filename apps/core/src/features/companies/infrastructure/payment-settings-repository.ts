@@ -2,13 +2,13 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
-import { parsePaymentSettings, type CompanyPaymentSettings } from "@core/src/features/companies/domain/payment-settings";
+import { parseStoredPaymentSettings, type CompanyPaymentSettings } from "@core/src/features/companies/domain/payment-settings";
 
 export async function loadPaymentSettings(companyId: string) {
   try {
     const row = await prisma.companyPaymentSettings.findUnique({ where: { companyId }, select: { settings: true } });
     if (!row) return ok<readonly CompanyPaymentSettings[]>([]);
-    const parsed = parsePaymentSettings(row.settings);
+    const parsed = parseStoredPaymentSettings(row.settings);
     if (!parsed.success) {
       log.error({ event: "invalid_stored_company_payment_settings", companyId, errorCode: "INVALID_STORED_DATA" }, "invalid_stored_company_payment_settings");
       return err({ code: "INVALID_STORED_DATA" as const, message: "Invalid stored payment settings" });

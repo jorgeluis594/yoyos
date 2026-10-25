@@ -17,11 +17,15 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { subtract } from "@shared/money";
+import { offersPartialStockDeduction } from "@shared/orders-payment";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { orders } from "@mobile/features/orders/composition";
+import { confirmPaymentFailure } from "@mobile/features/orders/application/order-operations";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
+import { Field, FieldLabel } from "@mobile/components/ui/field";
+import { Input } from "@mobile/components/ui/input";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
@@ -78,6 +82,7 @@ export default function OrderDetailScreen() {
   const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [internalOpen, setInternalOpen] = useState(false);
   const [editor, setEditor] = useState<"manual" | { paymentId: string; receiptImageId: string } | null>(null);
+  const [rejection, setRejection] = useState<{ reason: string } | null>(null);
   const companyId = state.status === "ready" ? state.company.id : "";
   const [cancellation, setCancellation] = useState<CancellationUiState>({ kind: "idle" });
   const [detailRefreshFailed, setDetailRefreshFailed] = useState(false);
@@ -115,7 +120,26 @@ export default function OrderDetailScreen() {
       setOrder(result.data.order); setEditor(null); setPaymentsOpen(true);
       if (source === "manual") manualPaymentId.current = null;
     }
-    else setPaymentError(result.error.code === "INSUFFICIENT_STOCK" ? t("paymentStockError") : t("paymentSaveError"));
+    else {
+      const failure = confirmPaymentFailure(result.error.code);
+      setPaymentError(result.error.code === "INSUFFICIENT_STOCK" ? t("paymentStockError") : failure === "already_reviewed" ? t("paymentAlreadyReviewed")
+        : failure === "unknown" ? t("paymentUnknownResult") : t("paymentSaveError"));
+      if (failure !== "failed") { const refreshed = await orders.loadOrderAggregate(order.id); if (refreshed.success) setOrder(refreshed.data); }
+    }
+    setSavingPayment(null);
+  }
+  async function rejectReport(paymentId: string, reason: string) {
+    if (!order || cancellationLock.current || writeBusy || order.cancelled) return;
+    const trimmed = reason.trim();
+    if (trimmed.length > 200) { setPaymentError(t("rejectReasonTooLong")); return; }
+    setSavingPayment(paymentId); setPaymentError("");
+    const outcome = await orders.rejectPayment(order.id, paymentId, trimmed || null);
+    if (outcome.kind === "rejected") { setOrder(outcome.order); setEditor(null); setRejection(null); setPaymentsOpen(true); }
+    else {
+      setPaymentError(t(outcome.kind === "already_reviewed" ? "paymentAlreadyReviewed" : outcome.kind === "order_cancelled" ? "rejectCancelled"
+        : outcome.kind === "unknown" ? "paymentUnknownResult" : "paymentSaveError"));
+      if (outcome.kind !== "failed") { const refreshed = await orders.loadOrderAggregate(order.id); if (refreshed.success) setOrder(refreshed.data); }
+    }
     setSavingPayment(null);
   }
   async function voidPayment(paymentId: string) {
@@ -239,8 +263,8 @@ export default function OrderDetailScreen() {
     setPaymentsOpen(true);
     scroll.current?.scrollTo({ y: summaryPosition.current + paymentPosition.current, animated: false });
   };
-  const openEditor = (value: NonNullable<typeof editor>) => { if (cancellationLock.current || writeBusy || order.cancelled) return; setPaymentError(""); setEditor(value); };
-  const closeEditor = () => { if (!savingPayment) { setEditor(null); setPaymentError(""); } };
+  const openEditor = (value: NonNullable<typeof editor>) => { if (cancellationLock.current || writeBusy || order.cancelled) return; setPaymentError(""); setRejection(null); setEditor(value); };
+  const closeEditor = () => { if (!savingPayment) { setEditor(null); setRejection(null); setPaymentError(""); } };
   const fulfillmentActions = (["ship", "deliver"] as const).filter(operation => !fulfillmentBlock(order, operation));
   const deliveryBlock = fulfillmentBlock(order, "deliver");
   const fulfillmentReason = deliveryBlock === "PAYMENT_REQUIRED" || deliveryBlock === "STOCK_NOT_DEDUCTED" ? deliveryBlock : null;
@@ -318,6 +342,7 @@ export default function OrderDetailScreen() {
                 <ThemedText style={styles.semibold}>{format(order.balanceDue)}</ThemedText>
               </View>
             </View>
+            {reports.length > 0 && !order.cancelled ? <ThemedText type="small" style={{ color: theme.warning }}>{t('paymentToReview')}</ThemedText> : null}
             {order.overpaidAmount.amount > 0 ? <ThemedText type="small" style={{ color: theme.warning }}>{t('overpaid', { amount: format(order.overpaidAmount) })}</ThemedText> : null}
             {!order.cancelled && order.balanceDue.amount > 0 ? <Button disabled={writeBusy} onPress={() => openEditor("manual")}>{t('detailRegisterPayment')}</Button> : null}
             {paymentError && !editor ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
@@ -325,12 +350,14 @@ export default function OrderDetailScreen() {
               <Disclosure label={t('detailViewPayments')} open={paymentsOpen} onPress={() => setPaymentsOpen(!paymentsOpen)} />
               {paymentsOpen ? order.payments.map((payment) => {
                 const receiptImageId = payment.status === "reported" ? payment.data.receiptImageId
+                  : payment.status === "rejected" ? payment.data.report.receiptImageId
                   : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
                 return <View key={payment.id} style={[styles.payment, { borderColor: theme.border }]}>
                   <ThemedText style={styles.semibold}>{payment.status === "reported" ? t('paymentReported')
-                    : payment.status === "voided" ? t('paymentVoided') : t('detailPaymentConfirmed')}</ThemedText>
-                  {payment.status !== "reported" ? <MoneyRow label={t(payment.method === "digital_wallet" ? 'wallet' : 'bankTransfer')} value={format(payment.amount)} /> : null}
-                  <ThemedText type="small" themeColor="textSecondary">{date(payment.status === "reported" ? payment.data.reportedAt : payment.data.confirmedAt, locale)}</ThemedText>
+                    : payment.status === "voided" ? t('paymentVoided') : payment.status === "rejected" ? t('paymentRejected') : t('detailPaymentConfirmed')}</ThemedText>
+                  {payment.amount ? <MoneyRow label={t(payment.method === "digital_wallet" ? 'wallet' : 'bankTransfer')} value={format(payment.amount)} /> : null}
+                  <ThemedText type="small" themeColor="textSecondary">{date(payment.status === "reported" ? payment.data.reportedAt : payment.status === "rejected" ? payment.data.rejectedAt : payment.data.confirmedAt, locale)}</ThemedText>
+                  {payment.status === "rejected" && payment.data.reason ? <ThemedText type="small">{payment.data.reason}</ThemedText> : null}
                   {receiptImageId ? <Button variant="ghost" onPress={() => void viewReceipt(receiptImageId)}>{t('viewReceipt')}</Button> : null}
                   {payment.status === "reported" && !order.cancelled ? <Button variant="secondary" disabled={writeBusy} onPress={() => openEditor({ paymentId: payment.id, receiptImageId: payment.data.receiptImageId })}>{t('detailReviewPayment')}</Button> : null}
                   {payment.status === "confirmed" && !order.cancelled ? <Button variant="ghost" disabled={writeBusy} onPress={() => void voidPayment(payment.id)}>{t('voidPayment')}</Button> : null}
@@ -442,12 +469,16 @@ export default function OrderDetailScreen() {
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
             <ThemedText>{t('balanceDue', { amount: format(order.balanceDue) })}</ThemedText>
             {editor && editor !== "manual" ? <Button variant="secondary" onPress={() => void viewReceipt(editor.receiptImageId)}>{t('viewReceipt')}</Button> : null}
-            {editor ? <PaymentEditor key={editor === "manual" ? "manual" : editor.paymentId} currency={order.total.currency} balance={order.balanceDue.amount} busy={writeBusy} onConfirm={(amount, method, deduct) => {
+            {editor && rejection && editor !== "manual" ? <RejectionForm busy={writeBusy} reason={rejection.reason}
+              onChange={reason => setRejection({ reason })} onBack={() => { setRejection(null); setPaymentError(""); }}
+              onConfirm={() => void rejectReport(editor.paymentId, rejection.reason)} /> : null}
+            {editor && !rejection ? <PaymentEditor key={editor === "manual" ? "manual" : editor.paymentId} order={order} busy={writeBusy} onConfirm={(amount, method, deduct) => {
               if (editor === "manual") {
                 manualPaymentId.current ??= Crypto.randomUUID();
                 void confirmPayment(manualPaymentId.current, "manual", amount, method, deduct);
               } else void confirmPayment(editor.paymentId, "buyer_report", amount, method, deduct);
             }} /> : null}
+            {editor && editor !== "manual" && !rejection ? <Button variant="secondary" disabled={writeBusy} onPress={() => { setPaymentError(""); setRejection({ reason: "" }); }}>{t('rejectPayment')}</Button> : null}
             {paymentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
           </ScrollView>
         </KeyboardAvoidingView>
@@ -526,11 +557,27 @@ const styles = StyleSheet.create({
   item: { gap: 4, paddingVertical: 12 },
 });
 
-function PaymentEditor({ currency, balance, busy, onConfirm }: { currency: string; balance: number; busy: boolean;
+function PaymentEditor({ order, busy, onConfirm }: { order: OrderAggregateResponse; busy: boolean;
   onConfirm: (amount: string, method: "digital_wallet" | "bank_transfer", deductStockIfPartial: boolean) => void }) {
   const { t } = useTranslation();
+  const balance = order.balanceDue.amount;
   const [value, setValue] = useState<PaymentFieldsValue>({ amount: balance > 0 ? balance.toFixed(2) : "", method: "digital_wallet", deductStockIfPartial: false });
-  return <View style={styles.section}><PaymentFields value={value} onChange={setValue} currency={currency} busy={busy} />
-    <Button disabled={busy} loading={busy} onPress={() => onConfirm(value.amount, value.method, value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
+  const typed = Number(normalizeDecimalInput(value.amount));
+  const showStock = offersPartialStockDeduction(order, value.amount.trim() && Number.isFinite(typed) ? { amount: typed, currency: order.total.currency } : null);
+  return <View style={styles.section}><PaymentFields value={value} onChange={setValue} currency={order.total.currency} busy={busy} showStockOption={showStock} />
+    <Button disabled={busy} loading={busy} onPress={() => onConfirm(value.amount, value.method, showStock && value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
+  </View>;
+}
+
+function RejectionForm({ reason, busy, onChange, onBack, onConfirm }: { reason: string; busy: boolean;
+  onChange: (reason: string) => void; onBack: () => void; onConfirm: () => void }) {
+  const { t } = useTranslation();
+  return <View style={styles.section}>
+    <ThemedText type="subtitle" accessibilityRole="header">{t('rejectTitle')}</ThemedText>
+    <ThemedText>{t('rejectHelp')}</ThemedText>
+    <Field disabled={busy}><FieldLabel>{t('rejectReason')}</FieldLabel>
+      <Input value={reason} onChangeText={onChange} maxLength={200} multiline accessibilityLabel={t('rejectReason')} /></Field>
+    <Button disabled={busy} loading={busy} onPress={onConfirm}>{t('rejectConfirm')}</Button>
+    <Button variant="ghost" disabled={busy} onPress={onBack}>{t('rejectBack')}</Button>
   </View>;
 }

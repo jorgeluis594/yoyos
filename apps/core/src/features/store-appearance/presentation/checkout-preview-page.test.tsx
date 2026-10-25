@@ -16,7 +16,7 @@ import { previewCheckout, previewPaymentView, type PreviewState } from "@core/sr
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const appearance = { logoUrl: null, theme: "suave" } as const;
-const own: PreviewPaymentMethod[] = [{ method: "digital_wallet", provider: "Plin Lima", holder: "Lima Studio", imageUrl: null }];
+const own: PreviewPaymentMethod[] = [{ method: "digital_wallet", provider: "Plin Lima", holder: "Lima Studio", imageUrl: "https://cdn.example/own-qr.png" }];
 const i18n = createInstance();
 void i18n.use(initReactI18next).init({ lng: "es", resources });
 
@@ -119,7 +119,7 @@ describe("CheckoutPreviewPage", () => {
 
   test.each(storeThemeIds)("paints the receipts link and the copy buttons with the %s theme's link color", async (theme) => {
     const bank: PreviewPaymentMethod = { method: "bank_transfer", bank: "Banco de ejemplo", holder: "Lima Studio", accountNumber: "000-1", cci: "00000000000000000001", imageUrl: null };
-    const view: BuyerPaymentView = { ...previewPaymentView([bank]), payments: [{ id: "00000000-0000-4000-8000-000000000001", status: "reported", amount: null, method: null, receiptImageUrl: "https://cdn.example/recibo.png" }] };
+    const view: BuyerPaymentView = { ...previewPaymentView([bank]), payments: [{ id: "00000000-0000-4000-8000-000000000001", status: "reported", amount: null, method: null, receiptImageUrl: "https://cdn.example/recibo.png", rejectionReason: null }] };
     const Stub = createRoutesStub([{ path: "/", Component: () =>
       <CheckoutShell appearance={{ logoUrl: null, theme }} checkout={previewCheckout("Lima Studio", "payment")}><CheckoutPayment view={view} /></CheckoutShell> }]);
     const container = document.body.appendChild(document.createElement("div"));
