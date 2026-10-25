@@ -18,7 +18,7 @@ import type { CheckoutDeliveryChange, CheckoutPage } from "@core/src/features/or
 import type { Money } from "@shared/money";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
+import { bindCompanyToRequest, bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { buyerPaymentViewSchema, type BuyerPaymentView } from "@shared/contracts/orders";
 import { storeAppearance } from "@core/src/features/store-appearance/composition";
 import { parseCompanyId } from "@core/src/features/store-appearance/domain/store-appearance";
@@ -81,8 +81,8 @@ async function loadAppearance(companyId: string): Promise<PublicStoreAppearance 
   return appearance;
 }
 
-async function loadPayment(orderId: string): Promise<BuyerPaymentView> {
-  const payment = await orders.getBuyerPaymentView(orderId);
+async function loadPayment(access: CheckoutAccess): Promise<BuyerPaymentView> {
+  const payment = await orders.getBuyerPaymentView(access.orderId, access.companyId);
   if (!payment.success) log.error({ event: "order_checkout_payment_unavailable", errorCode: payment.error.code }, "Checkout payment view unavailable");
   const parsed = payment.success ? buyerPaymentViewSchema.safeParse(payment.data) : null;
   if (parsed?.success) return parsed.data;
@@ -91,26 +91,31 @@ async function loadPayment(orderId: string): Promise<BuyerPaymentView> {
   throw new Response(retry, { status: 503, headers: privacyHeaders });
 }
 
-/** The checkout opens only on the brand host of the company that owns the order; any other pairing is «no disponible» and says nothing about the order. */
-const servedByHost = (context: LoaderFunctionArgs["context"], companyId: string | undefined) => companyId !== undefined && context.get(brandHostCompanyContext) === companyId;
+/** The company comes only from the brand host; the order is read under that company, so another company's order is «no disponible» and says nothing about it. */
+function accessFor(context: LoaderFunctionArgs["context"], params: LoaderFunctionArgs["params"]): CheckoutAccess | null {
+  const companyId = context.get(brandHostCompanyContext);
+  const path = checkoutPathSchema.safeParse(params);
+  return companyId && path.success ? { companyId, orderId: path.data.orderId as CheckoutAccess["orderId"] } : null;
+}
 
 export async function loader({ params, context }: LoaderFunctionArgs) {
   bindRequestOperation({ operation: "get_checkout" });
-  const path = checkoutPathSchema.safeParse(params);
-  if (!path.success || !servedByHost(context, path.data.companyId)) {
+  const access = accessFor(context, params);
+  if (!access) {
     bindRequestOperation({ outcome: "unavailable" });
     throw new Response(unavailable, { status: 404, headers: privacyHeaders });
   }
-  const result = await orders.getCheckout(path.data as CheckoutAccess);
+  bindCompanyToRequest(access.companyId);
+  const result = await orders.getCheckout(access);
   if (!result.success) throw new Response(result.error.code === "CHECKOUT_UNAVAILABLE" ? unavailable : retry,
     { status: result.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 503, headers: privacyHeaders });
-  const appearance = loadAppearance(path.data.companyId);
+  const appearance = loadAppearance(access.companyId);
   if (result.data.checkout.state.kind === "confirmed") {
-    const [payment, branded] = await Promise.all([loadPayment(path.data.orderId), appearance]);
+    const [payment, branded] = await Promise.all([loadPayment(access), appearance]);
     return response({ checkout: serialize(result.data), payment, appearance: branded, message: null });
   }
   if (result.data.checkout.state.kind !== "pending") return response({ checkout: serialize(result.data), appearance: await appearance, message: null });
-  const [settings, branded] = await Promise.all([withTenantIsolation(path.data.companyId, () => deliverySettings.getCheckoutDeliveryOptions(path.data.companyId)), appearance]);
+  const [settings, branded] = await Promise.all([withTenantIsolation(access.companyId, () => deliverySettings.getCheckoutDeliveryOptions(access.companyId)), appearance]);
   if (!settings.success) {
     bindRequestOperation({ outcome: "technical_failure" });
     throw new Response(retry, { status: 503, headers: privacyHeaders });
@@ -132,8 +137,8 @@ const sentRecipient = (body: unknown) => (body as { delivery?: { selection?: { r
 const formSchema = z.strictObject({ name: z.string(), phone: z.string(), expectedTotal: z.string(), delivery: z.string() });
 export async function action({ request, params, context }: ActionFunctionArgs) {
   bindRequestOperation({ operation: "confirm_checkout" });
-  const path = checkoutPathSchema.safeParse(params);
-  if (!path.success || !servedByHost(context, path.data.companyId)) {
+  const access = accessFor(context, params);
+  if (!access) {
     bindRequestOperation({ outcome: "unavailable" });
     return response({ checkout: null, message: unavailable, unavailable: true }, 404);
   }
@@ -163,7 +168,7 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
   }
   const buyer = parseBuyer(parsed.data.buyer);
   if (!buyer.success) return response({ checkout: null, message: "Revisa los datos del comprador." }, 422);
-  const access = path.data as CheckoutAccess;
+  bindCompanyToRequest(access.companyId);
   try {
     let delivery: CheckoutDeliveryChange;
     if (parsed.data.delivery.kind === "keep") {
@@ -178,7 +183,7 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
       delivery = { kind: "replace", selection: selection.data, expectedPrice: parsed.data.delivery.expectedPrice };
     }
     const result = await orders.confirmCheckoutDelivery({ buyer: buyer.data, expectedTotal: parsed.data.expectedTotal, delivery }, access);
-    if (result.success) return redirect(`/checkout/${access.companyId}/${access.orderId}`, { headers: privacyHeaders });
+    if (result.success) return redirect(`/checkout/${access.orderId}`, { headers: privacyHeaders });
     if (result.error.code === "CHECKOUT_UNAVAILABLE") return response({ checkout: null, message: unavailable, unavailable: true }, 404);
     if (result.error.code === "TOTAL_CHANGED" || result.error.code === "ORDER_CANCELLED") {
       const latest = await orders.getCheckout(access);

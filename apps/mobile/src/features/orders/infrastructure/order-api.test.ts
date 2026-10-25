@@ -168,7 +168,7 @@ test("delivery API validates the complete authored snapshot and updated aggregat
 
 test("checkout link adapter validates IDs, responses and operation-specific failures", async () => {
   const calls: string[] = [];
-  const url = `https://shop.example/checkout/${id(2)}/${id(1)}`;
+  const url = `https://shop.example/checkout/${id(2)}`;
   const api = createOrderApi(async (path) => { calls.push(path); return ok({ url }); });
   expect(await api.enableCheckout("1001")).toMatchObject({ error: { code: "INVALID_INPUT" } });
   expect(calls).toEqual([]);

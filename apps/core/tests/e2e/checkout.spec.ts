@@ -43,7 +43,7 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
     // Orders are born enabled; a legacy row without the timestamp is simulated.
     if (!enabled) await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: null } });
   });
-  return { companyId, userId, orderId, route: `/checkout/${companyId}/${orderId}`, path: storeUrl(subdomainOf(companyId), `/checkout/${companyId}/${orderId}`), host: (route: string) => storeUrl(subdomainOf(companyId), route),
+  return { companyId, userId, orderId, route: `/checkout/${orderId}`, path: storeUrl(subdomainOf(companyId), `/checkout/${orderId}`), host: (route: string) => storeUrl(subdomainOf(companyId), route),
     read: () => withTenantIsolation(companyId, async () => await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { buyer: true, payments: true } })),
     cancel: () => withTenantIsolation(companyId, () => orders.cancel(orderId, { companyId, userId })),
     async cleanup() {
@@ -136,7 +136,7 @@ test("public links hide unavailable orders and show cancellation received during
   const disabled = await fixture("none", false);
   try {
     // Hidden catalog: only an order of the host's own company opens; anything else is the host's «Catálogo no disponible», revealing nothing.
-    for (const path of [f.host("/checkout/bad"), f.host("/checkout/bad/1001"), f.host(`/checkout/${randomUUID()}/${f.orderId}`), f.host(`/checkout/${disabled.companyId}/${disabled.orderId}`), storeUrl(subdomainOf(f.companyId), `/checkout/${f.companyId}/${randomUUID()}`)]) {
+    for (const path of [f.host("/checkout/bad"), f.host("/checkout/bad/1001"), f.host(`/checkout/${randomUUID()}`), f.host(`/checkout/${disabled.orderId}`), f.host(`/checkout/${f.companyId}/${f.orderId}`)]) {
       expect((await page.goto(path))?.status()).toBe(404);
       await browserExpect(page.getByRole("heading", { name: "Catálogo no disponible" })).toBeVisible();
       await browserExpect(page.getByText("Cuaderno")).toHaveCount(0);
@@ -145,13 +145,13 @@ test("public links hide unavailable orders and show cancellation received during
     await browserExpect(page.getByRole("heading", { name: "Enlace no disponible" })).toBeVisible();
     // Published catalog: the checkout's own «no disponible» state, the same for a missing order and another company's.
     await publishCatalog(f.companyId);
-    for (const path of [f.host("/checkout/bad"), f.host("/checkout/bad/1001"), f.host(`/checkout/${randomUUID()}/${f.orderId}`), f.host(`/checkout/${disabled.companyId}/${disabled.orderId}`), f.host(`/checkout/${f.companyId}/${randomUUID()}`), disabled.path]) {
+    for (const path of [f.host("/checkout/bad"), f.host("/checkout/bad/1001"), f.host(`/checkout/${randomUUID()}`), f.host(`/checkout/${disabled.orderId}`), f.host(`/checkout/${f.companyId}/${f.orderId}`), disabled.path]) {
       expect((await page.goto(path))?.status()).toBe(404);
       await browserExpect(page.getByRole("heading", { name: "Enlace no disponible" })).toBeVisible();
       await browserExpect(page.getByText("Cuaderno")).toHaveCount(0);
     }
     // The app host no longer serves the checkout.
-    expect((await page.goto(`/checkout/${f.companyId}/${f.orderId}`))?.status()).toBe(404);
+    expect((await page.goto(`/checkout/${f.orderId}`))?.status()).toBe(404);
     await page.goto(f.path);
     await browserExpect(page.getByLabel("Nombre", { exact: true })).toHaveValue("Anterior");
     await f.cancel();
@@ -231,7 +231,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Obtener enlace", exact: true })).toHaveCount(0);
     const link = page.getByRole("textbox", { name: "Enlace del pedido", exact: true });
-    await browserExpect(link).toHaveValue(storeUrl(subdomainOf(companyId), `/checkout/${companyId}/${orderId}`));
+    await browserExpect(link).toHaveValue(storeUrl(subdomainOf(companyId), `/checkout/${orderId}`));
     await browserExpect(page.getByRole("link", { name: "Abrir enlace en una pestaña nueva", exact: true })).toHaveAttribute("target", "_blank");
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);

@@ -45,7 +45,7 @@ const aggregate = (patch: Partial<OrderAggregate> = {}) => {
 };
 
 test("the loader builds the absolute brand-host link from the company's subdomain without enabling anything", async () => {
-  const url = `https://fantasio.yoyos.lat/checkout/${companyId}/${orderId}`;
+  const url = `https://fantasio.yoyos.lat/checkout/${orderId}`;
   vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(aggregate()));
   const checkoutUrl = vi.spyOn(orders, "checkoutUrl").mockResolvedValue(ok(url));
   const enable = vi.spyOn(orders, "enableCheckout");
@@ -149,7 +149,7 @@ test("order detail shows «Desde el catálogo» and no seller for a catalog orde
   const render = (order: OrderAggregate) => {
     const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
       hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order), base: "/es-PE/orders", manualPaymentId: id(5), receiptUrls: {},
-        settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "ready", url: "https://fantasio.yoyos.lat/checkout/x/y" } } } } });
+        settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "ready", url: "https://fantasio.yoyos.lat/checkout/7bf00000-0000-4000-8000-000000000002" } } } } });
     try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
     finally { router.dispose(); }
   };

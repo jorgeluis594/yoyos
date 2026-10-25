@@ -23,10 +23,12 @@ vi.mock("@core/src/features/store-appearance/domain/store-appearance", async (im
   return { ...actual, parseCompanyId: vi.fn(actual.parseCompanyId) };
 });
 
-const params = { companyId: "00000000-0000-4000-8000-000000000001", orderId: "00000000-0000-4000-8000-000000000002" };
-const hostContext = (companyId: string | null = params.companyId) => {
+const companyId = "00000000-0000-4000-8000-000000000001";
+const params = { orderId: "00000000-0000-4000-8000-000000000002" };
+const access = { companyId, ...params };
+const hostContext = (host: string | null = companyId) => {
   const context = new RouterContextProvider();
-  context.set(brandHostCompanyContext, companyId as never);
+  context.set(brandHostCompanyContext, host as never);
   return context;
 };
 const context = hostContext();
@@ -36,28 +38,50 @@ const view: CheckoutView = { companyName: "Store", number: 1001 as OrderNumber, 
 const page = (checkout: CheckoutView, photos: CheckoutPage["photos"] = new Map()): CheckoutPage => ({ checkout, photos });
 const publicView = { ...view, items: [{ productName: "Product", sku: null, variantAttributes: {}, imageUrl: null, quantity: 1, unitPrice: total, subtotal: total }] };
 const body = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: total, delivery: { kind: "keep" as const } };
-const args = (payload: unknown, path = params) => ({ params: path, context, request: new Request("http://localhost/checkout/company/order", {
+const args = (payload: unknown, path = params) => ({ params: path, context, request: new Request("http://localhost/checkout/order", {
   method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(payload),
 }) } as unknown as ActionFunctionArgs);
 beforeEach(() => { vi.mocked(bindRequestOperation).mockClear(); vi.spyOn(storeAppearance, "getPublic").mockResolvedValue({ kind: "default" }); });
 afterEach(() => vi.restoreAllMocks());
 
-test("the loader and the action answer «no disponible» when the brand host belongs to another company, without reading the order", async () => {
+test("the former /checkout/:companyId/:orderId path is not served: the loader and the action answer «no disponible» without reading the order", async () => {
   const read = vi.spyOn(orders, "getCheckout");
   const confirm = vi.spyOn(orders, "confirmCheckoutDelivery");
-  for (const host of [hostContext("00000000-0000-4000-8000-0000000000ff"), hostContext(null)]) {
-    await expect(loader({ params, context: host } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
-    expect(await action({ ...args(body), context: host } as unknown as ActionFunctionArgs)).toMatchObject({ data: { unavailable: true, message: "Enlace no disponible" }, init: { status: 404 } });
+  for (const old of [{ companyId, ...params }, { "*": `${companyId}/${params.orderId}` }]) {
+    await expect(loader({ params: old, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
+    expect(await action(args(body, old as never))).toMatchObject({ data: { unavailable: true }, init: { status: 404 } });
   }
   expect(read).not.toHaveBeenCalled();
   expect(confirm).not.toHaveBeenCalled();
+});
+
+test("the loader and the action answer «no disponible» without reading the order when no brand host serves the request", async () => {
+  const read = vi.spyOn(orders, "getCheckout");
+  const confirm = vi.spyOn(orders, "confirmCheckoutDelivery");
+  const host = hostContext(null);
+  await expect(loader({ params, context: host } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
+  expect(await action({ ...args(body), context: host } as unknown as ActionFunctionArgs)).toMatchObject({ data: { unavailable: true, message: "Enlace no disponible" }, init: { status: 404 } });
+  expect(read).not.toHaveBeenCalled();
+  expect(confirm).not.toHaveBeenCalled();
+});
+
+test("the order is read under the company of the brand host only, so another company's order is the same «no disponible»", async () => {
+  const otherCompany = "00000000-0000-4000-8000-0000000000ff";
+  const unavailable = err({ code: "CHECKOUT_UNAVAILABLE" as const, message: "not public" });
+  const read = vi.spyOn(orders, "getCheckout").mockResolvedValue(unavailable);
+  const confirm = vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(unavailable as never);
+  const host = hostContext(otherCompany);
+  await expect(loader({ params, context: host } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
+  expect(await action({ ...args(body), context: host } as unknown as ActionFunctionArgs)).toMatchObject({ data: { unavailable: true }, init: { status: 404 } });
+  expect(read).toHaveBeenCalledWith({ companyId: otherCompany, ...params });
+  expect(confirm).toHaveBeenCalledWith(expect.anything(), { companyId: otherCompany, ...params });
 });
 
 test("public loader preserves wire amounts and privacy headers without requiring an authenticated context", async () => {
   const settings = vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions").mockResolvedValue(ok({ settings: { version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }, agencyCovered: false }));
   vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
   expect(await loader({ params, context } as unknown as LoaderFunctionArgs)).toMatchObject({ data: { checkout: publicView }, init: { headers: headers() } });
-  await expect(loader({ params: { companyId: "bad", orderId: "1001" }, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
+  await expect(loader({ params: { orderId: "1001" }, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
   vi.mocked(orders.getCheckout).mockResolvedValue(err({ code: "CHECKOUT_UNAVAILABLE", message: "not public" }));
   await expect(loader({ params, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
   expect(settings).toHaveBeenCalledTimes(1);
@@ -81,7 +105,7 @@ test("loads the checkout with markers when the photos cannot be read", async () 
 
 test("public action rejects tampering and attaches field errors before calling the use case", async () => {
   const confirm = vi.spyOn(orders, "confirmCheckoutDelivery");
-  expect(await action(args({ ...body, companyId: params.companyId }))).toMatchObject({ init: { status: 422 } });
+  expect(await action(args({ ...body, companyId }))).toMatchObject({ init: { status: 422 } });
   expect(await action(args({ ...body, buyer: { name: " ", phone: "invalid" } }))).toMatchObject({
     data: { fieldErrors: { name: expect.any(String), phone: expect.any(String) } }, init: { status: 422 },
   });
@@ -101,7 +125,7 @@ test("confirmation requires an explicit delivery choice for JSON and form reques
   const withoutDelivery = { buyer: body.buyer, expectedTotal: body.expectedTotal };
   expect(await action(args(withoutDelivery))).toMatchObject({ init: { status: 422 } });
   const fields = new URLSearchParams({ ...body.buyer, expectedTotal: JSON.stringify(total) });
-  const request = new Request("http://localhost/checkout/company/order", { method: "POST", body: fields });
+  const request = new Request("http://localhost/checkout/order", { method: "POST", body: fields });
   expect(await action({ params, context, request } as unknown as ActionFunctionArgs)).toMatchObject({ init: { status: 422 } });
   expect(confirm).not.toHaveBeenCalled();
 });
@@ -124,9 +148,9 @@ test("delivery confirmation constructs domain selection and redirects to payment
   const delivery = { kind: "replace", selection: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } };
   const result = await action(args({ ...body, delivery }));
   expect(result).toBeInstanceOf(Response);
-  expect((result as Response).headers.get("Location")).toBe(`/checkout/${params.companyId}/${params.orderId}`);
+  expect((result as Response).headers.get("Location")).toBe(`/checkout/${params.orderId}`);
   expect((result as Response).headers.get("Cache-Control")).toBe("no-store");
-  expect(confirm).toHaveBeenCalledWith({ ...body, delivery: { ...delivery, selection: { ...delivery.selection, recipient: { ...delivery.selection.recipient, phone: body.buyer.phone } } } }, params);
+  expect(confirm).toHaveBeenCalledWith({ ...body, delivery: { ...delivery, selection: { ...delivery.selection, recipient: { ...delivery.selection.recipient, phone: body.buyer.phone } } } }, access);
 });
 
 describe("recipient rule", () => {
@@ -229,7 +253,7 @@ test("delivery business failures do not redirect or falsely confirm", async () =
 test("delivery form accepts exactly four fields and rejects repeated delivery values", async () => {
   vi.spyOn(orders, "confirmCheckoutDelivery").mockResolvedValue(ok(view));
   const fields = new URLSearchParams({ ...body.buyer, expectedTotal: JSON.stringify(total), delivery: JSON.stringify({ kind: "keep" }) });
-  const request = () => new Request("http://localhost/checkout/company/order", { method: "POST", body: fields });
+  const request = () => new Request("http://localhost/checkout/order", { method: "POST", body: fields });
   expect(await action({ params, context, request: request() } as unknown as ActionFunctionArgs)).toBeInstanceOf(Response);
   fields.append("delivery", JSON.stringify({ kind: "keep" }));
   expect(await action({ params, context, request: request() } as unknown as ActionFunctionArgs)).toMatchObject({ init: { status: 422 } });
@@ -286,7 +310,7 @@ test("confirmed checkout keeps its saved summary and loads the payment view with
   const settings = vi.spyOn(deliverySettings, "getCheckoutDeliveryOptions");
   expect(await loader({ params, context } as unknown as LoaderFunctionArgs)).toMatchObject({
     data: { checkout: { total, state: { kind: "confirmed" } }, payment: paymentView }, init: { headers: headers() } });
-  expect(payment).toHaveBeenCalledWith(params.orderId);
+  expect(payment).toHaveBeenCalledWith(params.orderId, companyId);
   expect(settings).not.toHaveBeenCalled();
 });
 
@@ -316,7 +340,7 @@ describe("checkout appearance", () => {
     vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page(view)));
     const getPublic = vi.mocked(storeAppearance.getPublic).mockResolvedValue({ kind: "custom", appearance: custom });
     expect(await load()).toMatchObject({ data: { appearance: custom } });
-    expect(getPublic).toHaveBeenCalledWith(params.companyId);
+    expect(getPublic).toHaveBeenCalledWith(companyId);
   });
 
   test("exposes only the logo URL and the theme", async () => {
@@ -343,7 +367,7 @@ describe("checkout appearance", () => {
   test("does not read the appearance for an unauthorized link", async () => {
     vi.spyOn(orders, "getCheckout").mockResolvedValue(err({ code: "CHECKOUT_UNAVAILABLE", message: "not public" }));
     await expect(load()).rejects.toMatchObject({ status: 404 });
-    await expect(loader({ params: { companyId: "bad", orderId: "1001" }, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
+    await expect(loader({ params: { orderId: "1001" }, context } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
     expect(storeAppearance.getPublic).not.toHaveBeenCalled();
   });
 

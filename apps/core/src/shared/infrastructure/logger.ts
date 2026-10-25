@@ -89,7 +89,7 @@ export function requestLogging(request: Request, response: Response, next: NextF
     log.info({
       event: "http_request_completed",
       method: request.method,
-      route: checkout ? "/checkout/:companyId/:orderId" : preview ? "/settings/store-appearance/preview" : catalogCards ? "/settings/store-appearance/catalog-cards" : enable ? "/api/orders/:orderId/checkout-link"
+      route: checkout ? "/checkout/:orderId" : preview ? "/settings/store-appearance/preview" : catalogCards ? "/settings/store-appearance/catalog-cards" : enable ? "/api/orders/:orderId/checkout-link"
         : appearanceEditor ? "/settings/store-appearance" : legacyAppearanceEditor ? "/settings/checkout-appearance"
         : request.route?.path ? `${request.baseUrl}${request.route.path}` : "unmatched",
       statusCode: response.statusCode,

@@ -68,7 +68,7 @@ test("buyer opens the brand host, adds two variants, continues to checkout on th
     await cart.getByRole("button", { name: "Continuar" }).click();
 
     // The checkout opens on the same brand host.
-    await buyerPage.waitForURL(new RegExp(`^${storeUrl(subdomain).replaceAll(".", "\\.")}checkout/${companyId}/`));
+    await buyerPage.waitForURL(new RegExp(`^${storeUrl(subdomain).replaceAll(".", "\\.")}checkout/[0-9a-f-]{36}$`));
     await browserExpect(buyerPage.getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
     const orderId = buyerPage.url().split("/").at(-1)!;
     const orders = await page.request.get("/api/orders");
@@ -158,12 +158,12 @@ test("a brand host serves only the storefront: other paths, hidden and unknown s
     expect(strip(await page.content())).toBe(strip(unknownBody));
     // A checkout that is no order of this host's company is the same «Catálogo no disponible» on a hidden or unknown host; the app host does not serve it at all.
     for (const host of [subdomain, "no-existe"]) {
-      const checkout = await page.goto(storeUrl(host, `/checkout/${companyId}/${randomUUID()}`));
+      const checkout = await page.goto(storeUrl(host, `/checkout/${randomUUID()}`));
       expect(checkout?.status()).toBe(404);
       expect(checkout?.headers()["referrer-policy"]).toBe("no-referrer");
       expect(strip(await page.content())).toBe(strip(unknownBody));
     }
-    expect((await page.request.get(`/checkout/${companyId}/${randomUUID()}`, { maxRedirects: 0 })).status()).toBe(404);
+    expect((await page.request.get(`/checkout/${randomUUID()}`, { maxRedirects: 0 })).status()).toBe(404);
     expect((await onBrandHost(`/api/buyer/orders/${randomUUID()}/payment`)).status()).toBe(404);
     expect((await page.request.get(`/api/buyer/orders/${randomUUID()}/payment`)).status()).toBe(404);
 

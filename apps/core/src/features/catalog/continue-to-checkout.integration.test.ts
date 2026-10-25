@@ -174,11 +174,17 @@ test("confirming company A's order on company B's published host goes through th
   if (!created.success) throw new Error(created.error.code);
   const context = new RouterContextProvider();
   context.set(requestHostContext, `${subdomainOf(other.companyId)}.localhost`);
-  const params = { companyId: mine.companyId, orderId };
-  const form = new URLSearchParams({ name: "Ana", phone: "+51987654321", expectedTotal: String(created.data.total.amount), delivery: "{}" });
-  const request = new Request(`http://localhost/checkout/${mine.companyId}/${orderId}`, { method: "POST", body: form });
+  const params = { orderId };
+  const form = new URLSearchParams({ name: "Ana", phone: "+51987654321", expectedTotal: JSON.stringify(created.data.total), delivery: JSON.stringify({ kind: "keep" }) });
+  const request = new Request(`http://localhost/checkout/${orderId}`, { method: "POST", body: form });
   const answered = await storefrontMiddleware({ request, params, context } as never, async () => checkoutAction({ request, params, context } as never) as never);
   expect(answered).toMatchObject({ data: { unavailable: true }, init: { status: 404 } });
+  // The page reads the order under the host's company: another company's order and an unknown id are the same «Enlace no disponible».
+  for (const id of [orderId, randomUUID(), "not-a-uuid"]) {
+    const read = await checkoutLoader({ params: { orderId: id }, context: hostContext(other.companyId), request } as unknown as LoaderFunctionArgs).catch((error) => error);
+    expect(read).toMatchObject({ status: 404 });
+    expect(await read.text()).toBe("Enlace no disponible");
+  }
   const check = await cartAction({ request: cartRequest({ intent: "check_order", orderId }), context: await cartContext(mine.companyId) } as never);
   expect(check).toMatchObject({ data: { order: "not_confirmed" } });
 });
@@ -187,7 +193,7 @@ test("Continuar answers the full checkout URL on the store's brand host", async 
   const { companyId, black } = await store();
   const orderId = randomUUID();
   const response = await cartAction({ request: cartRequest({ intent: "continue", orderId, lines: [{ variantId: black, quantity: 1 }] }), context: await cartContext(companyId) } as never);
-  expect(response).toMatchObject({ data: { checkoutUrl: `http://${subdomainOf(companyId)}.localhost:3000/checkout/${companyId}/${orderId}` }, init: { status: 200 } });
+  expect(response).toMatchObject({ data: { checkoutUrl: `http://${subdomainOf(companyId)}.localhost:3000/checkout/${orderId}` }, init: { status: 200 } });
 });
 
 test("buyer payment routes reject an unconfirmed catalog order, and the seller sees it only after confirmation", async () => {
@@ -231,7 +237,7 @@ test("a buyer whose store appearance cannot be read browses in Clásico without 
   const created = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1)] }, await storefrontOf(companyId));
   expect(created).toMatchObject({ success: true, data: { id: orderId, fromCatalog: true } });
 
-  const checkout = await checkoutLoader({ params: { companyId, orderId }, context: hostContext(companyId), request: new Request(`http://localhost/checkout/${companyId}/${orderId}`) } as unknown as LoaderFunctionArgs);
+  const checkout = await checkoutLoader({ params: { orderId }, context: hostContext(companyId), request: new Request(`http://localhost/checkout/${orderId}`) } as unknown as LoaderFunctionArgs);
   if (!created.success) return;
   expect(checkout).toMatchObject({ data: { checkout: { number: created.data.number, companyName: "Moda Lucía", items: [{ productName: "Polo básico", quantity: 1 }] }, appearance: null } });
 });

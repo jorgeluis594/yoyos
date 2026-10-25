@@ -63,7 +63,7 @@ async function fixture({ delivery = true, photos = false }: { delivery?: boolean
     await publishCatalog(companyId);
     expect(await orders.enableCheckout(orderId, { companyId, userId })).toMatchObject({ success: true });
   });
-  return { companyId, userId, orderId, route: `/checkout/${companyId}/${orderId}`, headers: brandHostHeaders(subdomainOf(companyId)), path: storeUrl(subdomainOf(companyId), `/checkout/${companyId}/${orderId}`),
+  return { companyId, userId, orderId, route: `/checkout/${orderId}`, headers: brandHostHeaders(subdomainOf(companyId)), path: storeUrl(subdomainOf(companyId), `/checkout/${orderId}`),
     cancel: () => withTenantIsolation(companyId, () => orders.cancel(orderId, { companyId, userId })),
     read: () => withTenantIsolation(companyId, async () => await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } })),
     async cleanup() {
@@ -218,7 +218,7 @@ test.describe("buyer checkout with appearance", () => {
     try {
       await saveCompanyAppearance(f.companyId, { theme: "noche", withLogo: false });
       await page.emulateMedia({ colorScheme: "dark" });
-      for (const path of [`/checkout/${f.companyId}/${randomUUID()}`, `/checkout/${randomUUID()}/${f.orderId}`, "/checkout/bad/1001"]) {
+      for (const path of [`/checkout/${randomUUID()}`, `/checkout/${f.companyId}/${f.orderId}`, "/checkout/bad/1001"]) {
         const response = await page.goto(storeUrl(subdomainOf(f.companyId), path));
         expect(response?.status()).toBe(404);
         await browserExpect(page.getByRole("heading", { name: "Enlace no disponible" })).toBeVisible();
