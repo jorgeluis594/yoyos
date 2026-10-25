@@ -51,7 +51,7 @@ export async function sharedCheckoutPath(companyId: string, email: string) {
     await prisma.company.update({ where: { id: tenant }, data: { catalogSubdomain: subdomainOf(companyId) } });
     expect(await orders.enableCheckout(orderId, { companyId: tenant, userId })).toMatchObject({ success: true });
   });
-  return storeUrl(subdomainOf(companyId), `/checkout/${companyId}/${orderId}`);
+  return storeUrl(subdomainOf(companyId), `/checkout/${orderId}`);
 }
 
 export async function removeCompanyAppearance(companyId: string) {

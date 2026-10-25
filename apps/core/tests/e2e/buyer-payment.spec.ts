@@ -52,7 +52,7 @@ test("buyer reports a receipt and sees the seller confirmed balance", async ({ p
     expect((await request.get(`/api/buyer/orders/${orderId}/payment`, { headers: brand })).status()).toBe(409);
     expect((await request.get(`/api/buyer/orders/${orderId}/payment`)).status()).toBe(404);
     await withTenantIsolation(tenantId, async () => { await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } }); });
-    const checkoutPath = `/checkout/${tenantId}/${orderId}`;
+    const checkoutPath = `/checkout/${orderId}`;
     const checkoutAddress = storeUrl(subdomain, checkoutPath);
     await page.goto(checkoutAddress);
     await page.getByLabel("Nombre", { exact: true }).fill("Ana Torres");

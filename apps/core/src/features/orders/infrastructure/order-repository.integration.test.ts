@@ -908,7 +908,7 @@ test("checkout enable and confirmation are idempotent under real concurrent tran
     const links = await Promise.all(Array.from({ length: 3 }, () => withTenantIsolation(f.companyId, () => orders.enableCheckout(access.orderId, context))));
     expect(links.every((link) => link.success)).toBe(true);
     expect(new Set(links.flatMap((link) => link.success ? [link.data.url] : [])).size).toBe(1);
-    expect(links[0]).toMatchObject({ data: { url: `${storefrontConfig.baseUrl.protocol}//${subdomain}.${storefrontConfig.baseUrl.host}/checkout/${access.companyId}/${access.orderId}` } });
+    expect(links[0]).toMatchObject({ data: { url: `${storefrontConfig.baseUrl.protocol}//${subdomain}.${storefrontConfig.baseUrl.host}/checkout/${access.orderId}` } });
     expect(info.mock.calls.filter(([fields]) => typeof fields === "object" && fields && "event" in fields && fields.event === "order_checkout_enabled")).toHaveLength(0);
     const confirmations = await Promise.all(["Ana", "Other"].map((name) => orders.confirmCheckout(checkoutInput(name), access)));
     expect(confirmations.every((result) => result.success)).toBe(true);

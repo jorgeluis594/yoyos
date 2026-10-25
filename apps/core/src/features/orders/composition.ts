@@ -237,14 +237,14 @@ export function deleteConfiguredExpiredCatalogOrders(input: DeleteExpiredCatalog
 }
 
 /** The checkout link on the brand host of `subdomain`, which the caller already holds; no query. */
-const checkoutUrlFor = (subdomain: CatalogSubdomain | null, companyId: CompanyId, orderId: OrderId) =>
-  buildCheckoutUrl(storefrontConfig.baseUrl, subdomain, companyId, orderId);
+const checkoutUrlFor = (subdomain: CatalogSubdomain | null, orderId: OrderId) =>
+  buildCheckoutUrl(storefrontConfig.baseUrl, subdomain, orderId);
 
 /** The same link for the company's current subdomain, read here for callers that do not have it at hand. */
 async function checkoutUrl(companyId: CompanyId, orderId: OrderId): Promise<Result<string, CheckoutUrlError | { code: "PERSISTENCE_UNAVAILABLE"; message: string }>> {
   const stored = await withTenantIsolation(companyId, () => readCatalogSettings(companyId));
   if (!stored.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: stored.error.message });
-  return checkoutUrlFor(stored.data?.subdomain ?? null, companyId, orderId);
+  return checkoutUrlFor(stored.data?.subdomain ?? null, orderId);
 }
 
 async function createConfiguredCatalogOrder(input: CreateCatalogOrderInput, access: CatalogOrderAccess): Promise<Result<OrderAggregate, CreateCatalogOrderError>> {

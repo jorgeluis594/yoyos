@@ -10,7 +10,7 @@ test("checkout boundaries reject extra authority, malformed UUIDs and invalid mo
     { ...valid, buyer: { name: " ", phone: valid.buyer.phone } }, { ...valid, expectedTotal: { amount: 10.501, currency: "PEN" } },
     { ...valid, expectedTotal: { amount: Infinity, currency: "PEN" } }, { ...valid, expectedTotal: { amount: -1, currency: "PEN" } },
     { ...valid, expectedTotal: { amount: 10, currency: "XXX" } }, { buyer: valid.buyer }]) expect(confirmCheckoutSchema.safeParse(body).success).toBe(false);
-  expect(checkoutPathSchema.safeParse({ companyId: "company", orderId: "1001" }).success).toBe(false);
+  expect(checkoutPathSchema.safeParse({ orderId: "1001" }).success).toBe(false);
 });
 
 test("public response validates confirmed buyers and excludes private aggregate fields", () => {

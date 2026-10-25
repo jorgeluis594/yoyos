@@ -45,7 +45,7 @@ const aggregate = (patch: Partial<OrderAggregate> = {}) => {
 };
 
 test("the loader builds the absolute brand-host link from the company's subdomain without enabling anything", async () => {
-  const url = `https://fantasio.yoyos.lat/checkout/${companyId}/${orderId}`;
+  const url = `https://fantasio.yoyos.lat/checkout/${orderId}`;
   vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(aggregate()));
   const checkoutUrl = vi.spyOn(orders, "checkoutUrl").mockResolvedValue(ok(url));
   const enable = vi.spyOn(orders, "enableCheckout");

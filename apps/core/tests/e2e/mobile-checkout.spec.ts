@@ -32,12 +32,12 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await page.goto(`${mobile.origin}/orders/${id}`, { timeout: 90_000 });
     await browserExpect(page.getByText("Pedido #10000", { exact: true })).toBeVisible({ timeout: 90000 });
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText(storeUrl(subdomainOf(tenant), `/checkout/${tenant}/${id}`), { exact: true })).toBeVisible();
+    await browserExpect(page.getByText(storeUrl(subdomainOf(tenant), `/checkout/${id}`), { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Obtener enlace", exact: true })).toHaveCount(0);
     await page.getByRole("button", { name: "Copiar enlace", exact: true }).click();
     await browserExpect(page.getByText("Enlace copiado", { exact: true })).toBeVisible();
     const url = await page.evaluate(() => navigator.clipboard.readText());
-    expect(url).toBe(storeUrl(subdomainOf(tenant), `/checkout/${tenant}/${id}`));
+    expect(url).toBe(storeUrl(subdomainOf(tenant), `/checkout/${id}`));
     const buyer = await buyerContext.newPage();
     await buyer.goto(url);
     await buyer.getByLabel("Nombre", { exact: true }).fill("Ana");

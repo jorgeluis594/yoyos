@@ -34,7 +34,7 @@ function refuse(body: StorefrontError, status: number) {
   return data(body, { status, headers: catalogHeaders });
 }
 
-const checkoutOrderPath = /^\/checkout\/([^/]+)\/([^/]+)$/;
+const checkoutOrderPath = /^\/checkout\/([^/]+)$/;
 const privacyHeaders = { "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" };
 
 /**
@@ -48,8 +48,8 @@ async function serveCheckout(host: Parameters<typeof catalogStorefront.resolveOw
   context.set(brandHostCompanyContext, owner.data.companyId);
   if (owner.data.published) return;
   const target = checkoutOrderPath.exec(path);
-  if (!target || target[1] !== owner.data.companyId) throw refuse({ kind: "catalog_unavailable" }, 404);
-  const access = await orders.resolveBuyerAccess(target[2]);
+  if (!target) throw refuse({ kind: "catalog_unavailable" }, 404);
+  const access = await orders.resolveBuyerAccess(target[1]);
   if (access.success && access.data.companyId === owner.data.companyId) return;
   const failed = !access.success && access.error.code !== "INVALID_ORDER" && access.error.code !== "ORDER_NOT_FOUND";
   throw failed ? refuse({ kind: "catalog_load_error" }, 503) : refuse({ kind: "catalog_unavailable" }, 404);

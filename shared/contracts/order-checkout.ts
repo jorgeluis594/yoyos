@@ -4,7 +4,7 @@ import { agencyDeliverySnapshotSchema, homeDeliverySnapshotSchema, ratedDelivery
 import { moneySchema } from "@shared/contracts/money";
 import { storeDeliverySettingsSchema } from "@shared/contracts/delivery-settings";
 
-export const checkoutPathSchema = z.strictObject({ companyId: z.uuid(), orderId: z.uuid() });
+export const checkoutPathSchema = z.strictObject({ orderId: z.uuid() });
 export const checkoutBuyerSchema = z.strictObject({ name: z.string().trim().min(1), phone: z.string().regex(internationalPhonePattern) });
 const checkoutMoneySchema = moneySchema.extend({ amount: z.number().finite().nonnegative().refine((value) => /^\d+(?:\.\d{1,2})?$/.test(String(value))) });
 export const confirmCheckoutSchema = z.strictObject({ buyer: checkoutBuyerSchema, expectedTotal: checkoutMoneySchema });
