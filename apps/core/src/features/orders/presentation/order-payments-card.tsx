@@ -112,14 +112,14 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
             : payment.status === "voided" ? t("orders.paymentRowVoided", { date: when }) : null;
           return <li key={payment.id} id={paymentRowId(payment.id)} tabIndex={-1} className="flex flex-wrap items-center gap-3 rounded-lg border p-3 outline-none focus-visible:ring-2 focus-visible:ring-ring">
             {receipt && <RowThumbnail url={receipt} label={paymentActionName(t, "thumbnail", when)} onOpen={element => open("receipt", payment.id, element)} />}
-            <div className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+            <div className="flex min-w-0 flex-1 basis-40 flex-col gap-1 text-sm">
               <p className="font-medium">{title}</p>
               {detail && <p className="text-muted-foreground">{detail}</p>}
               {payment.status === "rejected" && payment.data.reason && <p className="break-words text-muted-foreground">{t("orders.rejectionReason", { reason: payment.data.reason })}</p>}
               {receipt && <button type="button" aria-label={paymentActionName(t, "viewReceipt", when)} onClick={event => open("receipt", payment.id, event.currentTarget)}
                 className="inline-flex min-h-control w-fit items-center text-link underline underline-offset-4 max-md:min-h-touch">{t("orders.viewReceipt")}</button>}
             </div>
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="ml-auto flex flex-wrap items-center gap-2">
               {actions.reject && <Button type="button" variant="outline" className="min-h-touch text-destructive md:min-h-control" aria-label={paymentActionName(t, "reject", when)} disabled={blocked}
                 onClick={event => open("reject", payment.id, event.currentTarget)}>{t("orders.reject")}</Button>}
               {actions.approve && <Button type="button" className="min-h-touch md:min-h-control" aria-label={paymentActionName(t, "approve", when)} disabled={blocked}
