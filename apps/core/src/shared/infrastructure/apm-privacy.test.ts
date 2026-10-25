@@ -12,7 +12,7 @@ test("configured agent strips checkout credentials from transaction and span pay
     const agent = new Agent(config);
     const uuid = '00000000-0000-4000-8000-000000000099';
     const results = [];
-    for (const path of ['/checkout/company/' + uuid, '/api/orders/' + uuid + '/checkout-link', '/es-PE/orders/' + uuid, '/es-PE/orders/' + uuid + '.data']) {
+    for (const path of ['/checkout/' + uuid, '/api/orders/' + uuid + '/checkout-link', '/es-PE/orders/' + uuid, '/es-PE/orders/' + uuid + '.data']) {
       const transaction = new Transaction(agent);
       transaction.url = path;
       for (const key of ['request.uri', 'request.parameters.orderId', 'request.headers.referer', 'http.url', 'orderId']) {

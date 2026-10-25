@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { browserExpect, expect, prepareVerifiedCompany } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, storeUrl, subdomainOf } from "@core/tests/e2e/fixtures";
 import { orders } from "@core/src/features/orders/composition";
 import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -48,9 +48,10 @@ export async function sharedCheckoutPath(companyId: string, email: string) {
     const created = await orders.create({ id: orderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: tenant, userId });
     if (!created.success) throw new Error("Order fixture failed");
     await prisma.orderBuyer.create({ data: { orderId, contactId, name: "Ana", phone: "+51987654321" } });
+    await prisma.company.update({ where: { id: tenant }, data: { catalogSubdomain: subdomainOf(companyId) } });
     expect(await orders.enableCheckout(orderId, { companyId: tenant, userId })).toMatchObject({ success: true });
   });
-  return `/checkout/${companyId}/${orderId}`;
+  return storeUrl(subdomainOf(companyId), `/checkout/${orderId}`);
 }
 
 export async function removeCompanyAppearance(companyId: string) {

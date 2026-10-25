@@ -4,7 +4,9 @@ import { add, type Money } from "@shared/money";
 import type { PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 import type { BuyerPaymentView } from "@shared/contracts/orders";
 import { Button } from "@core/app/components/ui/button";
-import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
+import { Checkbox } from "@core/app/components/ui/checkbox";
+import { Field, FieldContent, FieldDescription, FieldError, FieldLabel } from "@core/app/components/ui/field";
+import { PhoneField, type PhoneFieldProps } from "@core/app/components/phone-field";
 import { Input } from "@core/app/components/ui/input";
 import type { CheckoutDeliveryDraft } from "@core/app/components/checkout-delivery-fields";
 import { formatCurrency } from "@core/app/format-currency";
@@ -84,11 +86,15 @@ export function CheckoutOrderSummary({ checkout, deliveryDraft, action }: Readon
   </>;
 }
 
+type PhoneControl = Omit<PhoneFieldProps, "id" | "invalid" | "describedBy">;
+
 /** The content of the review form; whoever renders it supplies the `<form>`. */
-export function CheckoutReviewFields({ message, name, nameError, phone, phoneError, delivery }: Readonly<{
+export function CheckoutReviewFields({ message, name, nameError, phone, phoneError, recipient, delivery }: Readonly<{
   message: string | null;
   name: ComponentProps<typeof Input>; nameError?: string;
-  phone: ComponentProps<typeof Input>; phoneError?: string;
+  phone: PhoneControl; phoneError?: string;
+  /** «Otra persona recibe el pedido»; leave it out when the delivery keeps the recipient it already has. */
+  recipient?: Readonly<{ other: boolean; onOtherChange: (other: boolean) => void; name: ComponentProps<typeof Input>; nameError?: string; phone: PhoneControl; phoneError?: string }>;
   /** The delivery fieldset (`<CheckoutDeliveryFields>`). */
   delivery: ReactNode;
 }>) {
@@ -97,7 +103,15 @@ export function CheckoutReviewFields({ message, name, nameError, phone, phoneErr
     {message && <p role="alert" data-store-part="status" className="rounded-[var(--radius-card)] border border-transparent bg-[var(--error-surface)] p-4 text-[var(--error)]">{message}</p>}
     <section aria-labelledby="buyer-title" data-store-part="card" className={checkoutCard}><h2 id="buyer-title" data-store-part="section-title" className={sectionTitle}>{t("checkoutSections.yourData")}</h2><div data-store-part="field-group" className="flex flex-col gap-4">
       <Field data-store-part="field" data-invalid={Boolean(nameError)}><FieldLabel htmlFor="buyer-name">{t("checkoutSections.name")}</FieldLabel><Input {...name} id="buyer-name" autoComplete="name" required aria-invalid={Boolean(nameError)} aria-describedby={nameError ? "name-error" : undefined} />{nameError && <FieldError id="name-error">{nameError}</FieldError>}</Field>
-      <Field data-store-part="field" data-invalid={Boolean(phoneError)}><FieldLabel htmlFor="buyer-phone">{t("checkoutSections.phone")}</FieldLabel><Input {...phone} id="buyer-phone" type="tel" autoComplete="tel" required aria-invalid={Boolean(phoneError)} aria-describedby="phone-hint phone-error" /><p id="phone-hint" className="text-sm text-muted-foreground">{t("checkoutSections.phoneHint")}</p>{phoneError && <FieldError id="phone-error">{phoneError}</FieldError>}</Field></div>
+      <Field data-store-part="field" data-invalid={Boolean(phoneError)}><FieldLabel htmlFor="buyer-phone">{t("checkoutSections.phone")}</FieldLabel><PhoneField {...phone} id="buyer-phone" required invalid={Boolean(phoneError)} describedBy={phoneError ? "phone-error" : undefined} />{phoneError && <FieldError id="phone-error">{phoneError}</FieldError>}</Field>
+      {recipient && <>
+        <Field data-store-part="field" orientation="horizontal"><Checkbox id="other-recipient" checked={recipient.other} aria-describedby="other-recipient-hint" onCheckedChange={checked => recipient.onOtherChange(checked === true)} />
+          <FieldContent><FieldLabel htmlFor="other-recipient">{t("checkoutRecipient.other")}</FieldLabel><FieldDescription id="other-recipient-hint">{t("checkoutRecipient.otherHint")}</FieldDescription></FieldContent></Field>
+        {recipient.other && <>
+          <Field data-store-part="field" data-invalid={Boolean(recipient.nameError)}><FieldLabel htmlFor="recipient-name">{t("checkoutRecipient.name")}</FieldLabel><Input {...recipient.name} id="recipient-name" autoComplete="off" required aria-invalid={Boolean(recipient.nameError)} aria-describedby={recipient.nameError ? "recipient-name-error" : undefined} />{recipient.nameError && <FieldError id="recipient-name-error">{recipient.nameError}</FieldError>}</Field>
+          <Field data-store-part="field" data-invalid={Boolean(recipient.phoneError)}><FieldLabel htmlFor="recipient-phone">{t("checkoutRecipient.phone")}</FieldLabel><PhoneField {...recipient.phone} id="recipient-phone" required invalid={Boolean(recipient.phoneError)} describedBy={recipient.phoneError ? "recipient-phone-error" : undefined} />{recipient.phoneError && <FieldError id="recipient-phone-error">{recipient.phoneError}</FieldError>}</Field>
+        </>}
+      </>}</div>
     </section>
     <div data-store-part="card" className={checkoutCard}>{delivery}</div>
   </>;
@@ -112,9 +126,19 @@ export function CheckoutConfirmAction({ form, type, disabled, pending }: Readonl
   </div>;
 }
 
-export function CheckoutBuyerDetails({ buyer }: Readonly<{ buyer: PublicCheckoutResponse["buyer"] }>) {
+/** Where the order goes, in one line: the delivery mode and its address. */
+function deliverySummary(delivery: NonNullable<PublicCheckoutResponse["delivery"]>, mode: string): string {
+  const where = delivery.method === "home" ? `${delivery.destination.address}, ${delivery.destination.district}`
+    : delivery.method === "store" ? delivery.pickupPoint.address : `${delivery.agency.name} · ${delivery.agency.address}`;
+  return `${mode} · ${where}`;
+}
+
+/** «Datos del comprador» in two lines: name and phone, then how and where the order is delivered. */
+export function CheckoutBuyerDetails({ buyer, delivery }: Readonly<{ buyer: PublicCheckoutResponse["buyer"]; delivery: PublicCheckoutResponse["delivery"] }>) {
   const { t } = useTranslation();
-  return buyer && <section data-store-part="card" className={checkoutCard}><h2 data-store-part="section-title" className={sectionTitle}>{t("checkoutSections.buyerDetails")}</h2><div><p className="font-medium">{buyer.name}</p><p className="text-muted-foreground tabular-nums">{buyer.phone}</p></div></section>;
+  return buyer && <section data-store-part="card" className={checkoutCard}><h2 data-store-part="section-title" className={sectionTitle}>{t("checkoutSections.buyerDetails")}</h2>
+    <div><p className="font-medium">{buyer.name} <span className="font-normal text-muted-foreground tabular-nums">· {buyer.phone}</span></p>
+      {delivery && <p className="text-muted-foreground">{deliverySummary(delivery, t(`checkoutDelivery.method.${delivery.method}`))}</p>}</div></section>;
 }
 
 export function CheckoutPayment({ view, notice }: Readonly<{ view: BuyerPaymentView; notice?: ReactNode }>) {

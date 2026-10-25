@@ -35,6 +35,20 @@ test("any /api path on a store host answers 404 without reaching auth or routers
   expect((await get("/api/me", "127.0.0.1")).status).toBe(401);
 });
 
+test("the buyer APIs pass the edge on a brand host and are gone from the app host", async () => {
+  const path = "/api/buyer/orders/00000000-0000-4000-8000-000000000002/payment";
+  for (const host of ["localhost:3000", "127.0.0.1", "a.b.localhost:3000"]) {
+    const response = await get(path, host);
+    expect(response.status).toBe(404);
+    expect(JSON.parse(response.body)).toEqual({ code: "NOT_FOUND", error: "Not found" });
+  }
+  // A held-by-nobody subdomain answers the same, and a company's own brand host reaches the buyer router (see the orders integration tests).
+  const unheld = await get(path, "no-existe-t4.localhost:3000");
+  expect(unheld.status).toBe(404);
+  expect(unheld.headers["referrer-policy"]).toBe("no-referrer");
+  expect((await get("/api/buyer/orders", "localhost:3000")).status).toBe(404);
+});
+
 test("robots.txt and scanner paths on a store host answer without a database query", async () => {
   const queries = [vi.spyOn(prisma, "$queryRaw"), vi.spyOn(systemPrisma, "$queryRaw"), vi.spyOn(prisma, "$transaction")];
   const robots = await get("/robots.txt", "fantasio.localhost:3000");

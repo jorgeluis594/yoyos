@@ -27,6 +27,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet";
 
 const salesTimeZone = "America/Lima";
+type CheckoutLabelled = Readonly<{ status: string; checkoutEnabledAt: string | null; checkoutConfirmedAt: string | null }>;
+/** Every order is enabled now, so «pending» only describes one still open: a completed order is never waiting for its buyer. */
+function checkoutLabel(item: CheckoutLabelled) {
+  if (!item.checkoutEnabledAt) return null;
+  if (item.status === "cancelled") return "orders.checkoutCancelled";
+  if (item.checkoutConfirmedAt) return "orders.checkoutConfirmed";
+  return item.status === "active" ? "orders.checkoutPending" : null;
+}
+
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const params = new URL(request.url).searchParams;
   const raw = Object.fromEntries(params);
@@ -66,7 +75,7 @@ export default function OrderList() {
         { kind: "payment", state: item.paymentStatus, label: item.paymentStatus === "paid" ? t("orders.listStatus.paid") : t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) }) },
         { kind: "delivery", state: item.deliveryStatus, label: `${t("orders.delivery")}: ${t(`orders.deliveryStatus.${item.deliveryStatus}`)}` },
       ] : [{ kind: "order", state: item.status, label: t(`orders.listStatus.${item.status}`) }]} />
-      {item.checkoutEnabledAt && <span className="text-xs font-normal text-muted-foreground">{t(item.status === "cancelled" ? "orders.checkoutCancelled" : item.checkoutConfirmedAt ? "orders.checkoutConfirmed" : "orders.checkoutPending")}</span>}
+      {checkoutLabel(item) && <span className="text-xs font-normal text-muted-foreground">{t(checkoutLabel(item)!)}</span>}
     </div> },
     { id: "customer", header: t("orders.customer"), mobile: "description", cell: (item) => <div className="flex flex-col gap-1">
       <TextLink asChild><Link to={`${base}/${item.id}`} className="inline-flex items-center gap-1.5">{item.source === "whatsapp" && <WhatsAppMark />}{orderBuyerText(item.buyer, t("orders.generalPublic"))}</Link></TextLink>

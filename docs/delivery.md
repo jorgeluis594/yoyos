@@ -73,12 +73,14 @@ Quoting a district returns one rate per applicable option of the enabled zones t
 - An agency option applies when agency delivery, its zone and the option are enabled and at least one associated agency is enabled, its catalog courier is enabled and the company courier is enabled. Agency rates list their eligible agencies.
 - A district without coverage returns an empty quotation, never an implicit zero-price rate.
 - Rates are immutable snapshots: changing coverage does not alter generated rates, and quoting neither changes `version` nor reserves a price.
+- `POST /api/quotations` serves two callers on different hosts: the seller (session or token, with no order) on the app host only, and the buyer (authorized by the order link, with `orderId`) on the brand host of the order's company only, where the [checkout](checkout.md#link-and-access) lives. Any other pairing, including an order of another company, answers `404 CHECKOUT_UNAVAILABLE`. Reason: the buyer quotes from the checkout's own origin, and a brand host never serves seller data.
 
 ## Assigning delivery to an order
 
 - The buyer (checkout) or the seller selects a rate by `rateId`; agency also requires `agencyId`. The courier is derived from the agency. There is no "agency pending" state: an agency delivery always has courier and agency.
 - Resolution runs under the delivery settings lock held until the order is written: the rate must belong to the company, method and district; the option must still apply; the agency must be associated with the option, enabled and with an enabled courier. Otherwise `RATE_UNAVAILABLE`, and the client re-quotes. If the option's current price differs, `TOTAL_CHANGED` with the current price. A settings version change unrelated to the option does not invalidate the rate.
-- Recipient name and phone are required; agency also requires an identity document (leading zeros preserved).
+- On web, the destination district is chosen by name with the location comboboxes (Departamento, Provincia, Distrito), the same control the checkout uses; the district code is never shown and is what the quotation receives ([Checkout · Delivery choice](checkout.md#delivery-choice)).
+- Recipient name and phone are required; agency also requires an identity document (leading zeros preserved). In the checkout the recipient is the buyer unless «Otra persona recibe el pedido» is checked ([Checkout · Buyer and recipient](checkout.md#buyer-and-recipient)); the stored shape is the same either way.
 - The order stores a **delivery snapshot**: pricing (`quotationId`, `rateId`, `optionId`, `settingsVersion`), the destination district with names copied from the catalog, and for agency the courier and agency (ID, name, address, location) copied at assignment. Store pickup stores the pickup point and settings version. Reason: later changes to settings or catalogs must not change existing orders.
 - The order records who set the delivery (`recordedBy`); another seller editing it replaces the author.
 - Delivery can be set or replaced while the order is pending dispatch; it is locked once the order is shipped, delivered or cancelled.

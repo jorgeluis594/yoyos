@@ -170,7 +170,7 @@ describe("the link", () => {
     await type(screen, "fantasio-store");
     fireEvent.press(screen.getByText("Guardar link"));
     expect(alert.mock.calls[0][0]).toBe("¿Cambiar el link de tu catálogo?");
-    expect(alert.mock.calls[0][1]).toBe("fantasio.yoyos.lat dejará de ser tuyo y otra tienda podrá usarlo. Si ya lo compartiste, tendrás que compartir el nuevo.");
+    expect(alert.mock.calls[0][1]).toBe("fantasio.yoyos.lat dejará de ser tuyo y otra tienda podrá usarlo. Los links de tu catálogo y de tus pedidos que ya compartiste dejarán de funcionar.");
     const buttons = alert.mock.calls[0][2] ?? [];
     expect(buttons.find(button => button.text === "Cambiar link")?.style).toBe("destructive");
     expect(buttons.find(button => button.text === "Mantener link actual")?.style).toBe("cancel");

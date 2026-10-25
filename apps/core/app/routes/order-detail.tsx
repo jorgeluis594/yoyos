@@ -1,30 +1,30 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
+import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { isOrderId } from "@core/src/features/orders/domain/order";
 import { readCancellationOrder, verifyCancellation, cancellationMessage, type CancelOrderActionError, type CancellationClientResult, type CancellationUiState } from "@core/src/features/orders/presentation/cancellation-client";
-import { cancelOrderResponseSchema, type CancelOrderResponse, type OrderAggregateResponse } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, type CancelOrderResponse } from "@shared/contracts/orders";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { useState } from "react";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
-import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Truck } from "lucide-react";
+import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Badge } from "@core/app/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@core/app/components/ui/table";
+import { OrderLinkCard, orderLinkState, type OrderLink } from "@core/app/components/order-link-card";
+import { catalogPublicationAnchor } from "@core/app/components/store-appearance-editor-actions";
 import { TextLink } from "@core/app/components/ui/text-link";
 import { z } from "zod";
-import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
-import { Input } from "@core/app/components/ui/input";
-import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { useTranslation } from "react-i18next";
 import { randomUUID } from "node:crypto";
 import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
-import { Form, useActionData, data, isRouteErrorResponse, Link, useFetcher, useFetchers, useNavigation, useLoaderData, type ClientActionFunctionArgs, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { Form, useActionData, data, isRouteErrorResponse, Link, useFetchers, useNavigation, useLoaderData, type ClientActionFunctionArgs, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettings, toDeliverySettingsResponse } from "@core/src/features/delivery-settings";
 import { RatedDeliveryForm } from "@core/src/features/orders/presentation/rated-delivery-form";
@@ -52,10 +52,22 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
     if (image.success && image.data) receiptUrls[payment.id] = image.data.url;
   }
   const settings = await deliverySettings.get({ companyId: access.company.id, userId: access.user.id });
-  return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(result.data), base: companyPath(new URL(request.url).pathname, access.company.country, "/orders"),
+  const pathname = new URL(request.url).pathname;
+  return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(result.data), base: companyPath(pathname, access.company.country, "/orders"),
     manualPaymentId: randomUUID(), receiptUrls }),
     settings: settings.success ? toDeliverySettingsResponse(settings.data) : null,
-    settingsPath: companyPath(new URL(request.url).pathname, access.company.country, "/settings/delivery") };
+    settingsPath: companyPath(pathname, access.company.country, "/settings/delivery"),
+    link: await orderLink(result.data, access.company.id, `${companyPath(pathname, access.company.country, "/settings/store-appearance")}#${catalogPublicationAnchor}`) };
+}
+
+/** The link is built here from the company's current subdomain, so the page needs no request of its own to show it. A cancelled order has none. */
+async function orderLink(order: OrderAggregate, companyId: CompanyId, appearancePath: string): Promise<OrderLink> {
+  if (order.cancelled || !order.checkoutEnabledAt) return { kind: "unavailable" };
+  const url = await orders.checkoutUrl(companyId, order.id);
+  if (url.success) return { kind: "ready", url: url.data };
+  if (url.error.code === "SUBDOMAIN_REQUIRED") return { kind: "subdomain_required", appearancePath };
+  log.error({ event: "order_checkout_link_unavailable", companyId, orderNumber: order.number, errorCode: url.error.code }, "Unable to build the order link");
+  return { kind: "unavailable" };
 }
 
 async function deliveryAction({ params, request, context }: ActionFunctionArgs) {
@@ -112,11 +124,6 @@ export async function clientAction({ request, params, serverAction }: ClientActi
   return { operation: "cancellation", orderId: id, outcome: { kind: "failed", error: result.error } } satisfies CancellationClientResult;
 }
 
-type BuyerLink = Readonly<{ href: string; label: "orders.buyerPaymentLink" }>;
-export function buyerLink(order: Pick<OrderAggregateResponse, "id" | "companyId" | "cancelled" | "checkoutEnabledAt">): BuyerLink | null {
-  return !order.checkoutEnabledAt || order.cancelled ? null : { href: `/checkout/${order.companyId}/${order.id}`, label: "orders.buyerPaymentLink" };
-}
-
 export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { actionResult: unknown; defaultShouldRevalidate: boolean }) {
   // Cancellation already reads the detail once; retain confirmed/uncertain evidence if that read fails.
   return actionResult && typeof actionResult === "object" && "operation" in actionResult && actionResult.operation === "cancellation"
@@ -170,21 +177,13 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
       paymentId: parsed.data.paymentId as PaymentId }, seller);
     return result.success ? { url: null, success: true, error: false } : { url: null, success: false, error: result.error.code };
   }
-  bindRequestOperation({ operation: "enable_checkout" });
-  try {
-    const result = await orders.enableCheckout(id.data as OrderId, { companyId: access.company.id, userId: access.user.id });
-    if (!result.success) return data({ url: null, success: false, error: true }, { status: result.error.code === "ORDER_CANCELLED" ? 409 : result.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 503, headers: headers() });
-    return data({ url: checkoutLinkSchema.parse(result.data).url, success: false, error: false }, { headers: headers() });
-  } catch (cause) {
-    bindRequestOperation({ outcome: "technical_failure" });
-    log.error({ event: "order_api_operation_failed", err: cause }, "Unable to enable checkout");
-    return data({ url: null, success: false, error: true }, { status: 503, headers: headers() });
-  }
+  bindRequestOperation({ outcome: "invalid_input" });
+  return data({ url: null, success: false, error: true }, { status: 422, headers: headers() });
 }
 
 export default function OrderDetail() {
   const { t, i18n } = useTranslation();
-  const { order: loadedOrder, base, manualPaymentId, receiptUrls, settings, settingsPath } = useLoaderData<typeof loader>();
+  const { order: loadedOrder, base, manualPaymentId, receiptUrls, settings, settingsPath, link } = useLoaderData<typeof loader>();
   const rawAction = useActionData<typeof clientAction>();
   const [cancellationSource, setCancellationSource] = useState({ action: rawAction, order: loadedOrder });
   if (cancellationSource.action !== rawAction) {
@@ -199,9 +198,6 @@ export default function OrderDetail() {
   const navigation = useNavigation();
   const editable = !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
   const [editingDelivery, setEditingDelivery] = useState(false);
-  const link = buyerLink(order);
-  const checkout = useFetcher<typeof action>();
-  const checkoutData = checkout.data && !("result" in checkout.data) ? checkout.data : undefined;
   const cancellationState: CancellationUiState = navigation.state !== "idle" && navigation.formData?.get("operation") === "cancel"
     ? { kind: "submitting", orderId: order.id }
     : navigation.state !== "idle" && navigation.formData?.get("operation") === "check-cancellation" ? { kind: "verifying", orderId: order.id }
@@ -212,12 +208,6 @@ export default function OrderDetail() {
   const needsCheck = cancellationState.kind === "uncertain" || (cancellation?.outcome.kind === "failed" && cancellation.outcome.refreshFailed);
   const blocked = busy || !!needsCheck;
   const [cancelOpen, setCancelOpen] = useState(false);
-  const [copyMessage, setCopyMessage] = useState<"copied" | "copyManually" | null>(null);
-  async function copyLink() {
-    if (!checkoutData?.url) return;
-    try { await navigator.clipboard.writeText(checkoutData.url); setCopyMessage("copied"); }
-    catch { setCopyMessage("copyManually"); }
-  }
   const amount = (money: typeof order.total) => formatCurrency(money.amount, money.currency, i18n.language);
   const date = (value: string) => new Date(value).toLocaleString(i18n.language === "pt" ? "pt-BR" : "es-PE", { timeZone: "America/Lima" });
   return <section className="flex min-w-0 flex-col gap-6" aria-labelledby="order-title">
@@ -302,16 +292,6 @@ export default function OrderDetail() {
             {!order.cancelled && order.balanceDue.amount > 0 && <section className="flex flex-col gap-3 border-t pt-4"><h3 className="text-sm font-semibold">{t("orders.manualPayment")}</h3><PaymentForm paymentId={manualPaymentId} source="manual" currency={order.total.currency} balance={order.balanceDue.amount} /></section>}
           </CardContent>
         </Card>
-
-        <Card role="region" aria-labelledby="checkout-title" className="min-w-0 max-xl:order-5">
-          <CardHeader className="flex-row flex-wrap items-center justify-between gap-3"><CardTitle id="checkout-title">{t("orders.checkout")}</CardTitle>{!order.cancelled && <checkout.Form method="post"><Button type="submit" variant="outline" disabled={checkout.state !== "idle"}>{t("orders.getCheckoutLink")}</Button></checkout.Form>}</CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="text-sm text-muted-foreground">{t(order.cancelled ? "orders.checkoutCancelled" : order.checkoutConfirmedAt ? "orders.checkoutConfirmed" : order.checkoutEnabledAt ? "orders.checkoutPending" : "orders.checkoutDisabled")}</p>
-            {checkoutData?.error && <Alert variant="destructive"><AlertDescription>{t("orders.checkoutLinkError")}</AlertDescription></Alert>}
-            {!order.cancelled && checkoutData?.url && <><Field><FieldLabel htmlFor="checkout-link">{t("orders.checkoutLink")}</FieldLabel><Input id="checkout-link" readOnly value={checkoutData.url} onFocus={event => event.target.select()} /></Field><Button type="button" variant="outline" className="self-start" onClick={copyLink}>{t("orders.copyCheckoutLink")}</Button>{copyMessage && <p role="status" className="text-sm">{t(`orders.${copyMessage}`)}</p>}</>}
-            {link && <TextLink href={link.href} target="_blank" rel="noreferrer" className="flex min-h-control items-center justify-between gap-3 border-t pt-3 text-sm font-normal no-underline hover:underline max-md:min-h-touch">{t(link.label)}<ExternalLink className="size-icon-inline shrink-0" aria-hidden="true" /></TextLink>}
-          </CardContent>
-        </Card>
       </div>
 
       <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
@@ -319,6 +299,8 @@ export default function OrderDetail() {
           <CardHeader><CardTitle id="order-customer-title">{t("orders.customer")}</CardTitle></CardHeader>
           <CardContent className="flex flex-col gap-2"><p className="flex items-center gap-1.5 break-words font-medium">{order.source === "whatsapp" && <WhatsAppMark />}{orderBuyerText(order.buyer, t("orders.generalPublic"))}</p>{order.buyer?.phone && <dl className="text-sm"><dt className="text-muted-foreground">{t("orders.phoneAtSale")}</dt><dd className="mt-1 break-words">{order.buyer.phone}</dd></dl>}</CardContent>
         </Card>
+
+        <OrderLinkCard state={orderLinkState(order)} link={link} />
 
         <Card role="region" aria-labelledby="order-delivery-title" className="min-w-0 max-xl:order-4">
           <CardHeader className="flex-row flex-wrap items-center justify-between gap-3"><CardTitle id="order-delivery-title">{t("orders.delivery")}</CardTitle>{editable && settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) && <Button type="button" aria-expanded={editingDelivery} aria-controls="delivery-editor" onClick={() => setEditingDelivery(!editingDelivery)}>{t(editingDelivery ? "orderDetail.closeEditor" : order.delivery ? "orderDetail.editDelivery" : "orderDelivery.assign")}</Button>}</CardHeader>

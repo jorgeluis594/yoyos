@@ -12,7 +12,7 @@ export default [
   route("account-verified", "routes/account-verified.tsx"),
   route("forgot-password", "routes/forgot-password.tsx"),
   route("reset-password", "routes/reset-password.tsx"),
-  route("checkout/:companyId/:orderId", "routes/checkout.tsx"),
+  route("checkout/:orderId", "routes/checkout.tsx"),
   route("checkout/*", "routes/checkout.tsx", { id: "unavailable-checkout" }),
   route("catalogo/:companyId", "routes/legacy-catalog-redirect.ts"),
   route("catalogo/:companyId/productos/:productId", "routes/legacy-catalog-redirect.ts", { id: "legacy-catalog-product-redirect" }),

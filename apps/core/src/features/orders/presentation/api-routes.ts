@@ -272,6 +272,7 @@ orderRoutes.post("/:orderId/checkout-link", async (request, response: Response<u
     if (!result.success) {
       if (result.error.code === "CHECKOUT_UNAVAILABLE") return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
       if (result.error.code === "ORDER_CANCELLED") return apiError(response, 409, "ORDER_CANCELLED", "Order is cancelled");
+      if (result.error.code === "SUBDOMAIN_REQUIRED") return apiError(response, 409, "SUBDOMAIN_REQUIRED", "Choose the catalog link to share this order");
       return apiError(response, 503, "SERVICE_UNAVAILABLE", "Checkout is unavailable");
     }
     return response.json(checkoutLinkSchema.parse(result.data));

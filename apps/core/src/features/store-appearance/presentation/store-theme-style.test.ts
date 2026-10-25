@@ -182,7 +182,7 @@ describe("store-theme.css", () => {
     const parts = new Set([...stylesheet.matchAll(/data-store-part="([a-z-]+)"/g)].map((match) => match[1]));
     expect([...parts].sort()).toEqual(["card", "cart-button", "cart-line", "cart-sheet", "catalog-card", "catalog-card-photo", "catalog-empty", "catalog-more", "catalog-notice",
       "catalog-product-photo", "catalog-quantity", "catalog-search", "catalog-sold-out", "field", "field-group", "free", "header", "header-brand", "option", "option-cost",
-      "option-group", "order-title", "payment-image", "payment-method", "price", "product-meta", "product-name", "product-row", "section-title", "status", "total",
+      "option-group", "order-title", "payment-details", "payment-image", "payment-method", "price", "product-meta", "product-name", "product-row", "section-title", "status", "total",
       "total-amount", "total-label"]);
   });
 
