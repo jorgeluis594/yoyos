@@ -168,14 +168,14 @@ test("delivery API validates the complete authored snapshot and updated aggregat
 
 test("checkout link adapter validates IDs, responses and operation-specific failures", async () => {
   const calls: string[] = [];
-  const url = `https://shop.example/checkout/${id(2)}/${id(1)}`;
+  const url = `https://shop.example/checkout/${id(2)}`;
   const api = createOrderApi(async (path) => { calls.push(path); return ok({ url }); });
   expect(await api.enableCheckout("1001")).toMatchObject({ error: { code: "INVALID_INPUT" } });
   expect(calls).toEqual([]);
   expect(await api.enableCheckout(id(1))).toEqual(ok({ url }));
   expect(calls).toEqual([`/api/orders/${id(1)}/checkout-link`]);
   expect(await createOrderApi(async () => ok({ url: "bad" })).enableCheckout(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
-  for (const [code, status] of [["ORDER_CANCELLED", 409], ["ORDER_NOT_FOUND", 404], ["INVALID_INPUT", 422]] as const) {
+  for (const [code, status] of [["ORDER_CANCELLED", 409], ["SUBDOMAIN_REQUIRED", 409], ["ORDER_NOT_FOUND", 404], ["INVALID_INPUT", 422]] as const) {
     const failed = createOrderApi(async () => err({ code: "API_ERROR", message: "failure", http: { status, body: { code, error: "Rejected" } } }));
     expect(await failed.enableCheckout(id(1))).toMatchObject({ error: { code } });
   }
@@ -311,4 +311,21 @@ test("order API reads the effective dispatch sender and rejects malformed or fai
   expect(await createOrderApi(async () => ok({ effective: { name: "" } })).getDispatchSender()).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
   const down: TransportError = { code: "NETWORK_ERROR", message: "offline" };
   expect(await createOrderApi(async () => err(down)).getDispatchSender()).toMatchObject({ success: false, error: { code: "NETWORK_ERROR" } });
+});
+
+test("rejectPayment posts the reason and parses the order aggregate", async () => {
+  const calls: [string, RequestInit | undefined][] = [];
+  const order = { unexpected: true };
+  const api = createOrderApi(async (path, init) => { calls.push([path, init]); return ok(order); });
+  expect(await api.rejectPayment(id(1), id(2), "El monto no coincide")).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  expect(calls[0][0]).toBe(`/api/orders/${id(1)}/payments/${id(2)}/reject`);
+  expect(calls[0][1]?.method).toBe("POST");
+  expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ reason: "El monto no coincide" });
+  await api.rejectPayment(id(1), id(2), null);
+  expect(JSON.parse(String(calls[1][1]?.body))).toEqual({ reason: null });
+  expect(await api.rejectPayment("bad", id(2), null)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(calls).toHaveLength(2);
+  const conflict = createOrderApi(async () => err({ code: "API_ERROR", message: "Conflict",
+    http: { status: 409, body: { code: "PAYMENT_CONFLICT", error: "Reviewed" } } }));
+  expect(await conflict.rejectPayment(id(1), id(2), null)).toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
 });

@@ -48,12 +48,52 @@ An order has three independent dimensions plus a derived status:
 | Status | `active`, `cancelled`, `completed` | `completed` when delivered and paid; otherwise `active` unless cancelled. |
 
 - An order is created `active`, unpaid, undelivered, without deducted stock and without reserving stock. Reason: creating an order is a record of intent; stock moves only when it is paid.
-- Registering a payment deducts stock when payments cover the total, or when the seller asks for it on a partial payment (`deductStockIfPartial`). Deduction is conditional on available units and all variants are processed in a stable order inside the payment transaction; a shortage returns `INSUFFICIENT_STOCK` and rolls everything back.
+- Registering a payment deducts stock when payments cover the total, or when the seller asks for it on a partial payment (`deductStockIfPartial`; see [Payments](#payments) for when clients offer it). Deduction is conditional on available units and all variants are processed in a stable order inside the payment transaction; a shortage returns `INSUFFICIENT_STOCK` and rolls everything back.
 - Voiding a confirmed payment can return the order from `completed` to `active`.
 - Delivery details (home, agency or store pickup) can change only while delivery is `pending`; afterwards they return `DELIVERY_LOCKED`.
 - A dispatch date can be scheduled only while delivery is `pending`.
 - Cancelling is allowed only while delivery is `pending`. Cancelling publishes `order_cancelled`, whose handler restores deducted stock.
 - Payment is recorded in Yoyos; no external charge is processed. Because orders never reserve stock, a sale can be rejected for stock after the seller already received money outside the app; the database transaction cannot undo that.
+
+## Payments
+
+A payment is either a buyer report («Ya pagué» with a receipt, from the [checkout](checkout.md#payment)) or a payment recorded by the seller. Each one is a variant of `Payment` stored in the same row; the variant data and its transitions live in `orders/domain/payment.ts`.
+
+| State | Meaning | Reached by | Counts toward the balance |
+| --- | --- | --- | --- |
+| `reported` | The buyer says they paid; carries only a receipt | Buyer report | No |
+| `confirmed` | Verified by the seller, with amount and method | Approving a report, or a manual payment | Yes |
+| `rejected` | The seller did not accept the receipt | Rejecting a report | No |
+| `voided` | A confirmed payment recorded by mistake | Voiding | No |
+
+Transitions: `reported → confirmed`, `reported → rejected`, `confirmed → voided`. `rejected` and `voided` are final; existing records keep their state.
+
+- **Who sets the amount:** the buyer does not declare amount or method. Approving turns the report into a confirmed payment with the same receipt and the amount and method the seller typed. Reason: only the seller knows what arrived.
+- **Approve** applies the stock rule of [Lifecycle](#lifecycle); `INSUFFICIENT_STOCK` records nothing and the report stays pending.
+- **Reject** applies only to a pending report. It keeps the receipt, report date, who rejected it, when, and an optional reason (trimmed, empty means none, at most 200 characters) that the buyer sees. It changes neither the received amount, the balance, stock nor completion. Reason: a wrong receipt must not stay pending forever nor block the buyer. Rejected is final: a mistaken rejection is solved by the buyer sending the receipt again, which creates a new report; the rejected one stays in the history.
+- **Repeated decisions:** repeating the same decision on the same payment returns the first result and writes nothing. Approving again with the same amount and method returns that confirmation, even with a different `deductStockIfPartial`; rejecting again returns the original rejection and reason, whatever reason the retry carries; a buyer report resent with the id and receipt of a rejected payment returns the rejection. A different decision is refused: approving a rejected payment, rejecting a confirmed or voided one, or approving with another amount or method answers `409 PAYMENT_CONFLICT`; voiding a rejected or reported payment answers `409 INVALID_TRANSITION`. Clients show both codes as «Este pago ya fue revisado.» and reload. Reason: a retry after an uncertain response must never create a second payment or overwrite a decision.
+- **Concurrency:** approve, reject and void lock the order row and update the payment only if its stored status is still the expected one, so decisions from two tabs or web and mobile are serialized.
+- **Cancelled order:** reports cannot be approved or rejected (`409 ORDER_CANCELLED`) and no manual payment is recorded; a pending report stays visible, read-only.
+- **Several reports:** each report is decided on its own. The checkout lets the buyer have one pending report at a time, as a display rule; core does not refuse a second report.
+- **Partial stock choice:** clients offer «Descontar stock aunque sea abono parcial» only when stock is not yet deducted and the typed amount is below the pending balance (`offersPartialStockDeduction` in `shared/orders-payment.ts`, used by web and mobile); a hidden box sends `deductStockIfPartial: false`. Reason: when the amount covers the balance stock is deducted anyway, so the box only adds noise. It compares with the balance, not the total, so earlier payments count.
+- Only the seller of the order's company can approve, reject, record or void; an order of another company answers as missing.
+
+### Web «Pagos» card
+
+- Three cells: Total (with «Incluye entrega» when there is a delivery charge), Recibido and Pendiente, which adds «Pago por revisar» while a report is pending and the order is not cancelled. The overpayment notice stays.
+- «Historial de pagos», newest first, one row per payment. Reported: receipt thumbnail, «Pago reportado, pendiente de revisión», report date, «Ver captura», **Rechazar** and **Aprobar**, with no amount or method because the buyer does not declare them. Confirmed: amount and method, «Pago confirmado», «Ver captura» when it came from a report, **Anular pago**. Rejected: «Pago rechazado», date, reason and «Ver captura», no actions. Voided: «Pago anulado», no actions.
+- The manual payment is a separate secondary action at the end, «¿Te pagaron por fuera? Registrar pago», shown only while the order is not cancelled and Pendiente is above zero; it opens its own form. A report can still be approved with a zero balance. Reason: one form per decision, so the seller never confuses a report with a manual payment.
+- **Aprobar** from the row opens a short dialog with «Importe recibido» prefilled with the balance, «Medio de pago» and the partial stock box under the rule above. **Rechazar** asks «¿Rechazar este comprobante?» with «Motivo (opcional, lo verá el comprador)».
+- The thumbnail and «Ver captura» open «Comprobante de pago», a dialog with the receipt fitted to the screen instead of a new tab. For a pending report it shows the pending balance, **Rechazar** and **Aprobar**; each turns the dialog's decision area into its form while the receipt stays visible (on a phone, a reduced copy stays fixed above the fields). Errors show inside the dialog; after a decision it closes, «Pago actualizado.» shows in the card and focus goes to the decided row. Closing without deciding records nothing. Reason: the seller decides with the evidence in view and without losing the order.
+- In a cancelled order the rows are read-only and «Pago por revisar» is not shown; **Anular pago** stays available on the web.
+- Thumbnails, «Ver captura» and the row actions have accessible names that include the row's date and time, so several rows never share a name.
+
+### Mobile
+
+- The order detail keeps its layout: «Registrar pago», «Ver pagos», and **Revisar comprobante** on each report, which opens the review sheet; the receipt opens outside the app.
+- The review sheet approves with «Confirmar pago» and adds **Rechazar** with the same optional reason, inside the same sheet. The partial stock box follows the same rule in the review and register sheets.
+- Rejected payments show «Pago rechazado» with date, reason and «Ver captura», never as confirmed. The summary shows «Pago por revisar» under «Saldo pendiente» while a report is pending and the order is not cancelled.
+- Voiding is not offered in a cancelled order on mobile, unlike the web.
 
 ## Creating an order
 
@@ -67,6 +107,8 @@ An order has three independent dimensions plus a derived status:
 Company, seller, prices, totals, statuses and dates come from core; extra fields are rejected. Creation, delivery, payments, stock deduction and delivery confirmation run in one transaction: all succeed or none persist. Reason: a half-created sale (for example, paid but without stock deducted) would leave inventory and cash out of sync. The use case is `createCompleteOrder` (`application/create-complete-order.ts`); it reuses the public order operations inside the same transaction instead of a separate implementation.
 
 The endpoint also accepts the fixed body `payment: { method: "digital_wallet" }` with `delivery: { method: "handover" }`, which registers an immediate sale paid in full and delivered by hand (`registerImmediateSale`). `POST /api/orders/pending` and `POST /api/orders/immediate-sale` remain for clients that still call them.
+
+Every order, from any source, is created with its buyer checkout enabled, so its link exists from the start ([Checkout · Link and access](checkout.md#link-and-access)).
 
 Every successful creation returns `201` with `orderAggregateSchema`.
 
@@ -101,9 +143,10 @@ All under `/api/orders`, authenticated, scoped to the session company and sent w
 | Read one order | `GET /:id/aggregate` |
 | Search sellable products | `GET /catalog` |
 | Register / void a payment | `POST /:id/payments`, `POST /:id/payments/:paymentId/void` |
+| Reject a buyer report (body `{ reason: string \| null }`) | `POST /:id/payments/:paymentId/reject` |
 | Set delivery / update shipping and dispatch date | `PUT /:id/delivery`, `PATCH /:id/shipping` |
 | Deduct stock, ship, deliver, cancel | `POST /:id/deduct-stock`, `/ship`, `/deliver`, `/cancel` |
-| Enable the buyer checkout link | `POST /:orderId/checkout-link` |
+| Read the buyer checkout link (idempotent, used by mobile; `409 SUBDOMAIN_REQUIRED` or `409 ORDER_CANCELLED`) | `POST /:orderId/checkout-link` |
 
 `GET /` and `GET /:id` serve the older completed-sales contract (`orderSchema`, `listOrdersResponseSchema`).
 

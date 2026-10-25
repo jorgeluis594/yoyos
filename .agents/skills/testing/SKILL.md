@@ -36,3 +36,5 @@ Run from the repository root. Scripts print `Todo OK` on success and failure dia
 | Mobile | `pnpm --silent --dir apps/mobile test` | None |
 
 All scripts delegate to `apps/core/scripts/run-tests.sh`; pass extra arguments to focus on specific files, for example `pnpm --silent --dir apps/core test:unit src/features/orders`.
+
+Mutation testing with Stryker runs only on demand, never in CI or `scripts/ci.sh`, because it reruns the unit suite once per mutant. It mutates `domain/` and `application/` of every feature and uses only unit tests (core Vitest `unit` project, mobile Jest). Focus a run with `--mutate`, for example `pnpm --dir apps/core test:mutation --mutate "src/features/orders/domain/**/*.ts"`; the HTML report is in `reports/mutation/index.html` and later runs reuse `reports/stryker-incremental.json` to retest only changed code. A whole-app run takes a long time.

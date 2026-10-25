@@ -21,7 +21,7 @@ import { deliverySettingsRoutes } from "@core/src/features/delivery-settings/pre
 import { quotationRoutes } from "@core/src/features/delivery-settings/presentation/quotation-routes";
 import { storeAppearanceRoutes } from "@core/src/features/store-appearance/presentation/api-routes";
 import { catalogRoutes } from "@core/src/features/catalog/presentation/api-routes";
-import { brandHostEdge } from "@core/src/features/catalog/presentation/brand-host-edge";
+import { brandHostBuyerOwner, brandHostEdge } from "@core/src/features/catalog/presentation/brand-host-edge";
 import { buyerPaymentRoutes } from "@core/src/features/orders/presentation/buyer-payment-routes";
 import { log, requestLogging } from "@core/src/shared/infrastructure/logger";
 
@@ -62,8 +62,8 @@ app.use("/api/orders", express.json({ limit: "100kb", verify: (_request, _respon
 } }));
 app.post("/api/messages", mobileMessageParser);
 app.use("/api", express.json({ limit: "100kb" }));
-app.use("/api/buyer/orders", buyerPaymentRoutes(images));
-app.use("/api/quotations", quotationRoutes);
+app.use("/api/buyer/orders", brandHostBuyerOwner, buyerPaymentRoutes(images));
+app.use("/api/quotations", brandHostBuyerOwner, quotationRoutes);
 app.use("/api", loadApiAccess);
 
 app.get("/api/me", (_request, response: Response<unknown, AuthenticatedLocals>) => {

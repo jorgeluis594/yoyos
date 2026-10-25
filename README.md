@@ -131,6 +131,7 @@ Set up, in order:
    - Right after, check that the Let's Encrypt renewal path of `app.yoyos.lat` still reaches the origin over HTTP: `curl -sSI http://app.yoyos.lat/.well-known/acme-challenge/x` must answer 404 with no `location`. A redirect to `https://` would make the app host's certificate fail to renew weeks later (a 526 on the whole app). In that case turn **Always Use HTTPS** off (the origin HTTP router still redirects brand hosts) and keep Full.
    - SSL/TLS → Overview: keep **Full**. Do not switch to Full (strict) without an origin certificate for `*.yoyos.lat` in Traefik.
    - The redirect rules for the apex (`yoyos.lat` → `app.yoyos.lat` for core paths) and for `www` must match exact hostnames (`http.host eq "yoyos.lat"`), not the wildcard.
+   - The apex rule does not include `/checkout`: the checkout lives only on brand hosts, so `https://yoyos.lat/checkout/...` is not redirected to `app.yoyos.lat`, which no longer serves it.
    - Rollback: **Always Use HTTPS** off takes effect within seconds and needs no deploy.
 5. **Verify.** Until a catalog is published, any free name must answer «Catálogo no disponible».
 
@@ -141,10 +142,16 @@ Set up, in order:
    curl -sS https://no-existe.yoyos.lat/ | grep -c 'Catálogo no disponible'                       # 1
    curl -sSI https://<published>.yoyos.lat/ | grep -iE '^(HTTP|referrer-policy)'                 # 200, no-referrer
    curl -sS https://<published>.yoyos.lat/ | grep -c 'noindex'                                   # 1
-   curl -sS -o /dev/null -w '%{http_code}\n' https://<published>.yoyos.lat/api/me                # 404
+   curl -sS -o /dev/null -w '%{http_code}\n' https://<published>.yoyos.lat/api/me                # 404 (seller API; only /api/buyer/orders/... and the buyer-mode POST /api/quotations pass, for the checkout)
+   curl -sS -o /dev/null -w '%{http_code}\n' https://no-existe.yoyos.lat/checkout/<order id>   # 404, same «Catálogo no disponible» as /
+   curl -sSI https://<published>.yoyos.lat/checkout/<order id> | grep -iE '^(HTTP|referrer-policy|cache-control)'   # 200, no-referrer, no-store
+   curl -sS -o /dev/null -w '%{http_code}\n' https://<published>.yoyos.lat/api/buyer/orders/<order id>/payment   # 200 or 409 for an order of that store, 404 for another company's order
+   curl -sS -o /dev/null -w '%{http_code}\n' -H 'Content-Type: application/json' -d '{"orderId":"<order id>","destination":{"country":"PE","districtCode":"150122"}}' https://<published>.yoyos.lat/api/quotations   # 201 for an order of that store, 404 for another company's order
+   curl -sS -o /dev/null -w '%{http_code}\n' https://app.yoyos.lat/checkout/<order id>             # 404: the app host no longer serves the checkout
    curl -sS https://<published>.yoyos.lat/robots.txt                                             # Disallow: /
    curl -sSI https://app.yoyos.lat/catalogo/<company id> | grep -iE '^(HTTP|location|cache-control)'  # 308 to the brand host, no-store
    curl -sSI https://yoyos.lat/ | head -1                                                         # landing unchanged
+   curl -sSI https://yoyos.lat/checkout/<order id> | grep -i '^location'                         # nothing: the apex does not redirect the checkout
    curl -sSI https://www.yoyos.lat/ | grep -i '^location'                                         # still to the apex
    # Origin answers brand hosts over HTTPS (default certificate, so skip verification):
    curl -sSk --resolve fantasio.yoyos.lat:443:<server ip> -o /dev/null -w '%{http_code}\n' https://fantasio.yoyos.lat/   # 404 or 200

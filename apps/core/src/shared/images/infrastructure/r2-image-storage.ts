@@ -58,14 +58,16 @@ export function createR2ImageStorage(config: Config): ImageStorage {
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Image upload failed");
       }
     },
-    async read(key) {
+    async read(key, options) {
       if (!client) return configurationFailed("Image storage is not configured");
       try {
-        const object = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }));
+        const object = await client.send(new GetObjectCommand({ Bucket: config.bucket, Key: key }), options ? { abortSignal: options.signal } : undefined);
         if (!object.Body) return failed("IMAGE_STORAGE_UNAVAILABLE", "Image is unavailable");
         return { success: true, data: { bytes: await object.Body.transformToByteArray(), contentType: object.ContentType ?? "application/octet-stream" } };
       } catch (error) {
         if (error instanceof NoSuchKey) return failed("IMAGE_NOT_FOUND", "Image object not found");
+        // An aborted read is the caller's deadline; the caller logs it as a warning.
+        if (options?.signal.aborted) return failed("IMAGE_STORAGE_UNAVAILABLE", "Image is unavailable");
         log.error({ event: "r2_image_read_failed", err: error, ...providerFailure(error) }, "r2_image_read_failed");
         return failed("IMAGE_STORAGE_UNAVAILABLE", "Image is unavailable");
       }

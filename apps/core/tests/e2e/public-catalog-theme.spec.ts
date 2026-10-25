@@ -63,7 +63,7 @@ test("seller saves Noche in Apariencia de la tienda and the buyer sees the catal
     await browserExpect(cart).toHaveCSS("background-color", rgb(storeThemes.noche.colors.background));
     await cart.getByRole("button", { name: "Continuar" }).click();
 
-    await buyer.waitForURL(new RegExp(`/checkout/${companyId}/`));
+    await buyer.waitForURL(new RegExp(`/checkout/[0-9a-f-]{36}$`));
     await expectTheme(buyer, "noche");
   } finally {
     await context.close();

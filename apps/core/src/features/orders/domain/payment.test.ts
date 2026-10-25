@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { confirmPayment, parsePayment, reportPayment, voidPayment, type ImageId } from "@core/src/features/orders/domain/payment";
+import { confirmPayment, parsePayment, parseRejectionReason, rejectPayment, reportPayment, voidPayment, type ImageId, type RejectionReason } from "@core/src/features/orders/domain/payment";
 import type { OrderId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -64,4 +64,68 @@ test("rejects malformed state combinations, dates and monetary precision", () =>
     .toMatchObject({ success: false, error: { code: "INVALID_PAYMENT" } });
   expect(confirmPayment({ ...input, source: "manual", amount: { amount: 0, currency: "PEN" } }, null))
     .toMatchObject({ success: false, error: { code: "INVALID_PAYMENT" } });
+});
+
+const rejection = { rejectedBy: seller, rejectedAt: new Date("2026-10-05T12:00:00Z"), reason: null };
+const reported = () => {
+  const result = reportPayment({ id: paymentId, orderId, currency: "PEN", receiptImageId: imageId, reportedAt }, null);
+  if (!result.success) throw new Error("Expected report");
+  return result.data;
+};
+const rejected = () => {
+  const result = rejectPayment(reported(), rejection);
+  if (!result.success) throw new Error("Expected rejection");
+  return result.data;
+};
+
+test("rejects a reported payment keeping its receipt and an optional trimmed reason", () => {
+  const reason = parseRejectionReason("  El monto no coincide  ");
+  expect(reason).toEqual({ success: true, data: "El monto no coincide" });
+  if (!reason.success) return;
+  expect(rejectPayment(reported(), { ...rejection, reason: reason.data })).toEqual({ success: true, data: {
+    id: paymentId, orderId, status: "rejected", currency: "PEN", amount: null, method: null,
+    data: { report: { receiptImageId: imageId, reportedAt }, rejectedAt: rejection.rejectedAt, rejectedBy: seller, reason: "El monto no coincide" } } });
+});
+
+test("treats an empty rejection reason as no reason", () => {
+  expect(parseRejectionReason("   ")).toEqual({ success: true, data: null });
+  expect(parseRejectionReason(null)).toEqual({ success: true, data: null });
+});
+
+test("refuses a rejection reason longer than 200 characters", () => {
+  expect(parseRejectionReason("a".repeat(200))).toMatchObject({ success: true });
+  expect(parseRejectionReason(` ${"a".repeat(201)} `)).toMatchObject({ success: false, error: { code: "INVALID_PAYMENT" } });
+});
+
+test("returns an already rejected payment unchanged with its original reason", () => {
+  const first = rejectPayment(reported(), { ...rejection, reason: "Primero" as RejectionReason });
+  if (!first.success) throw new Error("Expected rejection");
+  expect(rejectPayment(first.data, { ...rejection, rejectedAt: new Date(), reason: "Otro" as RejectionReason })).toEqual(first);
+});
+
+test("refuses to reject a confirmed or voided payment", () => {
+  const confirmed = confirmPayment(input, reported());
+  if (!confirmed.success) throw new Error("Expected confirmation");
+  expect(rejectPayment(confirmed.data, rejection)).toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+  const voided = voidPayment(confirmed.data, seller, new Date());
+  if (!voided.success) throw new Error("Expected void");
+  expect(rejectPayment(voided.data, rejection)).toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+});
+
+test("refuses to confirm a rejected payment", () => {
+  expect(confirmPayment(input, rejected())).toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+});
+
+test("replaying a buyer report whose payment was rejected returns it without writing", () => {
+  expect(reportPayment({ id: paymentId, orderId, currency: "PEN", receiptImageId: imageId, reportedAt: new Date() }, rejected()))
+    .toEqual({ success: true, data: rejected() });
+});
+
+test("refuses a buyer report with the id of a rejected payment and another receipt", () => {
+  expect(reportPayment({ id: paymentId, orderId, currency: "PEN", receiptImageId: id(4) as ImageId, reportedAt }, rejected()))
+    .toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+});
+
+test("refuses to void a rejected payment with INVALID_TRANSITION", () => {
+  expect(voidPayment(rejected(), seller, new Date())).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
 });

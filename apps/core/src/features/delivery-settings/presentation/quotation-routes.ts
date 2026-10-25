@@ -4,6 +4,7 @@ import { orders } from "@core/src/features/orders";
 import { peruDeliveryDistrict } from "@shared/peru-geography";
 import type { QuotedDeliveryRate } from "@core/src/features/delivery-settings/domain/quotation";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
+import type { BrandHostLocals } from "@core/src/shared/infrastructure/brand-host-locals";
 import { apiError, loadApiAccess, requireApiCompany, type AuthenticatedLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { bindCompanyToRequest, bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
@@ -28,8 +29,12 @@ quotationRoutes.post("/", (request, response, next) => {
 }, async (request, response: Response<unknown, AuthenticatedLocals & { quotationInput: CreateQuotationRequest; quotationCompanyId: string }>, next) => {
   const input = response.locals.quotationInput as CreateQuotationRequest;
   // Order-link authorization takes precedence over any seller session.
-  if (input.orderId !== undefined) {
-    const access = await orders.resolveBuyerAccess(input.orderId);
+  // The buyer's quotation is served on the brand host of the order's company; the seller's, on the app host only.
+  const hostCompanyId = (response.locals as BrandHostLocals).brandHostCompanyId;
+  if ((input.orderId !== undefined) !== (hostCompanyId !== undefined)) return apiError(response, 404, "CHECKOUT_UNAVAILABLE", "Checkout unavailable");
+  if (input.orderId !== undefined && hostCompanyId !== undefined) {
+    bindCompanyToRequest(hostCompanyId);
+    const access = await orders.resolveBuyerAccess(input.orderId, hostCompanyId);
     if (!access.success) return access.error.code === "PERSISTENCE_UNAVAILABLE"
       ? apiError(response, 503, "SERVICE_UNAVAILABLE", "Checkout unavailable")
       : apiError(response, 404, "CHECKOUT_UNAVAILABLE", "Checkout unavailable");
@@ -40,7 +45,6 @@ quotationRoutes.post("/", (request, response, next) => {
         checkout.error.code === "CHECKOUT_UNAVAILABLE" ? "CHECKOUT_UNAVAILABLE" : "INTERNAL_ERROR", "Checkout unavailable");
     if (checkout.data.state.kind === "cancelled") return apiError(response, 422, "ORDER_CANCELLED", "Order cancelled");
     response.locals.quotationCompanyId = access.data.companyId;
-    bindCompanyToRequest(access.data.companyId);
     return withTenantIsolation(access.data.companyId, next);
   }
   return loadApiAccess(request, response, () => requireApiCompany(request, response, () => {

@@ -5,7 +5,7 @@ import { addMessageProductsToOrder, type AddMessageProductsDependencies, type Ad
   type MessageCustomer } from "@core/src/features/orders/application/add-message-products-to-order";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { MatchConfidence, VariantQrCode } from "@core/src/features/products/domain/image-identification";
-import type { ReadQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
+import type { ReadQrCodes } from "@core/src/shared/images/infrastructure/qr-code-reader";
 import { identifyProductsInImage, type ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";

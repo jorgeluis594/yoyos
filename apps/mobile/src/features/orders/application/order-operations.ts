@@ -28,6 +28,16 @@ export type OrderRequestError = Readonly<{
   issues?: readonly OrderApiIssue[];
   currentPrice?: Money;
 }>;
+export type RejectPaymentOutcome =
+  | Readonly<{ kind: "rejected"; order: OrderAggregateResponse }>
+  | Readonly<{ kind: "already_reviewed" | "order_cancelled" | "unknown" }>
+  | Readonly<{ kind: "failed"; error: OrderRequestError }>;
+const unknownResult = new Set<string>(["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR", "INVALID_RESPONSE"] satisfies OrderRequestError["code"][]);
+/** How a failed payment confirmation reads to the seller: reviewed by somebody else, a lost answer to reload, or a plain failure. */
+export function confirmPaymentFailure(code: OrderRequestError["code"]): "already_reviewed" | "unknown" | "failed" {
+  if (code === "PAYMENT_CONFLICT" || code === "INVALID_TRANSITION") return "already_reviewed";
+  return unknownResult.has(code) ? "unknown" : "failed";
+}
 export type ConfirmOrderError = OrderRequestError | PendingOrderStoreError | CartError;
 export type ConfirmOrderOutcome =
   | Readonly<{ kind: "completed"; order: OrderAggregateResponse; shownTotal: Money }>
@@ -63,6 +73,7 @@ type Api = Readonly<{
   getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   list: (input: ListOrdersRequest) => Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>>;
   get: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
+  rejectPayment: (orderId: string, paymentId: string, reason: string | null) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   updateShipping: (orderId: string, input: UpdateOrderShippingRequest) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   create: (input: OrderSubmission) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   findCatalog: (variantIds: readonly string[]) => Promise<Result<z.infer<typeof orderCatalogSchema>, OrderRequestError>>;
@@ -177,7 +188,17 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
     }
     return { waiting };
   };
+  /** A lost answer is "unknown": the caller reloads the order before repeating, and a repeat returns the same rejection. */
+  const rejectPayment = async (orderId: string, paymentId: string, reason: string | null): Promise<RejectPaymentOutcome> => {
+    const result = await api.rejectPayment(orderId, paymentId, reason);
+    if (result.success) return { kind: "rejected", order: result.data };
+    const { code } = result.error;
+    if (code === "PAYMENT_CONFLICT" || code === "INVALID_TRANSITION") return { kind: "already_reviewed" };
+    if (code === "ORDER_CANCELLED") return { kind: "order_cancelled" };
+    return unknownResult.has(code) ? { kind: "unknown" } : { kind: "failed", error: result.error };
+  };
   return {
+    rejectPayment,
     setDelivery: api.setDelivery,
     loadMixedOrders: async (criteria: OrderListCriteria) => {
       const input = mixedListRequest(criteria);

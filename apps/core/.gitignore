@@ -5,3 +5,7 @@ test-results/
 # Model files are fetched by pnpm models:fetch (models/README.md); only README and licenses are committed.
 /models/*/*/*.json
 /models/*/*/onnx/
+
+# Stryker mutation testing output (pnpm test:mutation).
+reports/
+.stryker-tmp/

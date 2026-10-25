@@ -5,7 +5,7 @@ import sharp from "sharp";
 
 export interface ImageStorage {
   upload(input: { bytes: Uint8Array; filename: string; contentType: string }): Promise<Result<{ key: string }>>;
-  read(key: string): Promise<Result<{ bytes: Uint8Array; contentType: string }>>;
+  read(key: string, options?: Readonly<{ signal: AbortSignal }>): Promise<Result<{ bytes: Uint8Array; contentType: string }>>;
   getUrl(key: string): Promise<Result<string>>;
   delete(key: string): Promise<Result<void>>;
 }
@@ -122,21 +122,25 @@ export async function getImages(ids: readonly string[], storage: ImageStorage, r
   };
 }
 
-export type ImageReadError = Readonly<{
-  code: "IMAGE_NOT_FOUND" | "IMAGE_STORAGE_UNAVAILABLE" | "PERSISTENCE_UNAVAILABLE";
-  message: string;
-}>;
+export type ImageReadError =
+  | Readonly<{ code: "IMAGE_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE"; message: string }>
+  | Readonly<{ code: "IMAGE_STORAGE_UNAVAILABLE"; storageCode: "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR" | "IMAGE_STORAGE_TIMEOUT"; message: string }>;
 
 /** Lee los bytes de una imagen de la empresa desde el almacenamiento. */
 export async function readImageBytes(
   imageId: string,
   storage: ImageStorage,
   repository: ImageRepository,
+  options?: Readonly<{ signal: AbortSignal }>,
 ): Promise<Result<Readonly<{ bytes: Uint8Array; contentType: string }>, ImageReadError>> {
   const image = await repository.find(imageId);
   if (!image.success) return image;
   if (!image.data) return { success: false, error: { code: "IMAGE_NOT_FOUND", message: "Image not found" } };
-  const object = await storage.read(image.data.storageKey);
+  const object = options ? await storage.read(image.data.storageKey, options) : await storage.read(image.data.storageKey);
   if (object.success) return object;
-  return { success: false, error: { code: object.error.code === "IMAGE_NOT_FOUND" ? "IMAGE_NOT_FOUND" : "IMAGE_STORAGE_UNAVAILABLE", message: object.error.message } };
+  if (object.error.code === "IMAGE_NOT_FOUND") return { success: false, error: { code: "IMAGE_NOT_FOUND", message: object.error.message } };
+  // The SDK throws different errors before and during the body, so only the signal tells a deadline from an outage.
+  const storageCode = options?.signal.aborted ? "IMAGE_STORAGE_TIMEOUT"
+    : object.error.code === "IMAGE_STORAGE_CONFIG_ERROR" ? "IMAGE_STORAGE_CONFIG_ERROR" : "IMAGE_STORAGE_UNAVAILABLE";
+  return { success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", storageCode, message: object.error.message } };
 }

@@ -1,30 +1,31 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
+import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { isOrderId } from "@core/src/features/orders/domain/order";
 import { readCancellationOrder, verifyCancellation, cancellationMessage, type CancelOrderActionError, type CancellationClientResult, type CancellationUiState } from "@core/src/features/orders/presentation/cancellation-client";
-import { cancelOrderResponseSchema, type CancelOrderResponse, type OrderAggregateResponse } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, type CancelOrderResponse } from "@shared/contracts/orders";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
-import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
-import { useState } from "react";
+import type { PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
+import { OrderPaymentsCard } from "@core/src/features/orders/presentation/order-payments-card";
+import { useMemo, useState } from "react";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
-import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, ExternalLink, Printer, Truck } from "lucide-react";
+import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, Printer, Truck } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Badge } from "@core/app/components/ui/badge";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@core/app/components/ui/table";
+import { OrderLinkCard, orderLinkState, type OrderLink } from "@core/app/components/order-link-card";
+import { catalogPublicationAnchor } from "@core/app/components/store-appearance-editor-actions";
 import { TextLink } from "@core/app/components/ui/text-link";
 import { z } from "zod";
-import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
-import { Input } from "@core/app/components/ui/input";
-import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { useTranslation } from "react-i18next";
 import { randomUUID } from "node:crypto";
 import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
-import { Form, useActionData, data, isRouteErrorResponse, Link, useFetcher, useFetchers, useNavigation, useLoaderData, type ClientActionFunctionArgs, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { Form, useActionData, data, isRouteErrorResponse, Link, useFetchers, useNavigation, useLoaderData, type ClientActionFunctionArgs, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { privateUserContext } from "@core/app/private-user-context";
 import { deliverySettings, toDeliverySettingsResponse } from "@core/src/features/delivery-settings";
 import { RatedDeliveryForm } from "@core/src/features/orders/presentation/rated-delivery-form";
@@ -34,7 +35,7 @@ import { orders } from "@core/src/features/orders/composition";
 import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
 import { orderDetailLoaderSchema, orderAggregateSchema, setRatedOrderDeliverySchema, registerPaymentSchema } from "@shared/contracts/orders";
 import type { OrderId, PaymentId, CompanyId, UserId } from "@core/src/features/orders/domain/order";
-import { resolvePublicImage } from "@core/src/shared/images";
+import { resolvePublicImages } from "@core/src/shared/images";
 import { Button } from "@core/app/components/ui/button";
 import { ErrorState } from "@core/app/components/ui/error-state";
 import { DispatchLabelPrintDialog } from "@core/src/features/dispatch-labels/presentation/dispatch-label-print-dialog";
@@ -44,19 +45,36 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
   const result = await orders.getAggregate((params.orderId ?? "") as OrderId,
     { companyId: access.company.id, userId: access.user.id });
   if (!result.success) throw new Response(result.error.message, { status: result.error.code === "ORDER_NOT_FOUND" ? 404 : result.error.code === "INVALID_ORDER" ? 400 : 503 });
-  const receiptUrls: Record<string, string> = {};
+  const receiptIds = new Map<string, string>();
   for (const payment of result.data.payments) {
-    const imageId = payment.status === "reported" ? payment.data.receiptImageId : payment.data.evidence.kind === "buyer_report"
-      ? payment.data.evidence.report.receiptImageId : null;
-    if (!imageId) continue;
-    const image = await resolvePublicImage(imageId);
-    if (image.success && image.data) receiptUrls[payment.id] = image.data.url;
+    const imageId = payment.status === "reported" ? payment.data.receiptImageId : payment.status === "rejected" ? payment.data.report.receiptImageId
+      : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
+    if (imageId) receiptIds.set(payment.id, imageId);
+  }
+  const images = await resolvePublicImages([...receiptIds.values()]);
+  const urls = new Map(images.success ? images.data.images.map((image) => [image.id, image.url]) : []);
+  const receiptUrls: Record<string, string> = {};
+  for (const [paymentId, imageId] of receiptIds) {
+    const url = urls.get(imageId);
+    if (url) receiptUrls[paymentId] = url;
   }
   const settings = await deliverySettings.get({ companyId: access.company.id, userId: access.user.id });
-  return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(result.data), base: companyPath(new URL(request.url).pathname, access.company.country, "/orders"),
+  const pathname = new URL(request.url).pathname;
+  return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(result.data), base: companyPath(pathname, access.company.country, "/orders"),
     manualPaymentId: randomUUID(), receiptUrls }),
     settings: settings.success ? toDeliverySettingsResponse(settings.data) : null,
-    settingsPath: companyPath(new URL(request.url).pathname, access.company.country, "/settings/delivery") };
+    settingsPath: companyPath(pathname, access.company.country, "/settings/delivery"),
+    link: await orderLink(result.data, access.company.id, `${companyPath(pathname, access.company.country, "/settings/store-appearance")}#${catalogPublicationAnchor}`) };
+}
+
+/** The link is built here from the company's current subdomain, so the page needs no request of its own to show it. A cancelled order has none. */
+async function orderLink(order: OrderAggregate, companyId: CompanyId, appearancePath: string): Promise<OrderLink> {
+  if (order.cancelled || !order.checkoutEnabledAt) return { kind: "unavailable" };
+  const url = await orders.checkoutUrl(companyId, order.id);
+  if (url.success) return { kind: "ready", url: url.data };
+  if (url.error.code === "SUBDOMAIN_REQUIRED") return { kind: "subdomain_required", appearancePath };
+  log.error({ event: "order_checkout_link_unavailable", companyId, orderNumber: order.number, errorCode: url.error.code }, "Unable to build the order link");
+  return { kind: "unavailable" };
 }
 
 async function deliveryAction({ params, request, context }: ActionFunctionArgs) {
@@ -86,6 +104,11 @@ async function deliveryAction({ params, request, context }: ActionFunctionArgs) 
   }
 }
 
+/** A decision on a payment that somebody else already reviewed reads «Este pago ya fue revisado.» in every client. */
+function paymentErrorCode(code: string) {
+  return code === "PAYMENT_CONFLICT" || code === "INVALID_TRANSITION" ? "ALREADY_REVIEWED" : code;
+}
+
 export const headers = () => ({ "Cache-Control": "no-store", "Referrer-Policy": "no-referrer" });
 
 export type CancelOrderActionResult = Readonly<{ operation: "cancel"; result: Result<CancelOrderResponse, CancelOrderActionError> }>;
@@ -93,6 +116,14 @@ export type CancelOrderActionResult = Readonly<{ operation: "cancel"; result: Re
 export async function clientAction({ request, params, serverAction }: ClientActionFunctionArgs) {
   if (request.headers.get("content-type")?.includes("application/json")) return serverAction<typeof action>();
   const operation = (await request.clone().formData()).get("operation");
+  if (operation === "confirm" || operation === "reject" || operation === "void") {
+    // A lost response leaves the decision unknown: the card reloads and the seller repeats it, which never records a second payment.
+    try { return await serverAction<typeof action>(); }
+    catch (cause) {
+      if (cause instanceof Response || isRouteErrorResponse(cause)) throw cause;
+      return { url: null, success: false, error: "NO_RESPONSE" } as const;
+    }
+  }
   if (operation !== "cancel" && operation !== "check-cancellation") return serverAction<typeof action>();
   const id = params.orderId ?? "";
   if (operation === "check-cancellation") return verifyCancellation(id, { code: "INTERNAL_ERROR", message: "Check current state before retrying" });
@@ -111,11 +142,6 @@ export async function clientAction({ request, params, serverAction }: ClientActi
   }
   if (["INVALID_TRANSITION", "PERSISTENCE_UNAVAILABLE", "INTERNAL_ERROR"].includes(result.error.code)) return verifyCancellation(id, result.error);
   return { operation: "cancellation", orderId: id, outcome: { kind: "failed", error: result.error } } satisfies CancellationClientResult;
-}
-
-type BuyerLink = Readonly<{ href: string; label: "orders.buyerPaymentLink" }>;
-export function buyerLink(order: Pick<OrderAggregateResponse, "id" | "companyId" | "cancelled" | "checkoutEnabledAt">): BuyerLink | null {
-  return !order.checkoutEnabledAt || order.cancelled ? null : { href: `/checkout/${order.companyId}/${order.id}`, label: "orders.buyerPaymentLink" };
 }
 
 export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { actionResult: unknown; defaultShouldRevalidate: boolean }) {
@@ -141,7 +167,7 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
       return { operation: "cancel", result: err({ code: "INTERNAL_ERROR", message: "Cancellation could not be confirmed" }) } satisfies CancelOrderActionResult;
     }
   }
-  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "ship" && operation !== "deliver")) {
+  if (!id.success || ([...fields].length !== 0 && operation !== "confirm" && operation !== "void" && operation !== "reject" && operation !== "ship" && operation !== "deliver")) {
     bindRequestOperation({ outcome: "invalid_input" });
     return data({ url: null, success: false, error: true }, { status: 422, headers: headers() });
   }
@@ -158,34 +184,37 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
     const paymentId = z.uuid().safeParse(fields.get("paymentId"));
     if (!paymentId.success) return { url: null, success: false, error: "INVALID_INPUT" };
     const seller = { companyId: access.company.id, userId: access.user.id };
-    if (fields.get("operation") === "void") {
+    if (operation === "void") {
       const result = await orders.voidPayment({ orderId: id.data as OrderId, paymentId: paymentId.data as PaymentId }, seller);
-      return result.success ? { url: null, success: true, error: false } : { url: null, success: false, error: result.error.code };
+      return result.success ? { url: null, success: true, error: false } : { url: null, success: false, error: paymentErrorCode(result.error.code) };
     }
-    if (fields.get("operation") !== "confirm") return { url: null, success: false, error: "INVALID_INPUT" };
-    const parsed = registerPaymentSchema.safeParse({ paymentId: paymentId.data, source: fields.get("source"),
-      amount: { amount: Number(fields.get("amount")), currency: fields.get("currency") }, method: fields.get("method"),
-      deductStockIfPartial: fields.get("deductStockIfPartial") === "on" });
-    if (!parsed.success) return { url: null, success: false, error: "INVALID_INPUT" };
-    const result = await orders.registerPayment({ ...parsed.data, orderId: id.data as OrderId,
-      paymentId: parsed.data.paymentId as PaymentId }, seller);
-    return result.success ? { url: null, success: true, error: false } : { url: null, success: false, error: result.error.code };
+    try {
+      if (operation === "reject") {
+        const reason = z.string().max(1000).nullable().safeParse(fields.get("reason"));
+        if (!reason.success) return { url: null, success: false, error: "INVALID_INPUT" };
+        const result = await orders.rejectPayment({ orderId: id.data as OrderId, paymentId: paymentId.data as PaymentId, reason: reason.data }, seller);
+        return result.success ? { url: null, success: true, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data.order)) }
+          : { url: null, success: false, error: paymentErrorCode(result.error.code) };
+      }
+      const parsed = registerPaymentSchema.safeParse({ paymentId: paymentId.data, source: fields.get("source"),
+        amount: { amount: Number(fields.get("amount")), currency: fields.get("currency") }, method: fields.get("method"),
+        deductStockIfPartial: fields.get("deductStockIfPartial") === "on" });
+      if (!parsed.success) return { url: null, success: false, error: "INVALID_INPUT" };
+      const result = await orders.registerPayment({ ...parsed.data, orderId: id.data as OrderId,
+        paymentId: parsed.data.paymentId as PaymentId }, seller);
+      return result.success ? { url: null, success: true, error: false } : { url: null, success: false, error: paymentErrorCode(result.error.code) };
+    } catch (cause) {
+      log.error({ event: "order_payment_request_failed", operation, orderId: id.data, userId: access.user.id, errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle payment decision");
+      return { url: null, success: false, error: "INTERNAL_ERROR" };
+    }
   }
-  bindRequestOperation({ operation: "enable_checkout" });
-  try {
-    const result = await orders.enableCheckout(id.data as OrderId, { companyId: access.company.id, userId: access.user.id });
-    if (!result.success) return data({ url: null, success: false, error: true }, { status: result.error.code === "ORDER_CANCELLED" ? 409 : result.error.code === "CHECKOUT_UNAVAILABLE" ? 404 : 503, headers: headers() });
-    return data({ url: checkoutLinkSchema.parse(result.data).url, success: false, error: false }, { headers: headers() });
-  } catch (cause) {
-    bindRequestOperation({ outcome: "technical_failure" });
-    log.error({ event: "order_api_operation_failed", err: cause }, "Unable to enable checkout");
-    return data({ url: null, success: false, error: true }, { status: 503, headers: headers() });
-  }
+  bindRequestOperation({ outcome: "invalid_input" });
+  return data({ url: null, success: false, error: true }, { status: 422, headers: headers() });
 }
 
 export default function OrderDetail() {
   const { t, i18n } = useTranslation();
-  const { order: loadedOrder, base, manualPaymentId, receiptUrls, settings, settingsPath } = useLoaderData<typeof loader>();
+  const { order: loadedOrder, base, manualPaymentId, receiptUrls, settings, settingsPath, link } = useLoaderData<typeof loader>();
   const rawAction = useActionData<typeof clientAction>();
   const [cancellationSource, setCancellationSource] = useState({ action: rawAction, order: loadedOrder });
   if (cancellationSource.action !== rawAction) {
@@ -198,11 +227,9 @@ export default function OrderDetail() {
   const result = actionData && "operation" in actionData && actionData.operation === "delivery" ? actionData : undefined;
   const fulfillment = actionData && "operation" in actionData && (actionData.operation === "ship" || actionData.operation === "deliver") ? actionData : undefined;
   const navigation = useNavigation();
+  const voidResult = useMemo<PaymentDecisionResult | undefined>(() => actionData && !("operation" in actionData) ? { success: actionData.success, error: actionData.error === false ? false : String(actionData.error) } : undefined, [actionData]);
   const editable = !order.cancelled && order.deliveryStatus === "pending" && order.completedAt === null;
   const [editingDelivery, setEditingDelivery] = useState(false);
-  const link = buyerLink(order);
-  const checkout = useFetcher<typeof action>();
-  const checkoutData = checkout.data && !("result" in checkout.data) ? checkout.data : undefined;
   const cancellationState: CancellationUiState = navigation.state !== "idle" && navigation.formData?.get("operation") === "cancel"
     ? { kind: "submitting", orderId: order.id }
     : navigation.state !== "idle" && navigation.formData?.get("operation") === "check-cancellation" ? { kind: "verifying", orderId: order.id }
@@ -214,12 +241,6 @@ export default function OrderDetail() {
   const blocked = busy || !!needsCheck;
   const [cancelOpen, setCancelOpen] = useState(false);
   const [printOpen, setPrintOpen] = useState(false);
-  const [copyMessage, setCopyMessage] = useState<"copied" | "copyManually" | null>(null);
-  async function copyLink() {
-    if (!checkoutData?.url) return;
-    try { await navigator.clipboard.writeText(checkoutData.url); setCopyMessage("copied"); }
-    catch { setCopyMessage("copyManually"); }
-  }
   const amount = (money: typeof order.total) => formatCurrency(money.amount, money.currency, i18n.language);
   const date = (value: string) => new Date(value).toLocaleString(i18n.language === "pt" ? "pt-BR" : "es-PE", { timeZone: "America/Lima" });
   return <section className="flex min-w-0 flex-col gap-6" aria-labelledby="order-title">
@@ -276,46 +297,8 @@ export default function OrderDetail() {
           </CardContent>
         </Card>
 
-        <Card role="region" aria-labelledby="order-payments-title" className="min-w-0 max-xl:order-2">
-          <CardHeader><CardTitle id="order-payments-title">{t("orders.payments")}</CardTitle></CardHeader>
-          <CardContent className="flex flex-col gap-6">
-            <dl className="flex flex-col gap-3 text-sm tabular-nums sm:ml-auto sm:w-2/3">
-              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.subtotal")}</dt><dd>{amount(order.itemsTotal)}</dd></div>
-              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.deliveryCharge")}</dt><dd>{amount(order.deliveryCharge)}</dd></div>
-              <div className="flex justify-between gap-4 border-t pt-3 text-lg font-semibold"><dt>{t("orders.total")}:</dt>{" "}<dd>{amount(order.total)}</dd></div>
-              <div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.received")}</dt><dd>{amount(order.paidAmount)}</dd></div>
-              <div className="flex justify-between gap-4 font-medium"><dt>{t("orderDetail.balance")}</dt><dd>{amount(order.balanceDue)}</dd></div>
-              {order.overpaidAmount.amount > 0 && <Alert variant="warning"><AlertDescription>{t("orders.overpaid", { amount: amount(order.overpaidAmount) })}</AlertDescription></Alert>}
-            </dl>
-            {actionData?.error && !("operation" in actionData) && <Alert variant="destructive"><AlertDescription>{actionData.error === "INSUFFICIENT_STOCK" ? t("orders.paymentStockError") : t("orders.paymentSaveError")}</AlertDescription></Alert>}
-            {actionData?.success && !("operation" in actionData) && <Alert variant="success"><AlertDescription>{t("orders.paymentSaved")}</AlertDescription></Alert>}
-            <section className="flex flex-col gap-3 border-t pt-4" aria-labelledby="payment-history-title">
-              <h3 id="payment-history-title" className="text-sm font-semibold">{t("orderDetail.paymentHistory")}</h3>
-              {order.payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderDetail.noPayments")}</p> : <ul className="divide-y">{order.payments.map(payment => <li key={payment.id} className="grid gap-3 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_auto]">
-                <div className="flex flex-wrap items-start justify-between gap-3 text-sm">
-                  <div className="flex min-w-0 flex-col gap-1"><p className="font-medium">{t(payment.status === "reported" ? "orders.paymentReported" : payment.status === "voided" ? "orders.paymentVoided" : "orderDetail.confirmedPayment")}</p><p className="text-muted-foreground">{date(payment.status === "reported" ? payment.data.reportedAt : payment.data.confirmedAt)}</p>{payment.method && <p className="text-muted-foreground">{t(payment.method === "digital_wallet" ? "orders.wallet" : "orders.bankTransfer")}</p>}</div>
-                  {payment.status !== "reported" && <strong className="tabular-nums">{amount(payment.amount)}</strong>}
-                </div>
-                <div className="flex flex-wrap items-center gap-3 sm:justify-end">
-                  {receiptUrls[payment.id] && <TextLink className="inline-flex min-h-control items-center text-sm font-normal max-md:min-h-touch" href={receiptUrls[payment.id]} target="_blank" rel="noreferrer">{t("orders.viewReceipt")}</TextLink>}
-                  {payment.status === "confirmed" && <Form method="post"><input type="hidden" name="operation" value="void" /><input type="hidden" name="paymentId" value={payment.id} /><Button type="submit" variant="outline" disabled={navigation.state !== "idle"}>{t("orders.voidPayment")}</Button></Form>}
-                </div>
-                {payment.status === "reported" && !order.cancelled && <div className="sm:col-span-2"><PaymentForm paymentId={payment.id} source="buyer_report" currency={order.total.currency} balance={order.balanceDue.amount} /></div>}
-              </li>)}</ul>}
-            </section>
-            {!order.cancelled && order.balanceDue.amount > 0 && <section className="flex flex-col gap-3 border-t pt-4"><h3 className="text-sm font-semibold">{t("orders.manualPayment")}</h3><PaymentForm paymentId={manualPaymentId} source="manual" currency={order.total.currency} balance={order.balanceDue.amount} /></section>}
-          </CardContent>
-        </Card>
-
-        <Card role="region" aria-labelledby="checkout-title" className="min-w-0 max-xl:order-5">
-          <CardHeader className="flex-row flex-wrap items-center justify-between gap-3"><CardTitle id="checkout-title">{t("orders.checkout")}</CardTitle>{!order.cancelled && <checkout.Form method="post"><Button type="submit" variant="outline" disabled={checkout.state !== "idle"}>{t("orders.getCheckoutLink")}</Button></checkout.Form>}</CardHeader>
-          <CardContent className="flex flex-col gap-3">
-            <p className="text-sm text-muted-foreground">{t(order.cancelled ? "orders.checkoutCancelled" : order.checkoutConfirmedAt ? "orders.checkoutConfirmed" : order.checkoutEnabledAt ? "orders.checkoutPending" : "orders.checkoutDisabled")}</p>
-            {checkoutData?.error && <Alert variant="destructive"><AlertDescription>{t("orders.checkoutLinkError")}</AlertDescription></Alert>}
-            {!order.cancelled && checkoutData?.url && <><Field><FieldLabel htmlFor="checkout-link">{t("orders.checkoutLink")}</FieldLabel><Input id="checkout-link" readOnly value={checkoutData.url} onFocus={event => event.target.select()} /></Field><Button type="button" variant="outline" className="self-start" onClick={copyLink}>{t("orders.copyCheckoutLink")}</Button>{copyMessage && <p role="status" className="text-sm">{t(`orders.${copyMessage}`)}</p>}</>}
-            {link && <TextLink href={link.href} target="_blank" rel="noreferrer" className="flex min-h-control items-center justify-between gap-3 border-t pt-3 text-sm font-normal no-underline hover:underline max-md:min-h-touch">{t(link.label)}<ExternalLink className="size-icon-inline shrink-0" aria-hidden="true" /></TextLink>}
-          </CardContent>
-        </Card>
+        <OrderPaymentsCard order={order} receiptUrls={receiptUrls} manualPaymentId={manualPaymentId} format={{ amount, date }}
+          voidResult={voidResult} />
       </div>
 
       <div className="contents xl:flex xl:min-w-0 xl:flex-col xl:gap-4">
@@ -323,6 +306,8 @@ export default function OrderDetail() {
           <CardHeader><CardTitle id="order-customer-title">{t("orders.customer")}</CardTitle></CardHeader>
           <CardContent className="flex flex-col gap-2"><p className="flex items-center gap-1.5 break-words font-medium">{order.source === "whatsapp" && <WhatsAppMark />}{orderBuyerText(order.buyer, t("orders.generalPublic"))}</p>{order.buyer?.phone && <dl className="text-sm"><dt className="text-muted-foreground">{t("orders.phoneAtSale")}</dt><dd className="mt-1 break-words">{order.buyer.phone}</dd></dl>}</CardContent>
         </Card>
+
+        <OrderLinkCard state={orderLinkState(order)} link={link} />
 
         <Card role="region" aria-labelledby="order-delivery-title" className="min-w-0 max-xl:order-4">
           <CardHeader className="flex-row flex-wrap items-center justify-between gap-3"><CardTitle id="order-delivery-title">{t("orders.delivery")}</CardTitle>{editable && settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled) && <Button type="button" aria-expanded={editingDelivery} aria-controls="delivery-editor" onClick={() => setEditingDelivery(!editingDelivery)}>{t(editingDelivery ? "orderDetail.closeEditor" : order.delivery ? "orderDetail.editDelivery" : "orderDelivery.assign")}</Button>}</CardHeader>
@@ -361,18 +346,6 @@ export default function OrderDetail() {
       </div>
     </fieldset>
   </section>;
-}
-
-function PaymentForm({ paymentId, source, currency, balance }: { paymentId: string; source: "manual" | "buyer_report"; currency: string; balance: number }) {
-  const { t } = useTranslation();
-  const navigation = useNavigation();
-  const [value, setValue] = useState<PaymentDraft>({ amount: balance.toFixed(2), method: "digital_wallet", deductStockIfPartial: false });
-  return <Form method="post" className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-    <input type="hidden" name="operation" value="confirm" /><input type="hidden" name="source" value={source} />
-    <input type="hidden" name="paymentId" value={paymentId} /><input type="hidden" name="currency" value={currency} />
-    <PaymentFields value={value} onChange={setValue} />
-    <Button type="submit" disabled={navigation.state !== "idle"} className="h-control sm:col-start-3 sm:row-start-1">{t("orders.confirmPayment")}</Button>
-  </Form>;
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {
