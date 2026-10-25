@@ -4,8 +4,8 @@
 # Usage: scripts/ci.sh [--fast] [parent-branch]   (default parent: main)
 #   --fast  skips the core integration and E2E tests (they need Docker, psql and Chromium).
 # Lint and dependency rules get the changed files; tests run only those affected by them
-# (vitest --changed, jest --changedSince). Typecheck, E2E and the landing build cannot be
-# narrowed to files, so they run whole when their package changed.
+# (vitest --changed, jest --changedSince). Typecheck, knip, E2E and the landing build cannot
+# be narrowed to files, so they run whole when their package changed.
 # Requires: Node 24 and pnpm 12.5.1 on PATH.
 # CI_MAX_WORKERS (default 50%) caps core unit test workers; all of them can exhaust memory.
 set -euo pipefail
@@ -88,7 +88,8 @@ fi
 if [ "$core" = 1 ]; then
   echo "core"
   mapfile -t core_lint < <(sources apps/core apps/core/ | grep -v "^\.dependency-cruiser")
-  mapfile -t core_deps < <(sources apps/core apps/core/ shared ../../ | grep -v "^\.dependency-cruiser")
+  # Dependency rules cover the same folders as deps:check.
+  mapfile -t core_deps < <(sources "apps/core/(app|src|tests)" apps/core/ shared ../../)
   step "core: install" apps/core pnpm install --frozen-lockfile
   if [ "$shared_changed" = 1 ]; then
     step "shared: tests" apps/core bash -c 'pnpm exec tsx --test ../../shared/*.test.mjs ../../shared/contracts/*.test.mjs'
@@ -97,6 +98,7 @@ if [ "$core" = 1 ]; then
   step "core: lint (${#core_lint[@]} files)" apps/core lint "${core_lint[@]}"
   step "core: typecheck" apps/core pnpm typecheck
   step "core: dependency rules (${#core_deps[@]} files)" apps/core deps "${core_deps[@]}"
+  step "core: unused files and dependencies" apps/core pnpm knip --no-progress
   step "core: unit tests" apps/core sh scripts/run-tests.sh unit --changed "$base" --maxWorkers="${CI_MAX_WORKERS:-50%}"
   if [ "$fast" = 1 ]; then
     skip "core: integration and E2E tests" "--fast"
@@ -114,11 +116,12 @@ fi
 if [ "$mobile" = 1 ]; then
   echo "mobile"
   mapfile -t mobile_lint < <(sources apps/mobile apps/mobile/ | grep -v "^\.dependency-cruiser")
-  mapfile -t mobile_deps < <(sources apps/mobile apps/mobile/ shared ../../ | grep -v "^\.dependency-cruiser")
+  mapfile -t mobile_deps < <(sources "apps/mobile/(src|tests)" apps/mobile/ shared ../../)
   step "mobile: install" apps/mobile pnpm install --frozen-lockfile
   step "mobile: lint (${#mobile_lint[@]} files)" apps/mobile lint "${mobile_lint[@]}"
   step "mobile: typecheck" apps/mobile pnpm typecheck
   step "mobile: dependency rules (${#mobile_deps[@]} files)" apps/mobile deps "${mobile_deps[@]}"
+  step "mobile: unused files and dependencies" apps/mobile pnpm knip --no-progress
   step "mobile: tests" apps/mobile sh ../core/scripts/run-tests.sh mobile --changedSince="$base" --passWithNoTests
 fi
 

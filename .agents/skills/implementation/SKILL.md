@@ -42,7 +42,7 @@ For mobile changes, also follow [apps/mobile/AGENTS.md](../../../apps/mobile/AGE
 
 ## Validation commands
 
-Validate with `scripts/ci.sh [--fast] [parent-branch]` from the repository root (default parent: `main`). It runs the `.github/workflows/ci.yml` checks of every affected package (shared, core, mobile, landing) on the branch's changes against its parent, including uncommitted and untracked files: lint and dependency rules on the changed files, the tests affected by them, and the whole typecheck, E2E and landing build. It prints only failing output and ends with `Todo OK` or the list of failed checks.
+Validate with `scripts/ci.sh [--fast] [parent-branch]` from the repository root (default parent: `main`). It runs the `.github/workflows/ci.yml` checks of every affected package (shared, core, mobile, landing) on the branch's changes against its parent, including uncommitted and untracked files: lint and dependency rules on the changed files, the tests affected by them, and the whole typecheck, knip (unused files and dependencies), E2E and landing build. It prints only failing output and ends with `Todo OK` or the list of failed checks.
 
 - Use `--fast` while iterating; it skips core integration and E2E tests, which need Docker, `psql`, and Chromium.
 - Run it without `--fast` before each commit whose unit changes core behavior or contracts, and before the final report.
