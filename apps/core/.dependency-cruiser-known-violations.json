@@ -1,24 +1,6 @@
 [
   {
     "type": "dependency",
-    "from": "src/features/products/application/identify-products-in-image.ts",
-    "to": "src/features/products/infrastructure/qr-code-reader.ts",
-    "unresolvedTo": "@core/src/features/products/infrastructure/qr-code-reader",
-    "dependencyTypes": [
-      "aliased",
-      "aliased-tsconfig",
-      "aliased-tsconfig-paths",
-      "local",
-      "type-only",
-      "import"
-    ],
-    "rule": {
-      "severity": "error",
-      "name": "application-imports-adapter"
-    }
-  },
-  {
-    "type": "dependency",
     "from": "src/features/products/domain/type-contracts.ts",
     "to": "src/features/products/application/create.ts",
     "unresolvedTo": "@core/src/features/products/application/create",

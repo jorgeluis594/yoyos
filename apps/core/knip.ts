@@ -11,7 +11,7 @@ const config: KnipConfig = {
     "scripts/*.ts",
     "tests/e2e/server.ts",
     "src/**/type-contracts.ts",
-    "src/features/products/infrastructure/qr-fixtures/generate-fixtures.mjs",
+    "src/shared/images/infrastructure/qr-fixtures/generate-fixtures.mjs",
   ],
   project: ["app/**/*.{ts,tsx,css}", "src/**/*.{ts,tsx,mjs,css}", "scripts/**/*.ts", "tests/**/*.ts", "prisma/**/*.prisma"],
   compilers: { css: cssImports },
