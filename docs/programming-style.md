@@ -54,11 +54,3 @@ Types are defined in [result.ts](../shared/result.ts), and functions in
 [functional.ts](../shared/functional.ts). Import them from `@shared/result` and
 `@shared/functional`, respectively. Runnable examples are in
 [functional.test.mjs](../shared/functional.test.mjs).
-
-Delete unused files and dependencies instead of keeping them for later: knip
-checks `apps/core` and `apps/mobile` in CI (`pnpm knip`, configured in each app's
-`knip.ts`), because dead code still costs review and upgrade effort. A
-dependency used in a way knip cannot see is listed in `ignoreDependencies` with
-the reason. Unused exports and types are existing debt that knip does not check
-yet; list them with `pnpm knip --include exports,types` and remove the ones a
-change touches.

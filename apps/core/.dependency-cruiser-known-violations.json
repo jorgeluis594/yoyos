@@ -107,6 +107,40 @@
   },
   {
     "type": "dependency",
+    "from": "src/features/orders/composition.ts",
+    "to": "src/features/catalog/infrastructure/catalog-settings-repository.ts",
+    "unresolvedTo": "@core/src/features/catalog/infrastructure/catalog-settings-repository",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/composition.ts",
+    "to": "src/features/catalog/infrastructure/storefront-config.ts",
+    "unresolvedTo": "@core/src/features/catalog/infrastructure/storefront-config",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
     "from": "src/features/orders/presentation/rated-delivery-form.tsx",
     "to": "src/features/delivery-settings/infrastructure/quotation-api.ts",
     "unresolvedTo": "@core/src/features/delivery-settings/infrastructure/quotation-api",

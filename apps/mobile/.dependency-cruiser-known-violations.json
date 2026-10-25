@@ -171,6 +171,23 @@
   {
     "type": "dependency",
     "from": "src/features/orders/presentation/order-detail-screen.tsx",
+    "to": "src/features/catalog/presentation/use-copy-link.ts",
+    "unresolvedTo": "@mobile/features/catalog/presentation/use-copy-link",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/presentation/order-detail-screen.tsx",
     "to": "src/features/users/presentation/access-provider.tsx",
     "unresolvedTo": "@mobile/features/users/presentation/access-provider",
     "dependencyTypes": [
