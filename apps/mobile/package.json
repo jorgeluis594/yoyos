@@ -49,6 +49,8 @@
   "devDependencies": {
     "@babel/plugin-transform-react-jsx": "7.29.7",
     "@storybook/react-native-web-vite": "^10.6.0",
+    "@stryker-mutator/core": "10.0.0",
+    "@stryker-mutator/jest-runner": "10.0.0",
     "@testing-library/react-native": "^13.3.3",
     "@types/jest": "^29.5.14",
     "@types/qrcode": "^1.5.6",
@@ -69,6 +71,7 @@
   },
   "scripts": {
     "test": "sh ../core/scripts/run-tests.sh mobile",
+    "test:mutation": "stryker run",
     "typecheck": "tsc --noEmit",
     "deps:check": "depcruise src tests --config .dependency-cruiser.cjs --ignore-known",
     "deps:baseline": "depcruise src tests --config .dependency-cruiser.cjs --output-type baseline --output-to .dependency-cruiser-known-violations.json",

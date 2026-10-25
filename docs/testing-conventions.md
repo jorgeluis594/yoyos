@@ -115,3 +115,7 @@ to also suppress pnpm's command banner. Core uses Vitest's minimal reporter;
 mobile uses Jest's summary reporter. Integration and E2E preparation and the E2E
 build print logs only if they fail. The existing `apps/core/scripts/run-tests.sh`
 handles output for both apps; package scripts select the corresponding suite.
+
+## Mutation Testing
+
+Stryker measures whether the unit tests of `domain/` and `application/` detect injected bugs, which coverage cannot show. It runs manually (`pnpm test:mutation` in `apps/core` or `apps/mobile`), not in CI, because it reruns the suite once per mutant. A surviving mutant points to a missing case or a weak assertion; add the test that kills it or accept it explicitly when the mutation does not change behavior. There is no required score.
