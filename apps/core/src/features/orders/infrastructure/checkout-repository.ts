@@ -31,14 +31,6 @@ async function readCheckout(access: CheckoutAccess, lock: boolean): Promise<Resu
 export const findCheckoutOrder = (access: CheckoutAccess) => readCheckout(access, false);
 export const findCheckoutOrderForUpdate = (access: CheckoutAccess) => readCheckout(access, true);
 
-export async function saveCheckoutEnabled(access: CheckoutAccess, at: Date): Promise<Result<null, CheckoutError>> {
-  requireActiveTransaction(access.companyId);
-  try {
-    await prisma.order.update({ where: { companyId_id: { companyId: access.companyId, id: access.orderId } }, data: { checkoutEnabledAt: at } });
-    return ok(null);
-  } catch (cause) { return failure(cause, "unable_to_save_checkout_enabled"); }
-}
-
 export async function saveCheckoutBuyer(access: CheckoutAccess, buyer: ConfirmedBuyer): Promise<Result<null, CheckoutError>> {
   requireActiveTransaction(access.companyId);
   try {

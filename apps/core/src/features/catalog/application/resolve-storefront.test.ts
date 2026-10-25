@@ -2,7 +2,7 @@ import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import type { CatalogSubdomain } from "@shared/catalog-subdomain";
 import type { CompanyId } from "@shared/identity";
-import { resolveLegacyCatalogLink, resolveStorefront } from "@core/src/features/catalog/application/resolve-storefront";
+import { resolveBrandHostOwner, resolveLegacyCatalogLink, resolveStorefront } from "@core/src/features/catalog/application/resolve-storefront";
 import type { SubdomainOwner } from "@core/src/features/catalog/application/catalog-settings";
 
 const companyId = "00000000-0000-4000-8000-000000000001" as CompanyId;
@@ -51,4 +51,22 @@ test("redirects a legacy link only when the company has a subdomain and a publis
   expect(await read({ published: false, subdomain: fantasio })).toEqual(ok({ kind: "unavailable" }));
   expect(await read({ published: false, subdomain: null })).toEqual(ok({ kind: "unavailable" }));
   expect(await read(null)).toEqual(ok({ kind: "unavailable" }));
+});
+
+test("resolves the brand host's owner with one lookup whether the catalog is published or hidden", async () => {
+  const resolveSubdomain = vi.fn(async (subdomain: CatalogSubdomain) => ok(subdomain === "oculto" ? owner(false) : owner(true)));
+  expect(await resolveBrandHostOwner({ host: { kind: "store", subdomain: fantasio } }, { resolveSubdomain }))
+    .toEqual({ success: true, data: { companyId, subdomain: fantasio, published: true } });
+  expect(await resolveBrandHostOwner({ host: { kind: "store", subdomain: "oculto" as CatalogSubdomain } }, { resolveSubdomain }))
+    .toEqual({ success: true, data: { companyId, subdomain: "oculto", published: false } });
+  expect(resolveSubdomain).toHaveBeenCalledTimes(2);
+});
+
+test("resolves no owner for an unheld subdomain or a host that is not a store, and passes a failed lookup on", async () => {
+  expect(await resolveBrandHostOwner({ host: { kind: "store", subdomain: fantasio } }, { resolveSubdomain: async () => ok(null) })).toEqual({ success: true, data: null });
+  const resolveSubdomain = vi.fn();
+  for (const host of [{ kind: "app" }, { kind: "invalid" }] as const) expect(await resolveBrandHostOwner({ host }, { resolveSubdomain })).toEqual({ success: true, data: null });
+  expect(resolveSubdomain).not.toHaveBeenCalled();
+  const failure = err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "down" });
+  expect(await resolveBrandHostOwner({ host: { kind: "store", subdomain: fantasio } }, { resolveSubdomain: async () => failure })).toEqual(failure);
 });

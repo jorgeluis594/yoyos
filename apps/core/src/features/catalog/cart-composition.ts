@@ -36,5 +36,6 @@ export const catalogCart = {
       { readPublished: async () => ok(true), createCatalogOrder: orders.createCatalogOrder })),
   checkOrder: (orderId: OrderId, storefront: PublishedStorefront) =>
     checkCartOrder({ orderId }, { companyId: storefront.companyId }, { readCatalogOrderConfirmation: orders.readCatalogOrderConfirmation }),
-  checkoutUrl: orders.checkoutUrl,
+  /** A published storefront always has its subdomain, so the link is built without a query and on the host the cart is on. */
+  checkoutUrl: (storefront: PublishedStorefront, orderId: OrderId) => orders.checkoutUrlFor(storefront.subdomain, orderId),
 };

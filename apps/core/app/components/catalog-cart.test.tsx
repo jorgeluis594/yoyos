@@ -103,7 +103,7 @@ test("cart lines show the theme thumbnail shape with the product initial when th
 });
 
 test("Continuar navigates to the full checkout URL on the app host and marks the cart as continued", async () => {
-  const checkoutUrl = `https://app.yoyos.lat/checkout/${companyId}/${orderId}`;
+  const checkoutUrl = `https://app.yoyos.lat/checkout/${orderId}`;
   const assign = vi.fn();
   vi.stubGlobal("location", { assign });
   answers.push(() => Promise.resolve(json({ checkoutUrl })));

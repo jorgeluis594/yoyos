@@ -12,7 +12,7 @@ function requestLogs(requestId: string) {
     .filter((event) => event.requestId === requestId);
 }
 
-test("buyer opens the brand host, adds two variants, continues to the app checkout, confirms and finds an empty cart back in the store", async ({ page }) => {
+test("buyer opens the brand host, adds two variants, continues to checkout on the brand host, confirms and finds an empty cart back in the store", async ({ page }) => {
   const email = `catalog-seller-${randomUUID()}@example.test`;
   const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Tienda del catálogo", country: "PE" });
   const buyer = await page.context().browser()!.newContext({ baseURL, viewport: { width: 390, height: 844 } });
@@ -67,8 +67,8 @@ test("buyer opens the brand host, adds two variants, continues to the app checko
     await browserExpect(cart.getByText("S/ 135.00", { exact: true })).toBeVisible();
     await cart.getByRole("button", { name: "Continuar" }).click();
 
-    // The checkout stays on the app host.
-    await buyerPage.waitForURL(new RegExp(`^${baseURL.replaceAll(".", "\\.")}/checkout/${companyId}/`));
+    // The checkout opens on the same brand host.
+    await buyerPage.waitForURL(new RegExp(`^${storeUrl(subdomain).replaceAll(".", "\\.")}checkout/[0-9a-f-]{36}$`));
     await browserExpect(buyerPage.getByRole("heading", { name: "Pedido #1001" })).toBeVisible();
     const orderId = buyerPage.url().split("/").at(-1)!;
     const orders = await page.request.get("/api/orders");
@@ -79,8 +79,6 @@ test("buyer opens the brand host, adds two variants, continues to the app checko
     await buyerPage.getByLabel("Nombre", { exact: true }).fill("Ana");
     await buyerPage.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await buyerPage.getByLabel("Recojo en tienda · Gratis").check();
-    await buyerPage.getByLabel("Nombre del destinatario").fill("Ana");
-    await buyerPage.getByLabel("Teléfono del destinatario").fill("+51987654321");
     await buyerPage.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(buyerPage.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     await expect.poll(() => requestLogs(requestId).filter((event) => event.event === "order_checkout_confirmed")).toEqual([
@@ -158,6 +156,16 @@ test("a brand host serves only the storefront: other paths, hidden and unknown s
     expect(cart.status()).toBe(404);
     expect(await cart.json()).toEqual({ code: "CATALOG_UNAVAILABLE" });
     expect(strip(await page.content())).toBe(strip(unknownBody));
+    // A checkout that is no order of this host's company is the same «Catálogo no disponible» on a hidden or unknown host; the app host does not serve it at all.
+    for (const host of [subdomain, "no-existe"]) {
+      const checkout = await page.goto(storeUrl(host, `/checkout/${randomUUID()}`));
+      expect(checkout?.status()).toBe(404);
+      expect(checkout?.headers()["referrer-policy"]).toBe("no-referrer");
+      expect(strip(await page.content())).toBe(strip(unknownBody));
+    }
+    expect((await page.request.get(`/checkout/${randomUUID()}`, { maxRedirects: 0 })).status()).toBe(404);
+    expect((await onBrandHost(`/api/buyer/orders/${randomUUID()}/payment`)).status()).toBe(404);
+    expect((await page.request.get(`/api/buyer/orders/${randomUUID()}/payment`)).status()).toBe(404);
 
     // The legacy address redirects permanently once published, and says unavailable while hidden.
     const legacy = `/catalogo/${companyId}/productos/${randomUUID()}?x=1`;

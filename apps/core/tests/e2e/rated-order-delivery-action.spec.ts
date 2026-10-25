@@ -4,6 +4,7 @@ import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
 import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { chooseDistrict } from "@core/tests/e2e/district-combobox";
 
 test("private web rated pickup rejects an obsolete price without writes and returns the saved aggregate", async ({ page }) => {
   const email = `rated-web-${crypto.randomUUID()}@example.test`;
@@ -45,9 +46,7 @@ test("private web rated pickup rejects an obsolete price without writes and retu
     await page.goto(url);
     await page.getByRole("button", { name: "Editar entrega", exact: true }).click();
     await chooseOption(page, "Modalidad de entrega", "Entrega a domicilio");
-    await page.getByLabel("Departamento", { exact: true }).selectOption("04");
-    await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
-    await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+    await chooseDistrict(page, "040110");
     const tariff = selectedValue(page, "rateId");
     const rates = await openOptions(page, "Tarifa de entrega");
     await browserExpect(rates).toHaveCount(2);

@@ -7,6 +7,7 @@ import { orders } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { chooseDistrict, chooseDistrictInProvince } from "@core/tests/e2e/district-combobox";
 
 test("seller completes a wallet sale and sees backend totals and stock", async ({ page, request }) => {
   const email = `orders-${crypto.randomUUID()}@example.test`;
@@ -263,9 +264,7 @@ test("new order saves partial payments, paid pending delivery and configured del
         await page.getByLabel("Importe recibido").nth(1).fill("3");
         await page.getByLabel("Configurar datos de entrega").check();
         await page.getByLabel("Dirección de entrega", { exact: true }).fill("Av. Lima 123");
-        await page.getByLabel("Departamento", { exact: true }).selectOption("04");
-        await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
-        await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+        await chooseDistrict(page, "040110");
         const tariff = selectedValue(page, "rateId");
         const chooseRate = async () => {
           const rates = await openOptions(page, "Tarifa de entrega");
@@ -275,11 +274,11 @@ test("new order saves partial payments, paid pending delivery and configured del
         };
         let rateId = await chooseRate();
         if (!rateId) throw new Error("Expected delivery rate");
-        await page.getByLabel("Distrito", { exact: true }).selectOption("040101");
+        await chooseDistrictInProvince(page, "040101");
         await browserExpect(page.getByRole("status").filter({ hasText: "No hay tarifas para esta modalidad y distrito." })).toBeVisible();
         await browserExpect(page.locator("#resumen strong")).toHaveText("—");
         await browserExpect(page.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
-        await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+        await chooseDistrictInProvince(page, "040110");
         await browserExpect(tariff).toHaveValue("");
         const reselectedRate = await chooseRate();
         if (!reselectedRate) throw new Error("Expected new quotation after district change");
