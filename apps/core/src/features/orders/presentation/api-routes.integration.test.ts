@@ -1165,8 +1165,9 @@ async function reportedOrder(seller: Awaited<ReturnType<typeof fixture>>, quanti
     await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } });
   });
   const buyerPath = `/api/buyer/orders/${orderId}`;
-  expect((await call(`${buyerPath}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
-  return { orderId, paymentId, imageId, buyerPath, reject: (cookie: string, reason: string | null = null, id = paymentId) =>
+  const buyer = buyerCallFor(seller.companyId);
+  expect((await buyer(`${buyerPath}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
+  return { orderId, paymentId, imageId, buyerPath, buyer, reject: (cookie: string, reason: string | null = null, id = paymentId) =>
     call(`/api/orders/${orderId}/payments/${id}/reject`, cookie, { reason }, "POST") };
 }
 
@@ -1268,10 +1269,10 @@ test("POST void of a rejected payment answers 409 INVALID_TRANSITION", async () 
 test("buyer view exposes the rejected status, its reason and rejectedReport", async () => {
   const seller = await fixture("PE");
   const report = await reportedOrder(seller);
-  const pending = await (await call(`${report.buyerPath}/payment`)).json();
+  const pending = await (await report.buyer(`${report.buyerPath}/payment`)).json();
   expect(pending).toMatchObject({ payments: [{ id: report.paymentId, status: "reported", rejectionReason: null }], rejectedReport: null });
   expect((await report.reject(seller.cookie, "El monto no coincide")).status).toBe(200);
-  const view = await call(`${report.buyerPath}/payment`);
+  const view = await report.buyer(`${report.buyerPath}/payment`);
   expect(view.status).toBe(200);
   expect(buyerPaymentViewSchema.parse(await view.json())).toMatchObject({ balanceDue: { amount: 10 },
     payments: [{ id: report.paymentId, status: "rejected", amount: null, method: null, rejectionReason: "El monto no coincide" }],
@@ -1279,8 +1280,8 @@ test("buyer view exposes the rejected status, its reason and rejectedReport", as
   const newPaymentId = randomUUID();
   const newImageId = randomUUID();
   await withTenantIsolation(seller.companyId, async () => { await prisma.image.create({ data: { id: newImageId, storageKey: `test/${newImageId}` } }); });
-  expect((await call(`${report.buyerPath}/reports`, undefined, { paymentId: newPaymentId, receiptImageId: newImageId }, "POST")).status).toBe(201);
-  expect(await (await call(`${report.buyerPath}/payment`)).json()).toMatchObject({ rejectedReport: null,
+  expect((await report.buyer(`${report.buyerPath}/reports`, undefined, { paymentId: newPaymentId, receiptImageId: newImageId }, "POST")).status).toBe(201);
+  expect(await (await report.buyer(`${report.buyerPath}/payment`)).json()).toMatchObject({ rejectedReport: null,
     payments: expect.arrayContaining([expect.objectContaining({ status: "rejected" }), expect.objectContaining({ id: newPaymentId, status: "reported" })]) });
 });
 
@@ -1296,10 +1297,10 @@ test("buyer view resolves the bank transfer image and every receipt url with one
     await prisma.companyPaymentSettings.create({ data: { companyId: seller.companyId, settings: [{ method: "bank_transfer", bank: "BCP", holder: "Ana",
       accountNumber: "1234", cci: null, imageId: bankImageId }] } });
   });
-  expect((await call(`${report.buyerPath}/reports`, undefined, { paymentId: randomUUID(), receiptImageId: secondImageId }, "POST")).status).toBe(201);
+  expect((await report.buyer(`${report.buyerPath}/reports`, undefined, { paymentId: randomUUID(), receiptImageId: secondImageId }, "POST")).status).toBe(201);
   const findMany = vi.spyOn(imageRepository, "findMany");
   const find = vi.spyOn(imageRepository, "find");
-  const view = await call(`${report.buyerPath}/payment`);
+  const view = await report.buyer(`${report.buyerPath}/payment`);
   expect(view.status).toBe(200);
   expect(findMany).toHaveBeenCalledTimes(1);
   expect(findMany.mock.calls[0]?.[0]).toEqual(expect.arrayContaining([bankImageId, report.imageId, secondImageId]));
@@ -1317,7 +1318,7 @@ test("buyer view drops a wallet whose image url does not resolve", async () => {
       { method: "digital_wallet", provider: "Yape", holder: "Ana", qr: { status: "verified", imageId: randomUUID() } },
       { method: "bank_transfer", bank: "BCP", holder: "Ana", accountNumber: "1234", cci: null, imageId: bankImageId }] } });
   });
-  const view = await call(`${report.buyerPath}/payment`);
+  const view = await report.buyer(`${report.buyerPath}/payment`);
   expect(view.status).toBe(200);
   const parsed = buyerPaymentViewSchema.parse(await view.json());
   expect(parsed.settings.map((setting) => setting.method)).toEqual(["bank_transfer"]);
@@ -1327,16 +1328,16 @@ test("repeating a buyer report after its rejection returns the rejected payment"
   const seller = await fixture("PE");
   const report = await reportedOrder(seller);
   expect((await report.reject(seller.cookie, "No coincide")).status).toBe(200);
-  const replay = await call(`${report.buyerPath}/reports`, undefined, { paymentId: report.paymentId, receiptImageId: report.imageId }, "POST");
+  const replay = await report.buyer(`${report.buyerPath}/reports`, undefined, { paymentId: report.paymentId, receiptImageId: report.imageId }, "POST");
   expect(replay.status).toBe(201);
   await withTenantIsolation(seller.companyId, async () => {
     expect(await prisma.payment.count()).toBe(1);
     expect((await prisma.payment.findUniqueOrThrow({ where: { id: report.paymentId } })).status).toBe("rejected");
   });
-  expect(await (await call(`${report.buyerPath}/payment`)).json()).toMatchObject({ payments: [{ id: report.paymentId, status: "rejected" }], rejectedReport: { reason: "No coincide" } });
+  expect(await (await report.buyer(`${report.buyerPath}/payment`)).json()).toMatchObject({ payments: [{ id: report.paymentId, status: "rejected" }], rejectedReport: { reason: "No coincide" } });
   const otherImageId = randomUUID();
   await withTenantIsolation(seller.companyId, async () => { await prisma.image.create({ data: { id: otherImageId, storageKey: `test/${otherImageId}` } }); });
-  expect((await call(`${report.buyerPath}/reports`, undefined, { paymentId: report.paymentId, receiptImageId: otherImageId }, "POST")).status).toBe(409);
+  expect((await report.buyer(`${report.buyerPath}/reports`, undefined, { paymentId: report.paymentId, receiptImageId: otherImageId }, "POST")).status).toBe(409);
 });
 
 test("repeating a manual payment after a lost response keeps a single payment", async () => {

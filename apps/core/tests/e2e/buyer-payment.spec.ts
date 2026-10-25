@@ -235,8 +235,6 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
     await page.getByLabel("Nombre", { exact: true }).fill("Ana Torres");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await page.getByRole("radio", { name: "Recojo en tienda · Gratis" }).check();
-    await page.getByLabel("Nombre del destinatario").fill("Ana Torres");
-    await page.getByLabel("Teléfono del destinatario").fill("+51987654321");
     await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
     await browserExpect(page.getByRole("heading", { name: "Pedido confirmado" })).toBeVisible();
     await page.goto(checkoutPath);

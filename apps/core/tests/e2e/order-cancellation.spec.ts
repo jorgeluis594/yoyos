@@ -158,8 +158,8 @@ test("new loader data replaces a recovered active cancellation snapshot after a 
     await browserExpect(page.getByRole("alert")).toBeVisible();
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await page.unroute(dataRoute);
-    const manual = page.getByRole("heading", { name: "Registrar pago manual" }).locator("..");
-    await manual.getByRole("button", { name: "Confirmar pago" }).click();
+    await page.getByRole("button", { name: "¿Te pagaron por fuera? Registrar pago", exact: true }).click();
+    await page.getByRole("dialog", { name: "Registrar pago" }).getByRole("button", { name: "Confirmar pago" }).click();
     await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
     expect((await f.detail(id)).checkoutEnabledAt).not.toBeNull();
   } finally { await f.cleanup(); }
