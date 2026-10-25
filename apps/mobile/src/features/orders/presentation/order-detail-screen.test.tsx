@@ -246,7 +246,7 @@ test("home details show historical address, district, instructions and seller al
   expect(screen.getByText(/Cargo al cliente:/)).toBeTruthy();
 });
 
-const linkUrl = `https://fantasio.yoyos.lat/checkout/${initialOrder.companyId}/${mockId}`;
+const linkUrl = `https://fantasio.yoyos.lat/checkout/${mockId}`;
 
 test("the order link shows when the screen opens, without a get-link step or a disclosure", async () => {
   mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", completedAt: null, deliveredAt: null };

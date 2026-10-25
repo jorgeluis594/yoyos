@@ -175,7 +175,7 @@ test("confirming company A's order on company B's published host goes through th
   const context = new RouterContextProvider();
   context.set(requestHostContext, `${subdomainOf(other.companyId)}.localhost`);
   const params = { orderId };
-  const form = new URLSearchParams({ name: "Ana", phone: "+51987654321", expectedTotal: String(created.data.total.amount), delivery: "{}" });
+  const form = new URLSearchParams({ name: "Ana", phone: "+51987654321", expectedTotal: JSON.stringify(created.data.total), delivery: JSON.stringify({ kind: "keep" }) });
   const request = new Request(`http://localhost/checkout/${orderId}`, { method: "POST", body: form });
   const answered = await storefrontMiddleware({ request, params, context } as never, async () => checkoutAction({ request, params, context } as never) as never);
   expect(answered).toMatchObject({ data: { unavailable: true }, init: { status: 404 } });
