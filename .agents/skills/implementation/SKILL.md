@@ -11,7 +11,7 @@ description: Guide implementation through contextual analysis, case-specific pro
 2. Read [Application Architecture](../../../docs/architecture.md) completely and adapt the implementation to its responsibility boundaries and dependency direction. It defines the target architecture, not the current scaffolds; apply it to the requested change without migrating unrelated code.
 3. Read the additional documents selected by the cases below before changing the corresponding behavior. Follow all applicable rows when a change spans responsibilities.
 4. Inspect Git status and preserve unrelated user changes.
-5. Inspect the affected application's `package.json`, tooling, and CI configuration to determine its actual validation commands. Do not assume root-level scripts or copy commands from another repository.
+5. Identify the parent branch this branch was created from (`main`, or the integration branch when working under implement-task); validation compares against it.
 6. Identify small logical units in dependency order, each independently reviewable and validatable. Implement them through the [Commit workflow](#commit-workflow), reusing existing code and creating only the layers and files the current behavior needs. For internal code imports, use only `@shared/*`, `@core/*`, or `@mobile/*`, according to the owning module. Never use relative paths, absolute paths, or `@/*`. Configure any missing alias in the affected application's tooling before using it.
 7. Add or update behavioral tests and run focused checks while developing, following the [Testing](../testing/SKILL.md) skill.
 8. Before reporting completion, verify that every completed unit is committed and that successful checks cover the final changes; report commit IDs and any remaining blockers.
@@ -42,17 +42,19 @@ For mobile changes, also follow [apps/mobile/AGENTS.md](../../../apps/mobile/AGE
 
 ## Validation commands
 
-Run checks from the owning application directory using its declared package manager and available tooling. Reinspect scripts when working; the scaffolds may evolve.
+Validate with `scripts/ci.sh [--fast] [parent-branch]` from the repository root (default parent: `main`). It runs the `.github/workflows/ci.yml` checks of every affected package (shared, core, mobile, landing) on the branch's changes against its parent, including uncommitted and untracked files: lint and dependency rules on the changed files, the tests affected by them, and the whole typecheck, E2E and landing build. It prints only failing output and ends with `Todo OK` or the list of failed checks.
 
-- `apps/core/package.json` and `apps/mobile/package.json` declare `lint` and `typecheck`.
-- Test commands, runners, and tooling rules are in the [Testing](../testing/SKILL.md) skill.
+- Use `--fast` while iterating; it skips core integration and E2E tests, which need Docker, `psql`, and Chromium.
+- Run it without `--fast` before each commit whose unit changes core behavior or contracts, and before the final report.
+- To focus on one test file while developing, use the commands in the [Testing](../testing/SKILL.md) skill.
+- If a check fails for a reason outside the change (environment, flaky test), report it with its output instead of skipping it.
 
 ## Commit workflow
 
 Repeat this cycle for each logical unit before starting the next:
 
 1. Complete one coherent, independently understandable and reversible part of the requirements, including its tests and related documentation. Follow Application Architecture and the applicable conventions; leave no intentionally incomplete or broken behavior. Adjust unit boundaries when dependencies require it, without absorbing unrelated work.
-2. Run the affected applications' configured lint, test, and type checks, plus integration checks required by changed contracts. Fix failures caused by the changes and rerun checks affected by subsequent edits. Missing or blocked required checks prevent the commit: report the blocker and validation performed, and do not claim completion or accumulate further units behind it.
+2. Run `scripts/ci.sh <parent-branch>` (see [Validation commands](#validation-commands)). Fix failures caused by the changes and rerun checks affected by subsequent edits. Missing or blocked required checks prevent the commit: report the blocker and validation performed, and do not claim completion or accumulate further units behind it.
 3. Inspect the diff for one clear purpose, stage only that unit's changes, and create the commit immediately. Use a concise imperative subject describing the behavior, without prefixes such as `feat:` or `fix:`. Exclude unrelated user changes.
 
 Committing does not authorize pushing or deploying. If the user requested uncommitted changes, apply the same unit boundaries and validation without staging or committing.

@@ -21,6 +21,7 @@ Use Node.js 24 and pnpm 12.5.1 to match CI; `mise.toml` currently pins Node 22. 
 - `pnpm --dir apps/core build`: create the web production build.
 - `pnpm --dir apps/mobile start`: start Expo.
 - `pnpm --dir <app> lint` and `pnpm --dir <app> typecheck`: run ESLint and TypeScript checks; replace `<app>` with `apps/core` or `apps/mobile`.
+- `scripts/ci.sh [--fast] [parent-branch]`: run the CI checks locally on what the branch changed against its parent (default `main`); `--fast` skips core integration and E2E. Use it to validate before committing.
 
 ## Coding Style & Naming Conventions
 
