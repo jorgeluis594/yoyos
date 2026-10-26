@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, expect, test } from "vitest";
+import { afterAll, expect, test, vi } from "vitest";
 import type { CompanyId } from "@shared/identity";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type { CatalogSubdomain } from "@shared/catalog-subdomain";
@@ -31,11 +31,11 @@ async function createCompany(published: boolean) {
 }
 
 /** Each product is newer than the previous one. */
-function addProduct(companyId: string, name: string, variants: VariantSeed[], options: { currency?: string } = {}) {
+function addProduct(companyId: string, name: string, variants: VariantSeed[], options: { currency?: string; options?: { name: string; values: string[] }[] } = {}) {
   return withTenantIsolation(companyId, async () => {
     const id = randomUUID() as ProductId;
     const when = new Date(clock += 1000);
-    await seedProduct({ id, name, currency: options.currency ?? "PEN", createdAt: when, updatedAt: when, variants: variants.map((variant) => ({
+    await seedProduct({ id, name, currency: options.currency ?? "PEN", createdAt: when, updatedAt: when, options: options.options, variants: variants.map((variant) => ({
       attributes: variant.attributes ?? {}, sku: variant.sku, salePrice: variant.price, purchasePrice: variant.purchasePrice, stock: variant.stock, status: variant.status })) });
     return id;
   });
@@ -144,4 +144,42 @@ test("preview cards read a hidden catalog's products only for the seller's compa
   expect(cards.success && cards.data.map(({ name }) => name)).toEqual(["Nuevo", "Medio", "Agotado"]);
   expect(cards.success && cards.data.find(({ name }) => name === "Agotado")?.soldOut).toBe(true);
   expect(await resolve(subdomainOf(hidden))).toEqual({ success: true, data: { kind: "unavailable" } });
+});
+
+test("public catalog product hides inactive variants and orders selectors by saved order", async () => {
+  const companyId = await createCompany(true);
+  // Color is saved before Talla; Azul only has the inactive L / Azul and XL has no variant at all.
+  const productId = await addProduct(companyId, "Polo básico", [
+    { attributes: { Color: "Negro", Talla: "S" }, price: 45, stock: 3 },
+    { attributes: { Color: "Negro", Talla: "L" }, price: 45, stock: 2 },
+    { attributes: { Color: "Azul", Talla: "L" }, price: 45, stock: 5, status: "inactive" },
+  ], { options: [{ name: "Color", values: ["Negro", "Azul"] }, { name: "Talla", values: ["S", "M", "L", "XL"] }] });
+  const detail = await catalogBrowse.getProduct(productId, await storefront(companyId));
+  expect(detail).toMatchObject({ success: true, data: { kind: "found", product: {
+    attributes: [{ name: "Color", values: ["Negro"] }, { name: "Talla", values: ["S", "L"] }] } } });
+  if (!detail.success || detail.data.kind !== "found") return;
+  const combinations = detail.data.product.variants.map(({ attributes }) => JSON.stringify(Object.entries(attributes)));
+  expect(combinations).toHaveLength(2);
+  expect(combinations).toEqual(expect.arrayContaining([JSON.stringify([["Color", "Negro"], ["Talla", "S"]]), JSON.stringify([["Color", "Negro"], ["Talla", "L"]])]));
+});
+
+test("public catalog list computes price and sold out from active variants without loading variant rows", async () => {
+  const companyId = await createCompany(true);
+  const cheapRetired = await addProduct(companyId, "Casaca", [
+    { attributes: { Talla: "S" }, price: 10, stock: 9, status: "inactive" },
+    { attributes: { Talla: "M" }, price: 80, stock: 0 },
+    { attributes: { Talla: "L" }, price: 80, stock: 0 },
+  ]);
+  const mixed = await addProduct(companyId, "Polo", [
+    { attributes: { Talla: "S" }, price: 45, stock: 0 },
+    { attributes: { Talla: "M" }, price: 49, stock: 2 },
+  ]);
+  const findMany = vi.spyOn(prisma.productVariant, "findMany");
+  const page = await browse(companyId);
+  expect(findMany).not.toHaveBeenCalled();
+  findMany.mockRestore();
+  expect(page.success && page.data.items).toEqual([
+    expect.objectContaining({ id: mixed, soldOut: false, price: { kind: "from", amount: { amount: 45, currency: "PEN" } } }),
+    expect.objectContaining({ id: cheapRetired, soldOut: true, price: { kind: "single", amount: { amount: 80, currency: "PEN" } } }),
+  ]);
 });
