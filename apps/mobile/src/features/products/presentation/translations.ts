@@ -1,5 +1,8 @@
+import { variantEditorTranslations } from "./variant-editor-translations";
+
 export const translations = {
   es: {
+    ...variantEditorTranslations.es,
     catalogLoadError: 'No se pudieron cargar los productos. Revisa tu conexión e inténtalo otra vez.',
     catalogMoreError: 'No se pudieron cargar más productos. Revisa tu conexión e inténtalo otra vez.',
     configurePrinter: 'Configurar impresora',
@@ -82,7 +85,6 @@ export const translations = {
     printLabel: 'Imprimir etiqueta',
     selectVariantToPrint: 'Elige una variante para imprimir',
     backToCatalog: 'Volver al catálogo',
-    checkProductStatus: 'Consultar estado del producto',
     photoInvalidDimensions: 'La foto no tiene dimensiones válidas.',
     photoTooLarge: 'La foto supera el tamaño permitido. Elige una imagen más pequeña.',
     cameraPermission: 'Permiso de cámara',
@@ -125,6 +127,7 @@ export const translations = {
     productPrintLookupError: 'No se pudo consultar el producto para imprimir.',
   },
   'pt-BR': {
+    ...variantEditorTranslations['pt-BR'],
     catalogLoadError: 'Não foi possível carregar os produtos. Verifique sua conexão e tente novamente.',
     catalogMoreError: 'Não foi possível carregar mais produtos. Verifique sua conexão e tente novamente.',
     configurePrinter: 'Configurar impressora',
@@ -207,7 +210,6 @@ export const translations = {
     printLabel: 'Imprimir etiqueta',
     selectVariantToPrint: 'Escolha uma variante para imprimir',
     backToCatalog: 'Voltar ao catálogo',
-    checkProductStatus: 'Consultar status do produto',
     photoInvalidDimensions: 'A foto não tem dimensões válidas.',
     photoTooLarge: 'A foto excede o tamanho permitido. Escolha uma imagem menor.',
     cameraPermission: 'Permissão da câmera',
