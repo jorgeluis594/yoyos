@@ -116,7 +116,7 @@ export function OptionEditor({ draft, buffer, issues, originalNames, notice, val
           </li>;
         })}
       </ul>
-      <p role="status" className="sr-only">{reorder.announcement}</p>
+      <p aria-live="polite" className="sr-only">{reorder.announcement}</p>
       {listIssues.map((text) => <FieldError key={text}>{text}</FieldError>)}
     </fieldset>
     {showExisting && <Field>

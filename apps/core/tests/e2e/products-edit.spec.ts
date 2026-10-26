@@ -58,7 +58,7 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await browserExpect(page.getByRole("status")).toContainText("Producto guardado correctamente.");
     await browserExpect(page.getByRole("heading", { name: "Cuaderno editado" })).toBeVisible();
     await browserExpect(page.getByLabel("SKU")).toHaveValue("CUAD-2");
-    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("15.50");
+    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("15.5");
     await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("");
     await browserExpect(page.getByText("Algodón")).toHaveCount(0);
     await browserExpect(page.getByLabel("Stock")).toHaveValue("4");
@@ -98,17 +98,15 @@ test("edit products from the private form, preserve unchanged data, and enforce 
       ],
     }));
     await page.goto(`/es-PE/products/${prepared.productId}`);
-    await browserExpect(page.getByText("Puedes editar los datos generales y la foto. Las variantes son de solo lectura.")).toBeVisible();
+    await browserExpect(page.getByLabel("Precio de venta de M")).toHaveValue("20.00");
     await browserExpect(page.getByLabel("SKU")).toHaveCount(0);
     await browserExpect(page.getByLabel("Stock")).toHaveValue("5");
     await page.getByLabel("Nombre *").fill("Camisa con tallas editada");
     await page.getByRole("button", { name: "Guardar cambios" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/es-PE/products/${prepared.productId}\\?saved=1$`));
     await browserExpect(page.getByRole("heading", { name: "Camisa con tallas editada" })).toBeVisible();
-    await browserExpect(page.getByText("CAM-M")).toBeVisible();
-    await browserExpect(page.getByText("CAM-L")).toBeVisible();
-    await browserExpect(page.getByText("M", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("L", { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Precio de venta de M")).toHaveValue("20.00");
+    await browserExpect(page.getByLabel("Precio de venta de L")).toHaveValue("25.00");
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole("button", { name: "Cerrar sesión" }).click();

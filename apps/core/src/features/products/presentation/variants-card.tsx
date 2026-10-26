@@ -187,7 +187,7 @@ export function VariantsCard({ draft, setDraft, currency, originalNames, targets
           ? <p className="text-sm text-muted-foreground">{t("productEditor.maxOptions", { count: maxOptions })}</p>
           : <div className="grid gap-1"><div><Button type="button" variant="outline" onClick={() => open(newOptionBuffer(crypto.randomUUID()))}>{t("productEditor.addAnotherOption")}</Button></div>
               <p className="text-sm text-muted-foreground">{t("productEditor.optionsHelp", { count: maxOptions })}</p></div>)}
-        <p role="status" className="sr-only">{reorder.announcement}</p>
+        <p aria-live="polite" className="sr-only">{reorder.announcement}</p>
         {noneActive && <Alert variant="warning"><AlertDescription>{t("productEditor.noActive")}</AlertDescription></Alert>}
         {hasOptions && <>
           {stockNotice !== null && <Alert variant="info"><AlertDescription>{t("productEditor.stockCopied", { count: stockNotice })}</AlertDescription></Alert>}
