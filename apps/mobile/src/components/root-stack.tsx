@@ -4,7 +4,6 @@ import { Stack } from 'expo-router';
 export default function RootStack() {
   return <Stack screenOptions={{ headerShown: false }}>
     <Stack.Screen name="(tabs)" />
-    <Stack.Screen name="products/new" />
-    <Stack.Screen name="products/[productId]" />
+    <Stack.Screen name="products" />
   </Stack>;
 }
