@@ -4,7 +4,7 @@ import type { Result } from "@shared/result";
 import { changeVariantCombination, type ChangeVariantCombinationDependencies, type ChangeVariantCombinationInput } from "@core/src/features/products/application/change-variant-combination";
 import type { CombinationPlan } from "@core/src/features/products/domain/variant-rules";
 import type { Product } from "@core/src/features/products/domain/product";
-import { azul, color, large, lAzul, lNegro, medium, mNegro, negro, newId, productId, shirts, simple, talla, when } from "@core/src/features/products/application/variant-action-fixtures";
+import { azul, color, large, lNegro, medium, mNegro, negro, newId, productId, shirts, simple, talla, when } from "@core/src/features/products/application/variant-action-fixtures";
 
 const access = { companyId: "00000000-0000-4000-8000-0000000000aa" as never };
 
