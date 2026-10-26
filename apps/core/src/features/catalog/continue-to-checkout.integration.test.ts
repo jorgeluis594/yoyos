@@ -22,6 +22,7 @@ import type { CartQuantity } from "@core/src/features/orders/domain/catalog-orde
 import type { CompanyId, OrderId, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
+import { findOrderAggregate } from "@core/src/features/orders/infrastructure/order-repository";
 
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -94,6 +95,18 @@ test("two simultaneous Continuar with the same id create one order and consume o
   const stored = await withTenantIsolation(companyId, async () => await prisma.order.findMany({ include: { items: true } }));
   expect(stored).toMatchObject([{ id: input.orderId, fromCatalog: true, sellerId: null, checkoutConfirmedAt: null, items: [{ quantity: 3n }] }]);
   expect(stored[0].checkoutEnabledAt).toBeInstanceOf(Date);
+});
+
+test("a catalog order keeps the combination in option order, not alphabetical, after reading it back", async () => {
+  const { companyId, black } = await store();
+  const orderId = randomUUID() as OrderId;
+  expect(await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1)] }, await storefrontOf(companyId))).toMatchObject({ success: true });
+  await withTenantIsolation(companyId, async () => {
+    const [stored] = await prisma.$queryRaw<{ attributes: string }[]>`SELECT "variantAttributes"::text AS attributes FROM "OrderItem"`;
+    expect(Object.entries(JSON.parse(stored.attributes))).toEqual([["Talla", "M"], ["Color", "Negro"]]);
+    const read = await findOrderAggregate(orderId, companyId);
+    expect(read.success && read.data?.items.map((item) => Object.entries(item.variantAttributes))).toEqual([[["Talla", "M"], ["Color", "Negro"]]]);
+  });
 });
 
 test("a rejected cart allocates no number", async () => {

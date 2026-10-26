@@ -10,7 +10,7 @@ import type { CatalogSearch } from "@core/src/features/catalog/domain/catalog";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
-type VariantSeed = { attributes?: Record<string, string>; sku?: string; price: number; purchasePrice?: number; stock: number };
+type VariantSeed = { attributes?: Record<string, string>; sku?: string; price: number; purchasePrice?: number; stock: number; status?: "active" | "inactive" };
 const companies: string[] = [];
 let clock = Date.parse("2026-01-01T00:00:00.000Z");
 
@@ -36,7 +36,7 @@ function addProduct(companyId: string, name: string, variants: VariantSeed[], op
     const id = randomUUID() as ProductId;
     const when = new Date(clock += 1000);
     await seedProduct({ id, name, currency: options.currency ?? "PEN", createdAt: when, updatedAt: when, variants: variants.map((variant) => ({
-      attributes: variant.attributes ?? {}, sku: variant.sku, salePrice: variant.price, purchasePrice: variant.purchasePrice, stock: variant.stock })) });
+      attributes: variant.attributes ?? {}, sku: variant.sku, salePrice: variant.price, purchasePrice: variant.purchasePrice, stock: variant.stock, status: variant.status })) });
     return id;
   });
 }
@@ -73,6 +73,21 @@ test("catalog projection never contains SKU, cost or stock quantity", async () =
   for (const detailOnly of ["maxQuantity", "variants", "attributes", "description"]) expect(list).not.toContain(detailOnly);
   for (const projection of [list, JSON.stringify(detail)])
     for (const secret of ["SKU-SECRET", "12.34", "13.57", "qrCode", "sku", "purchasePrice", "stock"]) expect(projection).not.toContain(secret);
+});
+
+test("the public catalog does not offer a deactivated variant", async () => {
+  const companyId = await createCompany(true);
+  const productId = await addProduct(companyId, "Polo básico", [
+    { attributes: { Talla: "M" }, price: 45, stock: 3 },
+    { attributes: { Talla: "L" }, price: 10, stock: 5, status: "inactive" },
+  ]);
+  const only = await addProduct(companyId, "Casaca", [{ attributes: { Talla: "S" }, price: 80, stock: 2, status: "inactive" }]);
+  const detail = await catalogBrowse.getProduct(productId, await storefront(companyId));
+  expect(detail).toMatchObject({ success: true, data: { kind: "found", product: { price: { kind: "single", amount: { amount: 45 } }, attributes: [{ name: "Talla", values: ["M"] }] } } });
+  expect(detail.success && detail.data.kind === "found" && detail.data.product.variants).toHaveLength(1);
+  const page = await browse(companyId);
+  expect(page.success && page.data.items.map(({ id }) => id)).toEqual([productId]);
+  expect(await catalogBrowse.getProduct(only, await storefront(companyId))).toMatchObject({ success: true, data: { kind: "unavailable" } });
 });
 
 test("search finds «POLO OVERSIZE» and «Polo básico» for «polo» and ignores accents", async () => {

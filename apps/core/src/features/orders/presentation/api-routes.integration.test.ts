@@ -284,6 +284,28 @@ test("buyer order link resolves one company and reports only its receipt", async
   expect((await call(`/api/orders/${orderId}/aggregate`)).status).toBe(401);
 });
 
+test("orders HTTP answers VARIANT_NOT_FOUND for a deactivated variant and keeps the combination of a sale in option order", async () => {
+  const seller = await fixture("PE");
+  const { inactive, active } = await withTenantIsolation(seller.companyId, async () => {
+    const seeded = await seedProduct({ name: "Polo", variants: [
+      { attributes: { Talla: "M", Color: "Negro" }, salePrice: 45, stock: 2, status: "inactive" },
+      { attributes: { Talla: "L", Color: "Negro" }, salePrice: 45, stock: 2 },
+    ] });
+    return { inactive: seeded.variantIds[0], active: seeded.variantIds[1] };
+  });
+  const sale = (variantId: string) => ({ id: randomUUID(), items: [{ variantId, quantity: 1 }], payment: { method: "digital_wallet" }, delivery: { method: "handover" } });
+  const refused = await call("/api/orders", seller.cookie, sale(inactive), "POST");
+  expect(refused.status).toBe(404);
+  expect(await refused.json()).toMatchObject({ code: "VARIANT_NOT_FOUND", issues: [{ variantId: inactive }] });
+  const created = await call("/api/orders", seller.cookie, sale(active), "POST");
+  expect(created.status).toBe(201);
+  const { id } = await created.json() as { id: string };
+  const detail = await (await call(`/api/orders/${id}`, seller.cookie)).json() as { items: { variantAttributes: Record<string, string> }[] };
+  expect(detail.items.map((item) => Object.entries(item.variantAttributes))).toEqual([[["Talla", "L"], ["Color", "Negro"]]]);
+  const [stored] = await withTenantIsolation(seller.companyId, async () => await prisma.$queryRaw<{ attributes: string }[]>`SELECT "variantAttributes"::text AS attributes FROM "OrderItem" WHERE "orderId" = ${id}::uuid`);
+  expect(Object.entries(JSON.parse(stored.attributes))).toEqual([["Talla", "L"], ["Color", "Negro"]]);
+});
+
 test("orders HTTP lets a Chile company complete sales, returns historical data, and isolates other companies", async () => {
   const seller = await fixture("CL");
   const other = await fixture("PE");

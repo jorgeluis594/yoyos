@@ -5,7 +5,7 @@ import { err, ok } from "@shared/functional";
 import { getCompanyId, prisma, systemPrisma, withLockedForUpdate, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { orders } from "@core/src/features/orders/composition";
 import { addMessageProductsToOrder, type AddMessageProductsDependencies, type OrderSourceMessage } from "@core/src/features/orders/application/add-message-products-to-order";
-import { allocateOrderNumber, findOpenChatOrderCandidate, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
+import { findOrderAggregate, allocateOrderNumber, findOpenChatOrderCandidate, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariantsByQrCodes, findSellableVariantsOfProduct } from "@core/src/features/products/infrastructure/order-stock";
 import { findNearestProductImages, hasIndexedProducts, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import { identifyProductsInImage, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
@@ -139,6 +139,21 @@ test("an incoming label photo creates an order for the contact's new customer li
     expect(order).toMatchObject({ customerId: contact.customerId, chatId: f.chatId, sellerId: f.sellerId, buyer: { contactId: f.contactId, name: null, phone: null } });
     expect(quantities(order!)).toEqual({ [f.variantIds[0]!]: 1 });
     expect(await inTenant(f, () => prisma.orderMessage.count())).toBe(1);
+  } finally { await f.cleanup(); }
+});
+
+test("a photo of a QR keeps the combination of the order item in option order after reading it back", async () => {
+  const f = await fixture();
+  try {
+    // Talla is saved before Color: stored as jsonb the keys would come back alphabetically, as Color first.
+    const variantId = randomUUID();
+    await inTenant(f, () => seedProduct({ name: "Polo", variants: [{ id: variantId, qrCode: variantId, attributes: { Talla: "M", Color: "Negro" }, salePrice: 45 }] }));
+    expect(await process(f, await photo(f, [variantId]))).toMatchObject({ success: true, data: { kind: "order_created", variantIds: [variantId] } });
+    const [order] = await chatOrders(f);
+    const [stored] = await inTenant(f, () => prisma.$queryRaw<{ attributes: string }[]>`SELECT "variantAttributes"::text AS attributes FROM "OrderItem" WHERE "orderId" = ${order!.id}::uuid`);
+    expect(Object.entries(JSON.parse(stored.attributes))).toEqual([["Talla", "M"], ["Color", "Negro"]]);
+    const read = await inTenant(f, () => findOrderAggregate(order!.id as OrderId, f.companyId as CompanyId));
+    expect(read.success && read.data?.items.map((item) => Object.entries(item.variantAttributes))).toEqual([[["Talla", "M"], ["Color", "Negro"]]]);
   } finally { await f.cleanup(); }
 });
 
