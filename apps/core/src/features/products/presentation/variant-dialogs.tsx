@@ -34,7 +34,9 @@ export function BulkDialog({ kind, selected, hidden, newCount, onApply, onClose 
   const number = amount(text);
   const valid = kind === "purchasePrice" ? true : number !== null && Number.isFinite(number) && number >= (kind === "stock" ? 0 : 0.01);
   function submit(event: FormEvent) {
+    // The dialog renders in a portal, but React still bubbles its events to the product form that owns it.
     event.preventDefault();
+    event.stopPropagation();
     if (!valid || applies === 0) return;
     onApply(kind === "purchasePrice" ? { purchasePrice: number } : kind === "salePrice" ? { salePrice: number ?? 0 } : { stock: number ?? 0 });
     onClose();
@@ -71,6 +73,7 @@ export function RowDialog({ row, label, currency, onDone, onRemove, onClose }: R
   </Field>;
   function submit(event: FormEvent) {
     event.preventDefault();
+    event.stopPropagation();
     onDone({ salePrice: Number(values.salePrice) || 0, purchasePrice: amount(values.purchasePrice), stock: Number(values.stock) || 0, sku: values.sku.trim() === "" ? null : values.sku });
     onClose();
   }
