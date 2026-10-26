@@ -210,8 +210,10 @@ export default function CatalogScreen() {
             </ThemedText>
           </View>
           <View style={styles.price}>
-            {item.priceFrom ? <ThemedText type="small" themeColor="textSecondary">{t('catalogFrom')}</ThemedText> : null}
-            <ThemedText style={styles.amount}>{price(item)}</ThemedText>
+            {item.activeVariantCount === 0 ? <ThemedText type="small" themeColor="textSecondary" style={styles.noActive}>{t('noActiveVariants')}</ThemedText> : <>
+              {item.priceFrom ? <ThemedText type="small" themeColor="textSecondary">{t('catalogFrom')}</ThemedText> : null}
+              <ThemedText style={styles.amount}>{price(item)}</ThemedText>
+            </>}
           </View>
         </Pressable>}
         ListFooterComponent={error && items.length ? <View style={styles.footer}><ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{error}</ThemedText><Button variant="secondary" loading={loadingMore || refreshing} onPress={() => retryMode === "more" ? void loadMore() : void reload(queryRef.current, true)}>{t('retry')}</Button></View>
@@ -249,6 +251,7 @@ const styles = StyleSheet.create({
   productText: { flex: 1, minWidth: 0, gap: 2 },
   productName: { fontWeight: "600" },
   price: { alignItems: "flex-end", maxWidth: "40%" },
+  noActive: { textAlign: "right" },
   amount: { fontVariant: ["tabular-nums"], fontWeight: "600", textAlign: "right" },
   footer: { alignItems: "center", gap: 8, paddingTop: 16 },
 });

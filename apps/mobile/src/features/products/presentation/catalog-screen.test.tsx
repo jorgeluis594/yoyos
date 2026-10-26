@@ -124,3 +124,10 @@ test('rows with several variants show the shared variant count', async () => {
   const screen = render(<CatalogScreen />);
   expect(await screen.findByText('12 en stock · 2 variantes')).toBeTruthy();
 });
+
+test('a product without active variants shows Sin variantes activas instead of a price', async () => {
+  mockLoadProducts.mockResolvedValue(ok({ items: [{ ...product, variantCount: 2, activeVariantCount: 0, price: null, stock: 0 }], total: 1, page: 1, pageSize: 20 }));
+  const screen = render(<CatalogScreen />);
+  await screen.findByText('Sin variantes activas');
+  expect(screen.queryByText('—')).toBeNull();
+});
