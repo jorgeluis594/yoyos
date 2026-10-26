@@ -1,5 +1,5 @@
 import { normalizeOptionText, productOptionLimits } from "@shared/contracts/products";
-import { addOption, addValue, moveValue, renameOption, renameValue, variantCounter, type Edit, type EditorDraft, type EditorOption } from "@shared/product-variants";
+import { addOption, addValue, moveValue, renameOption, renameValue, setValueForExistingVariants, variantCounter, type Edit, type EditorDraft, type EditorOption } from "@shared/product-variants";
 import { ok } from "@shared/functional";
 
 /** What the seller types in one option editor before pressing «Listo». Nothing reaches the draft until then. */
@@ -106,6 +106,9 @@ export function applyOptionBuffer(draft: EditorDraft, buffer: OptionBuffer): Edi
   }
   const order = [...buffer.values.filter((value) => saved.has(value.id) || trimmed(value.text) !== "").map((value) => value.id)];
   order.forEach((id, index) => { next = moveValue(next, buffer.optionId, id, index); });
+  if (draft.saved && !option.saved && buffer.valueForExistingVariants && buffer.valueForExistingVariants !== option.valueForExistingVariants) {
+    return setValueForExistingVariants(next, buffer.optionId, buffer.valueForExistingVariants);
+  }
   return ok(next);
 }
 

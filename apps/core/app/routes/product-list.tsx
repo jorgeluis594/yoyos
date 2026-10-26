@@ -61,7 +61,8 @@ export default function ProductList() {
       header: t("products.salePrice"),
       mobile: "value",
       align: "right",
-      cell: (item) => item.minSalePrice ? `${item.hasDifferentPrices ? t("products.from") : ""}${formatCurrency(item.minSalePrice.amount, item.minSalePrice.currency, i18n.language)}` : t("products.noPrice"),
+      cell: (item) => item.activeVariantCount === 0 ? t("productEditor.noActiveList")
+        : item.minSalePrice ? `${item.hasDifferentPrices ? t("products.from") : ""}${formatCurrency(item.minSalePrice.amount, item.minSalePrice.currency, i18n.language)}` : t("products.noPrice"),
     },
     {
       id: "stock",
