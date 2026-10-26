@@ -3,7 +3,7 @@ import { test } from "node:test";
 import { createProductRequestSchema, saveProductRequestSchema } from "./contracts/products.ts";
 import {
   addCombination, addOption, addValue, applyBulk, buildCreateProductBody, buildSaveProductBody, combinationLabel, copiedStockNotice, createDraft,
-  draftFromProduct, hiddenSelectedCount, inactiveSourceCount, isChipActive, moveOption, moveValue, orderedRows, removalOf, removeOption, removeRow,
+  draftFromProduct, hiddenSelectedCount, setValueForExistingVariants, inactiveSourceCount, isChipActive, moveOption, moveValue, orderedRows, removalOf, removeOption, removeRow,
   removeValue, renameOption, renameValue, rowLabel, setRow, toggleAll, toggleChip, uncreatedCombinations, uncreatedCount, undoRemoveRow,
   undoRemoveValue, variantCounter,
 } from "./product-variants.ts";
@@ -29,9 +29,10 @@ const uuid = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const base = { sku: null, salePrice: 39.9, purchasePrice: 20, stock: 4 };
 const optionSpec = (n, name, values) => ({ id: uuid(n * 100), name, values: values.map((valueName, index) => ({ id: uuid(n * 100 + index + 1), name: valueName })) });
 const must = (edit) => {
-  assert.equal(edit.ok, true, JSON.stringify(edit));
-  return edit.draft;
+  assert.equal(edit.success, true, JSON.stringify(edit));
+  return edit.data;
 };
+const dropRow = (draft, ref) => must(removeRow(draft, ref));
 const labels = (draft) => orderedRows(draft).map((row) => rowLabel(draft, row));
 const rowOf = (draft, label) => {
   const row = orderedRows(draft).find((candidate) => rowLabel(draft, candidate) === label);
@@ -133,7 +134,7 @@ test("marking a value marks its rows and undoing it restores rows marked by them
   let draft = createDraft(base);
   draft = must(addOption(draft, optionSpec(1, "Talla", ["S", "M", "L"])));
   const small = rowOf(draft, "S").ref;
-  draft = removeRow(draft, small);
+  draft = dropRow(draft, small);
   assert.equal(removalOf(draft, rowOf(draft, "S")), "self");
   draft = must(removeValue(draft, uuid(101)));
   assert.equal(removalOf(draft, rowOf(draft, "S")), "value");
@@ -150,17 +151,17 @@ test("marking a value marks its rows and undoing it restores rows marked by them
 test("the counter excludes marked rows and the limit check reports current plus new", () => {
   let draft = newPolo();
   draft = setRow(draft, rowOf(draft, "S / Azul").ref, { salePrice: 1 });
-  draft = removeRow(draft, rowOf(draft, "M / Azul").ref);
+  draft = dropRow(draft, rowOf(draft, "M / Azul").ref);
   assert.deepEqual(variantCounter(draft), { count: 5, inactive: 0, maximum: 100 });
 
   const third = addOption(draft, optionSpec(3, "Manga", ["Corta", "Larga", "Sin", "Con"]));
-  assert.equal(third.ok, true);
+  assert.equal(third.success, true);
   // 5 × 6 × 4 = 120 from scratch.
   let wide = createDraft(base);
   wide = must(addOption(wide, optionSpec(1, "A", ["1", "2", "3", "4", "5"])));
   wide = must(addOption(wide, optionSpec(2, "B", ["1", "2", "3", "4", "5", "6"])));
   const over = addOption(wide, optionSpec(3, "C", ["1", "2", "3", "4"]));
-  assert.deepEqual([over.ok, over.reason, over.projected, over.maximum], [false, "TOO_MANY_VARIANTS", 120, 100]);
+  assert.deepEqual([over.success, over.error.code, over.error.projected, over.error.maximum], [false, "TOO_MANY_VARIANTS", 120, 100]);
 
   // 98 saved plus 6 new.
   const a = optionSpec(1, "A", Array.from({ length: 17 }, (_, index) => `a${index}`));
@@ -169,19 +170,19 @@ test("the counter excludes marked rows and the limit check reports current plus 
   const saved = draftFromProduct(savedProduct([a, b], combos.map((values) => ({ values }))));
   assert.equal(variantCounter(saved).count, 98);
   const tooMany = addValue(saved, b.id, { id: uuid(900), name: "b6" });
-  assert.deepEqual([tooMany.ok, tooMany.reason, tooMany.projected], [false, "TOO_MANY_VARIANTS", 115]);
+  assert.deepEqual([tooMany.success, tooMany.error.code, tooMany.error.projected], [false, "TOO_MANY_VARIANTS", 115]);
   const sixNew = addValue(saved, a.id, { id: uuid(901), name: "a17" });
-  assert.deepEqual([sixNew.ok, sixNew.reason, sixNew.projected, sixNew.maximum], [false, "TOO_MANY_VARIANTS", 104, 100]);
+  assert.deepEqual([sixNew.success, sixNew.error.code, sixNew.error.projected, sixNew.error.maximum], [false, "TOO_MANY_VARIANTS", 104, 100]);
 });
 
 test("the option and value limits are checked", () => {
   let draft = newPolo();
   draft = must(addOption(draft, optionSpec(3, "Manga", ["Corta"])));
-  assert.equal(addOption(draft, optionSpec(4, "Cuello", ["Redondo"])).reason, "TOO_MANY_OPTIONS");
+  assert.equal(addOption(draft, optionSpec(4, "Cuello", ["Redondo"])).error.code, "TOO_MANY_OPTIONS");
   let many = createDraft(base);
   many = must(addOption(many, optionSpec(1, "Talla", Array.from({ length: 30 }, (_, index) => `t${index}`))));
-  assert.equal(addValue(many, uuid(100), { id: uuid(900), name: "t30" }).reason, "TOO_MANY_VALUES");
-  assert.equal(addOption(createDraft(base), optionSpec(1, "Talla", [])).reason, "OPTION_WITHOUT_VALUES");
+  assert.equal(addValue(many, uuid(100), { id: uuid(900), name: "t30" }).error.code, "TOO_MANY_VALUES");
+  assert.equal(addOption(createDraft(base), optionSpec(1, "Talla", [])).error.code, "OPTION_WITHOUT_VALUES");
 });
 
 test("renaming and moving options and values keeps what was edited", () => {
@@ -231,7 +232,7 @@ test("a new combination copied from an inactive variant is flagged so the table 
   assert.equal(rowOf(draft, "S / Azul / Larga").copiedFromInactive, true);
   assert.equal(rowOf(draft, "S / Azul / Larga").status, "active");
   assert.equal(rowOf(draft, "S / Negro / Larga").copiedFromInactive, false);
-  assert.equal(inactiveSourceCount(removeRow(draft, rowOf(draft, "S / Azul / Larga").ref)), 0);
+  assert.equal(inactiveSourceCount(dropRow(draft, rowOf(draft, "S / Azul / Larga").ref)), 0);
   assert.deepEqual(variantCounter(draft), { count: 8, inactive: 1, maximum: 100 });
 });
 
@@ -253,7 +254,7 @@ test("with the Azul filter active the L chip selects only L / Azul", () => {
 test("chips and Todas never select inactive or marked rows", () => {
   const draft = draftFromProduct(fullPolo({ "S / Negro": { status: "inactive" } }));
   const marked = must(addValue(draft, uuid(100), { id: uuid(900), name: "XL" }));
-  const withMarked = removeRow(marked, rowOf(marked, "XL / Negro").ref);
+  const withMarked = dropRow(marked, rowOf(marked, "XL / Negro").ref);
   const all = toggleAll(withMarked, [], null);
   assert.equal(all.length, 4);
   assert.ok(!all.includes(rowOf(withMarked, "S / Negro").ref) && !all.includes(rowOf(withMarked, "XL / Negro").ref));
@@ -281,13 +282,13 @@ test("lists combinations not created in saved order and adding one respects the 
   draft = must(addCombination(draft, listed.items[0].combination));
   assert.equal(uncreatedCount(draft), 1);
   assert.deepEqual([rowOf(draft, "S / Azul").salePrice, rowOf(draft, "S / Azul").stock, rowOf(draft, "S / Azul").id], [11, 0, null]);
-  assert.equal(addCombination(draft, listed.items[0].combination).ok, false);
+  assert.equal(addCombination(draft, listed.items[0].combination).success, false);
 
   const a = optionSpec(1, "A", Array.from({ length: 10 }, (_, index) => `a${index}`));
   const b = optionSpec(2, "B", Array.from({ length: 11 }, (_, index) => `b${index}`));
   const full = draftFromProduct(savedProduct([a, b], a.values.flatMap((av) => b.values.map((bv) => ({ values: [av.name, bv.name] }))).slice(0, 100)));
   const atLimit = addCombination(full, uncreatedCombinations(full).items[0].combination);
-  assert.deepEqual([atLimit.ok, atLimit.reason, atLimit.projected], [false, "TOO_MANY_VARIANTS", 101]);
+  assert.deepEqual([atLimit.success, atLimit.error.code, atLimit.error.projected], [false, "TOO_MANY_VARIANTS", 101]);
 });
 
 test("with 30 × 30 × 30 values and 100 saved variants the counter and limit check use arithmetic and the uncreated list is paged", () => {
@@ -303,14 +304,14 @@ test("with 30 × 30 × 30 values and 100 saved variants the counter and limit ch
   assert.equal(first.hasMore, true);
   const second = uncreatedCombinations(draft, { offset: 50 });
   assert.notEqual(second.items[0].label, first.items[0].label);
-  assert.equal(addValue(draft, a.id, { id: uuid(900), name: "a30" }).reason, "TOO_MANY_VALUES");
-  assert.equal(addCombination(draft, first.items[0].combination).projected, 101);
+  assert.equal(addValue(draft, a.id, { id: uuid(900), name: "a30" }).error.code, "TOO_MANY_VALUES");
+  assert.equal(addCombination(draft, first.items[0].combination).error.projected, 101);
   assert.ok(Date.now() - started < 500);
 });
 
 test("marking a value and deleting its option in the same draft builds a valid save body", () => {
   const draft = draftFromProduct(fullPolo());
-  assert.equal(removeOption(draft, uuid(200)).reason, "OPTION_HAS_SEVERAL_VALUES");
+  assert.equal(removeOption(draft, uuid(200)).error.code, "OPTION_HAS_SEVERAL_VALUES");
   const marked = must(removeValue(draft, uuid(202)));
   const removed = must(removeOption(marked, uuid(200)));
   const body = saveProductRequestSchema.parse(buildSaveProductBody(removed, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
@@ -322,11 +323,11 @@ test("marking a value and deleting its option in the same draft builds a valid s
 test("a value whose variants have orders or stock cannot be marked, and the last option needs an active variant", () => {
   const draft = draftFromProduct(fullPolo({ "M / Azul": { hasOrders: true }, "S / Azul": { stock: 2 } }));
   const blocked = removeValue(draft, uuid(202));
-  assert.deepEqual([blocked.ok, blocked.reason, blocked.blocked], [false, "VARIANT_HAS_ORDERS_OR_STOCK", 2]);
+  assert.deepEqual([blocked.success, blocked.error.code, blocked.error.blocked], [false, "VARIANT_HAS_ORDERS_OR_STOCK", 2]);
 
   const talla = optionSpec(1, "Talla", ["S"]);
   const single = draftFromProduct(savedProduct([talla], [{ values: ["S"], status: "inactive" }]));
-  assert.equal(removeOption(single, talla.id).reason, "LAST_OPTION_VARIANT_INACTIVE");
+  assert.equal(removeOption(single, talla.id).error.code, "LAST_OPTION_VARIANT_INACTIVE");
   const active = must(removeOption(draftFromProduct(savedProduct([talla], [{ values: ["S"], price: 33 }])), talla.id));
   const body = saveProductRequestSchema.parse(buildSaveProductBody(active, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
   assert.deepEqual([body.options, body.variants, body.deletedVariantIds], [[], [], []]);
@@ -340,7 +341,7 @@ test("a draft from a product treats every status other than active as inactive",
 
 test("builds the create body from the draft without the removed rows", () => {
   let draft = newPolo();
-  draft = removeRow(draft, rowOf(draft, "S / Azul").ref);
+  draft = dropRow(draft, rowOf(draft, "S / Azul").ref);
   draft = setRow(draft, rowOf(draft, "L / Azul").ref, { salePrice: 42.9, sku: " L-A " });
   const body = createProductRequestSchema.parse(buildCreateProductBody(draft, { id: "11111111-1111-4111-8111-111111111111", name: "Polo", description: null, imageId: null, currency: "PEN" }));
   assert.equal(body.variants.length, 5);
@@ -349,4 +350,58 @@ test("builds the create body from the draft without the removed rows", () => {
 
   const plain = createProductRequestSchema.parse(buildCreateProductBody(createDraft({ ...base, sku: "POLO" }), { id: "11111111-1111-4111-8111-111111111111", name: "Polo", description: null, imageId: null, currency: "PEN" }));
   assert.deepEqual([plain.options, plain.variants], [[], [{ values: [], sku: "POLO", salePrice: 39.9, purchasePrice: 20, initialStock: 4 }]]);
+});
+
+const withManga = (customize = {}) => must(addOption(draftFromProduct(fullPolo(customize)), optionSpec(3, "Manga", ["Corta", "Larga"])));
+
+test("changing the value for existing variants keeps saved variants and swaps which combinations are new", () => {
+  const draft = withManga({ "S / Azul": { status: "inactive" } });
+  const savedRefs = orderedRows(draft).filter((row) => row.id !== null).map((row) => [row.ref, row.id]);
+  const edited = setRow(draft, rowOf(draft, "S / Negro / Corta").ref, { sku: "S-N" });
+  const swapped = must(setValueForExistingVariants(edited, uuid(300), uuid(302)));
+  assert.deepEqual(orderedRows(swapped).filter((row) => row.id !== null).map((row) => [row.ref, row.id]), savedRefs);
+  assert.deepEqual(orderedRows(swapped).filter((row) => row.id !== null).map((row) => rowLabel(swapped, row)), ["S / Negro / Larga", "S / Azul / Larga", "M / Negro / Larga", "M / Azul / Larga"]);
+  assert.equal(rowOf(swapped, "S / Negro / Larga").sku, "S-N");
+  assert.equal(rowOf(swapped, "S / Azul / Corta").copiedFromInactive, true);
+  assert.equal(swapped.options.length, 3);
+  const body = saveProductRequestSchema.parse(buildSaveProductBody(swapped, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
+  assert.deepEqual([body.options[2].valueForExistingVariants, body.deletedVariantIds, body.newVariants.length], [uuid(302), [], 4]);
+  assert.equal(setValueForExistingVariants(draft, uuid(100), uuid(101)).error.code, "NOT_FOUND");
+  assert.equal(setValueForExistingVariants(draft, uuid(300), uuid(999)).error.code, "NOT_FOUND");
+});
+
+test("an option or value id already in the draft cannot be added again", () => {
+  const draft = must(removeOption(withManga(), uuid(300)));
+  assert.equal(addOption(draft, optionSpec(3, "Manga", ["Corta", "Larga"])).error.code, "DUPLICATE_ID");
+  assert.equal(addValue(draft, uuid(100), { id: uuid(101), name: "Otra" }).error.code, "DUPLICATE_ID");
+});
+
+test("the value given to existing variants cannot be removed, so saved variants are never deleted through it", () => {
+  const draft = withManga({ "M / Azul": { stock: 3 } });
+  assert.equal(removeValue(draft, uuid(301)).error.code, "VALUE_FOR_EXISTING_VARIANTS");
+  const swapped = must(setValueForExistingVariants(draft, uuid(300), uuid(302)));
+  const marked = must(removeValue(swapped, uuid(301)));
+  const body = saveProductRequestSchema.parse(buildSaveProductBody(marked, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
+  assert.deepEqual([body.deletedVariantIds, body.newVariants.length, body.options[2].values.map((value) => value.name)], [[], 0, ["Larga"]]);
+});
+
+test("an option left without live values is not sent, and neither are its values in the new variants", () => {
+  let draft = createDraft(base);
+  draft = must(addOption(draft, optionSpec(1, "Talla", ["S", "M"])));
+  draft = must(addOption(draft, optionSpec(2, "Color", ["Negro"])));
+  draft = must(removeValue(draft, uuid(201)));
+  const meta = { id: "11111111-1111-4111-8111-111111111111", name: "Polo", description: null, imageId: null, currency: "PEN" };
+  const body = buildCreateProductBody(draft, meta);
+  assert.deepEqual(body.options.map((option) => option.name), ["Talla"]);
+  assert.deepEqual(body.variants, []);
+});
+
+test("removing a saved row is refused and hidden selected rows ignore marked rows", () => {
+  const saved = draftFromProduct(fullPolo());
+  assert.equal(removeRow(saved, rowOf(saved, "S / Negro").ref).error.code, "SAVED_VARIANT");
+  let draft = newPolo();
+  const selected = toggleAll(draft, [], null);
+  draft = dropRow(draft, rowOf(draft, "S / Negro").ref);
+  assert.equal(hiddenSelectedCount(draft, selected, uuid(202)), 2);
+  assert.equal(hiddenSelectedCount(draft, selected, uuid(201)), 3);
 });

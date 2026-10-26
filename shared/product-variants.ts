@@ -1,6 +1,8 @@
 /** Rules shared by the editors on web and mobile. Advisory: core validates everything again. */
 
 import { productOptionLimits } from "@shared/contracts/products";
+import { err, ok } from "@shared/functional";
+import type { AppError, Result } from "@shared/result";
 import type { CreateProductRequest, ProductDetailResponse, SaveProductRequest } from "@shared/contracts/products";
 
 type LabelOption = Readonly<{ id: string; values: readonly Readonly<{ id: string; name: string }>[] }>;
@@ -44,9 +46,10 @@ export type EditorDraft = Readonly<{
 
 export type EditFailureReason =
   | "TOO_MANY_OPTIONS" | "TOO_MANY_VALUES" | "TOO_MANY_VARIANTS" | "OPTION_WITHOUT_VALUES" | "NOT_FOUND" | "DUPLICATE_COMBINATION"
-  | "VARIANT_HAS_ORDERS_OR_STOCK" | "OPTION_HAS_SEVERAL_VALUES" | "LAST_OPTION_VARIANT_INACTIVE";
-export type EditFailure = Readonly<{ ok: false; reason: EditFailureReason; projected?: number; maximum?: number; blocked?: number }>;
-export type Edit = Readonly<{ ok: true; draft: EditorDraft }> | EditFailure;
+  | "VARIANT_HAS_ORDERS_OR_STOCK" | "OPTION_HAS_SEVERAL_VALUES" | "LAST_OPTION_VARIANT_INACTIVE"
+  | "DUPLICATE_ID" | "VALUE_FOR_EXISTING_VARIANTS" | "SAVED_VARIANT";
+export type EditFailure = AppError & Readonly<{ code: EditFailureReason; projected?: number; maximum?: number; blocked?: number }>;
+export type Edit = Result<EditorDraft, EditFailure>;
 export type RowRemoval = "self" | "value" | "option";
 export type RowPatch = Partial<Readonly<{ sku: string | null; salePrice: number; purchasePrice: number | null; stock: number }>>;
 export type Uncreated = Readonly<{ items: readonly Readonly<{ combination: Readonly<Record<string, string>>; label: string }>[]; hasMore: boolean }>;
@@ -55,8 +58,8 @@ export type ProductMeta = Readonly<{ name: string; description: string | null; i
 const { options: maxOptions, valuesPerOption: maxValues, variants: maxVariants } = productOptionLimits;
 const uncreatedPageSize = 50;
 
-const fail = (reason: EditFailureReason, extra: Partial<EditFailure> = {}): EditFailure => ({ ok: false, reason, ...extra });
-const done = (draft: EditorDraft): Edit => ({ ok: true, draft });
+const fail = (reason: EditFailureReason, extra: Partial<EditFailure> = {}): Edit => err({ message: reason, code: reason, ...extra });
+const done = (draft: EditorDraft): Edit => ok(draft);
 
 export function createDraft(base: EditorBase): EditorDraft {
   return { saved: false, base, options: [], rows: [], nextRef: 1, stockNotice: false };
@@ -167,11 +170,14 @@ function* combinations(lists: readonly (readonly [string, readonly string[]])[])
 const withRows = (draft: EditorDraft, rows: readonly EditorRow[], added: number, extra: Partial<EditorDraft> = {}): EditorDraft =>
   ({ ...draft, rows, nextRef: draft.nextRef + added, ...extra });
 
+const valueIdsOf = (draft: EditorDraft) => new Set(draft.options.flatMap((option) => option.values.map((value) => value.id)));
+
 export function addOption(
   draft: EditorDraft,
   input: Readonly<{ id: string; name: string; values: readonly Readonly<{ id: string; name: string }>[]; valueForExistingVariants?: string }>,
 ): Edit {
   if (input.values.length === 0) return fail("OPTION_WITHOUT_VALUES");
+  if (draft.options.some((option) => option.id === input.id) || input.values.some((value) => valueIdsOf(draft).has(value.id))) return fail("DUPLICATE_ID");
   if (draft.options.length >= maxOptions) return fail("TOO_MANY_OPTIONS", { maximum: maxOptions });
   if (input.values.length > maxValues) return fail("TOO_MANY_VALUES", { maximum: maxValues });
   const chosen = input.values.find((value) => value.id === input.valueForExistingVariants) ?? input.values[0];
@@ -199,10 +205,24 @@ export function addOption(
   return done(withRows(next, [...gained, ...copies], copies.length));
 }
 
+/**
+ * Changes the value that the saved variants receive from an option added to a saved product. The saved rows and the copies
+ * trade values, so refs, edits and the inactive-source flag stay with their rows.
+ */
+export function setValueForExistingVariants(draft: EditorDraft, optionId: string, valueId: string): Edit {
+  const option = draft.options.find((candidate) => candidate.id === optionId);
+  const current = option && keptValueId(option);
+  if (!option || option.saved || !draft.saved || !current || !liveValues(option).some((value) => value.id === valueId)) return fail("NOT_FOUND");
+  const swap = (id: string | undefined) => id === current ? valueId : id === valueId ? current : id;
+  const rows = draft.rows.map((row) => ({ ...row, combination: { ...row.combination, [optionId]: swap(row.combination[optionId]) as string } }));
+  return done({ ...mapOption(draft, optionId, (candidate) => ({ ...candidate, valueForExistingVariants: valueId })), rows });
+}
+
 export function addValue(draft: EditorDraft, optionId: string, value: Readonly<{ id: string; name: string }>): Edit {
   const target = draft.options.find((option) => option.id === optionId);
   if (!target) return fail("NOT_FOUND");
   if (target.values.length >= maxValues) return fail("TOO_MANY_VALUES", { maximum: maxValues });
+  if (valueIdsOf(draft).has(value.id)) return fail("DUPLICATE_ID");
   const others = liveOptions(draft).filter((option) => option.id !== optionId);
   const created = others.reduce((product, option) => product * liveValues(option).length, 1);
   const projected = liveRows(draft).length + created;
@@ -296,8 +316,13 @@ export function applyBulk(draft: EditorDraft, selected: readonly string[], patch
 
 // Removing: nothing disappears before saving, it is marked and can be undone
 
-export const removeRow = (draft: EditorDraft, ref: string): EditorDraft =>
-  mapRows(draft, (row) => row.id === null ? { ...row, marked: true } : row, new Set([ref]));
+/** Only a combination that is not saved yet can be marked: a saved variant is deleted from its own screen or through its value. */
+export function removeRow(draft: EditorDraft, ref: string): Edit {
+  const row = draft.rows.find((candidate) => candidate.ref === ref);
+  if (!row) return fail("NOT_FOUND");
+  if (row.id !== null) return fail("SAVED_VARIANT");
+  return done(mapRows(draft, (candidate) => ({ ...candidate, marked: true }), new Set([ref])));
+}
 export const undoRemoveRow = (draft: EditorDraft, ref: string): EditorDraft => mapRows(draft, (row) => ({ ...row, marked: false }), new Set([ref]));
 
 const markValue = (draft: EditorDraft, valueId: string, marked: boolean): EditorDraft =>
@@ -307,6 +332,7 @@ export function removeValue(draft: EditorDraft, valueId: string): Edit {
   const option = draft.options.find((candidate) => candidate.values.some((value) => value.id === valueId));
   if (!option) return fail("NOT_FOUND");
   const blocked = draft.rows.filter((row) => row.id !== null && row.combination[option.id] === valueId && (row.hasOrders || row.stock > 0)).length;
+  if (draft.saved && !option.saved && keptValueId(option) === valueId) return fail("VALUE_FOR_EXISTING_VARIANTS");
   if (option.values.find((value) => value.id === valueId)?.saved && blocked > 0) return fail("VARIANT_HAS_ORDERS_OR_STOCK", { blocked });
   return done(markValue(draft, valueId, true));
 }
@@ -346,22 +372,25 @@ export function isChipActive(draft: EditorDraft, selected: readonly string[], va
 }
 /** Selected rows the value filter hides. */
 export function hiddenSelectedCount(draft: EditorDraft, selected: readonly string[], filter: string | null): number {
-  return filter === null ? 0 : draft.rows.filter((row) => selected.includes(row.ref) && !hasValue(row, filter)).length;
+  return filter === null ? 0 : liveRows(draft).filter((row) => selected.includes(row.ref) && !hasValue(row, filter)).length;
 }
 
 // Request bodies
 
 const skuOf = (sku: string | null) => sku?.trim() || null;
 
+/** Options without a live value are left out: they carry no variant, and core drops them anyway. */
+const bodyOptions = (draft: EditorDraft) => liveOptions(draft).filter((option) => liveValues(option).length > 0);
+
 function optionsBody(draft: EditorDraft): CreateProductRequest["options"] {
-  return liveOptions(draft).map((option) => ({
+  return bodyOptions(draft).map((option) => ({
     id: option.id, name: option.name, values: liveValues(option).map((value) => ({ id: value.id, name: value.name })),
     ...(draft.saved && !option.saved ? { valueForExistingVariants: keptValueId(option) ?? option.valueForExistingVariants ?? "" } : {}),
   }));
 }
 
 function newVariantsBody(draft: EditorDraft): CreateProductRequest["variants"] {
-  const options = liveOptions(draft);
+  const options = bodyOptions(draft);
   return liveRows(draft).filter((row) => row.id === null).map((row) => ({
     values: options.map((option) => row.combination[option.id]), sku: skuOf(row.sku), salePrice: row.salePrice,
     purchasePrice: row.purchasePrice, initialStock: row.stock,
