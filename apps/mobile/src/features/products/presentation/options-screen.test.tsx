@@ -18,7 +18,7 @@ jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireA
 
 function Seed({ draft, children }: { draft: EditorDraft; children: ReactNode }) {
   const editor = useProductEditor();
-  useEffect(() => { editor.reset(draft); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { editor.reset(draft, "PEN"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return editor.draft ? <>{children}</> : null;
 }
 const renderOptions = (draft: EditorDraft) => render(<ProductEditorProvider><Seed draft={draft}><OptionsScreen /></Seed></ProductEditorProvider>);

@@ -1,4 +1,5 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
+import type { Currency } from "@shared/money";
 import type { EditorDraft } from "@shared/product-variants";
 
 /** Rejections of one save, by the editor's own ids: rows by `ref`, options and values by id. */
@@ -11,13 +12,14 @@ export const noEditorErrors: EditorErrors = { rows: {}, options: {}, values: {} 
 
 type EditorContext = Readonly<{
   draft: EditorDraft | null;
+  currency: Currency;
   /** The draft as the session started or was last saved: what renames are compared with. */
   baseline: EditorDraft | null;
   dirty: boolean;
   selection: readonly string[];
   errors: EditorErrors;
   /** Starts a new editing session with this draft as the saved starting point. */
-  reset: (draft: EditorDraft) => void;
+  reset: (draft: EditorDraft, currency: Currency) => void;
   setDraft: (draft: EditorDraft) => void;
   setSelection: (selection: readonly string[]) => void;
   setErrors: (errors: EditorErrors) => void;
@@ -30,17 +32,17 @@ const Context = createContext<EditorContext | null>(null);
  * above it. It lives in the products stack, so leaving the stack ends the session.
  */
 export function ProductEditorProvider({ children }: { children: ReactNode }) {
-  const [state, setState] = useState<{ draft: EditorDraft | null; baseline: EditorDraft | null }>({ draft: null, baseline: null });
+  const [state, setState] = useState<{ draft: EditorDraft | null; baseline: EditorDraft | null; currency: Currency }>({ draft: null, baseline: null, currency: "PEN" });
   const [selection, setSelection] = useState<readonly string[]>([]);
   const [errors, setErrors] = useState<EditorErrors>(noEditorErrors);
-  const reset = useCallback((draft: EditorDraft) => {
-    setState({ draft, baseline: draft });
+  const reset = useCallback((draft: EditorDraft, currency: Currency) => {
+    setState({ draft, baseline: draft, currency });
     setSelection([]);
     setErrors(noEditorErrors);
   }, []);
   const setDraft = useCallback((draft: EditorDraft) => setState((current) => ({ ...current, draft })), []);
   const value = useMemo(() => ({
-    draft: state.draft, baseline: state.baseline,
+    draft: state.draft, baseline: state.baseline, currency: state.currency,
     dirty: state.draft !== null && state.baseline !== null && state.draft !== state.baseline && JSON.stringify(state.draft) !== JSON.stringify(state.baseline),
     selection, errors, reset, setDraft, setSelection, setErrors,
   }), [state, selection, errors, reset, setDraft]);

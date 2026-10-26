@@ -71,7 +71,7 @@ export default function ProductManagementScreen() {
     if (discardVersionRef.current === discardVersion) return;
     discardVersionRef.current = discardVersion;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- discard is an explicit user event from the global navigation guard.
-    if (product) { setValues(valuesForProduct(product)); editor.reset(editorDraftOf(product)); }
+    if (product) { setValues(valuesForProduct(product)); editor.reset(editorDraftOf(product), product.currency); }
     setPhoto({ kind: "keep" });
     setErrors({});
     setChanged(false);
@@ -89,7 +89,7 @@ export default function ProductManagementScreen() {
       setLoadError(null);
       setProduct(result.data);
       setValues(valuesForProduct(result.data));
-      editor.reset(editorDraftOf(result.data));
+      editor.reset(editorDraftOf(result.data), result.data.currency);
       setPhoto({ kind: "keep" });
     });
     return () => { active = false; };
@@ -155,7 +155,7 @@ export default function ProductManagementScreen() {
     // The response is the saved detail: the screen takes it as is, with no follow-up read.
     setProduct(result.data);
     setValues(valuesForProduct(result.data));
-    editor.reset(editorDraftOf(result.data));
+    editor.reset(editorDraftOf(result.data), result.data.currency);
     setPhoto({ kind: "keep" });
     setErrors({});
     setUncertain(false);
@@ -173,7 +173,7 @@ export default function ProductManagementScreen() {
       }
       setProduct(result.data);
       setValues(valuesForProduct(result.data));
-      editor.reset(editorDraftOf(result.data));
+      editor.reset(editorDraftOf(result.data), result.data.currency);
       setPhoto({ kind: "keep" });
       setErrors({});
       setUncertain(false);

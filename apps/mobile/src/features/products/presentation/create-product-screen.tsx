@@ -26,6 +26,7 @@ export default function CreateProductScreen() {
   const router = useRouter();
   const { t } = useTranslation();
   const { state } = useAccess();
+  const currency = state.status === "ready" ? countryCurrencies[state.company.country] : null;
   const [values, setValues] = useState<ProductFormValues>(emptyProductForm);
   const [photo, setPhoto] = useState<PhotoSelection>({ kind: "keep" });
   const [errors, setErrors] = useState<Partial<Record<ProductFormField, string>>>({});
@@ -42,11 +43,12 @@ export default function CreateProductScreen() {
   );
   const discardVersionRef = useRef(discardVersion);
   useEffect(() => {
-    editor.reset(emptyDraft());
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the editor session starts once, when the screen opens.
+    if (!currency) return;
+    editor.reset(emptyDraft(), currency);
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the editor session starts once, when the screen opens with its currency.
     setStarted(true);
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [currency]);
   useEffect(() => {
     if (discardVersionRef.current === discardVersion) return;
     discardVersionRef.current = discardVersion;
@@ -55,10 +57,10 @@ export default function CreateProductScreen() {
     setErrors({});
     setConflict(false);
     productId.current = null;
-    editor.reset(emptyDraft());
-  }, [discardVersion, editor]);
+    if (currency) editor.reset(emptyDraft(), currency);
+  }, [discardVersion, editor, currency]);
 
-  if (state.status !== "ready" || !started || !editor.draft) return null;
+  if (state.status !== "ready" || !currency || !started || !editor.draft) return null;
   const draft = editor.draft;
   const hasOptions = draft.options.length > 0;
   // The form opens above the tabs; going back returns to wherever it was opened from.
@@ -113,7 +115,7 @@ export default function CreateProductScreen() {
       title={t('newProduct')}
       values={values}
       setValue={setValue}
-      currency={countryCurrencies[state.company.country]}
+      currency={currency}
       draft={draft}
       errorCount={rowErrorCount(editor.errors)}
       photo={photo}

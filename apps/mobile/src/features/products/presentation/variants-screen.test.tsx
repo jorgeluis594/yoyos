@@ -54,7 +54,7 @@ const polo = () => must(addOption(must(addOption(createDraft(base), { id: id(1),
 
 function Seed({ draft, children }: { draft: EditorDraft; children: ReactNode }) {
   const editor = useProductEditor();
-  useEffect(() => { editor.reset(draft); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { editor.reset(draft, "PEN"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return editor.draft ? <>{children}</> : null;
 }
 const renderVariants = (draft: EditorDraft) => render(<ProductEditorProvider><Seed draft={draft}><VariantsScreen /></Seed></ProductEditorProvider>);
@@ -66,7 +66,7 @@ beforeEach(() => { jest.clearAllMocks(); mockOpen = () => {}; });
 function SeededCreate({ draft }: { draft: EditorDraft }) {
   const editor = useProductEditor();
   const [route, setRoute] = useState<string | null>(null);
-  useEffect(() => { mockOpen = (value) => setRoute(value); editor.reset(draft); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  useEffect(() => { mockOpen = (value) => setRoute(value); editor.reset(draft, "PEN"); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return <><CreateProductScreen />{route ? <VariantsScreen /> : null}</>;
 }
 
