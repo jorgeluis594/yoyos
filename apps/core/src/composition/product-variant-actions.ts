@@ -9,7 +9,7 @@ import { changeVariantStatus, type ChangeVariantStatusInput } from "@core/src/fe
 import { deleteVariant, type DeleteVariantInput } from "@core/src/features/products/application/delete-variant";
 import { updateVariant, type UpdateVariantInput } from "@core/src/features/products/application/update-variant";
 import type { VariantActionDependencies, VariantActionName } from "@core/src/features/products/application/variant-action";
-import { findForeignOptionIds, findSkuOwners, productRepository } from "@core/src/features/products/infrastructure/repository";
+import { findForeignOptionIds, findSkuOwners, productRepository, transactionFailureStage } from "@core/src/features/products/infrastructure/repository";
 import { applyCombinationChange, applyVariantDeletion, lockProduct, setVariantStatus, updateVariantFields, type VariantActionContext } from "@core/src/features/products/infrastructure/variant-repository";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { productEditing, productWriteTransactionOptions } from "@core/src/composition/product-editing";
@@ -17,14 +17,6 @@ import { productEditing, productWriteTransactionOptions } from "@core/src/compos
 const writeOptions = productWriteTransactionOptions(process.env);
 
 type Ids = Readonly<{ productId: ProductId; variantId: VariantId }>;
-
-function prismaCode(error: unknown): string | undefined {
-  return typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : undefined;
-}
-
-function isLockConflict(error: unknown): boolean {
-  return prismaCode(error) === "P2034" || /40P01|55P03|deadlock detected|lock timeout/i.test(error instanceof Error ? error.message : "");
-}
 
 /**
  * The editing transaction of a per-variant action. A Prisma timeout or a lock conflict is the only thing it turns into a result:
@@ -34,7 +26,7 @@ async function variantTransaction<T, E extends { code: string; message: string }
   try {
     return await withTenantIsolation(companyId, () => withinTransaction(work, writeOptions));
   } catch (error) {
-    const stage = prismaCode(error) === "P2028" ? "transaction_timeout" : isLockConflict(error) ? "lock_conflict" : undefined;
+    const stage = transactionFailureStage(error);
     if (!stage) throw error;
     log.error({ event: "product_variant_action_failed", companyId, ...ids, action, stage, errorCode: "PERSISTENCE_UNAVAILABLE",
       durationMs: Math.round(performance.now() - started), err: error }, "product_variant_action_failed");
