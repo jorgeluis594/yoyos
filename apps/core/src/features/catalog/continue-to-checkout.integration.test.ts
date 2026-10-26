@@ -16,6 +16,7 @@ import { requestHostContext } from "@core/app/request-host-context";
 import { storefrontContext } from "@core/app/storefront-context";
 import { storefrontMiddleware } from "@core/app/middleware/storefront";
 import { orders } from "@core/src/features/orders/composition";
+import { restoreCancelledStock } from "@core/src/composition/event-handlers";
 import { parseBuyer } from "@core/src/features/orders/domain/checkout";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type { CartQuantity } from "@core/src/features/orders/domain/catalog-order";
@@ -72,6 +73,7 @@ async function store(published = true) {
       id: variantId, attributes: { Talla: "M", Color: color }, sku: `SKU-${variantId}`, salePrice: 45, purchasePrice: 20, qrCode: variantId, stock })) });
   });
   cleanups.push(() => withTenantIsolation(companyId, async () => {
+    await prisma.payment.deleteMany();
     await prisma.orderBuyer.deleteMany();
     await prisma.orderItem.deleteMany();
     await prisma.order.deleteMany();
@@ -249,4 +251,77 @@ test("a buyer whose store appearance cannot be read browses in Clásico without 
   const checkout = await checkoutLoader({ params: { orderId }, context: hostContext(companyId), request: new Request(`http://localhost/checkout/${orderId}`) } as unknown as LoaderFunctionArgs);
   if (!created.success) return;
   expect(checkout).toMatchObject({ data: { checkout: { number: created.data.number, companyName: "Moda Lucía", items: [{ productName: "Polo básico", quantity: 1 }] }, appearance: null } });
+});
+
+test("Continuar with a deactivated variant marks the line unavailable and creates no order", async () => {
+  const { companyId, black, beige } = await store();
+  await withTenantIsolation(companyId, async () => await prisma.productVariant.update({ where: { id: beige }, data: { status: "inactive" } }));
+  const before = await nextNumber(companyId);
+  const orderId = randomUUID() as OrderId;
+  expect(await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1), line(beige, 1)] }, await storefrontOf(companyId)))
+    .toMatchObject({ success: false, error: { code: "LINES_UNAVAILABLE", issues: [{ variantId: beige, reason: "unavailable" }] } });
+  expect(await nextNumber(companyId)).toBe(before);
+  expect(await withTenantIsolation(companyId, async () => await prisma.order.count({ where: { id: orderId } }))).toBe(0);
+  const refreshed = await catalogCart.refresh(await storefrontOf(companyId), [black, beige]);
+  expect(refreshed.success && refreshed.data.map(({ variantId }) => variantId)).toEqual([black]);
+});
+
+test("an unconfirmed catalog order with a variant deactivated later can be confirmed and paid", async () => {
+  const { companyId, black } = await store();
+  const orderId = randomUUID() as OrderId;
+  const created = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 2)] }, await storefrontOf(companyId));
+  if (!created.success) throw new Error(created.error.code);
+  await withTenantIsolation(companyId, async () => await prisma.productVariant.update({ where: { id: black }, data: { status: "inactive" } }));
+  const again = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 2)] }, await storefrontOf(companyId));
+  expect(again).toMatchObject({ success: true, data: { id: orderId } });
+  const buyer = parseBuyer({ name: "Ana", phone: "+51987654321" });
+  if (!buyer.success) throw new Error(buyer.error.code);
+  expect(await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: created.data.total }, { companyId, orderId })).toMatchObject({ success: true });
+  const seller = { companyId, userId: randomUUID() as UserId };
+  await withTenantIsolation(companyId, async () => {
+    expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as never, amount: created.data.total, method: "digital_wallet", deductStockIfPartial: false }, seller))
+      .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+    expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: black } })).quantity).toBe(1n);
+  });
+});
+
+test("a catalog purchase of M / Negro reaches checkout, deducts stock when paid and restores it when cancelled", async () => {
+  const { companyId, black } = await store();
+  const orderId = randomUUID() as OrderId;
+  const created = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 2)] }, await storefrontOf(companyId));
+  if (!created.success) throw new Error(created.error.code);
+  const checkout = await orders.getCheckout({ companyId, orderId });
+  expect(checkout).toMatchObject({ success: true, data: { checkout: { number: created.data.number } } });
+  const buyer = parseBuyer({ name: "Ana", phone: "+51987654321" });
+  if (!buyer.success) throw new Error(buyer.error.code);
+  expect(await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: created.data.total }, { companyId, orderId })).toMatchObject({ success: true });
+  const seller = { companyId, userId: randomUUID() as UserId };
+  const stock = () => withTenantIsolation(companyId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId: black } })).quantity);
+  expect(await stock()).toBe(3n);
+  await withTenantIsolation(companyId, async () => {
+    expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as never, amount: created.data.total, method: "digital_wallet", deductStockIfPartial: false }, seller))
+      .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+  });
+  expect(await stock()).toBe(1n);
+  await withTenantIsolation(companyId, async () => expect(await orders.cancel(orderId, seller)).toMatchObject({ success: true, data: { cancelled: true } }));
+  expect(await restoreCancelledStock.handler({ orderId, companyId } as never, {} as never, {} as never)).toMatchObject({ success: true });
+  expect(await stock()).toBe(3n);
+});
+
+test("renaming a seeded value keeps the old order and checkout snapshot and a new order uses the new name", async () => {
+  const { companyId, black } = await store();
+  const first = randomUUID() as OrderId;
+  const second = randomUUID() as OrderId;
+  expect(await catalogCart.continueToCheckout({ orderId: first, lines: [line(black, 1)] }, await storefrontOf(companyId))).toMatchObject({ success: true });
+  await withTenantIsolation(companyId, async () => await prisma.productOptionValue.updateMany({ where: { name: "Negro" }, data: { name: "Negro carbón" } }));
+  expect(await catalogCart.continueToCheckout({ orderId: second, lines: [line(black, 1)] }, await storefrontOf(companyId))).toMatchObject({ success: true });
+  const attributesOf = async (id: OrderId) => {
+    const read = await withTenantIsolation(companyId, () => findOrderAggregate(id, companyId));
+    return read.success ? read.data?.items.map((item) => Object.entries(item.variantAttributes)) : null;
+  };
+  expect(await attributesOf(first)).toEqual([[["Talla", "M"], ["Color", "Negro"]]]);
+  expect(await attributesOf(second)).toEqual([[["Talla", "M"], ["Color", "Negro carbón"]]]);
+  const checkout = await orders.getCheckout({ companyId, orderId: first });
+  expect(JSON.stringify(checkout)).toContain("Negro");
+  expect(JSON.stringify(checkout)).not.toContain("carbón");
 });

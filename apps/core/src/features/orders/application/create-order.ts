@@ -17,9 +17,10 @@ type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: str
 export type CreateOrderDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, CreateOrderError>>) => Promise<Result<T, CreateOrderError>>;
   orderExists: (id: OrderId, companyId: CompanyId) => Promise<Result<boolean, PersistenceError>>;
-  findVariant: (id: VariantId, companyId: CompanyId) => Promise<Result<CatalogItem | null, PersistenceError>>;
+  /** One lookup for the whole order. Variants that are not sellable are absent from the result. */
+  findVariants: (ids: readonly VariantId[], companyId: CompanyId) => Promise<Result<readonly CatalogItem[], PersistenceError>>;
   allocateNumber: (companyId: CompanyId) => Promise<Result<OrderNumber, PersistenceError>>;
-  saveOrder: (order: OrderAggregate) => Promise<Result<null, PersistenceError | Readonly<{ code: "ORDER_ALREADY_EXISTS"; message: string }>>>;
+  saveOrder: (order: OrderAggregate) => Promise<Result<null, PersistenceError | Readonly<{ code: "ORDER_ALREADY_EXISTS"; message: string }> | Readonly<{ code: "VARIANT_NOT_FOUND"; message: string; variantId: string }>>>;
   newItemId: () => OrderItemId;
   clock: () => Date;
 }>;
@@ -41,12 +42,15 @@ export async function createOrderInTransaction(input: CreateOrderInput, context:
   const existing = await deps.orderExists(input.id, context.companyId);
   if (!existing.success) return existing;
   if (existing.data) return err({ code: "ORDER_ALREADY_EXISTS", message: "Order already exists" });
+  const found = await deps.findVariants(input.items.map((item) => item.variantId), context.companyId);
+  if (!found.success) return found;
+  const byId = new Map(found.data.map((variant) => [variant.variantId, variant]));
   const items = [];
   for (const item of input.items) {
-    const variant = await deps.findVariant(item.variantId, context.companyId);
-    if (!variant.success) return variant;
-    if (!variant.data) return err({ code: "VARIANT_NOT_FOUND", message: "Variant is not available", variantId: item.variantId });
-    items.push({ ...variant.data, id: deps.newItemId(), quantity: item.quantity });
+    const variant = byId.get(item.variantId);
+    if (!variant) return err({ code: "VARIANT_NOT_FOUND", message: "Variant is not available", variantId: item.variantId });
+    const { variantId, productName, variantAttributes, sku, unitPrice } = variant;
+    items.push({ variantId, productName, variantAttributes, sku, unitPrice, id: deps.newItemId(), quantity: item.quantity });
   }
   const number = await deps.allocateNumber(context.companyId);
   if (!number.success) return number;

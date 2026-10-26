@@ -37,7 +37,7 @@ import { listOrderAggregates } from "@core/src/features/orders/application/list-
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
 import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderedVariantIds, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariant, findSellableVariants, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
+import { findSellableVariants, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import { addMessageProductsToOrder, type AddMessageProductsDependencies, type AddMessageProductsError, type MessageProductMatch } from "@core/src/features/orders/application/add-message-products-to-order";
@@ -74,6 +74,11 @@ function scopedOrderTransaction<T, E extends AppError>(companyId: string, callba
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
   return orderTransaction(callback);
 }
+/** One batched lookup per order; an unreadable stored variant is a persistence failure for the sale. */
+const findSellableOrderVariants: CreateOrderDependencies["findVariants"] = async (ids) => {
+  const found = await findSellableVariants(ids);
+  return found.success ? found : err({ code: "PERSISTENCE_UNAVAILABLE", message: found.error.message });
+};
 const pendingTransaction: CreateOrderDependencies["transaction"] = scopedOrderTransaction;
 const stockTransaction: DeductStockDependencies["transaction"] = scopedOrderTransaction;
 const paymentTransaction: RegisterPaymentDependencies["transaction"] = scopedOrderTransaction;
@@ -277,6 +282,9 @@ async function createConfiguredCatalogOrder(input: CreateCatalogOrderInput, acce
       const saved = await savePendingOrder(order);
       if (saved.success) { inserted = true; return saved; }
       if (saved.error.code === "ORDER_ALREADY_EXISTS") return err({ code: "ORDER_ID_CONFLICT" as const, message: saved.error.message });
+      // Deleted after the sellable read: the buyer fixes the line like any other unavailable one.
+      if (saved.error.code === "VARIANT_NOT_FOUND") return err({ code: "LINES_UNAVAILABLE" as const, message: "Some cart lines are not available",
+        issues: [{ variantId: saved.error.variantId as VariantId, reason: "unavailable" as const }] });
       log.error({ event: "unable_to_save_catalog_order", companyId: access.companyId, errorCode: saved.error.code }, "unable_to_save_catalog_order");
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: saved.error.message });
     },
@@ -362,7 +370,7 @@ export const orders = {
   },
   registerImmediateSale: (input: Parameters<typeof registerImmediateSale>[0], context: Parameters<typeof registerImmediateSale>[1]) =>
     registerImmediateSale(input, context, { transaction: immediateTransaction, orderExists,
-      findVariant: findSellableVariant, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,
+      findVariants: findSellableOrderVariants, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,
       savePayment, deductProductStock, saveStockDeduction, saveFulfillment,
       newItemId: () => randomUUID() as OrderItemId, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
   registerPayment: async (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) => {
@@ -421,7 +429,7 @@ export const orders = {
     deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
   create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>
     createOrder(input, context, { transaction: pendingTransaction, orderExists,
-      findVariant: findSellableVariant, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,
+      findVariants: findSellableOrderVariants, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,
       newItemId: () => randomUUID() as OrderItemId, clock: () => new Date() }),
   list: (criteria: Parameters<typeof listOrders>[0]) => listOrders(criteria, findOrders),
   searchProducts: searchSaleCatalog,

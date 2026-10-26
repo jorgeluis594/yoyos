@@ -18,6 +18,8 @@ import { storefrontConfig } from "@core/src/features/catalog/infrastructure/stor
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import { deductProductStock } from "@core/src/features/products";
+import * as products from "@core/src/features/products";
+import { restoreCancelledStock } from "@core/src/composition/event-handlers";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { ImageId } from "@core/src/features/orders/domain/payment";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -1928,4 +1930,98 @@ test("findOrderedVariantIds counts unconfirmed catalog orders", async () => {
     });
     await withTenantIsolation(b.companyId, async () => expect(await findOrderedVariantIds([sold])).toEqual(ok(new Set())));
   } finally { await a.cleanup(); await b.cleanup(); }
+});
+
+test("an existing order with an inactive variant is paid with stock deduction and cancelled with stock restore", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const orderId = randomUUID() as OrderId;
+      const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+      const variantId = f.variantIds[1] as VariantId;
+      expect(await orders.create({ id: orderId, items: [{ variantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+      await prisma.productVariant.update({ where: { id: variantId }, data: { status: "inactive" } });
+      const stock = async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity;
+      expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.4, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
+        .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+      expect(await stock()).toBe(1n);
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true, stockDeducted: true } });
+      expect(await restoreCancelledStock.handler({ orderId, companyId: f.companyId } as never, {} as never, {} as never)).toMatchObject({ success: true });
+      expect(await stock()).toBe(3n);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("a twenty-item order and an immediate sale resolve their variants with one batched lookup", async () => {
+  const f = await fixture();
+  try {
+    const lookup = vi.spyOn(products, "findSellableVariants");
+    const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+    const variantIds = await withTenantIsolation(f.companyId, async () => {
+      const seeded = await seedProduct({ name: "Twenty", variants: Array.from({ length: 20 }, (_, index) => ({ attributes: { Number: String(index) }, salePrice: 1, stock: 5n })) });
+      return seeded.variantIds;
+    });
+    const items = variantIds.map((variantId) => ({ variantId: variantId as VariantId, quantity: 1 as PositiveInteger })) as unknown as Parameters<typeof orders.create>[0]["items"];
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await orders.create({ id: randomUUID() as OrderId, items }, context)).toMatchObject({ success: true, data: { items: expect.arrayContaining([expect.anything()]) } });
+      expect(lookup).toHaveBeenCalledTimes(1);
+      expect(lookup).toHaveBeenLastCalledWith(variantIds);
+      expect(await orders.registerImmediateSale({ id: randomUUID() as OrderId, items }, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
+      expect(lookup).toHaveBeenCalledTimes(2);
+    });
+    lookup.mockRestore();
+  } finally { await f.cleanup(); }
+});
+
+test("a variant deleted between the sellable read and the item insert answers VARIANT_NOT_FOUND with its variantId", async () => {
+  const f = await fixture();
+  try {
+    const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+    const doomed = f.variantIds[1] as VariantId;
+    const real = products.findSellableVariants;
+    const lookup = vi.spyOn(products, "findSellableVariants").mockImplementation(async (ids) => {
+      const found = await real(ids);
+      await prisma.productStock.deleteMany({ where: { variantId: doomed } });
+      await prisma.productVariant.delete({ where: { id: doomed } });
+      return found;
+    });
+    try {
+      for (const sale of [orders.create, orders.registerImmediateSale]) {
+        await withTenantIsolation(f.companyId, async () => {
+          const orderId = randomUUID() as OrderId;
+          const result = await sale({ id: orderId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }, { variantId: doomed, quantity: 1 as PositiveInteger }] }, context);
+          expect(result).toMatchObject({ success: false, error: { code: "VARIANT_NOT_FOUND", variantId: doomed } });
+          expect(await prisma.order.count({ where: { id: orderId } })).toBe(0);
+        });
+      }
+    } finally { lookup.mockRestore(); }
+  } finally { await f.cleanup(); }
+});
+
+test("searchSaleCatalog omits products without active variants and variants that are inactive", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      await seedProduct({ name: "Retired cap", variants: [{ attributes: { Talla: "M" }, status: "inactive" }, { attributes: { Talla: "L" }, status: "inactive" }] });
+      await seedProduct({ name: "Retired shirt", variants: [{ attributes: { Talla: "M" }, status: "inactive", salePrice: 5 }, { attributes: { Talla: "L" }, salePrice: 6 }] });
+      const found = await orders.searchProducts("retired");
+      expect(found.success && found.data.map(({ name, variants }) => [name, variants.map(({ attributes }) => attributes)])).toEqual([["Retired shirt", [{ Talla: "L" }]]]);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("renaming a seeded value keeps old order items and a new order reads the new name", async () => {
+  const f = await fixture();
+  try {
+    const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+    await withTenantIsolation(f.companyId, async () => {
+      const [first, second] = [randomUUID() as OrderId, randomUUID() as OrderId];
+      const items = [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }] as const;
+      expect(await orders.create({ id: first, items: [...items] }, context)).toMatchObject({ success: true });
+      await prisma.productOptionValue.updateMany({ where: { name: "M" }, data: { name: "Medium" } });
+      expect(await orders.create({ id: second, items: [...items] }, context)).toMatchObject({ success: true });
+      expect(await findOrderAggregate(first, context.companyId)).toMatchObject({ data: { items: [{ variantAttributes: { Size: "M" } }] } });
+      expect(await findOrderAggregate(second, context.companyId)).toMatchObject({ data: { items: [{ variantAttributes: { Size: "Medium" } }] } });
+    });
+  } finally { await f.cleanup(); }
 });
