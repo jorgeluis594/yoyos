@@ -96,7 +96,27 @@ export async function withLockedForUpdate<Row, R extends OperationResult>(
   return callback(rows[0] ?? null);
 }
 
-export async function withinTransaction<R extends OperationResult>(callback: () => Promise<R> | R): Promise<R> {
+export type TransactionOptions = Readonly<{
+  /** Prisma interactive-transaction timer, in milliseconds. */
+  timeout?: number;
+  maxWait?: number;
+  isolationLevel?: "ReadCommitted" | "RepeatableRead" | "Serializable";
+  /** Transaction-local PostgreSQL settings, sent in the same round-trip as the tenant context. */
+  lockTimeoutMs?: number;
+  statementTimeoutMs?: number;
+}>;
+
+async function openContext(tx: Prisma.TransactionClient, companyId: string, options: TransactionOptions) {
+  if (options.lockTimeoutMs === undefined && options.statementTimeoutMs === undefined) {
+    await tx.$queryRaw`SELECT set_config('app.company_id', ${companyId}, true)`;
+    return;
+  }
+  await tx.$queryRaw`SELECT set_config('app.company_id', ${companyId}, true),
+    set_config('lock_timeout', ${`${options.lockTimeoutMs ?? 0}ms`}, true), set_config('statement_timeout', ${`${options.statementTimeoutMs ?? 0}ms`}, true)`;
+}
+
+/** Options apply when this call opens the outermost transaction; inside an active one they are ignored. */
+export async function withinTransaction<R extends OperationResult>(callback: () => Promise<R> | R, options: TransactionOptions = {}): Promise<R> {
   const companyId = getCompanyId();
   const scope = transactions.getStore();
   if (scope?.active) {
@@ -114,7 +134,7 @@ export async function withinTransaction<R extends OperationResult>(callback: () 
   const rollback = new Error("Rollback requested by failed Result");
   try {
     committedResult = await base.$transaction(async (tx) => {
-      await tx.$queryRaw`SELECT set_config('app.company_id', ${companyId}, true)`;
+      await openContext(tx, companyId, options);
       const activeScope: TransactionScope = { companyId, tx, aborted: false, active: true, afterCommit };
       try {
         const result = await transactions.run(activeScope, callback);
@@ -122,6 +142,10 @@ export async function withinTransaction<R extends OperationResult>(callback: () 
         if (activeScope.aborted || failedResult) { rollback.cause = activeScope.abortCause ?? failedResult; throw rollback; }
         return result;
       } finally { activeScope.active = false; }
+    }, {
+      ...(options.timeout === undefined ? {} : { timeout: options.timeout }),
+      ...(options.maxWait === undefined ? {} : { maxWait: options.maxWait }),
+      ...(options.isolationLevel === undefined ? {} : { isolationLevel: Prisma.TransactionIsolationLevel[options.isolationLevel] }),
     });
   } catch (error) {
     if (error === rollback) {
@@ -132,4 +156,10 @@ export async function withinTransaction<R extends OperationResult>(callback: () 
   }
   for (const observe of afterCommit) observe();
   return committedResult;
+}
+
+/** Runs several reads against one snapshot, so a concurrent commit cannot show up between two queries. Inside an active transaction it simply joins it. */
+export async function withinReadSnapshot<T>(read: () => Promise<T>): Promise<T> {
+  const result = await withinTransaction(async () => ({ success: true as const, data: await read() }), { isolationLevel: "RepeatableRead" });
+  return result.data;
 }

@@ -5,6 +5,7 @@ import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/per
 import { orders } from "@core/src/features/orders";
 import type { CompanyId } from "@core/src/features/orders/domain/order";
 import { storeAppearance } from "@core/src/features/store-appearance/composition";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 // The integration project has no image storage: URLs are faked so that a verified wallet's QR resolves, as it does in production.
 vi.mock("@core/src/shared/images", async (importOriginal) => ({ ...await importOriginal<typeof import("@core/src/shared/images")>(),
@@ -17,8 +18,7 @@ afterAll(async () => {
     await prisma.orderItem.deleteMany();
     await prisma.orderBuyer.deleteMany();
     await prisma.order.deleteMany();
-    await prisma.productVariant.deleteMany();
-    await prisma.product.deleteMany();
+    await deleteSeededProducts();
     await prisma.companyPaymentSettings.deleteMany();
     await prisma.image.deleteMany();
     await prisma.company.delete({ where: { id: companyId } });
@@ -39,10 +39,7 @@ async function company(settings: readonly unknown[]) {
     await prisma.companyPaymentSettings.create({ data: { companyId, settings: settings as never } });
     const productId = randomUUID();
     const variantId = randomUUID();
-    await prisma.product.create({ data: { id: productId, name: "Camisa", currency: "PEN", qrCode: productId,
-      status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`,
-      salePrice: 10, qrCode: variantId, status: "active" } });
+    await seedProduct({ id: productId, name: "Camisa", qrCode: productId, variants: [{ id: variantId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId }] });
     await prisma.order.create({ data: { id: orderId, number: 1001n, fromCatalog: true, currency: "PEN", total: 10, itemsTotal: 10, createdAt: new Date(),
       checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date(), buyer: { create: { name: "Ana", phone: "+51987654321" } },
       items: { create: { variantId, productName: "Camisa", variantAttributes: { Talla: "M" }, sku: `SKU-${variantId}`, quantity: 1n, unitPrice: 10, subtotal: 10 } } } });

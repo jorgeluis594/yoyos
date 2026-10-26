@@ -66,7 +66,7 @@ test("normal composition assigns configured pickup explicitly for free", async (
     if (server.exitCode === null) await new Promise<void>(resolve => server.once("exit", () => resolve()));
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } });
       await prisma.company.delete({ where: { id: companyId } });

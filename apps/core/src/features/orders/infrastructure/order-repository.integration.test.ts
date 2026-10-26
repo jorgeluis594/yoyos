@@ -13,7 +13,7 @@ import { ok, err } from "@shared/functional";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildPendingOrder, orderStateMachine, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
+import { findOpenChatOrderCandidate, findOrderAggregate, findOrderedVariantIds, findOrderAggregates, findOrders, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
 import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
@@ -25,6 +25,7 @@ import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 
 async function fixture() {
@@ -36,11 +37,8 @@ async function fixture() {
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Orders test", country: "PE" } });
     await systemPrisma.user.create({ data: { id: sellerId, name: "Seller", email: `${sellerId}@example.test`, companyId } });
-    await prisma.product.create({ data: { id: productId, name: "Sample product", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    for (const [index, variantId] of variantIds.entries()) {
-      await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Size: index ? "L" : "M" }, sku: `SKU-${variantId}`, salePrice: index ? 0.2 : 0.1, qrCode: variantId, status: "active" } });
-      await prisma.productStock.create({ data: { variantId, quantity: 3n } });
-    }
+    await seedProduct({ id: productId, name: "Sample product", qrCode: productId, variants: variantIds.map((variantId, index) => ({
+      id: variantId, attributes: { Size: index ? "L" : "M" }, sku: `SKU-${variantId}`, salePrice: index ? 0.2 : 0.1, qrCode: variantId, stock: 3n })) });
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
   });
   return { companyId, sellerId, productId, variantIds, contactId, async cleanup() {
@@ -50,9 +48,7 @@ async function fixture() {
       await prisma.order.deleteMany();
       await prisma.chat.deleteMany();
       await prisma.contact.deleteMany();
-      await prisma.productStock.deleteMany();
-      await prisma.productVariant.deleteMany();
-      await prisma.product.deleteMany();
+      await deleteSeededProducts();
       await prisma.image.deleteMany();
       await systemPrisma.user.delete({ where: { id: sellerId } });
       await prisma.deliveryRate.deleteMany();
@@ -498,7 +494,8 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       expect(await immediateSale({ id: orderId, items: [{ variantId: f.variantIds[1], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId }))
         .toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
       await prisma.product.update({ where: { id: f.productId }, data: { name: "Changed product" } });
-      await prisma.productVariant.update({ where: { id: f.variantIds[0] }, data: { attributes: { Size: "XL" }, sku: `CHANGED-${f.variantIds[0]}`, salePrice: 3.5 } });
+      await prisma.productOptionValue.updateMany({ where: { name: "M" }, data: { name: "XL" } });
+      await prisma.productVariant.update({ where: { id: f.variantIds[0] }, data: { sku: `CHANGED-${f.variantIds[0]}`, salePrice: 3.5 } });
       const detail = await orderDetail(orderId, f);
       expect(detail).toMatchObject({ success: true, data: { buyer: null,
         items: expect.arrayContaining([expect.objectContaining({ productName: "Sample product", variantAttributes: { Size: "M" },
@@ -1911,5 +1908,24 @@ test("reads the confirmation of a catalog order of the company and answers not_c
     expect(await read(a.companyId, randomUUID() as OrderId)).toEqual(ok("not_confirmed"));
     expect(await read(a.companyId, other)).toEqual(ok("not_confirmed"));
     expect(await read(b.companyId, other)).toEqual(ok("confirmed"));
+  } finally { await a.cleanup(); await b.cleanup(); }
+});
+
+test("findOrderedVariantIds counts unconfirmed catalog orders", async () => {
+  const a = await fixture();
+  const b = await fixture();
+  try {
+    const sold = a.variantIds[0] as VariantId;
+    const unsold = a.variantIds[1] as VariantId;
+    await withTenantIsolation(a.companyId, async () => {
+      expect(await findOrderedVariantIds([sold, unsold])).toEqual(ok(new Set()));
+      expect(await findOrderedVariantIds([])).toEqual(ok(new Set()));
+      const orderId = randomUUID();
+      // An open catalog order: nobody has confirmed checkout yet.
+      await prisma.order.create({ data: { id: orderId, number: 2001n, currency: "PEN", total: 10, itemsTotal: 10, createdAt: new Date(), fromCatalog: true, sellerId: null, checkoutEnabledAt: new Date() } });
+      await prisma.orderItem.create({ data: { orderId, variantId: sold, productName: "Sample product", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 } });
+      expect(await findOrderedVariantIds([sold, unsold, randomUUID() as VariantId])).toEqual(ok(new Set([sold])));
+    });
+    await withTenantIsolation(b.companyId, async () => expect(await findOrderedVariantIds([sold])).toEqual(ok(new Set())));
   } finally { await a.cleanup(); await b.cleanup(); }
 });

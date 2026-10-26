@@ -24,6 +24,7 @@ vi.mock("@core/src/shared/images/application/images", async (importOriginal) => 
 import { createPublishEvent } from "@core/src/composition/event-bus";
 import { indexProductImage } from "@core/src/composition/event-handlers";
 import { products } from "@core/src/features/products/composition";
+import { deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 test("a product created with an image is indexed by the worker, reindexed on image change and retried while the embedder is down", async () => {
   expect(process.env.DATABASE_URL, "run sh scripts/run-tests.sh integration").toBeTruthy();
@@ -72,9 +73,7 @@ test("a product created with an image is indexed by the worker, reindexed on ima
     await pool.query("DELETE FROM pgboss.queue WHERE name = $1", [definition.id]);
     await pool.end();
     await withTenantIsolation(companyId, async () => {
-      await prisma.productStock.deleteMany();
-      await prisma.productVariant.deleteMany();
-      await prisma.product.deleteMany();
+      await deleteSeededProducts();
       await prisma.image.deleteMany();
       await prisma.company.deleteMany({ where: { id: companyId } });
     });

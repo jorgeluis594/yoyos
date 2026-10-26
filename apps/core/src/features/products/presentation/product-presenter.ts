@@ -8,6 +8,7 @@ import {
 } from "@shared/contracts/products";
 import type { Detail } from "@core/src/features/products/application/get";
 import type { ListOutput } from "@core/src/features/products/application/list";
+import { orderedAttributes } from "@core/src/features/products/domain/product-structure";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 export function toProductListResponse(output: ListOutput): ProductListResponse {
@@ -32,7 +33,7 @@ export function toProductDetailResponse(detail: Detail): ProductDetailResponse {
       currency: product.currency, qrCode: product.qrCode, status: product.status,
       createdAt: product.createdAt.toISOString(), updatedAt: product.updatedAt.toISOString(),
       variants: product.variants.map((variant) => ({
-        id: variant.id, productId: variant.productId, attributes: variant.attributes,
+        id: variant.id, productId: variant.productId, attributes: orderedAttributes(product, variant),
         ...(variant.sku === undefined ? {} : { sku: variant.sku }),
         salePrice: variant.salePrice,
         ...(variant.purchasePrice === undefined ? {} : { purchasePrice: variant.purchasePrice }),

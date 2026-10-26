@@ -22,6 +22,7 @@ import { app } from "@core/src/app";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { deleteAgencies, insertAgency, seededCourier, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 const shalomId = (await seededCourier("shalom")).id;
 
@@ -110,11 +111,7 @@ async function fixture(country: "PE" | "CL") {
   const cookie = login.headers.get("set-cookie")?.split(";")[0];
   if (!cookie) throw new Error("Orders test session missing");
   await withTenantIsolation(companyId, async () => {
-    await prisma.product.create({ data: { id: productId, name: "Camisa", currency: "PEN", qrCode: productId,
-      status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`,
-      salePrice: 10, qrCode: variantId, status: "active" } });
-    await prisma.productStock.create({ data: { variantId, quantity: 3n } });
+    await seedProduct({ id: productId, name: "Camisa", qrCode: productId, variants: [{ id: variantId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId, stock: 3n }] });
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
   });
   const result = { companyId, userId, cookie, productId, variantId, contactId, async cleanup() {
@@ -123,9 +120,7 @@ async function fixture(country: "PE" | "CL") {
       await prisma.orderItem.deleteMany();
       await prisma.order.deleteMany();
       await prisma.contact.deleteMany();
-      await prisma.productStock.deleteMany();
-      await prisma.productVariant.deleteMany();
-      await prisma.product.deleteMany();
+      await deleteSeededProducts();
       await prisma.deliveryRate.deleteMany();
       await prisma.quotation.deleteMany();
       await prisma.deliveryOptionAgency.deleteMany();
@@ -287,6 +282,28 @@ test("buyer order link resolves one company and reports only its receipt", async
   info.mockRestore(); debug.mockRestore();
   expect((await callBuyer(`${path}/images/${imageId}`)).status).toBe(404);
   expect((await call(`/api/orders/${orderId}/aggregate`)).status).toBe(401);
+});
+
+test("orders HTTP answers VARIANT_NOT_FOUND for a deactivated variant and keeps the combination of a sale in option order", async () => {
+  const seller = await fixture("PE");
+  const { inactive, active } = await withTenantIsolation(seller.companyId, async () => {
+    const seeded = await seedProduct({ name: "Polo", variants: [
+      { attributes: { Talla: "M", Color: "Negro" }, salePrice: 45, stock: 2, status: "inactive" },
+      { attributes: { Talla: "L", Color: "Negro" }, salePrice: 45, stock: 2 },
+    ] });
+    return { inactive: seeded.variantIds[0], active: seeded.variantIds[1] };
+  });
+  const sale = (variantId: string) => ({ id: randomUUID(), items: [{ variantId, quantity: 1 }], payment: { method: "digital_wallet" }, delivery: { method: "handover" } });
+  const refused = await call("/api/orders", seller.cookie, sale(inactive), "POST");
+  expect(refused.status).toBe(404);
+  expect(await refused.json()).toMatchObject({ code: "VARIANT_NOT_FOUND", issues: [{ variantId: inactive }] });
+  const created = await call("/api/orders", seller.cookie, sale(active), "POST");
+  expect(created.status).toBe(201);
+  const { id } = await created.json() as { id: string };
+  const detail = await (await call(`/api/orders/${id}`, seller.cookie)).json() as { items: { variantAttributes: Record<string, string> }[] };
+  expect(detail.items.map((item) => Object.entries(item.variantAttributes))).toEqual([[["Talla", "L"], ["Color", "Negro"]]]);
+  const [stored] = await withTenantIsolation(seller.companyId, async () => await prisma.$queryRaw<{ attributes: string }[]>`SELECT "variantAttributes"::text AS attributes FROM "OrderItem" WHERE "orderId" = ${id}::uuid`);
+  expect(Object.entries(JSON.parse(stored.attributes))).toEqual([["Talla", "L"], ["Color", "Negro"]]);
 });
 
 test("orders HTTP lets a Chile company complete sales, returns historical data, and isolates other companies", async () => {
@@ -907,11 +924,7 @@ test("catalog lookup by variant IDs bypasses search pagination and excludes unav
   const extra = Array.from({ length: 21 }, () => ({ productId: randomUUID(), variantId: randomUUID() }));
   await withTenantIsolation(seller.companyId, async () => {
     for (const value of extra) {
-      await prisma.product.create({ data: { id: value.productId, name: "A catalog product", currency: "PEN", qrCode: value.productId,
-        status: "active", createdAt: new Date(), updatedAt: new Date() } });
-      await prisma.productVariant.create({ data: { id: value.variantId, productId: value.productId, attributes: {}, salePrice: 12,
-        qrCode: value.variantId, status: "active" } });
-      await prisma.productStock.create({ data: { variantId: value.variantId, quantity: 2n } });
+      await seedProduct({ id: value.productId, name: "A catalog product", qrCode: value.productId, variants: [{ id: value.variantId, salePrice: 12, qrCode: value.variantId, stock: 2n }] });
     }
     await prisma.productStock.delete({ where: { variantId: extra[0].variantId } });
     await prisma.productVariant.delete({ where: { id: extra[0].variantId } });

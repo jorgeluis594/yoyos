@@ -6,6 +6,7 @@ import { updateProduct } from "@core/src/features/products/application/update";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { ok } from "@shared/functional";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 test("product updates persist effective changes, ignore no-ops, and roll back atomically", async () => {
   expect(process.env.DATABASE_URL, "run sh scripts/run-tests.sh integration").toBeTruthy();
@@ -18,10 +19,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
     publishProductImageChanged: async () => ok(undefined),
   };
   const createDeps = { ...deps, newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z") };
-  const base: CreateInput = { name: "Camisa", description: "Algodón", currency: "PEN", variants: [
-    { attributes: { Talla: "M" }, sku: "CAM-M", salePrice: 20, purchasePrice: 0, initialStock: 4 },
-    { attributes: { Talla: "L" }, sku: "CAM-L", salePrice: 25, initialStock: 6 },
-  ] };
+  const base: CreateInput = { name: "Camisa", description: "Algodón", currency: "PEN", variants: [{ attributes: {}, sku: "CAM-M", salePrice: 20 }] };
   const getStored = async (companyId: string, id: ProductId) => {
     const result = await productRepository.get(id);
     if (!result.success || !result.data) throw new Error("Product was not loaded");
@@ -30,10 +28,11 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
   try {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: id, country: "PE" } }));
     await withTenantIsolation(companyA, async () => {
-      const created = await createProduct(base, createDeps);
-      expect(created.success).toBe(true);
-      if (!created.success) return;
-      const id = created.data;
+      const seeded = await seedProduct({ name: "Camisa", description: "Algodón", variants: [
+        { attributes: { Talla: "M" }, sku: "CAM-M", salePrice: 20, purchasePrice: 0, stock: 4 },
+        { attributes: { Talla: "L" }, sku: "CAM-L", salePrice: 25, stock: 6 },
+      ] });
+      const id = seeded.productId as ProductId;
       const before = await getStored(companyA, id);
       const medium = before.variants.find((variant) => variant.sku === "CAM-M")!;
       const large = before.variants.find((variant) => variant.sku === "CAM-L")!;
@@ -50,7 +49,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
       });
       expect(after.description).toBeUndefined();
       const editedMedium = after.variants.find((variant) => variant.id === medium.id)!;
-      expect(editedMedium).toMatchObject({ sku: "cam-m-2", salePrice: { amount: 20 }, stock: { quantity: 4 }, qrCode: medium.qrCode, attributes: { Talla: "M" } });
+      expect(editedMedium).toMatchObject({ sku: "cam-m-2", salePrice: { amount: 20 }, stock: { quantity: 4 }, qrCode: medium.qrCode, combination: { [seeded.optionIds.Talla]: seeded.valueIds.Talla.M } });
       expect(editedMedium.purchasePrice).toBeUndefined();
       const editedLarge = after.variants.find((variant) => variant.id === large.id)!;
       expect(editedLarge).toMatchObject({ sku: "CAM-L", salePrice: { amount: 26, currency: "PEN" }, stock: { quantity: 6 } });
@@ -87,8 +86,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
     await withTenantIsolation(companyB, async () => {
       const sameSku = await createProduct({ ...base, variants: [{ attributes: {}, sku: "CAM-M", salePrice: 5 }] }, createDeps);
       expect(sameSku).toMatchObject({ success: true });
-      const absent = await createProduct({ ...base, variants: [{ attributes: { Talla: "M" }, salePrice: 5 }, { attributes: { Talla: "L" }, salePrice: 6 }] }, createDeps);
-      expect(absent).toMatchObject({ success: true });
+      await seedProduct({ variants: [{ attributes: { Talla: "M" }, salePrice: 5 }, { attributes: { Talla: "L" }, salePrice: 6 }] });
       if (!sameSku.success) throw new Error("Product was not created");
       foreignProductId = sameSku.data;
       foreignVariantId = (await getStored(companyB, sameSku.data)).variants[0].id;
@@ -100,9 +98,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
     });
   } finally {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => {
-      await prisma.productStock.deleteMany({ where: { companyId: id } });
-      await prisma.productVariant.deleteMany({ where: { companyId: id } });
-      await prisma.product.deleteMany({ where: { companyId: id } });
+      await deleteSeededProducts();
       await prisma.company.deleteMany({ where: { id } });
     });
   }

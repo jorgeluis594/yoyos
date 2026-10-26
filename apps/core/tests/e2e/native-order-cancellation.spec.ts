@@ -220,7 +220,7 @@ test.runIf(process.env.NATIVE_ANDROID_TEST === "1")("Android cancels real orders
     try { await pool.query("DELETE FROM pgboss.job WHERE data->'payload'->>'companyId' = $1", [companyId]); } finally { await pool.end(); }
     await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });
   }

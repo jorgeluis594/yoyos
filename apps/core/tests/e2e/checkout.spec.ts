@@ -13,6 +13,7 @@ import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infr
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { chooseDistrict, chooseDistrictInProvince, expectDistrict } from "@core/tests/e2e/district-combobox";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 function requestLogs(requestId: string) {
   return readFileSync("test-results/server.jsonl", "utf8").trim().split("\n")
@@ -28,9 +29,7 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Tienda del checkout", country: "PE" } });
     await systemPrisma.user.create({ data: { id: userId, name: "Seller", email: `${userId}@example.test`, companyId } });
-    const product = await products.create({ name: "Cuaderno", currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
-    if (!product.success) throw new Error("Product fixture failed");
-    const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
+    const variant = { id: (await seedProduct({ name: "Cuaderno", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, stock: 3 }] })).variantIds[0] };
     if (prefill !== "none") await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
     const created = await orders.create({ id: orderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId, userId });
     if (!created.success) throw new Error("Order fixture failed");
@@ -49,7 +48,7 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
     async cleanup() {
       await withTenantIsolation(companyId, async () => {
         await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-        await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+        await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
         await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany(); await prisma.deliveryZoneDistrict.deleteMany();
         await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany(); await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
         await systemPrisma.user.delete({ where: { id: userId } }); await prisma.company.delete({ where: { id: companyId } });
@@ -269,7 +268,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     await buyer.close();
     await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });
   }

@@ -17,6 +17,7 @@ import { parseUpdateJson } from "@core/src/features/products/presentation/input"
 import { updateErrors, type FormErrors } from "@core/src/features/products/presentation/messages";
 import { ProductForm, type ProductFormValues, type ProductImageSelection } from "@core/src/features/products/presentation/product-form";
 import type { ProductId } from "@core/src/features/products/domain/product";
+import { orderedAttributes } from "@core/src/features/products/domain/product-structure";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -30,7 +31,7 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
     const { product } = result.data;
     const variant = product.variants.length === 1 ? product.variants[0] : undefined;
     return {
-      product,
+      product: { ...product, variants: product.variants.map((item) => ({ ...item, attributes: orderedAttributes(product, item) })) },
       catalog: companyPath(new URL(request.url).pathname, company.country, "/products"),
       imageUrl: result.data.image?.url,
       variantId: variant?.id,

@@ -53,7 +53,8 @@ const currency = z.enum(currencies);
 const attributes = z
   .unknown()
   .superRefine((value, ctx) => {
-    if (attributeCombination(value) === null) addIssue(ctx, { reason: "INVALID_ATTRIBUTES", message: "Invalid attributes" });
+    // Options arrive with the editor contract; until then a variant carries no attributes.
+    if (!isRecord(value) || Object.keys(value).length) addIssue(ctx, { reason: "INVALID_ATTRIBUTES", message: "Invalid attributes" });
   })
   .pipe(z.record(z.string(), z.string()));
 

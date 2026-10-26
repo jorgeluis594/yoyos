@@ -196,6 +196,7 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
       await prisma.order.deleteMany();
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
+      await prisma.productOption.deleteMany();
       await prisma.product.deleteMany();
       await prisma.image.deleteMany();
       await prisma.companyPaymentSettings.deleteMany();
@@ -338,6 +339,7 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
       await prisma.order.deleteMany();
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
+      await prisma.productOption.deleteMany();
       await prisma.product.deleteMany();
       await prisma.image.deleteMany();
       await prisma.companyPaymentSettings.deleteMany();

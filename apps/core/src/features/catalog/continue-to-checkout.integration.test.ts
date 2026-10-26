@@ -21,6 +21,8 @@ import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/per
 import type { CartQuantity } from "@core/src/features/orders/domain/catalog-order";
 import type { CompanyId, OrderId, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
+import { findOrderAggregate } from "@core/src/features/orders/infrastructure/order-repository";
 
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -66,19 +68,14 @@ async function store(published = true) {
   const [black, beige] = [randomUUID(), randomUUID()] as VariantId[];
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Moda Lucía", country: "PE", catalogPublished: published, catalogSubdomain: subdomainOf(companyId) } });
-    await prisma.product.create({ data: { id: productId, name: "Polo básico", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    for (const [variantId, color, stock] of [[black, "Negro", 3n], [beige, "Beige", 1n]] as const) {
-      await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Talla: "M", Color: color }, sku: `SKU-${variantId}`, salePrice: 45, purchasePrice: 20, qrCode: variantId, status: "active" } });
-      await prisma.productStock.create({ data: { variantId, quantity: stock } });
-    }
+    await seedProduct({ id: productId, name: "Polo básico", qrCode: productId, variants: ([[black, "Negro", 3n], [beige, "Beige", 1n]] as const).map(([variantId, color, stock]) => ({
+      id: variantId, attributes: { Talla: "M", Color: color }, sku: `SKU-${variantId}`, salePrice: 45, purchasePrice: 20, qrCode: variantId, stock })) });
   });
   cleanups.push(() => withTenantIsolation(companyId, async () => {
     await prisma.orderBuyer.deleteMany();
     await prisma.orderItem.deleteMany();
     await prisma.order.deleteMany();
-    await prisma.productStock.deleteMany();
-    await prisma.productVariant.deleteMany();
-    await prisma.product.deleteMany();
+    await deleteSeededProducts();
     await prisma.company.delete({ where: { id: companyId } });
   }));
   return { companyId, black, beige };
@@ -98,6 +95,18 @@ test("two simultaneous Continuar with the same id create one order and consume o
   const stored = await withTenantIsolation(companyId, async () => await prisma.order.findMany({ include: { items: true } }));
   expect(stored).toMatchObject([{ id: input.orderId, fromCatalog: true, sellerId: null, checkoutConfirmedAt: null, items: [{ quantity: 3n }] }]);
   expect(stored[0].checkoutEnabledAt).toBeInstanceOf(Date);
+});
+
+test("a catalog order keeps the combination in option order, not alphabetical, after reading it back", async () => {
+  const { companyId, black } = await store();
+  const orderId = randomUUID() as OrderId;
+  expect(await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1)] }, await storefrontOf(companyId))).toMatchObject({ success: true });
+  await withTenantIsolation(companyId, async () => {
+    const [stored] = await prisma.$queryRaw<{ attributes: string }[]>`SELECT "variantAttributes"::text AS attributes FROM "OrderItem"`;
+    expect(Object.entries(JSON.parse(stored.attributes))).toEqual([["Talla", "M"], ["Color", "Negro"]]);
+    const read = await findOrderAggregate(orderId, companyId);
+    expect(read.success && read.data?.items.map((item) => Object.entries(item.variantAttributes))).toEqual([[["Talla", "M"], ["Color", "Negro"]]]);
+  });
 });
 
 test("a rejected cart allocates no number", async () => {

@@ -45,23 +45,17 @@ describe("create product", () => {
 
   test("creates and retrieves complete immutable values", async () => {
     const context = setup();
-    const input: CreateInput = { ...base, variants: [
-      { attributes: { Color: " Azul " }, sku: " A-1 ", salePrice: 19.99, purchasePrice: 0, initialStock: 7 },
-      { attributes: { Color: "Rojo" }, salePrice: 999999999.99 },
-    ] };
+    const input: CreateInput = { ...base, variants: [{ attributes: {}, sku: " A-1 ", salePrice: 19.99, purchasePrice: 0, initialStock: 7 }] };
     const result = await createProduct(input, context.deps);
     expect(result.success).toBe(true);
     if (!result.success) return;
     const detail = await getProduct(result.data, { repository: context.deps.repository, resolveImage: async () => ok(null) });
     expect(detail.success && detail.data?.product).toMatchObject({
       name: "Camisa", currency: "PEN", status: "active",
-      variants: [
-        { sku: "A-1", salePrice: { amount: 19.99, currency: "PEN" }, purchasePrice: { amount: 0, currency: "PEN" }, stock: { quantity: 7 } },
-        { salePrice: { amount: 999999999.99, currency: "PEN" }, stock: { quantity: 0 } },
-      ],
+      structureVersion: 1, options: [],
+      variants: [{ combination: {}, sku: "A-1", salePrice: { amount: 19.99, currency: "PEN" }, purchasePrice: { amount: 0, currency: "PEN" }, stock: { quantity: 7 } }],
     });
     expect(input.variants[0].sku).toBe(" A-1 ");
-    expect(input.variants[0].attributes).toEqual({ Color: " Azul " });
     expect(context.stored?.createdAt).toEqual(new Date("2026-09-24T00:00:00.000Z"));
     expect(context.stored?.updatedAt).toEqual(context.stored?.createdAt);
     expect(context.stored?.id).not.toBe(context.stored?.variants[0].id);
@@ -69,7 +63,14 @@ describe("create product", () => {
     expect(context.stored?.id).toBe("00000000-0000-4000-8000-000000000001");
     expect(context.stored?.variants[0].id).toBe("00000000-0000-4000-8000-000000000002");
     expect(context.stored?.variants[0].qrCode).toBe("00000000-0000-4000-8000-000000000003");
-    expect(context.stored?.qrCode).toBe("00000000-0000-4000-8000-000000000006");
+    expect(context.stored?.qrCode).toBe("00000000-0000-4000-8000-000000000004");
+  });
+
+  test("rejects variant attributes until the editor contract replaces them", async () => {
+    const context = setup();
+    const result = await createProduct({ ...base, variants: [{ attributes: { Color: "Azul" }, salePrice: 1 }] }, context.deps);
+    expect(result).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR", issues: [{ scope: "variant", index: 0, field: "attributes", reason: "INVALID_ATTRIBUTES" }] } });
+    expect(context.writes).toBe(0);
   });
 
   test("collects independent validation errors before any write", async () => {
@@ -136,21 +137,11 @@ describe("create product", () => {
     expect(context.writes).toBe(0);
   });
 
-  test("accepts the maximum total stock and rejects an overflow before writing", async () => {
+  test("accepts the maximum stock of a variant", async () => {
     const allowed = setup();
-    const variants = [
-      { attributes: { Color: "Azul" }, salePrice: 1, initialStock: Number.MAX_SAFE_INTEGER - 1 },
-      { attributes: { Color: "Rojo" }, salePrice: 1, initialStock: 1 },
-    ] as const;
+    const variants = [{ attributes: {}, salePrice: 1, initialStock: Number.MAX_SAFE_INTEGER }] as const;
     expect((await createProduct({ ...base, variants }, allowed.deps)).success).toBe(true);
     expect(allowed.writes).toBe(1);
-
-    const rejected = setup();
-    const result = await createProduct({ ...base, variants: [variants[0], { ...variants[1], initialStock: 2 }] }, rejected.deps);
-    expect(result).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR", issues: [
-      { scope: "product", field: "variants", reason: "INVALID_TOTAL_STOCK" },
-    ] } });
-    expect(rejected.writes).toBe(0);
   });
 
   test("distinguishes absence, absent image, missing image, and technical failure", async () => {

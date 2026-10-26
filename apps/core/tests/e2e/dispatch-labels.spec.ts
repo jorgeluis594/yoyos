@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { browserExpect, chooseOption, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 const district = { country: "PE", districtCode: "150122", district: "MIRAFLORES", province: "Lima", department: "Lima" };
 const recipient = { name: "Ana Pérez", phone: "999 888 777", identity: { kind: "document", documentType: "national_id", document: "12345678" } };
@@ -20,8 +21,7 @@ async function prepareOrders(page: Page, email: string) {
   const orders = await withTenantIsolation(companyId, async () => {
     const productId = randomUUID();
     const variantId = randomUUID();
-    await prisma.product.create({ data: { id: productId, name: "Camisa", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId, status: "active" } });
+    await seedProduct({ id: productId, name: "Camisa", qrCode: productId, variants: [{ id: variantId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId }] });
     const created: Record<string, { id: string; number: number }> = {};
     const plan: [string, Kind, boolean][] = [
       ...Array.from({ length: 20 }, (_, index): [string, Kind, boolean] => [`filler${index}`, "filler", false]),
@@ -44,7 +44,7 @@ async function prepareOrders(page: Page, email: string) {
 async function cleanup(companyId: string | undefined, email: string) {
   if (!companyId) return;
   await withTenantIsolation(companyId, async () => {
-    await prisma.orderItem.deleteMany(); await prisma.order.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+    await prisma.orderItem.deleteMany(); await prisma.order.deleteMany(); await deleteSeededProducts();
     await systemPrisma.user.deleteMany({ where: { email } });
     await prisma.company.delete({ where: { id: companyId } });
   });
