@@ -4,12 +4,13 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { isCurrency } from "@shared/money";
-import { getCompanyId, prisma, withinReadSnapshot, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, prisma, withLockedForUpdate, withinReadSnapshot, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import type { ProductSummary } from "@core/src/features/products/application/list";
 import type { CreateError } from "@core/src/features/products/application/create";
+import type { SaveProductError } from "@core/src/features/products/application/save-product";
 import type { Criteria, ProductReadError, ProductRepository } from "@core/src/features/products/application/repository";
 import type { ImageId, OptionId, OptionText, OptionValueId, Product, ProductId, ProductOption, ProductOptionValue, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
-import { combinationKey, sortVariants } from "@core/src/features/products/domain/product-structure";
+import { combinationKey, sortVariants, type ProductStructureChange } from "@core/src/features/products/domain/product-structure";
 
 type Rows = Readonly<{
   products: DbProduct[];
@@ -102,11 +103,27 @@ function mapProduct(row: DbProduct, variantRows: (DbVariant & { stock: DbStock |
   return { ...product, variants: sortVariants(product) };
 }
 
-async function readProducts(ids: readonly string[]): Promise<Result<Product[], ProductReadError>> {
+/** Prisma timeouts and PostgreSQL lock conflicts are the transaction's to report: the editing writes rethrow them instead of answering with a result. */
+export function transactionFailureStage(error: unknown): "transaction_timeout" | "lock_conflict" | undefined {
+  const text = (value: unknown) => {
+    let meta = "";
+    try { meta = JSON.stringify((value as { meta?: unknown } | null)?.meta ?? {}); } catch { /* circular driver detail: the message is enough */ }
+    return `${value instanceof Error ? value.message : ""} ${meta}`;
+  };
+  const code = (value: unknown) => typeof value === "object" && value !== null && "code" in value && typeof value.code === "string" ? value.code : undefined;
+  const causes = [error, error instanceof Error ? error.cause : undefined];
+  if (causes.some((item) => code(item) === "P2028")) return "transaction_timeout";
+  if (causes.some((item) => code(item) === "P2034" || /40P01|55P03|deadlock detected|lock timeout/i.test(text(item)))) return "lock_conflict";
+  if (causes.some((item) => /57014|statement timeout/i.test(text(item)))) return "transaction_timeout";
+  return undefined;
+}
+
+async function readProducts(ids: readonly string[], inTransaction = false): Promise<Result<Product[], ProductReadError>> {
   let rows: Rows;
   try {
     rows = await withinReadSnapshot(() => loadRows(ids));
   } catch (error) {
+    if (inTransaction && transactionFailureStage(error)) throw error;
     log.error({ event: "product_read_persistence_failed", err: error }, "product_read_persistence_failed");
     return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to read product" });
   }
@@ -163,6 +180,7 @@ export async function insertProduct(product: Product): Promise<Result<ProductId,
     if (isDuplicateProductId(error)) return err({ code: "PRODUCT_ID_CONFLICT", message: "Product ID is already used" });
     if (isDuplicateOptionId(error)) return err({ code: "ID_CONFLICT", message: "Identifier is already used" });
     if (isDuplicateCombination(error)) return err({ code: "DUPLICATE_COMBINATION", message: "Combination is already used" });
+    if (transactionFailureStage(error)) throw error;
     return unavailableCreate(error, product, started);
   }
 }
@@ -190,6 +208,7 @@ export async function findSkuOwners(normalizedSkus: readonly string[]): Promise<
       WHERE "companyId" = ${getCompanyId()}::uuid AND sku IS NOT NULL AND lower(btrim(sku)) = ANY(${[...normalizedSkus]}::text[])`);
     return ok(new Map(rows.map((row) => [row.sku, row.id as VariantId] as const)));
   } catch (error) {
+    if (transactionFailureStage(error)) throw error;
     log.error({ event: "product_sku_lookup_persistence_failed", err: error }, "product_sku_lookup_persistence_failed");
     return unavailable("Unable to check SKUs");
   }
@@ -205,8 +224,108 @@ export async function findForeignOptionIds(ids: readonly string[]): Promise<Resu
       UNION ALL SELECT id::text FROM "ProductOptionValue" WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[])`);
     return ok(new Set(rows.map((row) => row.id)));
   } catch (error) {
+    if (transactionFailureStage(error)) throw error;
     log.error({ event: "product_option_ids_persistence_failed", err: error }, "product_option_ids_persistence_failed");
     return unavailable("Unable to check identifiers");
+  }
+}
+
+/** Locks the Product row and loads the aggregate. Call it first inside the editing transaction. */
+export async function lockProduct(id: ProductId): Promise<Result<Product | null, ProductReadError>> {
+  try {
+    return await withLockedForUpdate<{ id: string }, Result<Product | null, ProductReadError>>(getCompanyId(),
+      Prisma.sql`SELECT id FROM "Product" WHERE id = ${id}::uuid AND "companyId" = ${getCompanyId()}::uuid`,
+      async (row) => {
+        if (!row) return ok(null);
+        const read = await readProducts([id], true);
+        return read.success ? ok(read.data[0] ?? null) : read;
+      });
+  } catch (error) {
+    if (transactionFailureStage(error)) throw error;
+    log.error({ event: "product_lock_persistence_failed", err: error }, "product_lock_persistence_failed");
+    return unavailable("Unable to read product");
+  }
+}
+
+const isForeignKeyOfOrders = (error: unknown) => mentions(error, "OrderItem_companyId_variantId_fkey");
+const mentions = (error: unknown, name: string) => {
+  let meta = "";
+  try { meta = JSON.stringify((error as { meta?: unknown } | null)?.meta ?? {}); } catch { /* the message is enough */ }
+  return `${error instanceof Error ? error.message : ""} ${meta}`.includes(name);
+};
+
+const uuidList = (ids: readonly string[]) => Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`));
+const rowsOf = (rows: readonly Prisma.Sql[]) => Prisma.join(rows.map((row) => Prisma.sql`(${row})`));
+
+/**
+ * Applies the plan in the fixed order of the design with one statement per kind of change, whatever the number of variants.
+ * Call it inside the editing transaction; a returned error makes that transaction roll back.
+ */
+export async function applyStructureChange(change: ProductStructureChange): Promise<Result<null, SaveProductError>> {
+  const started = performance.now();
+  const companyId = getCompanyId();
+  const decimal = (amount: number) => new Prisma.Decimal(amount.toString());
+  const { productId } = change;
+  try {
+    // Variants that are deleted or rekeyed are locked in id order, the order in which orders lock them, so the two sides cannot deadlock.
+    const touched = [...new Set([...change.deleteVariantIds, ...change.rekeyVariants.map((item) => item.id)])].sort();
+    if (touched.length) await prisma.$queryRaw(Prisma.sql`SELECT id FROM "ProductVariant" WHERE "companyId" = ${companyId}::uuid AND id IN (${uuidList(touched)}) ORDER BY id FOR UPDATE`);
+    if (change.deleteVariantIds.length) {
+      await prisma.productStock.deleteMany({ where: { variantId: { in: [...change.deleteVariantIds] } } });
+      await prisma.productVariant.deleteMany({ where: { id: { in: [...change.deleteVariantIds] } } });
+    }
+    if (change.insertOptions.length) await prisma.productOption.createMany({ data: change.insertOptions.map((option) => ({ id: option.id, productId, name: option.name, position: option.position })) });
+    if (change.insertValues.length) await prisma.productOptionValue.createMany({ data: change.insertValues.map((value) => ({ id: value.id, optionId: value.optionId, productId, name: value.name, position: value.position })) });
+    if (change.renameOrMoveOptions.length) await prisma.$executeRaw(Prisma.sql`UPDATE "ProductOption" o SET name = v.name, position = v.position
+      FROM (VALUES ${rowsOf(change.renameOrMoveOptions.map((item) => Prisma.sql`${item.id}::uuid, ${item.name}::text, ${item.position}::int`))}) AS v(id, name, position)
+      WHERE o.id = v.id AND o."companyId" = ${companyId}::uuid`);
+    if (change.renameOrMoveValues.length) await prisma.$executeRaw(Prisma.sql`UPDATE "ProductOptionValue" o SET name = v.name, position = v.position
+      FROM (VALUES ${rowsOf(change.renameOrMoveValues.map((item) => Prisma.sql`${item.id}::uuid, ${item.name}::text, ${item.position}::int`))}) AS v(id, name, position)
+      WHERE o.id = v.id AND o."companyId" = ${companyId}::uuid`);
+    if (change.insertLinks.length) await prisma.productVariantOptionValue.createMany({ data: change.insertLinks.map((link) => ({ productId, variantId: link.variantId, optionId: link.optionId, valueId: link.valueId })) });
+    if (change.deleteLinksOfOptionIds.length) await prisma.productVariantOptionValue.deleteMany({ where: { optionId: { in: [...change.deleteLinksOfOptionIds] } } });
+    if (change.deleteValueIds.length) await prisma.productOptionValue.deleteMany({ where: { id: { in: [...change.deleteValueIds] } } });
+    if (change.deleteOptionIds.length) await prisma.productOption.deleteMany({ where: { id: { in: [...change.deleteOptionIds] } } });
+    if (change.rekeyVariants.length) await prisma.$executeRaw(Prisma.sql`UPDATE "ProductVariant" p SET "combinationKey" = v.key
+      FROM (VALUES ${rowsOf([...change.rekeyVariants].sort((a, b) => a.id < b.id ? -1 : 1).map((item) => Prisma.sql`${item.id}::uuid, ${item.combinationKey}::text`))}) AS v(id, key)
+      WHERE p.id = v.id AND p."companyId" = ${companyId}::uuid`);
+    // Clearing the changed SKUs first lets two variants swap them: the SKU index is not deferrable.
+    const skuChanges = change.variantFieldChanges.filter((item) => item.sku !== undefined);
+    if (skuChanges.length) await prisma.$executeRaw(Prisma.sql`UPDATE "ProductVariant" SET sku = NULL WHERE "companyId" = ${companyId}::uuid AND id IN (${uuidList(skuChanges.map((item) => item.id))})`);
+    if (change.variantFieldChanges.length) await prisma.$executeRaw(Prisma.sql`UPDATE "ProductVariant" p SET
+        sku = CASE WHEN v.set_sku THEN v.sku ELSE p.sku END,
+        "salePrice" = CASE WHEN v.set_sale THEN v."salePrice" ELSE p."salePrice" END,
+        "purchasePrice" = CASE WHEN v.set_purchase THEN v."purchasePrice" ELSE p."purchasePrice" END
+      FROM (VALUES ${rowsOf(change.variantFieldChanges.map((item) => Prisma.sql`${item.id}::uuid, ${item.sku !== undefined}::boolean, ${item.sku ?? null}::text,
+        ${item.salePrice !== undefined}::boolean, ${item.salePrice === undefined ? null : decimal(item.salePrice)}::numeric,
+        ${item.purchasePrice !== undefined}::boolean, ${item.purchasePrice === undefined || item.purchasePrice === null ? null : decimal(item.purchasePrice)}::numeric`))})
+        AS v(id, set_sku, sku, set_sale, "salePrice", set_purchase, "purchasePrice")
+      WHERE p.id = v.id AND p."companyId" = ${companyId}::uuid`);
+    if (change.insertVariants.length) {
+      await prisma.productVariant.createMany({ data: change.insertVariants.map((variant) => ({
+        id: variant.id, productId, combinationKey: variant.combinationKey, sku: variant.sku, salePrice: decimal(variant.salePrice),
+        purchasePrice: variant.purchasePrice === undefined ? null : decimal(variant.purchasePrice), qrCode: variant.qrCode, status: "active" })) });
+      await prisma.productStock.createMany({ data: change.insertVariants.map((variant) => ({ variantId: variant.id, quantity: BigInt(variant.initialStock) })) });
+      const links = change.insertVariants.flatMap((variant) => Object.entries(variant.combination).map(([optionId, valueId]) => ({ productId, variantId: variant.id, optionId, valueId })));
+      if (links.length) await prisma.productVariantOptionValue.createMany({ data: links });
+    }
+    if (Object.keys(change.product).length) await prisma.product.update({ where: { id: productId }, data: {
+      ...change.product.name === undefined ? {} : { name: change.product.name },
+      ...change.product.description === undefined ? {} : { description: change.product.description },
+      ...change.product.imageId === undefined ? {} : { imageId: change.product.imageId },
+      ...change.product.updatedAt === undefined ? {} : { updatedAt: change.product.updatedAt },
+      ...change.product.structureVersion === undefined ? {} : { structureVersion: change.product.structureVersion },
+    } });
+    return ok(null);
+  } catch (error) {
+    if (isDuplicateSku(error) || mentions(error, "ProductVariant_companyId_sku_normalized_key")) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
+    if (isDuplicateCombination(error) || mentions(error, "ProductVariant_companyId_productId_combinationKey_key")) return err({ code: "DUPLICATE_COMBINATION", message: "Combination is already used" });
+    if (isDuplicateOptionId(error) || mentions(error, "ProductOption_pkey") || mentions(error, "ProductOptionValue_pkey")) return err({ code: "ID_CONFLICT", message: "Identifier is already used" });
+    if (isForeignKeyOfOrders(error)) return err({ code: "VARIANT_HAS_ORDERS", message: "Variant has orders" });
+    if (transactionFailureStage(error)) throw error;
+    log.error({ event: "product_save_failed", companyId, productId, stage: "apply", errorCode: "PERSISTENCE_UNAVAILABLE",
+      durationMs: Math.round(performance.now() - started), err: error }, "product_save_failed");
+    return unavailable("Unable to save product");
   }
 }
 

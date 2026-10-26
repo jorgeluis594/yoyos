@@ -1,9 +1,11 @@
 import express from "express";
-import { createProductRequestSchema, productListQuerySchema, updateProductRequestSchema } from "@shared/contracts/products";
+import { createProductRequestSchema, productListQuerySchema, saveProductRequestSchema, updateProductRequestSchema, type SaveProductRequest } from "@shared/contracts/products";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { products } from "@core/src/features/products/composition";
 import { productEditing } from "@core/src/composition/product-editing";
 import { handleUnexpected, productIdFrom, sendInvalid, sendOperationError, zodIssues } from "@core/src/features/products/presentation/api-errors";
+import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import type { SaveProductInput } from "@core/src/features/products/application/save-product";
 import { toCreateInput, toUpdateInput } from "@core/src/features/products/presentation/request-input";
 import { toProductDetailResponse, toProductIdResponse, toProductListResponse } from "@core/src/features/products/presentation/product-presenter";
 
@@ -54,6 +56,31 @@ productRoutes.post("/", async (request, response) => {
     const result = await productEditing.create(toCreateInput(parsed.data));
     if (!result.success) return sendOperationError(response, result.error);
     return response.status(201).json(toProductIdResponse(result.data));
+  } catch (error) {
+    return handleUnexpected(response, error);
+  }
+});
+
+function toSaveInput(productId: ProductId, request: SaveProductRequest): SaveProductInput {
+  return {
+    productId, structureVersion: request.structureVersion, name: request.name, description: request.description, imageId: request.imageId as ImageId | null,
+    options: request.options,
+    variants: request.variants.map((variant) => ({ ...variant, id: variant.id as VariantId })),
+    newVariants: request.newVariants,
+    deletedVariantIds: request.deletedVariantIds as VariantId[],
+  };
+}
+
+productRoutes.put("/:productId", async (request, response) => {
+  if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
+  const id = productIdFrom(request, response);
+  if (!id) return;
+  const parsed = saveProductRequestSchema.safeParse(request.body);
+  if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid product input", zodIssues(parsed.error));
+  try {
+    const result = await productEditing.save(toSaveInput(id, parsed.data));
+    if (!result.success) return sendOperationError(response, result.error);
+    return response.json(toProductDetailResponse(result.data));
   } catch (error) {
     return handleUnexpected(response, error);
   }
