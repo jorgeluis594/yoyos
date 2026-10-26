@@ -110,7 +110,7 @@ export default function ProductDetail() {
     <ProductForm currency={product.currency} cancelTo={catalog} errors={errors} pending={pending} values={values} variantFields={variantId ? "editable" : "hidden"} stock={stock} submitLabel={t("products.saveChanges")} imageUrl={imageUrl} onSave={save} variants={variantId ? undefined : <section aria-labelledby="variants-heading">
       <h2 id="variants-heading" className="text-base font-semibold">{t("products.variants")}</h2>
       <div className="mt-3 grid gap-3">{product.variants.map((variant, index) => <Card key={variant.id} role="article">
-        <CardHeader><CardTitle className="text-base font-medium">{variant.label || t("products.variant", { number: index + 1 })}</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base font-medium">{variant.label ? `${t("products.variant", { number: index + 1 })} · ${variant.label}` : t("products.variant", { number: index + 1 })}</CardTitle></CardHeader>
         <CardContent>
           <DescriptionList orientation="vertical" className="grid gap-3 sm:grid-cols-2">
             {variant.attributes.map(({ name, value }) => <DescriptionItem key={name}><DescriptionTerm>{name}</DescriptionTerm><DescriptionDetails>{value}</DescriptionDetails></DescriptionItem>)}

@@ -34,7 +34,7 @@ function message(issue: ValidationIssue, language: Language): string {
     case "INVALID_PRECISION": return names ? t("productErrors.invalidPrecision", { label: names.label, maxDecimals: issue.maxDecimals }) : generic();
     case "INVALID_STOCK": return t("productErrors.invalidStock");
     case "INVALID_TOTAL_STOCK": return t("productErrors.invalidTotalStock");
-    case "DUPLICATE_SKU": return t("productErrors.duplicateSku");
+    case "DUPLICATE_SKU": return t("productErrors.skuInUse");
     case "DUPLICATE_COMBINATION": return t("productErrors.duplicateAttributes");
     case "DUPLICATE_VARIANT": return t("productErrors.duplicateVariant");
     case "VARIANT_NOT_FOUND": return t("productErrors.variantNotFound");
