@@ -155,7 +155,7 @@ test("applies the theme draft to the preview without changing the public checkou
     if (companyId) {
       await withTenantIsolation(companyId, async () => {
         await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-        await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+        await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       });
       await removeCompanyAppearance(companyId);
       await withTenantIsolation(companyId, async () => {

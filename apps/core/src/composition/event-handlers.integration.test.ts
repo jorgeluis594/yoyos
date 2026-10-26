@@ -24,6 +24,7 @@ vi.mock("@core/src/shared/images/infrastructure/qr-code-reader", () => ({
   } }));
 
 import { addMessageProductsToOrder } from "@core/src/composition/event-handlers";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 async function fixture() {
   const companyId = randomUUID();
@@ -35,8 +36,7 @@ async function fixture() {
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Handler orders", country: "PE" } });
     await systemPrisma.user.create({ data: { id: sellerId, name: "Seller", email: `${sellerId}@example.test`, companyId } });
-    await prisma.product.create({ data: { id: productId, name: "Shirt", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Size: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId, status: "active" } });
+    await seedProduct({ id: productId, name: "Shirt", qrCode: productId, variants: [{ id: variantId, attributes: { Size: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId }] });
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "111@lid", whatsappLid: "222@lid" } });
     await prisma.chat.create({ data: { id: chatId, contactId } });
   });
@@ -54,7 +54,7 @@ async function fixture() {
   }
   return { companyId, chatId, sellerId, variantId, photo, async cleanup() {
     await withTenantIsolation(companyId, async () => {
-      for (const table of ["orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productVariant", "product", "image"] as const)
+      for (const table of ["orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productStock", "productVariant", "productOption", "product", "image"] as const)
         await (prisma[table] as unknown as { deleteMany(): Promise<unknown> }).deleteMany();
       await systemPrisma.user.deleteMany({ where: { companyId } });
       await prisma.company.delete({ where: { id: companyId } });

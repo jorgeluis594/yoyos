@@ -60,6 +60,7 @@ afterEach(async () => {
       await prisma.customer.deleteMany({ where: { companyId } });
       await prisma.productStock.deleteMany({ where: { companyId } });
       await prisma.productVariant.deleteMany({ where: { companyId } });
+      await prisma.productOption.deleteMany({ where: { companyId } });
       await prisma.product.deleteMany({ where: { companyId } });
       await prisma.image.deleteMany({ where: { companyId } });
     });

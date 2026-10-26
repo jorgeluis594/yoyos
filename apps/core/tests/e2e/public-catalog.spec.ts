@@ -1,8 +1,8 @@
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { browserExpect, expect, prepareVerifiedCompany, publishCatalog, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 const baseURL = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
 
@@ -20,11 +20,10 @@ test("buyer opens the brand host, adds two variants, continues to checkout on th
   const requestId = `catalog-${randomUUID()}`;
   await buyerPage.setExtraHTTPHeaders({ "x-request-id": requestId });
   try {
-    const product = await withTenantIsolation(companyId, () => products.create({ name: "Polo básico", currency: "PEN", variants: [
-      { attributes: { Talla: "M", Color: "Negro" }, salePrice: 45, initialStock: 5 },
-      { attributes: { Talla: "L", Color: "Negro" }, salePrice: 45, initialStock: 5 },
+    await withTenantIsolation(companyId, () => seedProduct({ name: "Polo básico", variants: [
+      { attributes: { Talla: "M", Color: "Negro" }, salePrice: 45, stock: 5 },
+      { attributes: { Talla: "L", Color: "Negro" }, salePrice: 45, stock: 5 },
     ] }));
-    if (!product.success) throw new Error("Product fixture failed");
     await page.goto("/es-PE/settings/delivery");
     await page.getByLabel("Ofrecer recojo en tienda").click();
     await page.getByLabel("Nombre del punto de recojo").fill("Tienda");
@@ -103,7 +102,7 @@ test("buyer opens the brand host, adds two variants, continues to checkout on th
     await buyer.close();
     await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });
@@ -118,8 +117,7 @@ test("a brand host serves only the storefront: other paths, hidden and unknown s
   const onBrandHost = (path: string) => page.request.get(`${baseURL}${path}`, { headers: { host: new URL(storeUrl(subdomain)).host }, maxRedirects: 0 });
   try {
     const storeAddress = await publishCatalog(companyId, subdomain);
-    const created = await withTenantIsolation(companyId, () => products.create({ name: "Polo básico", currency: "PEN", variants: [{ attributes: { Color: "Negro" }, salePrice: 45, initialStock: 5 }] }));
-    if (!created.success) throw new Error("Product fixture failed");
+    await withTenantIsolation(companyId, () => seedProduct({ name: "Polo básico", variants: [{ attributes: { Color: "Negro" }, salePrice: 45, stock: 5 }] }));
 
     const login = await page.goto(storeUrl(subdomain, "/login"));
     expect(login?.status()).toBe(404);
@@ -177,7 +175,7 @@ test("a brand host serves only the storefront: other paths, hidden and unknown s
     expect(redirect.headers().location).toBe(storeUrl(subdomain, legacy.replace(`/catalogo/${companyId}`, "")));
   } finally {
     await withTenantIsolation(companyId, async () => {
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });
   }

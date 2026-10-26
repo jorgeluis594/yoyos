@@ -16,6 +16,7 @@ import type { CompanyId, ContactId, OrderId, OrderItemId, UserId } from "@core/s
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -29,9 +30,8 @@ async function fixture() {
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Message orders", country: "PE" } });
     await systemPrisma.user.create({ data: { id: sellerId, name: "Seller", email: `${sellerId}@example.test`, companyId } });
-    await prisma.product.create({ data: { id: productId, name: "Shirt", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    for (const [index, variantId] of variantIds.entries())
-      await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Size: index ? "L" : "M" }, sku: `SKU-${variantId}`, salePrice: index ? 20 : 10, qrCode: variantId, status: "active" } });
+    await seedProduct({ id: productId, name: "Shirt", qrCode: productId, variants: variantIds.map((variantId, index) => ({
+      id: variantId, attributes: { Size: index ? "L" : "M" }, sku: `SKU-${variantId}`, salePrice: index ? 20 : 10, qrCode: variantId })) });
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "111@lid", whatsappLid: "222@lid" } });
     await prisma.chat.create({ data: { id: chatId, contactId } });
   });
@@ -45,8 +45,7 @@ async function fixture() {
       await prisma.chat.deleteMany();
       await prisma.contact.deleteMany();
       await prisma.customer.deleteMany();
-      await prisma.productVariant.deleteMany();
-      await prisma.product.deleteMany();
+      await deleteSeededProducts();
       await prisma.image.deleteMany();
       await systemPrisma.user.deleteMany({ where: { companyId } });
       await prisma.company.delete({ where: { id: companyId } });
@@ -322,8 +321,7 @@ async function indexedProduct(f: Fixture) {
   const variantId = randomUUID();
   await withTenantIsolation(f.companyId, async () => {
     await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
-    await prisma.product.create({ data: { id: productId, name: "Cap", currency: "PEN", qrCode: productId, status: "active", imageId, createdAt: new Date(), updatedAt: new Date() } });
-    await prisma.productVariant.create({ data: { id: variantId, productId, attributes: {}, sku: null, salePrice: 30, qrCode: variantId, status: "active" } });
+    await seedProduct({ id: productId, name: "Cap", qrCode: productId, imageId, variants: [{ id: variantId, salePrice: 30, qrCode: variantId }] });
     expect(await saveEmbedding({ imageId, model, vector: [1, 0, 0] as unknown as EmbeddingVector })).toEqual(ok(undefined));
   });
   return variantId;

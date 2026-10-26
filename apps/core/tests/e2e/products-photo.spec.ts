@@ -91,6 +91,7 @@ test("create, replace, keep, and remove a product photo", async ({ page }) => {
         await withTenantIsolation(user.companyId, async () => {
           await prisma.productStock.deleteMany({ where: { companyId: user.companyId! } });
           await prisma.productVariant.deleteMany({ where: { companyId: user.companyId! } });
+          await prisma.productOption.deleteMany({ where: { companyId: user.companyId! } });
           await prisma.product.deleteMany({ where: { companyId: user.companyId! } });
           await prisma.image.deleteMany({ where: { companyId: user.companyId! } });
           await prisma.company.delete({ where: { id: user.companyId! } });

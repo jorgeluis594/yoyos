@@ -1,18 +1,17 @@
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { browserExpect, expect, prepareVerifiedCompany, publishCatalog as publishStore, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { openEditor, rgb, saveCompanyAppearance } from "@core/tests/e2e/store-appearance-fixtures";
 import { storeThemes, type StoreThemeId } from "@shared/store-themes";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 const baseURL = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
 const scope = (page: Page) => page.locator("[data-store-theme]");
 
 /** A published catalog on its brand host with one product that has a single variant, so the buyer can add it with one click. Returns the brand address. */
 async function publishCatalog(companyId: string) {
-  const created = await withTenantIsolation(companyId, async () => products.create({ name: "Polo básico", currency: "PEN", variants: [{ attributes: { Color: "Negro" }, salePrice: 45, initialStock: 5 }] }));
-  if (!created.success) throw new Error("Product fixture failed");
+  await withTenantIsolation(companyId, async () => seedProduct({ name: "Polo básico", variants: [{ attributes: { Color: "Negro" }, salePrice: 45, stock: 5 }] }));
   return publishStore(companyId);
 }
 

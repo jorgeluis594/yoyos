@@ -5,6 +5,7 @@ import { PrismaPg } from "@prisma/adapter-pg";
 import type { CreateInput } from "@core/src/features/products/application/create";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { ok } from "@shared/functional";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 test("product persistence is atomic, isolated, and constrained", async () => {
   expect(process.env.DATABASE_URL, "run sh scripts/run-tests.sh integration").toBeTruthy();
@@ -13,11 +14,11 @@ test("product persistence is atomic, isolated, and constrained", async () => {
   adminUrl.password = "core";
   const admin = new PrismaClient({ adapter: new PrismaPg({ connectionString: adminUrl.toString() }) });
   try {
-  const policies = await admin.$queryRaw<Array<{ tablename: string; qual: string | null; with_check: string | null }>>`SELECT tablename, qual, with_check FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('Product', 'ProductVariant', 'ProductStock')`;
-  expect(policies).toHaveLength(3);
+  const policies = await admin.$queryRaw<Array<{ tablename: string; qual: string | null; with_check: string | null }>>`SELECT tablename, qual, with_check FROM pg_policies WHERE schemaname = 'public' AND tablename IN ('Product', 'ProductVariant', 'ProductStock', 'ProductOption', 'ProductOptionValue', 'ProductVariantOptionValue')`;
+  expect(policies).toHaveLength(6);
   expect(policies.every((policy) => policy.qual?.includes("app.company_id") && policy.with_check?.includes("app.company_id"))).toBe(true);
-  const tables = await admin.$queryRaw<Array<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean; owner: string; allowed: boolean }>>`SELECT relname, relrowsecurity, relforcerowsecurity, pg_get_userbyid(relowner) AS owner, has_table_privilege('core_app', oid, 'SELECT') AND has_table_privilege('core_app', oid, 'INSERT') AND has_table_privilege('core_app', oid, 'UPDATE') AND has_table_privilege('core_app', oid, 'DELETE') AS allowed FROM pg_class WHERE relname IN ('Product', 'ProductVariant', 'ProductStock')`;
-  expect(tables).toHaveLength(3);
+  const tables = await admin.$queryRaw<Array<{ relname: string; relrowsecurity: boolean; relforcerowsecurity: boolean; owner: string; allowed: boolean }>>`SELECT relname, relrowsecurity, relforcerowsecurity, pg_get_userbyid(relowner) AS owner, has_table_privilege('core_app', oid, 'SELECT') AND has_table_privilege('core_app', oid, 'INSERT') AND has_table_privilege('core_app', oid, 'UPDATE') AND has_table_privilege('core_app', oid, 'DELETE') AS allowed FROM pg_class WHERE relname IN ('Product', 'ProductVariant', 'ProductStock', 'ProductOption', 'ProductOptionValue', 'ProductVariantOptionValue')`;
+  expect(tables).toHaveLength(6);
   expect(tables.every((table) => table.relrowsecurity && table.relforcerowsecurity && table.allowed && table.owner !== "core_app")).toBe(true);
   const companyA = randomUUID();
   const companyB = randomUUID();
@@ -37,12 +38,11 @@ test("product persistence is atomic, isolated, and constrained", async () => {
     await withTenantIsolation(companyB, async () => await prisma.image.create({ data: { id: imageId, storageKey: "image" } }));
 
     await withTenantIsolation(companyA, async () => {
-      const first = await createProduct({ ...base(" A-1 "), variants: [
-        { attributes: { color: "azul" }, sku: " A-1 ", salePrice: 19.99, purchasePrice: 0, initialStock: 4 },
-        { attributes: { color: "rojo" }, salePrice: 999999999.99, initialStock: 0 },
-      ] }, newDeps());
-      expect(first.success).toBe(true);
-      if (!first.success) return;
+      const seeded = await seedProduct({ name: "Camisa", variants: [
+        { attributes: { color: "azul" }, sku: "A-1", salePrice: 19.99, purchasePrice: 0, stock: 4 },
+        { attributes: { color: "rojo" }, salePrice: 999999999.99, stock: 0 },
+      ] });
+      const first = { success: true as const, data: seeded.productId as ProductId };
       companyAProductId = first.data;
       const result = await getProduct(first.data, { repository: productRepository, resolveImage: async () => ok(null) });
       expect(result.success && result.data?.product.variants).toEqual(expect.arrayContaining([
@@ -66,7 +66,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       }
       if (!result.success || !result.data) throw new Error("Product was not loaded");
       await expect(prisma.productStock.update({ where: { variantId: result.data.product.variants[0].id }, data: { quantity: -1n } })).rejects.toThrow();
-      const directVariant = () => ({ id: randomUUID(), productId: first.data, attributes: {}, salePrice: 1, qrCode: randomUUID(), status: "active" });
+      const directVariant = () => ({ id: randomUUID(), productId: first.data, combinationKey: randomUUID(), salePrice: 1, qrCode: randomUUID(), status: "active" });
       await expect(prisma.productVariant.create({ data: { ...directVariant(), salePrice: 0 } })).rejects.toThrow();
       await expect(prisma.productVariant.create({ data: { ...directVariant(), purchasePrice: -1 } })).rejects.toThrow();
       await expect(prisma.productVariant.create({ data: { ...directVariant(), salePrice: 1_000_000_000 } })).rejects.toThrow();
@@ -74,11 +74,9 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       await expect(prisma.product.create({ data: { id: randomUUID(), name: "X".repeat(201), currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } })).rejects.toThrow();
       const rollbackId = randomUUID() as ProductId;
       const repeatedQr = randomUUID();
-      const suppliedIds = [rollbackId, randomUUID(), repeatedQr, randomUUID(), repeatedQr, randomUUID()];
-      await expect(createProduct({ ...base(), variants: [
-        { attributes: { color: "azul" }, salePrice: 1 },
-        { attributes: { color: "rojo" }, salePrice: 2 },
-      ] }, { ...newDeps(), newId: () => suppliedIds.shift()! })).resolves.toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      // The variant reuses the id of a stored one: the product row is written first, then the variant insert fails and rolls it back.
+      const suppliedIds = [rollbackId, result.data!.product.variants[0].id, repeatedQr, randomUUID()];
+      await expect(createProduct(base(), { ...newDeps(), newId: () => suppliedIds.shift()! })).resolves.toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
       expect(await prisma.product.findFirst({ where: { id: rollbackId } })).toBeNull();
       const loadedFirst = await productRepository.get(first.data);
       expect(loadedFirst.success && loadedFirst.data).not.toBeNull();
@@ -109,14 +107,12 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       const productId = randomUUID();
       const variantId = randomUUID();
       await expect(prisma.product.create({ data: { id: productId, name: "Wrong image", imageId, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } })).rejects.toThrow();
-      await expect(prisma.productVariant.create({ data: { id: variantId, productId: foreignProductId!, attributes: {}, salePrice: 1, qrCode: randomUUID(), status: "active" } })).rejects.toThrow();
+      await expect(prisma.productVariant.create({ data: { id: variantId, productId: foreignProductId!, combinationKey: randomUUID(), salePrice: 1, qrCode: randomUUID(), status: "active" } })).rejects.toThrow();
       await expect(prisma.productStock.create({ data: { variantId: foreignVariantId!, quantity: 1n } })).rejects.toThrow();
     });
   } finally {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => {
-      await prisma.productStock.deleteMany({ where: { companyId: id } });
-      await prisma.productVariant.deleteMany({ where: { companyId: id } });
-      await prisma.product.deleteMany({ where: { companyId: id } });
+      await deleteSeededProducts();
       await prisma.image.deleteMany({ where: { companyId: id } });
       await prisma.company.deleteMany({ where: { id } });
     });
@@ -135,9 +131,8 @@ async function withSeededVariants(run: (ctx: { mine: { id: string; qrCode: strin
   const seed = (attributes: Record<string, string>) => {
     const productId = randomUUID();
     const variant = { id: randomUUID(), qrCode: randomUUID() };
-    return { ...variant, create: async () => {
-      await prisma.product.create({ data: { id: productId, name: "Camisa", currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } });
-      await prisma.productVariant.create({ data: { ...variant, productId, attributes, sku: "CAM-1", salePrice: 19.99, status: "active" } });
+    return { ...variant, productId, create: async () => {
+      await seedProduct({ id: productId, name: "Camisa", variants: [{ ...variant, attributes, sku: "CAM-1", salePrice: 19.99 }] });
     } };
   };
   const mine = seed({ color: "azul" });
@@ -149,14 +144,12 @@ async function withSeededVariants(run: (ctx: { mine: { id: string; qrCode: strin
     await run({ mine, foreign, companyA, find: (codes) => findSellableVariantsByQrCodes(codes), withTenantIsolation });
   } finally {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => {
-      await prisma.productVariant.deleteMany({ where: { companyId: id } });
-      await prisma.product.deleteMany({ where: { companyId: id } });
+      await deleteSeededProducts();
       await prisma.company.deleteMany({ where: { id } });
     });
   }
 }
 
-// The status filters are defensive: the schema CHECKs only allow status 'active', so no inactive rows can be stored to test them.
 test("findSellableVariantsByQrCodes returns active variants with price, currency and qrCode", () => withSeededVariants(async ({ mine, companyA, find, withTenantIsolation }) => {
   await withTenantIsolation(companyA, async () => {
     expect(await find([mine.qrCode, randomUUID()])).toEqual({ success: true, data: [
@@ -171,26 +164,26 @@ test("findSellableVariantsByQrCodes does not see variants of another company", (
   });
 }));
 
-test("findSellableVariantsByQrCodes skips a variant with invalid stored data and returns the rest", () => withSeededVariants(async ({ mine, companyA, find, withTenantIsolation }) => {
-  const { prisma } = await import("@core/src/shared/infrastructure/persistance");
+test("findSellableVariantsByQrCodes does not return a deactivated variant", () => withSeededVariants(async ({ mine, companyA, find, withTenantIsolation }) => {
   await withTenantIsolation(companyA, async () => {
-    const corrupt = { id: randomUUID(), qrCode: randomUUID() };
-    const { productId } = await prisma.productVariant.findUniqueOrThrow({ where: { id: mine.id } });
-    await prisma.productVariant.create({ data: { ...corrupt, productId, attributes: { talla: 1 }, sku: null, salePrice: 5, status: "active" } });
-    expect(await find([mine.qrCode, corrupt.qrCode])).toMatchObject({ success: true, data: [{ variantId: mine.id }] });
+    const inactive = { id: randomUUID(), qrCode: randomUUID() };
+    await seedProduct({ variants: [{ ...inactive, attributes: { Color: "Rojo" }, status: "inactive" }, { attributes: { Color: "Azul" } }] });
+    expect(await find([mine.qrCode, inactive.qrCode])).toMatchObject({ success: true, data: [{ variantId: mine.id }] });
   });
 }));
 
-test("findSellableVariantsOfProduct returns the active variants of the product with price and currency", () => withSeededVariants(async ({ mine, companyA, withTenantIsolation }) => {
-  const { prisma } = await import("@core/src/shared/infrastructure/persistance");
+test("findSellableVariantsOfProduct returns the active variants of the product with price and currency", () => withSeededVariants(async ({ companyA, withTenantIsolation }) => {
   const { findSellableVariantsOfProduct } = await import("@core/src/features/products/infrastructure/order-stock");
   await withTenantIsolation(companyA, async () => {
-    const { productId } = await prisma.productVariant.findUniqueOrThrow({ where: { id: mine.id } });
+    const first = randomUUID();
     const second = randomUUID();
-    await prisma.productVariant.create({ data: { id: second, productId, qrCode: randomUUID(), attributes: { color: "rojo" }, sku: null, salePrice: 25, status: "active" } });
+    const { productId } = await seedProduct({ name: "Camisa", variants: [
+      { id: first, attributes: { color: "azul" }, sku: "CAM-2", salePrice: 19.99 },
+      { id: second, attributes: { color: "rojo" }, salePrice: 25 },
+    ] });
     const found = await findSellableVariantsOfProduct(productId as ProductId);
     expect(found.success && [...found.data].sort((a, b) => a.variantId.localeCompare(b.variantId))).toEqual([
-      { variantId: mine.id, productName: "Camisa", variantAttributes: { color: "azul" }, sku: "CAM-1", unitPrice: { amount: 19.99, currency: "PEN" } },
+      { variantId: first, productName: "Camisa", variantAttributes: { color: "azul" }, sku: "CAM-2", unitPrice: { amount: 19.99, currency: "PEN" } },
       { variantId: second, productName: "Camisa", variantAttributes: { color: "rojo" }, sku: null, unitPrice: { amount: 25, currency: "PEN" } },
     ].sort((a, b) => a.variantId.localeCompare(b.variantId)));
   });

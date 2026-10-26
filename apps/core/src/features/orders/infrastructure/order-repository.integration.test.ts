@@ -25,6 +25,7 @@ import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 
 async function fixture() {
@@ -36,11 +37,8 @@ async function fixture() {
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Orders test", country: "PE" } });
     await systemPrisma.user.create({ data: { id: sellerId, name: "Seller", email: `${sellerId}@example.test`, companyId } });
-    await prisma.product.create({ data: { id: productId, name: "Sample product", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    for (const [index, variantId] of variantIds.entries()) {
-      await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Size: index ? "L" : "M" }, sku: `SKU-${variantId}`, salePrice: index ? 0.2 : 0.1, qrCode: variantId, status: "active" } });
-      await prisma.productStock.create({ data: { variantId, quantity: 3n } });
-    }
+    await seedProduct({ id: productId, name: "Sample product", qrCode: productId, variants: variantIds.map((variantId, index) => ({
+      id: variantId, attributes: { Size: index ? "L" : "M" }, sku: `SKU-${variantId}`, salePrice: index ? 0.2 : 0.1, qrCode: variantId, stock: 3n })) });
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
   });
   return { companyId, sellerId, productId, variantIds, contactId, async cleanup() {
@@ -50,9 +48,7 @@ async function fixture() {
       await prisma.order.deleteMany();
       await prisma.chat.deleteMany();
       await prisma.contact.deleteMany();
-      await prisma.productStock.deleteMany();
-      await prisma.productVariant.deleteMany();
-      await prisma.product.deleteMany();
+      await deleteSeededProducts();
       await prisma.image.deleteMany();
       await systemPrisma.user.delete({ where: { id: sellerId } });
       await prisma.deliveryRate.deleteMany();
@@ -498,7 +494,8 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       expect(await immediateSale({ id: orderId, items: [{ variantId: f.variantIds[1], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId }))
         .toMatchObject({ success: false, error: { code: "ORDER_ALREADY_EXISTS" } });
       await prisma.product.update({ where: { id: f.productId }, data: { name: "Changed product" } });
-      await prisma.productVariant.update({ where: { id: f.variantIds[0] }, data: { attributes: { Size: "XL" }, sku: `CHANGED-${f.variantIds[0]}`, salePrice: 3.5 } });
+      await prisma.productOptionValue.updateMany({ where: { name: "M" }, data: { name: "XL" } });
+      await prisma.productVariant.update({ where: { id: f.variantIds[0] }, data: { sku: `CHANGED-${f.variantIds[0]}`, salePrice: 3.5 } });
       const detail = await orderDetail(orderId, f);
       expect(detail).toMatchObject({ success: true, data: { buyer: null,
         items: expect.arrayContaining([expect.objectContaining({ productName: "Sample product", variantAttributes: { Size: "M" },

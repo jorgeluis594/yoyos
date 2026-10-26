@@ -4,6 +4,7 @@ import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/per
 import { findImageIndexState, findNearestProductImages, hasIndexedProducts, listProductsMissingEmbedding, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import type { EmbeddingModel, EmbeddingVector } from "@core/src/features/products/domain/image-identification";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 const model = "openai/test+text-embedding-3-small" as EmbeddingModel;
 const otherModel = "openai/other" as EmbeddingModel;
@@ -31,9 +32,9 @@ const stored = (companyId: string) => withTenantIsolation(companyId, async () =>
 /** Active product with one active variant whose current image has an embedding of the search model. */
 async function indexedSellable(companyId: string, values: number[], embeddingModel = searchModel) {
   const imageId = await image(companyId);
-  const productId = await product(companyId, imageId);
+  const productId = randomUUID() as ProductId;
   await withTenantIsolation(companyId, async () => {
-    await prisma.productVariant.create({ data: { id: randomUUID(), productId, qrCode: randomUUID(), attributes: {}, sku: null, salePrice: 10, status: "active" } });
+    await seedProduct({ id: productId, name: "Shirt", qrCode: productId, imageId });
     await saveEmbedding({ imageId, model: embeddingModel, vector: vector(...values) });
   });
   return { productId, imageId };
@@ -46,8 +47,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => {
-    await prisma.productVariant.deleteMany();
-    await prisma.product.deleteMany();
+    await deleteSeededProducts();
     await prisma.image.deleteMany();
     await prisma.company.delete({ where: { id } });
   });

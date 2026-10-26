@@ -8,6 +8,7 @@ import { catalogStorefront } from "@core/src/features/catalog/composition";
 import type { PublishedStorefront } from "@core/src/features/catalog/application/resolve-storefront";
 import type { CatalogSearch } from "@core/src/features/catalog/domain/catalog";
 import type { ProductId } from "@core/src/features/products/domain/product";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 type VariantSeed = { attributes?: Record<string, string>; sku?: string; price: number; purchasePrice?: number; stock: number };
 const companies: string[] = [];
@@ -34,13 +35,8 @@ function addProduct(companyId: string, name: string, variants: VariantSeed[], op
   return withTenantIsolation(companyId, async () => {
     const id = randomUUID() as ProductId;
     const when = new Date(clock += 1000);
-    await prisma.product.create({ data: { id, name, currency: options.currency ?? "PEN", qrCode: randomUUID(), status: "active", createdAt: when, updatedAt: when } });
-    for (const variant of variants) {
-      const variantId = randomUUID();
-      await prisma.productVariant.create({ data: { id: variantId, productId: id, attributes: variant.attributes ?? {}, sku: variant.sku, salePrice: variant.price,
-        purchasePrice: variant.purchasePrice, qrCode: randomUUID(), status: "active" } });
-      await prisma.productStock.create({ data: { variantId, quantity: BigInt(variant.stock) } });
-    }
+    await seedProduct({ id, name, currency: options.currency ?? "PEN", createdAt: when, updatedAt: when, variants: variants.map((variant) => ({
+      attributes: variant.attributes ?? {}, sku: variant.sku, salePrice: variant.price, purchasePrice: variant.purchasePrice, stock: variant.stock })) });
     return id;
   });
 }
@@ -50,9 +46,7 @@ const browse = async (companyId: CompanyId, search: string | null = null, pages 
 
 afterAll(async () => {
   for (const id of companies) await withTenantIsolation(id, async () => {
-    await prisma.productStock.deleteMany({ where: { companyId: id } });
-    await prisma.productVariant.deleteMany({ where: { companyId: id } });
-    await prisma.product.deleteMany({ where: { companyId: id } });
+    await deleteSeededProducts();
     await prisma.company.deleteMany({ where: { id } });
   });
 });
@@ -60,8 +54,8 @@ afterAll(async () => {
 test("catalog projection never contains SKU, cost or stock quantity", async () => {
   const companyId = await createCompany(true);
   const productId = await addProduct(companyId, "Polo básico", [
-    { attributes: { Talla: "M", Color: "Negro" }, sku: "SKU-SECRET-M", price: 45, purchasePrice: 12.34, stock: 150 },
-    { attributes: { Talla: "L", Color: "Negro" }, sku: "SKU-SECRET-L", price: 49, purchasePrice: 13.57, stock: 0 },
+    { attributes: { Color: "Negro", Talla: "M" }, sku: "SKU-SECRET-M", price: 45, purchasePrice: 12.34, stock: 150 },
+    { attributes: { Color: "Negro", Talla: "L" }, sku: "SKU-SECRET-L", price: 49, purchasePrice: 13.57, stock: 0 },
   ]);
   await addProduct(companyId, "Producto en dólares", [{ price: 10, stock: 1 }], { currency: "USD" });
 
