@@ -17,6 +17,16 @@ test("opens the outermost transaction with the requested isolation level and tim
   expect(seen).toEqual({ success: true, data: { isolation: "repeatable read", lock: "3s", statement: "8s" } });
 });
 
+test("sets only the PostgreSQL limit that is named and keeps the other", async () => {
+  const seen = await withTenantIsolation(company(), () => withinTransaction(async () =>
+    ok({ lock: await setting("lock_timeout"), statement: await setting("statement_timeout") }), { lockTimeoutMs: 3000 }));
+  const baseline = await withTenantIsolation(company(), () => withinTransaction(async () => ok({ statement: await setting("statement_timeout") })));
+  expect(seen).toEqual({ success: true, data: { lock: "3s", statement: baseline.success ? baseline.data.statement : "" } });
+  const statementOnly = await withTenantIsolation(company(), () => withinTransaction(async () =>
+    ok({ lock: await setting("lock_timeout"), statement: await setting("statement_timeout") }), { statementTimeoutMs: 8000 }));
+  expect(statementOnly).toEqual({ success: true, data: { lock: "0", statement: "8s" } });
+});
+
 test("leaves PostgreSQL defaults when no options are given", async () => {
   const seen = await withTenantIsolation(company(), () => withinTransaction(async () =>
     ok({ isolation: await setting("transaction_isolation"), lock: await setting("lock_timeout") })));

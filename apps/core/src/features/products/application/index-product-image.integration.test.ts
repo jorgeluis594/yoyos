@@ -24,6 +24,7 @@ vi.mock("@core/src/shared/images/application/images", async (importOriginal) => 
 import { createPublishEvent } from "@core/src/composition/event-bus";
 import { indexProductImage } from "@core/src/composition/event-handlers";
 import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
 import { deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 test("a product created with an image is indexed by the worker, reindexed on image change and retried while the embedder is down", async () => {
@@ -52,7 +53,7 @@ test("a product created with an image is indexed by the worker, reindexed on ima
       for (const id of [first, second]) await prisma.image.create({ data: { id, storageKey: `images/${id}` } });
     });
     embeddings.push("unavailable", [1, 0, 0]);
-    const created = await withTenantIsolation(companyId, () => products.create({ name: "Shirt", currency: "PEN", imageId: first, variants: [{ attributes: {}, salePrice: 10 }] }));
+    const created = await withTenantIsolation(companyId, () => productEditing.create({ name: "Shirt", currency: "PEN", imageId: first, options: [], variants: [{ values: [], salePrice: 10 }] }));
     expect(created.success).toBe(true);
     const productId = (created.success ? created.data : "") as ProductId;
     await vi.waitFor(async () => expect(await jobs(productId)).toMatchObject([{ state: "completed", retry_count: 1 }]), { timeout: 20_000, interval: 100 });

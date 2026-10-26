@@ -5,10 +5,11 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { isCurrency } from "@shared/money";
 import { getCompanyId, prisma, withinReadSnapshot, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import type { ProductSummary } from "@core/src/features/products/application/list";
+import type { CreateError } from "@core/src/features/products/application/create";
 import type { Criteria, ProductReadError, ProductRepository } from "@core/src/features/products/application/repository";
 import type { ImageId, OptionId, OptionText, OptionValueId, Product, ProductId, ProductOption, ProductOptionValue, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
 import { combinationKey, sortVariants } from "@core/src/features/products/domain/product-structure";
-import { summarizeProduct } from "@core/src/features/products/domain/rules";
 
 type Rows = Readonly<{
   products: DbProduct[];
@@ -118,17 +119,95 @@ async function readProducts(ids: readonly string[]): Promise<Result<Product[], P
   }
 }
 
-function isDuplicateSku(error: unknown): boolean {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
+function violatedIndex(error: unknown): string | undefined {
+  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return undefined;
   const adapter = error.meta?.driverAdapterError as { cause?: { constraint?: { index?: string } } } | undefined;
-  return adapter?.cause?.constraint?.index === "ProductVariant_companyId_sku_normalized_key";
+  return adapter?.cause?.constraint?.index;
 }
 
-function isDuplicateProductId(error: unknown): boolean {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return false;
-  const adapter = error.meta?.driverAdapterError as { cause?: { constraint?: { index?: string } } } | undefined;
-  const constraint = adapter?.cause?.constraint?.index;
-  return constraint === "Product_pkey" || constraint === "Product_id_key";
+const isDuplicateSku = (error: unknown) => violatedIndex(error) === "ProductVariant_companyId_sku_normalized_key";
+const isDuplicateProductId = (error: unknown) => ["Product_pkey", "Product_id_key"].includes(violatedIndex(error) ?? "");
+const isDuplicateOptionId = (error: unknown) => ["ProductOption_pkey", "ProductOptionValue_pkey"].includes(violatedIndex(error) ?? "");
+const isDuplicateCombination = (error: unknown) => violatedIndex(error) === "ProductVariant_companyId_productId_combinationKey_key";
+
+const unavailable = (message: string) => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message });
+
+/**
+ * Bulk insert of the whole aggregate: at most six statements, whatever the number of variants.
+ * Call it inside the editing transaction; a returned error makes that transaction roll back.
+ */
+export async function insertProduct(product: Product): Promise<Result<ProductId, CreateError>> {
+  const started = performance.now();
+  const decimal = (amount: number) => new Prisma.Decimal(amount.toString());
+  try {
+    await prisma.product.create({ data: {
+      id: product.id, name: product.name, description: product.description, imageId: product.imageId, currency: product.currency,
+      qrCode: product.qrCode, status: product.status, createdAt: product.createdAt, updatedAt: product.updatedAt, structureVersion: product.structureVersion,
+    } });
+    if (product.options.length) {
+      await prisma.productOption.createMany({ data: product.options.map((option, position) => ({ id: option.id, productId: product.id, name: option.name, position })) });
+      await prisma.productOptionValue.createMany({ data: product.options.flatMap((option) => option.values.map((value, position) => ({
+        id: value.id, optionId: option.id, productId: product.id, name: value.name, position }))) });
+    }
+    await prisma.productVariant.createMany({ data: product.variants.map((variant) => ({
+      id: variant.id, productId: variant.productId, combinationKey: combinationKey(variant.combination), sku: variant.sku,
+      salePrice: decimal(variant.salePrice.amount), purchasePrice: variant.purchasePrice === undefined ? null : decimal(variant.purchasePrice.amount),
+      qrCode: variant.qrCode, status: variant.status })) });
+    await prisma.productStock.createMany({ data: product.variants.map((variant) => ({ variantId: variant.stock.variantId, quantity: BigInt(variant.stock.quantity) })) });
+    const links = product.variants.flatMap((variant) => Object.entries(variant.combination).map(([optionId, valueId]) => ({
+      productId: product.id, variantId: variant.id, optionId, valueId })));
+    if (links.length) await prisma.productVariantOptionValue.createMany({ data: links });
+    return ok(product.id);
+  } catch (error) {
+    if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
+    if (isDuplicateProductId(error)) return err({ code: "PRODUCT_ID_CONFLICT", message: "Product ID is already used" });
+    if (isDuplicateOptionId(error)) return err({ code: "ID_CONFLICT", message: "Identifier is already used" });
+    if (isDuplicateCombination(error)) return err({ code: "DUPLICATE_COMBINATION", message: "Combination is already used" });
+    return unavailableCreate(error, product, started);
+  }
+}
+
+function unavailableCreate(error: unknown, product: Product, started: number): Result<ProductId, CreateError> {
+  log.error({ event: "product_save_failed", companyId: getCompanyId(), productId: product.id, stage: "insert", errorCode: "PERSISTENCE_UNAVAILABLE",
+    durationMs: Math.round(performance.now() - started), err: error }, "product_save_failed");
+  return unavailable("Unable to create product");
+}
+
+export async function productExists(id: ProductId): Promise<Result<boolean, ProductReadError>> {
+  try {
+    return ok(!!await prisma.product.findFirst({ where: { id }, select: { id: true } }));
+  } catch (error) {
+    log.error({ event: "product_exists_persistence_failed", err: error }, "product_exists_persistence_failed");
+    return unavailable("Unable to read product");
+  }
+}
+
+/** Variants that already use any of the SKUs, matched like the unique index: ignoring case and surrounding spaces. */
+export async function findSkuOwners(normalizedSkus: readonly string[]): Promise<Result<ReadonlyMap<string, VariantId>, ProductReadError>> {
+  if (!normalizedSkus.length) return ok(new Map());
+  try {
+    const rows = await prisma.$queryRaw<{ id: string; sku: string }[]>(Prisma.sql`SELECT id, lower(btrim(sku)) AS sku FROM "ProductVariant"
+      WHERE "companyId" = ${getCompanyId()}::uuid AND sku IS NOT NULL AND lower(btrim(sku)) = ANY(${[...normalizedSkus]}::text[])`);
+    return ok(new Map(rows.map((row) => [row.sku, row.id as VariantId] as const)));
+  } catch (error) {
+    log.error({ event: "product_sku_lookup_persistence_failed", err: error }, "product_sku_lookup_persistence_failed");
+    return unavailable("Unable to check SKUs");
+  }
+}
+
+/** Which of these ids already name an option or a value, so a new product cannot reuse them. */
+export async function findForeignOptionIds(ids: readonly string[]): Promise<Result<ReadonlySet<string>, ProductReadError>> {
+  if (!ids.length) return ok(new Set());
+  try {
+    const companyId = getCompanyId();
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`
+      SELECT id::text AS id FROM "ProductOption" WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[])
+      UNION ALL SELECT id::text FROM "ProductOptionValue" WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[])`);
+    return ok(new Set(rows.map((row) => row.id)));
+  } catch (error) {
+    log.error({ event: "product_option_ids_persistence_failed", err: error }, "product_option_ids_persistence_failed");
+    return unavailable("Unable to check identifiers");
+  }
 }
 
 // ICU Spanish collation: case- and accent-insensitive at the primary level, with ñ after n.
@@ -150,41 +229,46 @@ function listPredicates(criteria: Criteria): Prisma.Sql[] {
     WHERE v."companyId" = ${companyId}::uuid AND v.sku ILIKE ${`%${search}%`})`);
   if (criteria.stock === "in_stock") predicates.push(Prisma.sql`EXISTS (SELECT 1 FROM "ProductVariant" v
     JOIN "ProductStock" s ON s."variantId" = v.id AND s."companyId" = v."companyId"
-    WHERE v."productId" = p.id AND v."companyId" = p."companyId" AND s.quantity > 0)`);
+    WHERE v."productId" = p.id AND v."companyId" = p."companyId" AND v.status = 'active' AND s.quantity > 0)`);
   if (criteria.stock === "sold_out") predicates.push(Prisma.sql`NOT EXISTS (SELECT 1 FROM "ProductVariant" v
     LEFT JOIN "ProductStock" s ON s."variantId" = v.id AND s."companyId" = v."companyId"
-    WHERE v."productId" = p.id AND v."companyId" = p."companyId" AND s.quantity IS DISTINCT FROM 0)`);
+    WHERE v."productId" = p.id AND v."companyId" = p."companyId" AND v.status = 'active' AND s.quantity IS DISTINCT FROM 0)`);
   return predicates;
 }
 
+type SummaryRow = Readonly<{ id: string; name: string; imageId: string | null; currency: string; variantCount: number; activeVariantCount: number;
+  minPrice: string | null; hasDifferentPrices: boolean; totalStock: string; sku: string | null }>;
+
+/** One grouped query for the page: prices, stock and SKU cover active variants only, and no aggregate is loaded. */
+function summarySql(ids: readonly string[]): Prisma.Sql {
+  return Prisma.sql`SELECT p.id::text AS id, p.name, p."imageId"::text AS "imageId", p.currency,
+      count(v.id)::int AS "variantCount",
+      (count(v.id) FILTER (WHERE v.status = 'active'))::int AS "activeVariantCount",
+      (min(v."salePrice") FILTER (WHERE v.status = 'active'))::text AS "minPrice",
+      (count(DISTINCT v."salePrice") FILTER (WHERE v.status = 'active')) > 1 AS "hasDifferentPrices",
+      (coalesce(sum(s.quantity) FILTER (WHERE v.status = 'active'), 0))::text AS "totalStock",
+      CASE WHEN count(v.id) = 1 THEN max(v.sku) FILTER (WHERE v.status = 'active') END AS sku
+    FROM "Product" p
+    JOIN "ProductVariant" v ON v."productId" = p.id AND v."companyId" = p."companyId"
+    LEFT JOIN "ProductStock" s ON s."variantId" = v.id AND s."companyId" = v."companyId"
+    WHERE p."companyId" = ${getCompanyId()}::uuid AND p.id = ANY(${[...ids]}::uuid[])
+    GROUP BY p.id`;
+}
+
+function toSummary(row: SummaryRow): ProductSummary {
+  if (!isCurrency(row.currency)) throw new Error("Stored currency is invalid");
+  const totalStock = Number(row.totalStock);
+  if (!Number.isSafeInteger(totalStock)) throw new Error("Stored total stock is outside the supported range");
+  return {
+    id: row.id as ProductId, name: row.name, variantCount: row.variantCount, activeVariantCount: row.activeVariantCount,
+    ...(row.sku === null ? {} : { sku: row.sku }),
+    minSalePrice: row.minPrice === null ? null : { amount: Number(row.minPrice), currency: row.currency },
+    hasDifferentPrices: row.hasDifferentPrices, totalStock,
+    ...(row.imageId === null ? {} : { imageId: row.imageId as ImageId }),
+  };
+}
+
 export const productRepository: ProductRepository = {
-  async create(product) {
-    if (product.options.length) throw new Error("Creating products with options arrives with the editor contract");
-    try {
-      return await withinTransaction(async () => {
-        await prisma.product.create({ data: {
-          id: product.id, name: product.name, description: product.description,
-          imageId: product.imageId, currency: product.currency, qrCode: product.qrCode,
-          status: product.status, createdAt: product.createdAt, updatedAt: product.updatedAt, structureVersion: product.structureVersion,
-        } });
-        for (const variant of product.variants) {
-          await prisma.productVariant.create({ data: {
-            id: variant.id, productId: variant.productId, combinationKey: combinationKey(variant.combination),
-            sku: variant.sku, salePrice: new Prisma.Decimal(variant.salePrice.amount.toString()),
-            purchasePrice: variant.purchasePrice === undefined ? null : new Prisma.Decimal(variant.purchasePrice.amount.toString()),
-            qrCode: variant.qrCode, status: variant.status,
-          } });
-          await prisma.productStock.create({ data: { variantId: variant.stock.variantId, quantity: BigInt(variant.stock.quantity) } });
-        }
-        return ok(product.id);
-      });
-    } catch (error) {
-      if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
-      if (isDuplicateProductId(error)) return err({ code: "PRODUCT_ID_CONFLICT", message: "Product ID is already used" });
-      log.error({ event: "product_create_persistence_failed", err: error }, "product_create_persistence_failed");
-      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to create product" });
-    }
-  },
   async update(id, changes) {
     try {
       return await withinTransaction(async () => {
@@ -222,21 +306,21 @@ export const productRepository: ProductRepository = {
   },
   async list(criteria) {
     try {
-      const [page] = await prisma.$queryRaw<{ ids: string[]; total: number }[]>(Prisma.sql`
-        WITH matching AS (SELECT p.id, p.name, p."createdAt" FROM "Product" p
-          WHERE ${Prisma.join(listPredicates(criteria), " AND ")})
-        SELECT ARRAY(SELECT id FROM matching ORDER BY ${listOrder(criteria.sort)}
-          LIMIT ${criteria.pageSize} OFFSET ${(criteria.page - 1) * criteria.pageSize}) AS ids,
-          (SELECT count(*)::int FROM matching) AS total`);
-      const read = await readProducts(page.ids);
-      if (!read.success) return read;
-      const byId = new Map(read.data.map((product) => [product.id as string, product]));
-      const found = page.ids.flatMap((id) => byId.get(id) ?? []);
-      try {
-        return ok({ page: criteria.page, pageSize: criteria.pageSize, total: page.total, items: found.map(summarizeProduct) });
-      } catch {
-        return err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" });
-      }
+      return await withinReadSnapshot(async () => {
+        const [page] = await prisma.$queryRaw<{ ids: string[]; total: number }[]>(Prisma.sql`
+          WITH matching AS (SELECT p.id, p.name, p."createdAt" FROM "Product" p
+            WHERE ${Prisma.join(listPredicates(criteria), " AND ")})
+          SELECT ARRAY(SELECT id FROM matching ORDER BY ${listOrder(criteria.sort)}
+            LIMIT ${criteria.pageSize} OFFSET ${(criteria.page - 1) * criteria.pageSize}) AS ids,
+            (SELECT count(*)::int FROM matching) AS total`);
+        const rows = page.ids.length ? await prisma.$queryRaw<SummaryRow[]>(summarySql(page.ids)) : [];
+        const byId = new Map(rows.map((row) => [row.id, row] as const));
+        try {
+          return ok({ page: criteria.page, pageSize: criteria.pageSize, total: page.total, items: page.ids.flatMap((id) => byId.get(id) ?? []).map(toSummary) });
+        } catch {
+          return err({ code: "INVALID_STORED_DATA" as const, message: "Stored product data is invalid" });
+        }
+      });
     } catch (error) {
       log.error({ event: "product_list_persistence_failed", err: error }, "product_list_persistence_failed");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to list products" });

@@ -4,7 +4,7 @@ import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { orderAggregateSchema } from "@shared/contracts/orders";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { deleteAgencies, insertAgency, seededCourier, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
 import { orders } from "@core/src/features/orders/composition";
 import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -20,7 +20,7 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     const sellerId = (await systemPrisma.user.findUniqueOrThrow({ where: { email } })).id;
     const orderId = crypto.randomUUID();
     const variantId = await withTenantIsolation(tenantId, async () => {
-      const created = await products.create({ name: "Agency product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
+      const created = await productEditing.create({ name: "Agency product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 3 }] });
       if (!created.success) throw new Error("Expected product");
       const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: created.data } });
       expect(await orders.create({ id: orderId as OrderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] },

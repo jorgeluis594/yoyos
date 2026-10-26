@@ -3,7 +3,7 @@ import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 test("mobile creation screen integrates with real order API, database and persisted recovery", async ({ page }) => {
@@ -14,7 +14,7 @@ test("mobile creation screen integrates with real order API, database and persis
     companyId = await prepareVerifiedCompany(page, { email, name: "Mobile seller", companyName: "Journey company", country: "PE" });
     const tenantId = companyId;
     const variantId = await withTenantIsolation(tenantId, async () => {
-      const product = await products.create({ name: "Journey product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 5 }] });
+      const product = await productEditing.create({ name: "Journey product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 5 }] });
       if (!product.success) throw new Error("Product setup failed");
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
     });

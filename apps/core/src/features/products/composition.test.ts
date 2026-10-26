@@ -2,19 +2,18 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { err } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
 
-const { publishEvent, createProduct, indexProductImage } = vi.hoisted(() => {
+const { publishEvent, indexProductImage } = vi.hoisted(() => {
   process.env.IMAGE_EMBEDDER_PROVIDER = "openai";
   process.env.OPENAI_API_KEY = "key";
-  return { publishEvent: vi.fn(), createProduct: vi.fn(), indexProductImage: vi.fn() };
+  return { publishEvent: vi.fn(), indexProductImage: vi.fn() };
 });
 vi.mock("@core/src/composition/event-bus", () => ({ applicationEventBus: () => ({ publishEvent }) }));
 vi.mock("@core/src/shared/infrastructure/persistance", () => ({
   getCompanyId: () => "00000000-0000-4000-8000-000000000001", withTenantIsolation: (_company: string, work: () => unknown) => work() }));
-vi.mock("@core/src/features/products/application/create", () => ({ createProduct }));
 vi.mock("@core/src/features/products/application/index-product-image", async (original) => ({
   ...await original<typeof import("@core/src/features/products/application/index-product-image")>(), indexProductImage }));
 
-import { createVisualSearch, indexProductImageHandler, products } from "@core/src/features/products/composition";
+import { createVisualSearch, indexProductImageHandler, publishProductImageChanged } from "@core/src/features/products/composition";
 
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -62,8 +61,7 @@ describe("product image indexing logs", () => {
     const error = vi.spyOn(log, "error").mockImplementation(() => {});
     const failure = { code: "EVENT_BUS_UNAVAILABLE", message: "Event bus is not ready" } as const;
     publishEvent.mockResolvedValueOnce(err(failure));
-    createProduct.mockImplementationOnce((_input, deps) => deps.publishProductImageChanged(productId));
-    expect(await products.create({} as never)).toEqual(err(failure));
+    expect(await publishProductImageChanged(productId as never)).toEqual(err(failure));
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "product_image_changed_publish_failed", companyId, productId, err: failure }), "product_image_changed_publish_failed");
   });
 

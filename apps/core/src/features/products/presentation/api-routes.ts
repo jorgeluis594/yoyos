@@ -1,68 +1,11 @@
-import { log } from "@core/src/shared/infrastructure/logger";
-import express, { type Request, type Response } from "express";
-import { createProductRequestSchema, productApiIssueSchema, productListQuerySchema, updateProductRequestSchema } from "@shared/contracts/products";
-import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import express from "express";
+import { createProductRequestSchema, productListQuerySchema, updateProductRequestSchema } from "@shared/contracts/products";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
+import { handleUnexpected, productIdFrom, sendInvalid, sendOperationError, zodIssues } from "@core/src/features/products/presentation/api-errors";
+import { toCreateInput, toUpdateInput } from "@core/src/features/products/presentation/request-input";
 import { toProductDetailResponse, toProductIdResponse, toProductListResponse } from "@core/src/features/products/presentation/product-presenter";
-
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-const sendInvalid = (response: Response, field: string, reason = "INVALID_TYPE") =>
-  apiError(response, 400, "INVALID_INPUT", "Invalid input", [{ field, reason }]);
-
-function zodIssues(error: { issues: readonly { path: PropertyKey[]; code: string; keys?: string[] }[] }) {
-  return error.issues.flatMap((issue) => issue.code === "unrecognized_keys" && issue.keys?.length
-    ? issue.keys.map((key) => ({ field: [...issue.path, key].join("."), reason: "UNKNOWN_FIELD" }))
-    : [{ field: issue.path.join(".") || "body", reason: issue.code === "invalid_format" ? "INVALID_FORMAT" : "INVALID_TYPE" }]);
-}
-
-function domainIssues(issues: readonly object[]) {
-  return issues.map((issue) => {
-    const item = issue as Record<string, unknown>;
-    return productApiIssueSchema.parse({
-      ...(item.scope === undefined ? {} : { scope: item.scope }),
-      field: String(item.field ?? "body"),
-      ...(item.index === undefined ? {} : { index: item.index }),
-      ...(item.message === undefined ? {} : { message: item.message }),
-      reason: String(item.reason ?? "INVALID_INPUT"),
-      ...(item.maxLength === undefined ? {} : { maxLength: item.maxLength }),
-      ...(item.minimum === undefined ? {} : { minimum: item.minimum }),
-      ...(item.maximum === undefined ? {} : { maximum: item.maximum }),
-      ...(item.maxDecimals === undefined ? {} : { maxDecimals: item.maxDecimals }),
-    });
-  });
-}
-
-function sendOperationError(response: Response, error: { code?: string; issues?: readonly object[] }) {
-  switch (error.code) {
-    case "VALIDATION_ERROR": return apiError(response, 422, "VALIDATION_ERROR", "Invalid product", domainIssues(error.issues ?? []));
-    case "DUPLICATE_SKU": return apiError(response, 409, "DUPLICATE_SKU", "SKU is already used");
-    case "PRODUCT_ID_CONFLICT": return apiError(response, 409, "PRODUCT_ID_CONFLICT", "Product ID is already used");
-    case "PRODUCT_NOT_FOUND": return apiError(response, 404, "PRODUCT_NOT_FOUND", "Product not found");
-    case "IMAGE_NOT_FOUND": return apiError(response, 404, "IMAGE_NOT_FOUND", "Image not found");
-    case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
-    case "INVALID_STORED_DATA":
-      log.error({ event: "invalid_stored_product_data", err: error }, "invalid_stored_product_data");
-      return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
-    default:
-      log.error({ event: "product_api_application_error", err: error }, "product_api_application_error");
-      return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
-  }
-}
-
-function handleUnexpected(response: Response, error: unknown) {
-  log.error({ event: "product_api_operation_failed", err: error }, "product_api_operation_failed");
-  return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
-}
-
-function productIdFrom(request: Request, response: Response): ProductId | null {
-  const id = request.params.productId;
-  if (typeof id !== "string" || !uuid.test(id)) {
-    sendInvalid(response, "productId", "INVALID_FORMAT");
-    return null;
-  }
-  return id as ProductId;
-}
 
 export const productRoutes = express.Router();
 
@@ -77,7 +20,7 @@ productRoutes.get("/", async (request, response) => {
   const parsed = productListQuerySchema.safeParse(values);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid query", zodIssues(parsed.error));
   try {
-    const result = await products.list(parsed.data, { includeImages: true });
+    const result = await productEditing.list(parsed.data, { includeImages: true });
     if (!result.success) return sendOperationError(response, result.error);
     return response.json(toProductListResponse(result.data));
   } catch (error) {
@@ -89,7 +32,7 @@ productRoutes.get("/:productId", async (request, response) => {
   const id = productIdFrom(request, response);
   if (!id) return;
   try {
-    const result = await products.get(id);
+    const result = await productEditing.get(id);
     if (!result.success) {
       if (result.error.code === "IMAGE_NOT_FOUND") {
         return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
@@ -108,16 +51,7 @@ productRoutes.post("/", async (request, response) => {
   const parsed = createProductRequestSchema.safeParse(request.body);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid product input", zodIssues(parsed.error));
   try {
-    const { id, ...input } = parsed.data;
-    const [firstVariant, ...remainingVariants] = input.variants;
-    const result = await products.create({
-      id: id as ProductId,
-      name: input.name,
-      currency: input.currency,
-      ...(input.description === undefined ? {} : { description: input.description }),
-      ...(input.imageId === undefined ? {} : { imageId: input.imageId as ImageId }),
-      variants: [firstVariant, ...remainingVariants],
-    });
+    const result = await productEditing.create(toCreateInput(parsed.data));
     if (!result.success) return sendOperationError(response, result.error);
     return response.status(201).json(toProductIdResponse(result.data));
   } catch (error) {
@@ -132,15 +66,7 @@ productRoutes.patch("/:productId", async (request, response) => {
   const parsed = updateProductRequestSchema.safeParse(request.body);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid product input", zodIssues(parsed.error));
   try {
-    const input = {
-      ...(parsed.data.name === undefined ? {} : { name: parsed.data.name }),
-      ...(parsed.data.description === undefined ? {} : { description: parsed.data.description }),
-      ...(parsed.data.imageId === undefined ? {} : { imageId: parsed.data.imageId === null ? null : parsed.data.imageId as ImageId }),
-      ...(parsed.data.variants === undefined ? {} : { variants: parsed.data.variants.map((variant) => ({
-        ...variant, id: variant.id as VariantId,
-      })) }),
-    };
-    const result = await products.update(id, input);
+    const result = await products.update(id, toUpdateInput(parsed.data));
     if (!result.success) return sendOperationError(response, result.error);
     return response.json(toProductIdResponse(result.data));
   } catch (error) {

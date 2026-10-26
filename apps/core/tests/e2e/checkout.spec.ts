@@ -4,7 +4,7 @@ import { ok, err } from "@shared/functional";
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { browserExpect, expect, prepareVerifiedCompany, publishCatalog, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deleteAgencies, insertAgency, seededCatalogId, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { orders } from "@core/src/features/orders/composition";
@@ -205,7 +205,7 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
   const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Seller checkout", country: "PE" });
   const buyer = await page.context().browser()!.newContext({ baseURL: `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`, viewport: { width: 390, height: 844 } });
   try {
-    const product = await withTenantIsolation(companyId, () => products.create({ name: "Producto compartido", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] }));
+    const product = await withTenantIsolation(companyId, () => productEditing.create({ name: "Producto compartido", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 3 }] }));
     if (!product.success) throw new Error("Product fixture failed");
     const variantId = await withTenantIsolation(companyId, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
     const firstId = randomUUID();

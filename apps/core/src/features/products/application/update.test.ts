@@ -134,7 +134,7 @@ describe("update product", () => {
   test("rejects malformed direct variant references without writing", async () => {
     const context = setup();
     const result = await updateProduct(productId, { variants: [null] } as unknown as UpdateInput, context.deps);
-    expect(result).toEqual({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid product", issues: [{ scope: "variant", index: 0, field: "id", reason: "INVALID_TYPE", message: "Invalid variant" }] } });
+    expect(result).toEqual({ success: false, error: { code: "VALIDATION_ERROR", message: "Invalid product", issues: [{ scope: "variant", variantId: "", field: "id", reason: "INVALID_TYPE", message: "Invalid variant" }] } });
     expect(context.updates).toHaveLength(0);
   });
 

@@ -2,10 +2,9 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
-import { getProduct } from "@core/src/features/products/application/get";
 import { toProductDetailResponse } from "@core/src/features/products/presentation/product-presenter";
 import { deleteSeededProducts, seedProduct } from "@core/src/features/products/infrastructure/product-seed";
-import { ok } from "@shared/functional";
+import { productEditing } from "@core/src/composition/product-editing";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 const companyA = randomUUID();
@@ -23,7 +22,7 @@ afterAll(async () => {
   });
 });
 
-const detail = (id: string) => getProduct(id as ProductId, { repository: productRepository, resolveImage: async () => ok(null) });
+const detail = (id: string) => productEditing.get(id as ProductId);
 
 test("a product seeded with Color before Talla returns its detail attributes with Color first", async () => {
   await withTenantIsolation(companyA, async () => {
@@ -33,8 +32,10 @@ test("a product seeded with Color before Talla returns its detail attributes wit
     const read = await detail(productId);
     if (!read.success || !read.data) throw new Error("Product was not loaded");
     const response = toProductDetailResponse(read.data);
-    expect(response.product.variants.map((variant) => Object.entries(variant.attributes))).toEqual([
-      [["Color", "Negro"], ["Talla", "M"]], [["Color", "Negro"], ["Talla", "L"]], [["Color", "Azul"], ["Talla", "M"]], [["Color", "Azul"], ["Talla", "L"]],
+    const names = Object.fromEntries(response.product.options.flatMap((option) => option.values.map((value) => [value.id, value.name])));
+    expect(response.product.options.map((option) => option.name)).toEqual(["Color", "Talla"]);
+    expect(response.product.variants.map((variant) => variant.combination.map((entry) => names[entry.valueId]))).toEqual([
+      ["Negro", "M"], ["Negro", "L"], ["Azul", "M"], ["Azul", "L"],
     ]);
     expect(read.data.product).toMatchObject({ structureVersion: 1, options: [{ name: "Color", values: [{ name: "Negro" }, { name: "Azul" }] }, { name: "Talla" }] });
   });

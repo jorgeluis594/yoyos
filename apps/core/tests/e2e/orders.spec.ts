@@ -2,7 +2,7 @@ import { formatCurrency } from "@core/app/format-currency";
 import { browserExpect, chooseOption, expect, openOptions, prepareVerifiedCompany, selectedValue, test } from "@core/tests/e2e/fixtures";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
 import { orders } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
@@ -189,8 +189,8 @@ test("pending order remains active when paid before delivery", async ({ page }) 
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Pending Seller", companyName: "Pending company", country: "PE" });
     const tenantId = companyId;
-    const product = await withTenantIsolation(tenantId, () => products.create({ name: "Producto pendiente", currency: "PEN",
-      variants: [{ attributes: {}, sku: "PENDING", salePrice: 10, initialStock: 2 }] }));
+    const product = await withTenantIsolation(tenantId, () => productEditing.create({ name: "Producto pendiente", currency: "PEN",
+      options: [], variants: [{ values: [], sku: "PENDING", salePrice: 10, initialStock: 2 }] }));
     expect(product.success).toBe(true);
     if (!product.success) return;
     const variantId = await withTenantIsolation(tenantId, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
@@ -240,8 +240,8 @@ test("new order saves partial payments, paid pending delivery and configured del
   const email = `orders-complete-${crypto.randomUUID()}@example.test`;
   try {
     const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Complete orders", country: "PE" });
-    const product = await withTenantIsolation(companyId, () => products.create({ name: "Agenda", currency: "PEN",
-      variants: [{ attributes: {}, sku: "AGENDA", salePrice: 10, initialStock: 5 }] }));
+    const product = await withTenantIsolation(companyId, () => productEditing.create({ name: "Agenda", currency: "PEN",
+      options: [], variants: [{ values: [], sku: "AGENDA", salePrice: 10, initialStock: 5 }] }));
     expect(product.success).toBe(true);
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true },
       store: { enabled: false, pickupPoint: null }, agency: { enabled: false } } })).ok()).toBe(true);

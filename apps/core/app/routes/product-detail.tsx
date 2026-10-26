@@ -12,12 +12,14 @@ import { ErrorState } from "@/components/ui/error-state";
 import { PageContainer } from "@/components/ui/page-container";
 import { PageHeader } from "@/components/ui/page-header";
 import { privateUserContext } from "@/private-user-context";
+import { updateProductRequestSchema } from "@shared/contracts/products";
+import { combinationLabel } from "@shared/product-variants";
 import { products } from "@core/src/features/products/composition";
-import { parseUpdateJson } from "@core/src/features/products/presentation/input";
+import { productEditing } from "@core/src/composition/product-editing";
+import { parseRequestJson, toUpdateInput } from "@core/src/features/products/presentation/request-input";
 import { updateErrors, type FormErrors } from "@core/src/features/products/presentation/messages";
 import { ProductForm, type ProductFormValues, type ProductImageSelection } from "@core/src/features/products/presentation/product-form";
 import type { ProductId } from "@core/src/features/products/domain/product";
-import { orderedAttributes } from "@core/src/features/products/domain/product-structure";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -25,13 +27,18 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
   if (!params.productId || !uuid.test(params.productId)) throw new Response("Not found", { status: 404 });
   const company = context.get(privateUserContext).company;
   try {
-    const result = await products.get(params.productId as ProductId);
+    const result = await productEditing.get(params.productId as ProductId);
     if (!result.success) throw new Response("La imagen no está disponible.", { status: 503 });
     if (!result.data) throw new Response("Not found", { status: 404 });
     const { product } = result.data;
     const variant = product.variants.length === 1 ? product.variants[0] : undefined;
     return {
-      product: { ...product, variants: product.variants.map((item) => ({ ...item, attributes: orderedAttributes(product, item) })) },
+      product: { id: product.id, name: product.name, currency: product.currency, variants: product.variants.map((item) => ({
+        id: item.id, sku: item.sku, salePrice: item.salePrice, purchasePrice: item.purchasePrice, stock: item.stock,
+        label: combinationLabel(product.options, item.combination),
+        // Option name to value name, in saved option order.
+        attributes: product.options.flatMap((option) => option.values.filter((value) => value.id === item.combination[option.id]).map((value) => ({ name: option.name, value: value.name }))),
+      })) },
       catalog: companyPath(new URL(request.url).pathname, company.country, "/products"),
       imageUrl: result.data.image?.url,
       variantId: variant?.id,
@@ -56,11 +63,11 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
 export async function action({ request, context, params }: ActionFunctionArgs): Promise<Response | { errors: FormErrors }> {
   const language = languageForLocale(new URL(request.url).pathname.split("/")[1]);
   if (!params.productId || !uuid.test(params.productId)) throw new Response("Not found", { status: 404 });
-  const parsed = parseUpdateJson(await request.text());
+  const parsed = parseRequestJson(updateProductRequestSchema, await request.text(), "Invalid product update");
   if (!parsed.success) return { errors: updateErrors(parsed.error, language) };
   const company = context.get(privateUserContext).company;
   try {
-    const result = await products.update(params.productId as ProductId, parsed.data);
+    const result = await products.update(params.productId as ProductId, toUpdateInput(parsed.data));
     if (!result.success) return { errors: updateErrors(result.error, language) };
     return redirect(`${companyPath(new URL(request.url).pathname, company.country, `/products/${result.data}`)}?saved=1`);
   } catch (cause) {
@@ -103,10 +110,10 @@ export default function ProductDetail() {
     <ProductForm currency={product.currency} cancelTo={catalog} errors={errors} pending={pending} values={values} variantFields={variantId ? "editable" : "hidden"} stock={stock} submitLabel={t("products.saveChanges")} imageUrl={imageUrl} onSave={save} variants={variantId ? undefined : <section aria-labelledby="variants-heading">
       <h2 id="variants-heading" className="text-base font-semibold">{t("products.variants")}</h2>
       <div className="mt-3 grid gap-3">{product.variants.map((variant, index) => <Card key={variant.id} role="article">
-        <CardHeader><CardTitle className="text-base font-medium">{t("products.variant", { number: index + 1 })}</CardTitle></CardHeader>
+        <CardHeader><CardTitle className="text-base font-medium">{variant.label ? `${t("products.variant", { number: index + 1 })} · ${variant.label}` : t("products.variant", { number: index + 1 })}</CardTitle></CardHeader>
         <CardContent>
           <DescriptionList orientation="vertical" className="grid gap-3 sm:grid-cols-2">
-            {Object.entries(variant.attributes).map(([name, value]) => <DescriptionItem key={name}><DescriptionTerm>{name}</DescriptionTerm><DescriptionDetails>{value}</DescriptionDetails></DescriptionItem>)}
+            {variant.attributes.map(({ name, value }) => <DescriptionItem key={name}><DescriptionTerm>{name}</DescriptionTerm><DescriptionDetails>{value}</DescriptionDetails></DescriptionItem>)}
             <DescriptionItem><DescriptionTerm>SKU</DescriptionTerm><DescriptionDetails>{variant.sku ?? t("products.noSku")}</DescriptionDetails></DescriptionItem>
             <DescriptionItem><DescriptionTerm>{t("products.salePrice")}</DescriptionTerm><DescriptionDetails>{formatCurrency(variant.salePrice.amount, variant.salePrice.currency, i18n.language)}</DescriptionDetails></DescriptionItem>
             <DescriptionItem><DescriptionTerm>{t("products.purchasePrice")}</DescriptionTerm><DescriptionDetails>{variant.purchasePrice ? formatCurrency(variant.purchasePrice.amount, variant.purchasePrice.currency, i18n.language) : t("products.noPrice")}</DescriptionDetails></DescriptionItem>
