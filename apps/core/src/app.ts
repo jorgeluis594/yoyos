@@ -15,6 +15,7 @@ import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-
 import { mobileMessageParser, mobileMessageRoutes } from "@core/src/features/chats/presentation/mobile-message-routes";
 import { registerMobileMessage } from "@core/src/features/chats";
 import { productRoutes } from "@core/src/features/products/presentation/api-routes";
+import { variantRoutes } from "@core/src/features/products/presentation/variant-api-routes";
 import { orderRoutes } from "@core/src/features/orders/presentation/api-routes";
 import { hasDuplicateJsonKeys } from "@core/src/shared/presentation/json-keys";
 import { deliverySettingsRoutes } from "@core/src/features/delivery-settings/presentation/api-routes";
@@ -101,6 +102,7 @@ app.use("/api/messages", mobileMessageRoutes(registerMobileMessage));
 app.use("/api/company/payment-settings", paymentSettingsRoutes);
 app.use("/api/company/dispatch-sender", dispatchSenderRoutes);
 app.use("/api/dispatch-labels", dispatchLabelRoutes);
+app.use("/api/products/:productId/variants", variantRoutes);
 app.use("/api/products", productRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/delivery-settings", deliverySettingsRoutes);
