@@ -1,6 +1,6 @@
 import { expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
 
 test("web creation rejects a stale rate atomically and retries the same order with the reviewed full charge", async ({ page }) => {
   const email = `rated-create-web-${crypto.randomUUID()}@example.test`;
@@ -10,7 +10,7 @@ test("web creation rejects a stale rate atomically and retries the same order wi
     const tenantId = companyId;
     const sellerId = (await systemPrisma.user.findUniqueOrThrow({ where: { email } })).id;
     const variantId = await withTenantIsolation(tenantId, async () => {
-      const product = await products.create({ name: "Product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
+      const product = await productEditing.create({ name: "Product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 3 }] });
       if (!product.success) throw new Error("Expected product");
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
     });

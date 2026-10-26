@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import type { Route } from "@playwright/test";
 import { afterAll, beforeAll } from "vitest";
 import { brandHostHeaders, browserExpect, expect, prepareVerifiedCompany, storeUrl, subdomainOf, test, waitForReactHydration } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { formatCurrency } from "@core/app/format-currency";
 import { startFakeS3 } from "@core/tests/e2e/fake-s3";
@@ -26,8 +26,8 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
     const brand = brandHostHeaders(subdomain);
     // The checkout lives on the store's brand host, whatever the catalog publication.
     await withTenantIsolation(tenantId, async () => { await prisma.company.update({ where: { id: tenantId }, data: { catalogSubdomain: subdomain } }); });
-    const product = await withTenantIsolation(tenantId, () => products.create({ name: "Cuaderno", currency: "PEN",
-      variants: [{ attributes: {}, sku: `PAY-${crypto.randomUUID()}`, salePrice: 12.5, initialStock: 2 }] }));
+    const product = await withTenantIsolation(tenantId, () => productEditing.create({ name: "Cuaderno", currency: "PEN",
+      options: [], variants: [{ values: [], sku: `PAY-${crypto.randomUUID()}`, salePrice: 12.5, initialStock: 2 }] }));
     expect(product.success).toBe(true);
     if (!product.success) return;
     const variantId = await withTenantIsolation(tenantId, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
@@ -214,8 +214,8 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
     const subdomain = subdomainOf(tenantId);
     const brand = brandHostHeaders(subdomain);
     await withTenantIsolation(tenantId, async () => { await prisma.company.update({ where: { id: tenantId }, data: { catalogSubdomain: subdomain } }); });
-    const product = await withTenantIsolation(tenantId, () => products.create({ name: "Cuaderno", currency: "PEN",
-      variants: [{ attributes: {}, sku: `REJ-${crypto.randomUUID()}`, salePrice: 12.5, initialStock: 2 }] }));
+    const product = await withTenantIsolation(tenantId, () => productEditing.create({ name: "Cuaderno", currency: "PEN",
+      options: [], variants: [{ values: [], sku: `REJ-${crypto.randomUUID()}`, salePrice: 12.5, initialStock: 2 }] }));
     expect(product.success).toBe(true);
     if (!product.success) return;
     const variantId = await withTenantIsolation(tenantId, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);

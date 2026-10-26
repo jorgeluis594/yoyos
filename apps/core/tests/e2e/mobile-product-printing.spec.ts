@@ -28,7 +28,7 @@ test("mobile prepares only the core-generated variant QR and rejects foreign or 
     await prepareVerifiedCompany(page, { email: emails[0], name: "Print owner", companyName: "Print owner", country: "PE" });
     const ownerProducts = mobileProducts(page.request, () => sessionGeneration);
     const id = crypto.randomUUID() as ProductId;
-    expect(await ownerProducts.create({ id, name: "Camisa", currency: "PEN", variants: [{ attributes: {}, sku: "CAM-S", salePrice: 20 }] }))
+    expect(await ownerProducts.create({ id, name: "Camisa", description: null, imageId: null, currency: "PEN", options: [], variants: [{ values: [], sku: "CAM-S", salePrice: 20, purchasePrice: null, initialStock: 0 }] }))
       .toEqual({ success: true, data: id });
     const loaded = await ownerProducts.get(id);
     expect(loaded.success).toBe(true);

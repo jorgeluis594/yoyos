@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { browserExpect, expect, prepareVerifiedCompany, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
 import { startMobileWeb } from "@core/tests/e2e/mobile-web";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 test("mobile seller copies checkout and sees the anonymous buyer confirmation in detail and history", async ({ page }) => {
@@ -17,7 +17,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
       expectedVersion: 0, home: { enabled: false }, agency: { enabled: false },
       store: { enabled: true, pickupPoint: { name: "Tienda", address: "Lima", instructions: null } },
     } })).status()).toBe(200);
-    const product = await withTenantIsolation(tenant, () => products.create({ name: "Producto móvil", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] }));
+    const product = await withTenantIsolation(tenant, () => productEditing.create({ name: "Producto móvil", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 3 }] }));
     if (!product.success) throw new Error("Fixture product failed");
     const variantId = await withTenantIsolation(tenant, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
     await withTenantIsolation(tenant, async () => { await prisma.company.update({ where: { id: tenant }, data: { nextOrderNumber: 9999n } }); });

@@ -6,6 +6,8 @@ import { updateProduct } from "@core/src/features/products/application/update";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { ok } from "@shared/functional";
+import type { CompanyId } from "@shared/identity";
+import { productCreateDependencies } from "@core/src/composition/product-editing";
 import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 test("product updates persist effective changes, ignore no-ops, and roll back atomically", async () => {
@@ -18,8 +20,8 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
     clock: () => new Date("2026-12-01T00:00:00.000Z"),
     publishProductImageChanged: async () => ok(undefined),
   };
-  const createDeps = { ...deps, newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z") };
-  const base: CreateInput = { name: "Camisa", description: "Algodón", currency: "PEN", variants: [{ attributes: {}, sku: "CAM-M", salePrice: 20 }] };
+  const createDeps = (companyId: string) => ({ ...productCreateDependencies(companyId), findImage: deps.findImage, publishProductImageChanged: deps.publishProductImageChanged, newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z") });
+  const base: CreateInput = { name: "Camisa", description: "Algodón", currency: "PEN", options: [], variants: [{ values: [], sku: "CAM-M", salePrice: 20 }] };
   const getStored = async (companyId: string, id: ProductId) => {
     const result = await productRepository.get(id);
     if (!result.success || !result.data) throw new Error("Product was not loaded");
@@ -84,7 +86,7 @@ test("product updates persist effective changes, ignore no-ops, and roll back at
     let foreignProductId: ProductId | undefined;
     let foreignVariantId: VariantId | undefined;
     await withTenantIsolation(companyB, async () => {
-      const sameSku = await createProduct({ ...base, variants: [{ attributes: {}, sku: "CAM-M", salePrice: 5 }] }, createDeps);
+      const sameSku = await createProduct({ ...base, variants: [{ values: [], sku: "CAM-M", salePrice: 5 }] }, { companyId: companyB as CompanyId }, createDeps(companyB));
       expect(sameSku).toMatchObject({ success: true });
       await seedProduct({ variants: [{ attributes: { Talla: "M" }, salePrice: 5 }, { attributes: { Talla: "L" }, salePrice: 6 }] });
       if (!sameSku.success) throw new Error("Product was not created");

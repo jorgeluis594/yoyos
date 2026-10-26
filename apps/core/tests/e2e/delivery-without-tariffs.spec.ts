@@ -4,7 +4,7 @@ import { chromium } from "@playwright/test";
 import { vi } from "vitest";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
 import { orders } from "@core/src/features/orders/composition";
 import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -36,7 +36,7 @@ test("normal composition assigns configured pickup explicitly for free", async (
     const sellerId = (await systemPrisma.user.findUniqueOrThrow({ where: { email } })).id;
     const orderId = crypto.randomUUID();
     const variantId = await withTenantIsolation(tenantId, async () => {
-      const product = await products.create({ name: "Product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
+      const product = await productEditing.create({ name: "Product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 3 }] });
       if (!product.success) throw new Error("Expected product");
       const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
       expect(await orders.create({ id: orderId as OrderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: tenantId as CompanyId, userId: sellerId as UserId })).toMatchObject({ success: true });
