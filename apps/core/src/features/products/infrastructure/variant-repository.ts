@@ -9,6 +9,7 @@ import type { DeleteVariantError } from "@core/src/features/products/application
 import type { ProductReadError } from "@core/src/features/products/application/repository";
 import type { UpdateVariantError, VariantFieldChanges } from "@core/src/features/products/application/update-variant";
 import type { ProductId, VariantId, VariantStatus } from "@core/src/features/products/domain/product";
+import { transactionFailureStage } from "@core/src/features/products/infrastructure/repository";
 import type { CombinationPlan, VariantDeletionPlan } from "@core/src/features/products/domain/variant-rules";
 
 const decimal = (amount: number) => new Prisma.Decimal(amount.toString());
@@ -42,10 +43,7 @@ export async function lockProduct(id: ProductId): Promise<Result<boolean, Produc
   }
 }
 
-function isTransactionFailure(error: unknown): boolean {
-  const code = typeof error === "object" && error !== null && "code" in error && typeof error.code === "string" ? error.code : undefined;
-  return code === "P2028" || code === "P2034" || /40P01|55P03|deadlock detected|lock timeout/i.test(error instanceof Error ? error.message : "");
-}
+const isTransactionFailure = (error: unknown) => transactionFailureStage(error) !== undefined;
 
 /** What the adapters need to log a technical failure once. Never names, SKUs or prices. */
 export type VariantActionContext = Readonly<{ productId: ProductId; variantId: VariantId; action: string; started: number }>;

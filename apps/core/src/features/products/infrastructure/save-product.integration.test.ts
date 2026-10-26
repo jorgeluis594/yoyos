@@ -4,6 +4,7 @@ import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { ok } from "@shared/functional";
 import { prisma, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
+import { productVariantActions } from "@core/src/composition/product-variant-actions";
 import { productEditing, productSaveDependencies, productTransaction } from "@core/src/composition/product-editing";
 import { saveProduct, type SaveProductError, type SaveProductInput } from "@core/src/features/products/application/save-product";
 import { applyStructureChange, productRepository } from "@core/src/features/products/infrastructure/repository";
@@ -268,4 +269,31 @@ test("a lock timeout is logged once as lock_conflict and answers PERSISTENCE_UNA
     errorLog.mockRestore();
   }
   expect((await asCompany(companyA, () => load(seeded.productId))).name).toBe("Bloqueado");
+}, 30_000);
+
+test("a lock timeout in a variant action is logged once as lock_conflict with the variant action event", async () => {
+  const seeded = await asCompany(companyA, () => seedProduct({ name: "Bloqueado", options: [{ name: "Talla", values: ["S", "M"] }], variants: [{ attributes: { Talla: "S" } }, { attributes: { Talla: "M" } }] }));
+  const errorLog = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  let release!: () => void;
+  let locked!: () => void;
+  const held = new Promise<void>((resolve) => { release = resolve; });
+  const ready = new Promise<void>((resolve) => { locked = resolve; });
+  const holder = asCompany(companyA, () => withinTransaction(async () => {
+    await prisma.$queryRaw`SELECT id FROM "Product" WHERE id = ${seeded.productId}::uuid FOR UPDATE`;
+    locked();
+    await held;
+    return ok(null);
+  }));
+  try {
+    await ready;
+    const result = await asCompany(companyA, () => productVariantActions.changeStatus({ productId: seeded.productId as ProductId, variantId: seeded.variantIds[0] as VariantId, status: "inactive" }));
+    expect(result).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    const failures = errorLog.mock.calls.map(([entry]) => entry as Record<string, unknown>).filter((entry) => entry.event === "product_variant_action_failed");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ stage: "lock_conflict", action: "change_status", variantId: seeded.variantIds[0] });
+  } finally {
+    release();
+    await holder;
+    errorLog.mockRestore();
+  }
 }, 30_000);
