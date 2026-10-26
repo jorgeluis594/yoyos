@@ -44,7 +44,7 @@ export function syncValues(draft: EditorDraft, values: ProductFormValues): Edito
   return draft.options.length === 0 && draft.rows[0] ? setRow(draft, draft.rows[0].ref, { sku, salePrice, purchasePrice }) : draft;
 }
 
-export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending, onSave, onReload, values: initialValues = emptyProductFormValues, draft: initialDraft = emptyDraft, originalNames = {}, submitLabel, imageUrl }: {
+export type ProductFormProps = {
   currency: Currency;
   cancelTo: string;
   feedback?: SaveFeedback;
@@ -58,7 +58,9 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
   originalNames?: Readonly<Record<string, string>>;
   submitLabel?: string;
   imageUrl?: string;
-}) {
+};
+
+export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending, onSave, onReload, values: initialValues = emptyProductFormValues, draft: initialDraft = emptyDraft, originalNames = {}, submitLabel, imageUrl }: ProductFormProps) {
   const { t } = useTranslation();
   const errors: FormErrors = feedback.errors;
   const [values, setValues] = useState<ProductFormValues>(initialValues);
