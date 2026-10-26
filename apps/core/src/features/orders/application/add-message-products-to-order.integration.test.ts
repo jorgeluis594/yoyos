@@ -365,3 +365,45 @@ test("a label photo still adds by QR without calling the visual adapters", async
     expect(visualCalls).toEqual([]);
   } finally { await f.cleanup(); }
 });
+
+test("a photo of the QR of an inactive variant adds no item", async () => {
+  const f = await fixture();
+  try {
+    await inTenant(f, () => prisma.productVariant.update({ where: { id: f.variantIds[1]! }, data: { status: "inactive" } }));
+    const result = await process(f, await photo(f, [f.variantIds[1]!]));
+    expect(result).toMatchObject({ success: true, data: { kind: "skipped" } });
+    expect(await inTenant(f, () => prisma.orderItem.count())).toBe(0);
+    // The active variant of the same product is still added by its own label.
+    expect(await process(f, await photo(f, [f.variantIds[0]!]))).toMatchObject({ success: true, data: { kind: "order_created", variantIds: [f.variantIds[0]] } });
+  } finally { await f.cleanup(); }
+});
+
+test("visual search adds a product that has exactly one active variant left", async () => {
+  const f = await fixture();
+  try {
+    const productId = randomUUID() as ProductId;
+    const imageId = randomUUID() as ImageId;
+    const [kept, retired] = [randomUUID(), randomUUID()];
+    await withTenantIsolation(f.companyId, async () => {
+      await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
+      await seedProduct({ id: productId, name: "Cap", qrCode: productId, imageId, variants: [
+        { id: kept, attributes: { Talla: "M" }, salePrice: 30, qrCode: kept }, { id: retired, attributes: { Talla: "L" }, salePrice: 30, qrCode: retired, status: "inactive" }] });
+      expect(await saveEmbedding({ imageId, model, vector: [1, 0, 0] as unknown as EmbeddingVector })).toEqual(ok(undefined));
+    });
+    const result = await process(f, await photo(f, []));
+    expect(result).toMatchObject({ success: true, data: { kind: "order_created", variantIds: [kept], match: { method: "visual" } } });
+  } finally { await f.cleanup(); }
+});
+
+test("a variant deleted between the scan and the item insert fails as a retryable persistence error and writes nothing", async () => {
+  const f = await fixture();
+  try {
+    const result = await process(f, await photo(f, [f.variantIds[1]!]), { saveNewOrder: async (order, source) => {
+      await prisma.productStock.deleteMany({ where: { variantId: f.variantIds[1]! } });
+      await prisma.productVariant.delete({ where: { id: f.variantIds[1]! } });
+      return savePendingOrder(order, source);
+    } });
+    expect(result).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(await inTenant(f, () => prisma.order.count())).toBe(0);
+  } finally { await f.cleanup(); }
+});

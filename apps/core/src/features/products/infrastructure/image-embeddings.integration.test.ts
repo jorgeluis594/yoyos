@@ -15,8 +15,7 @@ const companyB = randomUUID();
 
 async function product(companyId: string, imageId: string | null) {
   const id = randomUUID() as ProductId;
-  await withTenantIsolation(companyId, async () => await prisma.product.create({ data: { id, name: "Shirt", currency: "PEN", qrCode: id, status: "active", imageId,
-    createdAt: new Date(), updatedAt: new Date() } }));
+  await withTenantIsolation(companyId, async () => { await seedProduct({ id, name: "Shirt", qrCode: id, imageId }); });
   return id;
 }
 
@@ -135,7 +134,7 @@ test("hasIndexedProducts is true only when a product of the company has its curr
     await withTenantIsolation(company, async () => expect(await hasIndexedProducts(model)).toEqual({ success: true, data: false }));
   } finally {
     await withTenantIsolation(company, async () => {
-      await prisma.product.deleteMany();
+      await deleteSeededProducts();
       await prisma.image.deleteMany();
       await prisma.company.delete({ where: { id: company } });
     });
@@ -164,4 +163,30 @@ test("findNearestProductImages ignores embeddings of another model, of a replace
     const found = await findNearestProductImages(vector(1, 0, 0), searchModel, 5);
     expect(found.success && found.data.map(({ productId }) => productId)).toEqual([current.productId]);
   });
+});
+
+test("hasIndexedProducts and findNearestProductImages ignore a product whose variants are all inactive", async () => {
+  const company = randomUUID();
+  await withTenantIsolation(company, async () => await prisma.company.create({ data: { id: company, name: company, country: "PE" } }));
+  try {
+    const imageId = await image(company);
+    const productId = randomUUID() as ProductId;
+    await withTenantIsolation(company, async () => {
+      await seedProduct({ id: productId, name: "Shirt", qrCode: productId, imageId, variants: [{ attributes: { Talla: "M" }, status: "inactive" }, { attributes: { Talla: "L" }, status: "inactive" }] });
+      await saveEmbedding({ imageId, model: searchModel, vector: vector(1, 0, 0) });
+      expect(await hasIndexedProducts(searchModel)).toEqual({ success: true, data: false });
+      expect(await findNearestProductImages(vector(1, 0, 0), searchModel, 5)).toEqual({ success: true, data: [] });
+    });
+    await withTenantIsolation(company, async () => {
+      const [first] = await prisma.productVariant.findMany({ where: { productId }, orderBy: { id: "asc" } });
+      await prisma.productVariant.update({ where: { id: first.id }, data: { status: "active" } });
+      expect(await hasIndexedProducts(searchModel)).toEqual({ success: true, data: true });
+    });
+  } finally {
+    await withTenantIsolation(company, async () => {
+      await deleteSeededProducts();
+      await prisma.image.deleteMany();
+      await prisma.company.delete({ where: { id: company } });
+    });
+  }
 });

@@ -143,8 +143,8 @@ export async function searchSaleCatalog(search: string, variantIds?: readonly st
   try {
     const variantFilter = { status: "active" as const, ...(variantIds ? { id: { in: [...variantIds] } } : {}) };
     const { rows, attributes } = await withinReadSnapshot(async () => {
-      const rows = await prisma.product.findMany({ where: { status: "active", ...(variantIds
-        ? { variants: { some: variantFilter } }
+      const rows = await prisma.product.findMany({ where: { status: "active", variants: { some: variantFilter }, ...(variantIds
+        ? {}
         : { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" as const } }) },
         orderBy: { name: "asc" }, ...(variantIds ? {} : { take: 20 }),
         include: { variants: { where: variantFilter, include: { stock: true } } } });
