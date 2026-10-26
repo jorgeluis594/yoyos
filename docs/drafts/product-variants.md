@@ -65,8 +65,7 @@ Todo esto entra en la misma entrega, en web y en móvil, con el mismo comportami
    - el catálogo público, el checkout y los pedidos nuevos.
 6. **Límites validados en core:** 3 opciones, 30 valores por opción y 100 variantes por producto.
 7. **Página de detalle de la variante** en web y en móvil, con QR, **Imprimir** y **Desactivar variante**. Solo existe para productos con opciones.
-8. **Compatibilidad:** las versiones anteriores de la app móvil siguen listando, viendo y creando productos simples, y editando nombre, descripción y foto de cualquier producto.
-9. **Documentación:** `docs/products.md` se actualiza en Model, Rules y Screens con las opciones ordenadas, la desactivación y la edición de atributos.
+8. **Documentación:** `docs/products.md` se actualiza en Model, Rules y Screens con las opciones ordenadas, la desactivación y la edición de atributos.
 
 Puntos de encuentro con otras tareas:
 
@@ -92,7 +91,6 @@ Puntos de encuentro con otras tareas:
   - Agregar los valores de a uno tampoco evita el bloqueo, porque cada valor nuevo genera todas sus combinaciones.
   - Es una consecuencia aceptada del límite de 100.
   - Entra cuando alguna vendedora choque con él: por ejemplo, generando solo las combinaciones que elija.
-- **Editar opciones o variantes desde versiones anteriores de la app móvil:** esas versiones ven las variantes en solo lectura (ver «Información que se conserva»). Se resuelve actualizando la app.
 - **Imprimir etiquetas de productos sin opciones desde la web:** la web hoy no imprime etiquetas de productos simples, y sigue sin hacerlo. Esos productos se imprimen desde la ficha en móvil, como hoy. Entra cuando una vendedora sin Android o sin impresora Brother necesite imprimirlas desde la web.
 - **Abrir el detalle de una variante guardada sin perder los cambios sin guardar de la ficha:** abrirlo pide la confirmación de descarte, así que la vendedora guarda primero o descarta. Entra si la vendedora lo pide.
 - **Imprimir varias variantes distintas en un solo envío:** la hoja de impresión imprime una variante por vez, con sus copias, como hoy. Entra cuando la vendedora lo pida.
@@ -293,7 +291,7 @@ Una opción se quita con **Eliminar**, en su editor:
 - **Fila final «Stock total»:** suma de las variantes activas.
 - **Combinaciones sin crear** en un producto guardado:
   - Con una sola, se muestra la línea «1 combinación sin crear: S / Azul», con **Agregar**, que la suma como «Nueva».
-  - Con varias, se muestra «12 combinaciones sin crear», con **Ver**. **Ver** despliega la lista en el orden guardado, y cada combinación tiene su **Agregar**.
+  - Con varias, se muestra «12 combinaciones sin crear», con **Ver**. **Ver** despliega la lista en el orden guardado, de 50 en 50 con **Ver más** al final, y cada combinación tiene su **Agregar**.
   - **Agregar** sigue el límite de 100: al llegar, se deshabilita y muestra «Máximo 100 variantes».
 - **Pantalla «Variantes» en móvil:**
   - Se muestran aquí, sobre la lista: el aviso de stock copiado, el aviso de combinaciones que salen de variantes desactivadas, «combinaciones sin crear» y el motivo de rechazo de cada fila.
@@ -437,7 +435,7 @@ Una opción se quita con **Eliminar**, en su editor:
 | Guardado de la ficha | **Guardar cambios** guarda junto todo lo editado en la ficha: opciones, valores, orden, variantes nuevas, lo marcado para quitar o eliminar, precios y SKU. Se guarda todo o nada. |
 | Guardados inmediatos | En el detalle de la variante, estas acciones se guardan al confirmar: **Guardar cambios** (precio de venta, precio de compra y SKU de esa variante), **Cambiar combinación**, **Desactivar variante**, **Activar variante** y **Eliminar variante**. |
 | Paridad | Web y móvil aplican las mismas reglas, límites, textos y códigos de error. Core es la fuente de verdad. |
-| Concurrencia | No hay bloqueo de edición, como hoy. Si la ficha quedó desactualizada y el guardado choca con otra variante, un límite o un pedido nuevo, se rechaza con el motivo y el formulario queda intacto. **Recargar producto** pide la confirmación de descarte si hay cambios. |
+| Concurrencia | No hay bloqueo de edición, como hoy. Si otro guardado cambió las opciones, los valores o las variantes del producto desde que se abrió la ficha (en otro dispositivo, o un guardado propio que sí se aplicó antes de un reintento), **Guardar cambios** se rechaza y el formulario queda intacto. Los cambios de precio y SKU de otras personas no lo rechazan: gana el último guardado, como hoy. Si el guardado choca con otra variante, un límite o un pedido nuevo, se rechaza con el motivo y el formulario queda intacto. **Recargar producto** pide la confirmación de descarte si hay cambios. |
 
 ## Estados
 
@@ -458,6 +456,7 @@ Una opción se quita con **Eliminar**, en su editor:
 | Guardar: rechazo conocido (combinación repetida, límite, valor vacío, SKU en uso, precio faltante, eliminación no permitida) | El formulario intacto, cada error junto a su campo, opción o fila, y arriba un resumen: «Revisa 2 variantes marcadas.» | Corregir, o tocar **Deshacer** en lo marcado, y volver a guardar |
 | Guardar: no salió (sin conexión) | «No se pudo guardar. Revisa tu conexión e inténtalo otra vez.», como hoy, con el formulario intacto | **Reintentar** |
 | Crear producto: resultado dudoso | «No se pudo confirmar si se creó este producto. Revisa el catálogo antes de iniciar otra creación.», el texto de hoy en móvil, que ahora usa también web. Reintentar con el mismo producto no lo duplica: si ya existía, se muestra el conflicto y se ofrece revisar la lista, como hoy | **Reintentar** o volver a la lista. Mientras tanto no se puede iniciar otro guardado del mismo producto |
+| Guardar cambios: el producto cambió desde que se abrió la ficha | «Este producto cambió desde que lo abriste. Recarga el producto para ver los cambios.» sobre el formulario, que queda intacto. No se guarda nada | **Recargar producto**, con la confirmación de descarte |
 | Editar producto: resultado dudoso | «Puede que se hayan guardado los cambios. Recarga el producto para revisarlos.» Los cambios siguen en pantalla | **Recargar producto**, con la confirmación de descarte |
 | Detalle de variante, **Guardar cambios**: éxito | «Variante guardada»; se queda en el detalle | Seguir |
 | Detalle de variante, guardar: rechazo conocido | El campo marcado, con lo escrito intacto: «Este SKU ya lo usa otra variante.», «Escribe un precio mayor que 0.» o «Usa como máximo 2 decimales.» | Corregir y guardar |
@@ -496,21 +495,8 @@ No se agrega ninguna protección nueva. El acceso es el mismo de productos hoy.
 - **Pedidos anteriores a esta función:** muestran sus atributos como hoy, sin orden guardado, y no se reordenan. Probablemente ninguno tenga atributos, porque los formularios nunca los crearon.
 - **Siempre se muestra lo actual:** en la ficha, el catálogo, «Nueva venta», la hoja de impresión y las etiquetas nuevas se ven las opciones, los valores, el orden, los precios y el estado actuales.
 - **Datos nuevos de la empresa:** las opciones de cada producto, con sus valores en orden. El estado de la variante ya existía y ahora admite «desactivada». No se guarda historial de nombres anteriores: «Antes «Azul»» solo se ve mientras se edita.
-- **Lo que ya existía:**
-  - Los productos sin atributos quedan como productos sin opciones.
-  - Los productos cuyas variantes ya tienen atributos reciben opciones deducidas de esos atributos. Opciones y valores quedan en orden alfabético, porque no se guardó otro orden, y la vendedora puede reordenarlos.
-  - Supuesto: ningún producto tiene variantes que no encajen en el modelo nuevo. Estos son los casos que no encajan:
-    - variantes con nombres de atributos distintos entre sí;
-    - una variante sin atributos junto a otras con atributos;
-    - más de 3 opciones, más de 30 valores en una opción o más de 100 variantes;
-    - valores o nombres de más de 30 caracteres.
-  - Se espera que no haya ninguno, porque los formularios nunca crearon atributos y la API casi no se usó para eso. La implementación lo verifica antes de migrar y, si aparece alguno, lo informa sin migrarlo.
-- **Versiones anteriores de la app móvil:**
-  - Siguen listando, viendo y creando productos simples.
-  - Siguen editando nombre, descripción y foto de cualquier producto, también de uno con opciones, sin tocar opciones ni variantes.
-  - Un producto con opciones y una sola variante se les ve como simple. Core acepta que editen su precio y su SKU, también si la variante está desactivada, igual que el detalle de variante.
-  - En un producto con varias variantes, las ven en solo lectura y sin distinguir las desactivadas. Ven una variante desactivada como si estuviera activa. Abrir, renombrar y guardar un producto con variantes desactivadas, o con todas desactivadas, funciona sin errores.
-  - Si intentan vender una desactivada, core lo rechaza como variante no disponible.
+- **Lo que ya existía:** los productos actuales quedan como productos sin opciones, con su variante, QR y stock. Hoy los formularios solo crean productos de una variante sin atributos, y todavía no hay datos de clientes, así que no se convierte ningún atributo (decisión del fundador, 2026-10-26).
+- **Versiones anteriores de la app móvil:** no se mantiene compatibilidad con ellas. Todavía no hay clientes, así que la app y core cambian juntos.
 - **Lo efímero:** no se guardan las combinaciones generadas y no guardadas, las ediciones en masa pendientes, lo marcado «Se quitará» o «Se eliminará», la selección ni el filtro de la tabla. Copias e impresora siguen siendo preferencias del teléfono, como hoy.
 
 ## Vocabulario
@@ -575,7 +561,7 @@ Si un mockup y este texto no coinciden, manda el texto:
    - toca **Eliminar** en «Manga»: las filas con «Larga» quedan marcadas «Se quitará» y, al guardar, quedan las combinaciones con «Corta», ya sin Manga, con lo editado.
 4. Toca la papelera de la fila S / Azul, que queda marcada «Se quitará» con **Deshacer**, y el contador y el stock total la descuentan. Toca **Deshacer**, vuelve con lo editado, la marca otra vez y guarda. El producto queda con 5 variantes, la lista muestra «Desde S/ 39.90» con el stock de las 5, y la ficha muestra las variantes en el orden definido. En web y en móvil, la marca y el **Deshacer** son texto y botón en línea, sin avisos pasajeros.
 5. Los mismos casos hechos en móvil se ven en la web con las mismas variantes, orden y precios, y al revés.
-6. Un producto creado sin tocar **Agregar opciones** queda con una variante sin atributos, igual que hoy, en web, en móvil y en una versión anterior de la app.
+6. Un producto creado sin tocar **Agregar opciones** queda con una variante sin atributos, igual que hoy, en web y en móvil.
 7. Límites:
    - Con Talla de 5 valores, Color de 6 y una tercera opción de 4, el editor muestra «Máximo 100 variantes» con «Con estos valores serían 120 combinaciones (5 tallas × 6 colores × 4 mangas).», y los dos **Listo** quedan deshabilitados.
    - En un producto guardado con 98 variantes, agregar un valor que generaría 6 muestra «Con estos valores serían 104 variantes (98 actuales y 6 nuevas).».
@@ -622,7 +608,6 @@ Si un mockup y este texto no coinciden, manda el texto:
 22. Abrir el enlace de una variante eliminada o de otro producto de la empresa muestra «Esta variante ya no existe.» con **Volver al producto**. Abrir el de una variante de otra empresa muestra el mismo texto con **Volver a productos**.
 23. Venta y mensaje→pedido con variantes desactivadas:
     - Una venta de móvil en cola con L / Azul, desactivada mientras tanto, vuelve a revisión con «L / Azul ya no está disponible.» y no crea el pedido.
-    - Una versión anterior de la app que intenta vender L / Azul recibe el rechazo de variante no disponible.
     - Una foto por WhatsApp de la etiqueta de L / Azul no agrega el ítem.
 24. En el catálogo público:
     - los selectores siguen el orden definido;
@@ -638,16 +623,8 @@ Si un mockup y este texto no coinciden, manda el texto:
 27. En móvil, «Nuevo producto», la ficha de edición, «Opciones», «Variantes» y el detalle de variante se abren a pantalla completa sin la barra de pestañas. **Desactivar variante** y **Eliminar variante** confirman con el alert nativo. **X** en «Opciones», después de un cambio, muestra «¿Descartar cambios?».
 28. En web y móvil, salir de la ficha con cambios o abrir una variante guardada desde ella muestra «¿Descartar cambios?» y «Se perderán los cambios que no guardaste.», con **Descartar** y **Seguir editando**. **Seguir editando** conserva los cambios.
 29. Un guardado sin conexión muestra «No se pudo guardar. Revisa tu conexión e inténtalo otra vez.» con el formulario intacto. Reintentar la creación de un producto que sí se creó no lo duplica.
-30. Una versión anterior de la app móvil, sin errores:
-    - lista los productos;
-    - abre en solo lectura uno con varias variantes y le cambia el nombre;
-    - abre un producto con una variante desactivada (L / Azul) y le cambia el nombre. Ve todas sus variantes, L / Azul incluida, como si estuvieran activas, sin errores de carga ni después de guardar;
-    - abre un producto con todas sus variantes desactivadas sin errores;
-    - cambia el precio de un producto con opciones de una sola variante;
-    - crea un producto simple.
-31. Un producto con variantes que ya tenían atributos «talla» y «color» se abre con las opciones «Color» y «Talla» en orden alfabético, y sus valores también en orden alfabético. La vendedora puede reordenarlos.
-32. Las pantallas nuevas usan los componentes de hoy de web y móvil (campos, botones, tarjetas, ventanas, hojas, chips, alerts y texto en línea), con los colores, las tipografías y el espaciado actuales, sin estilos ni componentes nuevos.
-33. `docs/products.md` describe en Model, Rules y Screens las opciones ordenadas, la desactivación y la edición de atributos.
+30. Las pantallas nuevas usan los componentes de hoy de web y móvil (campos, botones, tarjetas, ventanas, hojas, chips, alerts y texto en línea), con los colores, las tipografías y el espaciado actuales, sin estilos ni componentes nuevos.
+31. `docs/products.md` describe en Model, Rules y Screens las opciones ordenadas, la desactivación y la edición de atributos.
 
 ## Preguntas decididas por la revisión
 
@@ -700,8 +677,8 @@ No quedan preguntas abiertas. Estas decisiones de rutina, aceptadas por la revis
 - **Resultado dudoso al crear:** web usa el texto de hoy de móvil.
 - **Pedido de catálogo sin confirmar con una variante luego desactivada:** se puede confirmar y pagar, y la vendedora lo resuelve por chat.
 - **Mensaje→pedido:** no reconoce variantes desactivadas ni productos sin variantes activas. Un producto que queda con una sola variante activa pasa a reconocerse por foto.
-- **Productos con atributos existentes:** reciben opciones en orden alfabético, reordenable. Los casos que no encajan se informan antes de migrar.
-- **Versiones anteriores de la app:** editan nombre, descripción y foto, y el precio y el SKU de un producto con opciones de una sola variante. Ven las variantes desactivadas sin marca, y core rechaza venderlas.
+- **Productos existentes:** quedan como productos sin opciones. No se convierten atributos, porque todavía no hay datos de clientes.
+- **Versiones anteriores de la app:** no se mantiene compatibilidad. Todavía no hay clientes, así que la app y core cambian juntos (decisión del fundador, 2026-10-26).
 - **Totales:** el stock total, «Desde» y «Agotado» se calculan solo con variantes activas.
 - **Tamaños y nombres:** controles de al menos 44 px en móvil y 32 px en web. Nombres y valores de hasta 30 caracteres. Son valores iniciales, ajustables.
 - **PR #150:** al entrar, `resolveVariant` y «Falta la variante» se conectan al orden guardado y excluyen las desactivadas. Queda anotado en el PR.
