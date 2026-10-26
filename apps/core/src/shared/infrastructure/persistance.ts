@@ -107,12 +107,13 @@ export type TransactionOptions = Readonly<{
 }>;
 
 async function openContext(tx: Prisma.TransactionClient, companyId: string, options: TransactionOptions) {
-  if (options.lockTimeoutMs === undefined && options.statementTimeoutMs === undefined) {
-    await tx.$queryRaw`SELECT set_config('app.company_id', ${companyId}, true)`;
-    return;
-  }
-  await tx.$queryRaw`SELECT set_config('app.company_id', ${companyId}, true),
-    set_config('lock_timeout', ${`${options.lockTimeoutMs ?? 0}ms`}, true), set_config('statement_timeout', ${`${options.statementTimeoutMs ?? 0}ms`}, true)`;
+  // Only the limits the caller names are set; the other keeps the server value.
+  const settings = [
+    Prisma.sql`set_config('app.company_id', ${companyId}, true)`,
+    ...options.lockTimeoutMs === undefined ? [] : [Prisma.sql`set_config('lock_timeout', ${`${options.lockTimeoutMs}ms`}, true)`],
+    ...options.statementTimeoutMs === undefined ? [] : [Prisma.sql`set_config('statement_timeout', ${`${options.statementTimeoutMs}ms`}, true)`],
+  ];
+  await tx.$queryRaw(Prisma.sql`SELECT ${Prisma.join(settings)}`);
 }
 
 /** Options apply when this call opens the outermost transaction; inside an active one they are ignored. */
