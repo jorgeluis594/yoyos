@@ -1,8 +1,9 @@
 import type { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { CreateProductRequest, UpdateProductRequest } from "@shared/contracts/products";
+import type { CreateProductRequest, SaveProductRequest, UpdateProductRequest } from "@shared/contracts/products";
 import type { CreateInput } from "@core/src/features/products/application/create";
+import type { SaveProductInput } from "@core/src/features/products/application/save-product";
 import type { UpdateInput } from "@core/src/features/products/application/update";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 
@@ -33,6 +34,16 @@ export function toCreateInput(request: CreateProductRequest): CreateInput {
   return {
     id: request.id as ProductId, name: request.name, description: request.description, imageId: request.imageId as ImageId | null,
     currency: request.currency, options: request.options, variants: [first, ...rest],
+  };
+}
+
+export function toSaveInput(productId: ProductId, request: SaveProductRequest): SaveProductInput {
+  return {
+    productId, structureVersion: request.structureVersion, name: request.name, description: request.description, imageId: request.imageId as ImageId | null,
+    options: request.options,
+    variants: request.variants.map((variant) => ({ ...variant, id: variant.id as VariantId })),
+    newVariants: request.newVariants,
+    deletedVariantIds: request.deletedVariantIds as VariantId[],
   };
 }
 
