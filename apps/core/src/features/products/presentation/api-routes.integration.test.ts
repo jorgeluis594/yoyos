@@ -203,3 +203,222 @@ test("PATCH keeps editing name, description, photo, prices and SKUs without touc
   expect(foreign.status).toBe(422);
   expect(productApiErrorSchema.parse(await foreign.json()).issues).toEqual([expect.objectContaining({ scope: "variant", reason: "VARIANT_NOT_FOUND", field: "id" })]);
 });
+
+type Detail = Awaited<ReturnType<typeof detail>>;
+
+/** The PUT body of the editor exactly as loaded, ready to edit. */
+function formOf(read: Detail) {
+  const { product } = read;
+  return {
+    structureVersion: product.structureVersion, name: product.name, description: product.description, imageId: product.imageId,
+    options: product.options.map((option) => ({ id: option.id, name: option.name, values: option.values.map((value) => ({ id: value.id, name: value.name })) })) as { id: string; name: string; values: { id: string; name: string }[]; valueForExistingVariants?: string }[],
+    variants: product.variants.map((variant) => ({ id: variant.id, sku: variant.sku, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null })),
+    newVariants: [] as { values: string[]; sku: string | null; salePrice: number; purchasePrice: number | null; initialStock: number }[],
+    deletedVariantIds: [] as string[],
+  };
+}
+
+const put = (cookie: string, productId: string, body: unknown) => call(`/api/products/${productId}`, cookie, body, "PUT");
+const labels = (read: Detail) => read.product.variants.map((variant) => combinationLabel(read.product.options, variant.combination));
+
+async function poloWithOrder() {
+  const fixture = await seller();
+  const seeded = await withTenantIsolation(fixture.companyId, () => seedProduct({ name: "Polo", options: [{ name: "Talla", values: ["S", "M"] }, { name: "Color", values: ["Negro", "Azul"] }], variants: [
+    { attributes: { Talla: "S", Color: "Negro" }, stock: 3 }, { attributes: { Talla: "S", Color: "Azul" } },
+    { attributes: { Talla: "M", Color: "Negro" }, stock: 2 }, { attributes: { Talla: "M", Color: "Azul" } },
+  ] }));
+  return { ...fixture, seeded };
+}
+
+const placeOrder = async (cookie: string, variantId: string) => expect((await call("/api/orders/pending", cookie, { id: randomUUID(), items: [{ variantId, quantity: 1 }] })).status).toBe(201);
+
+test("PUT /api/products adding XL creates XL / Negro and XL / Azul with stock 0 and keeps M / Negro with its id, QR, stock and order", async () => {
+  const { cookie, seeded } = await poloWithOrder();
+  const sold = seeded.variantIds[2];
+  await placeOrder(cookie, sold);
+  const before = await detail(cookie, seeded.productId);
+  const form = formOf(before);
+  const xl = { id: randomUUID(), name: "XL" };
+  form.options[0].values.push(xl);
+  form.newVariants.push(...[0, 1].map((color) => ({ values: [xl.id, before.product.options[1].values[color].id], sku: null, salePrice: 30, purchasePrice: null, initialStock: 0 })));
+  const response = await put(cookie, seeded.productId, form);
+  expect(response.status).toBe(200);
+  const after = productDetailResponseSchema.parse(await response.json());
+  expect(labels(after)).toEqual(["S / Negro", "S / Azul", "M / Negro", "M / Azul", "XL / Negro", "XL / Azul"]);
+  expect(after.product.structureVersion).toBe(before.product.structureVersion + 1);
+  const kept = after.product.variants.find((variant) => variant.id === sold);
+  expect(kept).toMatchObject({ qrCode: before.product.variants[2].qrCode, stock: 2, hasOrders: true });
+  expect(after.product.variants.slice(4).map((variant) => [variant.stock, variant.status, variant.hasOrders, variant.salePrice.amount])).toEqual([[0, "active", false, 30], [0, "active", false, 30]]);
+  expect(await detail(cookie, seeded.productId)).toEqual(after);
+});
+
+test("PUT /api/products adding Manga with a value for the existing variants keeps the ids and gives each one Corta", async () => {
+  const { cookie, seeded } = await poloWithOrder();
+  const before = await detail(cookie, seeded.productId);
+  const form = formOf(before);
+  const manga = { id: randomUUID(), name: "Manga", values: [{ id: randomUUID(), name: "Corta" }, { id: randomUUID(), name: "Larga" }], valueForExistingVariants: "" };
+  manga.valueForExistingVariants = manga.values[0].id;
+  form.options.push(manga);
+  form.newVariants.push({ values: [...before.product.options.map((option) => option.values[0].id), manga.values[1].id], sku: null, salePrice: 9, purchasePrice: null, initialStock: 0 });
+  const response = await put(cookie, seeded.productId, form);
+  expect(response.status).toBe(200);
+  const after = productDetailResponseSchema.parse(await response.json());
+  expect(labels(after)).toEqual(["S / Negro / Corta", "S / Negro / Larga", "S / Azul / Corta", "M / Negro / Corta", "M / Azul / Corta"]);
+  expect(after.product.variants.filter((variant) => variant.id !== after.product.variants[1].id).map((variant) => variant.id)).toEqual(seeded.variantIds);
+});
+
+test("PUT /api/products turns a simple product with stock and an order into Talla S / M keeping its QR, stock and order", async () => {
+  const { companyId, cookie } = await seller();
+  const seeded = await withTenantIsolation(companyId, () => seedProduct({ name: "Simple", variants: [{ stock: 5, sku: "SIMPLE" }] }));
+  await placeOrder(cookie, seeded.variantIds[0]);
+  const before = await detail(cookie, seeded.productId);
+  const form = formOf(before);
+  const talla = { id: randomUUID(), name: "Talla", values: [{ id: randomUUID(), name: "S" }, { id: randomUUID(), name: "M" }], valueForExistingVariants: "" };
+  talla.valueForExistingVariants = talla.values[0].id;
+  form.options.push(talla);
+  form.newVariants.push({ values: [talla.values[1].id], sku: null, salePrice: 10, purchasePrice: null, initialStock: 0 });
+  const response = await put(cookie, seeded.productId, form);
+  expect(response.status).toBe(200);
+  const after = productDetailResponseSchema.parse(await response.json());
+  expect(labels(after)).toEqual(["S", "M"]);
+  expect(after.product.variants[0]).toMatchObject({ id: seeded.variantIds[0], qrCode: before.product.variants[0].qrCode, stock: 5, hasOrders: true, sku: "SIMPLE" });
+  expect(after.product.variants[1]).toMatchObject({ stock: 0, hasOrders: false });
+});
+
+test("PUT /api/products deleting the single-valued last option makes the product simple", async () => {
+  const { companyId, cookie } = await seller();
+  const seeded = await withTenantIsolation(companyId, () => seedProduct({ name: "Una talla", options: [{ name: "Talla", values: ["Única"] }], variants: [{ attributes: { Talla: "Única" }, stock: 2 }] }));
+  const form = formOf(await detail(cookie, seeded.productId));
+  form.options = [];
+  const response = await put(cookie, seeded.productId, form);
+  expect(response.status).toBe(200);
+  const after = productDetailResponseSchema.parse(await response.json());
+  expect(after.product.options).toEqual([]);
+  expect(after.product.variants).toEqual([expect.objectContaining({ id: seeded.variantIds[0], combination: [], stock: 2 })]);
+  expect(await withTenantIsolation(companyId, async () => await prisma.productOptionValue.count({ where: { productId: seeded.productId } }))).toBe(0);
+});
+
+test("PUT /api/products saves a renamed value, a reorder and a new option atomically", async () => {
+  const { cookie, seeded } = await poloWithOrder();
+  const before = await detail(cookie, seeded.productId);
+  const form = formOf(before);
+  form.name = "Polo clásico";
+  form.options[1].values[0].name = "Negro carbón";
+  form.options[0].values.reverse();
+  form.options.reverse();
+  const manga = { id: randomUUID(), name: "Manga", values: [{ id: randomUUID(), name: "Corta" }], valueForExistingVariants: "" };
+  manga.valueForExistingVariants = manga.values[0].id;
+  form.options.push(manga);
+  const response = await put(cookie, seeded.productId, form);
+  expect(response.status).toBe(200);
+  const after = productDetailResponseSchema.parse(await response.json());
+  expect(after.product.name).toBe("Polo clásico");
+  expect(after.product.options.map((option) => [option.name, option.values.map((value) => value.name)])).toEqual([["Color", ["Negro carbón", "Azul"]], ["Talla", ["M", "S"]], ["Manga", ["Corta"]]]);
+  expect(labels(after)).toEqual(["Negro carbón / M / Corta", "Negro carbón / S / Corta", "Azul / M / Corta", "Azul / S / Corta"]);
+  expect(after.product.structureVersion).toBe(before.product.structureVersion + 1);
+  expect(new Set(after.product.variants.map((variant) => variant.id))).toEqual(new Set(seeded.variantIds));
+});
+
+test("PUT with a stale structureVersion answers 409 PRODUCT_CHANGED and keeps the values another device added", async () => {
+  const { cookie, seeded } = await poloWithOrder();
+  const stale = formOf(await detail(cookie, seeded.productId));
+  const device = formOf(await detail(cookie, seeded.productId));
+  const xl = { id: randomUUID(), name: "XL" };
+  device.options[0].values.push(xl);
+  device.newVariants.push(...[0, 1].map((color) => ({ values: [xl.id, device.options[1].values[color].id], sku: null, salePrice: 5, purchasePrice: null, initialStock: 0 })));
+  expect((await put(cookie, seeded.productId, device)).status).toBe(200);
+  const rejected = await put(cookie, seeded.productId, { ...stale, name: "Desde el teléfono viejo" });
+  expect(rejected.status).toBe(409);
+  expect(productApiErrorSchema.parse(await rejected.json()).code).toBe("PRODUCT_CHANGED");
+  const after = await detail(cookie, seeded.productId);
+  expect(after.product.name).toBe("Polo");
+  expect(labels(after)).toEqual(["S / Negro", "S / Azul", "M / Negro", "M / Azul", "XL / Negro", "XL / Azul"]);
+});
+
+test("PUT deleting value Azul whose M / Azul has an order answers 422 VARIANT_HAS_ORDERS and writes nothing", async () => {
+  const { cookie, seeded } = await poloWithOrder();
+  await placeOrder(cookie, seeded.variantIds[3]);
+  const before = await detail(cookie, seeded.productId);
+  const form = formOf(before);
+  form.name = "No debe guardarse";
+  form.options[1].values = form.options[1].values.filter((value) => value.name !== "Azul");
+  form.deletedVariantIds = [seeded.variantIds[1], seeded.variantIds[3]];
+  form.variants = form.variants.filter((variant) => !form.deletedVariantIds.includes(variant.id));
+  const response = await put(cookie, seeded.productId, form);
+  expect(response.status).toBe(422);
+  const body = productApiErrorSchema.parse(await response.json());
+  expect(body.issues).toEqual([expect.objectContaining({ scope: "variant", variantId: seeded.variantIds[3], reason: "VARIANT_HAS_ORDERS" })]);
+  expect(await detail(cookie, seeded.productId)).toEqual(before);
+});
+
+test("PUT marking Azul with its variants and deleting Color turns the remaining variants into Talla-only variants", async () => {
+  const { companyId, cookie, seeded } = await poloWithOrder();
+  const before = await detail(cookie, seeded.productId);
+  const form = formOf(before);
+  form.options = form.options.filter((option) => option.name !== "Color");
+  form.deletedVariantIds = [seeded.variantIds[1], seeded.variantIds[3]];
+  form.variants = form.variants.filter((variant) => !form.deletedVariantIds.includes(variant.id));
+  const response = await put(cookie, seeded.productId, form);
+  expect(response.status).toBe(200);
+  const after = productDetailResponseSchema.parse(await response.json());
+  expect(after.product.options.map((option) => option.name)).toEqual(["Talla"]);
+  expect(after.product.variants.map((variant) => variant.id)).toEqual([seeded.variantIds[0], seeded.variantIds[2]]);
+  expect(labels(after)).toEqual(["S", "M"]);
+  expect(await withTenantIsolation(companyId, async () => await prisma.productVariant.count({ where: { productId: seeded.productId } }))).toBe(2);
+  expect(await withTenantIsolation(companyId, async () => await prisma.productOptionValue.count({ where: { productId: seeded.productId } }))).toBe(2);
+});
+
+test("PUT adding XL and then removing both XL rows stores no XL", async () => {
+  const { companyId, cookie, seeded } = await poloWithOrder();
+  const before = await detail(cookie, seeded.productId);
+  const form = formOf(before);
+  form.options[0].values.push({ id: randomUUID(), name: "XL" });
+  const response = await put(cookie, seeded.productId, form);
+  expect(response.status).toBe(200);
+  const after = productDetailResponseSchema.parse(await response.json());
+  expect(after.product.options[0].values.map((value) => value.name)).toEqual(["S", "M"]);
+  expect(after.product.structureVersion).toBe(before.product.structureVersion);
+  expect(await withTenantIsolation(companyId, async () => await prisma.productOptionValue.count({ where: { productId: seeded.productId, name: "XL" } }))).toBe(0);
+});
+
+test("PUT returns 422 with option, value and variant issues together", async () => {
+  const { cookie, seeded } = await poloWithOrder();
+  const form = formOf(await detail(cookie, seeded.productId));
+  form.options[0].name = "  ";
+  form.options[1].values[1].name = form.options[1].values[0].name;
+  form.variants[0].salePrice = -1;
+  form.newVariants.push({ values: [form.options[0].values[0].id], sku: null, salePrice: 1, purchasePrice: null, initialStock: 0 });
+  const response = await put(cookie, seeded.productId, form);
+  expect(response.status).toBe(422);
+  const body = productApiErrorSchema.parse(await response.json());
+  expect(body.code).toBe("VALIDATION_ERROR");
+  expect(body.issues).toEqual(expect.arrayContaining([
+    expect.objectContaining({ scope: "option", optionIndex: 0, field: "name", reason: "REQUIRED" }),
+    expect.objectContaining({ scope: "value", optionIndex: 1, valueIndex: 1, reason: "DUPLICATE_VALUE" }),
+    expect.objectContaining({ scope: "variant", variantId: seeded.variantIds[0], field: "salePrice", reason: "INVALID_PRICE" }),
+    expect.objectContaining({ scope: "newVariant", index: 0, field: "values", reason: "INVALID_COMBINATION" }),
+  ]));
+});
+
+test("PUT answers 409 DUPLICATE_SKU when another product holds the SKU and 400 for an unknown field", async () => {
+  const { companyId, cookie, seeded } = await poloWithOrder();
+  await withTenantIsolation(companyId, () => seedProduct({ name: "Dueño", variants: [{ sku: "OCUPADO" }] }));
+  const form = formOf(await detail(cookie, seeded.productId));
+  form.variants[0].sku = "ocupado";
+  const duplicate = await put(cookie, seeded.productId, form);
+  expect(duplicate.status).toBe(422);
+  expect(productApiErrorSchema.parse(await duplicate.json()).issues).toEqual([expect.objectContaining({ scope: "variant", variantId: seeded.variantIds[0], field: "sku", reason: "DUPLICATE_SKU" })]);
+  expect((await put(cookie, seeded.productId, { ...formOf(await detail(cookie, seeded.productId)), color: "rojo" })).status).toBe(400);
+  expect((await put(cookie, "no-es-uuid", formOf(await detail(cookie, seeded.productId)))).status).toBe(400);
+});
+
+test("PUT on a product of another company answers 404", async () => {
+  const mine = await seller();
+  const other = await poloWithOrder();
+  const form = formOf(await detail(other.cookie, other.seeded.productId));
+  const response = await put(mine.cookie, other.seeded.productId, { ...form, name: "Robado" });
+  expect(response.status).toBe(404);
+  expect(productApiErrorSchema.parse(await response.json()).code).toBe("PRODUCT_NOT_FOUND");
+  expect((await detail(other.cookie, other.seeded.productId)).product.name).toBe("Polo");
+  expect((await put(mine.cookie, randomUUID(), form)).status).toBe(404);
+});
