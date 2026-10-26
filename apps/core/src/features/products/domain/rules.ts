@@ -1,12 +1,13 @@
 import type { Currency } from "@shared/money";
 import type { ValidationIssue } from "@core/src/features/products/domain/errors";
-import type { ImageId, Product, VariantId } from "@core/src/features/products/domain/product";
+import type { ImageId, OptionId, OptionValueId, Product, ProductOption, VariantId } from "@core/src/features/products/domain/product";
+import { parseProductStructure, type RawOption } from "@core/src/features/products/domain/product-structure";
 import { createProductSchema, toValidationIssues, updateProductSchema } from "@core/src/features/products/domain/validation";
 
-export type RawVariant = Readonly<{ attributes: Readonly<Record<string, string>>; sku?: string; salePrice: number; purchasePrice?: number; initialStock?: number }>;
-export type RawProduct = Readonly<{ name: string; description?: string; currency: Currency; variants: readonly RawVariant[] }>;
-export type ValidVariant = Readonly<{ attributes: Readonly<Record<string, string>>; sku?: string; salePrice: number; purchasePrice?: number; initialStock: number }>;
-export type ValidProduct = Readonly<{ name: string; description?: string; currency: Currency; variants: readonly [ValidVariant, ...ValidVariant[]] }>;
+export type RawVariant = Readonly<{ values: readonly string[]; sku?: string | null; salePrice: number; purchasePrice?: number | null; initialStock?: number }>;
+export type RawProduct = Readonly<{ name: string; description?: string | null; currency: Currency; options: readonly RawOption[]; variants: readonly RawVariant[] }>;
+export type ValidVariant = Readonly<{ combination: Readonly<Record<OptionId, OptionValueId>>; sku?: string; salePrice: number; purchasePrice?: number; initialStock: number }>;
+export type ValidProduct = Readonly<{ name: string; description?: string; currency: Currency; options: readonly ProductOption[]; variants: readonly [ValidVariant, ...ValidVariant[]] }>;
 export type RawUpdateVariant = Readonly<{ id: string; sku?: string | null; salePrice?: number; purchasePrice?: number | null }>;
 export type RawUpdate = Readonly<{ name?: string; description?: string | null; imageId?: string | null; variants?: readonly RawUpdateVariant[] }>;
 export type ValidUpdateVariant = Readonly<{ id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null }>;
@@ -17,30 +18,30 @@ export type UpdatePlan = Readonly<{ product: ProductChange; variants: readonly V
 
 const normalize = (value: string) => value.trim().toLowerCase();
 
-export function summarizeProduct(product: Product) {
-  const amounts = product.variants.map((variant) => variant.salePrice.amount);
-  const totalStock = product.variants.reduce((sum, variant) => sum + variant.stock.quantity, 0);
-  if (!Number.isSafeInteger(totalStock)) throw new Error("Stored total stock is outside the supported range");
-  return {
-    id: product.id, name: product.name, variantCount: product.variants.length,
-    ...(product.variants.length === 1 && product.variants[0].sku ? { sku: product.variants[0].sku } : {}),
-    minSalePrice: { amount: amounts.reduce((lowest, amount) => Math.min(lowest, amount)), currency: product.currency },
-    hasDifferentPrices: amounts.some((amount) => amount !== amounts[0]), totalStock,
-    ...(product.imageId === undefined ? {} : { imageId: product.imageId }),
-  };
-}
-
 export function validateCreate(input: RawProduct): { readonly value?: ValidProduct; readonly issues: readonly ValidationIssue[] } {
   const result = createProductSchema.safeParse(input);
-  if (!result.success) return { issues: toValidationIssues(result.error, { variantFallback: "attributes", missingVariantsReason: "REQUIRED" }) };
-  const variants = result.data.variants as [ValidVariant, ...ValidVariant[]];
-  return { issues: [], value: { name: result.data.name, ...(result.data.description === undefined ? {} : { description: result.data.description }), currency: result.data.currency, variants } };
+  const fields: ValidationIssue[] = result.success ? [] : [...toValidationIssues(result.error, { variantFallback: "values", missingVariantsReason: "REQUIRED", variantRef: (index) => ({ scope: "newVariant", index }) })];
+  const structure = parseProductStructure({
+    options: Array.isArray(input.options) ? input.options : [],
+    variants: Array.isArray(input.variants) ? input.variants.map((variant) => ({ values: Array.isArray(variant?.values) ? variant.values : [] })) : [],
+  });
+  const issues = [...fields, ...structure.issues];
+  if (issues.length || !result.success || !structure.value) return { issues };
+  const variants = result.data.variants.map((variant, index): ValidVariant => ({
+    combination: structure.value!.combinations[index], salePrice: variant.salePrice, initialStock: variant.initialStock,
+    ...(variant.sku === undefined ? {} : { sku: variant.sku }),
+    ...(variant.purchasePrice === undefined ? {} : { purchasePrice: variant.purchasePrice }),
+  })) as [ValidVariant, ...ValidVariant[]];
+  return { issues: [], value: {
+    name: result.data.name, currency: result.data.currency, options: structure.value.options, variants,
+    ...(result.data.description == null ? {} : { description: result.data.description }),
+  } };
 }
 
 export function validateUpdate(product: Product, input: RawUpdate): { readonly value?: ValidUpdate; readonly issues: readonly ValidationIssue[] } {
   const supplied = new Set(product.variants.map((variant) => variant.id as string));
   const result = updateProductSchema(supplied).safeParse(input);
-  if (!result.success) return { issues: toValidationIssues(result.error, { variantFallback: "id", missingVariantsReason: "INVALID_TYPE" }) };
+  if (!result.success) return { issues: toValidationIssues(result.error, { variantFallback: "id", missingVariantsReason: "INVALID_TYPE", variantRef: (index) => ({ scope: "variant", variantId: String(input.variants?.[index]?.id ?? "") }) }) };
   return { issues: [], value: result.data as ValidUpdate };
 }
 
