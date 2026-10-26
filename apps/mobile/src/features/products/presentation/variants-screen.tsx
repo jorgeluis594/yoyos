@@ -55,7 +55,7 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
   const selected = rows.filter((row) => selection.includes(row.ref));
   const uncreated = useMemo(() => draft.saved && missing > 0 ? uncreatedCombinations(draft, { limit: missing === 1 ? 1 : limit }) : { items: [], hasMore: false }, [draft, missing, limit]);
   const set = (next: EditorDraft) => editor.setDraft(next);
-  const detailOf = (row: EditorRow) => router.push({ pathname: productPath(productId, "draft-variant"), params: { ref: row.ref, ...(productId ? { productId } : {}) } } as never);
+  const detailOf = (row: EditorRow) => router.push({ pathname: productPath(productId, "draft-variant"), params: { ref: row.ref, ...(productId ? { productId } : {}) } });
 
   const removeSelected = () => {
     const next = selected.filter((row) => row.id === null).reduce((current, row) => { const result = removeRow(current, row.ref); return result.success ? result.data : current; }, draft);

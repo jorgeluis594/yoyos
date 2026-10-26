@@ -124,7 +124,7 @@ export default function ProductManagementScreen() {
   };
   const openEditor = (route: "options" | "variants") => {
     if (simple && route === "options") editor.setDraft(withFormVariant());
-    router.push({ pathname: productPath(product.id, route), params: { productId: product.id } } as never);
+    router.push({ pathname: productPath(product.id, route), params: { productId: product.id } });
   };
   const save = async () => {
     const invalid = validateProductForm(values, simple);
