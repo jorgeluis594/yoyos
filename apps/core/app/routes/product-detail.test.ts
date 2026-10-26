@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { action, loader } from "@core/app/routes/product-detail";
 import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
 
 const id = "00000000-0000-4000-8000-000000000099";
 const context = { get: () => ({ company: { id: "00000000-0000-4000-8000-000000000001", country: "PE" } }) } as unknown as ActionFunctionArgs["context"];
@@ -27,9 +28,9 @@ test("surfaces expected update failures on the form and reports technical failur
 });
 
 test("maps absence and technical failures while loading the edit form", async () => {
-  vi.spyOn(products, "get").mockResolvedValue({ success: true, data: null });
+  vi.spyOn(productEditing, "get").mockResolvedValue({ success: true, data: null });
   await expect(loader({ context, params: { productId: id }, request: new Request(`http://localhost/es-PE/products/${id}`) } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 404 });
-  vi.spyOn(products, "get").mockRejectedValue(new Error("secret storage detail"));
+  vi.spyOn(productEditing, "get").mockRejectedValue(new Error("secret storage detail"));
   vi.spyOn(log, "error").mockImplementation(() => {});
   await expect(loader({ context, params: { productId: id }, request: new Request(`http://localhost/es-PE/products/${id}`) } as unknown as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
 });

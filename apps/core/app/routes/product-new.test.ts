@@ -2,31 +2,34 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ActionFunctionArgs } from "react-router";
 import { action } from "@core/app/routes/product-new";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/composition/product-editing";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 const context = { get: () => ({ company: { id: "00000000-0000-4000-8000-000000000001", country: "PE" } }) } as unknown as ActionFunctionArgs["context"];
-const valid = { name: "Cuaderno", currency: "PEN", variants: [{ attributes: {}, salePrice: 12.5 }] };
+const valid = {
+  id: "00000000-0000-4000-8000-000000000001", name: "Cuaderno", description: null, imageId: null, currency: "PEN", options: [],
+  variants: [{ values: [], sku: null, salePrice: 12.5, purchasePrice: null, initialStock: 0 }],
+};
 
 afterEach(() => vi.restoreAllMocks());
 
 test("rejects client company identity before invoking creation", async () => {
-  const create = vi.spyOn(products, "create");
+  const create = vi.spyOn(productEditing, "create");
   const request = new Request("http://localhost/es-PE/products/new", { method: "POST", body: JSON.stringify({ ...valid, companyId: "forged" }) });
   expect(await action({ request, context } as ActionFunctionArgs)).toMatchObject({ errors: { form: "La solicitud contiene campos no permitidos." } });
   expect(create).not.toHaveBeenCalled();
 });
 
 test("reports technical save failures safely and preserves the form route", async () => {
-  vi.spyOn(products, "create").mockRejectedValue(new Error("secret database detail"));
+  vi.spyOn(productEditing, "create").mockRejectedValue(new Error("secret database detail"));
   vi.spyOn(log, "error").mockImplementation(() => {});
   const request = new Request("http://localhost/es-PE/products/new", { method: "POST", body: JSON.stringify(valid) });
   expect(await action({ request, context } as ActionFunctionArgs)).toEqual({ errors: { form: "No se pudo guardar el producto. Inténtalo de nuevo." } });
-  expect(products.create).toHaveBeenCalledOnce();
+  expect(productEditing.create).toHaveBeenCalledOnce();
 });
 
 test("keeps Portuguese in the product redirect", async () => {
-  vi.spyOn(products, "create").mockResolvedValue({ success: true, data: "00000000-0000-4000-8000-000000000002" as ProductId });
+  vi.spyOn(productEditing, "create").mockResolvedValue({ success: true, data: "00000000-0000-4000-8000-000000000002" as ProductId });
   const request = new Request("http://localhost/pt-BR/products/new", { method: "POST", body: JSON.stringify(valid) });
   const response = await action({ request, context } as ActionFunctionArgs);
   expect(response).toBeInstanceOf(Response);

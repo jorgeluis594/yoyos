@@ -2,13 +2,15 @@ import { useTranslation } from "react-i18next";
 import { companyPath, languageForLocale } from "@core/app/locale";
 import resources from "@core/app/locales";
 import { log } from "@core/src/shared/infrastructure/logger";
+import { useState } from "react";
 import { redirect, useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { countryCurrencies, type Country } from "@shared/country";
 import { PageContainer } from "@/components/ui/page-container";
 import { PageHeader } from "@/components/ui/page-header";
 import { privateUserContext } from "@/private-user-context";
-import { products } from "@core/src/features/products/composition";
-import { parseCreateJson } from "@core/src/features/products/presentation/input";
+import { createProductRequestSchema } from "@shared/contracts/products";
+import { productEditing } from "@core/src/composition/product-editing";
+import { parseRequestJson, toCreateInput } from "@core/src/features/products/presentation/request-input";
 import { createErrors, type FormErrors } from "@core/src/features/products/presentation/messages";
 import { ProductForm, type ProductFormValues, type ProductImageSelection } from "@core/src/features/products/presentation/product-form";
 
@@ -19,11 +21,11 @@ export function loader({ context, request }: LoaderFunctionArgs) {
 
 export async function action({ request, context }: ActionFunctionArgs): Promise<Response | { errors: FormErrors }> {
   const language = languageForLocale(new URL(request.url).pathname.split("/")[1]);
-  const parsed = parseCreateJson(await request.text());
+  const parsed = parseRequestJson(createProductRequestSchema, await request.text(), "Invalid product input");
   if (!parsed.success) return { errors: createErrors(parsed.error, language) };
   const company = context.get(privateUserContext).company;
   try {
-    const result = await products.create(parsed.data);
+    const result = await productEditing.create(toCreateInput(parsed.data));
     if (!result.success) return { errors: createErrors(result.error, language) };
     return redirect(companyPath(new URL(request.url).pathname, company.country, `/products/${result.data}`));
   } catch (cause) {
@@ -40,16 +42,20 @@ export default function ProductNew() {
   const navigation = useNavigation();
   const errors = actionData && "errors" in actionData ? actionData.errors : {};
   const pending = navigation.state === "submitting";
+  // One id per opened form, so a retry after an uncertain result is answered with a conflict instead of a second product.
+  const [productId] = useState(() => crypto.randomUUID());
 
   function save(values: ProductFormValues, image: ProductImageSelection) {
     submit({
+      id: productId,
       name: values.name,
-      ...(values.description === "" ? {} : { description: values.description }),
-      ...(image.kind === "set" ? { imageId: image.id } : {}),
+      description: values.description === "" ? null : values.description,
+      imageId: image.kind === "set" ? image.id : null,
       currency,
-      variants: [{ attributes: {}, ...(values.sku === "" ? {} : { sku: values.sku }), salePrice: Number(values.salePrice),
-        ...(values.purchasePrice === "" ? {} : { purchasePrice: Number(values.purchasePrice) }),
-        ...(values.initialStock === "" ? {} : { initialStock: Number(values.initialStock) }) }],
+      options: [],
+      variants: [{ values: [], sku: values.sku === "" ? null : values.sku, salePrice: Number(values.salePrice),
+        purchasePrice: values.purchasePrice === "" ? null : Number(values.purchasePrice),
+        initialStock: values.initialStock === "" ? 0 : Number(values.initialStock) }],
     }, { method: "post", encType: "application/json" });
   }
 
