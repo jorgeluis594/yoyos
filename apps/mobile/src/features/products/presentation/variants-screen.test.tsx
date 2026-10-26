@@ -2,9 +2,10 @@ import { useEffect, useState, type ReactNode } from "react";
 import { Alert } from "react-native";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
-import { addOption, createDraft, draftFromProduct, removeRow, setRow, type EditorDraft } from "@shared/product-variants";
+import { addOption, applyBulk, createDraft, draftFromProduct, removeRow, removeValue, setRow, type EditorDraft } from "@shared/product-variants";
 import CreateProductScreen from "@mobile/features/products/presentation/create-product-screen";
 import ProductManagementScreen from "@mobile/features/products/presentation/product-management-screen";
+import OptionsScreen from "@mobile/features/products/presentation/options-screen";
 import VariantsScreen from "@mobile/features/products/presentation/variants-screen";
 import { ProductEditorProvider, useProductEditor } from "@mobile/features/products/presentation/product-editor-state";
 
@@ -155,4 +156,48 @@ test("a deactivated variant is shown as such and is never selected by a chip", (
   fireEvent.press(screen.getByRole("button", { name: "Todas" }));
   expect([checked("S"), checked("M")]).toEqual([true, false]);
   expect(screen.getByRole("checkbox", { name: "Seleccionar M" }).props.accessibilityState.disabled).toBe(true);
+});
+
+function Capture({ onEditor }: { onEditor: (editor: ReturnType<typeof useProductEditor>) => void }) {
+  onEditor(useProductEditor());
+  return null;
+}
+
+test("a bulk price edit on the variant of a product that had no options survives the save", async () => {
+  const simple = { id: productId, name: "Camisa", currency: "PEN", structureVersion: 1, options: [],
+    variants: [{ id: id(40), qrCode: id(50), combination: [], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }] };
+  mockLoad.mockResolvedValue(ok(simple));
+  mockSave.mockResolvedValue(ok(simple));
+  let editor!: ReturnType<typeof useProductEditor>;
+  render(<ProductEditorProvider><ProductManagementScreen /><Capture onEditor={(value) => { editor = value; }} /></ProductEditorProvider>);
+  await screen.findByLabelText("Nombre *");
+  const withTalla = must(addOption(editor.draft!, { id: id(1), name: "Talla", values: named(10, ["S", "M"]), valueForExistingVariants: id(10) }));
+  const edited = applyBulk(withTalla, [withTalla.rows[0].ref], { salePrice: 50 }).draft;
+  act(() => editor.setDraft(edited));
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Guardar" })));
+  expect(mockSave.mock.calls[0][0].draft.rows.find((row: { id: string | null }) => row.id === id(40)).salePrice).toBe(50);
+});
+
+test("a save rejected because a marked value now has orders shows the reason on the value in Opciones", async () => {
+  const colorId = id(20);
+  const saved = { id: productId, name: "Camisa", currency: "PEN", structureVersion: 1, options: [{ id: colorId, name: "Color", values: [{ id: id(30), name: "Negro" }, { id: id(31), name: "Azul" }] }],
+    variants: [30, 31].map((value, index) => ({ id: id(40 + index), qrCode: id(50 + index), combination: [{ optionId: colorId, valueId: id(value) }], salePrice: { amount: 20, currency: "PEN" }, stock: 0, status: "active", hasOrders: false })) };
+  mockLoad.mockResolvedValue(ok(saved));
+  mockSave.mockResolvedValue(err({ code: "VALIDATION_ERROR", message: "x", issues: [{ scope: "variant", variantId: id(41), field: "id", reason: "VARIANT_HAS_ORDERS" }] }));
+  let editor!: ReturnType<typeof useProductEditor>;
+  let showOptions: (show: boolean) => void = () => {};
+  function Gate() { const [show, setShow] = useState(false); useEffect(() => { showOptions = setShow; }, []); return show ? <OptionsScreen /> : null; }
+  render(<ProductEditorProvider><ProductManagementScreen /><Capture onEditor={(value) => { editor = value; }} /><Gate /></ProductEditorProvider>);
+  await screen.findByLabelText("Nombre *");
+  const marked = removeValue(editor.draft!, id(31));
+  if (!marked.success) throw new Error("mark");
+  act(() => editor.setDraft(marked.data));
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Guardar" })));
+  expect(await screen.findByText("Revisa las opciones y valores marcados.")).toBeTruthy();
+  expect(screen.queryByText("Revisa esta variante.")).toBeNull();
+  act(() => showOptions(true));
+  fireEvent.press(screen.getByRole("button", { name: "Editar Color" }));
+  expect(screen.getByText("No se puede eliminar «Azul»: ahora tiene pedidos o stock.")).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Deshacer" }));
+  expect(screen.queryByText("No se puede eliminar «Azul»: ahora tiene pedidos o stock.")).toBeNull();
 });

@@ -17,6 +17,7 @@ import { Input } from "@mobile/components/ui/input";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { useTheme } from "@mobile/hooks/use-theme";
+import { editorSummary } from "./product-editor-summary";
 import { formEdges } from "./form-edges";
 import { ProductTopBar } from "./product-top-bar";
 import { useProductEditor } from "./product-editor-state";
@@ -120,6 +121,7 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
   </View>;
 
   const footer = <View style={styles.footer}>
+    <View style={styles.total}><ThemedText type="smallBold">{t("stockTotal")}</ThemedText><ThemedText type="smallBold">{editorSummary(draft).stock}</ThemedText></View>
     {draft.saved && missing > 0 ? <View style={[styles.notice, { backgroundColor: theme.secondary }]}>
       {missing === 1 && uncreated.items[0] ? <>
         <ThemedText type="small">{t("uncreatedOne", { label: uncreated.items[0].label })}</ThemedText>
@@ -145,6 +147,7 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
     {selection.length > 0 ? <View style={[styles.bar, { backgroundColor: theme.backgroundElement, borderTopColor: theme.border }]}>
       <View style={styles.barTitle}>
         <ThemedText type="smallBold">{t("selectedCount", { count: selection.length })}</ThemedText>
+        {selected.some((row) => row.id === null) ? <Button variant="ghost" onPress={removeSelected}>{t("removeSelected")}</Button> : null}
         <Button variant="ghost" onPress={() => editor.setSelection([])}>{t("clearSelection")}</Button>
       </View>
       <View style={styles.actions}>
@@ -152,7 +155,6 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
         <View style={styles.grow}><Button variant="secondary" onPress={() => setBulk("stock")}>{t("editStock")}</Button></View>
         <ActionMenu actions={[
           { id: "purchase", label: t("editPurchasePrice"), onSelect: () => setBulk("purchasePrice") },
-          ...(selected.some((row) => row.id === null) ? [{ id: "remove", label: t("removeSelected"), destructive: true, onSelect: removeSelected }] : []),
         ]} />
       </View>
     </View> : null}
@@ -223,6 +225,7 @@ const styles = StyleSheet.create({
   rowText: { flex: 1, minWidth: 0 },
   struck: { textDecorationLine: "line-through" },
   footer: { gap: tokens.spacing["2"], paddingTop: tokens.spacing["2"] },
+  total: { flexDirection: "row", justifyContent: "space-between", paddingHorizontal: tokens.spacing["3"] },
   uncreated: { flexDirection: "row", alignItems: "center", gap: tokens.spacing["2"] },
   bar: { borderTopWidth: tokens.sizing.borderWidth, padding: tokens.spacing["3"], gap: tokens.spacing["2"] },
   barTitle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between" },

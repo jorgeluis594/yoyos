@@ -90,7 +90,15 @@ export function editorErrorsOf(error: Rejection, draft: EditorDraft): EditorErro
   for (const issue of error.issues ?? []) {
     if (issue.scope === "variant" || issue.scope === "newVariant") {
       const row = rowFor(issue.scope === "variant" ? issue.variantId : undefined, issue.scope === "newVariant" ? issue.index : undefined);
-      if (row) rows[row.ref] ??= rowMessage(issue);
+      if (!row) continue;
+      const removal = removalOf(draft, row);
+      const blocked = ["VARIANT_HAS_ORDERS", "VARIANT_HAS_STOCK", "VALUE_IN_USE"].includes(issue.reason);
+      // A refused deletion belongs to the value or option the seller marked, where Deshacer is.
+      const marked = blocked && removal === "value" ? draft.options.flatMap((option) => option.values).find((value) => value.marked && Object.values(row.combination).includes(value.id)) : undefined;
+      const markedOption = blocked && removal === "option" ? draft.options.find((option) => option.marked) : undefined;
+      if (marked) values[marked.id] ??= i18n.t("cannotDeleteValueNow", { name: marked.name });
+      else if (markedOption) optionErrors[markedOption.id] ??= i18n.t("cannotDeleteValueNow", { name: markedOption.name });
+      else rows[row.ref] ??= rowMessage(issue);
     } else if (issue.scope === "value") {
       const option = options[issue.optionIndex ?? -1];
       const value = option?.values.find((candidate) => candidate.id === issue.valueId) ?? option?.values[issue.valueIndex ?? -1];
@@ -104,3 +112,10 @@ export function editorErrorsOf(error: Rejection, draft: EditorDraft): EditorErro
 }
 
 export const rowErrorCount = (errors: EditorErrors) => Object.keys(errors.rows).length;
+
+/** The line above the form after a rejected save: rows first, then the options and values that carry the reason. */
+export function errorSummary(errors: EditorErrors): string | null {
+  const rows = rowErrorCount(errors);
+  if (rows > 0) return i18n.t("reviewMarkedVariants", { count: rows });
+  return Object.keys(errors.options).length + Object.keys(errors.values).length > 0 ? i18n.t("reviewOptionsAndValues") : null;
+}

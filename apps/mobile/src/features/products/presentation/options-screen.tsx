@@ -10,7 +10,7 @@ import * as Crypto from "expo-crypto";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { productOptionLimits } from "@shared/contracts/products";
 import {
-  addOption, addValue, clearOptions, moveOption, moveValue, removeOption, removeValue, renameOption, renameValue, setValueForExistingVariants,
+  addOption, addValue, clearOptions, moveOption, moveValue, orderedRows, removalOf, removeOption, removeValue, renameOption, renameValue, setValueForExistingVariants,
   undoRemoveOption, undoRemoveValue, type EditorDraft, type EditorOption,
 } from "@shared/product-variants";
 import { Button } from "@mobile/components/ui/button";
@@ -58,6 +58,12 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
   const [aliases, setAliases] = useState<Readonly<Record<string, string>>>({});
   const leaving = useRef(false);
   const changed = working !== initial;
+  /** A rejection of the last save goes away once the seller touches or undoes what it points at. */
+  const clearRejection = (kind: "options" | "values", key: string) => {
+    if (!editor.errors[kind][key]) return;
+    const { [key]: _gone, ...rest } = editor.errors[kind];
+    editor.setErrors({ ...editor.errors, [kind]: rest });
+  };
   const note = (key: string, text: string | null) => setNotes((current) => ({ ...current, [key]: text ?? "" }));
   const trailingKey = (optionId: string) => `${optionId}:add:${serial[optionId] ?? 0}`;
 
@@ -118,11 +124,13 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
     if (edit((draft) => removeOption(draft, option.id), option.id, option.name)) setEditing(null);
   };
 
-  const summary = editorSummary(working);
-  const created = working.rows.filter((row) => row.id === null).length;
+  // While the first option is being typed, the footer counts what Listo would create.
+  const shown = cardPreview?.success ? cardPreview.data : working;
+  const summary = editorSummary(shown);
+  const created = orderedRows(shown).filter((row) => row.id === null && removalOf(shown, row) === null).length;
   const optionCount = working.options.length;
   const atMaximum = optionCount >= productOptionLimits.options;
-  const original = (id: string) => initial.options.flatMap((option) => option.values).find((value) => value.id === id)?.name;
+  const original = (id: string) => (editor.baseline ?? initial).options.flatMap((option) => option.values).find((value) => value.id === id)?.name;
 
   return <ThemedView style={styles.page}><SafeAreaView edges={formEdges} style={styles.safe}>
     <ProductTopBar title={t("options")} onClose={close}>
@@ -135,7 +143,8 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
           <ThemedText type="small" themeColor="textSecondary">
             {option.saved ? t("optionWillBeDeleted", { name: option.name, kept: option.values[0]?.name ?? "" }) : t("optionWillBeRemoved", { name: option.name, kept: (option.valueForExistingVariants ? option.values.find((value) => value.id === option.valueForExistingVariants) : option.values.find((value) => !value.marked))?.name ?? "" })}
           </ThemedText>
-          <Button variant="ghost" onPress={() => setWorking(undoRemoveOption(working, option.id))}>{t("undo")}</Button>
+          {editor.errors.options[option.id] ? <FieldError>{editor.errors.options[option.id]}</FieldError> : null}
+          <Button variant="ghost" onPress={() => { clearRejection("options", option.id); setWorking(undoRemoveOption(working, option.id)); }}>{t("undo")}</Button>
         </View>;
         if (editing !== option.id) return <View key={option.id} style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
           <View style={styles.row}>
@@ -151,8 +160,8 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
         return <View key={option.id} style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
           <Field invalid={!!issues.name}>
             <FieldLabel>{t("optionName")}</FieldLabel>
-            <Input value={option.name} onChangeText={(text) => setWorking(renameOption(working, option.id, text))} accessibilityLabel={t("optionName")} />
-            {issues.name ? <FieldError>{issues.name}</FieldError> : null}
+            <Input value={option.name} onChangeText={(text) => { clearRejection("options", option.id); setWorking(renameOption(working, option.id, text)); }} accessibilityLabel={t("optionName")} />
+            {issues.name ? <FieldError>{issues.name}</FieldError> : editor.errors.options[option.id] ? <FieldError>{editor.errors.options[option.id]}</FieldError> : null}
           </Field>
           <ThemedText type="small" style={styles.heading}>{t("optionValues")}</ThemedText>
           {option.values.map((value, position) => value.marked
@@ -163,12 +172,13 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
                   ? t("valueWillBeDeleted", { name: value.name, count: working.rows.filter((row) => row.id !== null && row.combination[option.id] === value.id).length })
                   : t("valueWillBeRemoved", { name: value.name })}
               </ThemedText>
-              <Button variant="ghost" onPress={() => setWorking(undoRemoveValue(working, value.id))}>{t("undo")}</Button>
+              {editor.errors.values[value.id] ? <FieldError>{editor.errors.values[value.id]}</FieldError> : null}
+              <Button variant="ghost" onPress={() => { clearRejection("values", value.id); setWorking(undoRemoveValue(working, value.id)); }}>{t("undo")}</Button>
             </View>
             : <ValueRow key={aliases[value.id] ?? value.id} name={value.name} position={position + 1} total={option.values.length}
-              error={issues.values[value.id] ?? (notes[value.id] || undefined)}
+              error={issues.values[value.id] ?? (notes[value.id] || editor.errors.values[value.id] || undefined)}
               before={value.saved && original(value.id) !== undefined && original(value.id) !== value.name ? t("valueRenamedFrom", { name: original(value.id) }) : undefined}
-              onChange={(text) => setWorking(renameValue(working, value.id, text))}
+              onChange={(text) => { clearRejection("values", value.id); setWorking(renameValue(working, value.id, text)); }}
               onMove={(to) => setWorking(moveValue(working, option.id, value.id, to))}
               onRemove={() => edit((draft) => removeValue(draft, value.id), value.id, value.name)} />)}
           <ValueRow key={trailingKey(option.id)} name={trailing[option.id] ?? ""} position={0} total={0} placeholder={t("addAnotherValue")}
@@ -213,9 +223,9 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
           onRemove={() => setCard({ ...card, slots: card.slots.filter((candidate) => candidate.id !== slot.id) })} />)}
         {card.name && cardIssues.general ? <FieldError>{cardIssues.general}</FieldError> : null}
         {cardLimit ? <FieldError>{cardLimit}</FieldError> : null}
-        {working.saved && working.rows.length > 0 && filled(card.slots).length > 0 ? <ExistingValue
+        {working.saved && working.rows.some((row) => row.id !== null) && filled(card.slots).length > 0 ? <ExistingValue
           option={{ id: card.id, name: card.name.trim(), saved: false, marked: false, valueForExistingVariants: card.existing ?? filled(card.slots)[0].id, values: filled(card.slots).map((slot) => ({ id: slot.id, name: slot.text.trim(), saved: false, marked: false })) }}
-          count={working.rows.length} onChange={(valueId) => setCard({ ...card, existing: valueId })} /> : null}
+          count={working.rows.filter((row) => row.id !== null).length} onChange={(valueId) => setCard({ ...card, existing: valueId })} /> : null}
         <View style={styles.actions}>
           <Button variant="ghost" onPress={() => { setEditing(null); setCard(blankOption()); }}>{t("deleteOption")}</Button>
           <Button onPress={() => { commitCard(); }} disabled={hasIssues(cardIssues) || !!cardLimit}>{t("done")}</Button>

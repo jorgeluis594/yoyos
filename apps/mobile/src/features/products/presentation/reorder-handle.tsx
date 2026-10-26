@@ -33,7 +33,10 @@ export function ReorderHandle({ name, position, total, onMove, disabled = false 
   return <Pressable
     accessibilityRole="button" accessibilityLabel={t("moveHandle", { name, position, total })} accessibilityState={{ disabled: disabled || total < 2 }}
     accessibilityActions={moves.map(({ name: action, label }) => ({ name: action, label }))}
-    onAccessibilityAction={({ nativeEvent }) => moves.find((move) => move.name === nativeEvent.actionName) && onMove(moves.find((move) => move.name === nativeEvent.actionName)!.to)}
+    onAccessibilityAction={({ nativeEvent }) => {
+      const move = moves.find((candidate) => candidate.name === nativeEvent.actionName);
+      if (move) onMove(move.to);
+    }}
     disabled={disabled || total < 2} onPress={open}
     style={({ pressed }) => [styles.handle, { backgroundColor: pressed ? theme.accent : "transparent", opacity: disabled || total < 2 ? 0.4 : 1 }]}>
     <SymbolView name={{ ios: "line.3.horizontal", android: "drag_indicator" }} size={tokens.sizing.iconAction} tintColor={theme.textSecondary} />

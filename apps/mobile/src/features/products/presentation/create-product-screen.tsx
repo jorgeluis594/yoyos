@@ -13,7 +13,7 @@ import type { ProductId, PhotoSelection } from "../domain/product";
 import { formEdges, ProductForm } from "./product-form";
 import type { ProductFormField, ProductFormValues } from "./product-form";
 import { baseOf, emptyProductForm, productErrors, rowErrors, validateProductForm } from "./product-form-state";
-import { editorErrorsOf, rowErrorCount } from "./product-editor-messages";
+import { editorErrorsOf, errorSummary, rowErrorCount } from "./product-editor-messages";
 import { editorSummary } from "./product-editor-summary";
 import { noEditorErrors, useProductEditor } from "./product-editor-state";
 import { productPath } from "./product-routes";
@@ -101,8 +101,8 @@ export default function CreateProductScreen() {
     if (!result.success) {
       const mapped = editorErrorsOf(result.error, next);
       editor.setErrors(mapped);
-      const marked = rowErrorCount(mapped);
-      setErrors(marked > 0 ? { form: t('reviewMarkedVariants', { count: marked }) } : productErrors(result.error));
+      const summary = errorSummary(mapped);
+      setErrors(summary ? { form: summary } : productErrors(result.error, hasOptions));
       setConflict(result.error.code === "PRODUCT_ID_CONFLICT");
       return;
     }

@@ -36,8 +36,9 @@ export function validateProductForm(values: ProductFormValues, hasVariant = true
   return errors;
 }
 
-export function productErrors(error: { code?: string; issues?: readonly { field: string; reason: string; maxLength?: number; scope?: string; index?: number }[] }): Partial<Record<ProductFormField, string>> {
-  if (error.code === "DUPLICATE_SKU") return { sku: i18n.t('duplicateSku') };
+export function productErrors(error: { code?: string; issues?: readonly { field: string; reason: string; maxLength?: number; scope?: string; index?: number }[] }, hasOptions = false): Partial<Record<ProductFormField, string>> {
+  // With options the SKU field is not on the form, so the conflict is reported above it.
+  if (error.code === "DUPLICATE_SKU") return hasOptions ? { form: i18n.t('duplicateSku') } : { sku: i18n.t('duplicateSku') };
   if (error.code === "PRODUCT_ID_CONFLICT") return { form: i18n.t('productCreationUncertain') };
   if (error.code === "PRODUCT_CHANGED") return { form: i18n.t('productChanged') };
   if (error.code === "DUPLICATE_COMBINATION" || error.code === "ID_CONFLICT" || error.code === "VARIANT_HAS_ORDERS") return { form: i18n.t('reviewProductData') };

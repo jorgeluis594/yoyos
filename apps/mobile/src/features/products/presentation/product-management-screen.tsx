@@ -21,7 +21,7 @@ import { ProductPrintSheet } from "@mobile/features/products/presentation/produc
 import type { CopyCount } from "@mobile/features/printing/composition";
 import type { ProductFormField, ProductFormValues } from "./product-form";
 import { baseOf, productErrors, rowErrors, validateProductForm, valuesForProduct } from "./product-form-state";
-import { editorErrorsOf, rowErrorCount } from "./product-editor-messages";
+import { editorErrorsOf, errorSummary, rowErrorCount } from "./product-editor-messages";
 import { noEditorErrors, useProductEditor } from "./product-editor-state";
 import { productPath } from "./product-routes";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
@@ -116,7 +116,8 @@ export default function ProductManagementScreen() {
   const lone = () => orderedRows(draft).find((row) => removalOf(draft, row) === null);
   /** A product without options edits its one variant in the form: the draft takes those values before options or a save use it. */
   const withFormVariant = () => {
-    const row = simple ? draft.rows[0] : undefined;
+    // Once options exist the form's SKU and prices are hidden, so they must not overwrite what was edited on the variants.
+    const row = simple && draft.options.length === 0 ? draft.rows[0] : undefined;
     if (!row) return draft;
     return setRow(draft, row.ref, {
       sku: values.sku.trim() || null, salePrice: baseOf(values).salePrice, purchasePrice: baseOf(values).purchasePrice,
@@ -145,9 +146,9 @@ export default function ProductManagementScreen() {
       if (result.error.code === "PRODUCT_NOT_FOUND") { setProduct(null); setValues(null); setLoadError(t('productNotFound')); return; }
       const mapped = editorErrorsOf(result.error, next);
       editor.setErrors(mapped);
-      const marked = rowErrorCount(mapped);
+      const summary = errorSummary(mapped);
       const isUncertain = uncertainCodes.includes(result.error.code);
-      setErrors(marked > 0 ? { form: t('reviewMarkedVariants', { count: marked }) } : isUncertain ? { form: t('saveUncertain') } : productErrors(result.error));
+      setErrors(summary ? { form: summary } : isUncertain ? { form: t('saveUncertain') } : productErrors(result.error, draft.options.length > 0));
       setUncertain(isUncertain);
       setChanged(result.error.code === "PRODUCT_CHANGED");
       return;
