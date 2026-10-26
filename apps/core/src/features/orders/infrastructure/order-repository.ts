@@ -162,12 +162,24 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
   return order;
 }
 
-type PendingOrderFailure = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "ORDER_ALREADY_EXISTS"; message: string }>;
+type PendingOrderFailure = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "ORDER_ALREADY_EXISTS"; message: string }>
+  | Readonly<{ code: "VARIANT_NOT_FOUND"; message: string; variantId: string }>;
 type SellerUnavailable = Readonly<{ code: "SELLER_UNAVAILABLE"; message: string }>;
+type VariantNotFound = Readonly<{ code: "VARIANT_NOT_FOUND"; message: string; variantId: string }>;
+
+/** A variant deleted between the sellable read and the item insert breaks the item's foreign key; the violation names the variant. */
+function missingVariant(cause: unknown, variantIds: readonly string[]): VariantNotFound | null {
+  if (!(cause instanceof Prisma.PrismaClientKnownRequestError) || cause.code !== "P2003") return null;
+  const evidence = JSON.stringify(cause.meta ?? {}) + cause.message;
+  if (!evidence.includes("OrderItem_companyId_variantId_fkey")) return null;
+  const variantId = variantIds.find((id) => evidence.includes(id));
+  return variantId ? { code: "VARIANT_NOT_FOUND", message: "Variant is not available", variantId } : null;
+}
 
 export function savePendingOrder(order: OrderAggregate): Promise<Result<null, PendingOrderFailure>>;
 export function savePendingOrder(order: OrderAggregate, source: OrderChatSource): Promise<Result<null, Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }> | SellerUnavailable>>;
 export async function savePendingOrder(order: OrderAggregate, source?: OrderChatSource): Promise<Result<null, PendingOrderFailure | SellerUnavailable>> {
+  const items = [...order.items].sort((a, b) => a.variantId.localeCompare(b.variantId));
   try {
     await prisma.order.create({ data: { number: BigInt(order.number), id: order.id, companyId: order.companyId, sellerId: order.sellerId, fromCatalog: order.fromCatalog,
       ...(source ? { chatId: source.chatId, customerId: source.customerId } : {}),
@@ -180,13 +192,17 @@ export async function savePendingOrder(order: OrderAggregate, source?: OrderChat
       delivery: Prisma.JsonNull,
       deliveryStatus: order.deliveryStatus, stockDeducted: order.stockDeducted, cancelled: order.cancelled,
       createdAt: order.createdAt, scheduledDispatchDate: order.scheduledDispatchDate && new Date(order.scheduledDispatchDate), shippedAt: order.shippedAt, deliveredAt: order.deliveredAt, completedAt: order.completedAt,
-      items: { create: order.items.map((item) => ({ id: item.id, variantId: item.variantId, productName: item.productName,
-        variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
-        unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()) })) },
     } });
+    // Sorted by variant: a rekeying product save locks variant rows in the same order, so the two never wait on each other in a cycle.
+    await prisma.orderItem.createMany({ data: items.map((item) => ({ id: item.id, orderId: order.id, companyId: order.companyId, variantId: item.variantId, productName: item.productName,
+      variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
+      unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()) })) });
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
+    const missing = missingVariant(cause, items.map((item) => item.variantId));
+    // A message-to-order scan that raced a deletion is retried like any transient failure: the next scan no longer finds the variant.
+    if (missing) return source ? err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: missing.message }) : err(missing);
     if (source && cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2003" && JSON.stringify(cause.meta ?? {}).includes("Order_companyId_sellerId_fkey"))
       return err({ code: "SELLER_UNAVAILABLE" as const, message: "Seller is not available" });
     if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2002") {
@@ -574,6 +590,8 @@ export async function saveAddedItems(order: OrderAggregate, previous: OrderAggre
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
+    if (missingVariant(cause, order.items.map((item) => item.variantId)))
+      return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Variant is not available" });
     log.error({ event: "unable_to_save_added_items", orderId: order.id, err: cause }, "unable_to_save_added_items");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save added items" });
   }
