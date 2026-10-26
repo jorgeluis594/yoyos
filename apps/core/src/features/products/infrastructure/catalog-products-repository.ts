@@ -3,7 +3,8 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import { currencies } from "@shared/money";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { getCompanyId, prisma } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, prisma, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
+import { loadAttributesOfProducts, type VariantAttributes } from "@core/src/features/products/infrastructure/variant-combinations";
 import type { CatalogProductRepository } from "@core/src/features/products/application/catalog-products";
 import type { StoredCatalogProduct } from "@core/src/features/products/domain/catalog-product";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -20,8 +21,8 @@ const sellable = { status: "active", variants: { some: { status: "active" } } } 
 const include = { variants: { where: { status: "active" }, include: { stock: true }, orderBy: { id: "asc" } } } as const;
 type Row = Prisma.ProductGetPayload<{ include: typeof include }>;
 
-function parseRow(row: Row): StoredCatalogProduct | null {
-  const parsed = storedSchema.safeParse({ ...row, variants: row.variants.map((variant) => ({ id: variant.id, attributes: variant.attributes,
+function parseRow(row: Row, attributes: VariantAttributes): StoredCatalogProduct | null {
+  const parsed = storedSchema.safeParse({ ...row, variants: row.variants.map((variant) => ({ id: variant.id, attributes: attributes.get(variant.id) ?? {},
     salePrice: variant.salePrice.toNumber(), stock: variant.stock && variant.stock.quantity <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(variant.stock.quantity) : null })) });
   return parsed.success ? parsed.data : null;
 }
@@ -55,19 +56,23 @@ export const catalogProductRepository: CatalogProductRepository = {
     } catch (cause) {
       return unavailable("list_catalog_products", cause);
     }
-    const parsed = rows.map(parseRow).filter((row) => row !== null);
+    const parsed = rows.map((row) => parseRow(row, new Map())).filter((row) => row !== null);
     if (parsed.length !== rows.length) return invalid("list_catalog_products");
     return ok({ rows: parsed, hasMore });
   },
   async find(id, currency) {
     let row: Row | null;
+    let attributes: VariantAttributes;
     try {
-      row = await prisma.product.findFirst({ where: { id, currency, ...sellable }, include });
+      ({ row, attributes } = await withinReadSnapshot(async () => {
+        const row = await prisma.product.findFirst({ where: { id, currency, ...sellable }, include });
+        return { row, attributes: row ? await loadAttributesOfProducts([row.id], true) : new Map<string, Record<string, string>>() };
+      }));
     } catch (cause) {
       return unavailable("find_catalog_product", cause);
     }
     if (!row) return ok(null);
-    const parsed = parseRow(row);
+    const parsed = parseRow(row, attributes);
     return parsed ? ok(parsed) : invalid("find_catalog_product");
   },
 };

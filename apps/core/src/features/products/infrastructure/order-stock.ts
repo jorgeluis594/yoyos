@@ -2,7 +2,8 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
-import { prisma } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, prisma, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
+import { loadAttributesOfProducts, loadAttributesOfVariants, type VariantAttributes } from "@core/src/features/products/infrastructure/variant-combinations";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
 type StockError = Readonly<{ code: "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE"; message: string; variantId?: string }>;
@@ -13,23 +14,32 @@ function knownFailure(cause: unknown) {
 
 type SellableRow = Prisma.ProductVariantGetPayload<{ include: { product: true } }>;
 
-function toCatalogItem(row: SellableRow): CatalogItem | null {
-  const attributes = row.attributes;
-  if (!isCurrency(row.product.currency) || !attributes || typeof attributes !== "object" || Array.isArray(attributes) || Object.values(attributes).some((value) => typeof value !== "string")) return null;
-  return { variantId: row.id as VariantId, productName: row.product.name, variantAttributes: { ...attributes } as Record<string, string>, sku: row.sku,
+function toCatalogItem(row: SellableRow, attributes: VariantAttributes): CatalogItem | null {
+  if (!isCurrency(row.product.currency)) return null;
+  return { variantId: row.id as VariantId, productName: row.product.name, variantAttributes: { ...attributes.get(row.id) }, sku: row.sku,
     unitPrice: { amount: row.salePrice.toNumber(), currency: row.product.currency } };
 }
 
+type JoinedRow = Readonly<{ id: string; sku: string | null; salePrice: Prisma.Decimal; productName: string; currency: string; pairs: readonly (readonly [string, string])[] }>;
+
+/** One join: the variant, its product and its combination in saved option order. */
 export async function findSellableVariant(id: string) {
   try {
-    const row = await prisma.productVariant.findFirst({ where: { id, status: "active", product: { status: "active" } }, include: { product: true } });
+    const [row] = await prisma.$queryRaw<JoinedRow[]>(Prisma.sql`SELECT v.id, v.sku, v."salePrice", p.name AS "productName", p.currency,
+      COALESCE((SELECT json_agg(json_build_array(o.name, ov.name) ORDER BY o.position)
+        FROM "ProductVariantOptionValue" l
+        JOIN "ProductOption" o ON o."companyId" = l."companyId" AND o."productId" = l."productId" AND o.id = l."optionId"
+        JOIN "ProductOptionValue" ov ON ov."companyId" = l."companyId" AND ov."optionId" = l."optionId" AND ov.id = l."valueId"
+        WHERE l."companyId" = v."companyId" AND l."variantId" = v.id), '[]'::json) AS pairs
+      FROM "ProductVariant" v JOIN "Product" p ON p."companyId" = v."companyId" AND p.id = v."productId"
+      WHERE v."companyId" = ${getCompanyId()}::uuid AND v.id = ${id}::uuid AND v.status = 'active' AND p.status = 'active'`);
     if (!row) return ok<CatalogItem | null>(null);
-    const item = toCatalogItem(row);
-    if (!item) {
+    if (!isCurrency(row.currency)) {
       log.error({ event: "invalid_stored_sale_variant" }, "invalid_stored_sale_variant");
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
     }
-    return ok<CatalogItem | null>(item);
+    return ok<CatalogItem | null>({ variantId: row.id as VariantId, productName: row.productName, variantAttributes: Object.fromEntries(row.pairs), sku: row.sku,
+      unitPrice: { amount: new Prisma.Decimal(row.salePrice).toNumber(), currency: row.currency } });
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_read_sale_variant", err: cause }, "unable_to_read_sale_variant");
@@ -42,10 +52,13 @@ type SellableVariant = CatalogItem & Readonly<{ productId: string; imageId: stri
 /** Active variants of active products with their current stock, read without lock: nothing is reserved. */
 export async function findSellableVariants(ids: readonly string[]) {
   try {
-    const rows = await prisma.productVariant.findMany({ where: { id: { in: [...ids] }, status: "active", product: { status: "active" } }, include: { product: true, stock: true } });
+    const { rows, attributes } = await withinReadSnapshot(async () => {
+      const rows = await prisma.productVariant.findMany({ where: { id: { in: [...ids] }, status: "active", product: { status: "active" } }, include: { product: true, stock: true } });
+      return { rows, attributes: await loadAttributesOfVariants(rows.map((row) => row.id)) };
+    });
     const items: SellableVariant[] = [];
     for (const row of rows) {
-      const item = toCatalogItem(row);
+      const item = toCatalogItem(row, attributes);
       const stock = row.stock?.quantity ?? 0n;
       if (!item) {
         log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant");
@@ -63,10 +76,13 @@ export async function findSellableVariants(ids: readonly string[]) {
 
 export async function findSellableVariantsByQrCodes(codes: readonly string[]) {
   try {
-    const rows = await prisma.productVariant.findMany({ where: { qrCode: { in: [...codes] }, status: "active", product: { status: "active" } }, include: { product: true } });
+    const { rows, attributes } = await withinReadSnapshot(async () => {
+      const rows = await prisma.productVariant.findMany({ where: { qrCode: { in: [...codes] }, status: "active", product: { status: "active" } }, include: { product: true } });
+      return { rows, attributes: await loadAttributesOfVariants(rows.map((row) => row.id)) };
+    });
     const items: Array<CatalogItem & Readonly<{ qrCode: string }>> = [];
     for (const row of rows) {
-      const item = toCatalogItem(row);
+      const item = toCatalogItem(row, attributes);
       // Una variante corrupta no debe bloquear las demás ni reintentarse: se omite como si no existiera.
       if (!item) { log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant"); continue; }
       items.push({ ...item, qrCode: row.qrCode });
@@ -81,10 +97,13 @@ export async function findSellableVariantsByQrCodes(codes: readonly string[]) {
 
 export async function findSellableVariantsOfProduct(productId: ProductId) {
   try {
-    const rows = await prisma.productVariant.findMany({ where: { productId, status: "active", product: { status: "active" } }, include: { product: true }, orderBy: { id: "asc" } });
+    const { rows, attributes } = await withinReadSnapshot(async () => {
+      const rows = await prisma.productVariant.findMany({ where: { productId, status: "active", product: { status: "active" } }, include: { product: true }, orderBy: { id: "asc" } });
+      return { rows, attributes: await loadAttributesOfVariants(rows.map((row) => row.id)) };
+    });
     const items: CatalogItem[] = [];
     for (const row of rows) {
-      const item = toCatalogItem(row);
+      const item = toCatalogItem(row, attributes);
       if (!item) { log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant"); continue; }
       items.push(item);
     }
@@ -123,19 +142,20 @@ export async function restoreProductStock(variantId: VariantId, quantity: number
 export async function searchSaleCatalog(search: string, variantIds?: readonly string[]) {
   try {
     const variantFilter = { status: "active" as const, ...(variantIds ? { id: { in: [...variantIds] } } : {}) };
-    const rows = await prisma.product.findMany({ where: { status: "active", ...(variantIds
-      ? { variants: { some: variantFilter } }
-      : { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" as const } }) },
-      orderBy: { name: "asc" }, ...(variantIds ? {} : { take: 20 }),
-      include: { variants: { where: variantFilter, include: { stock: true } } } });
-    if (rows.some((row) => row.variants.some((variant) => !variant.attributes || typeof variant.attributes !== "object" || Array.isArray(variant.attributes) ||
-      Object.values(variant.attributes).some((value) => typeof value !== "string") || !variant.stock ||
-      variant.stock.quantity < 0n || variant.stock.quantity > BigInt(Number.MAX_SAFE_INTEGER)))) {
+    const { rows, attributes } = await withinReadSnapshot(async () => {
+      const rows = await prisma.product.findMany({ where: { status: "active", ...(variantIds
+        ? { variants: { some: variantFilter } }
+        : { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" as const } }) },
+        orderBy: { name: "asc" }, ...(variantIds ? {} : { take: 20 }),
+        include: { variants: { where: variantFilter, include: { stock: true } } } });
+      return { rows, attributes: await loadAttributesOfProducts(rows.map((row) => row.id), true) };
+    });
+    if (rows.some((row) => row.variants.some((variant) => !variant.stock || variant.stock.quantity < 0n || variant.stock.quantity > BigInt(Number.MAX_SAFE_INTEGER)))) {
       log.error({ event: "invalid_stored_sale_catalog" }, "invalid_stored_sale_catalog");
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
     }
     return ok(rows.map((row) => ({ id: row.id, name: row.name, currency: row.currency,
-      variants: row.variants.map((variant) => ({ id: variant.id, attributes: variant.attributes as Record<string, string>, sku: variant.sku,
+      variants: row.variants.map((variant) => ({ id: variant.id, attributes: { ...attributes.get(variant.id) }, sku: variant.sku,
         price: variant.salePrice.toNumber(), stock: Number(variant.stock!.quantity) })) })));
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;

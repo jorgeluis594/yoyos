@@ -1,20 +1,24 @@
 import { describe, expect, test } from "vitest";
 import { updateProduct, type UpdateDependencies, type UpdateInput } from "@core/src/features/products/application/update";
 import type { UpdateChanges } from "@core/src/features/products/application/repository";
-import type { ImageId, Product, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import type { ImageId, OptionId, OptionText, OptionValueId, Product, ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { err, ok } from "@shared/functional";
 
 const productId = "00000000-0000-4000-8000-000000000010" as ProductId;
 const variantId = "00000000-0000-4000-8000-000000000011" as VariantId;
 const secondVariantId = "00000000-0000-4000-8000-000000000012" as VariantId;
 const when = new Date("2026-09-01T00:00:00.000Z");
+const talla = "00000000-0000-4000-8000-000000000020" as OptionId;
+const medium = "00000000-0000-4000-8000-000000000021" as OptionValueId;
+const large = "00000000-0000-4000-8000-000000000022" as OptionValueId;
 
 function sample(): Product {
   return {
     id: productId, name: "Camisa", description: "Algodón", currency: "PEN",
-    qrCode: "qr-product", status: "active", createdAt: when, updatedAt: when,
+    qrCode: "qr-product", status: "active", createdAt: when, updatedAt: when, structureVersion: 1,
+    options: [{ id: talla, name: "Talla" as OptionText, values: [{ id: medium, name: "M" as OptionText }, { id: large, name: "L" as OptionText }] }],
     variants: [{
-      id: variantId, productId, attributes: { Talla: "M" }, sku: "CAM-M",
+      id: variantId, productId, combination: { [talla]: medium }, sku: "CAM-M",
       salePrice: { amount: 20, currency: "PEN" }, purchasePrice: { amount: 10, currency: "PEN" },
       qrCode: "qr-variant", status: "active", stock: { variantId, quantity: 5 },
     }],
@@ -24,7 +28,7 @@ function sample(): Product {
 function multiVariant(): Product {
   const base = sample();
   return { ...base, variants: [...base.variants, {
-    id: secondVariantId, productId, attributes: { Talla: "L" }, sku: "CAM-L",
+    id: secondVariantId, productId, combination: { [talla]: large }, sku: "CAM-L",
     salePrice: { amount: 25, currency: "PEN" }, qrCode: "qr-variant-2", status: "active",
     stock: { variantId: secondVariantId, quantity: 3 },
   }] };
@@ -78,7 +82,7 @@ describe("update product", () => {
     expect(context.updates[0].variants).toEqual([{ id: secondVariantId, salePrice: { amount: 26, currency: "PEN" } }]);
     expect(context.updates[0].product).toEqual({ updatedAt: new Date("2026-10-01T00:00:00.000Z") });
     expect(context.stored.variants[1].stock.quantity).toBe(3);
-    expect(context.stored.variants[1].attributes).toEqual({ Talla: "L" });
+    expect(context.stored.variants[1].combination).toEqual({ [talla]: large });
     expect(context.stored.variants[1].qrCode).toBe("qr-variant-2");
   });
 

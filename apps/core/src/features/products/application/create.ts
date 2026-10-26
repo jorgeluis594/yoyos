@@ -50,7 +50,7 @@ export async function createProduct(input: CreateInput, deps: CreateDependencies
   const variants = validated.value.variants.map((variant): ProductVariant => {
     const variantId = deps.newId() as VariantId;
     return {
-      id: variantId, productId: id, attributes: variant.attributes,
+      id: variantId, productId: id, combination: {},
       ...(variant.sku === undefined ? {} : { sku: variant.sku }),
       salePrice: { amount: variant.salePrice, currency: validated.value!.currency },
       ...(variant.purchasePrice === undefined ? {} : { purchasePrice: { amount: variant.purchasePrice, currency: validated.value!.currency } }),
@@ -62,7 +62,7 @@ export async function createProduct(input: CreateInput, deps: CreateDependencies
     ...(validated.value.description === undefined ? {} : { description: validated.value.description }),
     ...(input.imageId === undefined ? {} : { imageId: input.imageId }),
     currency: validated.value.currency, qrCode: deps.newId(), status: "active",
-    createdAt: new Date(now), updatedAt: new Date(now), variants,
+    createdAt: new Date(now), updatedAt: new Date(now), structureVersion: 1, options: [], variants,
   };
   const created = await deps.repository.create(product);
   if (created.success && product.imageId !== undefined) await deps.publishProductImageChanged(created.data);

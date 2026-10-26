@@ -1,40 +1,121 @@
 import { log } from "@core/src/shared/infrastructure/logger";
-import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, type ProductStock as DbStock } from "@prisma/client";
+import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, type ProductStock as DbStock, type ProductOption as DbOption, type ProductOptionValue as DbValue, type ProductVariantOptionValue as DbLink } from "@prisma/client";
+import { z } from "zod";
 import { err, ok } from "@shared/functional";
+import type { Result } from "@shared/result";
 import { isCurrency } from "@shared/money";
-import { getCompanyId, prisma, withinTransaction } from "@core/src/shared/infrastructure/persistance";
-import type { Criteria, ProductRepository } from "@core/src/features/products/application/repository";
-import type { ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
+import { getCompanyId, prisma, withinReadSnapshot, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import type { Criteria, ProductReadError, ProductRepository } from "@core/src/features/products/application/repository";
+import type { ImageId, OptionId, OptionText, OptionValueId, Product, ProductId, ProductOption, ProductOptionValue, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
+import { combinationKey, sortVariants } from "@core/src/features/products/domain/product-structure";
 import { summarizeProduct } from "@core/src/features/products/domain/rules";
 
-type DbAggregate = DbProduct & { variants: (DbVariant & { stock: DbStock | null })[] };
+type Rows = Readonly<{
+  products: DbProduct[];
+  variants: (DbVariant & { stock: DbStock | null })[];
+  links: DbLink[];
+  options: DbOption[];
+  values: DbValue[];
+}>;
 
-function mapProduct(row: DbAggregate): Product {
-  if (!isCurrency(row.currency)) throw new Error("Stored product has invalid currency");
+class InvalidStoredProductError extends Error {
+  constructor(readonly productId: string, readonly stage: string, readonly reason: string) { super(`Stored product is invalid: ${reason}`); }
+}
+
+const optionName = z.string().min(1).max(30);
+const storedStatus = z.enum(["active", "inactive"]);
+const storedOption = z.strictObject({ id: z.string(), name: optionName, position: z.number().int().nonnegative() });
+const storedValue = z.strictObject({ id: z.string(), optionId: z.string(), name: optionName, position: z.number().int().nonnegative() });
+const storedLink = z.strictObject({ variantId: z.string(), optionId: z.string(), valueId: z.string() });
+
+/** One batched query per table, whatever the number of products and variants; call it inside one read snapshot. */
+async function loadRows(ids: readonly string[]): Promise<Rows> {
+  const products = await prisma.product.findMany({ where: { id: { in: [...ids] } } });
+  const variants = await prisma.productVariant.findMany({ where: { productId: { in: [...ids] } }, include: { stock: true } });
+  const links = variants.length ? await prisma.productVariantOptionValue.findMany({ where: { variantId: { in: variants.map((variant) => variant.id) } } }) : [];
+  const options = await prisma.productOption.findMany({ where: { productId: { in: [...ids] } }, orderBy: { position: "asc" } });
+  const values = options.length ? await prisma.productOptionValue.findMany({ where: { optionId: { in: options.map((option) => option.id) } }, orderBy: { position: "asc" } }) : [];
+  return { products, variants, links, options, values };
+}
+
+function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {
+  const groups = new Map<string, T[]>();
+  for (const item of items) groups.set(key(item), [...groups.get(key(item)) ?? [], item]);
+  return groups;
+}
+
+function mapProducts(rows: Rows): Product[] {
+  const variantsOf = groupBy(rows.variants, (variant) => variant.productId);
+  const optionsOf = groupBy(rows.options, (option) => option.productId);
+  const valuesOf = groupBy(rows.values, (value) => value.optionId);
+  const linksOf = groupBy(rows.links, (link) => link.variantId);
+  return rows.products.map((row) => mapProduct(row, variantsOf.get(row.id) ?? [], optionsOf.get(row.id) ?? [], valuesOf, linksOf));
+}
+
+function mapProduct(row: DbProduct, variantRows: (DbVariant & { stock: DbStock | null })[], optionRows: DbOption[], valuesOf: Map<string, DbValue[]>, linksOf: Map<string, DbLink[]>): Product {
+  const invalid = (stage: string, reason: string) => new InvalidStoredProductError(row.id, stage, reason);
+  if (!isCurrency(row.currency)) throw invalid("product", "currency");
   const currency = row.currency;
-  if (!row.variants.length) throw new Error("Stored product has no variants");
-  const variants = row.variants.map((variant): ProductVariant => {
-    if (!variant.stock) throw new Error("Stored variant has no stock");
-    if (variant.stock.quantity > BigInt(Number.MAX_SAFE_INTEGER) || variant.stock.quantity < 0n) throw new Error("Stored stock is outside the supported range");
-    const attributes = variant.attributes;
-    if (!attributes || typeof attributes !== "object" || Array.isArray(attributes) || Object.values(attributes).some((value) => typeof value !== "string")) throw new Error("Stored variant has invalid attributes");
+  if (!variantRows.length) throw invalid("product", "no_variants");
+  const options = optionRows.map((option): ProductOption => {
+    if (!storedOption.safeParse({ id: option.id, name: option.name, position: option.position }).success) throw invalid("options", "option");
+    const values = (valuesOf.get(option.id) ?? []).map((value): ProductOptionValue => {
+      if (!storedValue.safeParse({ id: value.id, optionId: value.optionId, name: value.name, position: value.position }).success) throw invalid("options", "value");
+      return { id: value.id as OptionValueId, name: value.name as OptionText };
+    });
+    if (!values.length) throw invalid("options", "option_without_values");
+    return { id: option.id as OptionId, name: option.name as OptionText, values: values as unknown as ProductOption["values"] };
+  });
+  const variants = variantRows.map((variant): ProductVariant => {
+    if (!variant.stock) throw invalid("variants", "no_stock");
+    if (variant.stock.quantity > BigInt(Number.MAX_SAFE_INTEGER) || variant.stock.quantity < 0n) throw invalid("variants", "stock_range");
+    const status = storedStatus.safeParse(variant.status);
+    if (!status.success) throw invalid("variants", "status");
+    const combination: Record<OptionId, OptionValueId> = {};
+    for (const link of linksOf.get(variant.id) ?? []) {
+      if (!storedLink.safeParse({ variantId: link.variantId, optionId: link.optionId, valueId: link.valueId }).success) throw invalid("links", "link");
+      const option = options.find((candidate) => candidate.id === link.optionId);
+      if (!option?.values.some((value) => value.id === link.valueId)) throw invalid("links", "link_to_missing_value");
+      combination[link.optionId as OptionId] = link.valueId as OptionValueId;
+    }
+    if (options.some((option) => combination[option.id] === undefined)) throw invalid("links", "variant_missing_value");
+    if (combinationKey(combination) !== variant.combinationKey) throw invalid("links", "combination_key");
     return {
-      id: variant.id as VariantId, productId: row.id as ProductId,
-      attributes: { ...attributes } as Record<string, string>,
+      id: variant.id as VariantId, productId: row.id as ProductId, combination,
       ...(variant.sku === null ? {} : { sku: variant.sku }),
       salePrice: { amount: variant.salePrice.toNumber(), currency },
       ...(variant.purchasePrice === null ? {} : { purchasePrice: { amount: variant.purchasePrice.toNumber(), currency } }),
-      qrCode: variant.qrCode, status: variant.status as "active",
+      qrCode: variant.qrCode, status: status.data,
       stock: { variantId: variant.stock.variantId as VariantId, quantity: Number(variant.stock.quantity) },
     };
-  }) as [ProductVariant, ...ProductVariant[]];
-  return {
+  });
+  if (!options.length && (variants.length !== 1 || variants[0].status !== "active")) throw invalid("product", "product_without_options");
+  const product: Product = {
     id: row.id as ProductId, name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
     ...(row.imageId === null ? {} : { imageId: row.imageId as ImageId }),
     currency, qrCode: row.qrCode, status: row.status as "active",
-    createdAt: new Date(row.createdAt), updatedAt: new Date(row.updatedAt), variants,
+    createdAt: new Date(row.createdAt), updatedAt: new Date(row.updatedAt), structureVersion: row.structureVersion, options,
+    variants: variants as unknown as Product["variants"],
   };
+  return { ...product, variants: sortVariants(product) };
+}
+
+async function readProducts(ids: readonly string[]): Promise<Result<Product[], ProductReadError>> {
+  let rows: Rows;
+  try {
+    rows = await withinReadSnapshot(() => loadRows(ids));
+  } catch (error) {
+    log.error({ event: "product_read_persistence_failed", err: error }, "product_read_persistence_failed");
+    return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to read product" });
+  }
+  try {
+    return ok(mapProducts(rows));
+  } catch (error) {
+    if (error instanceof InvalidStoredProductError)
+      log.error({ event: "invalid_stored_product_data", companyId: getCompanyId(), productId: error.productId, stage: error.stage, reason: error.reason }, "invalid_stored_product_data");
+    return err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" });
+  }
 }
 
 function isDuplicateSku(error: unknown): boolean {
@@ -78,16 +159,17 @@ function listPredicates(criteria: Criteria): Prisma.Sql[] {
 
 export const productRepository: ProductRepository = {
   async create(product) {
+    if (product.options.length) throw new Error("Creating products with options arrives with the editor contract");
     try {
       return await withinTransaction(async () => {
         await prisma.product.create({ data: {
           id: product.id, name: product.name, description: product.description,
           imageId: product.imageId, currency: product.currency, qrCode: product.qrCode,
-          status: product.status, createdAt: product.createdAt, updatedAt: product.updatedAt,
+          status: product.status, createdAt: product.createdAt, updatedAt: product.updatedAt, structureVersion: product.structureVersion,
         } });
         for (const variant of product.variants) {
           await prisma.productVariant.create({ data: {
-            id: variant.id, productId: variant.productId, attributes: variant.attributes as Prisma.InputJsonObject,
+            id: variant.id, productId: variant.productId, combinationKey: combinationKey(variant.combination),
             sku: variant.sku, salePrice: new Prisma.Decimal(variant.salePrice.amount.toString()),
             purchasePrice: variant.purchasePrice === undefined ? null : new Prisma.Decimal(variant.purchasePrice.amount.toString()),
             qrCode: variant.qrCode, status: variant.status,
@@ -135,19 +217,8 @@ export const productRepository: ProductRepository = {
     }
   },
   async get(id) {
-    let row: DbAggregate | null;
-    try {
-      row = await prisma.product.findUnique({ where: { id }, include: { variants: { include: { stock: true }, orderBy: { id: "asc" } } } });
-    } catch (error) {
-      log.error({ event: "product_read_persistence_failed", err: error }, "product_read_persistence_failed");
-      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to read product" });
-    }
-    if (!row) return ok(null);
-    try {
-      return ok(mapProduct(row));
-    } catch {
-      return err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" });
-    }
+    const read = await readProducts([id]);
+    return read.success ? ok(read.data[0] ?? null) : read;
   },
   async list(criteria) {
     try {
@@ -157,11 +228,12 @@ export const productRepository: ProductRepository = {
         SELECT ARRAY(SELECT id FROM matching ORDER BY ${listOrder(criteria.sort)}
           LIMIT ${criteria.pageSize} OFFSET ${(criteria.page - 1) * criteria.pageSize}) AS ids,
           (SELECT count(*)::int FROM matching) AS total`);
-      const found = await prisma.product.findMany({ where: { id: { in: page.ids } }, include: { variants: { include: { stock: true } } } });
-      const byId = new Map(found.map((row) => [row.id, row]));
-      const rows = page.ids.flatMap((id) => byId.get(id) ?? []);
+      const read = await readProducts(page.ids);
+      if (!read.success) return read;
+      const byId = new Map(read.data.map((product) => [product.id as string, product]));
+      const found = page.ids.flatMap((id) => byId.get(id) ?? []);
       try {
-        return ok({ page: criteria.page, pageSize: criteria.pageSize, total: page.total, items: rows.map((row) => summarizeProduct(mapProduct(row))) });
+        return ok({ page: criteria.page, pageSize: criteria.pageSize, total: page.total, items: found.map(summarizeProduct) });
       } catch {
         return err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" });
       }
