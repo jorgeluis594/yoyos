@@ -17,8 +17,8 @@ const mockStartAttempt = jest.fn();
 const mockPrintProductLabel = jest.fn();
 const productId = "00000000-0000-4000-8000-000000000001";
 const product = {
-  id: productId, name: "Camisa", currency: "PEN",
-  variants: [{ id: "variant-1", qrCode: "qr-1", attributes: {}, sku: "CAM-1", salePrice: { amount: 20, currency: "PEN" }, stock: 1 }],
+  id: productId, name: "Camisa", currency: "PEN", structureVersion: 1, options: [],
+  variants: [{ id: "variant-1", qrCode: "qr-1", combination: [], sku: "CAM-1", salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }],
 };
 
 const mockReplace = jest.fn();
@@ -60,6 +60,9 @@ test("an explicit variant prints saved data and copies while saving the draft do
   const firstId = "00000000-0000-4000-8000-000000000002";
   const secondId = "00000000-0000-4000-8000-000000000003";
   const secondQr = "00000000-0000-4000-8000-000000000005";
+  const colorId = "00000000-0000-4000-8000-000000000010";
+  const redId = "00000000-0000-4000-8000-000000000011";
+  const blueId = "00000000-0000-4000-8000-000000000012";
   let savedName = "Camisa";
   const request = jest.fn(async (_path: string, init?: RequestInit) => {
     if (init?.method === "PATCH") {
@@ -67,13 +70,14 @@ test("an explicit variant prints saved data and copies while saving the draft do
       return ok({ id: productId });
     }
     return ok({ product: {
-      id: productId, name: savedName, currency: "PEN", qrCode: "00000000-0000-4000-8000-000000000006",
-      status: "active", createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+      id: productId, name: savedName, description: null, imageId: null, currency: "PEN", qrCode: "00000000-0000-4000-8000-000000000006",
+      createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", structureVersion: 1,
+      options: [{ id: colorId, name: "Color", values: [{ id: redId, name: "Rojo" }, { id: blueId, name: "Azul" }] }],
       variants: [
-        { id: firstId, productId, attributes: { color: "Rojo" }, salePrice: { amount: 20, currency: "PEN" }, qrCode: "00000000-0000-4000-8000-000000000004", status: "active", stock: { variantId: firstId, quantity: 1 } },
-        { id: secondId, productId, attributes: { color: "Azul" }, sku: "AZUL-1", salePrice: { amount: 22, currency: "PEN" }, qrCode: secondQr, status: "active", stock: { variantId: secondId, quantity: 2 } },
+        { id: firstId, combination: [{ optionId: colorId, valueId: redId }], sku: null, salePrice: { amount: 20, currency: "PEN" }, purchasePrice: null, qrCode: "00000000-0000-4000-8000-000000000004", status: "active", stock: 1, hasOrders: false },
+        { id: secondId, combination: [{ optionId: colorId, valueId: blueId }], sku: "AZUL-1", salePrice: { amount: 22, currency: "PEN" }, purchasePrice: null, qrCode: secondQr, status: "active", stock: 2, hasOrders: false },
       ],
-    } });
+    }, image: null });
   });
   const products = createProductOperations(createProductApi(request, () => 0));
   const renderProductLabel = jest.fn(async (_label: ProductLabel) => ok({ uri: "file:///label.png", widthPx: 696, heightPx: 271 }));
@@ -92,7 +96,7 @@ test("an explicit variant prints saved data and copies while saving the draft do
     fireEvent.press(screen.getByRole("button", { name: "Imprimir etiqueta" }));
     expect(screen.getByText("La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Imprimir" }).props.accessibilityState.disabled).toBe(true);
-    fireEvent.press(screen.getByRole("radio", { name: "color: Azul" }));
+    fireEvent.press(screen.getByRole("radio", { name: "Azul" }));
     expect(screen.getByLabelText("Copias de la etiqueta").props.value).toBe("1");
     fireEvent.changeText(screen.getByLabelText("Copias de la etiqueta"), "3");
     fireEvent.press(screen.getByRole("button", { name: "Imprimir" }));

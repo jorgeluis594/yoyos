@@ -27,15 +27,16 @@ function createRequest(command: CreateProductCommand): CreateProductRequest {
   return {
     id: command.id,
     name: command.name,
+    description: command.description ?? null,
+    imageId: command.photo.kind === "set" ? command.photo.imageId : null,
     currency: countryCurrencies[command.country],
-    ...(command.description === undefined ? {} : { description: command.description }),
-    ...(command.photo.kind === "set" ? { imageId: command.photo.imageId } : {}),
+    options: [],
     variants: [{
-      attributes: {},
-      ...(command.sku === undefined ? {} : { sku: command.sku }),
+      values: [],
+      sku: command.sku ?? null,
       salePrice: command.salePrice,
-      ...(command.purchasePrice === undefined ? {} : { purchasePrice: command.purchasePrice }),
-      ...(command.initialStock === undefined ? {} : { initialStock: command.initialStock }),
+      purchasePrice: command.purchasePrice ?? null,
+      initialStock: command.initialStock ?? 0,
     }],
   };
 }

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { SafeAreaView, type Edge } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
+import { combinationLabel } from "@shared/product-variants";
 import type { Currency } from "@shared/money";
 import { Button } from "@mobile/components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@mobile/components/ui/field";
@@ -98,7 +99,7 @@ export function ProductForm({
         <ThemedText type="small" accessibilityRole="header" style={styles.cardHeading}>{multiVariant ? t('variants') : t('inventory')}</ThemedText>
         {multiVariant ? <View style={styles.variants}>
           {current?.variants.map((variant, index) => <View key={variant.id} style={[styles.variant, { borderColor: theme.border }]}>
-            <ThemedText type="smallBold">{Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || t('numberedVariant', { count: index + 1 })}</ThemedText>
+            <ThemedText type="smallBold">{combinationLabel(current.options, variant.combination) || t('numberedVariant', { count: index + 1 })}</ThemedText>
             <ThemedText themeColor="textSecondary">{variant.sku ?? t('noSku')} · {t('saleAmount', { amount: price.format(variant.salePrice.amount) })}{variant.purchasePrice ? ` · ${t('purchaseAmount', { amount: price.format(variant.purchasePrice.amount) })}` : ""}</ThemedText>
             <ThemedText themeColor="textSecondary">{t('stockCount', { count: variant.stock })}</ThemedText>
           </View>)}

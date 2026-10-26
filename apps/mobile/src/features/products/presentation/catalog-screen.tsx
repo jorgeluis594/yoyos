@@ -130,7 +130,7 @@ export default function CatalogScreen() {
   if (state.status !== "ready") return null;
   const pending = loading || loadedKey !== currentKey;
   const filtered = stock !== "all";
-  const price = (item: ProductListItem) => formatMoney(item.price.amount, item.price.currency, locale);
+  const price = (item: ProductListItem) => item.price ? formatMoney(item.price.amount, item.price.currency, locale) : "—";
   const detail = (item: ProductListItem) => item.variantCount > 1 ? t('variantCount', { count: item.variantCount }) : item.sku ? `SKU ${item.sku}` : t('noSku');
 
   const header = <View style={styles.header}>

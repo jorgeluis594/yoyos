@@ -1,5 +1,6 @@
 import {
   createProductRequestSchema,
+  productApiErrorCodeSchema,
   productApiErrorSchema,
   productDetailResponseSchema,
   productIdResponseSchema,
@@ -12,10 +13,10 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { uploadImage, type UploadImageError } from "@mobile/shared/infrastructure/image-api";
 import type { TransportError } from "@mobile/shared/application/transport-error";
-import type { ImageId, Product, ProductId, ProductListCriteria, ProductPage, VariantId, VariantQrCode } from "@mobile/features/products/domain/product";
+import type { ImageId, OptionId, OptionValueId, Product, ProductId, ProductListCriteria, ProductPage, VariantId, VariantQrCode } from "@mobile/features/products/domain/product";
 import type { GetProductError } from "@mobile/features/products/application/product-printing";
 
-type ProductIssue = Readonly<{ field: string; reason: string; message?: string; scope?: string; index?: number; maxLength?: number }>;
+export type ProductIssue = Readonly<{ field: string; reason: string; message?: string; scope?: string; index?: number; optionIndex?: number; optionId?: string; valueIndex?: number; valueId?: string; variantId?: string; maximum?: number; maxLength?: number }>;
 type MobileTransportCode = Extract<TransportError["code"], "UNAUTHENTICATED" | "COMPANY_REQUIRED" | "NETWORK_ERROR" | "SERVICE_UNAVAILABLE" | "RATE_LIMITED" | "SERVER_ERROR" | "INVALID_RESPONSE" | "OPERATION_CANCELLED" | "SECURE_STORAGE_ERROR" | "API_ERROR">;
 type ProductTransportFailure = Readonly<{ code: MobileTransportCode; message: string }>;
 type ApiFailure =
@@ -23,6 +24,14 @@ type ApiFailure =
   | Readonly<{ code: "VALIDATION_ERROR"; message: string; issues?: readonly ProductIssue[] }>
   | Readonly<{ code: "DUPLICATE_SKU"; message: string }>
   | Readonly<{ code: "PRODUCT_ID_CONFLICT"; message: string }>
+  | Readonly<{ code: "ID_CONFLICT"; message: string }>
+  | Readonly<{ code: "DUPLICATE_COMBINATION"; message: string }>
+  | Readonly<{ code: "PRODUCT_CHANGED"; message: string }>
+  | Readonly<{ code: "VARIANT_NOT_FOUND"; message: string }>
+  | Readonly<{ code: "VARIANT_HAS_ORDERS"; message: string }>
+  | Readonly<{ code: "VARIANT_HAS_STOCK"; message: string }>
+  | Readonly<{ code: "LAST_VARIANT"; message: string }>
+  | Readonly<{ code: "PRODUCT_WITHOUT_OPTIONS"; message: string }>
   | Readonly<{ code: "PRODUCT_NOT_FOUND"; message: string }>
   | Readonly<{ code: "IMAGE_NOT_FOUND"; message: string }>
   | Readonly<{ code: "PAYLOAD_TOO_LARGE"; message: string }>
@@ -35,7 +44,7 @@ export type ProductListInputIssue = Readonly<{ field: string; reason: "INVALID_T
 export type ListProductsError = ProductTransportFailure
   | Readonly<{ code: "INVALID_INPUT"; message: string; issues: readonly [ProductListInputIssue, ...ProductListInputIssue[]] }>
   | Readonly<{ code: "VALIDATION_ERROR"; message: string; issues: readonly [ProductListCriteriaIssue, ...ProductListCriteriaIssue[]] }>;
-export type CreateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "PRODUCT_ID_CONFLICT" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
+export type CreateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "PRODUCT_ID_CONFLICT" | "ID_CONFLICT" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
 export type UpdateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "PRODUCT_NOT_FOUND" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
 export type UploadProductImageError = UploadImageError;
 
@@ -45,6 +54,16 @@ function fieldFailure(code: MobileTransportCode, message: string): ProductTransp
   return { code, message };
 }
 
+/** The status core answers with each code (§8.2). A code outside this table is not a product code. */
+export const expectedStatus: Readonly<Record<string, number>> = {
+  INVALID_INPUT: 400, VALIDATION_ERROR: 422, DUPLICATE_SKU: 409, PRODUCT_ID_CONFLICT: 409, ID_CONFLICT: 409,
+  PRODUCT_CHANGED: 409, DUPLICATE_COMBINATION: 409, VARIANT_HAS_ORDERS: 409, VARIANT_HAS_STOCK: 409, LAST_VARIANT: 409, PRODUCT_WITHOUT_OPTIONS: 409,
+  PRODUCT_NOT_FOUND: 404, VARIANT_NOT_FOUND: 404, IMAGE_NOT_FOUND: 404, PAYLOAD_TOO_LARGE: 413,
+  UNSUPPORTED_MEDIA_TYPE: 415, UNAUTHENTICATED: 401, COMPANY_REQUIRED: 409,
+  SERVICE_UNAVAILABLE: 503, INTERNAL_ERROR: 500, INVALID_IMAGE: 400, IMAGE_TOO_LARGE: 413,
+  IMAGE_STORAGE_UNAVAILABLE: 502,
+};
+
 function readApiFailure(error: TransportError, allowed: readonly string[]): ApiFailure | ProductTransportFailure {
   if (error.http?.status === 429) return fieldFailure("RATE_LIMITED", error.message);
   if (!error.http) {
@@ -53,14 +72,9 @@ function readApiFailure(error: TransportError, allowed: readonly string[]): ApiF
   }
   const parsed = productApiErrorSchema.safeParse(error.http.body);
   if (!parsed.success) return fieldFailure("INVALID_RESPONSE", "Server returned an invalid error");
-  if (!allowed.includes(parsed.data.code)) return fieldFailure("API_ERROR", "The request could not be completed");
-  const expectedStatus: Record<string, number> = {
-    INVALID_INPUT: 400, VALIDATION_ERROR: 422, DUPLICATE_SKU: 409, PRODUCT_ID_CONFLICT: 409,
-    PRODUCT_NOT_FOUND: 404, IMAGE_NOT_FOUND: 404, PAYLOAD_TOO_LARGE: 413,
-    UNSUPPORTED_MEDIA_TYPE: 415, UNAUTHENTICATED: 401, COMPANY_REQUIRED: 409,
-    SERVICE_UNAVAILABLE: 503, INTERNAL_ERROR: 500, INVALID_IMAGE: 400, IMAGE_TOO_LARGE: 413,
-    IMAGE_STORAGE_UNAVAILABLE: 502,
-  };
+  // Codes outside the shared enum (transport and image codes) keep their own handling; an unknown product code is generic.
+  const known = productApiErrorCodeSchema.safeParse(parsed.data.code).success || expectedStatus[parsed.data.code] !== undefined;
+  if (!known || !allowed.includes(parsed.data.code)) return fieldFailure("API_ERROR", "The request could not be completed");
   if (expectedStatus[parsed.data.code] !== error.http.status) {
     return fieldFailure("INVALID_RESPONSE", "Server returned an invalid error");
   }
@@ -91,6 +105,7 @@ function productListItem(item: ReturnType<typeof productListResponseSchema.parse
     id: item.id as ProductId,
     name: item.name,
     variantCount: item.variantCount,
+    activeVariantCount: item.activeVariantCount,
     ...(item.sku === undefined ? {} : { sku: item.sku }),
     price: item.minSalePrice,
     priceFrom: item.hasDifferentPrices,
@@ -123,17 +138,21 @@ function productDetail(dto: ReturnType<typeof productDetailResponseSchema.parse>
   return {
     id: dto.product.id as ProductId,
     name: dto.product.name,
-    ...(dto.product.description === undefined ? {} : { description: dto.product.description }),
+    ...(dto.product.description === null ? {} : { description: dto.product.description }),
     currency: dto.product.currency,
-    ...(dto.image === undefined ? {} : { photo: { id: dto.image.id as ImageId, url: dto.image.url } }),
+    ...(dto.image === null ? {} : { photo: { id: dto.image.id as ImageId, url: dto.image.url } }),
+    structureVersion: dto.product.structureVersion,
+    options: dto.product.options.map((option) => ({ id: option.id as OptionId, name: option.name, values: option.values.map((value) => ({ id: value.id as OptionValueId, name: value.name })) })),
     variants: dto.product.variants.map((variant) => ({
       id: variant.id as VariantId,
       qrCode: variant.qrCode as VariantQrCode,
-      attributes: variant.attributes,
-      ...(variant.sku === undefined ? {} : { sku: variant.sku }),
+      combination: variant.combination.map((entry) => ({ optionId: entry.optionId as OptionId, valueId: entry.valueId as OptionValueId })),
+      ...(variant.sku === null ? {} : { sku: variant.sku }),
       salePrice: variant.salePrice,
-      ...(variant.purchasePrice === undefined ? {} : { purchasePrice: variant.purchasePrice }),
-      stock: variant.stock.quantity,
+      ...(variant.purchasePrice === null ? {} : { purchasePrice: variant.purchasePrice }),
+      stock: variant.stock,
+      status: variant.status === "active" ? "active" as const : "inactive" as const,
+      hasOrders: variant.hasOrders,
     })),
   };
 }
@@ -180,7 +199,7 @@ export function createProductApi(request: Request, sessionGeneration: () => numb
       if (!body.success) return err({ code: "INVALID_INPUT", message: "Invalid product input" });
       const result = restrictFailure(await run("/api/products", {
         method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body.data),
-      }, ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_SKU", "PRODUCT_ID_CONFLICT", "IMAGE_NOT_FOUND", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_SKU", "PRODUCT_ID_CONFLICT", "IMAGE_NOT_FOUND", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE"] as const);
+      }, ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_SKU", "DUPLICATE_COMBINATION", "PRODUCT_ID_CONFLICT", "ID_CONFLICT", "IMAGE_NOT_FOUND", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_SKU", "DUPLICATE_COMBINATION", "PRODUCT_ID_CONFLICT", "ID_CONFLICT", "IMAGE_NOT_FOUND", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE"] as const);
       if (!result.success) return result;
       const parsed = productIdResponseSchema.safeParse(result.data);
       return parsed.success ? ok(parsed.data.id as ProductId) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product ID"));

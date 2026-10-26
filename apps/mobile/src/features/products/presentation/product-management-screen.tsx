@@ -46,7 +46,7 @@ function sameProduct(left: Product, right: Product) {
     left.photo?.id === right.photo?.id && left.variants.length === right.variants.length &&
     left.variants.every((variant, index) => {
       const other = right.variants[index];
-      return variant.id === other.id && JSON.stringify(variant.attributes) === JSON.stringify(other.attributes) &&
+      return variant.id === other.id && JSON.stringify(variant.combination) === JSON.stringify(other.combination) && variant.status === other.status &&
         variant.sku === other.sku && variant.salePrice.amount === other.salePrice.amount &&
         variant.salePrice.currency === other.salePrice.currency && variant.purchasePrice?.amount === other.purchasePrice?.amount &&
         variant.purchasePrice?.currency === other.purchasePrice?.currency && variant.stock === other.stock;

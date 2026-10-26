@@ -5,6 +5,7 @@ import { Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-
 import { SafeAreaView } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
 import { useTranslation } from "react-i18next";
+import { combinationLabel } from "@shared/product-variants";
 import { Button } from "@mobile/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@mobile/components/ui/field";
 import { ThemedText } from "@mobile/components/themed-text";
@@ -17,8 +18,8 @@ import tokens from "../../../../../../docs/design-tokens.json";
 
 const maxCopies = 99;
 
-function variantName(variant: Product["variants"][number], index: number, numbered: (count: number) => string) {
-  return Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || numbered(index + 1);
+function variantName(product: Product, variant: Product["variants"][number], index: number, numbered: (count: number) => string) {
+  return combinationLabel(product.options, variant.combination) || numbered(index + 1);
 }
 
 /** Everything about printing this product's label right now: what prints, how many copies and on which printer. */
@@ -65,11 +66,11 @@ export function ProductPrintSheet({ visible, product, unsavedChanges, onClose, o
             <ThemedText type="small" style={styles.heading}>{t('selectVariantToPrint')}</ThemedText>
             {product.variants.map((variant, index) => {
               const selected = variant.id === variantId;
-              return <Pressable key={variant.id} accessibilityRole="radio" accessibilityState={{ checked: selected }} accessibilityLabel={variantName(variant, index, numbered)}
+              return <Pressable key={variant.id} accessibilityRole="radio" accessibilityState={{ checked: selected }} accessibilityLabel={variantName(product, variant, index, numbered)}
                 onPress={() => setVariantId(variant.id)}
                 style={({ pressed }) => [styles.option, { borderColor: selected ? theme.ring : theme.border, backgroundColor: selected ? theme.accent : pressed ? theme.secondary : "transparent" }]}>
                 <View style={styles.optionText}>
-                  <ThemedText type="small" style={styles.heading}>{variantName(variant, index, numbered)}</ThemedText>
+                  <ThemedText type="small" style={styles.heading}>{variantName(product, variant, index, numbered)}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">{variant.sku ?? t('noSku')}</ThemedText>
                 </View>
                 {selected ? <SymbolView name={{ ios: "checkmark", android: "check" }} size={tokens.sizing.iconAction} tintColor={theme.primary} /> : null}
