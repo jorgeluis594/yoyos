@@ -181,8 +181,7 @@ export type ProductStructureChange = Readonly<{
 }>;
 
 export function isEmptyChange(change: ProductStructureChange): boolean {
-  const { productId: _productId, product, ...lists } = change;
-  return !Object.keys(product).length && Object.values(lists).every((list) => !list.length);
+  return !Object.keys(change.product).length && Object.entries(change).every(([key, list]) => key === "productId" || key === "product" || !(list as readonly unknown[]).length);
 }
 
 const duplicates = <T>(items: readonly T[]): ReadonlySet<T> => new Set(items.filter((item, index) => items.indexOf(item) !== index));
