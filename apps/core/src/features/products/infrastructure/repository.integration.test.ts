@@ -62,7 +62,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       // Whichever lost either saw the other's committed SKU (a typed issue) or hit the unique index at insert time.
       const loser = [dupeA, dupeB].find((item) => !item.success);
       expect(loser).toMatchObject({ success: false });
-      expect(!loser?.success && (loser.error.code === "DUPLICATE_SKU" || loser.error.code === "VALIDATION_ERROR" && loser.error.issues.some((issue) => issue.reason === "DUPLICATE_SKU"))).toBe(true);
+      expect(loser && !loser.success && (loser.error.code === "DUPLICATE_SKU" || loser.error.code === "VALIDATION_ERROR" && loser.error.issues.some((issue) => issue.reason === "DUPLICATE_SKU"))).toBe(true);
       expect(await create(companyA, base())).toMatchObject({ success: true });
       expect(await create(companyA, base())).toMatchObject({ success: true });
       const largeStock = await create(companyA, { ...base(), variants: [{ values: [], salePrice: 1, initialStock: Number.MAX_SAFE_INTEGER }] });

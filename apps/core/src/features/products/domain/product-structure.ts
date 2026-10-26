@@ -1,8 +1,11 @@
-import { normalizeOptionText, productOptionLimits } from "@shared/contracts/products";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { ProductValidationReason, ValidationIssue } from "@core/src/features/products/domain/errors";
 import type { OptionId, OptionText, OptionValueId, Product, ProductOption, ProductOptionValue, ProductVariant } from "@core/src/features/products/domain/product";
+
+/** The domain owns the limits; shared/contracts/products.ts repeats them for the editors and a test keeps both equal. */
+export const productOptionLimits = { options: 3, valuesPerOption: 30, variants: 100, nameLength: 30 } as const;
+const normalizeOptionText = (value: string) => value.trim().toLowerCase();
 
 type Combination = Readonly<Record<OptionId, OptionValueId>>;
 type IssueDraft = ProductValidationReason & { readonly message: string };

@@ -1,7 +1,8 @@
 import { describe, expect, test } from "vitest";
 import type { Currency } from "@shared/money";
 import type { OptionId, OptionText, OptionValueId, Product, ProductId, ProductOption, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
-import { combinationKey, emptiedValues, orderedAttributes, parseProductStructure, sortVariants, type RawOption } from "@core/src/features/products/domain/product-structure";
+import { normalizeOptionText, productOptionLimits as sharedLimits } from "@shared/contracts/products";
+import { combinationKey, productOptionLimits, emptiedValues, orderedAttributes, parseProductStructure, sortVariants, type RawOption } from "@core/src/features/products/domain/product-structure";
 
 const optionId = (value: string) => value as OptionId;
 const valueId = (value: string) => value as OptionValueId;
@@ -145,4 +146,9 @@ describe("emptiedValues", () => {
     expect(none.valueIds.size).toBe(5);
     expect(none.optionIds.size).toBe(2);
   });
+});
+
+test("domain limits and name normalization equal the shared contract constants", () => {
+  expect(productOptionLimits).toEqual(sharedLimits);
+  expect(normalizeOptionText("  M ")).toBe("m");
 });
