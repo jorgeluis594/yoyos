@@ -22,7 +22,8 @@ import * as products from "@core/src/features/products";
 import { restoreCancelledStock } from "@core/src/composition/event-handlers";
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { ImageId } from "@core/src/features/orders/domain/payment";
-import type { VariantId } from "@core/src/features/products/domain/product";
+import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
+import { catalogProductRepository } from "@core/src/features/products/infrastructure/catalog-products-repository";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
@@ -2029,6 +2030,40 @@ test("searchSaleCatalog omits products without active variants and variants that
       await seedProduct({ name: "Retired shirt", variants: [{ attributes: { Talla: "M" }, status: "inactive", salePrice: 5 }, { attributes: { Talla: "L" }, salePrice: 6 }] });
       const found = await orders.searchProducts("retired");
       expect(found.success && found.data.map(({ name, variants }) => [name, variants.map(({ attributes }) => attributes)])).toEqual([["Retired shirt", [{ Talla: "L" }]]]);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("searchSaleCatalog and the public catalog list variants in the saved option and value order, also after a reorder", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      // Ids sort against the saved order, so an id-ordered read cannot pass by chance.
+      const ids = { "azul-l": "00000000-0000-4000-8000-000000000001", "negro-m": "00000000-0000-4000-8000-000000000002",
+        "azul-m": "00000000-0000-4000-8000-000000000003", "negro-l": "00000000-0000-4000-8000-000000000004" };
+      const seeded = await seedProduct({ name: "Ordered shirt", options: [{ name: "Color", values: ["Negro", "Azul"] }, { name: "Talla", values: ["M", "L"] }],
+        variants: [{ id: ids["azul-l"], attributes: { Color: "Azul", Talla: "L" } }, { id: ids["negro-m"], attributes: { Color: "Negro", Talla: "M" } },
+          { id: ids["azul-m"], attributes: { Color: "Azul", Talla: "M" } }, { id: ids["negro-l"], attributes: { Color: "Negro", Talla: "L" } }] });
+      const sold = async () => {
+        const found = await orders.searchProducts("ordered shirt");
+        return found.success ? found.data[0].variants.map(({ attributes }) => `${attributes.Color} ${attributes.Talla}`) : found;
+      };
+      const catalog = async () => {
+        const found = await catalogProductRepository.find(seeded.productId as ProductId, "PEN");
+        return found.success && found.data ? found.data.variants.map(({ attributes }) => `${attributes.Color} ${attributes.Talla}`) : found;
+      };
+      const saved = ["Negro M", "Negro L", "Azul M", "Azul L"];
+      expect(await sold()).toEqual(saved);
+      expect(await catalog()).toEqual(saved);
+      // The seller moves Azul first and L before M.
+      for (const [id, position] of [[seeded.valueIds.Color.Negro, 2], [seeded.valueIds.Color.Azul, 0], [seeded.valueIds.Talla.M, 2], [seeded.valueIds.Talla.L, 0]] as const)
+        await prisma.productOptionValue.update({ where: { id }, data: { position } });
+      const reordered = ["Azul L", "Azul M", "Negro L", "Negro M"];
+      expect(await sold()).toEqual(reordered);
+      expect(await catalog()).toEqual(reordered);
+      // Checkout lookups by id keep the saved order too.
+      const byId = await orders.searchProducts("", Object.values(ids));
+      expect(byId.success && byId.data[0].variants.map(({ id }) => id)).toEqual([ids["azul-l"], ids["azul-m"], ids["negro-l"], ids["negro-m"]]);
     });
   } finally { await f.cleanup(); }
 });

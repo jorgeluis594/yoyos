@@ -4,7 +4,7 @@ import { err, ok } from "@shared/functional";
 import { currencies } from "@shared/money";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { getCompanyId, prisma, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
-import { loadAttributesOfProducts, type VariantAttributes } from "@core/src/features/products/infrastructure/variant-combinations";
+import { loadAttributesOfProducts, savedVariantOrder, type VariantAttributes } from "@core/src/features/products/infrastructure/variant-combinations";
 import type { CatalogProductRepository } from "@core/src/features/products/application/catalog-products";
 import type { StoredCatalogCard, StoredCatalogProduct } from "@core/src/features/products/domain/catalog-product";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -81,7 +81,8 @@ export const catalogProductRepository: CatalogProductRepository = {
         if (!row) return { row, attributes: new Map<string, Record<string, string>>(), options: [] };
         const options = await prisma.productOption.findMany({ where: { productId: row.id }, orderBy: { position: "asc" },
           include: { values: { orderBy: { position: "asc" } } } });
-        return { row, attributes: await loadAttributesOfProducts([row.id], true), options };
+        const bySavedOrder = await savedVariantOrder([row.id]);
+        return { row: { ...row, variants: [...row.variants].sort(bySavedOrder) }, attributes: await loadAttributesOfProducts([row.id], true), options };
       }));
     } catch (cause) {
       return unavailable("find_catalog_product", cause);

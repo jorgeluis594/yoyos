@@ -63,6 +63,8 @@ test("a sale refused when it is saved marks the item that was deactivated while 
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" })); });
+  expect(screen.getByText("L / Azul ya no está disponible.")).toBeTruthy();
+  expect(screen.queryByText(/Una variante ya no está disponible/)).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   expect(screen.getByText("L / Azul ya no está disponible.")).toBeTruthy();
   expect(screen.queryByText("Revisa esta variante.")).toBeNull();

@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
 import { prisma, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
-import { loadAttributesOfProducts, loadAttributesOfVariants, type VariantAttributes } from "@core/src/features/products/infrastructure/variant-combinations";
+import { loadAttributesOfProducts, loadAttributesOfVariants, savedVariantOrder, type VariantAttributes } from "@core/src/features/products/infrastructure/variant-combinations";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
 type StockError = Readonly<{ code: "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE"; message: string; variantId?: string }>;
@@ -121,7 +121,9 @@ export async function searchSaleCatalog(search: string, variantIds?: readonly st
         : { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" as const } }) },
         orderBy: { name: "asc" }, ...(variantIds ? {} : { take: 20 }),
         include: { variants: { where: variantFilter, include: { stock: true } } } });
-      return { rows, attributes: await loadAttributesOfProducts(rows.map((row) => row.id), true) };
+      const productIds = rows.map((row) => row.id);
+      const bySavedOrder = await savedVariantOrder(productIds);
+      return { rows: rows.map((row) => ({ ...row, variants: [...row.variants].sort(bySavedOrder) })), attributes: await loadAttributesOfProducts(productIds, true) };
     });
     if (rows.some((row) => row.variants.some((variant) => !variant.stock || variant.stock.quantity < 0n || variant.stock.quantity > BigInt(Number.MAX_SAFE_INTEGER)))) {
       log.error({ event: "invalid_stored_sale_catalog" }, "invalid_stored_sale_catalog");
