@@ -14,9 +14,16 @@ import { makeCopyCount, type CopyCount } from "@mobile/features/printing/composi
 import { usePrint } from "@mobile/features/printing/presentation/print-provider";
 import { QuantityStepper } from "@mobile/features/products/presentation/quantity-stepper";
 import type { Product, VariantId } from "@mobile/features/products/domain/product";
+import { productPrintWork } from "@mobile/features/products/presentation/product-print-work";
 import tokens from "../../../../../../docs/design-tokens.json";
 
 const maxCopies = 99;
+
+/** Starts printing one saved variant's label; the sheet's own file is where printing is reached from the product screens. */
+export function useStartProductPrint() {
+  const { startAttempt } = usePrint();
+  return (product: Product, variantId: VariantId, copies: CopyCount) => startAttempt(productPrintWork({ kind: "saved-product", product, variantId }, copies));
+}
 
 function variantName(product: Product, variant: Product["variants"][number], index: number, numbered: (count: number) => string) {
   return combinationLabel(product.options, variant.combination) || numbered(index + 1);

@@ -4,6 +4,7 @@ import { ProductPrintSheet } from "@mobile/features/products/presentation/produc
 import type { OptionId, OptionValueId, Product, VariantId, VariantQrCode } from "@mobile/features/products/domain/product";
 
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
+jest.mock("@mobile/features/products/composition", () => ({ productPrinting: {} }));
 jest.mock("@mobile/features/printing/presentation/print-provider", () => ({ usePrint: () => ({ showPrinterPicker: jest.fn(), printerName: "Brother" }) }));
 
 const talla = "talla" as OptionId;

@@ -7,6 +7,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { combinationLabel } from "@shared/product-variants";
+import type { Result } from "@shared/result";
 import type { ChangeCombinationRequest } from "@shared/contracts/products";
 import { ScreenState } from "@/components/ui/screen-state";
 import { Button } from "@mobile/components/ui/button";
@@ -17,13 +18,12 @@ import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { products, variants } from "@mobile/features/products/composition";
-import { usePrint } from "@mobile/features/printing/presentation/print-provider";
 import type { CopyCount } from "@mobile/features/printing/composition";
+import type { VariantActionError } from "../application/variant-operations";
 import type { Product, ProductId, ProductVariant, VariantId } from "../domain/product";
 import { ChangeCombinationSheet } from "./change-combination-sheet";
 import { formEdges } from "./form-edges";
-import { ProductPrintSheet } from "./product-print-sheet";
-import { productPrintWork } from "./product-print-work";
+import { ProductPrintSheet, useStartProductPrint } from "./product-print-sheet";
 import { ProductTopBar } from "./product-top-bar";
 import { useProductEditor } from "./product-editor-state";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
@@ -100,7 +100,7 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
   const { t } = useTranslation();
   const router = useRouter();
   const theme = useTheme();
-  const { startAttempt } = usePrint();
+  const startPrint = useStartProductPrint();
   const money = (amount: number | undefined) => amount === undefined ? "" : amount.toFixed(2);
   const initial = { salePrice: money(variant.salePrice.amount), purchasePrice: money(variant.purchasePrice?.amount), sku: variant.sku ?? "" };
   // A save or reload restarts the fields from what core answered; the other actions leave what is being typed.
@@ -137,8 +137,8 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
   });
 
   /** Runs one request after the connection check. A lost answer is never shown as success: it offers the reload. */
-  const run = async <E extends { code: string }>(kind: Exclude<Busy, null>, request: () => Promise<{ success: true; data: Product } | { success: false; error: E }>,
-    messages: Readonly<{ offline: string; uncertain: string }>, handle: (error: E) => boolean, done: (next: Product) => void) => {
+  const run = async (kind: Exclude<Busy, null>, request: () => Promise<Result<Product, VariantActionError>>,
+    messages: Readonly<{ offline: string; uncertain: string }>, handle: (error: VariantActionError) => boolean, done: (next: Product) => void) => {
     if (working) return;
     setNotice(null); setUncertain(false);
     if (!await isOnline()) { setNotice({ text: messages.offline, error: true }); return; }
@@ -168,9 +168,8 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
       (error) => {
         if (error.code === "DUPLICATE_SKU") { setFieldErrors({ sku: t("variantSkuInUse") }); return true; }
         if (error.code === "VALIDATION_ERROR" || error.code === "INVALID_INPUT") {
-          const issues = "issues" in error && Array.isArray(error.issues) ? error.issues as readonly { field: string; reason: string }[] : [];
           const mapped: typeof fieldErrors = {};
-          for (const issue of issues) {
+          for (const issue of error.issues ?? []) {
             if (issue.field === "sku") mapped.sku = issue.reason === "DUPLICATE_SKU" ? t("variantSkuInUse") : t("maxCharacters", { count: 100 });
             else if (issue.field === "salePrice") mapped.salePrice = issue.reason === "TOO_MANY_DECIMALS" ? t("maxTwoDecimals") : t("variantPriceRequired");
             else if (issue.field === "purchasePrice") mapped.purchasePrice = issue.reason === "TOO_MANY_DECIMALS" ? t("maxTwoDecimals") : t("purchasePriceInvalid");
@@ -256,7 +255,7 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
   };
 
   const printVariant = (variantId: VariantId, copies: CopyCount) => {
-    startAttempt(productPrintWork({ kind: "saved-product", product, variantId }, copies));
+    startPrint(product, variantId, copies);
     setPrinting(false);
   };
   const card = [styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }];
