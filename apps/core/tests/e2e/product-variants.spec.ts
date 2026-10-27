@@ -227,3 +227,44 @@ test("prints a variant label from its detail", async ({ page }) => {
     await cleanUp(email, companyId);
   }
 });
+
+test("asks to discard the changes before opening a saved variant from a product with changes", async ({ page }) => {
+  const email = `variants-discard-${crypto.randomUUID()}@example.test`;
+  let companyId: string | undefined;
+  try {
+    companyId = await prepareVerifiedCompany(page, { email, name: "Ana Descarta", companyName: "Empresa Descarta", country: "PE" });
+    const { productId } = await withTenantIsolation(companyId, async () => await seedProduct({ name: "Polo básico", options: poloOptions, variants: poloVariants }));
+    await page.goto(`/es-PE/products/${productId}`);
+    await page.getByLabel("Precio de venta de S / Negro").fill("50.00");
+    await rowLabels(page).filter({ hasText: "S / Negro" }).getByRole("link", { name: "S / Negro" }).click();
+    await browserExpect(page.getByText("¿Descartar cambios?")).toBeVisible();
+    await page.getByRole("button", { name: "Seguir editando" }).click();
+    await browserExpect(page).toHaveURL(`/es-PE/products/${productId}`);
+    await browserExpect(page.getByLabel("Precio de venta de S / Negro")).toHaveValue("50.00");
+    await rowLabels(page).filter({ hasText: "S / Negro" }).getByRole("link", { name: "S / Negro" }).click();
+    await page.getByRole("button", { name: "Descartar", exact: true }).click();
+    await browserExpect(page).toHaveURL(new RegExp(`/es-PE/products/${productId}/variants/[0-9a-f-]+$`));
+  } finally {
+    await cleanUp(email, companyId);
+  }
+});
+
+test("deletes a variant without orders or stock and returns to the product without asking to discard", async ({ page }) => {
+  const email = `variants-delete-${crypto.randomUUID()}@example.test`;
+  let companyId: string | undefined;
+  try {
+    companyId = await prepareVerifiedCompany(page, { email, name: "Ana Elimina", companyName: "Empresa Elimina", country: "PE" });
+    const tenantId = companyId;
+    const { productId, variantIds } = await withTenantIsolation(tenantId, async () => await seedProduct({ name: "Polo básico", options: poloOptions, variants: poloVariants.map((variant) => ({ ...variant, stock: 0 })) }));
+    await page.goto(`/es-PE/products/${productId}/variants/${variantIds[0]}`);
+    await page.getByLabel("SKU (opcional)").fill("EDITADO");
+    await page.getByRole("button", { name: "Eliminar variante" }).click();
+    await page.getByRole("dialog").getByRole("button", { name: "Eliminar variante" }).click();
+    await browserExpect(page).toHaveURL(`/es-PE/products/${productId}?variantDeleted=1`);
+    await browserExpect(page.getByText("Variante eliminada", { exact: true })).toBeVisible();
+    await browserExpect(rowLabels(page)).toHaveCount(5);
+    expect(await withTenantIsolation(tenantId, async () => await prisma.productVariant.count())).toBe(5);
+  } finally {
+    await cleanUp(email, companyId);
+  }
+});

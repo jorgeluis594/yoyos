@@ -73,3 +73,9 @@ test("variant detail action explains why a variant cannot be deleted and redirec
   const response = await action(post({ intent: "delete" })) as Response;
   expect(response.headers.get("Location")).toBe(`/es-PE/products/${productId}?variantDeleted=1`);
 });
+
+test("variant detail action reports a malformed body under the intent it names", async () => {
+  expect(await action(post({ intent: "combination", values: "x" }))).toMatchObject({ intent: "combination", failed: true });
+  expect(await action(post({ intent: "status", status: "paused" }))).toMatchObject({ intent: "status", failed: true });
+  expect(await action(post({ intent: "nope" }))).toMatchObject({ intent: "update", failed: true });
+});

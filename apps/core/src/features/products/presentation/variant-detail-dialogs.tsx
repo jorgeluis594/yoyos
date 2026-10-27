@@ -6,7 +6,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 import type { ProductDetailResponse } from "@shared/contracts/products";
-import { valuesLeftWithoutVariants, variantLabel } from "@core/src/features/products/presentation/variant-detail-model";
+import { valuesLeftWithoutVariants, variantLabel, type VariantErrors } from "@core/src/features/products/presentation/variant-detail-model";
 
 type Product = ProductDetailResponse["product"];
 type Variant = Product["variants"][number];
@@ -52,13 +52,19 @@ export function DeleteDialog({ product, variant, pending, onConfirm, onClose }: 
 }
 
 /** One selector per option with the existing values and «Otro valor…», which adds a value at the end of that option. */
-export function CombinationDialog({ product, variant, pending, error, onSave, onClose }: Readonly<{
-  product: Product; variant: Variant; pending: boolean; error?: string; onSave: (values: readonly Entry[]) => void; onClose: () => void;
+export function CombinationDialog({ product, variant, pending, failure, onSave, onReload, onClose }: Readonly<{
+  product: Product; variant: Variant; pending: boolean; failure?: VariantErrors; onSave: (values: readonly Entry[]) => void; onReload: () => void; onClose: () => void;
 }>) {
   const { t } = useTranslation();
   const label = variantLabel(product, variant);
   const [chosen, setChosen] = useState<Readonly<Record<string, string>>>(Object.fromEntries(variant.combination.map((entry) => [entry.optionId, entry.valueId])));
   const [typed, setTyped] = useState<Readonly<Record<string, string>>>({});
+  const [cleared, setCleared] = useState<VariantErrors>();
+  const shown = failure !== cleared ? failure : undefined;
+  const error = shown?.combination;
+  const notice = shown?.inDoubt ?? shown?.form;
+  const current = Object.fromEntries(variant.combination.map((entry) => [entry.optionId, entry.valueId]));
+  const leaving = valuesLeftWithoutVariants(product, variant).filter(({ optionId }) => chosen[optionId] !== current[optionId]);
   const [ids] = useState(() => new Map<string, string>());
   const newId = (optionId: string) => { if (!ids.has(optionId)) ids.set(optionId, crypto.randomUUID()); return ids.get(optionId)!; };
   const entries = (): readonly Entry[] => product.options.map((option) => chosen[option.id] === other
@@ -76,14 +82,17 @@ export function CombinationDialog({ product, variant, pending, error, onSave, on
         {product.options.map((option) => <Field key={option.id} data-invalid={Boolean(error) || undefined}>
           <FieldLabel htmlFor={`combination-${option.id}`}>{option.name}</FieldLabel>
           <select id={`combination-${option.id}`} className="h-9 rounded-md border border-input bg-background px-2 text-sm" value={chosen[option.id]} aria-invalid={Boolean(error) || undefined}
-            onChange={(event) => setChosen({ ...chosen, [option.id]: event.target.value })}>
+            onChange={(event) => { setChosen({ ...chosen, [option.id]: event.target.value }); setCleared(failure); }}>
             {option.values.map((value) => <option key={value.id} value={value.id}>{value.name}</option>)}
             <option value={other}>{t("variantDetail.otherValue")}</option>
           </select>
           {chosen[option.id] === other && <Input aria-label={t("variantDetail.otherValueOf", { option: option.name })} value={typed[option.id] ?? ""} maxLength={60} autoFocus
-            onChange={(event) => setTyped({ ...typed, [option.id]: event.target.value })} />}
+            onChange={(event) => { setTyped({ ...typed, [option.id]: event.target.value }); setCleared(failure); }} />}
         </Field>)}
         {error && <FieldError>{error}</FieldError>}
+        {leaving.map(({ optionName, valueName }) => <p key={optionName} className="text-sm text-muted-foreground">{t("variantDetail.valueRemoved", { value: valueName, option: optionName })}</p>)}
+        {notice && <Alert variant="destructive"><AlertDescription className="flex flex-wrap items-center gap-3">{notice}
+          {shown?.inDoubt && <Button type="button" variant="outline" size="sm" onClick={onReload}>{t("variantDetail.reload")}</Button>}</AlertDescription></Alert>}
         <DialogFooter>
           <Button type="button" variant="outline" onClick={onClose}>{t("variantDetail.cancel")}</Button>
           <Button type="submit" disabled={pending}>{pending ? t("variantDetail.combinationSaving") : t("variantDetail.combinationSave")}</Button>

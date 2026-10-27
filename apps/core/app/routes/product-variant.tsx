@@ -39,6 +39,14 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
   }
 }
 
+/** The intent a rejected body names, so its error lands where that action shows errors. */
+function namedIntent(body: string): VariantIntent {
+  try {
+    const { intent } = JSON.parse(body) as { intent?: unknown };
+    return intent === "combination" || intent === "status" || intent === "delete" ? intent : "update";
+  } catch { return "update"; }
+}
+
 /** The product as it is now, for the rejections whose text names a combination or a stock; `null` when it cannot be read. */
 async function currentProduct(productId: ProductId) {
   try {
@@ -51,8 +59,9 @@ export async function action({ request, context, params }: ActionFunctionArgs): 
   const language = languageForLocale(new URL(request.url).pathname.split("/")[1]);
   if (!params.productId || !uuid.test(params.productId) || !params.variantId || !uuid.test(params.variantId)) throw new Response("Not found", { status: 404 });
   const company = context.get(privateUserContext).company;
-  const parsed = parseVariantAction(await request.text());
-  if (!parsed.success) return { intent: "update", failed: true, errors: saveErrors(parsed.error, language) };
+  const body = await request.text();
+  const parsed = parseVariantAction(body);
+  if (!parsed.success) return { intent: namedIntent(body), failed: true, errors: saveErrors(parsed.error, language) };
   const ids = { productId: params.productId as ProductId, variantId: params.variantId as VariantId };
   const { intent } = parsed.data;
   try {
@@ -97,7 +106,8 @@ export default function ProductVariant() {
   const { t } = useTranslation();
   const location = useLocation();
   const loaded = useLoaderData<typeof loader>();
-  const fetcher = useFetcher<typeof clientAction>();
+  // One fetcher per visit: the route stays mounted between sibling variants, and an old outcome must not show on the next one.
+  const fetcher = useFetcher<typeof clientAction>({ key: `variant-${location.key}` });
   const revalidator = useRevalidator();
   const [sent, setSent] = useState<VariantBody>();
   const [reloads, setReloads] = useState(0);

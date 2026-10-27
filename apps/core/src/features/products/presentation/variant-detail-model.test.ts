@@ -32,8 +32,8 @@ test("explains why a variant cannot be deleted: orders first, then stock, then b
 
 test("lists the values a deletion or a combination change leaves without variants", () => {
   const base = product();
-  expect(valuesLeftWithoutVariants(base, base.variants[1])).toEqual([{ optionName: "Talla", valueName: "XL" }]);
-  expect(valuesLeftWithoutVariants(base, base.variants[0])).toEqual([{ optionName: "Color", valueName: "Negro" }]);
+  expect(valuesLeftWithoutVariants(base, base.variants[1])).toEqual([{ optionId: talla, optionName: "Talla", valueName: "XL" }]);
+  expect(valuesLeftWithoutVariants(base, base.variants[0])).toEqual([{ optionId: color, optionName: "Color", valueName: "Negro" }]);
   expect(valuesLeftWithoutVariants(base, base.variants[2])).toEqual([]);
 });
 

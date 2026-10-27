@@ -6,8 +6,11 @@ import type { InputError } from "@core/src/features/products/presentation/reques
 import type { ValidationIssue } from "@core/src/features/products/domain/errors";
 
 const translations = createInstance();
-void translations.init({ lng: "es", fallbackLng: "es", resources, initAsync: false });
-type Language = "es" | "pt";
+void translations.init({ lng: "es", fallbackLng: "es", resources, initAsync: false, interpolation: { escapeValue: false } });
+export type Language = "es" | "pt";
+
+/** The fixed translator the product texts of the server use; React escapes what it renders, so values are not escaped twice. */
+export const productText = (language: Language) => translations.getFixedT(language, "translation");
 
 export type FormErrors = Readonly<{ form?: string; changed?: string; inDoubt?: string; name?: string; description?: string; sku?: string; salePrice?: string; purchasePrice?: string; initialStock?: string }>;
 

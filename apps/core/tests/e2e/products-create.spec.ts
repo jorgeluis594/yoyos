@@ -63,7 +63,7 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
     await page.reload();
     await browserExpect(page.getByLabel("SKU")).toHaveValue("LAP-1");
-    await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("1.2");
+    await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("1.20");
     await browserExpect(page.getByLabel("Descripción")).toHaveValue("Grafito");
     await browserExpect(page.getByLabel("Stock")).toHaveValue("7");
 

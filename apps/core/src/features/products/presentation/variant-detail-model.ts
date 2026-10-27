@@ -1,19 +1,14 @@
 import { z } from "zod";
-import { createInstance } from "i18next";
-import resources from "@core/app/locales";
 import { changeCombinationRequestSchema, changeVariantStatusRequestSchema, updateVariantRequestSchema, type ProductDetailResponse } from "@shared/contracts/products";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { combinationLabel } from "@shared/product-variants";
 import type { ValidationIssue } from "@core/src/features/products/domain/errors";
+import { productText, type Language } from "@core/src/features/products/presentation/messages";
 import { parseRequestValue, type InputError } from "@core/src/features/products/presentation/request-input";
 
 type Product = ProductDetailResponse["product"];
 type Variant = Product["variants"][number];
-type Language = "es" | "pt";
-
-const translations = createInstance();
-void translations.init({ lng: "es", fallbackLng: "es", resources, initAsync: false, interpolation: { escapeValue: false } });
 
 export const variantLabel = (product: Product, variant: Variant): string => combinationLabel(product.options, variant.combination);
 
@@ -28,13 +23,13 @@ export function deleteBlock(product: Product, variant: Variant): DeleteBlock | n
 }
 
 /** The values of this variant that no other variant uses: deleting it or moving it to another combination removes them. */
-export function valuesLeftWithoutVariants(product: Product, variant: Variant): readonly Readonly<{ optionName: string; valueName: string }>[] {
+export function valuesLeftWithoutVariants(product: Product, variant: Variant): readonly Readonly<{ optionId: string; optionName: string; valueName: string }>[] {
   const others = product.variants.filter((candidate) => candidate.id !== variant.id);
   return variant.combination.flatMap(({ optionId, valueId }) => {
     if (others.some((other) => other.combination.some((entry) => entry.valueId === valueId))) return [];
     const option = product.options.find((candidate) => candidate.id === optionId);
     const value = option?.values.find((candidate) => candidate.id === valueId);
-    return option && value ? [{ optionName: option.name, valueName: value.name }] : [];
+    return option && value ? [{ optionId, optionName: option.name, valueName: value.name }] : [];
   });
 }
 
@@ -72,7 +67,7 @@ type Entries = z.output<typeof changeCombinationRequestSchema>["values"];
 type Context = Readonly<{ product: Product | null; variantId: string; entries?: Entries; status?: "active" | "inactive" }>;
 type Failure = Readonly<{ code: string; message: string; issues?: readonly ValidationIssue[] }>;
 
-const text = (language: Language) => translations.getFixedT(language, "translation");
+const text = productText;
 
 function validation(issues: readonly ValidationIssue[], language: Language, context: Context): VariantErrors {
   const t = text(language);

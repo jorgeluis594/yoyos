@@ -46,7 +46,8 @@ export function VariantDetail({ product, variant, productHref, outcome, pending,
   const [noFit, setNoFit] = useState(false);
   const label = useRef<LabelHandle>(null);
   const dirty = values.salePrice !== initial.salePrice || values.purchasePrice !== initial.purchasePrice || values.sku !== initial.sku;
-  const guard = useDiscardGuard(dirty);
+  // While a delete waits, leaving is the delete itself; if it is rejected the guard is back in force.
+  const guard = useDiscardGuard(dirty && pending !== "delete");
   const busy = pending !== null;
   const shown = outcome && outcome !== dismissed ? outcome : undefined;
   const errors = shown && "failed" in shown ? shown.errors : {};
@@ -79,7 +80,9 @@ export function VariantDetail({ product, variant, productHref, outcome, pending,
   const buttonText = (intent: VariantIntent, idle: string, busyText: string) => pending === intent ? busyText : idle;
   const deactivating = pending === "status" && pendingStatus === "inactive";
   const activating = pending === "status" && pendingStatus !== "inactive";
-  const notice = errors.inDoubt ?? errors.form;
+  const combinationFailure = outcome !== baseline && outcome && "failed" in outcome && outcome.intent === "combination" ? outcome.errors : undefined;
+  // A failed combination is shown inside its open dialog, where the seller is looking.
+  const notice = dialog === "combination" && combinationFailure ? undefined : errors.inDoubt ?? errors.form;
   const field = (key: keyof typeof values, text: string, input: Partial<React.ComponentProps<typeof Input>>) => <Field data-invalid={Boolean(errors[key])}>
     <FieldLabel htmlFor={`variant-${key}`}>{text}</FieldLabel>
     <Input id={`variant-${key}`} value={values[key]} onChange={(event) => edit(key, event.target.value)} aria-invalid={Boolean(errors[key]) || undefined} aria-describedby={errors[key] ? `variant-${key}-error` : undefined} {...input} />
@@ -172,9 +175,9 @@ export function VariantDetail({ product, variant, productHref, outcome, pending,
     {guard.dialog}
     {confirmReload && <ConfirmDialog title={t("productEditor.discardTitle")} description={t("productEditor.discardDescription")} confirm={t("productEditor.discard")} cancel={t("productEditor.keepEditing")}
       onConfirm={() => { setConfirmReload(false); setValues(initial); onReload(); }} onCancel={() => setConfirmReload(false)} />}
-    {dialog === "combination" && !combinationSaved && <CombinationDialog product={product} variant={variant} pending={pending === "combination"} error={outcome && "failed" in outcome && outcome.intent === "combination" ? outcome.errors.combination : undefined}
-      onSave={(entries) => onSubmit({ intent: "combination", values: entries })} onClose={() => setDialog(null)} />}
+    {dialog === "combination" && !combinationSaved && <CombinationDialog product={product} variant={variant} pending={pending === "combination"} failure={combinationFailure}
+      onSave={(entries) => onSubmit({ intent: "combination", values: entries })} onReload={() => { setDialog(null); reload(); }} onClose={() => setDialog(null)} />}
     {dialog === "deactivate" && <DeactivateDialog product={product} variant={variant} pending={busy} onClose={() => setDialog(null)} onConfirm={() => { setDialog(null); onSubmit({ intent: "status", status: "inactive" }); }} />}
-    {dialog === "delete" && <DeleteDialog product={product} variant={variant} pending={busy} onClose={() => setDialog(null)} onConfirm={() => { setDialog(null); guard.allowLeaving(); onSubmit({ intent: "delete" }); }} />}
+    {dialog === "delete" && <DeleteDialog product={product} variant={variant} pending={busy} onClose={() => setDialog(null)} onConfirm={() => { setDialog(null); onSubmit({ intent: "delete" }); }} />}
   </PageContainer>;
 }

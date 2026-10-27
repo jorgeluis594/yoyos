@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useEffect, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createInstance } from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
@@ -7,6 +7,7 @@ import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import resources from "@core/app/locales";
 import type { ProductDetailResponse } from "@shared/contracts/products";
+import type { VariantOutcome } from "@core/src/features/products/presentation/variant-detail-model";
 import { VariantDetail, type VariantDetailProps } from "@core/src/features/products/presentation/variant-detail";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -117,4 +118,58 @@ test("Imprimir opens the browser print dialog with the label and does not print 
   click(button("Imprimir"));
   expect(print).toHaveBeenCalledOnce();
   expect(container.textContent).toContain("El contenido no cabe completo en esta etiqueta.");
+});
+
+const openCombination = () => click(button("Cambiar combinación"));
+const dialogText = () => document.querySelector("[role=dialog]")?.textContent ?? "";
+
+test("the combination dialog names the value that is left without variants and drops the line when it is kept", () => {
+  mount();
+  openCombination();
+  expect(dialogText()).not.toContain("se quitará");
+  const select = document.querySelector<HTMLSelectElement>(`#combination-${talla}`)!;
+  act(() => { select.value = m; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(dialogText()).toContain("«L» se quitará de Talla porque no le quedan variantes.");
+  act(() => { select.value = l; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(dialogText()).not.toContain("se quitará");
+});
+
+let answer: (outcome: VariantOutcome | undefined) => void = () => undefined;
+function Harness({ onReload }: Readonly<{ onReload: () => void }>) {
+  const [outcome, setOutcome] = useState<VariantOutcome>();
+  useEffect(() => { answer = setOutcome; }, []);
+  const detail = product();
+  return <VariantDetail product={detail} variant={detail.variants[0]} productHref="/p" outcome={outcome} pending={null} onSubmit={() => undefined} onReload={onReload} />;
+}
+function mountHarness(onReload = () => undefined) {
+  const router = createMemoryRouter([{ path: "/p", element: <Harness onReload={onReload} /> }], { initialEntries: ["/p"] });
+  act(() => root.render(<I18nextProvider i18n={i18n}><RouterProvider router={router} /></I18nextProvider>));
+}
+const fail = (errors: object): VariantOutcome => ({ intent: "combination", failed: true, errors });
+
+test("offline, in-doubt and form failures of the combination show inside the dialog, with a way to reload when in doubt", () => {
+  const onReload = vi.fn();
+  mountHarness(onReload);
+  openCombination();
+  act(() => answer(fail({ form: "No se pudo cambiar la combinación. Revisa tu conexión e inténtalo otra vez." })));
+  expect(dialogText()).toContain("No se pudo cambiar la combinación. Revisa tu conexión e inténtalo otra vez.");
+  act(() => answer(fail({ inDoubt: "No se pudo confirmar el cambio. Recarga la variante para ver su combinación." })));
+  expect(dialogText()).toContain("No se pudo confirmar el cambio.");
+  click([...document.querySelectorAll("[role=dialog] button")].find((candidate) => candidate.textContent === "Recargar variante")!);
+  expect(onReload).toHaveBeenCalledOnce();
+});
+
+test("a rejection of the combination disappears when the seller changes a selector or reopens the dialog", () => {
+  mountHarness();
+  openCombination();
+  act(() => answer(fail({ combination: "Ya existe la variante M / Azul. Elige otra combinación." })));
+  expect(dialogText()).toContain("Ya existe la variante M / Azul.");
+  const select = document.querySelector<HTMLSelectElement>(`#combination-${talla}`)!;
+  act(() => { select.value = m; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(dialogText()).not.toContain("Ya existe la variante");
+  act(() => answer(fail({ combination: "Otra vez." })));
+  expect(dialogText()).toContain("Otra vez.");
+  click([...document.querySelectorAll("[role=dialog] button")].find((candidate) => candidate.textContent === "Cancelar")!);
+  openCombination();
+  expect(dialogText()).not.toContain("Otra vez.");
 });
