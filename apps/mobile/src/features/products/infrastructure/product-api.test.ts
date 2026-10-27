@@ -132,3 +132,22 @@ test("the create request carries the editor contract with nullable fields", asyn
   expect(JSON.parse(request.mock.calls[0][1].body)).toEqual(createBody);
   expect(await createProductApi(request, () => 0).create({ ...createBody, variants: [] } as never)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
 });
+
+const saveBody = { structureVersion: 1, name: "Camisa", description: null, imageId: null, options: [], variants: [], newVariants: [], deletedVariantIds: [] };
+
+test("the editor save is a PUT that answers the full detail", async () => {
+  const request = jest.fn().mockResolvedValue(ok(withOptions("active")));
+  const result = await createProductApi(request, () => 0).save(productId, saveBody);
+  expect(request.mock.calls[0][0]).toBe(`/api/products/${productId}`);
+  expect(request.mock.calls[0][1]).toMatchObject({ method: "PUT" });
+  expect(JSON.parse(request.mock.calls[0][1].body)).toEqual(saveBody);
+  expect(result).toMatchObject({ success: true, data: { structureVersion: 3, variants: [{ id: variantId }] } });
+});
+
+test("the editor save maps its rejections by code", async () => {
+  const save = (status: number, code: string) => createProductApi(async () => failure(status, code), () => 0).save(productId, saveBody);
+  for (const [code, status] of [["PRODUCT_CHANGED", 409], ["DUPLICATE_SKU", 409], ["DUPLICATE_COMBINATION", 409], ["VARIANT_HAS_ORDERS", 409], ["ID_CONFLICT", 409], ["PRODUCT_NOT_FOUND", 404], ["VALIDATION_ERROR", 422]] as const)
+    expect(await save(status, code)).toMatchObject({ success: false, error: { code } });
+  expect(await save(409, "PRODUCT_ID_CONFLICT")).toMatchObject({ success: false, error: { code: "API_ERROR" } });
+  expect(await save(200, "PRODUCT_CHANGED")).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+});

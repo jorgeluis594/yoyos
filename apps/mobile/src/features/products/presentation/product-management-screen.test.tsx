@@ -6,13 +6,14 @@ import { createProductOperations } from "@mobile/features/products/application/p
 import { createProductPrintingOperations, type ProductPrintingDependencies } from "@mobile/features/products/application/product-printing";
 import type { ProductLabel } from "@mobile/features/products/domain/product-label";
 import ProductManagementScreen from "@mobile/features/products/presentation/product-management-screen";
+import { ProductEditorProvider } from "@mobile/features/products/presentation/product-editor-state";
 import i18n from '@mobile/i18n';
 import type { AdapterId, PrinterId } from "@mobile/features/printing/domain/printing";
 import type { PrintWork } from "@mobile/features/printing/presentation/print-provider";
 
 const mockLoadProduct = jest.fn();
 const mockGuard = jest.fn();
-const mockUpdateProduct = jest.fn();
+const mockSaveProduct = jest.fn();
 const mockStartAttempt = jest.fn();
 const mockPrintProductLabel = jest.fn();
 const productId = "00000000-0000-4000-8000-000000000001";
@@ -22,11 +23,13 @@ const product = {
 };
 
 const mockReplace = jest.fn();
-jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ productId }), useRouter: () => ({ replace: mockReplace, canGoBack: () => false, back: jest.fn() }) }));
+const mockPush = jest.fn();
+const renderScreen = () => render(<ProductEditorProvider><ProductManagementScreen /></ProductEditorProvider>);
+jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ productId }), useRouter: () => ({ replace: mockReplace, push: mockPush, canGoBack: () => false, back: jest.fn() }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready" } }) }));
 jest.mock("@mobile/features/products/composition", () => ({
-  products: { loadProduct: (...args: unknown[]) => mockLoadProduct(...args), updateProduct: (...args: unknown[]) => mockUpdateProduct(...args), uploadImage: jest.fn() },
+  products: { loadProduct: (...args: unknown[]) => mockLoadProduct(...args), saveProduct: (...args: unknown[]) => mockSaveProduct(...args), uploadImage: jest.fn() },
   productPrinting: { printProductLabel: (...args: unknown[]) => mockPrintProductLabel(...args) },
 }));
 jest.mock("@mobile/features/printing/presentation/print-provider", () => ({ usePrint: () => ({ startAttempt: mockStartAttempt }) }));
@@ -41,7 +44,7 @@ test("printing with draft changes opens the print sheet and uses the saved produ
   mockPrintProductLabel.mockResolvedValue(ok({ status: "completed", receipt: { confirmation: "sdk" } }));
   const alert = jest.spyOn(Alert, "alert");
   try {
-    render(<ProductManagementScreen />);
+    renderScreen();
     fireEvent.changeText(await screen.findByLabelText("Nombre *"), "Camisa editada");
     fireEvent.press(screen.getByRole("button", { name: "Imprimir etiqueta" }));
     expect(screen.getByText("La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.")).toBeTruthy();
@@ -65,10 +68,7 @@ test("an explicit variant prints saved data and copies while saving the draft do
   const blueId = "00000000-0000-4000-8000-000000000012";
   let savedName = "Camisa";
   const request = jest.fn(async (_path: string, init?: RequestInit) => {
-    if (init?.method === "PATCH") {
-      savedName = JSON.parse(init.body as string).name;
-      return ok({ id: productId });
-    }
+    if (init?.method === "PUT") savedName = JSON.parse(init.body as string).name;
     return ok({ product: {
       id: productId, name: savedName, description: null, imageId: null, currency: "PEN", qrCode: "00000000-0000-4000-8000-000000000006",
       createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", structureVersion: 1,
@@ -87,11 +87,11 @@ test("an explicit variant prints saved data and copies while saving the draft do
   });
   const printing = createProductPrintingOperations({ loadProduct: products.loadProduct, renderProductLabel, printDocument });
   mockLoadProduct.mockImplementation(products.loadProduct);
-  mockUpdateProduct.mockImplementation(products.updateProduct);
+  mockSaveProduct.mockImplementation(products.saveProduct);
   mockPrintProductLabel.mockImplementation(printing.printProductLabel);
   const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
   try {
-    render(<ProductManagementScreen />);
+    renderScreen();
     fireEvent.changeText(await screen.findByLabelText("Nombre *"), "Camisa editada");
     fireEvent.press(screen.getByRole("button", { name: "Imprimir etiqueta" }));
     expect(screen.getByText("La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.")).toBeTruthy();
@@ -109,20 +109,22 @@ test("an explicit variant prints saved data and copies while saving the draft do
     await waitFor(() => expect(savedName).toBe("Camisa editada"));
     await waitFor(() => expect(screen.queryByText("La etiqueta usará los datos guardados, sin incluir los cambios de este formulario.")).toBeNull());
     expect(printDocument).toHaveBeenCalledTimes(1);
-    expect(request.mock.calls.filter(([, init]) => init?.method === "PATCH")).toHaveLength(1);
-    expect(request.mock.calls.map(([path]) => path)).toEqual(Array(3).fill(`/api/products/${productId}`));
+    expect(request.mock.calls.filter(([, init]) => init?.method === "PUT")).toHaveLength(1);
+    // The save answers the full detail, so there is no read after it.
+    expect(request.mock.calls.map(([path]) => path)).toEqual(Array(2).fill(`/api/products/${productId}`));
   } finally { alert.mockRestore(); }
 });
 
 test("a failed edit reports the error and does not present a saved result", async () => {
   mockLoadProduct.mockResolvedValue(ok(product));
-  mockUpdateProduct.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
+  mockSaveProduct.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
   const alert = jest.spyOn(Alert, "alert");
   try {
-    render(<ProductManagementScreen />);
+    renderScreen();
     fireEvent.changeText(await screen.findByLabelText("Nombre *"), "Camisa editada");
     fireEvent.press(screen.getByRole("button", { name: "Guardar" }));
-    expect(await screen.findByText("No se pudo guardar. Revisa tu conexión e inténtalo otra vez.")).toBeTruthy();
+    expect(await screen.findByText("Puede que se hayan guardado los cambios. Recarga el producto para revisarlos.")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Recargar producto" })).toBeTruthy();
     expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa editada");
     expect(screen.getByRole("button", { name: "Imprimir etiqueta" }).props.accessibilityState.disabled).toBe(true);
     expect(alert).not.toHaveBeenCalled();
@@ -133,7 +135,7 @@ test("invalid copies are reported before starting a print attempt", async () => 
   mockLoadProduct.mockResolvedValue(ok(product));
   const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
   try {
-    render(<ProductManagementScreen />);
+    renderScreen();
     await screen.findByLabelText("Nombre *");
     fireEvent.press(screen.getByRole("button", { name: "Imprimir etiqueta" }));
     fireEvent.changeText(screen.getByLabelText("Copias de la etiqueta"), "0");
@@ -148,7 +150,7 @@ test('product management uses Portuguese labels', async () => {
   await i18n.changeLanguage('pt-BR');
   mockLoadProduct.mockResolvedValue(ok(product));
   try {
-    const form = render(<ProductManagementScreen />);
+    const form = renderScreen();
     await screen.findByText('Editar produto');
     expect(screen.getByRole('button', { name: 'Imprimir etiqueta' })).toBeTruthy();
     form.unmount();
@@ -159,14 +161,14 @@ test('product management uses Portuguese labels', async () => {
 
 test("a product that fails to load can still be closed without the tab bar", async () => {
   mockLoadProduct.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
-  render(<ProductManagementScreen />);
+  renderScreen();
   fireEvent.press(await screen.findByRole("button", { name: "Cerrar" }));
   expect(mockReplace).toHaveBeenCalledWith("/products");
 });
 
 test("editing shows the same inventory stepper as creation, locked", async () => {
   mockLoadProduct.mockResolvedValue(ok(product));
-  render(<ProductManagementScreen />);
+  renderScreen();
   expect(await screen.findByText("Editar producto")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Sumar uno al stock" }).props.accessibilityState.disabled).toBe(true);
   expect(screen.queryByText("El stock cambia con las ventas y ajustes.")).toBeNull();
@@ -175,9 +177,61 @@ test("editing shows the same inventory stepper as creation, locked", async () =>
 
 test("an untouched product is not dirty, even when its price has no decimals", async () => {
   mockLoadProduct.mockResolvedValue(ok(product));
-  render(<ProductManagementScreen />);
+  renderScreen();
   await screen.findByText("Editar producto");
   expect(mockGuard).toHaveBeenLastCalledWith(false);
   fireEvent.changeText(screen.getByLabelText("Nombre *"), "Otro nombre");
   expect(mockGuard).toHaveBeenLastCalledWith(true);
+});
+
+test("a PRODUCT_CHANGED rejection keeps the form and offers to reload", async () => {
+  mockLoadProduct.mockResolvedValue(ok(product));
+  mockSaveProduct.mockResolvedValue(err({ code: "PRODUCT_CHANGED", message: "changed" }));
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  try {
+    renderScreen();
+    fireEvent.changeText(await screen.findByLabelText("Nombre *"), "Camisa editada");
+    fireEvent.press(screen.getByRole("button", { name: "Guardar" }));
+    expect(await screen.findByText("Este producto cambió desde que lo abriste. Recarga el producto para ver los cambios.")).toBeTruthy();
+    expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa editada");
+    expect(alert).not.toHaveBeenCalled();
+    fireEvent.press(screen.getByRole("button", { name: "Recargar producto" }));
+    expect(alert).toHaveBeenCalledWith("¿Descartar cambios?", "Se perderán los cambios que no guardaste.", expect.anything(), expect.anything());
+    expect(mockLoadProduct).toHaveBeenCalledTimes(1);
+    const discard = (alert.mock.calls[0][2] as { text: string; onPress?: () => void }[]).find((button) => button.text === "Descartar");
+    await waitFor(() => discard?.onPress?.());
+    await waitFor(() => expect(mockLoadProduct).toHaveBeenCalledTimes(2));
+    expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa");
+  } finally { alert.mockRestore(); }
+});
+
+test("a product with options shows its variants card instead of the price and SKU fields", async () => {
+  const colorId = "00000000-0000-4000-8000-000000000010";
+  const blueId = "00000000-0000-4000-8000-000000000011";
+  const redId = "00000000-0000-4000-8000-000000000012";
+  const withOptions = { ...product, options: [{ id: colorId, name: "Color", values: [{ id: redId, name: "Rojo" }, { id: blueId, name: "Azul" }] }],
+    variants: [
+      { ...product.variants[0], id: "variant-1", combination: [{ optionId: colorId, valueId: redId }], stock: 3, status: "active" },
+      { ...product.variants[0], id: "variant-2", combination: [{ optionId: colorId, valueId: blueId }], stock: 2, status: "inactive", salePrice: { amount: 18, currency: "PEN" } },
+    ] };
+  mockLoadProduct.mockResolvedValue(ok(withOptions));
+  renderScreen();
+  expect(await screen.findByText("2 variantes")).toBeTruthy();
+  expect(screen.getByText("3 en stock · desde S/ 20.00")).toBeTruthy();
+  expect(screen.getByText("Color")).toBeTruthy();
+  expect(screen.queryByLabelText("SKU (opcional)")).toBeNull();
+  expect(screen.queryByLabelText(/Precio de venta/)).toBeNull();
+  expect(screen.getByText("Suma del stock de las variantes activas.")).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Ver variantes" }));
+  expect(mockPush).toHaveBeenCalledWith(expect.objectContaining({ pathname: "/products/[productId]/variants" }));
+});
+
+test("a product without active variants says so", async () => {
+  const colorId = "00000000-0000-4000-8000-000000000010";
+  const redId = "00000000-0000-4000-8000-000000000012";
+  mockLoadProduct.mockResolvedValue(ok({ ...product, options: [{ id: colorId, name: "Color", values: [{ id: redId, name: "Rojo" }] }],
+    variants: [{ ...product.variants[0], combination: [{ optionId: colorId, valueId: redId }], status: "inactive" }] }));
+  renderScreen();
+  expect(await screen.findByText("Ninguna variante está a la venta. Activa una para volver a venderla en tu tienda y en «Nueva venta».")).toBeTruthy();
+  expect(screen.getByText("Sin variantes activas")).toBeTruthy();
 });

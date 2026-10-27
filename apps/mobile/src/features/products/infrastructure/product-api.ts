@@ -5,9 +5,9 @@ import {
   productDetailResponseSchema,
   productIdResponseSchema,
   productListResponseSchema,
-  updateProductRequestSchema,
+  saveProductRequestSchema,
   type CreateProductRequest,
-  type UpdateProductRequest,
+  type SaveProductRequest,
 } from "@shared/contracts/products";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -45,7 +45,7 @@ export type ListProductsError = ProductTransportFailure
   | Readonly<{ code: "INVALID_INPUT"; message: string; issues: readonly [ProductListInputIssue, ...ProductListInputIssue[]] }>
   | Readonly<{ code: "VALIDATION_ERROR"; message: string; issues: readonly [ProductListCriteriaIssue, ...ProductListCriteriaIssue[]] }>;
 export type CreateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "PRODUCT_ID_CONFLICT" | "ID_CONFLICT" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
-export type UpdateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "PRODUCT_NOT_FOUND" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
+export type SaveProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "PRODUCT_CHANGED" | "ID_CONFLICT" | "VARIANT_HAS_ORDERS" | "PRODUCT_NOT_FOUND" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
 export type UploadProductImageError = UploadImageError;
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
@@ -208,15 +208,17 @@ export function createProductApi(request: Request, sessionGeneration: () => numb
       const result = await uploadImage(request, uri, "image/jpeg");
       return result.success ? ok({ id: result.data.id as ImageId, url: result.data.url }) : result;
     },
-    async update(id: ProductId, input: UpdateProductRequest): Promise<Result<ProductId, UpdateProductError>> {
-      const body = updateProductRequestSchema.safeParse(input);
+    /** The editor's «Guardar cambios»: answers the full detail, so the screen needs no follow-up read. */
+    async save(id: ProductId, input: SaveProductRequest): Promise<Result<Product, SaveProductError>> {
+      const body = saveProductRequestSchema.safeParse(input);
       if (!body.success) return err({ code: "INVALID_INPUT", message: "Invalid product input" });
+      const codes = ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_SKU", "DUPLICATE_COMBINATION", "PRODUCT_CHANGED", "ID_CONFLICT", "VARIANT_HAS_ORDERS", "PRODUCT_NOT_FOUND", "IMAGE_NOT_FOUND", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE"] as const;
       const result = restrictFailure(await run(`/api/products/${encodeURIComponent(id)}`, {
-        method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(body.data),
-      }, ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_SKU", "PRODUCT_NOT_FOUND", "IMAGE_NOT_FOUND", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE", "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_SKU", "PRODUCT_NOT_FOUND", "IMAGE_NOT_FOUND", "PAYLOAD_TOO_LARGE", "UNSUPPORTED_MEDIA_TYPE"] as const);
+        method: "PUT", headers: { "content-type": "application/json" }, body: JSON.stringify(body.data),
+      }, [...codes, "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), codes);
       if (!result.success) return result;
-      const parsed = productIdResponseSchema.safeParse(result.data);
-      return parsed.success ? ok(parsed.data.id as ProductId) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product ID"));
+      const parsed = productDetailResponseSchema.safeParse(result.data);
+      return parsed.success ? ok(productDetail(parsed.data)) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product data"));
     },
   };
 }

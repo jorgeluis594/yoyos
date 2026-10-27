@@ -1,68 +1,41 @@
 import { countryCurrencies, type Country } from "@shared/country";
-import type { CreateProductRequest, UpdateProductRequest } from "@shared/contracts/products";
+import { buildCreateProductBody, buildSaveProductBody, type EditorDraft } from "@shared/product-variants";
 import type { Product, ProductId, PhotoSelection } from "../domain/product";
 import type { createProductApi } from "../infrastructure/product-api";
 
 type ProductApi = ReturnType<typeof createProductApi>;
+/** The draft carries the base values (SKU, prices, stock) of a product without options and every option, variant and mark. */
 export type CreateProductCommand = Readonly<{
   id: ProductId;
   country: Country;
   name: string;
   description?: string;
   photo: PhotoSelection;
-  sku?: string;
-  salePrice: number;
-  purchasePrice?: number;
-  initialStock?: number;
+  draft: EditorDraft;
 }>;
-export type UpdateProductCommand = Readonly<{
+export type SaveProductCommand = Readonly<{
   current: Product;
-  name?: string;
-  description?: string | null;
+  name: string;
+  description: string | null;
   photo: PhotoSelection;
-  variant?: Readonly<{ id: Product["variants"][number]["id"]; sku?: string | null; salePrice?: number; purchasePrice?: number | null }>;
+  draft: EditorDraft;
 }>;
 
-function createRequest(command: CreateProductCommand): CreateProductRequest {
-  return {
-    id: command.id,
-    name: command.name,
-    description: command.description ?? null,
-    imageId: command.photo.kind === "set" ? command.photo.imageId : null,
-    currency: countryCurrencies[command.country],
-    options: [],
-    variants: [{
-      values: [],
-      sku: command.sku ?? null,
-      salePrice: command.salePrice,
-      purchasePrice: command.purchasePrice ?? null,
-      initialStock: command.initialStock ?? 0,
-    }],
-  };
-}
-
-function updateRequest(command: UpdateProductCommand): UpdateProductRequest | null {
-  if (command.variant && (command.current.variants.length !== 1 || command.current.variants[0].id !== command.variant.id)) return null;
-  return {
-    ...(command.name === undefined ? {} : { name: command.name }),
-    ...(command.description === undefined ? {} : { description: command.description }),
-    ...(command.photo.kind === "keep" ? {} : { imageId: command.photo.kind === "remove" ? null : command.photo.imageId }),
-    ...(!command.variant ? {} : { variants: [{ ...command.variant }] }),
-  };
-}
+const imageIdOf = (photo: PhotoSelection, current?: Product["photo"]) =>
+  photo.kind === "set" ? photo.imageId : photo.kind === "remove" ? null : current?.id ?? null;
 
 export function createProductOperations(api: ProductApi) {
   return {
     loadProducts: api.list,
     loadProduct: api.get,
     uploadImage: api.uploadImage,
-    createProduct: (command: CreateProductCommand) => api.create(createRequest(command)),
-    updateProduct: (command: UpdateProductCommand) => {
-      const input = updateRequest(command);
-      return input ? api.update(command.current.id, input) : Promise.resolve({
-        success: false as const,
-        error: { code: "INVALID_INPUT", message: "This variant cannot be edited from mobile" },
-      });
-    },
+    createProduct: (command: CreateProductCommand) => api.create(buildCreateProductBody(command.draft, {
+      id: command.id, name: command.name, description: command.description ?? null, imageId: imageIdOf(command.photo),
+      currency: countryCurrencies[command.country],
+    })),
+    saveProduct: (command: SaveProductCommand) => api.save(command.current.id, buildSaveProductBody(command.draft, {
+      structureVersion: command.current.structureVersion, name: command.name, description: command.description,
+      imageId: imageIdOf(command.photo, command.current.photo),
+    })),
   };
 }
