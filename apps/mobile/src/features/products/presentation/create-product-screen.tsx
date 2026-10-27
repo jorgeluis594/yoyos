@@ -34,6 +34,7 @@ export default function CreateProductScreen() {
   const [saving, setSaving] = useState(false);
   const [photoBusy, setPhotoBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
+  const [uncertain, setUncertain] = useState(false);
   const productId = useRef<ProductId | null>(null);
   const editor = useProductEditor();
   const [started, setStarted] = useState(false);
@@ -91,7 +92,8 @@ export default function CreateProductScreen() {
     setSaving(true);
     if (!await isOnline()) {
       setSaving(false);
-      setErrors({ form: t('saveProductError') });
+      // An earlier attempt that may have reached core stays in doubt: being offline now does not settle it.
+      setErrors({ form: uncertain ? t('productCreationUncertain') : t('saveProductError') });
       return;
     }
     productId.current ??= Crypto.randomUUID() as ProductId;
@@ -108,6 +110,7 @@ export default function CreateProductScreen() {
       const mapped = editorErrorsOf(result.error, next);
       editor.setErrors(mapped);
       const summary = errorSummary(mapped);
+      setUncertain(uncertainCodes.includes(result.error.code));
       setErrors(summary ? { form: summary } : uncertainCodes.includes(result.error.code) ? { form: t('productCreationUncertain') } : productErrors(result.error, hasOptions));
       setConflict(result.error.code === "PRODUCT_ID_CONFLICT");
       return;

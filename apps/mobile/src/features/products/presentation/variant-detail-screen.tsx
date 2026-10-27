@@ -18,7 +18,8 @@ import { ThemedView } from "@mobile/components/themed-view";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { products, variants } from "@mobile/features/products/composition";
 import type { CopyCount } from "@mobile/features/printing/composition";
-import type { VariantActionCode, VariantActionError } from "../application/variant-operations";
+import type { VariantActionError } from "../application/variant-operations";
+import { uncertainCodes as productUncertainCodes } from "./product-form-state";
 import type { Product, ProductId, ProductVariant, VariantId } from "../domain/product";
 import { ChangeCombinationSheet } from "./change-combination-sheet";
 import { formEdges } from "./form-edges";
@@ -33,7 +34,7 @@ import tokens from "../../../../../../docs/design-tokens.json";
 type Busy = "save" | "deactivate" | "activate" | "delete" | "combination" | null;
 type Gone = "product" | "products";
 /** The request may have reached core: the outcome is unknown until the variant is reloaded. */
-const uncertainCodes: readonly VariantActionCode[] = ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INVALID_RESPONSE"];
+const uncertainCodes: readonly string[] = [...productUncertainCodes, "INVALID_RESPONSE"];
 const decimals = (text: string) => (text.trim().split(".")[1] ?? "").length;
 const amountOf = (text: string) => /^\d+(?:\.\d+)?$/.test(text.trim()) ? Number(text) : null;
 
