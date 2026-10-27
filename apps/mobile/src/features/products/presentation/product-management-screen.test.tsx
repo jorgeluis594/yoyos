@@ -22,9 +22,11 @@ const product = {
   variants: [{ id: "variant-1", qrCode: "qr-1", combination: [], sku: "CAM-1", salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }],
 };
 
+let mockOnline = true;
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
 const renderScreen = () => render(<ProductEditorProvider><ProductManagementScreen /></ProductEditorProvider>);
+jest.mock("expo-network", () => ({ getNetworkStateAsync: async () => ({ isConnected: mockOnline, isInternetReachable: mockOnline }) }));
 jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ productId }), useRouter: () => ({ replace: mockReplace, push: mockPush, canGoBack: () => false, back: jest.fn() }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready" } }) }));
@@ -37,7 +39,7 @@ jest.mock("@mobile/features/products/presentation/use-product-navigation-guard",
 jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: 0 }) }));
 jest.mock("@mobile/features/products/presentation/product-photo", () => ({ ProductPhoto: () => null }));
 
-beforeEach(() => { jest.clearAllMocks(); });
+beforeEach(() => { jest.clearAllMocks(); mockOnline = true; });
 
 test("printing with draft changes opens the print sheet and uses the saved product", async () => {
   mockLoadProduct.mockResolvedValue(ok(product));
@@ -115,9 +117,25 @@ test("an explicit variant prints saved data and copies while saving the draft do
   } finally { alert.mockRestore(); }
 });
 
-test("a failed edit reports the error and does not present a saved result", async () => {
+test("an edit saved offline says it was not sent, keeps the form and never calls core", async () => {
+  mockOnline = false;
   mockLoadProduct.mockResolvedValue(ok(product));
-  mockSaveProduct.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
+  const alert = jest.spyOn(Alert, "alert");
+  try {
+    renderScreen();
+    fireEvent.changeText(await screen.findByLabelText("Nombre *"), "Camisa editada");
+    fireEvent.press(screen.getByRole("button", { name: "Guardar" }));
+    expect(await screen.findByText("No se pudo guardar. Revisa tu conexión e inténtalo otra vez.")).toBeTruthy();
+    expect(screen.queryByText("Puede que se hayan guardado los cambios. Recarga el producto para revisarlos.")).toBeNull();
+    expect(mockSaveProduct).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa editada");
+    expect(alert).not.toHaveBeenCalled();
+  } finally { alert.mockRestore(); }
+});
+
+test("an edit sent whose answer is lost is in doubt, keeps the form and offers to reload", async () => {
+  mockLoadProduct.mockResolvedValue(ok(product));
+  mockSaveProduct.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "lost" }));
   const alert = jest.spyOn(Alert, "alert");
   try {
     renderScreen();

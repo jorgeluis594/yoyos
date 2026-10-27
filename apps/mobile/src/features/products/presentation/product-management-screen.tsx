@@ -20,9 +20,10 @@ import { ProductTopBar } from "@mobile/features/products/presentation/product-to
 import { ProductPrintSheet } from "@mobile/features/products/presentation/product-print-sheet";
 import type { CopyCount } from "@mobile/features/printing/composition";
 import type { ProductFormField, ProductFormValues } from "./product-form";
-import { baseOf, productErrors, rowErrors, validateProductForm, valuesForProduct } from "./product-form-state";
+import { baseOf, productErrors, rowErrors, uncertainCodes, validateProductForm, valuesForProduct } from "./product-form-state";
 import { editorErrorsOf, errorSummary, rowErrorCount } from "./product-editor-messages";
 import { noEditorErrors, useProductEditor } from "./product-editor-state";
+import { isOnline } from "./is-online";
 import { productPath } from "./product-routes";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
 import { useProductDraft } from "./draft-guard";
@@ -30,8 +31,6 @@ import { usePrint } from "@mobile/features/printing/presentation/print-provider"
 import { productPrintWork } from "./product-print-work";
 import translations from '@mobile/i18n';
 import tokens from "../../../../../../docs/design-tokens.json";
-
-const uncertainCodes = ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE"];
 
 export default function ProductManagementScreen() {
   const { productId } = useLocalSearchParams<{ productId: string }>();
@@ -150,6 +149,12 @@ export default function ProductManagementScreen() {
       return;
     }
     setSaving(true);
+    if (!await isOnline()) {
+      setSaving(false);
+      setUncertain(false);
+      setErrors({ form: t('saveProductError') });
+      return;
+    }
     const result = await products.saveProduct({ current: product, name: values.name, description: values.description || null, photo, draft: next });
     setSaving(false);
     if (!result.success) {
