@@ -200,7 +200,11 @@ function CompanyOrderScreen() {
       const result = await work();
       if (activeCompany.current !== companyId) return;
       if (!result.success) {
-        setError(translations.t(errorKeys[result.error.code] ?? 'confirmOrderError'));
+        const failingVariantId = "issues" in result.error ? result.error.issues?.find(issue => issue.variantId)?.variantId ?? null : null;
+        const missing = result.error.code === "VARIANT_NOT_FOUND" ? draft.items.find(item => item.variantId === failingVariantId) : undefined;
+        setError(missing
+          ? translations.t('itemNoLongerAvailable', { name: Object.values(missing.variantAttributes).join(" / ") || missing.productName })
+          : translations.t(errorKeys[result.error.code] ?? 'confirmOrderError'));
         if (["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "INVALID_DISTRICT", "DELIVERY_METHOD_DISABLED"].includes(result.error.code)) {
           setQuoteResult(null);
           const latest = await deliverySettings.get();
@@ -208,7 +212,7 @@ function CompanyOrderScreen() {
           if (latest.success) setSettings(latest.data);
           retryQuotation();
         }
-        setProblemVariantId("issues" in result.error ? result.error.issues?.find(issue => issue.variantId)?.variantId ?? null : null);
+        setProblemVariantId(failingVariantId);
         setProblemCode(result.error.code);
         void refreshPending();
         return;
@@ -266,7 +270,8 @@ function CompanyOrderScreen() {
     else setError(t('quantityError'));
   };
 
-  const backToProducts = () => { setCatalogLoading(true); setStage("products"); scroll.current?.scrollTo({ y: 0, animated: false }); };
+  // The item list marks the unavailable item itself, so the review message is not repeated there.
+  const backToProducts = () => { if (problemCode === "VARIANT_NOT_FOUND") setError(""); setCatalogLoading(true); setStage("products"); scroll.current?.scrollTo({ y: 0, animated: false }); };
   const showDeliveryFields = () => {
     if (!settings) return;
     const { name, phone, documentType, document, method, address, instructions } = deliveryDraftFromOrder({ delivery: null,
