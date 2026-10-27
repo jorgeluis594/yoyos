@@ -172,9 +172,10 @@ test("list summaries cover only active variants without loading options", async 
 
 test("the detail read sees one snapshot while a save commits between its queries", async () => {
   await withTenantIsolation(companyA, async () => {
-    const { productId } = await seedProduct({ name: "Snapshot antes", options: [{ name: "Talla", values: ["S", "M"] }], variants: [
+    const { productId: seededId } = await seedProduct({ name: "Snapshot antes", options: [{ name: "Talla", values: ["S", "M"] }], variants: [
       { attributes: { Talla: "S" }, salePrice: 5, stock: 1 }, { attributes: { Talla: "M" }, salePrice: 6, stock: 1 },
     ] });
+    const productId = seededId as ProductId;
     let seenBetweenQueries: string | undefined;
     const read = await getProduct(productId, { ...productGetDependencies, findOrderedVariantIds: async (ids) => {
       // A save in another connection commits after the product was read and before the orders are read.
