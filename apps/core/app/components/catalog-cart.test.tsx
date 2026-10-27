@@ -65,6 +65,15 @@ test("a line without enough stock is marked alone and unmarked once its quantity
   expect(lineItem("Polo negro").textContent).not.toContain("Solo queda 1");
 });
 
+test("a deactivated or deleted variant is marked «Ya no está disponible» on its line alone and the cart is kept", async () => {
+  answers.push(() => Promise.resolve(json({ code: "LINES_UNAVAILABLE", issues: [{ variantId: id(4), reason: "unavailable" }] }, 409)));
+  await click(button("Continuar"));
+  expect(lineItem("Polo beige").textContent).toContain("Ya no está disponible");
+  expect(lineItem("Polo negro").textContent).not.toContain("Ya no está disponible");
+  expect(container.textContent).toContain("Algunos productos ya no están disponibles");
+  expect(lineItem("Polo negro")).toBeDefined();
+});
+
 test("ORDER_ID_CONFLICT retries once with a new order id, then shows the generic error", async () => {
   answers.push(() => Promise.resolve(json({ code: "ORDER_ID_CONFLICT" }, 409)), () => Promise.resolve(json({ code: "ORDER_ID_CONFLICT" }, 409)));
   await click(button("Continuar"));

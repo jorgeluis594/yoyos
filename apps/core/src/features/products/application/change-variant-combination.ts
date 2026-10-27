@@ -21,7 +21,7 @@ export function changeVariantCombination(input: ChangeVariantCombinationInput, a
     // A retry repeats a value this product already has: only genuinely new ids need the lookup in other products.
     const own = new Set<string>(product.options.flatMap((option) => option.values.map((value) => value.id)));
     const candidates = newValueIds(input.values).filter((id) => !own.has(id));
-    const foreign = candidates.length ? await deps.findForeignOptionIds(candidates) : ok(new Set<string>() as ReadonlySet<string>);
+    const foreign = candidates.length ? await deps.findForeignOptionIds(candidates) : ok<ReadonlySet<string>>(new Set());
     if (!foreign.success) return foreign;
     const planned = planCombinationChange(product, input.variantId, input.values, foreign.data);
     if (!planned.success) return err(planned.error);

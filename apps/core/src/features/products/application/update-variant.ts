@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
-import { planUpdate, validateUpdate } from "@core/src/features/products/domain/rules";
+import { planVariantPatch, validateVariantPatch } from "@core/src/features/products/domain/rules";
 import type { ProductBusinessError, ValidationError, ValidationIssue } from "@core/src/features/products/domain/errors";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { ProductAccess, ProductReadError } from "@core/src/features/products/application/repository";
@@ -24,9 +24,9 @@ export function updateVariant(input: UpdateVariantInput, access: ProductAccess, 
     if (!variant) return err({ code: "VARIANT_NOT_FOUND", message: "Variant does not exist" });
     const patch = { id: input.variantId, ...(input.sku === undefined ? {} : { sku: input.sku }), ...(input.salePrice === undefined ? {} : { salePrice: input.salePrice }),
       ...(input.purchasePrice === undefined ? {} : { purchasePrice: input.purchasePrice }) };
-    const validated = validateUpdate(product, { variants: [patch] });
+    const validated = validateVariantPatch(product, { variants: [patch] });
     if (!validated.value) return err({ code: "VALIDATION_ERROR", message: "Invalid variant", issues: validated.issues as ValidationError["issues"] });
-    const change = planUpdate(product, validated.value)?.variants[0];
+    const change = planVariantPatch(product, validated.value)?.variants[0];
     if (!change) return ok(null);
     if (typeof change.sku === "string") {
       const normalized = change.sku.trim().toLowerCase();

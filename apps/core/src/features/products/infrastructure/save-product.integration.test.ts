@@ -79,13 +79,14 @@ function formOf(product: Product): SaveProductInput {
 
 const sizes = (count: number) => Array.from({ length: count }, (_, index) => `T${index}`);
 
-async function seedGrid(shape: readonly [number, number]): Promise<SeededProduct> {
+/** `withExtra` adds a third option with one value on every variant, which a save can remove whole. */
+async function seedGrid(shape: readonly [number, number], withExtra = false): Promise<SeededProduct> {
   const [tallas, colores] = shape;
-  const variants = sizes(tallas).flatMap((talla) => sizes(colores).map((color, index) => ({ attributes: { Talla: talla, Color: `C${index}` }, sku: `${randomUUID().slice(0, 8)}`, salePrice: 10 })));
-  return seedProduct({ name: "Polo", options: [{ name: "Talla", values: sizes(tallas) }, { name: "Color", values: sizes(colores).map((_, index) => `C${index}`) }], variants });
+  const variants = sizes(tallas).flatMap((talla) => sizes(colores).map((color, index) => ({ attributes: { Talla: talla, Color: `C${index}`, ...withExtra ? { Extra: "E" } : {} }, sku: `${randomUUID().slice(0, 8)}`, salePrice: 10 })));
+  return seedProduct({ name: "Polo", options: [{ name: "Talla", values: sizes(tallas) }, { name: "Color", values: sizes(colores).map((_, index) => `C${index}`) }, ...withExtra ? [{ name: "Extra", values: ["E"] }] : []], variants });
 }
 
-/** One save that touches every kind of statement: deletes a value with its variants, adds an option with a value and a new variant, renames, reprices and re-SKUs every saved variant. */
+/** One save that touches every kind of statement: deletes a value with its variants and a whole option, adds an option with a value and a new variant, renames, reprices and re-SKUs every saved variant. */
 function heavySave(product: Product): SaveProductInput {
   const form = formOf(product);
   const lastSize = product.options[0].values.at(-1)!;
@@ -101,6 +102,7 @@ function heavySave(product: Product): SaveProductInput {
       { ...form.options[0], name: "Talla única", values: form.options[0].values.filter((value) => value.id !== lastSize.id).map((value, index) => ({ ...value, name: index === 0 ? `${value.name} bis` : value.name })).reverse() },
       form.options[1], manga,
     ],
+    // The option "Extra" is left out of the list: its links, its value and the option go.
     variants: form.variants.filter((variant) => !dropped.has(variant.id)).map((variant) => ({ ...variant, sku: `N-${variant.id.slice(0, 8)}`, salePrice: 11, purchasePrice: 5 })),
     deletedVariantIds: [...dropped] as VariantId[],
     newVariants: [{ values: [first.combination[product.options[0].id], first.combination[product.options[1].id], manga.values[1].id], sku: null, salePrice: 12, purchasePrice: null, initialStock: 0 }],
@@ -111,7 +113,7 @@ test("save issues the same statement count for two and for one hundred variants,
   const counts: number[] = [];
   for (const shape of [[2, 1], [10, 10]] as const) {
     await asCompany(companyA, async () => {
-      const seeded = await seedGrid(shape);
+      const seeded = await seedGrid(shape, true);
       const product = await load(seeded.productId);
       expect(product.variants).toHaveLength(shape[0] * shape[1]);
       const { result, statements, elapsedMs } = await countedStatements(() => productEditing.save(heavySave(product)));

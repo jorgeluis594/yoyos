@@ -9,7 +9,8 @@ import { changeVariantStatus, type ChangeVariantStatusInput } from "@core/src/fe
 import { deleteVariant, type DeleteVariantInput } from "@core/src/features/products/application/delete-variant";
 import { updateVariant, type UpdateVariantInput } from "@core/src/features/products/application/update-variant";
 import type { VariantActionDependencies, VariantActionName } from "@core/src/features/products/application/variant-action";
-import { findForeignOptionIds, findSkuOwners, productRepository, transactionFailureStage } from "@core/src/features/products/infrastructure/repository";
+import { findForeignOptionIds, findSkuOwners, productRepository } from "@core/src/features/products/infrastructure/repository";
+import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import { applyCombinationChange, applyVariantDeletion, lockProduct, setVariantStatus, updateVariantFields, type VariantActionContext } from "@core/src/features/products/infrastructure/variant-repository";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { productEditing, productWriteTransactionOptions } from "@core/src/composition/product-editing";
@@ -53,11 +54,18 @@ const access = () => ({ companyId: getCompanyId() as CompanyId });
 const context = (ids: Ids, action: VariantActionName, started: number): VariantActionContext => ({ ...ids, action, started });
 
 /** Every action answers with the product read again, so `hasOrders` and the order of options and variants are never stale. */
-async function withDetail(written: Result<ProductId, { code: string; message: string }>) {
+export async function withDetail(written: Result<ProductId, { code: string; message: string }>) {
   if (!written.success) return written;
   const detail = await productEditing.get(written.data);
-  if (!detail.success) return detail;
-  if (!detail.data) return err({ code: "PRODUCT_NOT_FOUND" as const, message: "Product does not exist" });
+  // The write is already committed: the caller gets an error for a change that happened, so say so in the log.
+  if (!detail.success) {
+    log.error({ event: "product_variant_action_reload_failed", companyId: getCompanyId(), productId: written.data, errorCode: detail.error.code, err: detail.error }, "product_variant_action_reload_failed");
+    return detail;
+  }
+  if (!detail.data) {
+    log.error({ event: "product_variant_action_reload_failed", companyId: getCompanyId(), productId: written.data, errorCode: "PRODUCT_NOT_FOUND" }, "product_variant_action_reload_failed");
+    return err({ code: "PRODUCT_NOT_FOUND" as const, message: "Product does not exist" });
+  }
   return ok(detail.data);
 }
 

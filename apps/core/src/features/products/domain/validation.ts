@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { currencies } from "@shared/money";
 import type { ProductField, ProductValidationReason, ValidationIssue, VariantField } from "@core/src/features/products/domain/errors";
-import type { ImageId, VariantId } from "@core/src/features/products/domain/product";
+import type { VariantId } from "@core/src/features/products/domain/product";
 
 const MAX_PRICE = 999999999.99;
 const MAX_NAME = 200;
@@ -140,11 +140,9 @@ function checkUniqueVariants(items: readonly unknown[], supplied: ReadonlySet<st
   });
 }
 
-export function updateProductSchema(suppliedVariantIds: ReadonlySet<string>) {
+/** The variant patch of `updateVariant`: the only place a price or SKU is edited outside the editor's save. */
+export function variantPatchSchema(suppliedVariantIds: ReadonlySet<string>) {
   return z.object({
-    name: name.optional(),
-    description: description.nullable().optional(),
-    imageId: z.string().transform((value) => value as ImageId).nullable().optional(),
     variants: z
       .array(updateVariant)
       .default([])

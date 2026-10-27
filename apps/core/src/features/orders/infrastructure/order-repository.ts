@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { checkoutState, parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
+import { isPersistenceFailure, transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { isCurrency } from "@shared/money";
 import { parseDispatchDate } from "@shared/dispatch-date";
-import { getCompanyId, prisma, systemPrisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, inActiveTransaction, prisma, systemPrisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
 import { orderSource, orderStateMachine, parseDeliverySnapshot, type DispatchScheduleChange, type FulfillmentChange, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import { parsePayment } from "@core/src/features/orders/domain/payment";
@@ -257,7 +257,7 @@ export async function findOrderedVariantIds(variantIds: readonly VariantId[]) {
       WHERE EXISTS (SELECT 1 FROM "OrderItem" oi WHERE oi."companyId" = ${getCompanyId()}::uuid AND oi."variantId" = ids.variant_id)`);
     return ok<ReadonlySet<VariantId>>(new Set(rows.map((row) => row.id as VariantId)));
   } catch (cause) {
-    if (!knownFailure(cause)) throw cause;
+    if (!knownFailure(cause) || (inActiveTransaction() && transactionFailureStage(cause))) throw cause;
     log.error({ event: "unable_to_find_ordered_variants", companyId: getCompanyId(), errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_find_ordered_variants");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read orders" });
   }
@@ -581,11 +581,15 @@ export async function saveAddedItems(order: OrderAggregate, previous: OrderAggre
   try {
     for (const item of order.items) {
       const old = before.get(item.id);
-      if (!old) await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, variantId: item.variantId, productName: item.productName,
+      if (old && old.quantity !== item.quantity) await prisma.orderItem.update({ where: { id: item.id },
+        data: { quantity: BigInt(item.quantity), subtotal: money(item.subtotal.amount) } });
+    }
+    // Inserts take their locks on the variants in a fixed order, so two concurrent additions cannot wait for each other.
+    const inserts = order.items.filter((item) => !before.has(item.id)).sort((a, b) => a.variantId < b.variantId ? -1 : a.variantId > b.variantId ? 1 : 0);
+    for (const item of inserts) {
+      await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
         unitPrice: money(item.unitPrice.amount), subtotal: money(item.subtotal.amount) } });
-      else if (old.quantity !== item.quantity) await prisma.orderItem.update({ where: { id: item.id },
-        data: { quantity: BigInt(item.quantity), subtotal: money(item.subtotal.amount) } });
     }
     const updated = await prisma.order.updateMany({ where: { id: order.id, companyId: order.companyId, cancelled: false },
       data: { itemsTotal: money(order.itemsTotal.amount), total: money(order.total.amount) } });

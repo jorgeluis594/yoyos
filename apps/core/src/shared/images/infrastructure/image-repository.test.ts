@@ -4,9 +4,10 @@ import { afterEach, expect, it, vi } from "vitest";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 
 const queries = vi.hoisted(() => ({ create: vi.fn(), findFirst: vi.fn(), findMany: vi.fn() }));
-vi.mock("@core/src/shared/infrastructure/persistance", () => ({ prisma: { image: queries } }));
+const transaction = vi.hoisted(() => ({ active: false }));
+vi.mock("@core/src/shared/infrastructure/persistance", () => ({ prisma: { image: queries }, inActiveTransaction: () => transaction.active }));
 
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); transaction.active = false; });
 
 const operations = [
   { name: "create", query: queries.create, run: () => imageRepository.create("remote") },
@@ -51,4 +52,13 @@ it.each(prismaFailures)("findMany translates %s", async (failure) => {
   queries.findMany.mockRejectedValueOnce(failure);
   expect(await imageRepository.findMany(["a"])).toEqual({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find image records" } });
   expect(logged).toHaveBeenCalledWith(expect.objectContaining({ event: "unable_to_find_image_records", err: failure }), expect.any(String));
+});
+
+it("find rethrows a lock timeout inside a transaction and answers unavailable outside one", async () => {
+  vi.spyOn(log, "error").mockImplementation(() => {});
+  const timeout = new Prisma.PrismaClientKnownRequestError("canceling statement due to lock timeout 55P03", { code: "P2010", clientVersion: "7.10.0" });
+  queries.findFirst.mockRejectedValue(timeout);
+  expect(await imageRepository.find("image")).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+  transaction.active = true;
+  await expect(imageRepository.find("image")).rejects.toBe(timeout);
 });

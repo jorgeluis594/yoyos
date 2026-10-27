@@ -7,7 +7,7 @@ Code: `apps/core/src/features/products/application/identify-products-in-image.ts
 ## Cascade
 
 1. **QR.** Read the QR codes of the image.
-   - Product QR codes found: their sellable variants are the result (one item per distinct variant). Codes that match no sellable variant are reported as product not found.
+   - Product QR codes found: their sellable (active) variants are the result; a deactivated or deleted variant matches nothing (one item per distinct variant). Codes that match no sellable variant are reported as product not found.
    - Only non-product QR codes (Yape/Plin payments, URLs): stop. Reason: such a QR says the image is not a product photo.
    - Unreadable image: stop.
    - No QR code at all: continue to visual search.
@@ -16,7 +16,7 @@ Code: `apps/core/src/features/products/application/identify-products-in-image.ts
    2. Take the K nearest active, sellable products of the company by cosine distance over the embedding of each product's current image (`PRODUCT_MATCH_CANDIDATES`, default 5).
    3. A vision model receives the customer image and the candidate images, labelled `A`, `B`, …, and answers one label or `none` with a confidence.
    4. Accept the choice only if it is one of the candidates and its confidence is at least `PRODUCT_MATCH_MIN_CONFIDENCE` (default 0.8).
-   5. Add it only if the product has exactly one sellable variant; otherwise the result is `ambiguous_variant`. Reason: product images are per product, so the image cannot tell which variant.
+   5. Add it only if the product has exactly one sellable (active) variant; otherwise the result is `ambiguous_variant`. Reason: product images are per product, so the image cannot tell which variant.
 
 A visual match returns at most one product per image (a live screenshot shows the product being offered) and is added to the order like a QR match, without a confirmation step; the seller removes a wrong item as with any item.
 

@@ -1,20 +1,19 @@
 import type { Currency } from "@shared/money";
 import type { ValidationIssue } from "@core/src/features/products/domain/errors";
-import type { ImageId, OptionId, OptionValueId, Product, ProductOption, VariantId } from "@core/src/features/products/domain/product";
+import type { OptionId, OptionValueId, Product, ProductOption, VariantId } from "@core/src/features/products/domain/product";
 import { parseProductStructure, type RawOption } from "@core/src/features/products/domain/product-structure";
-import { createProductSchema, toValidationIssues, updateProductSchema } from "@core/src/features/products/domain/validation";
+import { createProductSchema, toValidationIssues, variantPatchSchema } from "@core/src/features/products/domain/validation";
 
 export type RawVariant = Readonly<{ values: readonly string[]; sku?: string | null; salePrice: number; purchasePrice?: number | null; initialStock?: number }>;
 export type RawProduct = Readonly<{ name: string; description?: string | null; currency: Currency; options: readonly RawOption[]; variants: readonly RawVariant[] }>;
 export type ValidVariant = Readonly<{ combination: Readonly<Record<OptionId, OptionValueId>>; sku?: string; salePrice: number; purchasePrice?: number; initialStock: number }>;
 export type ValidProduct = Readonly<{ name: string; description?: string; currency: Currency; options: readonly ProductOption[]; variants: readonly [ValidVariant, ...ValidVariant[]] }>;
 export type RawUpdateVariant = Readonly<{ id: string; sku?: string | null; salePrice?: number; purchasePrice?: number | null }>;
-export type RawUpdate = Readonly<{ name?: string; description?: string | null; imageId?: string | null; variants?: readonly RawUpdateVariant[] }>;
+export type RawVariantPatch = Readonly<{ variants?: readonly RawUpdateVariant[] }>;
 export type ValidUpdateVariant = Readonly<{ id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null }>;
-export type ValidUpdate = Readonly<{ name?: string; description?: string | null; imageId?: ImageId | null; variants: readonly ValidUpdateVariant[] }>;
-export type ProductChange = Readonly<{ name?: string; description?: string | null; imageId?: ImageId | null }>;
+export type ValidVariantPatch = Readonly<{ variants: readonly ValidUpdateVariant[] }>;
 export type VariantChange = Readonly<{ id: VariantId; sku?: string | null; salePrice?: number; purchasePrice?: number | null }>;
-export type UpdatePlan = Readonly<{ product: ProductChange; variants: readonly VariantChange[] }>;
+export type VariantPatchPlan = Readonly<{ variants: readonly VariantChange[] }>;
 
 const normalize = (value: string) => value.trim().toLowerCase();
 
@@ -38,24 +37,14 @@ export function validateCreate(input: RawProduct): { readonly value?: ValidProdu
   } };
 }
 
-export function validateUpdate(product: Product, input: RawUpdate): { readonly value?: ValidUpdate; readonly issues: readonly ValidationIssue[] } {
+export function validateVariantPatch(product: Product, input: RawVariantPatch): { readonly value?: ValidVariantPatch; readonly issues: readonly ValidationIssue[] } {
   const supplied = new Set(product.variants.map((variant) => variant.id as string));
-  const result = updateProductSchema(supplied).safeParse(input);
+  const result = variantPatchSchema(supplied).safeParse(input);
   if (!result.success) return { issues: toValidationIssues(result.error, { variantFallback: "id", missingVariantsReason: "INVALID_TYPE", variantRef: (index) => ({ scope: "variant", variantId: String(input.variants?.[index]?.id ?? "") }) }) };
-  return { issues: [], value: result.data as ValidUpdate };
+  return { issues: [], value: result.data as ValidVariantPatch };
 }
 
-export function planUpdate(product: Product, value: ValidUpdate): UpdatePlan | null {
-  const productChange: { name?: string; description?: string | null; imageId?: ImageId | null } = {};
-  if (value.name !== undefined && value.name !== product.name) productChange.name = value.name;
-  if (value.description !== undefined) {
-    const next = value.description === null ? undefined : value.description;
-    if (product.description !== next) productChange.description = value.description;
-  }
-  if (value.imageId !== undefined) {
-    const next = value.imageId === null ? undefined : value.imageId;
-    if (product.imageId !== next) productChange.imageId = value.imageId;
-  }
+export function planVariantPatch(product: Product, value: ValidVariantPatch): VariantPatchPlan | null {
   const supplied = new Map(product.variants.map((variant) => [variant.id as string, variant]));
   const variants: VariantChange[] = [];
   for (const variant of value.variants) {
@@ -75,6 +64,5 @@ export function planUpdate(product: Product, value: ValidUpdate): UpdatePlan | n
     }
     if (changed) variants.push(change);
   }
-  if (!Object.keys(productChange).length && !variants.length) return null;
-  return { product: productChange, variants };
+  return variants.length ? { variants } : null;
 }

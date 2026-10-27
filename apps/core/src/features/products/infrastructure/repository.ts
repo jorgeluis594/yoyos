@@ -1,10 +1,12 @@
+import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
+import { isDuplicateCombination, isDuplicateOptionId, isDuplicateProductId, isDuplicateSku, isForeignKeyOfOrders } from "@core/src/features/products/infrastructure/prisma-errors";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, type ProductStock as DbStock, type ProductOption as DbOption, type ProductOptionValue as DbValue, type ProductVariantOptionValue as DbLink } from "@prisma/client";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { isCurrency } from "@shared/money";
-import { getCompanyId, prisma, withLockedForUpdate, withinReadSnapshot, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, prisma, withLockedForUpdate, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
 import type { ProductSummary } from "@core/src/features/products/application/list";
 import type { CreateError } from "@core/src/features/products/application/create";
 import type { SaveProductError } from "@core/src/features/products/application/save-product";
@@ -103,21 +105,6 @@ function mapProduct(row: DbProduct, variantRows: (DbVariant & { stock: DbStock |
   return { ...product, variants: sortVariants(product) };
 }
 
-/** Prisma timeouts and PostgreSQL lock conflicts are the transaction's to report: the editing writes rethrow them instead of answering with a result. */
-export function transactionFailureStage(error: unknown): "transaction_timeout" | "lock_conflict" | undefined {
-  const text = (value: unknown) => {
-    let meta = "";
-    try { meta = JSON.stringify((value as { meta?: unknown } | null)?.meta ?? {}); } catch { /* circular driver detail: the message is enough */ }
-    return `${value instanceof Error ? value.message : ""} ${meta}`;
-  };
-  const code = (value: unknown) => typeof value === "object" && value !== null && "code" in value && typeof value.code === "string" ? value.code : undefined;
-  const causes = [error, error instanceof Error ? error.cause : undefined];
-  if (causes.some((item) => code(item) === "P2028")) return "transaction_timeout";
-  if (causes.some((item) => code(item) === "P2034" || /40P01|55P03|deadlock detected|lock timeout/i.test(text(item)))) return "lock_conflict";
-  if (causes.some((item) => /57014|statement timeout/i.test(text(item)))) return "transaction_timeout";
-  return undefined;
-}
-
 async function readProducts(ids: readonly string[], inTransaction = false): Promise<Result<Product[], ProductReadError>> {
   let rows: Rows;
   try {
@@ -135,17 +122,6 @@ async function readProducts(ids: readonly string[], inTransaction = false): Prom
     return err({ code: "INVALID_STORED_DATA", message: "Stored product data is invalid" });
   }
 }
-
-function violatedIndex(error: unknown): string | undefined {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return undefined;
-  const adapter = error.meta?.driverAdapterError as { cause?: { constraint?: { index?: string } } } | undefined;
-  return adapter?.cause?.constraint?.index;
-}
-
-const isDuplicateSku = (error: unknown) => violatedIndex(error) === "ProductVariant_companyId_sku_normalized_key";
-const isDuplicateProductId = (error: unknown) => ["Product_pkey", "Product_id_key"].includes(violatedIndex(error) ?? "");
-const isDuplicateOptionId = (error: unknown) => ["ProductOption_pkey", "ProductOptionValue_pkey"].includes(violatedIndex(error) ?? "");
-const isDuplicateCombination = (error: unknown) => violatedIndex(error) === "ProductVariant_companyId_productId_combinationKey_key";
 
 const unavailable = (message: string) => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message });
 
@@ -247,13 +223,6 @@ export async function lockProduct(id: ProductId): Promise<Result<Product | null,
   }
 }
 
-const isForeignKeyOfOrders = (error: unknown) => mentions(error, "OrderItem_companyId_variantId_fkey");
-const mentions = (error: unknown, name: string) => {
-  let meta = "";
-  try { meta = JSON.stringify((error as { meta?: unknown } | null)?.meta ?? {}); } catch { /* the message is enough */ }
-  return `${error instanceof Error ? error.message : ""} ${meta}`.includes(name);
-};
-
 const uuidList = (ids: readonly string[]) => Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`));
 const rowsOf = (rows: readonly Prisma.Sql[]) => Prisma.join(rows.map((row) => Prisma.sql`(${row})`));
 
@@ -318,9 +287,9 @@ export async function applyStructureChange(change: ProductStructureChange): Prom
     } });
     return ok(null);
   } catch (error) {
-    if (isDuplicateSku(error) || mentions(error, "ProductVariant_companyId_sku_normalized_key")) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
-    if (isDuplicateCombination(error) || mentions(error, "ProductVariant_companyId_productId_combinationKey_key")) return err({ code: "DUPLICATE_COMBINATION", message: "Combination is already used" });
-    if (isDuplicateOptionId(error) || mentions(error, "ProductOption_pkey") || mentions(error, "ProductOptionValue_pkey")) return err({ code: "ID_CONFLICT", message: "Identifier is already used" });
+    if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
+    if (isDuplicateCombination(error)) return err({ code: "DUPLICATE_COMBINATION", message: "Combination is already used" });
+    if (isDuplicateOptionId(error)) return err({ code: "ID_CONFLICT", message: "Identifier is already used" });
     if (isForeignKeyOfOrders(error)) return err({ code: "VARIANT_HAS_ORDERS", message: "Variant has orders" });
     if (transactionFailureStage(error)) throw error;
     log.error({ event: "product_save_failed", companyId, productId, stage: "apply", errorCode: "PERSISTENCE_UNAVAILABLE",
@@ -388,37 +357,6 @@ function toSummary(row: SummaryRow): ProductSummary {
 }
 
 export const productRepository: ProductRepository = {
-  async update(id, changes) {
-    try {
-      return await withinTransaction(async () => {
-        await prisma.product.update({
-          where: { id },
-          data: {
-            ...(changes.product.name === undefined ? {} : { name: changes.product.name }),
-            ...(changes.product.description === undefined ? {} : { description: changes.product.description }),
-            ...(changes.product.imageId === undefined ? {} : { imageId: changes.product.imageId }),
-            updatedAt: changes.product.updatedAt,
-          },
-        });
-        for (const variant of changes.variants) {
-          await prisma.productVariant.update({
-            where: { id: variant.id },
-            data: {
-              ...(variant.sku === undefined ? {} : { sku: variant.sku }),
-              ...(variant.salePrice === undefined ? {} : { salePrice: new Prisma.Decimal(variant.salePrice.amount.toString()) }),
-              ...(variant.purchasePrice === undefined ? {} : { purchasePrice: variant.purchasePrice === null ? null : new Prisma.Decimal(variant.purchasePrice.amount.toString()) }),
-            },
-          });
-        }
-        return ok(id);
-      });
-    } catch (error) {
-      if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return err({ code: "PRODUCT_NOT_FOUND", message: "Product does not exist" });
-      log.error({ event: "product_update_persistence_failed", err: error }, "product_update_persistence_failed");
-      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to update product" });
-    }
-  },
   async get(id) {
     const read = await readProducts([id]);
     return read.success ? ok(read.data[0] ?? null) : read;

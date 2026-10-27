@@ -50,18 +50,19 @@ export const catalogProductRepository: CatalogProductRepository = {
     const pattern = search === null ? null : `%${search.replace(/[\\%_]/g, "\\$&")}%`;
     let rows: CardRow[];
     try {
-      // Price and stock come from SQL aggregates over active variants, so the cost does not grow with the variants per product.
+      // The page is cut first, with a semi-join on the active variants, so the aggregates below run for one page of products
+      // and not for every product of the company. They are SQL aggregates, so the cost does not grow with the variants per product.
       rows = await prisma.$queryRaw<CardRow[]>(Prisma.sql`SELECT p.id, p.name, p."imageId", p.currency,
           a."minPrice", a."maxPrice", COALESCE(a."inStock", false) = false AS "soldOut"
-        FROM "Product" p
-        JOIN LATERAL (SELECT min(v."salePrice") FILTER (WHERE v.status = 'active') AS "minPrice",
-            max(v."salePrice") FILTER (WHERE v.status = 'active') AS "maxPrice",
-            bool_or(s.quantity > 0) FILTER (WHERE v.status = 'active') AS "inStock"
+        FROM (SELECT p.id, p.name, p."imageId", p.currency, p."companyId", p."createdAt" FROM "Product" p
+          WHERE p."companyId" = ${companyId}::uuid AND p.status = 'active' AND p.currency = ${currency}
+            AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active')
+            ${pattern === null ? Prisma.empty : Prisma.sql`AND unaccent(lower(p.name)) LIKE unaccent(lower(${pattern}))`}
+          ORDER BY p."createdAt" DESC, p.id ASC LIMIT ${limit + 1} OFFSET ${offset}) p
+        CROSS JOIN LATERAL (SELECT min(v."salePrice") AS "minPrice", max(v."salePrice") AS "maxPrice", bool_or(s.quantity > 0) AS "inStock"
           FROM "ProductVariant" v LEFT JOIN "ProductStock" s ON s."companyId" = v."companyId" AND s."variantId" = v.id
-          WHERE v."companyId" = p."companyId" AND v."productId" = p.id) a ON a."minPrice" IS NOT NULL
-        WHERE p."companyId" = ${companyId}::uuid AND p.status = 'active' AND p.currency = ${currency}
-          ${pattern === null ? Prisma.empty : Prisma.sql`AND unaccent(lower(p.name)) LIKE unaccent(lower(${pattern}))`}
-        ORDER BY p."createdAt" DESC, p.id ASC LIMIT ${limit + 1} OFFSET ${offset}`);
+          WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active') a
+        ORDER BY p."createdAt" DESC, p.id ASC`);
     } catch (cause) {
       return unavailable("list_catalog_products", cause);
     }

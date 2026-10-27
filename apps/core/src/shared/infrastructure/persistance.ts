@@ -41,6 +41,10 @@ export function requireActiveTransaction(companyId: string): void {
     throw new Error("An active transaction for this company is required");
 }
 
+export function inActiveTransaction(): boolean {
+  return transactions.getStore()?.active === true;
+}
+
 export function requireNoActiveTransaction(): void {
   if (transactions.getStore()?.active) throw new Error("Operation requires an independent transaction");
 }

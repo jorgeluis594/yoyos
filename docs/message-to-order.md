@@ -27,7 +27,7 @@ Customer 1 ── * Contact 1 ── 1 Chat 1 ── * ChatMessage
 | --- | --- | --- |
 | Direction | Only incoming messages feed orders. | — |
 | Text messages | Skipped (`not_image`). | Nothing to identify. |
-| Product code | A QR code is a product code only when it is a variant UUID (`ProductVariant.qrCode`, what labels print). Other QR codes (payment wallets, URLs) are ignored. | Avoid treating payment QR codes as products. |
+| Product code | A QR code is a product code only when it is a variant UUID (`ProductVariant.qrCode`, what labels print). Other QR codes (payment wallets, URLs) are ignored, and so is the QR of a deactivated or deleted variant (it is reported as product not found). | Avoid treating payment QR codes as products. |
 | Several products in one photo | One item per distinct variant. | — |
 | Variant already in the open order | Quantity + 1. | An order holds each variant once (unique per order). |
 | Price | New items use the current catalog price; existing items keep theirs. | — |

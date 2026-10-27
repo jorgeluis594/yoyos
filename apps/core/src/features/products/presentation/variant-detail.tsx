@@ -176,7 +176,8 @@ export function VariantDetail({ product, variant, productHref, outcome, pending,
     {confirmReload && <ConfirmDialog title={t("productEditor.discardTitle")} description={t("productEditor.discardDescription")} confirm={t("productEditor.discard")} cancel={t("productEditor.keepEditing")}
       onConfirm={() => { setConfirmReload(false); setValues(initial); onReload(); }} onCancel={() => setConfirmReload(false)} />}
     {dialog === "combination" && !combinationSaved && <CombinationDialog product={product} variant={variant} pending={pending === "combination"} failure={combinationFailure}
-      onSave={(entries) => onSubmit({ intent: "combination", values: entries })} onReload={() => { setDialog(null); reload(); }} onClose={() => setDialog(null)} />}
+      onSave={(entries) => onSubmit({ intent: "combination", values: entries })} onReload={() => { setDialog(null); reload(); }}
+      onClose={() => { setDialog(null); setDismissed(outcome); }} />}
     {dialog === "deactivate" && <DeactivateDialog product={product} variant={variant} pending={busy} onClose={() => setDialog(null)} onConfirm={() => { setDialog(null); onSubmit({ intent: "status", status: "inactive" }); }} />}
     {dialog === "delete" && <DeleteDialog product={product} variant={variant} pending={busy} onClose={() => setDialog(null)} onConfirm={() => { setDialog(null); onSubmit({ intent: "delete" }); }} />}
   </PageContainer>;
