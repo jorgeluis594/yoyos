@@ -1,6 +1,6 @@
 /** @jsxImportSource react */
 // Preserve native Pressable style callbacks outside NativeWind interop.
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
 import * as Network from "expo-network";
 import { useLocalSearchParams, useRouter } from "expo-router";
@@ -19,7 +19,7 @@ import { ThemedView } from "@mobile/components/themed-view";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { products, variants } from "@mobile/features/products/composition";
 import type { CopyCount } from "@mobile/features/printing/composition";
-import type { VariantActionError } from "../application/variant-operations";
+import type { VariantActionCode, VariantActionError } from "../application/variant-operations";
 import type { Product, ProductId, ProductVariant, VariantId } from "../domain/product";
 import { ChangeCombinationSheet } from "./change-combination-sheet";
 import { formEdges } from "./form-edges";
@@ -32,7 +32,8 @@ import tokens from "../../../../../../docs/design-tokens.json";
 
 type Busy = "save" | "deactivate" | "activate" | "delete" | "combination" | null;
 type Gone = "product" | "products";
-const uncertainCodes = ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE"];
+/** The request may have reached core: the outcome is unknown until the variant is reloaded. */
+const uncertainCodes: readonly VariantActionCode[] = ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INVALID_RESPONSE"];
 const decimals = (text: string) => (text.trim().split(".")[1] ?? "").length;
 const amountOf = (text: string) => /^\d+(?:\.\d+)?$/.test(text.trim()) ? Number(text) : null;
 
@@ -114,6 +115,8 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
   const [combinationError, setCombinationError] = useState<string | null>(null);
   const [combinationUncertain, setCombinationUncertain] = useState(false);
   const [printing, setPrinting] = useState(false);
+  // `busy` only changes after the connection check, so it cannot stop a second tap that arrives during it.
+  const acting = useRef(false);
 
   const dirty = form.salePrice !== initial.salePrice || form.purchasePrice !== initial.purchasePrice || form.sku !== initial.sku;
   const setNavigationDirty = useProductNavigationGuard(dirty);
@@ -139,11 +142,13 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
   /** Runs one request after the connection check. A lost answer is never shown as success: it offers the reload. */
   const run = async (kind: Exclude<Busy, null>, request: () => Promise<Result<Product, VariantActionError>>,
     messages: Readonly<{ offline: string; uncertain: string }>, handle: (error: VariantActionError) => boolean, done: (next: Product) => void) => {
-    if (working) return;
+    if (acting.current) return;
+    acting.current = true;
     setNotice(null); setUncertain(false);
-    if (!await isOnline()) { setNotice({ text: messages.offline, error: true }); return; }
+    if (!await isOnline()) { acting.current = false; setNotice({ text: messages.offline, error: true }); return; }
     setBusy(kind);
     const result = await request();
+    acting.current = false;
     setBusy(null);
     if (result.success) { onProduct(result.data); done(result.data); return; }
     const code = result.error.code;
@@ -217,11 +222,13 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
   });
 
   const changeCombination = async (values: ChangeCombinationRequest["values"]) => {
-    if (working) return;
+    if (acting.current) return;
+    acting.current = true;
     setCombinationError(null); setCombinationUncertain(false);
-    if (!await isOnline()) { setCombinationError(t("combinationOffline")); return; }
+    if (!await isOnline()) { acting.current = false; setCombinationError(t("combinationOffline")); return; }
     setBusy("combination");
     const result = await variants.changeCombination(productId, variant.id, { values });
+    acting.current = false;
     setBusy(null);
     if (result.success) { onProduct(result.data); setChanging(false); setNotice({ text: t("combinationChanged"), error: false }); return; }
     const code = result.error.code;

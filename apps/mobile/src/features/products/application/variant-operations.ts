@@ -1,8 +1,14 @@
 import type { Result } from "@shared/result";
 import type { Product, ProductId, VariantId } from "../domain/product";
 
-/** What a screen reads from a refused action: the product error code and, for rejected input, the issues by field. */
-export type VariantActionError = Readonly<{ code: string; message: string; issues?: readonly Readonly<{ field: string; reason: string }>[] }>;
+/** Every code the four actions can answer: the transport ones, where the outcome may be unknown, and the product ones, which are definitive. */
+export type VariantActionCode =
+  | "UNAUTHENTICATED" | "COMPANY_REQUIRED" | "NETWORK_ERROR" | "SERVICE_UNAVAILABLE" | "RATE_LIMITED" | "SERVER_ERROR" | "INVALID_RESPONSE"
+  | "OPERATION_CANCELLED" | "SECURE_STORAGE_ERROR" | "API_ERROR"
+  | "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "PRODUCT_WITHOUT_OPTIONS" | "ID_CONFLICT"
+  | "VARIANT_HAS_ORDERS" | "VARIANT_HAS_STOCK" | "LAST_VARIANT" | "PRODUCT_NOT_FOUND" | "VARIANT_NOT_FOUND";
+/** What a screen reads from a refused action: the error code and, for rejected input, the issues by field. */
+export type VariantActionError = Readonly<{ code: VariantActionCode; message: string; issues?: readonly Readonly<{ field: string; reason: string }>[] }>;
 export type VariantPatch = Readonly<{ sku?: string | null; salePrice?: number; purchasePrice?: number | null }>;
 /** One entry per option: an existing value, or a new one with the id the retry must repeat. */
 export type CombinationValues = Readonly<{ values: (Readonly<{ optionId: string; valueId: string }> | Readonly<{ optionId: string; newValue: Readonly<{ id: string; name: string }> }>)[] }>;
