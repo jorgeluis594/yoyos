@@ -27,7 +27,7 @@ jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySet
 } }));
 jest.mock("@expo/ui/community/menu", () => ({ MenuView: ({ children }: { children: React.ReactNode }) => children }));
 jest.mock("@expo/ui/community/datetime-picker", () => ({ DateTimePicker: () => null }));
-jest.mock("@expo/ui", () => { const { View } = jest.requireActual("react-native"); const Picker = () => null; Picker.Item = () => null; return { Host: View, Picker }; });
+jest.mock("@expo/ui", () => { const { View } = jest.requireActual("react-native"); function Picker() { return null; } Picker.Item = function PickerItem() { return null; }; return { Host: View, Picker }; });
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready", company: { id: mockId(1), name: "Mi tienda", country: "PE" }, user: { id: "seller" } } }) }));
 jest.mock("@mobile/features/orders/presentation/order-draft-guard", () => ({ useOrderDraft: () => ({ dirty: false, setDirty: jest.fn(), discardVersion: 0 }) }));
 jest.mock("@mobile/features/orders/presentation/pending-order-sync-provider", () => ({ usePendingOrders: () => ({ pending: mockPending, refresh: jest.fn(async () => {}), trigger: jest.fn() }) }));
