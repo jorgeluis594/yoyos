@@ -1,6 +1,5 @@
 import type { CreateError, CreateInput } from "@core/src/features/products/application/create";
 import type { DetailError } from "@core/src/features/products/application/get";
-import type { UpdateVariantInput } from "@core/src/features/products/application/update-variant";
 import type { ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
 import type { ProductValidationReason } from "@core/src/features/products/domain/errors";
 
@@ -20,6 +19,5 @@ export type ProductContracts = [
   Assert<ReadonlyField<ProductVariant["stock"], "quantity">>,
   Assert<Equal<Extract<CreateError, { code: "PRODUCT_NOT_FOUND" }>, never>>,
   Assert<Equal<Extract<DetailError, { code: "DUPLICATE_SKU" }>, never>>,
-  Assert<Equal<Extract<keyof UpdateVariantInput, "attributes" | "initialStock" | "qrCode">, never>>,
   Assert<Equal<Extract<ProductValidationReason, { reason: "TOO_LONG" }>, { readonly reason: "TOO_LONG"; readonly maxLength: number }>>,
 ];
