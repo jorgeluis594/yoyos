@@ -33,6 +33,9 @@ Every other order requires a seller, taken from the authenticated session.
 - No expected price is sent for items and there is no `PRICE_CHANGED` error: if the catalog changed while the cart was built, the stored total can differ from the one shown. The client shows the amounts core returns.
 - An order uses one currency; mixing currencies returns `CURRENCY_MISMATCH`. Amounts that exceed the storage range are rejected, never truncated.
 - Items copy product name, the variant's combination (option names and values, in the option order of that moment), SKU and unit price at creation. Later catalog edits do not change them, and deleting a product does not cascade to orders that reference it.
+- The copied combination is stored as a JSON object whose keys are inserted in option order, and readers show it in that order. Reason: orders, checkout, sale catalog and catalog cart keep one record shape (rejected: an explicit list of name and value pairs). Accepted cost: an option whose name is made only of digits («2024») is listed first, because JSON objects put integer-like keys before the others.
+- Items of a variant deactivated later keep working: the order is shown, paid with stock deduction and cancelled with stock restoration, which do not filter by variant status. New orders cannot include it ([Products](products.md)).
+- Core resolves all the variants of an order in one batched lookup and inserts the items in variant order. Reason: a product save that changes combinations locks variants in the same order, so the two cannot deadlock. A variant deleted between that lookup and the insert fails the order item's foreign key and answers `VARIANT_NOT_FOUND` with its `variantId`; message-to-order treats it as a retryable failure instead, because its next scan no longer finds the variant.
 - Each variant appears once per order, with its total quantity.
 - `total = itemsTotal + deliveryCharge`.
 
@@ -161,7 +164,9 @@ Day filters select whole inclusive days in `America/Lima`, converted to UTC inst
 ## Mobile sales flow
 
 - "Nueva venta" holds two stages, products and review, in one route so the selection survives moving between them. The cart is in memory only: leaving with items asks to discard them; there is no persistent draft.
-- Products are searched by name; a variant is chosen and a quantity set. The shown price and stock guide the seller but do not reserve units.
+- Products are searched by name; a variant is chosen and a quantity set. The shown price and stock guide the seller but do not reserve units. Only active variants, and products with at least one, are offered, in saved option and value order. A search returns up to 20 products with all their active variants, which is accepted at current catalog sizes.
+- Variants and items show their combination as «Talla: M · Color: Azul» on mobile and «M · Azul» on web ([Products · Combination text](products.md#combination-text)).
+- A sale rejected with `VARIANT_NOT_FOUND`, sent directly or from the queue, returns to the review stage with the item marked «L / Azul ya no está disponible.»; the seller removes or changes it and confirms again.
 - The review stage sets payments, delivery, delivered/pending and scheduled dispatch date. Marking the order delivered requires the balance to be covered and quantities within the shown stock.
 - Confirming requires a connection. While offline the cart stays editable.
 - Before sending, mobile stores the request in a per-company queue in secure storage (`infrastructure/pending-order-confirmation.ts`); if it cannot store it, it does not send. A double tap and the background sync share one request per sale.

@@ -17,6 +17,7 @@ Code: `apps/core/src/features/products/application/identify-products-in-image.ts
    3. A vision model receives the customer image and the candidate images, labelled `A`, `B`, …, and answers one label or `none` with a confidence.
    4. Accept the choice only if it is one of the candidates and its confidence is at least `PRODUCT_MATCH_MIN_CONFIDENCE` (default 0.8).
    5. Add it only if the product has exactly one sellable (active) variant; otherwise the result is `ambiguous_variant`. Reason: product images are per product, so the image cannot tell which variant.
+   Deactivating variants can therefore make a product recognizable by photo once a single active variant is left. Products without active variants are not candidates, and a company with none answers `no_indexed_products`.
 
 A visual match returns at most one product per image (a live screenshot shows the product being offered) and is added to the order like a QR match, without a confirmation step; the seller removes a wrong item as with any item.
 
