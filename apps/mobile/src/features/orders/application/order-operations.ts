@@ -16,7 +16,9 @@ export type PendingOrderConfirmation = Readonly<{
   version: 2;
   request: OrderSubmission;
   /** Set when core refused the sale; it is no longer retried until the seller reviews it. */
-  rejection?: Readonly<{ code: string; message: string }>;
+  rejection?: Readonly<{ code: string; message: string; /** The item core could not find, when it said which. */ variantId?: string }>;
+  /** «L / Azul» per item, as the seller saw it when the sale was built: a review names an item that is gone from the catalog. */
+  itemLabels?: Readonly<Record<string, string>>;
 }>;
 export type PendingOrderStoreError = Readonly<{
   code: "PENDING_CONFIRMATION" | "PENDING_STORAGE_UNAVAILABLE" | "INVALID_PENDING_DATA";
@@ -46,7 +48,11 @@ export type ConfirmOrderOutcome =
 export type PendingOrderReview = Readonly<{
   kind: "review"; pending: PendingOrderConfirmation; draft: OrderDraft;
   unavailableVariantIds: readonly string[];
+  /** Labels of the unavailable items, when the sale was saved with them. */
+  unavailableLabels: Readonly<Record<string, string>>;
 }>;
+const itemLabelsOf = (draft: OrderDraft): Record<string, string> => draft.kind !== "items" ? {} : Object.fromEntries(draft.items
+  .map((item) => [item.variantId, Object.values(item.variantAttributes).join(" / ")] as const).filter(([, label]) => label));
 
 export type OrderListCriteria = Readonly<{
   page: number;
@@ -148,7 +154,8 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
   const queued = (pending: PendingOrderConfirmation): Outcome => Promise.resolve(ok({ kind: "queued", pending }));
   /** Core refused the sale: it stops retrying and waits for the seller to review it. */
   const reject = async (pending: PendingOrderConfirmation, error: OrderRequestError): Outcome => {
-    await pendingStore.replace(pending, { ...pending, rejection: { code: error.code, message: error.message.slice(0, 500) } });
+    const variantId = error.issues?.find((issue) => issue.variantId)?.variantId;
+    await pendingStore.replace(pending, { ...pending, rejection: { code: error.code, message: error.message.slice(0, 500), ...(variantId ? { variantId } : {}) } });
     return err(error);
   };
   const post = async (pending: PendingOrderConfirmation, onRejected: "clear" | "keep"): Outcome => {
@@ -172,8 +179,9 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
   const send = async (draft: OrderDraft, companyId: string): Outcome => {
     const prepared = prepareOrder(draft);
     if (!prepared.success) return prepared;
+    const itemLabels = itemLabelsOf(draft);
     const saved = await pendingStore.save({ version: 2, companyId, id: prepared.data.request.id,
-      shownTotal: prepared.data.shownTotal, request: prepared.data.request });
+      shownTotal: prepared.data.shownTotal, request: prepared.data.request, ...(Object.keys(itemLabels).length ? { itemLabels } : {}) });
     if (!saved.success) return saved;
     return saved.data.rejection ? err({ code: "PENDING_CONFIRMATION", message: "Saved sale needs review" }) : post(saved.data, "clear");
   };
@@ -250,7 +258,8 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
         if (!delivery.success) return err({ code: "INVALID_CART", message: "Invalid saved delivery" });
         draft = { ...draft, ratedDelivery: delivery.data };
       }
-      return ok({ kind: "review", pending: saved, draft, unavailableVariantIds });
+      const unavailableLabels = Object.fromEntries(unavailableVariantIds.flatMap((id) => saved.itemLabels?.[id] ? [[id, saved.itemLabels[id]] as const] : []));
+      return ok({ kind: "review", pending: saved, draft, unavailableVariantIds, unavailableLabels });
     },
     /** Saves the seller's corrections to a refused sale under the same identities and sends it again. */
     reviewPendingOrder: (companyId: string, draft: OrderDraft) => draft.kind !== "items"
@@ -265,7 +274,8 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
         const prepared = prepareOrder(draft);
         if (!prepared.success) return prepared;
         const { rejection: _rejection, ...current } = pending.data;
-        const saved = await pendingStore.replace(pending.data, { ...current, shownTotal: prepared.data.shownTotal, request: prepared.data.request });
+        const itemLabels = { ...current.itemLabels, ...itemLabelsOf(draft) };
+        const saved = await pendingStore.replace(pending.data, { ...current, shownTotal: prepared.data.shownTotal, request: prepared.data.request, ...(Object.keys(itemLabels).length ? { itemLabels } : {}) });
         return saved.success ? post(saved.data, "keep") : saved;
       }),
   };

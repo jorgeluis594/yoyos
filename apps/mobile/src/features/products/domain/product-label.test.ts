@@ -16,3 +16,12 @@ test("prepares only the explicitly chosen variant and preserves its QR", () => {
   expect(prepareProductLabel(product, secondId)).toEqual({ success: true, data: { productName: "Camisa", qrCode: "second-qr" } });
   expect(prepareProductLabel(product, "other" as VariantId)).toMatchObject({ success: false, error: { code: "VARIANT_NOT_FOUND" } });
 });
+
+test("label carries the combination below the name and omits it for a simple product", () => {
+  const talla = "talla" as never, large = "large" as never, color = "color" as never, blue = "blue" as never;
+  const withOptions: Product = { ...product, options: [{ id: talla, name: "Talla", values: [{ id: large, name: "L" }] }, { id: color, name: "Color", values: [{ id: blue, name: "Azul" }] }],
+    variants: [{ ...product.variants[0], combination: [{ optionId: talla, valueId: large }, { optionId: color, valueId: blue }] }] };
+  expect(prepareProductLabel(withOptions, firstId)).toEqual({ success: true, data: { productName: "Camisa", combination: "L / Azul", sku: "CAM-S", qrCode: "first-qr" } });
+  const simple = prepareProductLabel(product, firstId);
+  expect(simple.success && "combination" in simple.data).toBe(false);
+});

@@ -21,7 +21,9 @@ import { editorSummary } from "./product-editor-summary";
 import { formEdges } from "./form-edges";
 import { ProductTopBar } from "./product-top-bar";
 import { useProductEditor } from "./product-editor-state";
-import { productPath } from "./product-routes";
+import { productPath, variantPath } from "./product-routes";
+import { useProductDraft } from "./draft-guard";
+import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { QuantityStepper } from "./quantity-stepper";
 import tokens from "../../../../../../docs/design-tokens.json";
 
@@ -56,7 +58,15 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
   const selected = rows.filter((row) => selection.includes(row.ref));
   const uncreated = useMemo(() => draft.saved && missing > 0 ? uncreatedCombinations(draft, { limit: missing === 1 ? 1 : limit }) : { items: [], hasMore: false }, [draft, missing, limit]);
   const set = (next: EditorDraft) => editor.setDraft(next);
-  const detailOf = (row: EditorRow) => router.push({ pathname: productPath(productId, "draft-variant"), params: { ref: row.ref, ...(productId ? { productId } : {}) } });
+  const { dirty: productDirty, discard } = useProductDraft();
+  const openSaved = (variantId: string) => {
+    const go = () => router.push({ pathname: variantPath, params: { productId: productId ?? "", variantId } });
+    // The detail acts on what core has saved, so a form with changes is discarded first.
+    if (!productDirty && !editor.dirty) { go(); return; }
+    showConfirmation({ title: t("discardChanges"), description: t("discardDescription"), confirmLabel: t("discard"), cancelLabel: t("keepEditing"), destructive: true, onConfirm: () => { discard(); go(); } });
+  };
+  const detailOf = (row: EditorRow) => row.id !== null ? openSaved(row.id)
+    : router.push({ pathname: productPath(productId, "draft-variant"), params: { ref: row.ref, ...(productId ? { productId } : {}) } });
 
   const removeSelected = () => {
     const next = selected.filter((row) => row.id === null).reduce((current, row) => { const result = removeRow(current, row.ref); return result.success ? result.data : current; }, draft);
@@ -96,7 +106,7 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
         onPress={() => editor.setSelection(checked ? selection.filter((ref) => ref !== row.ref) : [...selection, row.ref])} style={styles.check}>
         <SymbolView name={checked ? { ios: "checkmark.square.fill", android: "check_box" } : { ios: "square", android: "check_box_outline_blank" }} size={tokens.sizing.iconAction} tintColor={disabled ? theme.textSecondary : theme.primary} />
       </Pressable>
-      {row.id === null && removal === null ? <Pressable accessibilityRole="button" accessibilityLabel={t("openVariant", { name: label })} onPress={() => detailOf(row)} style={styles.rowPress}>
+      {removal === null ? <Pressable accessibilityRole="button" accessibilityLabel={t("openVariant", { name: label })} onPress={() => detailOf(row)} style={styles.rowPress}>
         {body}
         <ThemedText type="smallBold">{money.format(row.salePrice)}</ThemedText>
         <SymbolView name={{ ios: "chevron.right", android: "chevron_right" }} size={tokens.sizing.iconAction} tintColor={theme.textSecondary} />

@@ -102,7 +102,7 @@ test("an explicit variant prints saved data and copies while saving the draft do
     fireEvent.press(screen.getByRole("button", { name: "Imprimir" }));
     const work = mockStartAttempt.mock.calls[0][0] as PrintWork;
     expect(await work({ isSessionCurrent: () => true, onStage: jest.fn() })).toEqual({ status: "completed" });
-    expect(renderProductLabel).toHaveBeenCalledWith({ productName: "Camisa", sku: "AZUL-1", qrCode: secondQr }, expect.anything());
+    expect(renderProductLabel).toHaveBeenCalledWith({ productName: "Camisa", combination: "Azul", sku: "AZUL-1", qrCode: secondQr }, expect.anything());
     expect(printDocument.mock.calls[0][0]).toMatchObject({ copies: 3 });
 
     fireEvent.press(screen.getByRole("button", { name: "Guardar" }));

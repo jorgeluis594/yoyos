@@ -1,8 +1,10 @@
 import { variantEditorTranslations } from "./variant-editor-translations";
+import { variantDetailTranslations } from "./variant-detail-translations";
 
 export const translations = {
   es: {
     ...variantEditorTranslations.es,
+    ...variantDetailTranslations.es,
     catalogLoadError: 'No se pudieron cargar los productos. Revisa tu conexión e inténtalo otra vez.',
     catalogMoreError: 'No se pudieron cargar más productos. Revisa tu conexión e inténtalo otra vez.',
     configurePrinter: 'Configurar impresora',
@@ -128,6 +130,7 @@ export const translations = {
   },
   'pt-BR': {
     ...variantEditorTranslations['pt-BR'],
+    ...variantDetailTranslations['pt-BR'],
     catalogLoadError: 'Não foi possível carregar os produtos. Verifique sua conexão e tente novamente.',
     catalogMoreError: 'Não foi possível carregar mais produtos. Verifique sua conexão e tente novamente.',
     configurePrinter: 'Configurar impressora',

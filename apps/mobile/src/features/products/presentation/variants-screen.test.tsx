@@ -15,6 +15,8 @@ const mockLoad = jest.fn();
 const mockPush = jest.fn();
 const mockReplace = jest.fn();
 const mockBack = jest.fn();
+const mockDiscard = jest.fn();
+let mockProductDirty = false;
 let mockOpen: (route: string | null) => void = () => {};
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const productId = id(900);
@@ -36,7 +38,7 @@ jest.mock("@mobile/features/products/composition", () => ({
 }));
 jest.mock("@mobile/features/printing/presentation/print-provider", () => ({ usePrint: () => ({ startAttempt: jest.fn() }) }));
 jest.mock("@mobile/features/products/presentation/use-product-navigation-guard", () => ({ useProductNavigationGuard: () => jest.fn() }));
-jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: 0 }) }));
+jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: 0, dirty: mockProductDirty, discard: mockDiscard }) }));
 jest.mock("@mobile/features/products/presentation/product-photo", () => ({ ProductPhoto: () => null }));
 jest.mock("@expo/ui/community/menu", () => ({
   MenuView: ({ actions, onPressAction, children }: { actions: { id: string; title: string }[]; onPressAction: (event: { nativeEvent: { event: string } }) => void; children: ReactNode }) => {
@@ -61,7 +63,7 @@ function Seed({ draft, children }: { draft: EditorDraft; children: ReactNode }) 
 const renderVariants = (draft: EditorDraft) => render(<ProductEditorProvider><Seed draft={draft}><VariantsScreen /></Seed></ProductEditorProvider>);
 const checked = (name: string) => screen.getByRole("checkbox", { name: `Seleccionar ${name}` }).props.accessibilityState.checked;
 
-beforeEach(() => { jest.clearAllMocks(); mockOpen = () => {}; });
+beforeEach(() => { jest.clearAllMocks(); mockOpen = () => {}; mockProductDirty = false; });
 
 /** A new product that holds a draft with options, as if edited on the Opciones screen. */
 function SeededCreate({ draft }: { draft: EditorDraft }) {
@@ -106,11 +108,27 @@ test("a successful save shows the returned detail without another request", asyn
   } finally { alert.mockRestore(); }
 });
 
-test("a saved variant can be selected but only new rows open the unsaved detail", () => {
-  const saved: EditorDraft = { ...polo(), saved: true, rows: polo().rows.map((row, index) => ({ ...row, id: id(100 + index), original: { sku: null, salePrice: 39.9, purchasePrice: null } })) };
-  renderVariants(saved);
-  expect(screen.queryByRole("button", { name: "Abrir S / Negro" })).toBeNull();
+const savedProduct = (): EditorDraft => ({ ...polo(), saved: true, rows: polo().rows.map((row, index) => ({ ...row, id: id(100 + index), original: { sku: null, salePrice: 39.9, purchasePrice: null } })) });
+
+test("a saved row opens the saved variant detail", () => {
+  renderVariants(savedProduct());
   expect(screen.getAllByRole("checkbox")).toHaveLength(6);
+  fireEvent.press(screen.getByRole("button", { name: "Abrir S / Negro" }));
+  expect(mockPush).toHaveBeenCalledWith({ pathname: "/products/[productId]/variants/[variantId]", params: { productId, variantId: id(100) } });
+});
+
+test("opening a saved variant from a form with changes asks to discard them first", () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  try {
+    mockProductDirty = true;
+    renderVariants(savedProduct());
+    fireEvent.press(screen.getByRole("button", { name: "Abrir S / Negro" }));
+    expect(mockPush).not.toHaveBeenCalled();
+    expect(alert).toHaveBeenCalledWith("¿Descartar cambios?", "Se perderán los cambios que no guardaste.", expect.anything(), expect.anything());
+    (alert.mock.calls[0][2] as { text: string; onPress?: () => void }[]).find((button) => button.text === "Descartar")!.onPress!();
+    expect(mockDiscard).toHaveBeenCalled();
+    expect(mockPush).toHaveBeenCalledTimes(1);
+  } finally { alert.mockRestore(); }
 });
 
 test("editing the price of the selected variants replaces it only on them", () => {
