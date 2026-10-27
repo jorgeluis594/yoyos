@@ -1,8 +1,9 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, expect, test } from "vitest";
-import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { productEditing } from "@core/src/composition/product-editing";
+import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { productEditing, productGetDependencies } from "@core/src/composition/product-editing";
+import { getProduct } from "@core/src/features/products/application/get";
 import type { CreateInput } from "@core/src/features/products/application/create";
 import { findForeignOptionIds, findSkuOwners, insertProduct, productRepository } from "@core/src/features/products/infrastructure/repository";
 import { deleteSeededProducts, seedProduct } from "@core/src/features/products/infrastructure/product-seed";
@@ -166,5 +167,28 @@ test("list summaries cover only active variants without loading options", async 
     expect(soldOut.success && soldOut.data.items.map((item) => item.id)).toEqual([dead.productId]);
     const inStock = await productRepository.list({ search: "ZZ", stock: "in_stock", sort: "name", page: 1, pageSize: 20 });
     expect(inStock.success && inStock.data.items.map((item) => item.id).sort()).toEqual([mixed.productId, single.productId].sort());
+  });
+});
+
+test("the detail read sees one snapshot while a save commits between its queries", async () => {
+  await withTenantIsolation(companyA, async () => {
+    const { productId: seededId } = await seedProduct({ name: "Snapshot antes", options: [{ name: "Talla", values: ["S", "M"] }], variants: [
+      { attributes: { Talla: "S" }, salePrice: 5, stock: 1 }, { attributes: { Talla: "M" }, salePrice: 6, stock: 1 },
+    ] });
+    const productId = seededId as ProductId;
+    let seenBetweenQueries: string | undefined;
+    const read = await getProduct(productId, { ...productGetDependencies, findOrderedVariantIds: async (ids) => {
+      // A save in another connection commits after the product was read and before the orders are read.
+      await systemPrisma.$transaction(async (tx) => {
+        await tx.$queryRaw`SELECT set_config('app.company_id', ${companyA}, true)`;
+        await tx.product.update({ where: { id: productId }, data: { name: "Snapshot después" } });
+      });
+      seenBetweenQueries = (await prisma.product.findUniqueOrThrow({ where: { id: productId } })).name;
+      return productGetDependencies.findOrderedVariantIds(ids);
+    } });
+    expect(seenBetweenQueries).toBe("Snapshot antes");
+    expect(read.success && read.data?.product.name).toBe("Snapshot antes");
+    const next = await getProduct(productId, productGetDependencies);
+    expect(next.success && next.data?.product.name).toBe("Snapshot después");
   });
 });

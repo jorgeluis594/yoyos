@@ -1,7 +1,7 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
-import type { ActionFunctionArgs } from "react-router";
-import { action } from "@core/app/routes/product-new";
+import type { ActionFunctionArgs, ClientActionFunctionArgs } from "react-router";
+import { action, clientAction } from "@core/app/routes/product-new";
 import { productEditing } from "@core/src/composition/product-editing";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
@@ -39,4 +39,25 @@ test("keeps Portuguese in the product redirect", async () => {
 test("returns Portuguese validation errors for Portuguese routes", async () => {
   const request = new Request("http://localhost/pt-BR/products/new", { method: "POST", body: JSON.stringify({ ...valid, companyId: "forged" }) });
   expect(await action({ request, context } as ActionFunctionArgs)).toMatchObject({ errors: { form: "A solicitação contém campos não permitidos." } });
+});
+
+const clientRun = (serverAction: () => Promise<unknown>) => clientAction({
+  request: new Request("http://localhost/es-PE/products/new", { method: "POST", body: JSON.stringify(valid) }), serverAction,
+} as unknown as ClientActionFunctionArgs);
+
+test("a creation that gets no response keeps the form with the connection notice and a status that skips revalidation", async () => {
+  expect(await clientRun(async () => { throw new TypeError("Failed to fetch"); })).toMatchObject({
+    data: { errors: { form: "No se pudo guardar. Revisa tu conexión e inténtalo otra vez." }, issues: [] }, init: { status: 503 },
+  });
+});
+
+test("a gateway failure on the creation keeps the form with the uncertain-result notice", async () => {
+  expect(await clientRun(async () => { throw new Response("Gateway timeout", { status: 504 }); })).toMatchObject({
+    data: { errors: { form: "No se pudo confirmar si se creó este producto. Revisa el catálogo antes de iniciar otra creación." }, issues: [] }, init: { status: 503 },
+  });
+});
+
+test("a client error from the server still reaches the error boundary", async () => {
+  const refused = new Response("nope", { status: 403 });
+  await expect(clientRun(async () => { throw refused; })).rejects.toBe(refused);
 });

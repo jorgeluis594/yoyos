@@ -7,6 +7,7 @@ import { Button } from "@/components/ui/button";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageContainer } from "@/components/ui/page-container";
 import { privateUserContext } from "@/private-user-context";
+import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
 import { productEditing } from "@core/src/composition/product-editing";
 import { productVariantActions } from "@core/src/composition/product-variant-actions";
 import { toProductDetailResponse } from "@core/src/features/products/presentation/product-presenter";
@@ -82,13 +83,16 @@ export async function action({ request, context, params }: ActionFunctionArgs): 
   }
 }
 
-// A request that never reached the server is a connection problem, not a rejection. Redirects and client errors keep their usual handling.
-export async function clientAction({ request, serverAction }: ClientActionFunctionArgs): Promise<Response | VariantOutcome> {
+// A request that never reached the server is a connection problem; a gateway failure after it left is an uncertain result. Redirects and client errors keep their usual handling.
+export async function clientAction({ request, serverAction }: ClientActionFunctionArgs) {
   const sent = await request.clone().json().catch(() => ({})) as { intent?: VariantIntent; status?: "active" | "inactive" };
   try { return await serverAction<typeof action>(); }
   catch (cause) {
-    if (cause instanceof Response || isRouteErrorResponse(cause)) throw cause;
-    return offlineOutcome(sent.intent ?? "update", sent.status, languageForLocale(new URL(request.url).pathname.split("/")[1]));
+    const lost = lostResponse(cause);
+    if (!lost) throw cause;
+    const language = languageForLocale(new URL(request.url).pathname.split("/")[1]);
+    const intent = sent.intent ?? "update";
+    return data(lost === "offline" ? offlineOutcome(intent, sent.status, language) : inDoubtOutcome(intent, language), { status: lostResponseStatus });
   }
 }
 

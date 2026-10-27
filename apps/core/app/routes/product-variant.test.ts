@@ -1,7 +1,7 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
-import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
-import { action, loader } from "@core/app/routes/product-variant";
+import type { ActionFunctionArgs, ClientActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import { action, clientAction, loader } from "@core/app/routes/product-variant";
 import { productEditing } from "@core/src/composition/product-editing";
 import { productVariantActions } from "@core/src/composition/product-variant-actions";
 import type { Detail } from "@core/src/features/products/application/get";
@@ -78,4 +78,27 @@ test("variant detail action reports a malformed body under the intent it names",
   expect(await action(post({ intent: "combination", values: "x" }))).toMatchObject({ intent: "combination", failed: true });
   expect(await action(post({ intent: "status", status: "paused" }))).toMatchObject({ intent: "status", failed: true });
   expect(await action(post({ intent: "nope" }))).toMatchObject({ intent: "update", failed: true });
+});
+
+const clientRun = (body: unknown, serverAction: () => Promise<unknown>) => clientAction({
+  request: new Request(url, { method: "POST", body: JSON.stringify(body) }), serverAction,
+} as unknown as ClientActionFunctionArgs);
+
+test("a variant action that gets no response keeps the form with the connection notice of that action and a status that skips revalidation", async () => {
+  const lost = async () => { throw new TypeError("Failed to fetch"); };
+  expect(await clientRun({ intent: "status", status: "inactive" }, lost)).toMatchObject({
+    data: { intent: "status", failed: true, errors: { form: "No se pudo desactivar la variante. Revisa tu conexión e inténtalo otra vez." } }, init: { status: 503 },
+  });
+  expect(await clientRun({ intent: "update", sku: "A" }, lost)).toMatchObject({ data: { intent: "update", failed: true }, init: { status: 503 } });
+});
+
+test("a gateway failure on a variant action keeps the form with the uncertain-result notice", async () => {
+  expect(await clientRun({ intent: "update", sku: "A" }, async () => { throw new Response("Gateway timeout", { status: 504 }); })).toMatchObject({
+    data: { intent: "update", failed: true, errors: { inDoubt: "Puede que se hayan guardado los cambios. Recarga la variante para revisarlos." } }, init: { status: 503 },
+  });
+});
+
+test("a client error from the server still reaches the error boundary", async () => {
+  const refused = new Response("nope", { status: 403 });
+  await expect(clientRun({ intent: "update", sku: "A" }, async () => { throw refused; })).rejects.toBe(refused);
 });
