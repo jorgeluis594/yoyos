@@ -298,8 +298,8 @@ test("every variant action on another company's product answers 404 like a missi
   for (const [method, target, body] of attempts(randomUUID(), randomUUID())) expect((await call(target, owner.cookie, method, body)).status).toBe(404);
   for (const [method, target, body] of attempts(seeded.productId, randomUUID())) {
     const missing = await call(target, owner.cookie, method, body);
-    expect([404, 409, 422]).toContain(missing.status);
-    if (method !== "PUT" || !target.endsWith("/combination")) expect((await errorOf(missing)).code).toBe("VARIANT_NOT_FOUND");
+    expect(missing.status, `${method} ${target}`).toBe(404);
+    expect((await errorOf(missing)).code, `${method} ${target}`).toBe("VARIANT_NOT_FOUND");
   }
   expect((await call(path("not-a-uuid", sNegro), owner.cookie, "DELETE")).status).toBe(400);
 });

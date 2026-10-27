@@ -393,7 +393,7 @@ test("PUT returns 422 with option, value and variant issues together", async () 
   ]));
 });
 
-test("PUT answers 409 DUPLICATE_SKU when another product holds the SKU and 400 for an unknown field", async () => {
+test("PUT answers 422 DUPLICATE_SKU when another product holds the SKU and 400 for an unknown field", async () => {
   const { companyId, cookie, seeded } = await poloWithOrder();
   await withTenantIsolation(companyId, () => seedProduct({ name: "Dueño", variants: [{ sku: "OCUPADO" }] }));
   const form = formOf(await detail(cookie, seeded.productId));
