@@ -581,11 +581,15 @@ export async function saveAddedItems(order: OrderAggregate, previous: OrderAggre
   try {
     for (const item of order.items) {
       const old = before.get(item.id);
-      if (!old) await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, variantId: item.variantId, productName: item.productName,
+      if (old && old.quantity !== item.quantity) await prisma.orderItem.update({ where: { id: item.id },
+        data: { quantity: BigInt(item.quantity), subtotal: money(item.subtotal.amount) } });
+    }
+    // Inserts take their locks on the variants in a fixed order, so two concurrent additions cannot wait for each other.
+    const inserts = order.items.filter((item) => !before.has(item.id)).sort((a, b) => a.variantId < b.variantId ? -1 : a.variantId > b.variantId ? 1 : 0);
+    for (const item of inserts) {
+      await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
         unitPrice: money(item.unitPrice.amount), subtotal: money(item.subtotal.amount) } });
-      else if (old.quantity !== item.quantity) await prisma.orderItem.update({ where: { id: item.id },
-        data: { quantity: BigInt(item.quantity), subtotal: money(item.subtotal.amount) } });
     }
     const updated = await prisma.order.updateMany({ where: { id: order.id, companyId: order.companyId, cancelled: false },
       data: { itemsTotal: money(order.itemsTotal.amount), total: money(order.total.amount) } });

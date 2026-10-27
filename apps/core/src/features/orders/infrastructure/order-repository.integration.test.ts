@@ -1765,6 +1765,29 @@ test("saveAddedItems inserts new items and updates quantities and totals", async
   } finally { await chatCleanup(f); await f.cleanup(); }
 });
 
+test("saveAddedItems inserts the new items in variant order whatever the order they were added in", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const order = chatOrder(f);
+    await withTenantIsolation(f.companyId, async () => {
+      await withinTransaction(() => savePendingOrder(order, chat.source));
+      const extra = [randomUUID(), randomUUID()].sort() as [VariantId, VariantId];
+      await seedProduct({ name: "Added", variants: extra.map((id, index) => ({ id, attributes: { Size: `T${index}` }, salePrice: 5, qrCode: id, stock: 3n })) });
+      const [low, high] = extra;
+      const added = orderStateMachine.appendItems(order, [high, low].map((variantId) => (
+        { variantId, productName: "Sample", variantAttributes: {}, sku: null, unitPrice: { amount: 5, currency: "PEN" as const } })), () => randomUUID() as never);
+      if (!added.success) throw new Error(added.error.message);
+      const created = vi.spyOn(prisma.orderItem, "create");
+      try {
+        expect(await withinTransaction(() => saveAddedItems(added.data, order))).toEqual(ok(null));
+        const inserted = created.mock.calls.map(([args]) => args.data.variantId).filter((id) => id === low || id === high);
+        expect(inserted).toEqual([low, high]);
+      } finally { created.mockRestore(); }
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
 test("findProcessedMessage returns the order of a processed message", async () => {
   const f = await fixture();
   try {
