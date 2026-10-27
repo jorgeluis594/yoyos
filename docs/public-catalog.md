@@ -138,7 +138,7 @@ Each environment has its own base domain in `CATALOG_BASE_URL` (scheme, host and
 ## Buyer
 
 - **Catalog page:** store header, product grid (newest first, 24 per page, **Ver más**), search by product name. A product shows «Desde» the minimum price when variants differ and «Agotado» when every variant is out of stock; a product without photo shows a neutral block with its initial. Search, loaded pages and scroll position are kept when returning from a product.
-- **Product page:** photo, name, price, description, one selector per attribute. Combinations that do not exist and variants without stock cannot be selected. Quantity from 1 up to the variant's available stock, never above 99.
+- **Product page:** photo, name, price, description, one selector per product option, in the option order the seller saved, with the values in their saved order. Combinations that do not exist and variants without stock cannot be selected. Quantity from 1 up to the variant's available stock, never above 99.
 - **Cart:** lives only in the buyer's browser (`localStorage`); it is not sent to Yoyos before **Continuar**. Reason: the buyer has no account and an abandoned cart needs no storage. One line per variant, at most 30 lines. It shows «Subtotal de productos»; «Total» is reserved for the checkout, where delivery is added.
 - **Cart ownership:** the cart belongs to the store (the company), not to the address: it is stored per company, so a cart left at an address is never shown in another company's store that later takes the same subdomain, and a cart is never carried to a new address. Reason: a released and reused address must not show the previous store's cart.
 - **Continuar** opens the full checkout URL on the same brand host, built from the store the host resolved to.
@@ -173,7 +173,7 @@ The catalog renders the company's [store appearance](checkout.md#appearance): on
 
 | Aspect | Rule |
 | --- | --- |
-| What is shown | Active products with at least one active variant, priced in the company's currency. Name, photo, description, attributes and sale price. Never purchase price, SKU, stock quantity or QR. |
+| What is shown | Active products with at least one active variant, priced in the company's currency. Name, photo, description, options with their values and sale price. Only active variants count: a deactivated variant is never offered, and a value whose variants are all deactivated is not shown. Never purchase price, SKU, stock quantity or QR. |
 | Search | Product name only, contains the typed text, case and accent insensitive, 2 to 80 characters. |
 | Prices | The order is created with the prices current at **Continuar**, without comparing them with what the cart showed. Reason: same rule as every order; the checkout shows the real total before confirming. |
 | Stock | Checked at **Continuar** to reject unavailable lines; not reserved and not deducted by the catalog. Reason: same stock rule as every order; two buyers may order the last unit and the seller resolves it in the chat. |

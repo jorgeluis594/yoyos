@@ -32,7 +32,7 @@ Every other order requires a seller, taken from the authenticated session.
 - Core reads current catalog prices and computes every subtotal and total with `shared/money.ts`. Amounts sent or shown by a client are never persisted. Reason: the catalog is the only price authority.
 - No expected price is sent for items and there is no `PRICE_CHANGED` error: if the catalog changed while the cart was built, the stored total can differ from the one shown. The client shows the amounts core returns.
 - An order uses one currency; mixing currencies returns `CURRENCY_MISMATCH`. Amounts that exceed the storage range are rejected, never truncated.
-- Items copy product name, variant attributes, SKU and unit price at creation. Later catalog edits do not change them, and deleting a product does not cascade to orders that reference it.
+- Items copy product name, the variant's combination (option names and values, in the option order of that moment), SKU and unit price at creation. Later catalog edits do not change them, and deleting a product does not cascade to orders that reference it.
 - Each variant appears once per order, with its total quantity.
 - `total = itemsTotal + deliveryCharge`.
 
@@ -121,7 +121,7 @@ Errors use the envelope `{ code, error, issues? }`; `issues` points to the affec
 | Malformed body, query or ID | `400 INVALID_INPUT` |
 | Body is not JSON / larger than 100 kB | `415 UNSUPPORTED_MEDIA_TYPE` / `413 PAYLOAD_TOO_LARGE` |
 | Business rule broken / mixed currencies | `422 INVALID_ORDER` / `422 CURRENCY_MISMATCH` |
-| Variant not available in the company | `404 VARIANT_NOT_FOUND` |
+| Variant not available in the company, or deactivated (see [Products](products.md)) | `404 VARIANT_NOT_FOUND` with `variantId`; clients mark the item «ya no está disponible» |
 | Not enough stock | `409 INSUFFICIENT_STOCK` (nothing persists) |
 | Repeated order ID | `409 ORDER_ALREADY_EXISTS` |
 | Delivery already progressed / payment not covered | `409 DELIVERY_LOCKED` / `409 PAYMENT_REQUIRED` |

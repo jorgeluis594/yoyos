@@ -147,7 +147,7 @@ Un producto sin opciones que recibe su primera opción sigue el mismo camino. Su
 ### Renombrar, reordenar y corregir
 
 - **Renombrar:** en el editor de la opción, la vendedora cambia «Azul» por «Azul marino». Debajo se ve «Antes «Azul». Los pedidos anteriores conservan el nombre «Azul».». El cambio se aplica al guardar.
-- **Reordenar:** arrastra la opción o el valor por su asa, o usa **Subir** y **Bajar** (ver «Reordenar sin arrastrar»). La tabla de variantes se reordena al instante, y el orden se guarda con **Guardar cambios**.
+- **Reordenar:** en web arrastra la opción o el valor por su asa o usa las flechas; en móvil usa **Subir** y **Bajar** (ver «Reordenar sin arrastrar»). La tabla de variantes se reordena al instante, y el orden se guarda con **Guardar cambios**.
 - **Corregir la combinación de una variante:**
   1. En el detalle de la variante, **Cambiar combinación**.
   2. La vendedora elige un valor por opción, entre los existentes o con **Otro valor…** para escribir uno nuevo.
@@ -250,8 +250,8 @@ Una opción se quita con **Eliminar**, en su editor:
 - El asa de cada opción y de cada valor es un botón con nombre accesible, por ejemplo «Mover «M», posición 2 de 3».
 - **Web:** con el asa enfocada, las flechas arriba y abajo mueven el elemento un lugar, y el lector de pantalla anuncia la nueva posición. Con el ratón también se puede arrastrar.
 - **Móvil:**
-  - El arrastre solo empieza al mantener presionada el asa; el resto de la tarjeta hace scroll normal.
-  - Tocar el asa sin arrastrar abre un menú con **Subir**, **Bajar** y **Cancelar**.
+  - En esta versión no hay arrastre en móvil (decisión del coordinador): el resto de la tarjeta hace scroll normal.
+  - Tocar el asa abre un menú con **Subir**, **Bajar** y **Cancelar**.
   - VoiceOver y TalkBack ofrecen **Subir** y **Bajar** como acciones del elemento.
 - **Subir** no aparece en el primer elemento, ni **Bajar** en el último.
 
@@ -416,7 +416,7 @@ Una opción se quita con **Eliminar**, en su editor:
 | Stock | Se define solo al crear la variante, en un producto nuevo o como «Nueva» en uno guardado. Después cambia solo con los pedidos, como hoy. |
 | SKU | Es opcional por variante, sin autogeneración, y único en la empresa ignorando mayúsculas y espacios, como hoy. Si dos filas del mismo guardado tienen el mismo SKU, se rechazan las dos. |
 | QR | Uno por variante e inmutable. Lo genera core al guardar. No cambia al renombrar, reordenar, cambiar la combinación, desactivar ni reactivar. |
-| Orden | Lo define la vendedora: por defecto, el orden en que escribió opciones y valores. Se cambia arrastrando o con **Subir** y **Bajar**, y se guarda con el producto. Lo usan las fichas, la tabla de variantes, el nombre de la variante («L / Azul»), la hoja y la etiqueta de impresión, «Nueva venta», el catálogo público, el checkout y los pedidos nuevos. |
+| Orden | Lo define la vendedora: por defecto, el orden en que escribió opciones y valores. Se cambia arrastrando (solo web), con las flechas (web) o con **Subir** y **Bajar** (móvil), y se guarda con el producto. Lo usan las fichas, la tabla de variantes, el nombre de la variante («L / Azul»), la hoja y la etiqueta de impresión, «Nueva venta», el catálogo público, el checkout y los pedidos nuevos. |
 | Agregar valor | Crea solo las combinaciones que contienen el valor nuevo. No vuelve a crear las combinaciones que la vendedora quitó. Un valor nuevo creado desde **Cambiar combinación** no genera combinaciones: solo mueve esa variante. |
 | Agregar opción | Las variantes existentes, activas o desactivadas, reciben el valor elegido y conservan id, QR, SKU, precios, stock, estado y pedidos. Las demás combinaciones se crean nuevas. |
 | Renombrar | Opciones y valores se renombran en todas sus variantes. Los pedidos y checkouts ya creados conservan su texto, y los nuevos usan el nombre nuevo. Las etiquetas impresas muestran el nombre anterior, y su QR sigue funcionando. |
@@ -574,7 +574,7 @@ Si un mockup y este texto no coinciden, manda el texto:
 10. Al mismo producto le agrega «Manga» con Corta y Larga y elige «Corta» para las variantes actuales. Las 8 variantes existentes pasan a «… / Corta» con el mismo QR, SKU, precio, stock y pedidos, y se crean 8 con «Larga» y stock 0. Si L / Azul estaba desactivada, la tabla avisa que L / Azul / Larga saldrá a la venta.
 11. Un producto sin opciones, con stock 5 y un pedido, recibe Talla S/M y la vendedora elige «S» para la variante actual. S conserva su QR, su stock 5 y su pedido, y M se crea con stock 0.
 12. Renombra «Negro» a «Negro carbón». El pedido anterior de M / Negro y su checkout siguen mostrando «Negro», y un pedido nuevo de esa variante muestra «Negro carbón».
-13. Mueve «Color» antes de «Talla» y «L» antes de «S», una vez arrastrando y otra solo con teclado en web (asa enfocada y flechas) y con **Subir** / **Bajar** en móvil. La ficha, la lista de variantes de móvil, la hoja de impresión, el selector de «Nueva venta», el catálogo público, un pedido nuevo y su checkout muestran Color primero y L antes que S.
+13. Mueve «Color» antes de «Talla» y «L» antes de «S», una vez arrastrando en web, otra solo con teclado en web (asa enfocada y flechas) y con **Subir** / **Bajar** en móvil. La ficha, la lista de variantes de móvil, la hoja de impresión, el selector de «Nueva venta», el catálogo público, un pedido nuevo y su checkout muestran Color primero y L antes que S.
 14. Cambiar combinación:
     - Cambiar M / Negro, que tiene pedidos, a M / Azul, que ya existe, se rechaza con «Ya existe la variante M / Azul. Elige otra combinación.».
     - Cambiarla con **Otro valor…** a «XL», que no existía, la guarda como XL / Negro. Muestra «Combinación cambiada», el título cambia, «Talla» suma XL al final, el pedido sigue mostrando «M / Negro» y XL / Azul aparece en «combinaciones sin crear».
@@ -661,7 +661,7 @@ No quedan preguntas abiertas. Estas decisiones de rutina, aceptadas por la revis
 - **Desactivar, activar y eliminar:** **Activar variante** no pide confirmación. **Desactivar** existe solo en productos con opciones. Las tres acciones son de a una variante.
 - **Estado en curso:** botones deshabilitados con «Guardando…», «Desactivando…», «Activando…» o «Eliminando…». Sin conexión se separa del resultado dudoso.
 - **Límite de 100:** es único y cuenta variantes. El editor lo comprueba con el producto de los valores al crear y con «actuales + nuevas» en un producto guardado. Core valida el resultado final. Agregar una opción a un producto grande puede quedar bloqueado (límite aceptado).
-- **Reordenar sin arrastrar:** en web, el asa se enfoca y se mueve con las flechas. En móvil, **Subir** y **Bajar** al tocar el asa y como acciones del lector de pantalla. El arrastre solo empieza en el asa.
+- **Reordenar sin arrastrar:** en web, el asa se enfoca y se mueve con las flechas. En móvil, **Subir** y **Bajar** al tocar el asa y como acciones del lector de pantalla; no hay arrastre en móvil en esta versión.
 - **Chips:** son interruptores y se suman. Con **Filtrar por valor**, seleccionan solo lo visible. El chip activo lleva ícono de check y se anuncia «seleccionado».
 - **Filas nuevas:** quedan al final hasta guardar y después se intercalan.
 - **Detalle de variante no guardada:** en web, una ventana; en móvil, una pantalla completa. Tiene **Quitar**.

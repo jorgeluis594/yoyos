@@ -181,6 +181,7 @@ export type SaveProductDependencies = Readonly<{
   findForeignOptionIds: (ids: readonly string[]) => Promise<Result<ReadonlySet<string>, ProductReadError>>;
   findImage: (imageId: ImageId) => Promise<Result<boolean, ImageLookupError>>;
   applyStructureChange: (change: ProductStructureChange) => Promise<Result<null, SaveProductError>>;  // bulk, §11
+  reload: (id: ProductId) => Promise<Result<Detail | null, DetailError>>;                           // the editing read, inside the transaction
   newId: () => string; clock: () => Date;
   publishProductImageChanged: (productId: ProductId) => Promise<Result<void, EventBusError>>;
 }>;
@@ -194,6 +195,7 @@ export type SaveProductDependencies = Readonly<{
   5. An empty plan returns the product without writing.
   6. `applyStructureChange`, with `updatedAt = clock()`, and `structureVersion + 1` when structure changed.
   7. Reload through the editing read and return.
+- **Limits.** Besides the final state (point 8), the limits apply to the request lists as received: options, values per option, variants and name lengths are checked on the lists the client sent, before the diff is planned.
 - **Constraint translation.** Each of these rolls back the whole save:
   - the FK from `OrderItem` → `VARIANT_HAS_ORDERS`;
   - the SKU index → `DUPLICATE_SKU`;
@@ -263,8 +265,8 @@ export type SaveProductDependencies = Readonly<{
 - **Query:** a semi-join that probes the `(companyId, variantId)` index once per id and returns no row per order item:
 
 ```sql
-SELECT id FROM unnest($ids::uuid[]) AS id
-WHERE EXISTS (SELECT 1 FROM "OrderItem" oi WHERE oi."companyId" = $c AND oi."variantId" = id)
+SELECT ids.variant_id AS id FROM unnest($ids::uuid[]) AS ids(variant_id)
+WHERE EXISTS (SELECT 1 FROM "OrderItem" oi WHERE oi."companyId" = $c AND oi."variantId" = ids.variant_id)
 ```
 
 - **Location:** `orders/infrastructure/order-repository.ts`, exposed through `orders/composition.ts`, which is the feature's entry point. Feature `index.ts` barrels are debt and are not extended (guide rule 4.5).
@@ -272,7 +274,9 @@ WHERE EXISTS (SELECT 1 FROM "OrderItem" oi WHERE oi."companyId" = $c AND oi."var
 
 ### 5.9 Removed at the end
 
-`updateProduct`, `PATCH /api/products/:productId` and `updateProductRequestSchema` are removed in T10, once neither client uses them. Until then `PATCH` edits only name, description, photo and the prices and SKUs of variants. It touches no structure, so it cannot bypass the structural rules.
+`updateProduct`, `PATCH /api/products/:productId`, `updateProductRequestSchema`, the repository `update` and `UpdateChanges` are removed in T10. The variant patch validator that `updateVariant` reuses (`validateVariantPatch`, `planVariantPatch`, `variantPatchSchema`) stays, narrowed to variants.
+
+**Use cases return the `ProductId`; the composition reloads.** The per-variant use cases (§5.3 to §5.6) end with the id of the product, not the detail. `src/composition/product-variant-actions.ts` reloads the detail with `productEditing.get` after the commit, so `hasOrders` and the order are never stale, and logs `product_variant_action_reload_failed` if that reload fails after a committed write. `saveProduct` reloads inside its own transaction through the `reload` dependency (§5.2), so a failed reload rolls the save back.
 
 ## 6. Domain and typing
 
@@ -441,7 +445,7 @@ There is no production data yet (founder, §17), so this is one plain migration 
 
 **Locks.** The file runs inside the deploy, while order and product writes are stopped, as the README already requires for orders. With no production data, the brief `ACCESS EXCLUSIVE` locks of the `ALTER TABLE` statements are bounded by `lock_timeout` and need no `CONCURRENTLY` or split.
 
-**Final state equals the schema.** Index and constraint names are the ones Prisma generates. T0's acceptance includes an empty `prisma migrate diff --from-migrations prisma/migrations --to-schema-datamodel prisma/schema.prisma`.
+**Final state equals the schema.** Index and constraint names are the ones Prisma generates. T0's acceptance includes an empty `prisma migrate diff --from-migrations prisma/migrations --to-schema prisma/schema.prisma`.
 
 **Deploy.** `web`, `worker` and `migrate` deploy together, as today. No running instance has to read `attributes` after the migration: all of them stop for the deploy.
 
@@ -687,6 +691,7 @@ Deleted variants are removed first, and new variants are inserted last, with com
 | Duplicate combination under a race | The `combinationKey` index returns `DUPLICATE_COMBINATION` |
 | Repeating create | `PRODUCT_ID_CONFLICT`, as today |
 | Repeating status, combination or delete | Same status or same combination: success without writing. A `newValue` that already exists with the same name counts as `valueId`. Delete again: `VARIANT_NOT_FOUND` |
+| Message-to-order meets a variant deleted after the read | Both of its writes (`savePendingOrder` with a chat source and `saveAddedItems`) answer the P2003 on `OrderItem_companyId_variantId_fkey` as `PERSISTENCE_UNAVAILABLE` «Variant is not available», which the message-to-order job treats as retryable, and not as `VARIANT_NOT_FOUND` as the row above says. Reason: the next scan no longer finds the variant and skips it. Direct sales, immediate sales and catalog orders do map it to `VARIANT_NOT_FOUND` |
 | Transaction timeout | The transaction rolls back (Prisma P2028) at the `withinTransaction` boundary. The `transaction` dependency built in `src/composition/product-editing.ts` (and in `product-variant-actions.ts`) maps it to `PERSISTENCE_UNAVAILABLE` and logs `product_save_failed` with `stage: "transaction_timeout"` once. The repository does not log it again |
 
 ## 12. Code organization

@@ -143,7 +143,7 @@ The arrows describe allowed source dependencies, not runtime flow (entry point â
 - Application may depend on domain.
 - Infrastructure implements application contracts and may use domain types for mapping.
 - Presentation consumes application operations and their data contracts.
-- A feature must not import another feature's internal files. Cross-feature access uses deliberate exports from its `index.ts` or an explicitly supplied capability.
+- A feature must not import another feature's internal files. Cross-feature access goes through the feature's `composition.ts` or a capability supplied from `src/composition/`. `index.ts` barrels that re-export internals are debt to remove, not a pattern to extend.
 - Feature dependencies must remain acyclic. The feature owning an operation coordinates its dependencies.
 
 These dependency rules are mandatory and non-negotiable. Every implementation and refactor must comply; convenience, reuse, and feature-specific documentation do not justify exceptions.
