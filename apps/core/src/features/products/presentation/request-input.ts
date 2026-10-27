@@ -19,14 +19,19 @@ function issues(error: z.ZodError): readonly InputIssue[] {
   }));
 }
 
+/** Validates an already parsed body with one of the shared request schemas. */
+export function parseRequestValue<S extends z.ZodType>(schema: S, raw: unknown, message: string): Result<z.output<S>, InputError> {
+  const result = schema.safeParse(raw);
+  if (!result.success) return err({ code: "INVALID_INPUT", message, issues: issues(result.error) });
+  return ok(result.data);
+}
+
 /** Parses a JSON body with one of the shared request schemas, for the web actions that do not go through Express. */
 export function parseRequestJson<S extends z.ZodType>(schema: S, text: string, message: string): Result<z.output<S>, InputError> {
   let raw: unknown;
   try { raw = JSON.parse(text); }
   catch { return err({ code: "MALFORMED_JSON", message: "Invalid JSON", issues: [] }); }
-  const result = schema.safeParse(raw);
-  if (!result.success) return err({ code: "INVALID_INPUT", message, issues: issues(result.error) });
-  return ok(result.data);
+  return parseRequestValue(schema, raw, message);
 }
 
 export function toCreateInput(request: CreateProductRequest): CreateInput {
