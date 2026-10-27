@@ -11,7 +11,8 @@ import { getProduct, type GetDependencies } from "@core/src/features/products/ap
 import { saveProduct, type SaveProductDependencies, type SaveProductError, type SaveProductInput } from "@core/src/features/products/application/save-product";
 import { listProducts, type ListInput } from "@core/src/features/products/application/list";
 import { findImage, listImages, publishProductImageChanged, resolveImage } from "@core/src/features/products/composition";
-import { applyStructureChange, findForeignOptionIds, findSkuOwners, insertProduct, lockProduct, productExists, productRepository, transactionFailureStage } from "@core/src/features/products/infrastructure/repository";
+import { applyStructureChange, findForeignOptionIds, findSkuOwners, insertProduct, lockProduct, productExists, productRepository } from "@core/src/features/products/infrastructure/repository";
+import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 type Env = Readonly<Record<string, string | undefined>>;

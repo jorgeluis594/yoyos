@@ -9,7 +9,8 @@ import { changeVariantStatus, type ChangeVariantStatusInput } from "@core/src/fe
 import { deleteVariant, type DeleteVariantInput } from "@core/src/features/products/application/delete-variant";
 import { updateVariant, type UpdateVariantInput } from "@core/src/features/products/application/update-variant";
 import type { VariantActionDependencies, VariantActionName } from "@core/src/features/products/application/variant-action";
-import { findForeignOptionIds, findSkuOwners, productRepository, transactionFailureStage } from "@core/src/features/products/infrastructure/repository";
+import { findForeignOptionIds, findSkuOwners, productRepository } from "@core/src/features/products/infrastructure/repository";
+import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import { applyCombinationChange, applyVariantDeletion, lockProduct, setVariantStatus, updateVariantFields, type VariantActionContext } from "@core/src/features/products/infrastructure/variant-repository";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { productEditing, productWriteTransactionOptions } from "@core/src/composition/product-editing";

@@ -5,7 +5,8 @@ import { err, ok } from "@shared/functional";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createPgBossProvider } from "@core/src/shared/events/infrastructure/pg-boss-provider";
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
-import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
+import type { CompanyId } from "@shared/identity";
+import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 
 // Provider and image bytes are faked; bus, tenant isolation, products composition, use case and pgvector are real.
 const { embeddings } = vi.hoisted(() => {
@@ -23,7 +24,9 @@ vi.mock("@core/src/shared/images/application/images", async (importOriginal) => 
 
 import { createPublishEvent } from "@core/src/composition/event-bus";
 import { indexProductImage } from "@core/src/composition/event-handlers";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing, productSaveDependencies } from "@core/src/composition/product-editing";
+import { saveProduct } from "@core/src/features/products/application/save-product";
+import { productRepository } from "@core/src/features/products/infrastructure/repository";
 import { deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 test("a product created with an image is indexed by the worker, reindexed on image change and retried while the embedder is down", async () => {
@@ -43,12 +46,14 @@ test("a product created with an image is indexed by the worker, reindexed on ima
     prisma.$queryRaw<Array<{ imageId: string; model: string }>>`SELECT "imageId", model FROM "ImageEmbedding" ORDER BY "createdAt"`);
   // The editor's save, sent exactly as loaded with one field changed.
   const edit = (productId: ProductId, change: Readonly<{ name?: string; imageId?: ImageId }>) => withTenantIsolation(companyId, async () => {
-    const loaded = await productEditing.get(productId);
+    const loaded = await productRepository.get(productId);
     if (!loaded.success || !loaded.data) throw new Error("product not found");
-    const { product } = loaded.data;
-    return await productEditing.save({ productId, structureVersion: product.structureVersion, name: product.name, description: product.description ?? null, imageId: product.imageId ?? null,
+    const product = loaded.data;
+    // The detail read resolves image URLs, which needs storage; the reload only has to answer.
+    const deps = { ...productSaveDependencies(companyId, productId), reload: async () => ok({ product, orderedVariantIds: new Set<VariantId>() }) };
+    return await saveProduct({ productId, structureVersion: product.structureVersion, name: product.name, description: product.description ?? null, imageId: product.imageId ?? null,
       options: [], variants: product.variants.map((variant) => ({ id: variant.id, sku: variant.sku ?? null, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null })),
-      newVariants: [], deletedVariantIds: [], ...change });
+      newVariants: [], deletedVariantIds: [], ...change }, { companyId: companyId as CompanyId }, deps);
   });
   try {
     await producer.start();

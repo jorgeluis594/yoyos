@@ -10,7 +10,7 @@ import type { ProductReadError } from "@core/src/features/products/application/r
 import type { UpdateVariantError, VariantFieldChanges } from "@core/src/features/products/application/update-variant";
 import type { ProductId, VariantId, VariantStatus } from "@core/src/features/products/domain/product";
 import { isDuplicateCombination, isDuplicateSku, isDuplicateValueId, isForeignKeyViolation, isMissingRow } from "@core/src/features/products/infrastructure/prisma-errors";
-import { transactionFailureStage } from "@core/src/features/products/infrastructure/repository";
+import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import type { CombinationPlan, VariantDeletionPlan } from "@core/src/features/products/domain/variant-rules";
 
 const decimal = (amount: number) => new Prisma.Decimal(amount.toString());

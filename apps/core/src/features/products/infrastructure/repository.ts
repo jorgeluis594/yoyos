@@ -1,3 +1,4 @@
+import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import { isDuplicateCombination, isDuplicateOptionId, isDuplicateProductId, isDuplicateSku, isForeignKeyOfOrders } from "@core/src/features/products/infrastructure/prisma-errors";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, type ProductStock as DbStock, type ProductOption as DbOption, type ProductOptionValue as DbValue, type ProductVariantOptionValue as DbLink } from "@prisma/client";
@@ -102,21 +103,6 @@ function mapProduct(row: DbProduct, variantRows: (DbVariant & { stock: DbStock |
     variants: variants as unknown as Product["variants"],
   };
   return { ...product, variants: sortVariants(product) };
-}
-
-/** Prisma timeouts and PostgreSQL lock conflicts are the transaction's to report: the editing writes rethrow them instead of answering with a result. */
-export function transactionFailureStage(error: unknown): "transaction_timeout" | "lock_conflict" | undefined {
-  const text = (value: unknown) => {
-    let meta = "";
-    try { meta = JSON.stringify((value as { meta?: unknown } | null)?.meta ?? {}); } catch { /* circular driver detail: the message is enough */ }
-    return `${value instanceof Error ? value.message : ""} ${meta}`;
-  };
-  const code = (value: unknown) => typeof value === "object" && value !== null && "code" in value && typeof value.code === "string" ? value.code : undefined;
-  const causes = [error, error instanceof Error ? error.cause : undefined];
-  if (causes.some((item) => code(item) === "P2028")) return "transaction_timeout";
-  if (causes.some((item) => code(item) === "P2034" || /40P01|55P03|deadlock detected|lock timeout/i.test(text(item)))) return "lock_conflict";
-  if (causes.some((item) => /57014|statement timeout/i.test(text(item)))) return "transaction_timeout";
-  return undefined;
 }
 
 async function readProducts(ids: readonly string[], inTransaction = false): Promise<Result<Product[], ProductReadError>> {

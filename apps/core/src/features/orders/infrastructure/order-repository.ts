@@ -1,13 +1,13 @@
 import { z } from "zod";
 import { checkoutState, parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
+import { isPersistenceFailure, transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { isCurrency } from "@shared/money";
 import { parseDispatchDate } from "@shared/dispatch-date";
-import { getCompanyId, prisma, systemPrisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, inActiveTransaction, prisma, systemPrisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
 import { orderSource, orderStateMachine, parseDeliverySnapshot, type DispatchScheduleChange, type FulfillmentChange, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import { parsePayment } from "@core/src/features/orders/domain/payment";
@@ -257,7 +257,7 @@ export async function findOrderedVariantIds(variantIds: readonly VariantId[]) {
       WHERE EXISTS (SELECT 1 FROM "OrderItem" oi WHERE oi."companyId" = ${getCompanyId()}::uuid AND oi."variantId" = ids.variant_id)`);
     return ok<ReadonlySet<VariantId>>(new Set(rows.map((row) => row.id as VariantId)));
   } catch (cause) {
-    if (!knownFailure(cause)) throw cause;
+    if (!knownFailure(cause) || (inActiveTransaction() && transactionFailureStage(cause))) throw cause;
     log.error({ event: "unable_to_find_ordered_variants", companyId: getCompanyId(), errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_find_ordered_variants");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read orders" });
   }
