@@ -21,7 +21,7 @@ import { editorSummary } from "./product-editor-summary";
 import { formEdges } from "./form-edges";
 import { ProductTopBar } from "./product-top-bar";
 import { useProductEditor } from "./product-editor-state";
-import { productPath, variantPath } from "./product-routes";
+import { variantPath } from "./product-routes";
 import { useProductDraft } from "./draft-guard";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { QuantityStepper } from "./quantity-stepper";
@@ -66,7 +66,8 @@ function Variants({ draft, productId }: { draft: EditorDraft; productId?: string
     showConfirmation({ title: t("discardChanges"), description: t("discardDescription"), confirmLabel: t("discard"), cancelLabel: t("keepEditing"), destructive: true, onConfirm: () => { discard(); go(); } });
   };
   const detailOf = (row: EditorRow) => row.id !== null ? openSaved(row.id)
-    : router.push({ pathname: productPath(productId, "draft-variant"), params: { ref: row.ref, ...(productId ? { productId } : {}) } });
+    : productId ? router.push({ pathname: "/products/[productId]/draft-variant", params: { productId, ref: row.ref } })
+      : router.push({ pathname: "/products/new/draft-variant", params: { ref: row.ref } });
 
   const removeSelected = () => {
     const next = selected.filter((row) => row.id === null).reduce((current, row) => { const result = removeRow(current, row.ref); return result.success ? result.data : current; }, draft);
