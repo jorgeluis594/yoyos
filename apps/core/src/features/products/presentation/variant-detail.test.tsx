@@ -173,3 +173,17 @@ test("a rejection of the combination disappears when the seller changes a select
   openCombination();
   expect(dialogText()).not.toContain("Otra vez.");
 });
+
+test("a combination failure does not come back as a page notice after Cancelar", () => {
+  mountHarness();
+  openCombination();
+  act(() => answer(fail({ form: "No se pudo cambiar la combinación. Revisa tu conexión e inténtalo otra vez." })));
+  expect(dialogText()).toContain("No se pudo cambiar la combinación.");
+  click([...document.querySelectorAll("[role=dialog] button")].find((candidate) => candidate.textContent === "Cancelar")!);
+  expect(document.querySelector("[role=dialog]")).toBeNull();
+  expect(document.body.textContent).not.toContain("No se pudo cambiar la combinación.");
+  act(() => answer(fail({ inDoubt: "No se pudo confirmar el cambio. Recarga la variante para ver su combinación." })));
+  openCombination();
+  click([...document.querySelectorAll("[role=dialog] button")].find((candidate) => candidate.textContent === "Cancelar")!);
+  expect(document.body.textContent).not.toContain("No se pudo confirmar el cambio.");
+});
