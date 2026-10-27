@@ -15,6 +15,7 @@ import { StoreBrandHeader } from "@core/src/features/store-appearance/presentati
 import { ProductThumbnail } from "@core/src/features/store-appearance/presentation/product-thumbnail";
 import { StoreTheme } from "@core/src/features/store-appearance/presentation/store-theme";
 import { BuyerPaymentContent } from "@core/src/features/orders/presentation/buyer-payment-content";
+import { attributesLabel } from "@core/app/lib/variant-attributes-label";
 import { CircleCheck } from "lucide-react";
 
 const checkoutAmount = (money: Money, language: string) => formatCurrency(money.amount, money.currency, language);
@@ -72,7 +73,7 @@ export function CheckoutOrderSummary({ checkout, deliveryDraft, action }: Readon
     <section aria-labelledby="products-title" data-store-part="card" className={`${checkoutCard} [grid-area:products]`}><h2 id="products-title" data-store-part="section-title" className={sectionTitle}>{t("checkoutSections.products")}</h2>
       <ul>{checkout.items.map((item, index) => <li key={index} data-store-part="product-row" className="flex items-center gap-3">
         <ProductThumbnail name={item.productName} url={item.imageUrl} />
-        <div className="min-w-0 flex-1 break-words"><p data-store-part="product-name" className="font-medium">{item.productName}</p>{Object.keys(item.variantAttributes).length > 0 && <p data-store-part="product-meta" className="text-sm text-muted-foreground">{Object.values(item.variantAttributes).join(" · ")}</p>}<p data-store-part="product-meta" className="text-sm text-muted-foreground tabular-nums">{item.quantity} × {amount(item.unitPrice)}</p></div>
+        <div className="min-w-0 flex-1 break-words"><p data-store-part="product-name" className="font-medium">{item.productName}</p>{Object.keys(item.variantAttributes).length > 0 && <p data-store-part="product-meta" className="text-sm text-muted-foreground">{attributesLabel(item.variantAttributes)}</p>}<p data-store-part="product-meta" className="text-sm text-muted-foreground tabular-nums">{item.quantity} × {amount(item.unitPrice)}</p></div>
         <span data-store-part="price" className="shrink-0 font-medium tabular-nums">{amount(item.subtotal)}</span></li>)}</ul>
     </section>
     <section aria-label={t("checkoutSections.total")} data-store-part="card" className={`${checkoutCard} self-start [grid-area:totals] lg:sticky lg:top-6 ${checkout.state.kind === "confirmed" ? "max-lg:hidden" : ""}`}>

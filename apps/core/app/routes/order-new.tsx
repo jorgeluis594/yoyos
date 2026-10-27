@@ -9,6 +9,7 @@ import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/or
 import { useTranslation } from "react-i18next";
 import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
+import { attributesLabel } from "@core/app/lib/variant-attributes-label";
 import { useEffect, useRef, useState } from "react";
 import { ArrowRight, Plus, Search, ShoppingBag } from "lucide-react";
 import { Form, Link, useActionData, useFetcher, useLoaderData, useNavigation, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
@@ -135,7 +136,7 @@ export default function OrderNew() {
         </productSearch.Form>
         <Card aria-live="polite">
           {variants.length > 0 ? <ul className="divide-y">{variants.map(({ product, variant }) => {
-            const label = Object.values(variant.attributes).join(" · ") || variant.sku || t("orders.uniqueVariant");
+            const label = attributesLabel(variant.attributes) || variant.sku || t("orders.uniqueVariant");
             const inCart = cart.find((item) => item.variantId === variant.id);
             return <li key={variant.id} className="flex min-h-18 flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0"><p className="font-medium leading-5">{product.name}</p><p className="mt-1 text-sm text-muted-foreground">{label} · {t("orders.stock")}: {variant.stock}</p></div>
