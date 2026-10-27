@@ -3,11 +3,12 @@ import { companyPath, languageForLocale } from "@core/app/locale";
 import resources from "@core/app/locales";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { useState } from "react";
-import { isRouteErrorResponse, redirect, useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type ClientActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { data, redirect, useActionData, useLoaderData, useNavigation, useSubmit, type ActionFunctionArgs, type ClientActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { countryCurrencies, type Country } from "@shared/country";
 import { PageContainer } from "@/components/ui/page-container";
 import { PageHeader } from "@/components/ui/page-header";
 import { privateUserContext } from "@/private-user-context";
+import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
 import { createProductRequestSchema } from "@shared/contracts/products";
 import { buildCreateProductBody } from "@shared/product-variants";
 import { productEditing } from "@core/src/composition/product-editing";
@@ -35,13 +36,14 @@ export async function action({ request, context }: ActionFunctionArgs): Promise<
   }
 }
 
-// A request that never reached the server is a connection problem, not a rejection. Redirects and client errors keep their usual handling.
-export async function clientAction({ request, serverAction }: ClientActionFunctionArgs): Promise<Response | SaveFeedback> {
+// A request that never reached the server is a connection problem; a gateway failure after it left is an uncertain result. Redirects and client errors keep their usual handling.
+export async function clientAction({ request, serverAction }: ClientActionFunctionArgs) {
   try { return await serverAction<typeof action>(); }
   catch (cause) {
-    if (cause instanceof Response || isRouteErrorResponse(cause)) throw cause;
-    const language = languageForLocale(new URL(request.url).pathname.split("/")[1]);
-    return { errors: { form: resources[language].translation.productEditor.offline }, issues: [] };
+    const lost = lostResponse(cause);
+    if (!lost) throw cause;
+    const { productEditor } = resources[languageForLocale(new URL(request.url).pathname.split("/")[1])].translation;
+    return data<SaveFeedback>({ errors: { form: lost === "offline" ? productEditor.offline : productEditor.inDoubtCreate }, issues: [] }, { status: lostResponseStatus });
   }
 }
 
