@@ -23,9 +23,11 @@ function variantName(product: Product, variant: Product["variants"][number], ind
 }
 
 /** Everything about printing this product's label right now: what prints, how many copies and on which printer. */
-export function ProductPrintSheet({ visible, product, unsavedChanges, onClose, onPrint }: {
+export function ProductPrintSheet({ visible, product, initialVariantId, unsavedChanges, onClose, onPrint }: {
   visible: boolean;
   product: Product;
+  /** The variant the sheet was opened from; it comes chosen. */
+  initialVariantId?: VariantId;
   unsavedChanges: boolean;
   onClose: () => void;
   onPrint: (variantId: VariantId, copies: CopyCount) => void;
@@ -34,7 +36,7 @@ export function ProductPrintSheet({ visible, product, unsavedChanges, onClose, o
   const theme = useTheme();
   const { showPrinterPicker, printerName } = usePrint();
   const single = product.variants.length === 1 ? product.variants[0] : undefined;
-  const [variantId, setVariantId] = useState<VariantId | null>(single?.id ?? null);
+  const [variantId, setVariantId] = useState<VariantId | null>(single?.id ?? initialVariantId ?? null);
   const [copies, setCopies] = useState("1");
   const [copiesError, setCopiesError] = useState<string | null>(null);
   const numbered = (count: number) => t('numberedVariant', { count });
@@ -66,12 +68,14 @@ export function ProductPrintSheet({ visible, product, unsavedChanges, onClose, o
             <ThemedText type="small" style={styles.heading}>{t('selectVariantToPrint')}</ThemedText>
             {product.variants.map((variant, index) => {
               const selected = variant.id === variantId;
-              return <Pressable key={variant.id} accessibilityRole="radio" accessibilityState={{ checked: selected }} accessibilityLabel={variantName(product, variant, index, numbered)}
+              const inactive = variant.status === "inactive";
+              return <Pressable key={variant.id} accessibilityRole="radio" accessibilityState={{ checked: selected }} accessibilityLabel={inactive ? `${variantName(product, variant, index, numbered)} · ${t('rowInactive')}` : variantName(product, variant, index, numbered)}
                 onPress={() => setVariantId(variant.id)}
                 style={({ pressed }) => [styles.option, { borderColor: selected ? theme.ring : theme.border, backgroundColor: selected ? theme.accent : pressed ? theme.secondary : "transparent" }]}>
                 <View style={styles.optionText}>
                   <ThemedText type="small" style={styles.heading}>{variantName(product, variant, index, numbered)}</ThemedText>
                   <ThemedText type="small" themeColor="textSecondary">{variant.sku ?? t('noSku')}</ThemedText>
+                  {inactive ? <ThemedText type="small" themeColor="textSecondary">{t('rowInactive')}</ThemedText> : null}
                 </View>
                 {selected ? <SymbolView name={{ ios: "checkmark", android: "check" }} size={tokens.sizing.iconAction} tintColor={theme.primary} /> : null}
               </Pressable>;
