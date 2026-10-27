@@ -62,8 +62,8 @@ test("another company cannot read or link options of a product", async () => {
     expect(await prisma.productVariantOptionValue.findMany()).toEqual([]);
     expect(await detail(mine.productId)).toEqual({ success: true, data: null });
     const foreign = await seedProduct({ variants: [{ attributes: { Color: "Rojo" } }] });
-    await expect(prisma.productOption.create({ data: { id: randomUUID(), productId: mine.productId, name: "Intruso", position: 5 } })).rejects.toThrow();
-    await expect(prisma.productVariantOptionValue.create({ data: { productId: foreign.productId, variantId: foreign.variantIds[0], optionId: mine.optionIds.Color, valueId: mine.valueIds.Color.Azul } })).rejects.toThrow();
+    await expect(prisma.productOption.create({ data: { id: randomUUID(), productId: mine.productId, name: "Intruso", position: 5 } })).rejects.toThrow(/ProductOption_companyId_productId_fkey/);
+    await expect(prisma.productVariantOptionValue.create({ data: { productId: foreign.productId, variantId: foreign.variantIds[0], optionId: mine.optionIds.Color, valueId: mine.valueIds.Color.Azul } })).rejects.toThrow(/ProductVariantOptionValue_companyId_productId_optionId_fkey/);
   });
 });
 
@@ -72,7 +72,7 @@ test("rejects a link whose value belongs to another option of the product", asyn
     const seeded = await seedProduct({ variants: [{ attributes: { Color: "Azul", Talla: "M" } }] });
     const [variant] = seeded.variantIds;
     await prisma.productVariantOptionValue.deleteMany({ where: { variantId: variant, optionId: seeded.optionIds.Talla } });
-    await expect(prisma.productVariantOptionValue.create({ data: { productId: seeded.productId, variantId: variant, optionId: seeded.optionIds.Talla, valueId: seeded.valueIds.Color.Azul } })).rejects.toThrow();
+    await expect(prisma.productVariantOptionValue.create({ data: { productId: seeded.productId, variantId: variant, optionId: seeded.optionIds.Talla, valueId: seeded.valueIds.Color.Azul } })).rejects.toThrow(/ProductVariantOptionValue_companyId_optionId_valueId_fkey/);
     await prisma.productVariantOptionValue.create({ data: { productId: seeded.productId, variantId: variant, optionId: seeded.optionIds.Talla, valueId: seeded.valueIds.Talla.M } });
   });
 });
@@ -81,7 +81,7 @@ test("rejects a link that points at a variant of another product", async () => {
   await withTenantIsolation(companyA, async () => {
     const first = await seedProduct({ variants: [{ attributes: { Color: "Azul" } }] });
     const second = await seedProduct({ variants: [{ attributes: { Color: "Rojo" } }] });
-    await expect(prisma.productVariantOptionValue.create({ data: { productId: second.productId, variantId: first.variantIds[0], optionId: second.optionIds.Color, valueId: second.valueIds.Color.Rojo } })).rejects.toThrow();
+    await expect(prisma.productVariantOptionValue.create({ data: { productId: second.productId, variantId: first.variantIds[0], optionId: second.optionIds.Color, valueId: second.valueIds.Color.Rojo } })).rejects.toThrow(/ProductVariantOptionValue_companyId_productId_variantId_fkey/);
   });
 });
 
@@ -90,7 +90,7 @@ test("the combination unique index rejects a duplicate combination", async () =>
     const seeded = await seedProduct({ variants: [{ attributes: { Color: "Azul" } }] });
     const key = (await prisma.productVariant.findUniqueOrThrow({ where: { id: seeded.variantIds[0] } })).combinationKey;
     expect(key).toBe(seeded.valueIds.Color.Azul);
-    await expect(prisma.productVariant.create({ data: { id: randomUUID(), productId: seeded.productId, combinationKey: key, salePrice: 1, qrCode: randomUUID(), status: "active" } })).rejects.toThrow();
+    await expect(prisma.productVariant.create({ data: { id: randomUUID(), productId: seeded.productId, combinationKey: key, salePrice: 1, qrCode: randomUUID(), status: "active" } })).rejects.toThrow(/ProductVariant_companyId_productId_combinationKey_key/);
     // The same key in another product is a different combination.
     await prisma.productVariant.create({ data: { id: randomUUID(), productId: (await seedProduct()).productId, combinationKey: key, salePrice: 1, qrCode: randomUUID(), status: "active" } });
   });

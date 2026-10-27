@@ -72,13 +72,13 @@ test("product persistence is atomic, isolated, and constrained", async () => {
         expect(loaded.success && loaded.data?.variants[0].stock.quantity).toBe(Number.MAX_SAFE_INTEGER);
       }
       if (!result.success || !result.data) throw new Error("Product was not loaded");
-      await expect(prisma.productStock.update({ where: { variantId: result.data.product.variants[0].id }, data: { quantity: -1n } })).rejects.toThrow();
+      await expect(prisma.productStock.update({ where: { variantId: result.data.product.variants[0].id }, data: { quantity: -1n } })).rejects.toThrow(/ProductStock_quantity_nonnegative/);
       const directVariant = () => ({ id: randomUUID(), productId: first.data, combinationKey: randomUUID(), salePrice: 1, qrCode: randomUUID(), status: "active" });
-      await expect(prisma.productVariant.create({ data: { ...directVariant(), salePrice: 0 } })).rejects.toThrow();
-      await expect(prisma.productVariant.create({ data: { ...directVariant(), purchasePrice: -1 } })).rejects.toThrow();
-      await expect(prisma.productVariant.create({ data: { ...directVariant(), salePrice: 1_000_000_000 } })).rejects.toThrow();
-      await expect(prisma.productVariant.create({ data: { ...directVariant(), sku: "X".repeat(101) } })).rejects.toThrow();
-      await expect(prisma.product.create({ data: { id: randomUUID(), name: "X".repeat(201), currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } })).rejects.toThrow();
+      await expect(prisma.productVariant.create({ data: { ...directVariant(), salePrice: 0 } })).rejects.toThrow(/ProductVariant_sale_price_valid/);
+      await expect(prisma.productVariant.create({ data: { ...directVariant(), purchasePrice: -1 } })).rejects.toThrow(/ProductVariant_purchase_price_valid/);
+      await expect(prisma.productVariant.create({ data: { ...directVariant(), salePrice: 1_000_000_000 } })).rejects.toThrow(/numeric field overflow/);
+      await expect(prisma.productVariant.create({ data: { ...directVariant(), sku: "X".repeat(101) } })).rejects.toThrow(/too long for the column/);
+      await expect(prisma.product.create({ data: { id: randomUUID(), name: "X".repeat(201), currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } })).rejects.toThrow(/too long for the column/);
       const rollbackId = randomUUID() as ProductId;
       const repeatedQr = randomUUID();
       // The variant reuses the id of a stored one: the product row is written first, then the variant insert fails and rolls it back.
@@ -113,9 +113,9 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       expect(await detail(foreignProductId!)).toEqual({ success: true, data: null });
       const productId = randomUUID();
       const variantId = randomUUID();
-      await expect(prisma.product.create({ data: { id: productId, name: "Wrong image", imageId, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } })).rejects.toThrow();
-      await expect(prisma.productVariant.create({ data: { id: variantId, productId: foreignProductId!, combinationKey: randomUUID(), salePrice: 1, qrCode: randomUUID(), status: "active" } })).rejects.toThrow();
-      await expect(prisma.productStock.create({ data: { variantId: foreignVariantId!, quantity: 1n } })).rejects.toThrow();
+      await expect(prisma.product.create({ data: { id: productId, name: "Wrong image", imageId, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } })).rejects.toThrow(/Product_companyId_imageId_fkey/);
+      await expect(prisma.productVariant.create({ data: { id: variantId, productId: foreignProductId!, combinationKey: randomUUID(), salePrice: 1, qrCode: randomUUID(), status: "active" } })).rejects.toThrow(/ProductVariant_companyId_productId_fkey/);
+      await expect(prisma.productStock.create({ data: { variantId: foreignVariantId!, quantity: 1n } })).rejects.toThrow(/ProductStock_pkey/);
     });
   } finally {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => {
