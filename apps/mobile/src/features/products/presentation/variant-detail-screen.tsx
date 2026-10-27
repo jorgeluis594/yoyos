@@ -2,7 +2,6 @@
 // Preserve native Pressable style callbacks outside NativeWind interop.
 import { useEffect, useRef, useState } from "react";
 import { ScrollView, StyleSheet, View } from "react-native";
-import * as Network from "expo-network";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { SafeAreaView } from "react-native-safe-area-context";
@@ -28,6 +27,7 @@ import { ProductTopBar } from "./product-top-bar";
 import { useProductEditor } from "./product-editor-state";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
 import { VariantQr } from "./variant-qr";
+import { isOnline } from "./is-online";
 import tokens from "../../../../../../docs/design-tokens.json";
 
 type Busy = "save" | "deactivate" | "activate" | "delete" | "combination" | null;
@@ -36,11 +36,6 @@ type Gone = "product" | "products";
 const uncertainCodes: readonly VariantActionCode[] = ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE", "INVALID_RESPONSE"];
 const decimals = (text: string) => (text.trim().split(".")[1] ?? "").length;
 const amountOf = (text: string) => /^\d+(?:\.\d+)?$/.test(text.trim()) ? Number(text) : null;
-
-async function isOnline() {
-  const state = await Network.getNetworkStateAsync().catch(() => null);
-  return state?.isConnected !== false && state?.isInternetReachable !== false;
-}
 
 export default function VariantDetailScreen() {
   const { productId, variantId } = useLocalSearchParams<{ productId: string; variantId: string }>();

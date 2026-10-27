@@ -36,6 +36,9 @@ export function validateProductForm(values: ProductFormValues, hasVariant = true
   return errors;
 }
 
+/** The request may have reached core: the outcome is unknown until the product is read again. */
+export const uncertainCodes: readonly string[] = ["NETWORK_ERROR", "SERVER_ERROR", "SERVICE_UNAVAILABLE"];
+
 export function productErrors(error: { code?: string; issues?: readonly { field: string; reason: string; maxLength?: number; scope?: string; index?: number }[] }, hasOptions = false): Partial<Record<ProductFormField, string>> {
   // With options the SKU field is not on the form, so the conflict is reported above it.
   if (error.code === "DUPLICATE_SKU") return hasOptions ? { form: i18n.t('duplicateSku') } : { sku: i18n.t('duplicateSku') };
