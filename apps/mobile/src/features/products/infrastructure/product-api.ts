@@ -6,8 +6,13 @@ import {
   productIdResponseSchema,
   productListResponseSchema,
   saveProductRequestSchema,
+  updateVariantRequestSchema,
+  changeCombinationRequestSchema,
+  changeVariantStatusRequestSchema,
+  type ChangeCombinationRequest,
   type CreateProductRequest,
   type SaveProductRequest,
+  type UpdateVariantRequest,
 } from "@shared/contracts/products";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -46,6 +51,11 @@ export type ListProductsError = ProductTransportFailure
   | Readonly<{ code: "VALIDATION_ERROR"; message: string; issues: readonly [ProductListCriteriaIssue, ...ProductListCriteriaIssue[]] }>;
 export type CreateProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "PRODUCT_ID_CONFLICT" | "ID_CONFLICT" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
 export type SaveProductError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "PRODUCT_CHANGED" | "ID_CONFLICT" | "VARIANT_HAS_ORDERS" | "PRODUCT_NOT_FOUND" | "IMAGE_NOT_FOUND" | "PAYLOAD_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" }>;
+type VariantNotFound = "PRODUCT_NOT_FOUND" | "VARIANT_NOT_FOUND";
+export type UpdateVariantError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_SKU" | VariantNotFound }>;
+export type ChangeCombinationError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "VALIDATION_ERROR" | "DUPLICATE_COMBINATION" | "PRODUCT_WITHOUT_OPTIONS" | "ID_CONFLICT" | VariantNotFound }>;
+export type ChangeVariantStatusError = ProductTransportFailure | Extract<ApiFailure, { code: "INVALID_INPUT" | "PRODUCT_WITHOUT_OPTIONS" | VariantNotFound }>;
+export type DeleteVariantError = ProductTransportFailure | Extract<ApiFailure, { code: "VARIANT_HAS_ORDERS" | "VARIANT_HAS_STOCK" | "LAST_VARIANT" | VariantNotFound }>;
 export type UploadProductImageError = UploadImageError;
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
@@ -169,6 +179,17 @@ export function createProductApi(request: Request, sessionGeneration: () => numb
     const parsed = productDetailResponseSchema.safeParse(result.data);
     return parsed.success ? ok(productDetail(parsed.data)) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product data"));
   };
+  /** The per-variant actions answer the refreshed detail, so a screen needs no follow-up read. */
+  const variantAction = async <E extends ApiFailure["code"]>(
+    productId: ProductId, variantId: VariantId, suffix: string, init: RequestInit, codes: readonly E[],
+  ): Promise<Result<Product, Extract<ApiFailure, { code: E }> | ProductTransportFailure>> => {
+    const path = `/api/products/${encodeURIComponent(productId)}/variants/${encodeURIComponent(variantId)}${suffix}`;
+    const result = restrictFailure(await run(path, init, [...codes, "UNAUTHENTICATED", "COMPANY_REQUIRED", "SERVICE_UNAVAILABLE", "INTERNAL_ERROR"]), codes);
+    if (!result.success) return result;
+    const parsed = productDetailResponseSchema.safeParse(result.data);
+    return parsed.success ? ok(productDetail(parsed.data)) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product data"));
+  };
+  const json = (method: string, body: unknown): RequestInit => ({ method, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
   return {
     async list(criteria: ProductListCriteria): Promise<Result<ProductPage, ListProductsError>> {
       const params = new URLSearchParams({ page: String(criteria.page), pageSize: String(criteria.pageSize) });
@@ -219,6 +240,24 @@ export function createProductApi(request: Request, sessionGeneration: () => numb
       if (!result.success) return result;
       const parsed = productDetailResponseSchema.safeParse(result.data);
       return parsed.success ? ok(productDetail(parsed.data)) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product data"));
+    },
+    async updateVariant(productId: ProductId, variantId: VariantId, input: UpdateVariantRequest): Promise<Result<Product, UpdateVariantError>> {
+      const body = updateVariantRequestSchema.safeParse(input);
+      if (!body.success) return err({ code: "INVALID_INPUT", message: "Invalid variant input" });
+      return variantAction(productId, variantId, "", json("PATCH", body.data), ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_SKU", "PRODUCT_NOT_FOUND", "VARIANT_NOT_FOUND"] as const);
+    },
+    async changeCombination(productId: ProductId, variantId: VariantId, input: ChangeCombinationRequest): Promise<Result<Product, ChangeCombinationError>> {
+      const body = changeCombinationRequestSchema.safeParse(input);
+      if (!body.success) return err({ code: "INVALID_INPUT", message: "Invalid combination input" });
+      return variantAction(productId, variantId, "/combination", json("PUT", body.data),
+        ["INVALID_INPUT", "VALIDATION_ERROR", "DUPLICATE_COMBINATION", "PRODUCT_WITHOUT_OPTIONS", "ID_CONFLICT", "PRODUCT_NOT_FOUND", "VARIANT_NOT_FOUND"] as const);
+    },
+    changeStatus(productId: ProductId, variantId: VariantId, status: "active" | "inactive"): Promise<Result<Product, ChangeVariantStatusError>> {
+      return variantAction(productId, variantId, "/status", json("PUT", changeVariantStatusRequestSchema.parse({ status })),
+        ["INVALID_INPUT", "PRODUCT_WITHOUT_OPTIONS", "PRODUCT_NOT_FOUND", "VARIANT_NOT_FOUND"] as const);
+    },
+    deleteVariant(productId: ProductId, variantId: VariantId): Promise<Result<Product, DeleteVariantError>> {
+      return variantAction(productId, variantId, "", { method: "DELETE" }, ["VARIANT_HAS_ORDERS", "VARIANT_HAS_STOCK", "LAST_VARIANT", "PRODUCT_NOT_FOUND", "VARIANT_NOT_FOUND"] as const);
     },
   };
 }
