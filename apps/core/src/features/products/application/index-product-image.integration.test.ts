@@ -23,7 +23,6 @@ vi.mock("@core/src/shared/images/application/images", async (importOriginal) => 
 
 import { createPublishEvent } from "@core/src/composition/event-bus";
 import { indexProductImage } from "@core/src/composition/event-handlers";
-import { products } from "@core/src/features/products/composition";
 import { productEditing } from "@core/src/composition/product-editing";
 import { deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
@@ -42,6 +41,15 @@ test("a product created with an image is indexed by the worker, reindexed on ima
     "SELECT state, retry_count FROM pgboss.job WHERE name = $1 AND data->'payload'->>'productId' = $2 ORDER BY created_on", [definition.id, productId])).rows;
   const stored = () => withTenantIsolation(companyId, async () => await
     prisma.$queryRaw<Array<{ imageId: string; model: string }>>`SELECT "imageId", model FROM "ImageEmbedding" ORDER BY "createdAt"`);
+  // The editor's save, sent exactly as loaded with one field changed.
+  const edit = (productId: ProductId, change: Readonly<{ name?: string; imageId?: ImageId }>) => withTenantIsolation(companyId, async () => {
+    const loaded = await productEditing.get(productId);
+    if (!loaded.success || !loaded.data) throw new Error("product not found");
+    const { product } = loaded.data;
+    return await productEditing.save({ productId, structureVersion: product.structureVersion, name: product.name, description: product.description ?? null, imageId: product.imageId ?? null,
+      options: [], variants: product.variants.map((variant) => ({ id: variant.id, sku: variant.sku ?? null, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null })),
+      newVariants: [], deletedVariantIds: [], ...change });
+  });
   try {
     await producer.start();
     await worker.start();
@@ -59,10 +67,10 @@ test("a product created with an image is indexed by the worker, reindexed on ima
     await vi.waitFor(async () => expect(await jobs(productId)).toMatchObject([{ state: "completed", retry_count: 1 }]), { timeout: 20_000, interval: 100 });
     expect(await stored()).toEqual([{ imageId: first, model: "local/fake" }]);
 
-    expect((await withTenantIsolation(companyId, () => products.update(productId, { name: "Shirt v2" }))).success).toBe(true);
+    expect((await edit(productId, { name: "Shirt v2" })).success).toBe(true);
     expect(await jobs(productId)).toHaveLength(1);
 
-    expect((await withTenantIsolation(companyId, () => products.update(productId, { imageId: second }))).success).toBe(true);
+    expect((await edit(productId, { imageId: second })).success).toBe(true);
     await vi.waitFor(async () => expect((await jobs(productId)).map(({ state }) => state)).toEqual(["completed", "completed"]), { timeout: 20_000, interval: 100 });
     // The old image keeps its cached embedding; search only joins the product's current image.
     expect(await stored()).toEqual([first, second].map((imageId) => ({ imageId, model: "local/fake" })));

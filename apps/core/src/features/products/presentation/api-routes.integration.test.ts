@@ -189,19 +189,12 @@ test("a product of another company answers 404 like a missing one", async () => 
   expect((await call(`/api/products/${seeded.productId}`, other.cookie)).status).toBe(200);
 });
 
-test("PATCH keeps editing name, description, photo, prices and SKUs without touching the structure", async () => {
+test("PATCH on the product is gone: the editor saves through PUT and single fields through the variant routes", async () => {
   const { companyId, cookie } = await seller();
-  const seeded = await withTenantIsolation(companyId, () => seedProduct({ name: "Editable", options: [{ name: "Talla", values: ["S", "M"] }], variants: [
-    { attributes: { Talla: "S" }, salePrice: 10 }, { attributes: { Talla: "M" }, salePrice: 12 },
-  ] }));
-  const response = await call(`/api/products/${seeded.productId}`, cookie, { name: "Editado", variants: [{ id: seeded.variantIds[0], salePrice: 11, sku: "ED-S" }] }, "PATCH");
-  expect(response.status).toBe(200);
-  const read = await detail(cookie, seeded.productId);
-  expect(read.product).toMatchObject({ name: "Editado", structureVersion: 1 });
-  expect(read.product.variants[0]).toMatchObject({ sku: "ED-S", salePrice: { amount: 11 } });
-  const foreign = await call(`/api/products/${seeded.productId}`, cookie, { variants: [{ id: randomUUID(), salePrice: 1 }] }, "PATCH");
-  expect(foreign.status).toBe(422);
-  expect(productApiErrorSchema.parse(await foreign.json()).issues).toEqual([expect.objectContaining({ scope: "variant", reason: "VARIANT_NOT_FOUND", field: "id" })]);
+  const seeded = await withTenantIsolation(companyId, () => seedProduct({ name: "Intacto" }));
+  const response = await call(`/api/products/${seeded.productId}`, cookie, { name: "Editado" }, "PATCH");
+  expect(response.status).toBe(404);
+  expect((await detail(cookie, seeded.productId)).product.name).toBe("Intacto");
 });
 
 type Detail = Awaited<ReturnType<typeof detail>>;

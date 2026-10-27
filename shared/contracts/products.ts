@@ -59,18 +59,6 @@ export const changeCombinationRequestSchema = z.strictObject({
 
 export const changeVariantStatusRequestSchema = z.strictObject({ status: z.enum(["active", "inactive"]) }).readonly();
 
-export const updateProductRequestSchema = z.object({
-  name: z.string().optional(),
-  description: z.string().nullable().optional(),
-  imageId: uuidSchema.nullable().optional(),
-  variants: z.array(z.object({
-    id: uuidSchema,
-    sku: z.string().nullable().optional(),
-    salePrice: z.number().optional(),
-    purchasePrice: z.number().nullable().optional(),
-  }).strict()).optional(),
-}).strict().readonly();
-
 export const productListQuerySchema = z.object({
   search: z.string().optional(),
   stock: z.enum(["in_stock", "sold_out"]).optional(),
@@ -201,7 +189,6 @@ export type ChangeCombinationRequest = z.infer<typeof changeCombinationRequestSc
 export type ChangeVariantStatusRequest = z.infer<typeof changeVariantStatusRequestSchema>;
 export type ProductApiErrorCode = z.infer<typeof productApiErrorCodeSchema>;
 export type ProductIssueReason = z.infer<typeof productIssueReasonSchema>;
-export type UpdateProductRequest = z.infer<typeof updateProductRequestSchema>;
 export type ProductListQuery = z.infer<typeof productListQuerySchema>;
 export type ProductListResponse = z.infer<typeof productListResponseSchema>;
 export type ProductDetailResponse = z.infer<typeof productDetailResponseSchema>;

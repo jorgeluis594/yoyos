@@ -1,10 +1,9 @@
 import express from "express";
-import { createProductRequestSchema, productListQuerySchema, saveProductRequestSchema, updateProductRequestSchema } from "@shared/contracts/products";
+import { createProductRequestSchema, productListQuerySchema, saveProductRequestSchema } from "@shared/contracts/products";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
-import { products } from "@core/src/features/products/composition";
 import { productEditing } from "@core/src/composition/product-editing";
 import { handleUnexpected, productIdFrom, sendInvalid, sendOperationError, zodIssues } from "@core/src/features/products/presentation/api-errors";
-import { toCreateInput, toSaveInput, toUpdateInput } from "@core/src/features/products/presentation/request-input";
+import { toCreateInput, toSaveInput } from "@core/src/features/products/presentation/request-input";
 import { toProductDetailResponse, toProductIdResponse, toProductListResponse } from "@core/src/features/products/presentation/product-presenter";
 
 export const productRoutes = express.Router();
@@ -69,21 +68,6 @@ productRoutes.put("/:productId", async (request, response) => {
     const result = await productEditing.save(toSaveInput(id, parsed.data));
     if (!result.success) return sendOperationError(response, result.error);
     return response.json(toProductDetailResponse(result.data));
-  } catch (error) {
-    return handleUnexpected(response, error);
-  }
-});
-
-productRoutes.patch("/:productId", async (request, response) => {
-  if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
-  const id = productIdFrom(request, response);
-  if (!id) return;
-  const parsed = updateProductRequestSchema.safeParse(request.body);
-  if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid product input", zodIssues(parsed.error));
-  try {
-    const result = await products.update(id, toUpdateInput(parsed.data));
-    if (!result.success) return sendOperationError(response, result.error);
-    return response.json(toProductIdResponse(result.data));
   } catch (error) {
     return handleUnexpected(response, error);
   }

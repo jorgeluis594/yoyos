@@ -1,10 +1,9 @@
 import type { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { CreateProductRequest, SaveProductRequest, UpdateProductRequest } from "@shared/contracts/products";
+import type { CreateProductRequest, SaveProductRequest } from "@shared/contracts/products";
 import type { CreateInput } from "@core/src/features/products/application/create";
 import type { SaveProductInput } from "@core/src/features/products/application/save-product";
-import type { UpdateInput } from "@core/src/features/products/application/update";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 
 export type InputIssue = Readonly<{ field: string; reason: "INVALID_TYPE" | "UNKNOWN_FIELD" | "INVALID_ID" }>;
@@ -49,14 +48,5 @@ export function toSaveInput(productId: ProductId, request: SaveProductRequest): 
     variants: request.variants.map((variant) => ({ ...variant, id: variant.id as VariantId })),
     newVariants: request.newVariants,
     deletedVariantIds: request.deletedVariantIds as VariantId[],
-  };
-}
-
-export function toUpdateInput(request: UpdateProductRequest): UpdateInput {
-  return {
-    ...(request.name === undefined ? {} : { name: request.name }),
-    ...(request.description === undefined ? {} : { description: request.description }),
-    ...(request.imageId === undefined ? {} : { imageId: request.imageId === null ? null : request.imageId as ImageId }),
-    ...(request.variants === undefined ? {} : { variants: request.variants.map((variant) => ({ ...variant, id: variant.id as VariantId })) }),
   };
 }

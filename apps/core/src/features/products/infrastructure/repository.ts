@@ -4,7 +4,7 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { isCurrency } from "@shared/money";
-import { getCompanyId, prisma, withLockedForUpdate, withinReadSnapshot, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, prisma, withLockedForUpdate, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
 import type { ProductSummary } from "@core/src/features/products/application/list";
 import type { CreateError } from "@core/src/features/products/application/create";
 import type { SaveProductError } from "@core/src/features/products/application/save-product";
@@ -388,37 +388,6 @@ function toSummary(row: SummaryRow): ProductSummary {
 }
 
 export const productRepository: ProductRepository = {
-  async update(id, changes) {
-    try {
-      return await withinTransaction(async () => {
-        await prisma.product.update({
-          where: { id },
-          data: {
-            ...(changes.product.name === undefined ? {} : { name: changes.product.name }),
-            ...(changes.product.description === undefined ? {} : { description: changes.product.description }),
-            ...(changes.product.imageId === undefined ? {} : { imageId: changes.product.imageId }),
-            updatedAt: changes.product.updatedAt,
-          },
-        });
-        for (const variant of changes.variants) {
-          await prisma.productVariant.update({
-            where: { id: variant.id },
-            data: {
-              ...(variant.sku === undefined ? {} : { sku: variant.sku }),
-              ...(variant.salePrice === undefined ? {} : { salePrice: new Prisma.Decimal(variant.salePrice.amount.toString()) }),
-              ...(variant.purchasePrice === undefined ? {} : { purchasePrice: variant.purchasePrice === null ? null : new Prisma.Decimal(variant.purchasePrice.amount.toString()) }),
-            },
-          });
-        }
-        return ok(id);
-      });
-    } catch (error) {
-      if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") return err({ code: "PRODUCT_NOT_FOUND", message: "Product does not exist" });
-      log.error({ event: "product_update_persistence_failed", err: error }, "product_update_persistence_failed");
-      return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to update product" });
-    }
-  },
   async get(id) {
     const read = await readProducts([id]);
     return read.success ? ok(read.data[0] ?? null) : read;

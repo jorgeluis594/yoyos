@@ -16,8 +16,6 @@ import { findImageIndexState, saveEmbedding } from "@core/src/features/products/
 import { createOpenAiImageEmbedder } from "@core/src/features/products/infrastructure/product-matching/openai-image-embedder";
 import { createLocalImageEmbedder, DEFAULT_LOCAL_IMAGE_MODEL } from "@core/src/features/products/infrastructure/product-matching/local-image-embedder";
 import type { ListImageDependencies, ListImageFailure } from "@core/src/features/products/application/list";
-import { updateProduct } from "@core/src/features/products/application/update";
-import { productRepository } from "@core/src/features/products/infrastructure/repository";
 import { z } from "zod";
 import { identifyProductsInImage, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
 import type { ImageBytes, MatchConfidence, VariantQrCode } from "@core/src/features/products/domain/image-identification";
@@ -158,8 +156,6 @@ export const indexProductImageHandler: EventHandler<AppEvents, "product_image_ch
 };
 
 export const products = {
-  update: (id: Parameters<typeof updateProduct>[0], input: Parameters<typeof updateProduct>[1]) =>
-    updateProduct(id, input, { repository: productRepository, findImage, clock: () => new Date(), publishProductImageChanged }),
   identifyProductsInImage: (image: ImageBytes) => identifyProductsInImage(image, identificationDependencies),
   listForCatalog: (criteria: Parameters<typeof listCatalogProducts>[0]) =>
     listCatalogProducts(criteria, { repository: catalogProductRepository, images: listImages }),
