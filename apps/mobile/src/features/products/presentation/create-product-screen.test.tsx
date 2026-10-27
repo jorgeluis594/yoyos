@@ -7,6 +7,7 @@ import VariantsScreen from "@mobile/features/products/presentation/variants-scre
 import { ProductEditorProvider } from "@mobile/features/products/presentation/product-editor-state";
 import i18n from '@mobile/i18n';
 
+let mockOnline = true;
 const mockReplace = jest.fn();
 const mockPush = jest.fn();
 const mockBack = jest.fn();
@@ -29,6 +30,7 @@ const mockCreate = jest.fn();
 const mockStartAttempt = jest.fn();
 const productId = "00000000-0000-4000-8000-000000000001";
 
+jest.mock("expo-network", () => ({ getNetworkStateAsync: async () => ({ isConnected: mockOnline, isInternetReachable: mockOnline }) }));
 jest.mock("expo-router", () => ({
   useRouter: () => ({ replace: mockReplace, push: (path: string) => { mockPush(path); mockOpen(path); }, canGoBack: () => false, back: () => { mockBack(); mockOpen(null); } }),
   useNavigation: () => ({ dispatch: jest.fn() }),
@@ -53,7 +55,7 @@ const fillForm = () => {
   fireEvent.changeText(screen.getByLabelText(/Precio de venta/), "20");
 };
 
-beforeEach(() => { jest.clearAllMocks(); mockUuid = 0; });
+beforeEach(() => { jest.clearAllMocks(); mockUuid = 0; mockOnline = true; });
 
 test("save waits for confirmed creation, then opens the persisted product without printing", async () => {
   let confirm!: (value: ReturnType<typeof ok<string>>) => void;
@@ -68,16 +70,30 @@ test("save waits for confirmed creation, then opens the persisted product withou
   expect(mockStartAttempt).not.toHaveBeenCalled();
 });
 
-test("failed creation keeps the draft and never shows print or navigates", async () => {
-  mockCreate.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
+test("creation offline says it was not sent, keeps the draft and never calls core", async () => {
+  mockOnline = false;
   renderScreen();
   fillForm();
   fireEvent.press(screen.getByRole("button", { name: "Guardar" }));
   await screen.findByText("No se pudo guardar. Revisa tu conexión e inténtalo otra vez.");
+  expect(mockCreate).not.toHaveBeenCalled();
   expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa");
   expect(screen.queryByRole("button", { name: "Imprimir etiqueta" })).toBeNull();
   expect(mockReplace).not.toHaveBeenCalled();
   expect(mockStartAttempt).not.toHaveBeenCalled();
+});
+
+test("creation sent whose answer is lost is in doubt, keeps the draft and retries with the same id", async () => {
+  mockCreate.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "lost" })).mockResolvedValueOnce(ok(productId));
+  renderScreen();
+  fillForm();
+  fireEvent.press(screen.getByRole("button", { name: "Guardar" }));
+  await screen.findByText("No se pudo confirmar si se creó este producto. Revisa el catálogo antes de iniciar otra creación.");
+  expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa");
+  expect(mockReplace).not.toHaveBeenCalled();
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+  expect(mockCreate).toHaveBeenCalledTimes(2);
+  expect(mockCreate.mock.calls[1][0].id).toBe(mockCreate.mock.calls[0][0].id);
 });
 
 test('new product form and validation are translated to Portuguese', async () => {

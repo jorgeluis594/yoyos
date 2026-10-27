@@ -12,10 +12,11 @@ import { useAccess } from "@/features/users/presentation/access-provider";
 import type { ProductId, PhotoSelection } from "../domain/product";
 import { formEdges, ProductForm } from "./product-form";
 import type { ProductFormField, ProductFormValues } from "./product-form";
-import { baseOf, emptyProductForm, productErrors, rowErrors, validateProductForm } from "./product-form-state";
+import { baseOf, emptyProductForm, productErrors, rowErrors, uncertainCodes, validateProductForm } from "./product-form-state";
 import { editorErrorsOf, errorSummary, rowErrorCount } from "./product-editor-messages";
 import { editorSummary } from "./product-editor-summary";
 import { noEditorErrors, useProductEditor } from "./product-editor-state";
+import { isOnline } from "./is-online";
 import { productPath } from "./product-routes";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
 import { useProductDraft } from "./draft-guard";
@@ -88,6 +89,11 @@ export default function CreateProductScreen() {
       if (editorSummary(next).count === 0) { setErrors({ form: t('noVariantsToSave') }); return; }
     }
     setSaving(true);
+    if (!await isOnline()) {
+      setSaving(false);
+      setErrors({ form: t('saveProductError') });
+      return;
+    }
     productId.current ??= Crypto.randomUUID() as ProductId;
     const result = await products.createProduct({
       id: productId.current,
@@ -102,7 +108,7 @@ export default function CreateProductScreen() {
       const mapped = editorErrorsOf(result.error, next);
       editor.setErrors(mapped);
       const summary = errorSummary(mapped);
-      setErrors(summary ? { form: summary } : productErrors(result.error, hasOptions));
+      setErrors(summary ? { form: summary } : uncertainCodes.includes(result.error.code) ? { form: t('productCreationUncertain') } : productErrors(result.error, hasOptions));
       setConflict(result.error.code === "PRODUCT_ID_CONFLICT");
       return;
     }
