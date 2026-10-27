@@ -147,9 +147,7 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
     setNotice(null); setUncertain(false);
     if (!await isOnline()) { acting.current = false; setNotice({ text: messages.offline, error: true }); return; }
     setBusy(kind);
-    const result = await request();
-    acting.current = false;
-    setBusy(null);
+    const result = await request().finally(() => { acting.current = false; setBusy(null); });
     if (result.success) { onProduct(result.data); done(result.data); return; }
     const code = result.error.code;
     if (code === "PRODUCT_NOT_FOUND") { setNavigationDirty(false); onGone("products"); return; }
@@ -227,9 +225,7 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
     setCombinationError(null); setCombinationUncertain(false);
     if (!await isOnline()) { acting.current = false; setCombinationError(t("combinationOffline")); return; }
     setBusy("combination");
-    const result = await variants.changeCombination(productId, variant.id, { values });
-    acting.current = false;
-    setBusy(null);
+    const result = await variants.changeCombination(productId, variant.id, { values }).finally(() => { acting.current = false; setBusy(null); });
     if (result.success) { onProduct(result.data); setChanging(false); setNotice({ text: t("combinationChanged"), error: false }); return; }
     const code = result.error.code;
     if (code === "PRODUCT_NOT_FOUND") { setNavigationDirty(false); onGone("products"); return; }

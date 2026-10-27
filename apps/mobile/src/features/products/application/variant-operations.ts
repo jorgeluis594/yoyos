@@ -2,6 +2,8 @@ import type { Result } from "@shared/result";
 import type { Product, ProductId, VariantId } from "../domain/product";
 
 /** Every code the four actions can answer: the transport ones, where the outcome may be unknown, and the product ones, which are definitive. */
+// Kept by hand: it must list every code of the error unions in infrastructure/product-api.ts (MobileTransportCode and the variant action errors).
+// The application layer cannot import them, and the composition fails to typecheck if the adapter answers a code missing here.
 export type VariantActionCode =
   | "UNAUTHENTICATED" | "COMPANY_REQUIRED" | "NETWORK_ERROR" | "SERVICE_UNAVAILABLE" | "RATE_LIMITED" | "SERVER_ERROR" | "INVALID_RESPONSE"
   | "OPERATION_CANCELLED" | "SECURE_STORAGE_ERROR" | "API_ERROR"
