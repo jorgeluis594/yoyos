@@ -2,7 +2,7 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
-import { getCompanyId, prisma, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
+import { prisma, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
 import { loadAttributesOfProducts, loadAttributesOfVariants, type VariantAttributes } from "@core/src/features/products/infrastructure/variant-combinations";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
@@ -18,33 +18,6 @@ function toCatalogItem(row: SellableRow, attributes: VariantAttributes): Catalog
   if (!isCurrency(row.product.currency)) return null;
   return { variantId: row.id as VariantId, productName: row.product.name, variantAttributes: { ...attributes.get(row.id) }, sku: row.sku,
     unitPrice: { amount: row.salePrice.toNumber(), currency: row.product.currency } };
-}
-
-type JoinedRow = Readonly<{ id: string; sku: string | null; salePrice: Prisma.Decimal; productName: string; currency: string; pairs: readonly (readonly [string, string])[] }>;
-
-/** One join: the variant, its product and its combination in saved option order. */
-export async function findSellableVariant(id: string) {
-  try {
-    const [row] = await prisma.$queryRaw<JoinedRow[]>(Prisma.sql`SELECT v.id, v.sku, v."salePrice", p.name AS "productName", p.currency,
-      COALESCE((SELECT json_agg(json_build_array(o.name, ov.name) ORDER BY o.position)
-        FROM "ProductVariantOptionValue" l
-        JOIN "ProductOption" o ON o."companyId" = l."companyId" AND o."productId" = l."productId" AND o.id = l."optionId"
-        JOIN "ProductOptionValue" ov ON ov."companyId" = l."companyId" AND ov."optionId" = l."optionId" AND ov.id = l."valueId"
-        WHERE l."companyId" = v."companyId" AND l."variantId" = v.id), '[]'::json) AS pairs
-      FROM "ProductVariant" v JOIN "Product" p ON p."companyId" = v."companyId" AND p.id = v."productId"
-      WHERE v."companyId" = ${getCompanyId()}::uuid AND v.id = ${id}::uuid AND v.status = 'active' AND p.status = 'active'`);
-    if (!row) return ok<CatalogItem | null>(null);
-    if (!isCurrency(row.currency)) {
-      log.error({ event: "invalid_stored_sale_variant" }, "invalid_stored_sale_variant");
-      return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
-    }
-    return ok<CatalogItem | null>({ variantId: row.id as VariantId, productName: row.productName, variantAttributes: Object.fromEntries(row.pairs), sku: row.sku,
-      unitPrice: { amount: new Prisma.Decimal(row.salePrice).toNumber(), currency: row.currency } });
-  } catch (cause) {
-    if (!knownFailure(cause)) throw cause;
-    log.error({ event: "unable_to_read_sale_variant", err: cause }, "unable_to_read_sale_variant");
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
-  }
 }
 
 type SellableVariant = CatalogItem & Readonly<{ productId: string; imageId: string | null; available: number }>;

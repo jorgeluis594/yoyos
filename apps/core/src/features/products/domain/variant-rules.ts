@@ -58,7 +58,9 @@ function chooseValues(product: Product, variant: ProductVariant, entries: readon
   const known = new Set<string>(product.options.flatMap((option) => [option.id, ...option.values.map((value) => value.id)]));
   const chosen: Chosen[] = [];
   product.options.forEach((option, optionIndex) => {
-    const entry = resolveExisting(option, byOption.get(option.id)![0]);
+    const [first] = byOption.get(option.id) ?? [];
+    if (!first) return;
+    const entry = resolveExisting(option, first);
     if ("valueId" in entry) {
       if (option.values.some((value) => value.id === entry.valueId)) chosen.push({ optionId: option.id, valueId: entry.valueId as OptionValueId });
       else issues.push({ ...at, reason: "VALUE_NOT_FOUND", message: "Value does not belong to the option" });
@@ -85,21 +87,22 @@ export function planCombinationChange(product: Product, variantId: VariantId, en
   if (!variant) return err(notFound());
   if (!product.options.length) return err({ code: "PRODUCT_WITHOUT_OPTIONS", message: "Product has no options" });
   const { issues, chosen } = chooseValues(product, variant, entries, foreignIds);
-  if (issues.length) return err({ code: "VALIDATION_ERROR", message: "Invalid combination", issues: issues as unknown as Extract<CombinationRejection, { code: "VALIDATION_ERROR" }>["issues"] });
+  const [firstIssue, ...otherIssues] = issues;
+  if (firstIssue) return err({ code: "VALIDATION_ERROR", message: "Invalid combination", issues: [firstIssue, ...otherIssues] });
   const combination: Combination = Object.fromEntries(chosen.map((entry) => [entry.optionId, entry.valueId]));
   const key = combinationKey(combination);
   if (key === combinationKey(variant.combination)) return ok(null);
   if (product.variants.some((other) => other.id !== variantId && combinationKey(other.combination) === key))
     return err({ code: "DUPLICATE_COMBINATION", message: "Combination is already used" });
-  const created = chosen.find((entry) => entry.created);
-  const options = product.options.map((option) => option.id === created?.optionId
-    ? { ...option, values: [...option.values, { id: created.created!.id, name: created.created!.name }] as unknown as ProductOption["values"] } : option);
+  const created = chosen.find((entry): entry is Chosen & { created: NonNullable<Chosen["created"]> } => entry.created !== undefined);
+  const options = product.options.map((option): ProductOption => option.id === created?.optionId
+    ? { ...option, values: [...option.values, { id: created.created.id, name: created.created.name }] } : option);
   const remaining = product.variants.map((other) => other.id === variantId ? { combination } : { combination: other.combination });
   const emptied = emptiedValues(options, remaining);
   return ok({
     variantId, combinationKey: key,
     changedLinks: chosen.filter((entry) => variant.combination[entry.optionId] !== entry.valueId).map(({ optionId, valueId }) => ({ optionId, valueId })),
-    ...(created ? { newValue: { id: created.created!.id, optionId: created.optionId, name: created.created!.name } } : {}),
+    ...(created ? { newValue: { id: created.created.id, optionId: created.optionId, name: created.created.name } } : {}),
     deleteValueIds: [...emptied.valueIds], deleteOptionIds: [...emptied.optionIds],
   });
 }

@@ -1,3 +1,4 @@
+import { isDuplicateCombination, isDuplicateOptionId, isDuplicateProductId, isDuplicateSku, isForeignKeyOfOrders } from "@core/src/features/products/infrastructure/prisma-errors";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, type ProductStock as DbStock, type ProductOption as DbOption, type ProductOptionValue as DbValue, type ProductVariantOptionValue as DbLink } from "@prisma/client";
 import { z } from "zod";
@@ -136,17 +137,6 @@ async function readProducts(ids: readonly string[], inTransaction = false): Prom
   }
 }
 
-function violatedIndex(error: unknown): string | undefined {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return undefined;
-  const adapter = error.meta?.driverAdapterError as { cause?: { constraint?: { index?: string } } } | undefined;
-  return adapter?.cause?.constraint?.index;
-}
-
-const isDuplicateSku = (error: unknown) => violatedIndex(error) === "ProductVariant_companyId_sku_normalized_key";
-const isDuplicateProductId = (error: unknown) => ["Product_pkey", "Product_id_key"].includes(violatedIndex(error) ?? "");
-const isDuplicateOptionId = (error: unknown) => ["ProductOption_pkey", "ProductOptionValue_pkey"].includes(violatedIndex(error) ?? "");
-const isDuplicateCombination = (error: unknown) => violatedIndex(error) === "ProductVariant_companyId_productId_combinationKey_key";
-
 const unavailable = (message: string) => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message });
 
 /**
@@ -247,13 +237,6 @@ export async function lockProduct(id: ProductId): Promise<Result<Product | null,
   }
 }
 
-const isForeignKeyOfOrders = (error: unknown) => mentions(error, "OrderItem_companyId_variantId_fkey");
-const mentions = (error: unknown, name: string) => {
-  let meta = "";
-  try { meta = JSON.stringify((error as { meta?: unknown } | null)?.meta ?? {}); } catch { /* the message is enough */ }
-  return `${error instanceof Error ? error.message : ""} ${meta}`.includes(name);
-};
-
 const uuidList = (ids: readonly string[]) => Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`));
 const rowsOf = (rows: readonly Prisma.Sql[]) => Prisma.join(rows.map((row) => Prisma.sql`(${row})`));
 
@@ -318,9 +301,9 @@ export async function applyStructureChange(change: ProductStructureChange): Prom
     } });
     return ok(null);
   } catch (error) {
-    if (isDuplicateSku(error) || mentions(error, "ProductVariant_companyId_sku_normalized_key")) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
-    if (isDuplicateCombination(error) || mentions(error, "ProductVariant_companyId_productId_combinationKey_key")) return err({ code: "DUPLICATE_COMBINATION", message: "Combination is already used" });
-    if (isDuplicateOptionId(error) || mentions(error, "ProductOption_pkey") || mentions(error, "ProductOptionValue_pkey")) return err({ code: "ID_CONFLICT", message: "Identifier is already used" });
+    if (isDuplicateSku(error)) return err({ code: "DUPLICATE_SKU", message: "SKU is already used" });
+    if (isDuplicateCombination(error)) return err({ code: "DUPLICATE_COMBINATION", message: "Combination is already used" });
+    if (isDuplicateOptionId(error)) return err({ code: "ID_CONFLICT", message: "Identifier is already used" });
     if (isForeignKeyOfOrders(error)) return err({ code: "VARIANT_HAS_ORDERS", message: "Variant has orders" });
     if (transactionFailureStage(error)) throw error;
     log.error({ event: "product_save_failed", companyId, productId, stage: "apply", errorCode: "PERSISTENCE_UNAVAILABLE",

@@ -9,23 +9,11 @@ import type { DeleteVariantError } from "@core/src/features/products/application
 import type { ProductReadError } from "@core/src/features/products/application/repository";
 import type { UpdateVariantError, VariantFieldChanges } from "@core/src/features/products/application/update-variant";
 import type { ProductId, VariantId, VariantStatus } from "@core/src/features/products/domain/product";
+import { isDuplicateCombination, isDuplicateSku, isDuplicateValueId, isForeignKeyViolation, isMissingRow } from "@core/src/features/products/infrastructure/prisma-errors";
 import { transactionFailureStage } from "@core/src/features/products/infrastructure/repository";
 import type { CombinationPlan, VariantDeletionPlan } from "@core/src/features/products/domain/variant-rules";
 
 const decimal = (amount: number) => new Prisma.Decimal(amount.toString());
-
-function violatedIndex(error: unknown): string | undefined {
-  if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== "P2002") return undefined;
-  const adapter = error.meta?.driverAdapterError as { cause?: { constraint?: { index?: string } } } | undefined;
-  return adapter?.cause?.constraint?.index;
-}
-
-const isDuplicateSku = (error: unknown) => violatedIndex(error) === "ProductVariant_companyId_sku_normalized_key";
-const isDuplicateCombination = (error: unknown) => violatedIndex(error) === "ProductVariant_companyId_productId_combinationKey_key";
-/** A raw statement reports the violated constraint in its message instead of `meta.driverAdapterError`. */
-const isDuplicateValueId = (error: unknown) => violatedIndex(error) === "ProductOptionValue_pkey" || (error instanceof Error && /ProductOptionValue_pkey/.test(`${error.message} ${JSON.stringify((error as { meta?: unknown }).meta ?? {})}`));
-const isForeignKeyViolation = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003";
-const isMissingRow = (error: unknown) => error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025";
 
 /**
  * `SELECT … FOR UPDATE` on the product row, so two actions on one product serialize. `false` when it does not exist for this company.
