@@ -54,11 +54,18 @@ const access = () => ({ companyId: getCompanyId() as CompanyId });
 const context = (ids: Ids, action: VariantActionName, started: number): VariantActionContext => ({ ...ids, action, started });
 
 /** Every action answers with the product read again, so `hasOrders` and the order of options and variants are never stale. */
-async function withDetail(written: Result<ProductId, { code: string; message: string }>) {
+export async function withDetail(written: Result<ProductId, { code: string; message: string }>) {
   if (!written.success) return written;
   const detail = await productEditing.get(written.data);
-  if (!detail.success) return detail;
-  if (!detail.data) return err({ code: "PRODUCT_NOT_FOUND" as const, message: "Product does not exist" });
+  // The write is already committed: the caller gets an error for a change that happened, so say so in the log.
+  if (!detail.success) {
+    log.error({ event: "product_variant_action_reload_failed", companyId: getCompanyId(), productId: written.data, errorCode: detail.error.code, err: detail.error }, "product_variant_action_reload_failed");
+    return detail;
+  }
+  if (!detail.data) {
+    log.error({ event: "product_variant_action_reload_failed", companyId: getCompanyId(), productId: written.data, errorCode: "PRODUCT_NOT_FOUND" }, "product_variant_action_reload_failed");
+    return err({ code: "PRODUCT_NOT_FOUND" as const, message: "Product does not exist" });
+  }
   return ok(detail.data);
 }
 
