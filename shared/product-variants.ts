@@ -170,16 +170,17 @@ function* combinations(lists: readonly (readonly [string, readonly string[]])[])
 const withRows = (draft: EditorDraft, rows: readonly EditorRow[], added: number, extra: Partial<EditorDraft> = {}): EditorDraft =>
   ({ ...draft, rows, nextRef: draft.nextRef + added, ...extra });
 
-const valueIdsOf = (draft: EditorDraft) => new Set(draft.options.flatMap((option) => option.values.map((value) => value.id)));
+/** Option and value ids share one namespace: core rejects an id used as both. */
+const idsOf = (draft: EditorDraft) => new Set(draft.options.flatMap((option) => [option.id, ...option.values.map((value) => value.id)]));
 
 export function addOption(
   draft: EditorDraft,
   input: Readonly<{ id: string; name: string; values: readonly Readonly<{ id: string; name: string }>[]; valueForExistingVariants?: string }>,
 ): Edit {
   if (input.values.length === 0) return fail("OPTION_WITHOUT_VALUES");
-  const taken = valueIdsOf(draft);
+  const taken = idsOf(draft);
   const inputIds = [input.id, ...input.values.map((value) => value.id)];
-  if (new Set(inputIds).size !== inputIds.length || draft.options.some((option) => option.id === input.id) || input.values.some((value) => taken.has(value.id))) return fail("DUPLICATE_ID");
+  if (new Set(inputIds).size !== inputIds.length || inputIds.some((id) => taken.has(id))) return fail("DUPLICATE_ID");
   if (draft.options.length >= maxOptions) return fail("TOO_MANY_OPTIONS", { maximum: maxOptions });
   if (input.values.length > maxValues) return fail("TOO_MANY_VALUES", { maximum: maxValues });
   const chosen = input.values.find((value) => value.id === input.valueForExistingVariants) ?? input.values[0];
@@ -218,11 +219,14 @@ export function setValueForExistingVariants(draft: EditorDraft, optionId: string
   if (option.saved || !draft.saved || !current) return fail("OPTION_NOT_NEW");
   if (!liveValues(option).some((value) => value.id === valueId)) return fail("VALUE_NOT_FOUND");
   const swap = (id: string | undefined) => id === current ? valueId : id === valueId ? current : id;
-  // A removal mark belongs to the combination, and a saved variant cannot carry one: a copy that lands on the saved variants' value is no longer marked.
-  const rows = draft.rows.map((row) => ({
-    ...row, combination: { ...row.combination, [optionId]: swap(row.combination[optionId]) as string },
-    marked: row.marked && row.combination[optionId] !== valueId,
-  }));
+  // A removal mark belongs to the combination, not to the row: each row takes the mark of the new row that held its new combination before the swap.
+  // A saved variant cannot carry one, so a mark that lands on it is dropped.
+  const combinationKey = (combination: Readonly<Record<string, string>>) => draft.options.map((candidate) => combination[candidate.id]).join(",");
+  const markedBefore = new Set(draft.rows.filter((row) => row.id === null && row.marked).map((row) => combinationKey(row.combination)));
+  const rows = draft.rows.map((row) => {
+    const combination = { ...row.combination, [optionId]: swap(row.combination[optionId]) as string };
+    return { ...row, combination, marked: row.id === null && markedBefore.has(combinationKey(combination)) };
+  });
   return done({ ...mapOption(draft, optionId, (candidate) => ({ ...candidate, valueForExistingVariants: valueId })), rows });
 }
 
@@ -230,7 +234,7 @@ export function addValue(draft: EditorDraft, optionId: string, value: Readonly<{
   const target = draft.options.find((option) => option.id === optionId);
   if (!target) return fail("OPTION_NOT_FOUND");
   if (target.values.length >= maxValues) return fail("TOO_MANY_VALUES", { maximum: maxValues });
-  if (valueIdsOf(draft).has(value.id)) return fail("DUPLICATE_ID");
+  if (idsOf(draft).has(value.id)) return fail("DUPLICATE_ID");
   const others = liveOptions(draft).filter((option) => option.id !== optionId);
   const created = others.reduce((product, option) => product * liveValues(option).length, 1);
   const projected = liveRows(draft).length + created;

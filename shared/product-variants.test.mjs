@@ -380,6 +380,25 @@ test("a row removed before the value for existing variants changes is not remove
   assert.deepEqual([body.deletedVariantIds, body.newVariants.length], [[], 4]);
 });
 
+test("a removal mark follows its combination when two new rows trade values", () => {
+  const talla = optionSpec(1, "Talla", ["S", "M"]);
+  const saved = savedProduct([talla], [{ values: ["S"] }, { values: ["M"] }]);
+  let draft = must(addOption(draftFromProduct(saved), optionSpec(3, "Manga", ["Corta", "Larga"])));
+  draft = must(addValue(draft, uuid(100), { id: uuid(199), name: "L" }));
+  draft = must(removeRow(draft, rowOf(draft, "L / Corta").ref));
+  const swapped = must(setValueForExistingVariants(draft, uuid(300), uuid(302)));
+  assert.deepEqual(swapped.rows.filter((row) => removalOf(swapped, row) !== null).map((row) => rowLabel(swapped, row)), ["L / Corta"]);
+  const body = saveProductRequestSchema.parse(buildSaveProductBody(swapped, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
+  assert.deepEqual([body.deletedVariantIds, body.newVariants.length], [[], 3]);
+});
+
+test("an id cannot be an option in the draft and a value in the input, or the other way round", () => {
+  const draft = must(addOption(createDraft(base), optionSpec(1, "Talla", ["S", "M"])));
+  assert.equal(addOption(draft, { id: uuid(101), name: "Color", values: [{ id: uuid(250), name: "Negro" }] }).error.code, "DUPLICATE_ID");
+  assert.equal(addOption(draft, { id: uuid(200), name: "Color", values: [{ id: uuid(100), name: "Negro" }] }).error.code, "DUPLICATE_ID");
+  assert.equal(addValue(draft, uuid(100), { id: uuid(100), name: "L" }).error.code, "DUPLICATE_ID");
+});
+
 test("the editor tells a missing option, value and row apart", () => {
   const draft = withManga();
   assert.equal(removeOption(draft, uuid(999)).error.code, "OPTION_NOT_FOUND");
