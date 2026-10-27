@@ -52,6 +52,8 @@ export type ProductFormProps = {
   onSave: (submission: ProductFormSubmission) => void;
   /** Reloads the saved product, after the discard confirmation when the form has changes. */
   onReload?: () => void;
+  /** Where a saved variant's detail lives; without it saved rows are plain text. */
+  variantHref?: (variantId: string) => string;
   values?: ProductFormValues;
   draft?: EditorDraft;
   /** The names the saved product had, to show «Antes …» for renamed values. */
@@ -60,7 +62,7 @@ export type ProductFormProps = {
   imageUrl?: string;
 };
 
-export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending, onSave, onReload, values: initialValues = emptyProductFormValues, draft: initialDraft = emptyDraft, originalNames = {}, submitLabel, imageUrl }: ProductFormProps) {
+export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending, onSave, onReload, variantHref, values: initialValues = emptyProductFormValues, draft: initialDraft = emptyDraft, originalNames = {}, submitLabel, imageUrl }: ProductFormProps) {
   const { t } = useTranslation();
   const errors: FormErrors = feedback.errors;
   const [values, setValues] = useState<ProductFormValues>(initialValues);
@@ -148,7 +150,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
         </Fragment>;
       })}
       </section>
-      <VariantsCard draft={draft} setDraft={setDraft} currency={currency} originalNames={originalNames} targets={targets} commitOption={commitOption}
+      <VariantsCard draft={draft} setDraft={setDraft} variantHref={variantHref} currency={currency} originalNames={originalNames} targets={targets} commitOption={commitOption}
         onClearOptions={() => setDraft((current) => clearOptions(current))} />
       </div>
       <aside className="grid gap-5">
