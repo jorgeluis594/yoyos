@@ -159,8 +159,8 @@ test("Guardar sends the three fields and a taken SKU is marked on its field", as
 
 test("changing the combination to a new value sends it once and the title follows the answer", async () => {
   const product = withLA();
-  const changed = productWith([{ ...product.variants[0], combination: [{ optionId: talla, valueId: "xl" as OptionValueId }, { optionId: color, valueId: colors.Azul }] }, ...siblings()]);
-  changed.options[0].values.push({ id: "xl" as OptionValueId, name: "XL" });
+  const base = productWith([{ ...product.variants[0], combination: [{ optionId: talla, valueId: "xl" as OptionValueId }, { optionId: color, valueId: colors.Azul }] }, ...siblings()]);
+  const changed: Product = { ...base, options: [{ ...base.options[0], values: [...base.options[0].values, { id: "xl" as OptionValueId, name: "XL" }] }, base.options[1]] };
   mockServices.changeCombination.mockResolvedValue(ok(changed));
   open(product);
   fireEvent.press(screen.getByRole("button", { name: "Cambiar combinación" }));

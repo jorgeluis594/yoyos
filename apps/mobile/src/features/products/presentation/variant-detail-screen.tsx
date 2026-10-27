@@ -133,7 +133,7 @@ function VariantDetail({ product, variant, onProduct, onGone, toProduct }: Detai
     const valueId = variant.combination[position]?.valueId;
     const shared = product.variants.some((other) => other.id !== variant.id && other.combination[position]?.valueId === valueId);
     const value = option.values.find((candidate) => candidate.id === valueId);
-    return shared || !value ? [] : [t("valueWillBeRemoved", { value: value.name, option: option.name })];
+    return shared || !value ? [] : [t("lostValueNotice", { value: value.name, option: option.name })];
   });
 
   /** Runs one request after the connection check. A lost answer is never shown as success: it offers the reload. */

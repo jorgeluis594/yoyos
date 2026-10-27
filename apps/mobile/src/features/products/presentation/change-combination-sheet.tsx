@@ -62,7 +62,7 @@ export function ChangeCombinationSheet({ product, variant, busy, error, uncertai
     const was = current[option.id];
     if (!was || selection[option.id] === was) return [];
     const stillUsed = product.variants.some((other) => other.id !== variant.id && other.combination.some((entry) => entry.valueId === was));
-    return stillUsed ? [] : [t("valueWillBeRemoved", { value: name(option.id, was), option: option.name })];
+    return stillUsed ? [] : [t("lostValueNotice", { value: name(option.id, was), option: option.name })];
   });
 
   const submit = () => {
