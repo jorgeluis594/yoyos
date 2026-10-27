@@ -507,7 +507,7 @@ test("persists completed sale, historical snapshots, listing and duplicate rejec
       expect(await orders.list({ page: 1, customer: { kind: "all" },
         completedFrom: new Date("2020-01-01"), completedBefore: new Date("2100-01-01") })).toMatchObject({ success: true, data: { total: 1 } });
       await prisma.productStock.delete({ where: { variantId: f.variantIds[0] } });
-      await expect(prisma.productVariant.delete({ where: { id: f.variantIds[0] } })).rejects.toThrow();
+      await expect(prisma.productVariant.delete({ where: { id: f.variantIds[0] } })).rejects.toThrow(/OrderItem_companyId_variantId_fkey/);
       await expect(prisma.product.delete({ where: { id: f.productId } })).rejects.toThrow();
       expect(await orderDetail(orderId, f)).toMatchObject({ success: true });
     });
@@ -585,7 +585,7 @@ test("separates companies and blocks cross-company references", async () => {
         buyer: { create: { contactId: b.contactId, phone: "+51999999999" } }, currency: "PEN", total: 1, itemsTotal: 1,
         completedAt: new Date(), createdAt: new Date() } })).rejects.toThrow();
       await expect(prisma.orderItem.create({ data: { orderId: foreignOrderId, variantId: a.variantIds[0], productName: "Foreign order",
-        variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow();
+        variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow(/OrderItem_companyId_orderId_fkey/);
     });
   } finally { await a.cleanup(); await b.cleanup(); }
 });
@@ -659,8 +659,8 @@ test("database constraints reject invalid completed sale writes", async () => {
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { quantity: BigInt(Number.MAX_SAFE_INTEGER) + 1n } })).rejects.toThrow();
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { unitPrice: 0 } })).rejects.toThrow();
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { subtotal: 0 } })).rejects.toThrow();
-      await expect(prisma.orderItem.update({ where: { id: item.id }, data: { variantAttributes: { Size: 42 } } })).rejects.toThrow();
-      await expect(prisma.orderItem.create({ data: { orderId: id, variantId: f.variantIds[0], productName: "Duplicate", variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow();
+      await expect(prisma.orderItem.update({ where: { id: item.id }, data: { variantAttributes: { Size: 42 } } })).rejects.toThrow(/OrderItem_attributes_object/);
+      await expect(prisma.orderItem.create({ data: { orderId: id, variantId: f.variantIds[0], productName: "Duplicate", variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow(/OrderItem_companyId_orderId_variantId_key/);
       expect(await prisma.orderItem.count()).toBe(1);
     });
   } finally { await f.cleanup(); }
