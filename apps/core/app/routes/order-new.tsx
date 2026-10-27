@@ -74,7 +74,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
   return Response.redirect(new URL(companyPath(new URL(request.url).pathname, access.company.country, `/orders/${result.data.id}`), request.url));
 }
 
-type CartItem = { variantId: string; productName: string; label: string; price: number; currency: string; quantity: number; stock: number };
+type CartItem = { variantId: string; productName: string; label: string; combination: string; price: number; currency: string; quantity: number; stock: number };
 
 export default function OrderNew() {
   const { t, i18n } = useTranslation();
@@ -136,11 +136,11 @@ export default function OrderNew() {
         </productSearch.Form>
         <Card aria-live="polite">
           {variants.length > 0 ? <ul className="divide-y">{variants.map(({ product, variant }) => {
-            const label = attributesLabel(variant.attributes) || variant.sku || t("orders.uniqueVariant");
+            const label = Object.values(variant.attributes).join(" · ") || variant.sku || t("orders.uniqueVariant");
             const inCart = cart.find((item) => item.variantId === variant.id);
             return <li key={variant.id} className="flex min-h-18 flex-col gap-2 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="min-w-0"><p className="font-medium leading-5">{product.name}</p><p className="mt-1 text-sm text-muted-foreground">{label} · {t("orders.stock")}: {variant.stock}</p></div>
-              <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end"><span className="text-sm font-semibold tabular-nums">{formatCurrency(variant.price, product.currency, i18n.language)}</span><Button type="button" size="sm" variant="outline" aria-label={t("orders.addNamed", { name: product.name })} onClick={() => add({ variantId: variant.id, productName: product.name, label, price: variant.price, currency: product.currency, quantity: 1, stock: variant.stock })}><Plus aria-hidden="true" />{t("orders.add")}{inCart ? ` (${inCart.quantity})` : ""}</Button></div>
+              <div className="flex shrink-0 items-center justify-between gap-3 sm:justify-end"><span className="text-sm font-semibold tabular-nums">{formatCurrency(variant.price, product.currency, i18n.language)}</span><Button type="button" size="sm" variant="outline" aria-label={t("orders.addNamed", { name: product.name })} onClick={() => add({ variantId: variant.id, productName: product.name, label, combination: attributesLabel(variant.attributes) || label, price: variant.price, currency: product.currency, quantity: 1, stock: variant.stock })}><Plus aria-hidden="true" />{t("orders.add")}{inCart ? ` (${inCart.quantity})` : ""}</Button></div>
             </li>;
           })}</ul> : <Empty><EmptyHeader><EmptyTitle>{searchedProduct && productQuery ? t("orders.noProduct") : t("orders.noProducts")}</EmptyTitle><EmptyDescription>{searchedProduct && productQuery ? t("orders.tryAnother") : t("orders.createFirst")}</EmptyDescription></EmptyHeader></Empty>}
         </Card>
@@ -149,7 +149,7 @@ export default function OrderNew() {
       <Card ref={summaryRef} id="resumen" role="region" className="min-w-0 scroll-mt-4" aria-labelledby="summary-heading"><CardContent className="flex flex-col gap-5 p-4 lg:p-5">
         <div className="flex items-center justify-between gap-3"><div><CardTitle id="summary-heading" className="text-lg font-semibold">{t("orders.current")}</CardTitle><p className="text-sm text-muted-foreground">{t(cart.length === 1 ? "orders.itemCount_one" : "orders.itemCount_other", { count: cart.length })}</p></div><ShoppingBag aria-hidden="true" className="size-5 text-muted-foreground" /></div>
         {cart.length === 0 ? <Empty className="border-y"><EmptyHeader><EmptyTitle>{t("orders.empty")}</EmptyTitle><EmptyDescription>{t("orders.emptyHint")}</EmptyDescription></EmptyHeader></Empty> : <ul className="divide-y border-y">{cart.map((item) => <li key={item.variantId} data-unavailable={actionData?.variantId === item.variantId || undefined} className="flex flex-col gap-3 py-4 data-[unavailable]:text-destructive sm:flex-row sm:items-center sm:justify-between lg:flex-col lg:items-stretch">
-          <div className="min-w-0"><p className="font-medium">{item.productName}</p>{actionData?.variantId === item.variantId && <p role="alert" className="text-sm font-medium">{t("orders.itemUnavailable", { item: item.label })}</p>}{item.quantity > item.stock && <p role="status" className="text-sm text-muted-foreground">{t("orders.stockWarning", { stock: item.stock })}</p>}<p className="text-sm text-muted-foreground">{item.label} · {item.price.toFixed(2)} {item.currency}</p></div>
+          <div className="min-w-0"><p className="font-medium">{item.productName}</p>{actionData?.variantId === item.variantId && <p role="alert" className="text-sm font-medium">{t("orders.itemUnavailable", { item: item.combination })}</p>}{item.quantity > item.stock && <p role="status" className="text-sm text-muted-foreground">{t("orders.stockWarning", { stock: item.stock })}</p>}<p className="text-sm text-muted-foreground">{item.label} · {item.price.toFixed(2)} {item.currency}</p></div>
           <div className="flex items-center justify-between gap-2 sm:justify-end lg:justify-between"><label className="flex items-center gap-2 text-sm">{t("orders.quantity")}<Input type="number" min="1" step="1" value={item.quantity} className="w-20 text-center tabular-nums" onChange={(event) => { const quantity = Number(event.target.value); setCart((current) => current.map((row) => row.variantId === item.variantId ? { ...row, quantity } : row)); }} /></label><Button type="button" variant="ghost" onClick={() => setCart((current) => current.filter((row) => row.variantId !== item.variantId))}>{t("orders.remove")}</Button></div>
         </li>)}</ul>}
         <p className="flex items-center justify-between gap-3"><span className="font-medium">{t("orders.shownTotal")}:</span><strong className="text-xl font-semibold tabular-nums">{currency && total !== null ? formatCurrency(total, currency, i18n.language) : "—"}</strong></p>
