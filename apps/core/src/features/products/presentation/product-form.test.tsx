@@ -159,6 +159,27 @@ test("the selection bar removes the selected combinations that are not saved yet
   expect(container.querySelector("[role=toolbar]")).toBeNull();
 });
 
+test("Deshacer on a combination marked «Se quitará» brings the row back, selectable and counted again", () => {
+  mount();
+  click(button("Agregar opciones como talla o color"));
+  type(byLabel("Nombre de la opción"), "Talla");
+  type(byLabel("Agregar otro valor"), "S");
+  type(byLabel("Agregar otro valor"), "M");
+  click(button("Listo"));
+  click(button("S", container.querySelector("[role=group]")!));
+  click(button("Quitar", container.querySelector("[role=toolbar]")!));
+  const marked = container.querySelector("tr[data-removal]")!;
+  expect(marked.textContent).toContain("Se quitará");
+  expect(marked.querySelector<HTMLInputElement>("input[type=checkbox]")!.disabled).toBe(true);
+  expect(container.textContent).toContain("1 de 100 variantes");
+
+  click(button("Deshacer", marked));
+  expect(container.querySelector("tr[data-removal]")).toBeNull();
+  expect(container.textContent).not.toContain("Se quitará");
+  expect(container.textContent).toContain("2 de 100 variantes");
+  expect(container.querySelectorAll<HTMLInputElement>("tbody input[type=checkbox]:not(:disabled)")).toHaveLength(2);
+});
+
 test("a selection of saved variants has no Quitar and cannot edit stock", () => {
   mount({ draft: draftFromProduct(product(false)) });
   click(button("Negro", container.querySelector("[role=group]")!));
