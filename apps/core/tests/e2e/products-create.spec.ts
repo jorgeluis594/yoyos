@@ -37,7 +37,7 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
     const firstProductUrl = page.url();
     await browserExpect(page.getByRole("heading", { name: "Cuaderno" })).toBeVisible();
-    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("12.5");
+    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("12.50");
     await browserExpect(page.getByLabel("SKU")).toHaveValue("");
     await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("");
     await browserExpect(page.getByLabel("Stock")).toHaveValue("0");
@@ -97,6 +97,10 @@ test("create products from the private form, validate input, and reload detail",
     await page.goto("/es-PE/products/new");
     await page.getByLabel("Nombre *").fill("Cancelado");
     await page.getByRole("link", { name: "Cancelar" }).click();
+    await page.getByRole("button", { name: "Seguir editando" }).click();
+    await browserExpect(page.getByLabel("Nombre *")).toHaveValue("Cancelado");
+    await page.getByRole("link", { name: "Cancelar" }).click();
+    await page.getByRole("button", { name: "Descartar" }).click();
     await browserExpect(page).toHaveURL(/\/products$/);
     expect(await withTenantIsolation(companyId, async () => prisma.product.count({ where: { companyId } }))).toBe(3);
 
@@ -118,16 +122,11 @@ test("create products from the private form, validate input, and reload detail",
     await page.route("**/test-images/*", (route) => route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64") }));
     await page.goto(`/es-PE/products/${prepared.productId}`);
     await browserExpect(page.getByRole("heading", { name: "Camisa con tallas" })).toBeVisible();
-    await browserExpect(page.getByRole("article")).toHaveCount(2);
-    await browserExpect(page.getByText("CAM-M")).toBeVisible();
-    await browserExpect(page.getByText("CAM-L")).toBeVisible();
-    await browserExpect(page.getByText("Talla", { exact: true })).toHaveCount(2);
-    await browserExpect(page.getByText("M", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("L", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText(formatCurrency(20, "PEN", "es"))).toBeVisible();
-    await browserExpect(page.getByText(formatCurrency(25, "PEN", "es"))).toBeVisible();
-    await browserExpect(page.getByRole("article").filter({ hasText: "CAM-M" })).toContainText("Stock2");
-    await browserExpect(page.getByRole("article").filter({ hasText: "CAM-L" })).toContainText("Stock3");
+    await browserExpect(page.getByLabel("Precio de venta de M")).toHaveValue("20.00");
+    await browserExpect(page.getByLabel("Precio de venta de L")).toHaveValue("25.00");
+    await browserExpect(page.getByRole("row").filter({ has: page.getByLabel("Precio de venta de M") }).getByRole("cell").nth(3)).toHaveText("2");
+    await browserExpect(page.getByRole("row").filter({ has: page.getByLabel("Precio de venta de L") }).getByRole("cell").nth(3)).toHaveText("3");
+    await browserExpect(page.getByLabel("Stock", { exact: true })).toHaveValue("5");
     await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveAttribute("src", /prepared-product\.jpg$/);
     await page.getByRole("link", { name: "Volver a productos" }).click();
     const catalogRow = page.getByRole("row", { name: /Camisa con tallas/ });

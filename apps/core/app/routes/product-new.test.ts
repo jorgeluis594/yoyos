@@ -20,11 +20,11 @@ test("rejects client company identity before invoking creation", async () => {
   expect(create).not.toHaveBeenCalled();
 });
 
-test("reports technical save failures safely and preserves the form route", async () => {
+test("reports an uncertain creation without exposing technical detail", async () => {
   vi.spyOn(productEditing, "create").mockRejectedValue(new Error("secret database detail"));
   vi.spyOn(log, "error").mockImplementation(() => {});
   const request = new Request("http://localhost/es-PE/products/new", { method: "POST", body: JSON.stringify(valid) });
-  expect(await action({ request, context } as ActionFunctionArgs)).toEqual({ errors: { form: "No se pudo guardar el producto. Inténtalo de nuevo." } });
+  expect(await action({ request, context } as ActionFunctionArgs)).toEqual({ errors: { form: "No se pudo confirmar si se creó este producto. Revisa el catálogo antes de iniciar otra creación." }, issues: [] });
   expect(productEditing.create).toHaveBeenCalledOnce();
 });
 

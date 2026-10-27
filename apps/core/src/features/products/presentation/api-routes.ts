@@ -1,12 +1,10 @@
 import express from "express";
-import { createProductRequestSchema, productListQuerySchema, saveProductRequestSchema, updateProductRequestSchema, type SaveProductRequest } from "@shared/contracts/products";
+import { createProductRequestSchema, productListQuerySchema, saveProductRequestSchema, updateProductRequestSchema } from "@shared/contracts/products";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { products } from "@core/src/features/products/composition";
 import { productEditing } from "@core/src/composition/product-editing";
 import { handleUnexpected, productIdFrom, sendInvalid, sendOperationError, zodIssues } from "@core/src/features/products/presentation/api-errors";
-import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
-import type { SaveProductInput } from "@core/src/features/products/application/save-product";
-import { toCreateInput, toUpdateInput } from "@core/src/features/products/presentation/request-input";
+import { toCreateInput, toSaveInput, toUpdateInput } from "@core/src/features/products/presentation/request-input";
 import { toProductDetailResponse, toProductIdResponse, toProductListResponse } from "@core/src/features/products/presentation/product-presenter";
 
 export const productRoutes = express.Router();
@@ -60,16 +58,6 @@ productRoutes.post("/", async (request, response) => {
     return handleUnexpected(response, error);
   }
 });
-
-function toSaveInput(productId: ProductId, request: SaveProductRequest): SaveProductInput {
-  return {
-    productId, structureVersion: request.structureVersion, name: request.name, description: request.description, imageId: request.imageId as ImageId | null,
-    options: request.options,
-    variants: request.variants.map((variant) => ({ ...variant, id: variant.id as VariantId })),
-    newVariants: request.newVariants,
-    deletedVariantIds: request.deletedVariantIds as VariantId[],
-  };
-}
 
 productRoutes.put("/:productId", async (request, response) => {
   if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");

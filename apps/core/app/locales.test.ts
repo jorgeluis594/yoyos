@@ -9,6 +9,7 @@ test("authentication translations exist in both languages and preserve localized
   expect(Object.keys(resources.pt.translation.nav).sort()).toEqual(Object.keys(resources.es.translation.nav).sort());
   expect(Object.keys(resources.pt.translation.products).sort()).toEqual(Object.keys(resources.es.translation.products).sort());
   expect(Object.keys(resources.pt.translation.orders).sort()).toEqual(Object.keys(resources.es.translation.orders).sort());
+  expect(Object.keys(resources.pt.translation.productEditor).sort()).toEqual(Object.keys(resources.es.translation.productEditor).sort());
   expect(Object.keys(resources.pt.translation.productErrors).sort()).toEqual(Object.keys(resources.es.translation.productErrors).sort());
   expect(Object.keys(resources.pt.translation.productErrors.label).sort()).toEqual(Object.keys(resources.es.translation.productErrors.label).sort());
   expect(Object.keys(resources.pt.translation.productErrors.subject).sort()).toEqual(Object.keys(resources.es.translation.productErrors.subject).sort());
