@@ -90,6 +90,23 @@ test("the public catalog does not offer a deactivated variant", async () => {
   expect(await catalogBrowse.getProduct(only, await storefront(companyId))).toMatchObject({ success: true, data: { kind: "unavailable" } });
 });
 
+test("products with only deactivated variants take no place in a page and the pages stay complete", async () => {
+  const companyId = await createCompany(true);
+  const visible: string[] = [];
+  for (let index = 0; index < 30; index++) {
+    visible.push(await addProduct(companyId, `Visible ${index}`, [{ attributes: { Talla: "S" }, price: 1 + index, stock: 1 }, { attributes: { Talla: "L" }, price: 100, stock: 0, status: "inactive" }]));
+    await addProduct(companyId, `Oculto ${index}`, [{ attributes: { Talla: "S" }, price: 5, stock: 1, status: "inactive" }]);
+  }
+  const first = await browse(companyId);
+  const second = await browse(companyId, null, 2);
+  expect(first.success && first.data.items.map(({ id }) => id)).toEqual(visible.slice(6).reverse());
+  expect(first).toMatchObject({ success: true, data: { hasMore: true } });
+  expect(second.success && second.data.items.map(({ id }) => id)).toEqual(visible.reverse());
+  expect(second).toMatchObject({ success: true, data: { hasMore: false } });
+  // The card shows the active variants only: the inactive L at 100 is not the highest price.
+  expect(first.success && first.data.items[0]).toMatchObject({ name: "Visible 29", price: { kind: "single", amount: { amount: 30 } }, soldOut: false });
+});
+
 test("search finds «POLO OVERSIZE» and «Polo básico» for «polo» and ignores accents", async () => {
   const companyId = await createCompany(true);
   const basico = await addProduct(companyId, "Polo básico", [{ price: 45, stock: 3 }]);
