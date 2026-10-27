@@ -123,3 +123,19 @@ test("adding a value to an option keeps the typed text in the same field", () =>
   expect(screen.getByText("Hasta 3 opciones · Se crearán 8 variantes (máximo 100).")).toBeTruthy();
   void addValue;
 });
+
+test("a collapsed card lists the same rejection of two values without repeating a React key", () => {
+  const error = jest.spyOn(console, "error").mockImplementation(() => {});
+  try {
+    const draft = tallaColor();
+    const reason = "Este valor no se puede eliminar.";
+    const Errors = ({ children }: { children: ReactNode }) => {
+      const editor = useProductEditor();
+      useEffect(() => { editor.setErrors({ rows: {}, options: {}, values: { [id(10)]: reason, [id(11)]: reason } }); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+      return <>{children}</>;
+    };
+    render(<ProductEditorProvider><Seed draft={draft}><Errors><OptionsScreen /></Errors></Seed></ProductEditorProvider>);
+    expect(screen.getAllByText(reason)).toHaveLength(2);
+    expect(error.mock.calls.filter((call) => String(call[0]).includes("same key"))).toEqual([]);
+  } finally { error.mockRestore(); }
+});

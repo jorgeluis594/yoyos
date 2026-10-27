@@ -1,5 +1,6 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
 import type { Currency } from "@shared/money";
+import type { Product } from "../domain/product";
 import type { EditorDraft } from "@shared/product-variants";
 
 /** Rejections of one save, by the editor's own ids: rows by `ref`, options and values by id. */
@@ -18,6 +19,9 @@ type EditorContext = Readonly<{
   dirty: boolean;
   selection: readonly string[];
   errors: EditorErrors;
+  /** The saved product as last read or answered by core: the saved variant detail reuses it and publishes what its actions answer. */
+  detail: Product | null;
+  publish: (product: Product) => void;
   /** Starts a new editing session with this draft as the saved starting point. */
   reset: (draft: EditorDraft, currency: Currency) => void;
   setDraft: (draft: EditorDraft) => void;
@@ -35,6 +39,7 @@ export function ProductEditorProvider({ children }: { children: ReactNode }) {
   const [state, setState] = useState<{ draft: EditorDraft | null; baseline: EditorDraft | null; currency: Currency }>({ draft: null, baseline: null, currency: "PEN" });
   const [selection, setSelection] = useState<readonly string[]>([]);
   const [errors, setErrors] = useState<EditorErrors>(noEditorErrors);
+  const [detail, publish] = useState<Product | null>(null);
   const reset = useCallback((draft: EditorDraft, currency: Currency) => {
     setState({ draft, baseline: draft, currency });
     setSelection([]);
@@ -44,8 +49,8 @@ export function ProductEditorProvider({ children }: { children: ReactNode }) {
   const value = useMemo(() => ({
     draft: state.draft, baseline: state.baseline, currency: state.currency,
     dirty: state.draft !== null && state.baseline !== null && state.draft !== state.baseline && JSON.stringify(state.draft) !== JSON.stringify(state.baseline),
-    selection, errors, reset, setDraft, setSelection, setErrors,
-  }), [state, selection, errors, reset, setDraft]);
+    selection, errors, detail, publish, reset, setDraft, setSelection, setErrors,
+  }), [state, selection, errors, detail, reset, setDraft]);
   return <Context.Provider value={value}>{children}</Context.Provider>;
 }
 

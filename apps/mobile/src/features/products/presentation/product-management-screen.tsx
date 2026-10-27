@@ -77,6 +77,15 @@ export default function ProductManagementScreen() {
     setChanged(false);
   }, [discardVersion, product, editor]);
 
+  // A saved variant's action answers the refreshed detail; the product screen takes it when it comes back.
+  const published = editor.detail;
+  useEffect(() => {
+    if (!published || published.id !== productId || !product || published === product) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the detail screen publishes outside this component's render.
+    setProduct(published); setValues(valuesForProduct(published)); editor.reset(editorDraftOf(published), published.currency);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [published]);
+
   useEffect(() => {
     let active = true;
     void products.loadProduct(productId as ProductId).then((result) => {
@@ -88,6 +97,7 @@ export default function ProductManagementScreen() {
       }
       setLoadError(null);
       setProduct(result.data);
+      editor.publish(result.data);
       setValues(valuesForProduct(result.data));
       editor.reset(editorDraftOf(result.data), result.data.currency);
       setPhoto({ kind: "keep" });
@@ -155,6 +165,7 @@ export default function ProductManagementScreen() {
     }
     // The response is the saved detail: the screen takes it as is, with no follow-up read.
     setProduct(result.data);
+    editor.publish(result.data);
     setValues(valuesForProduct(result.data));
     editor.reset(editorDraftOf(result.data), result.data.currency);
     setPhoto({ kind: "keep" });
@@ -173,6 +184,7 @@ export default function ProductManagementScreen() {
         return;
       }
       setProduct(result.data);
+      editor.publish(result.data);
       setValues(valuesForProduct(result.data));
       editor.reset(editorDraftOf(result.data), result.data.currency);
       setPhoto({ kind: "keep" });

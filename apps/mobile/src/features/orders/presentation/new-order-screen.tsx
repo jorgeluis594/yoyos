@@ -77,6 +77,7 @@ function CompanyOrderScreen() {
   const { pending, refresh: refreshPending, trigger: syncPending } = usePendingOrders();
   const [reviewingOrder, setReviewingOrder] = useState(false);
   const [unavailableVariants, setUnavailableVariants] = useState<readonly string[]>([]);
+  const [unavailableLabels, setUnavailableLabels] = useState<Readonly<Record<string, string>>>({});
   const [checking, setChecking] = useState(false);
   const [queuedNotice, setQueuedNotice] = useState(false);
   const [sending, setSending] = useState(false);
@@ -87,6 +88,7 @@ function CompanyOrderScreen() {
   const saving = useRef(false);
   const [error, setError] = useState("");
   const [problemVariantId, setProblemVariantId] = useState<string | null>(null);
+  const [problemCode, setProblemCode] = useState<string | null>(null);
   const leaveAllowed = useRef(false);
   const version = useRef(discardVersion);
   const companyId = state.status === "ready" ? state.company.id : "";
@@ -207,6 +209,7 @@ function CompanyOrderScreen() {
           retryQuotation();
         }
         setProblemVariantId("issues" in result.error ? result.error.issues?.find(issue => issue.variantId)?.variantId ?? null : null);
+        setProblemCode(result.error.code);
         void refreshPending();
         return;
       }
@@ -221,7 +224,7 @@ function CompanyOrderScreen() {
   const startNewSale = () => {
     leaveAllowed.current = true;
     setDraft(emptyOrderDraft()); setStage("products"); setPaidPaymentId(null); setInitialDelivery(null);
-    setReviewingOrder(false); setUnavailableVariants([]); setError(""); setProblemVariantId(null);
+    setReviewingOrder(false); setUnavailableVariants([]); setUnavailableLabels({}); setError(""); setProblemVariantId(null); setProblemCode(null);
     scroll.current?.scrollTo({ y: 0, animated: true });
   };
   const restoreDelivery = (selection: RatedDeliveryAssignment["delivery"], currency: Money["currency"]) => {
@@ -244,7 +247,7 @@ function CompanyOrderScreen() {
     if (result.data.kind === "completed") { void refreshPending(); openCompleted(result.data); return; }
     if (result.data.kind !== "review") return;
     setDraft(result.data.draft); setQueuedNotice(false);
-    setUnavailableVariants(result.data.unavailableVariantIds);
+    setUnavailableVariants(result.data.unavailableVariantIds); setUnavailableLabels(result.data.unavailableLabels ?? {});
     setReviewingOrder(true); setStage("review"); setPaidPaymentId(null); setError("");
     const delivery = result.data.pending.request.delivery?.delivery;
     if (delivery) restoreDelivery(delivery, result.data.pending.shownTotal.currency);
@@ -299,7 +302,9 @@ function CompanyOrderScreen() {
         </View> : null}
       {!reviewingOrder ? rejected.map(sale => <View key={sale.id} testID="rejected-sale" style={[styles.card, card]}>
           <ThemedText type="smallBold" accessibilityRole="header">{t('rejectedSale')}</ThemedText>
-          <ThemedText type="small">{translations.t(errorKeys[sale.rejection?.code ?? ""] ?? 'confirmOrderError')}</ThemedText>
+          <ThemedText type="small">{sale.rejection?.code === "VARIANT_NOT_FOUND" && sale.rejection.variantId && sale.itemLabels?.[sale.rejection.variantId]
+            ? translations.t('itemNoLongerAvailable', { name: sale.itemLabels[sale.rejection.variantId] })
+            : translations.t(errorKeys[sale.rejection?.code ?? ""] ?? 'confirmOrderError')}</ThemedText>
           <View style={styles.amountRow}><ThemedText>{t('itemCount', { count: sale.request.items.reduce((count, item) => count + item.quantity, 0) })}</ThemedText>
             <ThemedText style={styles.amount}>{money(sale.shownTotal.amount, sale.shownTotal.currency, locale)}</ThemedText></View>
           <Button variant="secondary" loading={checking} disabled={sending || draft.kind === "items"} onPress={() => void reviewSavedOrder(sale.id)}>{t('reviewRejectedSale')}</Button>
@@ -319,7 +324,7 @@ function CompanyOrderScreen() {
               : <ScreenState status={search ? "no-results" : "empty"} title={search ? t('noProductsFound') : t('noProductsAvailable')} />}
             <ThemedText type="subtitle" accessibilityRole="header" style={[styles.sectionHeading, { borderColor: theme.border }]}>{t('items')}</ThemedText>
             {unavailableVariants.map((variantId, index) => <View key={variantId} style={styles.item}>
-              <ThemedText accessibilityRole="alert">{t('savedProductUnavailable', { number: index + 1 })}</ThemedText>
+              <ThemedText accessibilityRole="alert">{unavailableLabels[variantId] ? t('itemNoLongerAvailable', { name: unavailableLabels[variantId] }) : t('savedProductUnavailable', { number: index + 1 })}</ThemedText>
               <Button variant="ghost" onPress={() => setUnavailableVariants(current => current.filter(id => id !== variantId))}>{t('removeUnavailableProduct', { number: index + 1 })}</Button>
             </View>)}
             {draft.items.map((item) => <View key={item.variantId} style={styles.item}>
@@ -327,7 +332,7 @@ function CompanyOrderScreen() {
               <ThemedText type="small" themeColor="textSecondary">{Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ")} · {t('stockCount', { count: item.shownStock })}</ThemedText>
               <ThemedText>{money(item.shownUnitPrice.amount, item.shownUnitPrice.currency, locale)} × {item.quantity}</ThemedText>
               {item.quantity > item.shownStock ? <ThemedText themeColor="textSecondary">{t('creationStockWarning')}</ThemedText> : null}
-              {problemVariantId === item.variantId ? <ThemedText accessibilityRole="alert">{t('reviewVariant')}</ThemedText> : null}
+              {problemVariantId === item.variantId ? <ThemedText accessibilityRole="alert">{problemCode === "VARIANT_NOT_FOUND" ? t('itemNoLongerAvailable', { name: Object.values(item.variantAttributes).join(" / ") || item.productName }) : t('reviewVariant')}</ThemedText> : null}
               <View style={styles.row}><Button variant="secondary" disabled={item.quantity <= 1} onPress={() => changeQuantity(item.variantId, item.quantity - 1)}>−</Button>
                 <Button variant="secondary" onPress={() => changeQuantity(item.variantId, item.quantity + 1)}>+</Button>
                 <Button variant="ghost" onPress={() => setDraft(removeDraftItem(draft, item.variantId))}>{t('remove')}</Button></View>

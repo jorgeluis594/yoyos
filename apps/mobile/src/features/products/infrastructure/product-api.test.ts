@@ -151,3 +151,30 @@ test("the editor save maps its rejections by code", async () => {
   expect(await save(409, "PRODUCT_ID_CONFLICT")).toMatchObject({ success: false, error: { code: "API_ERROR" } });
   expect(await save(200, "PRODUCT_CHANGED")).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
 });
+
+const variantUrl = `/api/products/${productId}/variants/${variantId}`;
+
+test("the four variant actions use their routes and answer the refreshed detail", async () => {
+  const request = jest.fn().mockResolvedValue(ok(withOptions("inactive")));
+  const api = createProductApi(request, () => 0);
+  const vid = variantId as never;
+  expect(await api.updateVariant(productId, vid, { sku: "X", salePrice: 10, purchasePrice: null })).toMatchObject({ success: true, data: { variants: [{ status: "inactive" }] } });
+  await api.changeCombination(productId, vid, { values: [{ optionId, newValue: { id: "00000000-0000-4000-8000-000000000012", name: "XL" } }] });
+  await api.changeStatus(productId, vid, "inactive");
+  await api.deleteVariant(productId, vid);
+  expect(request.mock.calls.map(([path, init]) => [path, init.method])).toEqual([
+    [variantUrl, "PATCH"], [`${variantUrl}/combination`, "PUT"], [`${variantUrl}/status`, "PUT"], [variantUrl, "DELETE"],
+  ]);
+  expect(JSON.parse(request.mock.calls[2][1].body)).toEqual({ status: "inactive" });
+});
+
+test("the variant actions map their rejections by code and refuse a code of another action", async () => {
+  const api = (status: number, code: string) => createProductApi(async () => failure(status, code), () => 0);
+  const vid = variantId as never;
+  for (const [code, status] of [["VARIANT_HAS_ORDERS", 409], ["VARIANT_HAS_STOCK", 409], ["LAST_VARIANT", 409], ["VARIANT_NOT_FOUND", 404], ["PRODUCT_NOT_FOUND", 404]] as const)
+    expect(await api(status, code).deleteVariant(productId, vid)).toMatchObject({ success: false, error: { code } });
+  expect(await api(409, "DUPLICATE_COMBINATION").changeCombination(productId, vid, { values: [] })).toMatchObject({ success: false, error: { code: "DUPLICATE_COMBINATION" } });
+  expect(await api(409, "DUPLICATE_SKU").updateVariant(productId, vid, { sku: "X" })).toMatchObject({ success: false, error: { code: "DUPLICATE_SKU" } });
+  expect(await api(409, "PRODUCT_WITHOUT_OPTIONS").changeStatus(productId, vid, "active")).toMatchObject({ success: false, error: { code: "PRODUCT_WITHOUT_OPTIONS" } });
+  expect(await api(409, "DUPLICATE_SKU").deleteVariant(productId, vid)).toMatchObject({ success: false, error: { code: "API_ERROR" } });
+});
