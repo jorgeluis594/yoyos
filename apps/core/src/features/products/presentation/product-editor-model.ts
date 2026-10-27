@@ -39,7 +39,10 @@ export function feedbackTargets(draft: EditorDraft, issues: readonly FeedbackIss
   const blockedValues = new Set<string>();
   const added = newRowsInRequestOrder(draft);
   const keep = (target: Record<string, string>, key: string, text: string) => { target[key] ??= text; };
+  // Without options there is no table: a rejected price or SKU belongs to the form's own fields.
+  const withTable = draft.options.length > 0;
   for (const issue of issues) {
+    if (!withTable && (issue.scope === "newVariant" || issue.scope === "variant")) continue;
     if (issue.scope === "newVariant" && issue.index !== undefined && added[issue.index]) keep(rows, added[issue.index].ref, issue.message);
     else if (issue.scope === "variant" && issue.variantId) {
       const row = draft.rows.find((candidate) => candidate.id === issue.variantId);

@@ -32,12 +32,15 @@ export function OptionEditor({ draft, buffer, issues, originalNames, notice, val
   const option = draft.options.find((candidate) => candidate.id === buffer.optionId);
   const marked = new Set(option?.values.filter((value) => value.marked).map((value) => value.id));
   const [pendingId, setPendingId] = useState(() => crypto.randomUUID());
-  const ids = buffer.values.map((value) => value.id);
-  const reorder = useReorder(ids, (id, to) => {
-    const from = buffer.values.findIndex((value) => value.id === id);
-    if (from < 0) return;
+  const live = buffer.values.filter((value) => !marked.has(value.id));
+  const liveIds = live.map((value) => value.id);
+  // Handles number only the values that are not marked, so a move translates its live position into the full list.
+  const reorder = useReorder(liveIds, (id, to) => {
+    const target = liveIds[to];
     const rest = buffer.values.filter((value) => value.id !== id);
-    rest.splice(to, 0, buffer.values[from]);
+    const moved = buffer.values.find((value) => value.id === id);
+    if (!moved || target === undefined) return;
+    rest.splice(rest.findIndex((value) => value.id === target) + (to > liveIds.indexOf(id) ? 1 : 0), 0, moved);
     onChange({ ...buffer, values: rest });
   });
   const nameIssue = issues.find((issue) => issue.kind === "NAME_REQUIRED" || issue.kind === "NAME_DUPLICATE" || issue.kind === "NAME_TOO_LONG");
@@ -72,7 +75,6 @@ export function OptionEditor({ draft, buffer, issues, originalNames, notice, val
   }
 
   const blocked = issues.length > 0;
-  const live = buffer.values.filter((value) => !marked.has(value.id));
   const position = (valueId: string) => live.findIndex((value) => value.id === valueId) + 1;
   const keptValue = buffer.valueForExistingVariants && live.some((value) => value.id === buffer.valueForExistingVariants) ? buffer.valueForExistingVariants : live[0]?.id ?? "";
   const existingCount = draft.rows.filter((row) => row.id !== null).length;

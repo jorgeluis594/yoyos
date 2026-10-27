@@ -58,7 +58,7 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     await browserExpect(page.getByRole("status")).toContainText("Producto guardado correctamente.");
     await browserExpect(page.getByRole("heading", { name: "Cuaderno editado" })).toBeVisible();
     await browserExpect(page.getByLabel("SKU")).toHaveValue("CUAD-2");
-    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("15.5");
+    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("15.50");
     await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("");
     await browserExpect(page.getByText("Algodón")).toHaveCount(0);
     await browserExpect(page.getByLabel("Stock")).toHaveValue("4");

@@ -7,15 +7,17 @@ import { Button } from "@core/app/components/ui/button";
 export function useReorder(ids: readonly string[], onMove: (id: string, to: number) => void) {
   const dragging = useRef<string | null>(null);
   const [announcement, setAnnouncement] = useState("");
-  const [focusId, setFocusId] = useState<string | null>(null);
+  // The handle that was moved takes focus back once, after the list re-renders in its new order.
+  const focusId = useRef<string | null>(null);
   useEffect(() => {
-    if (focusId) document.querySelector<HTMLElement>(`[data-handle="${focusId}"]`)?.focus();
-  }, [focusId, ids]);
+    if (focusId.current === null) return;
+    document.querySelector<HTMLElement>(`[data-handle="${focusId.current}"]`)?.focus();
+    focusId.current = null;
+  });
   return {
     announcement,
     announce: (text: string) => setAnnouncement(text),
-    keep: (id: string) => setFocusId(id),
-    move: (id: string, to: number) => { onMove(id, to); setFocusId(id); },
+    move: (id: string, to: number) => { onMove(id, to); focusId.current = id; },
     handleProps: (id: string) => ({
       draggable: true,
       onDragStart: (event: DragEvent) => { dragging.current = id; event.dataTransfer.effectAllowed = "move"; event.dataTransfer.setData("text/plain", id); },

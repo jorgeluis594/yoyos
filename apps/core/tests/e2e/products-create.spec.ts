@@ -37,7 +37,7 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
     const firstProductUrl = page.url();
     await browserExpect(page.getByRole("heading", { name: "Cuaderno" })).toBeVisible();
-    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("12.5");
+    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("12.50");
     await browserExpect(page.getByLabel("SKU")).toHaveValue("");
     await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("");
     await browserExpect(page.getByLabel("Stock")).toHaveValue("0");
@@ -124,8 +124,8 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page.getByRole("heading", { name: "Camisa con tallas" })).toBeVisible();
     await browserExpect(page.getByLabel("Precio de venta de M")).toHaveValue("20.00");
     await browserExpect(page.getByLabel("Precio de venta de L")).toHaveValue("25.00");
-    await browserExpect(page.getByRole("row").filter({ has: page.getByLabel("Precio de venta de M") })).toContainText("2");
-    await browserExpect(page.getByRole("row").filter({ has: page.getByLabel("Precio de venta de L") })).toContainText("3");
+    await browserExpect(page.getByRole("row").filter({ has: page.getByLabel("Precio de venta de M") }).getByRole("cell").nth(3)).toHaveText("2");
+    await browserExpect(page.getByRole("row").filter({ has: page.getByLabel("Precio de venta de L") }).getByRole("cell").nth(3)).toHaveText("3");
     await browserExpect(page.getByLabel("Stock", { exact: true })).toHaveValue("5");
     await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveAttribute("src", /prepared-product\.jpg$/);
     await page.getByRole("link", { name: "Volver a productos" }).click();

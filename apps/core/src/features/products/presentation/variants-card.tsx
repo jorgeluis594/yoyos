@@ -100,6 +100,11 @@ export function VariantsCard({ draft, setDraft, currency, originalNames, targets
     edit((current) => applyBulk(current, selectedLive.map((view) => view.row.ref), patch).draft);
     setVersion((current) => current + 1);
   }
+  function removeSelected() {
+    const refs = selectedLive.filter((view) => view.row.id === null).map((view) => view.row.ref);
+    edit((current) => refs.reduce((draftNow, ref) => { const next = removeRow(draftNow, ref); return next.success ? next.data : draftNow; }, current));
+    setSelected((current) => current.filter((ref) => !refs.includes(ref)));
+  }
   const newSelected = selectedLive.filter((view) => view.row.id === null).length;
 
   const optionSummary = (option: EditorOption, index: number) => {
@@ -207,8 +212,9 @@ export function VariantsCard({ draft, setDraft, currency, originalNames, targets
           {selectedLive.length > 0 && <div role="toolbar" className="flex flex-wrap items-center gap-2 rounded-lg bg-muted p-2 text-sm">
             <span>{t("productEditor.selected", { count: selectedLive.length })}{hidden > 0 && ` (${t("productEditor.hiddenByFilter", { count: hidden })})`}</span>
             <Button type="button" size="sm" variant="outline" onClick={() => setBulk("salePrice")}>{t("productEditor.editSalePrice")}</Button>
-            <Button type="button" size="sm" variant="outline" onClick={() => setBulk("stock")}>{t("productEditor.editStock")}</Button>
+            <Button type="button" size="sm" variant="outline" disabled={newSelected === 0} onClick={() => setBulk("stock")}>{t("productEditor.editStock")}</Button>
             <Button type="button" size="sm" variant="outline" onClick={() => setBulk("purchasePrice")}>{t("productEditor.editPurchasePrice")}</Button>
+            {newSelected > 0 && <Button type="button" size="sm" variant="outline" onClick={removeSelected}>{t("productEditor.remove")}</Button>}
             <Button type="button" size="sm" variant="ghost" onClick={() => setSelected([])}>{t("productEditor.clearSelection")}</Button>
           </div>}
           <div className="overflow-x-auto">

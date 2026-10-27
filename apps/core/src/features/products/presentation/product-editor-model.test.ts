@@ -50,3 +50,10 @@ test("a saved variant refused for orders blocks the value that was marked", () =
   expect([...targets.blockedValues]).toEqual([azul.id]);
   expect(targets.rows).toEqual({});
 });
+
+test("a rejection on a product without options has no row to mark", () => {
+  const draft = createDraft({ sku: null, salePrice: 10, purchasePrice: null, stock: 0 });
+  const saved: EditorDraft = { ...draft, saved: true, rows: [{ ref: "v", id: id(), combination: {}, sku: "A", salePrice: 10, purchasePrice: null, stock: 0, status: "active", hasOrders: false, marked: false, copiedFromInactive: false, original: null }] };
+  const targets = feedbackTargets(saved, [{ scope: "variant", variantId: saved.rows[0].id as string, field: "sku", reason: "DUPLICATE_SKU", message: "SKU en uso por otra variante" }]);
+  expect(targets.rows).toEqual({});
+});

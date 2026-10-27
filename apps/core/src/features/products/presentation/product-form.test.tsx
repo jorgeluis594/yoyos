@@ -17,6 +17,12 @@ await i18n.use(initReactI18next).init({ lng: "es", resources });
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const color = id(1), negro = id(2), azul = id(3);
+const rojo = id(4);
+const threeColors = (): ProductDetailResponse["product"] => {
+  const base = product(false);
+  return { ...base, options: [{ id: color, name: "Color", values: [{ id: negro, name: "Negro" }, { id: azul, name: "Azul" }, { id: rojo, name: "Rojo" }] }],
+    variants: [negro, azul, rojo].map((value, index) => ({ ...base.variants[0], id: id(80 + index), qrCode: id(90 + index), combination: [{ optionId: color, valueId: value }] })) };
+};
 const product = (blocked: boolean): ProductDetailResponse["product"] => ({
   id: id(50), name: "Polo", description: null, imageId: null, currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
   options: [{ id: color, name: "Color", values: [{ id: negro, name: "Negro" }, { id: azul, name: "Azul" }] }],
@@ -114,4 +120,49 @@ test("a stale save shows the reload notice and Recargar producto asks before dis
   expect(reloaded).toBe(1);
   click(button("Descartar"));
   expect(reloaded).toBe(2);
+});
+
+const valueInputs = () => [...container.querySelectorAll<HTMLInputElement>("fieldset input")].map((input) => input.value);
+
+test("focus returns to a handle once per keyboard move, so typing elsewhere keeps its focus", () => {
+  mount();
+  click(button("Agregar opciones como talla o color"));
+  const name = byLabel("Nombre de la opción");
+  type(name, "Talla");
+  type(byLabel("Agregar otro valor"), "S");
+  type(byLabel("Agregar otro valor"), "M");
+  press(button("Mover «S», posición 1 de 2"), "ArrowDown");
+  act(() => name.focus());
+  type(name, "Tallas");
+  expect(document.activeElement).toBe(name);
+});
+
+test("a keyboard move counts only the values that are not marked for removal", () => {
+  mount({ draft: draftFromProduct(threeColors()) });
+  click(button("Editar Color"));
+  click(button("Quitar «Negro»"));
+  press(button("Mover «Azul», posición 1 de 2"), "ArrowDown");
+  expect(valueInputs()).toEqual(["Rojo", "Azul", ""]);
+});
+
+test("the selection bar removes the selected combinations that are not saved yet and hides Quitar for saved ones", () => {
+  mount();
+  click(button("Agregar opciones como talla o color"));
+  type(byLabel("Nombre de la opción"), "Talla");
+  type(byLabel("Agregar otro valor"), "S");
+  type(byLabel("Agregar otro valor"), "M");
+  click(button("Listo"));
+  click(button("S", container.querySelector("[role=group]")!));
+  click(button("Quitar", container.querySelector("[role=toolbar]")!));
+  expect(container.textContent).toContain("Se quitará");
+  expect(container.textContent).toContain("1 de 100 variantes");
+  expect(container.querySelector("[role=toolbar]")).toBeNull();
+});
+
+test("a selection of saved variants has no Quitar and cannot edit stock", () => {
+  mount({ draft: draftFromProduct(product(false)) });
+  click(button("Negro", container.querySelector("[role=group]")!));
+  const toolbar = container.querySelector("[role=toolbar]")!;
+  expect(button("Quitar", toolbar)).toBeUndefined();
+  expect(button("Editar stock", toolbar).disabled).toBe(true);
 });
