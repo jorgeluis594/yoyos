@@ -329,3 +329,14 @@ test("rejectPayment posts the reason and parses the order aggregate", async () =
     http: { status: 409, body: { code: "PAYMENT_CONFLICT", error: "Reviewed" } } }));
   expect(await conflict.rejectPayment(id(1), id(2), null)).toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
 });
+
+test("an order response keeps variantAttributes in option order after parsing", async () => {
+  const total = { amount: 10, currency: "PEN" as const };
+  const zero = { amount: 0, currency: "PEN" as const };
+  const order = { number: 1001, id: id(1), companyId: id(2), buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
+    sellerId: "seller", createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending",
+    stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero, cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
+    items: [{ id: id(3), variantId: id(4), productName: "Polo", variantAttributes: { Talla: "L", Color: "Azul", Manga: "Larga" }, sku: null, quantity: 1, unitPrice: total, subtotal: total }] };
+  const result = await createOrderApi(async () => ok(order)).getAggregate(id(1));
+  expect(result.success && Object.entries(result.data.items[0].variantAttributes)).toEqual([["Talla", "L"], ["Color", "Azul"], ["Manga", "Larga"]]);
+});

@@ -307,3 +307,23 @@ test("maps a failed confirmation to already reviewed, a lost answer or a plain f
   expect(confirmPaymentFailure("INVALID_PAYMENT")).toBe("failed");
   expect(confirmPaymentFailure("INSUFFICIENT_STOCK")).toBe("failed");
 });
+
+test("a queued sale core refuses with VARIANT_NOT_FOUND keeps which item and how it was named", async () => {
+  const store = storage();
+  let refuse = false;
+  const api = createOrderApi(async (path) => {
+    if (path.startsWith("/api/orders/catalog")) return ok([]);
+    if (path !== "/api/orders") return missing();
+    return refuse
+      ? err({ code: "API_ERROR", message: "Rejected", http: { status: 404, body: { code: "VARIANT_NOT_FOUND", error: "Variant not found", issues: [{ field: "items", reason: "VARIANT_NOT_FOUND", variantId: id(2) }] } } })
+      : err({ code: "NETWORK_ERROR", message: "Lost response" });
+  });
+  const named = addDraftItem(emptyOrderDraft(), { ...item, variantAttributes: { Talla: "L", Color: "Azul" } }, () => id(3));
+  if (!named.success) throw new Error("Invalid test cart");
+  expect(await createOrderOperations(api, store).completeOrder({ ...named.data, deliverImmediately: true }, companyId)).toMatchObject({ success: true, data: { kind: "queued" } });
+  refuse = true;
+  const operations = createOrderOperations(api, store);
+  expect(await operations.syncPendingOrders(companyId)).toEqual({ waiting: 0 });
+  expect(await store.read(companyId, id(3))).toMatchObject({ success: true, data: { itemLabels: { [id(2)]: "L / Azul" }, rejection: { code: "VARIANT_NOT_FOUND", variantId: id(2) } } });
+  expect(await operations.loadPendingOrderReview(companyId, id(3))).toMatchObject({ success: true, data: { kind: "review", unavailableVariantIds: [id(2)], unavailableLabels: { [id(2)]: "L / Azul" } } });
+});
