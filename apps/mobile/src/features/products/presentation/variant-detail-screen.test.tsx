@@ -235,8 +235,12 @@ test("the screen adopts the detail the product screen published and reads nothin
 });
 
 test("a saved variant shows what core answered and publishes it for the product screen", async () => {
-  let published: Product | null = null;
-  function Probe() { published = useProductEditor().detail; return null; }
+  const published: { current: Product | null } = { current: null };
+  function Probe() {
+    const { detail } = useProductEditor();
+    useEffect(() => { published.current = detail; }, [detail]);
+    return null;
+  }
   const saved = withLA({ sku: "POLO-NEW", salePrice: { amount: 50, currency: "PEN" } });
   mockServices.updateVariant.mockResolvedValue(ok(saved));
   render(<ProductDraftProvider><ProductEditorProvider><Preload product={withLA()}><VariantDetailScreen /><Probe /></Preload></ProductEditorProvider></ProductDraftProvider>);
@@ -247,5 +251,5 @@ test("a saved variant shows what core answered and publishes it for the product 
   expect(mockServices.updateVariant).toHaveBeenCalledWith("p1", "v-la", { sku: "polo-new", salePrice: 50, purchasePrice: 21 });
   expect(screen.getByLabelText("SKU").props.value).toBe("POLO-NEW");
   expect(screen.getByLabelText(/Precio de venta/).props.value).toBe("50.00");
-  expect(published).toBe(saved);
+  expect(published.current).toBe(saved);
 });
