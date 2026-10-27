@@ -151,7 +151,6 @@ export default function ProductManagementScreen() {
     setSaving(true);
     if (!await isOnline()) {
       setSaving(false);
-      setUncertain(false);
       setErrors({ form: t('saveProductError') });
       return;
     }

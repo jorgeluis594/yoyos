@@ -96,6 +96,21 @@ test("creation sent whose answer is lost is in doubt, keeps the draft and retrie
   expect(mockCreate.mock.calls[1][0].id).toBe(mockCreate.mock.calls[0][0].id);
 });
 
+test("an offline retry after an in-doubt creation keeps the in-doubt warning and the same id", async () => {
+  mockCreate.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "lost" })).mockResolvedValueOnce(ok(productId));
+  renderScreen();
+  fillForm();
+  fireEvent.press(screen.getByRole("button", { name: "Guardar" }));
+  await screen.findByText("No se pudo confirmar si se creó este producto. Revisa el catálogo antes de iniciar otra creación.");
+  mockOnline = false;
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+  expect(screen.getByText(/No se pudo confirmar si se creó este producto/)).toBeTruthy();
+  expect(mockCreate).toHaveBeenCalledTimes(1);
+  mockOnline = true;
+  await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+  expect(mockCreate.mock.calls[1][0].id).toBe(mockCreate.mock.calls[0][0].id);
+});
+
 test('new product form and validation are translated to Portuguese', async () => {
   await i18n.changeLanguage('pt-BR');
   try {

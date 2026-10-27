@@ -9,7 +9,6 @@ import { Sheet, SheetClose, SheetContent, SheetTrigger } from "@core/app/compone
 import { formatCurrency } from "@core/app/format-currency";
 import { cn } from "@core/app/lib/utils";
 import { clearCartForOrder, emptyCart, markContinued, removeLine, setLineQuantity, applyRefresh, readCart, useCatalogCart, type CatalogCart, type CatalogCartLine } from "@core/app/lib/catalog-cart-storage";
-import { attributesLabel } from "@core/app/lib/variant-attributes-label";
 import type { CartRefreshResponse, CheckOrderResponse, ContinueResponse } from "@core/app/routes/catalog-cart";
 
 type LineIssue = Extract<ContinueResponse, { code: "LINES_UNAVAILABLE" }>["issues"][number];
@@ -139,7 +138,7 @@ export function CatalogCartPanel({ companyId, catalogPath }: Readonly<{ companyI
       {cart.lines.map((line) => {
         const issue = issues.get(line.variantId);
         const max = Math.min(maxQuantities.get(line.variantId) ?? 99, 99);
-        const variant = attributesLabel(line.attributes);
+        const variant = Object.values(line.attributes).join(" · ");
         return <li key={line.variantId} data-store-part="cart-line" className="flex gap-3 py-3">
           <ProductThumbnail name={line.productName} url={line.imageUrl} />
           <div className="flex min-w-0 flex-1 flex-col gap-1">

@@ -47,6 +47,12 @@ const button = (name: string, scope: ParentNode = container) => [...scope.queryS
 const click = (element: HTMLElement) => act(async () => { element.click(); });
 const lineItem = (productName: string) => [...container.querySelectorAll("li")].find((item) => item.textContent?.includes(productName))!;
 
+test("a line shows its combination in today's «M · Azul» format", () => {
+  act(() => writeCart(companyId, { orderId, lines: [{ ...line(id(3), "Polo negro", 1), attributes: { Talla: "M", Color: "Azul" } }] }));
+  act(() => root.render(<MemoryRouter><Sheet><CatalogCartPanel companyId={companyId} catalogPath="/" /></Sheet></MemoryRouter>));
+  expect(lineItem("Polo negro").textContent).toContain("M · Azul");
+});
+
 test("Reintentar after a lost response resends the same order id", async () => {
   answers.push(() => Promise.reject(new TypeError("network")), () => Promise.resolve(json({ code: "SERVICE_UNAVAILABLE" }, 503)));
   await click(button("Continuar"));

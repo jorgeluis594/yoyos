@@ -93,3 +93,32 @@ test("deactivating a variant without connection keeps the detail with the connec
     await cleanUp(email, companyId);
   }
 });
+
+test("saving the variant detail without connection keeps the typed values with the connection notice, and saves them once back online", async ({ page }) => {
+  const email = `offline-variant-save-${crypto.randomUUID()}@example.test`;
+  let companyId: string | undefined;
+  try {
+    companyId = await prepareVerifiedCompany(page, { email, name: "Ana Sin Red", companyName: "Empresa Detalle Sin Red", country: "PE" });
+    const tenantId = companyId;
+    const { productId, variantIds } = await withTenantIsolation(tenantId, async () => await seedProduct({ name: "Polo básico", options: [{ name: "Talla", values: ["S", "XL"] }],
+      variants: [{ attributes: { Talla: "S" }, salePrice: 39.9, stock: 4 }, { attributes: { Talla: "XL" }, salePrice: 39.9, stock: 6 }] }));
+    const stored = async () => await withTenantIsolation(tenantId, async () => await prisma.productVariant.findUniqueOrThrow({ where: { id: variantIds[1] } }));
+    await page.goto(`/es-PE/products/${productId}/variants/${variantIds[1]}`);
+    await page.locator("#variant-salePrice").fill("45.50");
+    await page.locator("#variant-sku").fill("POLO-XL");
+    await page.context().setOffline(true);
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await browserExpect(page.getByText(offlineNotice)).toBeVisible();
+    await browserExpect(page.locator("#variant-salePrice")).toHaveValue("45.50");
+    await browserExpect(page.locator("#variant-sku")).toHaveValue("POLO-XL");
+    await browserExpect(page.getByText("Algo salió mal")).toHaveCount(0);
+    browserExpect((await stored()).sku).not.toBe("POLO-XL");
+
+    await page.context().setOffline(false);
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+    await browserExpect(page.getByText("Variante guardada")).toBeVisible();
+    browserExpect((await stored()).sku).toBe("POLO-XL");
+  } finally {
+    await cleanUp(email, companyId);
+  }
+});

@@ -92,6 +92,12 @@ describe("CheckoutOrderSummary", () => {
     unmount();
   });
 
+  test("keeps today's «M · Azul» format for the copied combination", () => {
+    const { container, unmount } = render(<CheckoutOrderSummary checkout={{ ...pending, items: [{ ...pending.items[0]!, variantAttributes: { Talla: "M", Color: "Azul" } }] }} deliveryDraft={null} />);
+    expect(container.querySelector("[data-store-part=product-meta]")?.textContent).toBe("M · Azul");
+    unmount();
+  });
+
   test("marks the totals with their theme hooks", () => {
     const { container, unmount } = render(<CheckoutOrderSummary checkout={withPhotos} deliveryDraft={null} />);
     expect(container.querySelector("[data-store-part=total] [data-store-part=total-label]")?.textContent).toBe("Total a pagar");

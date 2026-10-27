@@ -63,10 +63,9 @@ test("normalizes /_root.data and /productos/:id.data", async () => {
   expect(body((await run("/login.data")).thrown)).toMatchObject({ data: { kind: "store_not_found" } });
 });
 
-test("lets /__manifest through on a store host without a lookup", async () => {
-  const resolve = resolves(published);
-  expect((await run("/__manifest")).next).toHaveBeenCalledOnce();
-  expect(resolve).not.toHaveBeenCalled();
+test("refuses /__manifest on a store host: routes are discovered up front, so it is not a storefront path", async () => {
+  resolves(published);
+  expect(body((await run("/__manifest")).thrown)).toMatchObject({ data: { kind: "store_not_found" } });
 });
 
 test("throws store_not_found with the store header for /login on a published store host", async () => {

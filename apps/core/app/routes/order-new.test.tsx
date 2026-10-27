@@ -35,8 +35,9 @@ test("a sale with a variant that was deactivated meanwhile marks the item with i
   await act(async () => root!.render(<I18nextProvider i18n={i18n}><Stub initialEntries={["/orders/new"]} /></I18nextProvider>));
   const named = (name: string) => [...container.querySelectorAll("button")].find((element) => element.getAttribute("aria-label") === name || element.textContent?.startsWith(name))!;
 
-  await vi.waitFor(() => expect(container.textContent).toContain("L / Azul · Stock: 4"));
+  await vi.waitFor(() => expect(container.textContent).toContain("L · Azul · Stock: 4"));
   await act(async () => { named("Agregar Polo básico").click(); });
+  expect(container.textContent).toContain("L · Azul · 39.90 PEN");
   await act(async () => { named("Guardar pedido").click(); });
 
   await vi.waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toBe("L / Azul ya no está disponible. Quítalo para continuar."));

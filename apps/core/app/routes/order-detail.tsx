@@ -22,7 +22,6 @@ import { TextLink } from "@core/app/components/ui/text-link";
 import { z } from "zod";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { useTranslation } from "react-i18next";
-import { attributesLabel } from "@core/app/lib/variant-attributes-label";
 import { randomUUID } from "node:crypto";
 import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
@@ -291,7 +290,7 @@ export default function OrderDetail() {
             <Table className="table-fixed max-sm:block">
               <TableHeader className="max-sm:sr-only"><TableRow><TableHead scope="col" className="w-1/2">{t("nav.product")}</TableHead><TableHead scope="col" className="text-center">{t("orders.quantity")}</TableHead><TableHead scope="col" className="text-right">{t("orderDetail.amount")}</TableHead></TableRow></TableHeader>
               <TableBody className="max-sm:block">{order.items.map(item => <TableRow key={item.id} className="max-sm:grid max-sm:grid-cols-[minmax(0,1fr)_auto] max-sm:gap-x-3 max-sm:py-3">
-                <TableCell className="whitespace-normal break-words align-top max-sm:min-w-0 max-sm:p-0"><p className="font-medium">{item.productName}</p><p className="mt-1 text-muted-foreground">{attributesLabel(item.variantAttributes) || item.sku || t("orders.uniqueVariant")} · <span className="tabular-nums">{amount(item.unitPrice)}</span></p></TableCell>
+                <TableCell className="whitespace-normal break-words align-top max-sm:min-w-0 max-sm:p-0"><p className="font-medium">{item.productName}</p><p className="mt-1 text-muted-foreground">{Object.values(item.variantAttributes).join(" · ") || item.sku || t("orders.uniqueVariant")} · <span className="tabular-nums">{amount(item.unitPrice)}</span></p></TableCell>
                 <TableCell className="text-center align-top tabular-nums max-sm:col-start-1 max-sm:row-start-2 max-sm:p-0 max-sm:pt-2 max-sm:text-left max-sm:text-muted-foreground"><span className="sm:sr-only">{t("orders.quantity")}: </span>{item.quantity}</TableCell><TableCell className="whitespace-normal break-words text-right align-top font-semibold tabular-nums max-sm:col-start-2 max-sm:row-start-1 max-sm:p-0 max-sm:whitespace-nowrap">{amount(item.subtotal)}</TableCell>
               </TableRow>)}</TableBody>
             </Table>

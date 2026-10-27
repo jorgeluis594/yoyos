@@ -68,8 +68,6 @@ export const storefrontMiddleware: MiddlewareFunction<Response> = async ({ reque
     bindRequestOperation({ outcome: "unavailable" });
     throw data(null, { status: 404, headers: privacyHeaders });
   }
-  // Lazy route discovery asks for the route manifest of the store's own pages: nothing to look up.
-  if (path === "/__manifest") return next();
   if (isCheckoutPath(path)) {
     await serveCheckout(host, path, context);
     return next();
