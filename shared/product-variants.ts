@@ -45,7 +45,7 @@ export type EditorDraft = Readonly<{
 }>;
 
 export type EditFailureReason =
-  | "TOO_MANY_OPTIONS" | "TOO_MANY_VALUES" | "TOO_MANY_VARIANTS" | "OPTION_WITHOUT_VALUES" | "NOT_FOUND" | "DUPLICATE_COMBINATION"
+  | "TOO_MANY_OPTIONS" | "TOO_MANY_VALUES" | "TOO_MANY_VARIANTS" | "OPTION_WITHOUT_VALUES" | "OPTION_NOT_FOUND" | "VALUE_NOT_FOUND" | "ROW_NOT_FOUND" | "OPTION_NOT_NEW" | "DUPLICATE_COMBINATION"
   | "VARIANT_HAS_ORDERS_OR_STOCK" | "OPTION_HAS_SEVERAL_VALUES" | "LAST_OPTION_VARIANT_INACTIVE"
   | "DUPLICATE_ID" | "VALUE_FOR_EXISTING_VARIANTS" | "SAVED_VARIANT";
 export type EditFailure = AppError & Readonly<{ code: EditFailureReason; projected?: number; maximum?: number; blocked?: number }>;
@@ -177,7 +177,9 @@ export function addOption(
   input: Readonly<{ id: string; name: string; values: readonly Readonly<{ id: string; name: string }>[]; valueForExistingVariants?: string }>,
 ): Edit {
   if (input.values.length === 0) return fail("OPTION_WITHOUT_VALUES");
-  if (draft.options.some((option) => option.id === input.id) || input.values.some((value) => valueIdsOf(draft).has(value.id))) return fail("DUPLICATE_ID");
+  const taken = valueIdsOf(draft);
+  const inputIds = [input.id, ...input.values.map((value) => value.id)];
+  if (new Set(inputIds).size !== inputIds.length || draft.options.some((option) => option.id === input.id) || input.values.some((value) => taken.has(value.id))) return fail("DUPLICATE_ID");
   if (draft.options.length >= maxOptions) return fail("TOO_MANY_OPTIONS", { maximum: maxOptions });
   if (input.values.length > maxValues) return fail("TOO_MANY_VALUES", { maximum: maxValues });
   const chosen = input.values.find((value) => value.id === input.valueForExistingVariants) ?? input.values[0];
@@ -212,15 +214,21 @@ export function addOption(
 export function setValueForExistingVariants(draft: EditorDraft, optionId: string, valueId: string): Edit {
   const option = draft.options.find((candidate) => candidate.id === optionId);
   const current = option && keptValueId(option);
-  if (!option || option.saved || !draft.saved || !current || !liveValues(option).some((value) => value.id === valueId)) return fail("NOT_FOUND");
+  if (!option) return fail("OPTION_NOT_FOUND");
+  if (option.saved || !draft.saved || !current) return fail("OPTION_NOT_NEW");
+  if (!liveValues(option).some((value) => value.id === valueId)) return fail("VALUE_NOT_FOUND");
   const swap = (id: string | undefined) => id === current ? valueId : id === valueId ? current : id;
-  const rows = draft.rows.map((row) => ({ ...row, combination: { ...row.combination, [optionId]: swap(row.combination[optionId]) as string } }));
+  // A removal mark belongs to the combination, and a saved variant cannot carry one: a copy that lands on the saved variants' value is no longer marked.
+  const rows = draft.rows.map((row) => ({
+    ...row, combination: { ...row.combination, [optionId]: swap(row.combination[optionId]) as string },
+    marked: row.marked && row.combination[optionId] !== valueId,
+  }));
   return done({ ...mapOption(draft, optionId, (candidate) => ({ ...candidate, valueForExistingVariants: valueId })), rows });
 }
 
 export function addValue(draft: EditorDraft, optionId: string, value: Readonly<{ id: string; name: string }>): Edit {
   const target = draft.options.find((option) => option.id === optionId);
-  if (!target) return fail("NOT_FOUND");
+  if (!target) return fail("OPTION_NOT_FOUND");
   if (target.values.length >= maxValues) return fail("TOO_MANY_VALUES", { maximum: maxValues });
   if (valueIdsOf(draft).has(value.id)) return fail("DUPLICATE_ID");
   const others = liveOptions(draft).filter((option) => option.id !== optionId);
@@ -319,7 +327,7 @@ export function applyBulk(draft: EditorDraft, selected: readonly string[], patch
 /** Only a combination that is not saved yet can be marked: a saved variant is deleted from its own screen or through its value. */
 export function removeRow(draft: EditorDraft, ref: string): Edit {
   const row = draft.rows.find((candidate) => candidate.ref === ref);
-  if (!row) return fail("NOT_FOUND");
+  if (!row) return fail("ROW_NOT_FOUND");
   if (row.id !== null) return fail("SAVED_VARIANT");
   return done(mapRows(draft, (candidate) => ({ ...candidate, marked: true }), new Set([ref])));
 }
@@ -330,7 +338,7 @@ const markValue = (draft: EditorDraft, valueId: string, marked: boolean): Editor
 
 export function removeValue(draft: EditorDraft, valueId: string): Edit {
   const option = draft.options.find((candidate) => candidate.values.some((value) => value.id === valueId));
-  if (!option) return fail("NOT_FOUND");
+  if (!option) return fail("VALUE_NOT_FOUND");
   const blocked = draft.rows.filter((row) => row.id !== null && row.combination[option.id] === valueId && (row.hasOrders || row.stock > 0)).length;
   if (draft.saved && !option.saved && keptValueId(option) === valueId) return fail("VALUE_FOR_EXISTING_VARIANTS");
   if (option.values.find((value) => value.id === valueId)?.saved && blocked > 0) return fail("VARIANT_HAS_ORDERS_OR_STOCK", { blocked });
@@ -340,7 +348,7 @@ export const undoRemoveValue = (draft: EditorDraft, valueId: string): EditorDraf
 
 export function removeOption(draft: EditorDraft, optionId: string): Edit {
   const option = draft.options.find((candidate) => candidate.id === optionId);
-  if (!option) return fail("NOT_FOUND");
+  if (!option) return fail("OPTION_NOT_FOUND");
   if (option.saved && liveValues(option).length > 1) return fail("OPTION_HAS_SEVERAL_VALUES");
   const remaining = liveOptions(draft).filter((candidate) => candidate.id !== optionId);
   if (draft.saved && remaining.length === 0 && liveRows(draft).some((row) => row.id !== null && row.status === "inactive")) return fail("LAST_OPTION_VARIANT_INACTIVE");

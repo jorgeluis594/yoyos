@@ -366,8 +366,34 @@ test("changing the value for existing variants keeps saved variants and swaps wh
   assert.equal(swapped.options.length, 3);
   const body = saveProductRequestSchema.parse(buildSaveProductBody(swapped, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
   assert.deepEqual([body.options[2].valueForExistingVariants, body.deletedVariantIds, body.newVariants.length], [uuid(302), [], 4]);
-  assert.equal(setValueForExistingVariants(draft, uuid(100), uuid(101)).error.code, "NOT_FOUND");
-  assert.equal(setValueForExistingVariants(draft, uuid(300), uuid(999)).error.code, "NOT_FOUND");
+  assert.equal(setValueForExistingVariants(draft, uuid(100), uuid(101)).error.code, "OPTION_NOT_NEW");
+  assert.equal(setValueForExistingVariants(draft, uuid(999), uuid(101)).error.code, "OPTION_NOT_FOUND");
+  assert.equal(setValueForExistingVariants(draft, uuid(300), uuid(999)).error.code, "VALUE_NOT_FOUND");
+});
+
+test("a row removed before the value for existing variants changes is not removed afterwards in its place", () => {
+  const draft = withManga();
+  const marked = must(removeRow(draft, rowOf(draft, "S / Negro / Larga").ref));
+  const swapped = must(setValueForExistingVariants(marked, uuid(300), uuid(302)));
+  assert.deepEqual(swapped.rows.filter((row) => row.marked), []);
+  const body = saveProductRequestSchema.parse(buildSaveProductBody(swapped, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
+  assert.deepEqual([body.deletedVariantIds, body.newVariants.length], [[], 4]);
+});
+
+test("the editor tells a missing option, value and row apart", () => {
+  const draft = withManga();
+  assert.equal(removeOption(draft, uuid(999)).error.code, "OPTION_NOT_FOUND");
+  assert.equal(addValue(draft, uuid(999), { id: uuid(998), name: "X" }).error.code, "OPTION_NOT_FOUND");
+  assert.equal(removeValue(draft, uuid(999)).error.code, "VALUE_NOT_FOUND");
+  assert.equal(removeRow(draft, "missing").error.code, "ROW_NOT_FOUND");
+});
+
+test("an option cannot repeat an id inside its own input", () => {
+  const draft = createDraft(base);
+  const repeatedValue = { id: uuid(100), name: "Talla", values: [{ id: uuid(101), name: "S" }, { id: uuid(101), name: "M" }] };
+  assert.equal(addOption(draft, repeatedValue).error.code, "DUPLICATE_ID");
+  const optionAsValue = { id: uuid(100), name: "Talla", values: [{ id: uuid(100), name: "S" }] };
+  assert.equal(addOption(draft, optionAsValue).error.code, "DUPLICATE_ID");
 });
 
 test("an option or value id already in the draft cannot be added again", () => {
