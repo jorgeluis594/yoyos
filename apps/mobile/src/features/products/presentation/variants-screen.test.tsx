@@ -201,3 +201,16 @@ test("a save rejected because a marked value now has orders shows the reason on 
   fireEvent.press(screen.getByRole("button", { name: "Deshacer" }));
   expect(screen.queryByText("No se puede eliminar «Azul»: ahora tiene pedidos o stock.")).toBeNull();
 });
+
+test("a cleared base price does not block saving once the product has options", async () => {
+  const simple = { id: productId, name: "Camisa", currency: "PEN", structureVersion: 1, options: [],
+    variants: [{ id: id(40), qrCode: id(50), combination: [], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }] };
+  mockLoad.mockResolvedValue(ok(simple));
+  mockSave.mockResolvedValue(ok(simple));
+  let editor!: ReturnType<typeof useProductEditor>;
+  render(<ProductEditorProvider><ProductManagementScreen /><Capture onEditor={(value) => { editor = value; }} /></ProductEditorProvider>);
+  fireEvent.changeText(await screen.findByLabelText(/Precio de venta/), "");
+  act(() => editor.setDraft(must(addOption(editor.draft!, { id: id(1), name: "Talla", values: named(10, ["S", "M"]), valueForExistingVariants: id(10) }))));
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Guardar" })));
+  expect(mockSave).toHaveBeenCalledTimes(1);
+});

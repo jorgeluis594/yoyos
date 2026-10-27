@@ -62,7 +62,7 @@ export default function ProductManagementScreen() {
   const simple = !!product && product.options.length === 0;
   const dirty = !!product && !!values && !!original && (
     values.name !== original.name || values.description !== original.description ||
-    (simple && (values.sku !== original.sku || values.salePrice !== original.salePrice || values.purchasePrice !== original.purchasePrice)) ||
+    (simple && (draft?.options.length ?? 0) === 0 && (values.sku !== original.sku || values.salePrice !== original.salePrice || values.purchasePrice !== original.purchasePrice)) ||
     photo.kind === "remove" && !!product.photo || photo.kind === "set" && photo.imageId !== product.photo?.id || photoBusy || editor.dirty
   );
   const setDirty = useProductNavigationGuard(dirty);
@@ -128,7 +128,7 @@ export default function ProductManagementScreen() {
     router.push({ pathname: productPath(product.id, route), params: { productId: product.id } });
   };
   const save = async () => {
-    const invalid = validateProductForm(values, simple);
+    const invalid = validateProductForm(values, simple && draft.options.length === 0);
     if (Object.keys(invalid).length) { setErrors(invalid); return; }
     if (saving || photoBusy) return;
     const next = withFormVariant();

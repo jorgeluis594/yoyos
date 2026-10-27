@@ -155,6 +155,8 @@ function OptionsEditor({ initial }: { initial: EditorDraft }) {
           <View style={styles.chips}>
             {option.values.filter((value) => !value.marked).map((value) => <View key={value.id} style={[styles.chip, { backgroundColor: theme.secondary }]}><ThemedText type="small">{value.name}</ThemedText></View>)}
           </View>
+          {option.values.map((value) => editor.errors.values[value.id] ?? null).filter((text) => text !== null).map((text) => <FieldError key={text}>{text}</FieldError>)}
+          {editor.errors.options[option.id] ? <FieldError>{editor.errors.options[option.id]}</FieldError> : null}
         </View>;
         const issues = issuesOf(option);
         return <View key={option.id} style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>

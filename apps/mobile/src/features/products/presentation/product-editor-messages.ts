@@ -50,6 +50,14 @@ function requestShape(draft: EditorDraft) {
   return { options, created };
 }
 
+/** The marked value that removes this row. */
+const markedValueOf = (draft: EditorDraft, row: EditorRow) =>
+  draft.options.flatMap((option) => option.values).find((value) => value.marked && Object.values(row.combination).includes(value.id));
+
+/** The marked option that removes this row: its kept value is not the row's. */
+const markedOptionOf = (draft: EditorDraft, row: EditorRow) =>
+  draft.options.find((option) => option.marked && !(option.valueForExistingVariants === row.combination[option.id] || option.values.find((value) => !value.marked)?.id === row.combination[option.id]));
+
 function rowMessage(issue: Issue): string {
   if (issue.field === "sku" || issue.reason === "DUPLICATE_SKU") return i18n.t("skuInUseByVariant");
   if (issue.field === "salePrice") return issue.reason === "INVALID_PRECISION" ? i18n.t("maxTwoDecimals") : i18n.t("missingPrice");
@@ -94,8 +102,8 @@ export function editorErrorsOf(error: Rejection, draft: EditorDraft): EditorErro
       const removal = removalOf(draft, row);
       const blocked = ["VARIANT_HAS_ORDERS", "VARIANT_HAS_STOCK", "VALUE_IN_USE"].includes(issue.reason);
       // A refused deletion belongs to the value or option the seller marked, where Deshacer is.
-      const marked = blocked && removal === "value" ? draft.options.flatMap((option) => option.values).find((value) => value.marked && Object.values(row.combination).includes(value.id)) : undefined;
-      const markedOption = blocked && removal === "option" ? draft.options.find((option) => option.marked) : undefined;
+      const marked = blocked && removal === "value" ? markedValueOf(draft, row) : undefined;
+      const markedOption = blocked && removal === "option" ? markedOptionOf(draft, row) : undefined;
       if (marked) values[marked.id] ??= i18n.t("cannotDeleteValueNow", { name: marked.name });
       else if (markedOption) optionErrors[markedOption.id] ??= i18n.t("cannotDeleteValueNow", { name: markedOption.name });
       else rows[row.ref] ??= rowMessage(issue);
