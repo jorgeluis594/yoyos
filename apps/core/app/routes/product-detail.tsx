@@ -34,6 +34,7 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
       catalog: companyPath(new URL(request.url).pathname, company.country, "/products"),
       imageUrl: detail.image?.url,
       saved: new URL(request.url).searchParams.get("saved") === "1",
+      variantDeleted: new URL(request.url).searchParams.get("variantDeleted") === "1",
     };
   } catch (cause) {
     if (cause instanceof Response) throw cause;
@@ -75,7 +76,7 @@ export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { ac
 
 export default function ProductDetail() {
   const { t } = useTranslation();
-  const { product, catalog, imageUrl, saved } = useLoaderData<typeof loader>();
+  const { product, catalog, imageUrl, saved, variantDeleted } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof clientAction>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -87,7 +88,7 @@ export default function ProductDetail() {
   const single = product.options.length === 0 ? product.variants[0] : undefined;
   const values: ProductFormValues = {
     name: product.name, description: product.description ?? "", sku: single?.sku ?? "",
-    salePrice: single ? single.salePrice.amount.toFixed(2) : "", purchasePrice: single?.purchasePrice ? String(single.purchasePrice.amount) : "", initialStock: "",
+    salePrice: single ? single.salePrice.amount.toFixed(2) : "", purchasePrice: single?.purchasePrice ? single.purchasePrice.amount.toFixed(2) : "", initialStock: "",
   };
   const originalNames = Object.fromEntries(product.options.flatMap((option) => [[option.id, option.name], ...option.values.map((value) => [value.id, value.name])]));
 
@@ -112,8 +113,9 @@ export default function ProductDetail() {
       <PageHeader.Actions><Button asChild variant="outline"><Link to={catalog}>{t("products.backProducts")}</Link></Button></PageHeader.Actions>
     </PageHeader>
     {saved && <Alert variant="success" className="mt-5"><AlertDescription>{t("products.saved")}</AlertDescription></Alert>}
+    {variantDeleted && <Alert variant="success" className="mt-5"><AlertDescription>{t("variantDetail.variantDeleted")}</AlertDescription></Alert>}
     <ProductForm key={`${product.updatedAt}:${product.structureVersion}:${reloads}`} currency={product.currency} cancelTo={catalog} feedback={feedback} pending={pending} values={values}
-      draft={draftFromProduct(product)} originalNames={originalNames} submitLabel={t("products.saveChanges")} imageUrl={imageUrl} onSave={save} onReload={reload} />
+      draft={draftFromProduct(product)} originalNames={originalNames} variantHref={(variantId) => `${catalog}/${product.id}/variants/${variantId}`} submitLabel={t("products.saveChanges")} imageUrl={imageUrl} onSave={save} onReload={reload} />
   </PageContainer>;
 }
 

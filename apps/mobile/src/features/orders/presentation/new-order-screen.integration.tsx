@@ -360,7 +360,7 @@ test("restarted stock rejection keeps the paid attempt editable and resends its 
   writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
   restartOperations();
   expect(await mockOrders.syncPendingOrders(companyId)).toEqual({ waiting: 0 });
-  expect(await mockOrders.listPendingOrders(companyId)).toEqual(ok([{ ...pending, rejection: { code: "INSUFFICIENT_STOCK", message: expect.any(String) } }]));
+  expect(await mockOrders.listPendingOrders(companyId)).toEqual(ok([{ ...pending, rejection: { code: "INSUFFICIENT_STOCK", message: expect.any(String), variantId } }]));
   const screen = render(<NewOrderScreen />);
   fireEvent.press(await screen.findByRole("button", { name: "Revisar venta" }));
   await screen.findByRole("button", { name: "Guardar otra vez" });

@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { Check, Trash2 } from "lucide-react";
+import { Link } from "react-router";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Badge } from "@core/app/components/ui/badge";
 import { Button } from "@core/app/components/ui/button";
@@ -26,6 +27,8 @@ type Props = Readonly<{
   setDraft: (update: (draft: EditorDraft) => EditorDraft) => void;
   currency: string;
   originalNames: Readonly<Record<string, string>>;
+  /** The detail of a saved variant; rows without one are not links. */
+  variantHref?: (variantId: string) => string;
   targets: FeedbackTargets;
   /** Applies a buffer for an option that is not in the draft yet. The form syncs its own fields into the draft first. */
   commitOption: (buffer: OptionBuffer) => Edit;
@@ -36,7 +39,7 @@ type Props = Readonly<{
 const { options: maxOptions, variants: maxVariants } = productOptionLimits;
 const tagVariant = { new: "info", inactive: "secondary", removed: "warning", deleted: "destructive" } as const;
 
-export function VariantsCard({ draft, setDraft, currency, originalNames, targets, commitOption, onClearOptions }: Props) {
+export function VariantsCard({ draft, setDraft, variantHref, currency, originalNames, targets, commitOption, onClearOptions }: Props) {
   const { t } = useTranslation();
   const [editing, setEditing] = useState<OptionBuffer | null>(null);
   const [notices, setNotices] = useState<Readonly<Record<string, string>>>({});
@@ -149,6 +152,7 @@ export function VariantsCard({ draft, setDraft, currency, originalNames, targets
         <div className="flex flex-wrap items-center gap-2">
           {unsaved && removal === null
             ? <Button type="button" variant="link" className="h-auto p-0" onClick={() => setRowRef(row.ref)}>{label}<span className="sr-only"> · {t("productEditor.openRow", { label })}</span></Button>
+            : row.id !== null && removal === null && variantHref ? <Link to={variantHref(row.id)} className="underline-offset-4 hover:underline">{label}</Link>
             : <span className={removal ? "line-through" : undefined}>{label}</span>}
           {rowTag(view)}
           {removal === "self" && <Button type="button" variant="link" size="sm" onClick={() => edit((current) => undoRemoveRow(current, row.ref))}>{t("productEditor.undo")}</Button>}
