@@ -25,13 +25,26 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 import { findOrderAggregate } from "@core/src/features/orders/infrastructure/order-repository";
 
+// The read of the sellable variants is real; the hook lets a test change the store right after it, like a concurrent seller would.
+const afterSellableRead = vi.hoisted(() => ({ run: undefined as (() => Promise<void>) | undefined }));
+vi.mock("@core/src/features/products/infrastructure/order-stock", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@core/src/features/products/infrastructure/order-stock")>();
+  return { ...original, findSellableVariants: async (ids: readonly string[]) => {
+    const found = await original.findSellableVariants(ids);
+    const hook = afterSellableRead.run;
+    afterSellableRead.run = undefined;
+    await hook?.();
+    return found;
+  } };
+});
+
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
 const address = server.address();
 if (!address || typeof address === "string") throw new Error("Catalog test server did not bind");
 const port = address.port;
 const cleanups: (() => Promise<void>)[] = [];
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); afterSellableRead.run = undefined; });
 afterAll(async () => { for (const cleanup of cleanups) await cleanup(); await new Promise((resolve) => server.close(resolve)); });
 
 /** The buyer payment view on the company's brand host, with the `Host` header chosen by the test. */
@@ -264,6 +277,20 @@ test("Continuar with a deactivated variant marks the line unavailable and create
   expect(await withTenantIsolation(companyId, async () => await prisma.order.count({ where: { id: orderId } }))).toBe(0);
   const refreshed = await catalogCart.refresh(await storefrontOf(companyId), [black, beige]);
   expect(refreshed.success && refreshed.data.map(({ variantId }) => variantId)).toEqual([black]);
+});
+
+test("a variant deleted after the cart was checked marks the line unavailable and leaves no order nor number", async () => {
+  const { companyId, black, beige } = await store();
+  const before = await nextNumber(companyId);
+  afterSellableRead.run = () => withTenantIsolation(companyId, async () => {
+    await prisma.productStock.delete({ where: { variantId: beige } });
+    await prisma.productVariant.delete({ where: { id: beige } });
+  });
+  const orderId = randomUUID() as OrderId;
+  expect(await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1), line(beige, 1)] }, await storefrontOf(companyId)))
+    .toMatchObject({ success: false, error: { code: "LINES_UNAVAILABLE", issues: [{ variantId: beige, reason: "unavailable" }] } });
+  expect(await nextNumber(companyId)).toBe(before);
+  expect(await withTenantIsolation(companyId, async () => await prisma.order.count({ where: { id: orderId } }))).toBe(0);
 });
 
 test("an unconfirmed catalog order with a variant deactivated later can be confirmed and paid", async () => {
