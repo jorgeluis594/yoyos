@@ -470,7 +470,7 @@ const retryableCodes: readonly AddMessageProductsError["code"][] = ["PERSISTENCE
   "EMBEDDER_UNAVAILABLE", "PRODUCT_MATCHER_UNAVAILABLE"];
 
 const matchFields = (match: MessageProductMatch) => match.method === "qr" ? { matchMethod: match.method, unknownCodes: match.unknownCodes }
-  : { matchMethod: match.method, confidence: match.confidence, candidates: match.candidates, topDistance: match.topDistance, chosenDistance: match.chosenDistance };
+  : { matchMethod: match.method, confidence: match.confidence, candidates: match.candidates, topDistance: match.topDistance, chosenDistance: match.chosenDistance, chosenPhotoPosition: match.chosenPhotoPosition };
 
 /** Handler of `message_created`: logs each outcome and tells the bus which failures deserve a retry. */
 export const addMessageProductsHandler: EventHandler<AppEvents, "message_created"> = async (payload, metadata, context) => {
@@ -483,7 +483,7 @@ export const addMessageProductsHandler: EventHandler<AppEvents, "message_created
     const outcome = result.data;
     if (outcome.kind === "order_created" || outcome.kind === "items_added") log.info({ event: outcome.kind === "order_created" ? "orders_message_order_created" : "orders_message_order_items_added",
       ...base(), orderId: outcome.orderId, variantCount: outcome.variantIds.length, ...matchFields(outcome.match) }, "Message products added to order");
-    else log.info({ event: "orders_message_order_skipped", ...base(), ...(outcome.kind === "already_processed" ? { orderId: outcome.orderId, reason: "already_processed" } : { reason: outcome.reason, topDistance: outcome.topDistance, chosenDistance: outcome.chosenDistance }) },
+    else log.info({ event: "orders_message_order_skipped", ...base(), ...(outcome.kind === "already_processed" ? { orderId: outcome.orderId, reason: "already_processed" } : { reason: outcome.reason, topDistance: outcome.topDistance, chosenDistance: outcome.chosenDistance, chosenPhotoPosition: outcome.chosenPhotoPosition }) },
       "Message skipped for orders");
     return ok(undefined);
   }
