@@ -1,8 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Currency } from "@shared/money";
 import type { Result } from "@shared/result";
-import { nameHoldsMention, type ProductMatcherError, type ProductRef, type TextCandidate, type TextChoice, type TextIdentification, type TextQuery }
-  from "@core/src/features/products/domain/text-identification";
+import type { ProductMatcherError, ProductRef, TextCandidate, TextChoice, TextIdentification, TextQuery } from "@core/src/features/products/domain/text-identification";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
@@ -23,15 +22,11 @@ export type IdentifyProductInTextError = PersistenceError | ProductMatcherError;
 
 const ref = ({ productId, name }: TextCandidate): ProductRef => ({ productId, name });
 
-/**
- * Below the threshold a candidate is likely when the chooser gives it some probability, or when its name holds every word of the
- * mention: «gorra» names «Gorra trucker» and «Gorra snapback» alike, however the chooser spread its answer between them.
- */
-function decide(mention: string, choice: TextChoice, candidates: readonly TextCandidate[], deps: IdentifyProductInTextDependencies): TextIdentification {
+function decide(choice: TextChoice, candidates: readonly TextCandidate[], deps: IdentifyProductInTextDependencies): TextIdentification {
   const chosen = candidates.find(({ productId }) => productId === choice.productId);
   if (chosen && choice.confidence >= deps.minConfidence) return { kind: "found", productId: chosen.productId, confidence: choice.confidence };
-  const likely = candidates.filter(({ productId, name }) => nameHoldsMention(name, mention)
-    || choice.probabilities.some((entry) => entry.productId === productId && entry.probability >= deps.unclearMinProbability));
+  const likely = candidates.filter(({ productId }) =>
+    choice.probabilities.some((entry) => entry.productId === productId && entry.probability >= deps.unclearMinProbability));
   const [first, second, ...rest] = likely;
   return first && second ? { kind: "not_clear", candidates: [ref(first), ref(second), ...rest.map(ref)] } : { kind: "not_found" };
 }
@@ -47,7 +42,7 @@ export async function identifyProductsInText(mentions: readonly TextMention[], d
     const candidates = found.data[index] ?? [];
     if (!candidates.length) return ok({ kind: "not_found" });
     const choice = await deps.chooseTextProduct({ mention: line.mention, priceHint: line.priceHint, priceHintCurrency: line.priceHintCurrency ?? null, candidates }, signal);
-    return choice.success ? ok(decide(line.mention, choice.data, candidates, deps)) : choice;
+    return choice.success ? ok(decide(choice.data, candidates, deps)) : choice;
   }));
   const failed = identified.find((result) => !result.success);
   if (failed && !failed.success) return failed;
