@@ -81,7 +81,7 @@ describe("createOpenAIVariantChooser", () => {
     await choose({ words: ["XS"], variants, base: variants[0]! }, signal);
     await choose({ words: ["XS"], variants, base: null }, signal);
     expect(bodies[0]!.text).toBe("Customer words: XS\nBase variant: Talla: S\nVariants:\nA: Talla: S\nB: Talla: M");
-    expect(bodies[0]!.instructions).toContain("keeps the base variant's value");
+    expect(bodies[0]!.instructions).toContain("keep the value of the base variant");
     expect(bodies[1]!.text).not.toContain("Base variant");
     expect(bodies[1]!.instructions).not.toContain("base");
   });

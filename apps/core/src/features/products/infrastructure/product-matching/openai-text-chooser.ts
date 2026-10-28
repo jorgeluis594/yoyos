@@ -86,18 +86,17 @@ const describeVariant = ({ variantAttributes }: CatalogItem) => Object.entries(v
 
 /**
  * Chooses among the sellable variants of one product from the customer's words. The variants and the base variant are catalog data;
- * the instructions state the general rule and quote no buyer wording.
+ * the instructions state the general rule, with examples that are no eval input (evals/lib/prompt-overlap.test.ts).
  */
 export function createOpenAIVariantChooser(config: OpenAITextChooserConfig) {
   return async (input: VariantChoiceInput, signal: AbortSignal): Promise<Result<VariantChoice, ProductMatcherError>> => {
     const labels = input.variants.map((_, index) => labelFor(index));
     const asked = await askChoice(config, {
       event: "product_variant_match", labels, descriptions: input.variants.map(describeVariant),
-      instructions: "Decide which variant the customer asks for. The customer words name attribute values: a value may come inflected (plural, gender, diminutive), "
-        + "misspelled, abbreviated or in another language such as Portuguese, and may be surrounded by words that ask for nothing. "
-        + (input.base ? "The base variant is the one the customer starts from: every attribute the words do not name keeps the base variant's value. " : "")
-        + `Answer with the option label, or "${NONE}" if no option has every value the customer asks for${input.base ? " together with the kept values" : ""}, `
-        + "or if the words fit several options.",
+      instructions: "Decide which variant the customer asks for. A value may be written as a plural, feminine, diminutive, misspelled, abbreviated or Portuguese form "
+        + "of it (celestes is Celeste, grisecito is Gris, ele is L). "
+        + (input.base ? "Attributes the words do not name keep the value of the base variant. " : "")
+        + `Answer with the option label, or "${NONE}" if no option is clearly the variant asked for.`,
       text: [`Customer words: ${input.words.join(" ")}`, ...(input.base ? [`Base variant: ${describeVariant(input.base)}`] : []), "Variants:",
         ...input.variants.map((variant, index) => `${labels[index]}: ${describeVariant(variant)}`)].join("\n"),
     }, signal);
