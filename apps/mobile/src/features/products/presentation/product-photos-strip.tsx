@@ -1,7 +1,7 @@
 /** @jsxImportSource react */
 // Preserve native Pressable style callbacks outside NativeWind interop.
 import { useEffect, useRef } from "react";
-import { AccessibilityInfo, ActivityIndicator, Alert, findNodeHandle, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { AccessibilityInfo, ActivityIndicator, Alert, findNodeHandle, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { Image } from "expo-image";
 import { SymbolView } from "expo-symbols";
 import { useTranslation } from "react-i18next";
@@ -14,6 +14,8 @@ import { addTileTarget, lineTarget, type PhotoFieldController } from "./use-phot
 import tokens from "../../../../../../docs/design-tokens.json";
 
 const thumbSize = 64;
+// Wide enough for the longest state word at the app's small text, so the label wraps only between words.
+const tileWidth = 72;
 const gap = tokens.spacing["2"];
 const focusDelayMs = 250;
 const reasons: Readonly<Record<PhotoFailure, string>> = {
@@ -78,10 +80,11 @@ export function ProductPhotosStrip({ photos, disabled = false }: { photos: Photo
   useEffect(() => {
     if (!focus) return;
     const index = field.photos.findIndex((photo) => photo.key === focus.target);
-    if (index >= 0) scroll.current?.scrollTo({ x: index * (thumbSize + gap), animated: true });
+    if (index >= 0) scroll.current?.scrollTo({ x: index * (tileWidth + gap), animated: true });
     const timer = setTimeout(() => {
       const node = focus.target === addTileTarget ? addTile.current : focus.target === lineTarget ? line.current : nodes.current.get(focus.target);
-      const tag = node ? findNodeHandle(node) : null;
+      // findNodeHandle throws on react-native-web, where there is no native focus tag.
+      const tag = node && Platform.OS !== "web" ? findNodeHandle(node) : null;
       if (tag) AccessibilityInfo.setAccessibilityFocus(tag);
     }, focusDelayMs);
     return () => clearTimeout(timer);
@@ -134,7 +137,10 @@ export function ProductPhotosStrip({ photos, disabled = false }: { photos: Photo
           const primary = photos.primary === photo.key;
           const uri = photo.kind === "saved" || photo.kind === "uploaded" ? photo.url : photos.previewOf(photo.key) ?? photo.previewUrl;
           const marked = (photo.kind === "saved" || photo.kind === "uploaded") && photo.marked;
-          const band = marked ? t(photo.kind === "saved" ? "rowWillBeDeleted" : "rowWillBeRemoved") : primary ? t("photoPrimary") : null;
+          const labels = [
+            primary ? t("photoPrimary") : null,
+            photo.kind === "failed" ? t("photoNotUploaded") : marked ? t(photo.kind === "saved" ? "rowWillBeDeleted" : "rowWillBeRemoved") : null,
+          ].filter((text): text is string => text !== null);
           const actions = actionsOf(photo, primary, photos, t);
           const position = index + 1;
           return <Pressable key={photo.key} ref={(node) => { if (node) nodes.current.set(photo.key, node); else nodes.current.delete(photo.key); }}
@@ -142,12 +148,14 @@ export function ProductPhotosStrip({ photos, disabled = false }: { photos: Photo
             accessibilityActions={actions.map((action) => ({ name: action.name, label: action.label }))}
             onAccessibilityAction={(event) => { if (!disabled) actions.find((action) => action.name === event.nativeEvent.actionName)?.run(); }}
             disabled={disabled} onPress={() => openSheet(photo, position)}
-            style={[styles.thumb, { borderColor: photo.kind === "failed" || (photo.kind !== "uploading" && photo.rejected) ? theme.error : theme.border, backgroundColor: theme.backgroundElement }]}>
+            style={styles.cell}>
+            <View testID="photo-square" style={[styles.thumb, { borderColor: photo.kind === "failed" || (photo.kind !== "uploading" && photo.rejected) ? theme.error : theme.border, backgroundColor: theme.backgroundElement }]}>
             {uri ? <Image source={{ uri }} contentFit="cover" style={[styles.image, (marked || photo.kind !== "saved" && photo.kind !== "uploaded") && styles.dim]} accessibilityElementsHidden importantForAccessibility="no" /> : null}
             {photo.kind === "uploading" ? <View style={styles.center}><ActivityIndicator color={theme.text} /></View> : null}
             {photo.kind === "failed" || (photo.kind !== "uploading" && photo.rejected)
               ? <View style={styles.center}><SymbolView name={{ ios: "exclamationmark.triangle.fill", android: "warning" }} size={24} tintColor={theme.error} /></View> : null}
-            {band ? <View style={[styles.band, { backgroundColor: theme.backgroundElement }]}><ThemedText type="small" style={styles.bandText} testID="photo-band-text">{band}</ThemedText></View> : null}
+            </View>
+            {labels.map((text) => <ThemedText key={text} type="small" style={styles.label} testID="photo-label">{text}</ThemedText>)}
           </Pressable>;
         })}
       </ScrollView>
@@ -165,11 +173,11 @@ const styles = StyleSheet.create({
   tileText: { textAlign: "center" },
   scroll: { flex: 1 },
   thumbs: { gap, paddingVertical: 8 },
-  thumb: { width: thumbSize, height: thumbSize, borderRadius: 8, borderWidth: 1, overflow: "hidden" },
+  thumb: { width: thumbSize, height: thumbSize, alignSelf: "center", borderRadius: 8, borderWidth: 1, overflow: "hidden" },
   image: { width: "100%", height: "100%" },
   dim: { opacity: 0.45 },
   center: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center" },
-  band: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 2, paddingVertical: 1 },
-  // The band grows to a second line rather than shrinking the app's small text.
-  bandText: { textAlign: "center" },
+  cell: { width: tileWidth, gap: 2 },
+  // The label wraps between words rather than shrinking the app's small text.
+  label: { textAlign: "center" },
 });

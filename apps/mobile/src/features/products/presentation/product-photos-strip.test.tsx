@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { AccessibilityInfo, Alert, StyleSheet, type AlertButton } from "react-native";
-import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
 import * as ImagePicker from "expo-image-picker";
 import { err, ok } from "@shared/functional";
 import i18n from "@mobile/i18n";
@@ -191,6 +191,17 @@ test("each thumbnail is announced with position, state and the actions hint", as
   expect(controller.field.photos[0]?.key).toBe("saved-2");
 });
 
+test("a failed primary keeps Principal and adds No se subió, and still says it is the primary", async () => {
+  render(<Harness />);
+  galleryReturns("a");
+  await chooseFrom("Elegir de galería");
+  await settle();
+  await act(async () => { pending[0]?.resolve(failure("SERVICE_UNAVAILABLE")); });
+  expect(screen.getByText("Principal")).toBeTruthy();
+  expect(screen.getByText("No se subió")).toBeTruthy();
+  expect(thumb("Foto 1 de 1, principal, no se subió: No se pudo subir. Revisa la conexión.")).toBeTruthy();
+});
+
 test("tapping a failed thumbnail opens Foto 2 de 3 with the reason, Reintentar, Quitar and Cancelar", async () => {
   render(<Harness photos={saved(1)} />);
   galleryReturns("a", "b");
@@ -340,14 +351,47 @@ test("shows the Portuguese texts and singular counts", async () => {
     await act(async () => { pending[0]?.resolve(failure("INTERNAL_ERROR")); });
     expect(screen.getByText("1 foto não foi enviada. Toque nela para ver o motivo.")).toBeTruthy();
     expect(screen.getByLabelText("Foto 2 de 2, não enviada: Não foi possível enviar. Verifique a conexão.")).toBeTruthy();
+    expect(screen.getByText("Não foi enviada")).toBeTruthy();
   } finally { await act(async () => { await i18n.changeLanguage("es"); }); }
 });
 
-test("the band keeps the app's small text size and may wrap instead of shrinking", () => {
+test("the state label sits under the square at the small text size and wraps only between words", () => {
   render(<Harness photos={saved(2)} />);
-  const style = StyleSheet.flatten(screen.getByText("Principal").props.style);
+  const label = screen.getByText("Principal");
+  const style = StyleSheet.flatten(label.props.style);
   expect(style.fontSize).toBe(14);
-  expect(screen.getByText("Principal").props.numberOfLines).toBeUndefined();
+  expect(label.props.numberOfLines).toBeUndefined();
+  expect(style.position).toBeUndefined();
+  expect(style.paddingHorizontal).toBeUndefined();
+  const cell = StyleSheet.flatten(thumb("Foto 1 de 2, principal").props.style);
+  expect(cell.width).toBeGreaterThan(64);
+  expect(cell.overflow).toBeUndefined();
+});
+
+test("the thumbnail square keeps 64 px and the label is not inside it", () => {
+  render(<Harness photos={saved(2)} />);
+  const [square] = screen.getAllByTestId("photo-square");
+  const style = StyleSheet.flatten(square?.props.style);
+  expect(style.width).toBe(64);
+  expect(style.height).toBe(64);
+  expect(within(square!).queryByTestId("photo-label")).toBeNull();
+  expect(screen.getByTestId("photo-label")).toBeTruthy();
+});
+
+test("the accessibility focus does not ask for a native node handle on web", async () => {
+  jest.useFakeTimers();
+  const handle = jest.requireActual("react-native");
+  const spy = jest.spyOn(handle, "findNodeHandle").mockReturnValue(42);
+  render(<Harness photos={saved(3)} />);
+  spy.mockClear();
+  const platform = jest.replaceProperty(handle.Platform, "OS", "web");
+  try {
+    fireEvent.press(thumb("Foto 3 de 3"));
+    await pick("Hacer principal");
+    await act(async () => { jest.advanceTimersByTime(300); });
+    expect(spy).not.toHaveBeenCalled();
+    expect(AccessibilityInfo.setAccessibilityFocus).not.toHaveBeenCalled();
+  } finally { platform.restore(); }
 });
 
 test("an upload that never settles still fails after two minutes and frees its slot", async () => {
