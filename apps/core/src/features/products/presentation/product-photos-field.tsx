@@ -1,7 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
 import { Loader2, Plus, RotateCcw, Star, Trash2, TriangleAlert, Undo2, X } from "lucide-react";
-import { Button } from "@core/app/components/ui/button";
 import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { uploadImageFile } from "@core/src/shared/images/presentation/client";
 import { imageUploadLimits } from "@shared/contracts/images";
@@ -237,7 +236,8 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
 
 export type ProductPhotos = ReturnType<typeof useProductPhotos>;
 
-const overlayButton = "size-8 bg-background/90 text-foreground shadow-sm hover:bg-background";
+// Plain buttons, not the design-system Button: its touch rule would grow them to the touch minimum (two of them no longer fit a 4-column tile on a phone); 32 px is the field's approved hit area.
+const overlayButton = "inline-flex size-8 items-center justify-center rounded-md bg-background/90 text-foreground shadow-sm transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-4";
 
 function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: number; total: number; photos: ProductPhotos }) {
   const { t } = useTranslation();
@@ -254,7 +254,7 @@ function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: 
   const label = [t("productPhotos.name", position), primary ? t("productPhotos.nameState.primary") : "", fileName, state].filter(Boolean).join(", ");
   const rejected = isKept(photo) && photo.rejected && !photo.marked;
   const action = (name: string, verb: string, icon: ReactNode, run: () => void, extra: Readonly<{ action?: string }> = {}) =>
-    <Button type="button" variant="ghost" size="icon" className={overlayButton} data-action={extra.action} aria-label={name} title={verb} onClick={run}>{icon}</Button>;
+    <button type="button" className={overlayButton} data-action={extra.action} aria-label={name} title={verb} onClick={run}>{icon}</button>;
   const remove = (run: () => void) => action(t("productPhotos.removeLabel", position), t("productPhotos.removeLabel", position), <Trash2 aria-hidden="true" />, run, { action: "remove" });
   const chip = "absolute inset-x-1 bottom-1 inline-flex items-center justify-center gap-1 rounded bg-background px-1 py-0.5 text-center text-xs leading-tight";
 
