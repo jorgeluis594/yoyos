@@ -586,7 +586,7 @@ describe("applyChatMessage: text tools", () => {
 
   test("reports the likely products when the text names a product that two candidates fit", async () => {
     const refs: [ProductRef, ProductRef] = [{ productId: productPolo, name: "Polo básico" }, { productId: productCap, name: "Gorra" }];
-    const h = harness({ message: textMessage("quiero el negro"), identify: { negro: { kind: "not_clear", candidates: refs } }, decision: () => decided("add_products"), extraction: () => [addCall(add("negro"))] });
+    const h = harness({ message: textMessage("quiero el clásico"), identify: { "clásico": { kind: "not_clear", candidates: refs } }, decision: () => decided("add_products"), extraction: () => [addCall(add("clásico"))] });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "not_clear", productIds: [productPolo, productCap], silent: false }], noticeDue: true });
   });
 
@@ -891,6 +891,22 @@ describe("applyChatMessage: text tools", () => {
     const h = harness({ message: textMessage("la gorra a 5 dólares"), target: capAndPolo(), decision: () => decided("set_item_mentioned_price", itemChoice("set_item_mentioned_price", "I1")),
       extraction: () => [{ tool: "set_item_mentioned_price", args: { mentionedPrice: { amount: "5", units: 1, currency: "other" } } }] });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "no_intent" }], noticeDue: false });
+  });
+
+  test("reports a text that only names a variant without asking the models which action it is, whatever the order holds", async () => {
+    for (const [text, target] of [["la prefiero en XS", capAndPolo()], ["celestes porfa", openWith(line(1, poloM))], ["talla 38", { kind: "none" } as ChatOrderTarget]] as const) {
+      const h = harness({ message: textMessage(text), target, decision: () => decided("change_item_variant", itemChoice("change_item_variant", "I1")) });
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "variant_only" }], noticeDue: true, trace: { tools: ["report_variant_without_product"], decisionCalls: 0 } });
+      expect(h.decisions).toHaveLength(0);
+    }
+  });
+
+  test("leaves a variant with a change verb, a product, a quantity or a question to the models", async () => {
+    for (const text of ["mejor en XS", "pásalo a celeste", "la casaca en XS", "2 en XS", "hay en XS?"]) {
+      const h = harness({ message: textMessage(text), target: capAndPolo(), decision: () => decided("no_intent") });
+      await succeeded(h.run());
+      expect(h.decisions).toHaveLength(1);
+    }
   });
 
   test("reports a variant without a product and an add without a name as problems for the seller", async () => {
