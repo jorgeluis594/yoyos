@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ComponentProps, type ReactNode } from "react";
+import { useEffect, useEffectEvent, useRef, useState, type ComponentProps, type ReactNode } from "react";
 import { Link } from "react-router";
 import { StoreBrandHeader } from "@core/src/features/store-appearance/presentation/store-brand-header";
 import { StoreTheme } from "@core/src/features/store-appearance/presentation/store-theme";
@@ -68,19 +68,27 @@ export function CatalogProductCard({ item, to }: Readonly<{ item: Omit<CatalogCa
     : <div data-store-part="catalog-card" className={className}>{content}</div>;
 }
 
-/** Without photo, or when it fails to load, a neutral block with the initial; never a broken image. */
-export function CatalogProductImage({ name, url, part, className }: Readonly<{ name: string; url: string | null; part: "catalog-card-photo" | "catalog-product-photo"; className?: string }>) {
+/** Without photo, or when it fails to load, a neutral block with the initial; never a broken image. `priority` loads it first (the product page primary); `onSettled` reports that it loaded or failed. */
+export function CatalogProductImage({ name, url, part, className, priority = false, onSettled }: Readonly<{ name: string; url: string | null; part: "catalog-card-photo" | "catalog-product-photo"; className?: string; priority?: boolean; onSettled?: () => void }>) {
   const [failed, setFailed] = useState(false);
   const image = useRef<HTMLImageElement>(null);
-  // The image can fail before React attaches `onError` during hydration.
+  const settled = useEffectEvent(() => onSettled?.());
+  // The image can load or fail before React attaches its handlers during hydration.
   useEffect(() => {
-    if (image.current?.complete && image.current.naturalWidth === 0) setFailed(true);
+    if (!image.current?.complete) return;
+    if (image.current.naturalWidth === 0) setFailed(true);
+    settled();
   }, []);
   const frame = cn("aspect-square w-full overflow-hidden rounded-[var(--radius-card)] bg-muted", className);
+  // Without a URL there is nothing to wait for, so the page can release what depends on it.
+  useEffect(() => { if (!url) settled(); }, [url]);
   if (!url || failed) return <div data-store-part={part} className={cn(frame, "flex items-center justify-center text-4xl font-semibold text-muted-foreground")} aria-hidden="true">
     {name.trim().charAt(0).toUpperCase()}
   </div>;
-  return <div data-store-part={part} className={frame}><img ref={image} src={url} alt="" loading="lazy" className="size-full object-cover" onError={() => setFailed(true)} /></div>;
+  return <div data-store-part={part} className={frame}>
+    <img ref={image} src={url} alt="" loading={priority ? "eager" : "lazy"} fetchPriority={priority ? "high" : undefined} className="size-full object-cover"
+      onLoad={onSettled} onError={() => { setFailed(true); onSettled?.(); }} />
+  </div>;
 }
 
 export const headingFont = { fontFamily: "var(--store-font-heading, inherit)", fontWeight: "var(--store-weight-heading, 600)" };
