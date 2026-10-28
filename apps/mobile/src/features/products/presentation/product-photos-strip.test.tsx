@@ -343,11 +343,41 @@ test("shows the Portuguese texts and singular counts", async () => {
   } finally { await act(async () => { await i18n.changeLanguage("es"); }); }
 });
 
-test("the band keeps the app's small text size and may wrap instead of shrinking", () => {
+test("the state label sits under the square at the small text size and wraps only between words", () => {
   render(<Harness photos={saved(2)} />);
-  const style = StyleSheet.flatten(screen.getByText("Principal").props.style);
+  const label = screen.getByText("Principal");
+  const style = StyleSheet.flatten(label.props.style);
   expect(style.fontSize).toBe(14);
-  expect(screen.getByText("Principal").props.numberOfLines).toBeUndefined();
+  expect(label.props.numberOfLines).toBeUndefined();
+  expect(style.position).toBeUndefined();
+  expect(style.paddingHorizontal).toBeUndefined();
+  const cell = StyleSheet.flatten(thumb("Foto 1 de 2, principal").props.style);
+  expect(cell.width).toBeGreaterThan(64);
+  expect(cell.overflow).toBeUndefined();
+});
+
+test("the thumbnail square keeps 64 px and the label is not inside it", () => {
+  render(<Harness photos={saved(2)} />);
+  const label = screen.getByTestId("photo-label");
+  let node = label.parent;
+  while (node && StyleSheet.flatten(node.props.style)?.height !== 64) node = node.parent;
+  expect(node).toBeNull();
+});
+
+test("the accessibility focus does not ask for a native node handle on web", async () => {
+  jest.useFakeTimers();
+  const handle = jest.requireActual("react-native");
+  const spy = jest.spyOn(handle, "findNodeHandle").mockReturnValue(42);
+  render(<Harness photos={saved(3)} />);
+  spy.mockClear();
+  const platform = jest.replaceProperty(handle.Platform, "OS", "web");
+  try {
+    fireEvent.press(thumb("Foto 3 de 3"));
+    await pick("Hacer principal");
+    await act(async () => { jest.advanceTimersByTime(300); });
+    expect(spy).not.toHaveBeenCalled();
+    expect(AccessibilityInfo.setAccessibilityFocus).not.toHaveBeenCalled();
+  } finally { platform.restore(); }
 });
 
 test("an upload that never settles still fails after two minutes and frees its slot", async () => {
