@@ -79,7 +79,7 @@ function itemQuestion(context: ChatToolContext, instructions: string): DecisionC
       name: "item",
       instructions,
       choices: [
-        { value: only.label, description: `${variantLabel(only)}, the only item of the open order, also when the message does not name it (eso, retíralo, déjalo en cuatro)` },
+        { value: only.label, description: `${variantLabel(only)}, the only item of the open order, also when the message does not name it (eso, elimínalo, déjalo en cuatro)` },
         { value: "not_in_order", description: "The message names a product the open order does not contain" },
       ],
     };
@@ -89,7 +89,7 @@ function itemQuestion(context: ChatToolContext, instructions: string): DecisionC
     instructions,
     choices: [
       ...context.items.map((item) => ({ value: item.label, description: variantLabel(item) })),
-      { value: "unnamed", description: "The message refers to an item without saying which (eso, retíralo, déjalo en dos)" },
+      { value: "unnamed", description: "The message refers to an item without saying which (eso, elimínalo, déjalo en dos)" },
       { value: "not_in_order", description: "The message names a product the open order does not contain" },
       { value: "ambiguous", description: "More than one item of the order fits what the message names" },
     ],
@@ -101,7 +101,7 @@ const referenceQuestion: DecisionChoiceQuestion = {
   instructions: "Does the message name the item it refers to?",
   choices: [
     { value: "named", description: "It names the item by its product, size or color" },
-    { value: "unnamed", description: "It refers to the item without naming it (eso, retíralo, déjalo en cuatro)" },
+    { value: "unnamed", description: "It refers to the item without naming it (eso, elimínalo, déjalo en cuatro)" },
   ],
 };
 
@@ -113,8 +113,8 @@ const amountQuestion: DecisionChoiceQuestion = {
   name: "amount",
   instructions: "Does the buyer remove the whole item or only one unit of it?",
   choices: [
-    { value: "all", description: "Remove the item, whatever its quantity (saca la mochila, retíralo, ya no va)" },
-    { value: "one", description: "Remove a single unit and keep the rest (una mochila menos, deja dos de las tres casacas)" },
+    { value: "all", description: "Remove the item, whatever its quantity (saca la mochila, elimínalo, ya no va)" },
+    { value: "one", description: "Remove a single unit and keep the rest (réstale uno, deja dos de las tres casacas)" },
   ],
 };
 
@@ -237,7 +237,7 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     }),
     defineTool({
       name: "remove_item",
-      description: "The buyer asks to take an item out of the open order, or one unit of it: «saca la mochila», «retíralo», «ya no quiero la casaca», «una mochila menos».",
+      description: "The buyer asks to take an item out of the open order, or one unit of it: «saca la mochila», «elimínalo», «ya no quiero la casaca», «réstale uno».",
       args: { kind: "decision", questions: (context) => [...itemQuestions(context, "Which item of the open order does the buyer ask to remove?"), amountQuestion] },
       schema: (context) => withReference(context, { item: itemChoice(context), amount: amountChoice }),
       resolve: async (args, context): Resolved => {
@@ -252,7 +252,7 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
       name: "change_item_quantity",
       description: "The buyer changes how many units they want of a product already in the open order: «déjalo en cuatro», «de la casaca solo una». "
         + "Not for asking for products with a quantity («quiero 3 mochilas» adds them), not for taking an item out («saca el short» removes it), "
-        + "and never for asking for more of something the buyer does not name («mándame otros tres así», «el mismo otra vez»). Give the new quantity as stated.",
+        + "and never for asking for more of something the buyer does not name («agrégame otros tres», «el mismo otra vez»). Give the new quantity as stated.",
       args: { kind: "extracted", questions: (context) => itemQuestions(context, "Which item of the open order does the buyer change the quantity of?") },
       schema: (context) => withReference(context, { item: itemChoice(context), quantity: z.number().int().min(0) }),
       resolve: async (args, context): Resolved => {
@@ -297,12 +297,12 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     }),
     defineTool({
       name: "report_unnamed_add",
-      description: "The buyer asks for more of something without naming it (quiero más, el mismo otra vez, mándame otros tres así).",
+      description: "The buyer asks for more of something without naming it (quiero más, el mismo otra vez, agrégame otros tres).",
       args: { kind: "none" }, reportOnly: true, schema: () => noArgs, resolve: reportOnly({ kind: "unnamed_add" }),
     }),
     defineTool({
       name: "report_item_change_without_order",
-      description: "The buyer asks to remove or change something of their order (retíralo, saca el short, déjalo en cuatro, pásalo a talla 40, la casaca a 90), "
+      description: "The buyer asks to remove or change something of their order (elimínalo, saca el short, déjalo en cuatro, pásalo a talla 40, la casaca a 90), "
         + "but the chat has no open order. Never for asking for products.",
       // Offered instead of the item tools when the order has no items; the order domain reports the missing or closed order.
       args: { kind: "none" }, reportOnly: true, schema: () => noArgs, resolve: async (): Resolved => ok(cannotApply(unclear(true, null))),
