@@ -29,3 +29,16 @@ test("keeps the HTTP status of untyped errors so the caller can classify them", 
   const failure = { code: "API_ERROR", message: "m", http: { status: 403, body: {} } } as const;
   expect(await uploadImage(async () => err(failure), "file:///a.jpg", "image/jpeg")).toEqual({ success: false, error: { code: "API_ERROR", message: "m", http: { status: 403 } } });
 });
+
+test("an aborted upload resolves as ABORTED and changes nothing", async () => {
+  const controller = new AbortController();
+  const request = jest.fn(async (_path: string, init?: RequestInit) => {
+    controller.abort();
+    expect(init?.signal).toBe(controller.signal);
+    return err({ code: "NETWORK_ERROR", message: "Unable to reach the server" } as const);
+  });
+  expect(await uploadImage(request, "file:///a.jpg", "image/jpeg", { signal: controller.signal })).toMatchObject({ success: false, error: { code: "ABORTED" } });
+  request.mockClear();
+  expect(await uploadImage(request, "file:///a.jpg", "image/jpeg", { signal: controller.signal })).toMatchObject({ success: false, error: { code: "ABORTED" } });
+  expect(request).not.toHaveBeenCalled();
+});

@@ -31,7 +31,8 @@ export type Product = Readonly<{
   name: string;
   description?: string;
   currency: Currency;
-  photo?: Readonly<{ id: ImageId; url: string }>;
+  /** Saved photos in order; the first is the primary. */
+  photos: readonly Readonly<{ id: ImageId; url: string }>[];
   structureVersion: number;
   options: readonly ProductOption[];
   variants: readonly ProductVariant[];
@@ -60,5 +61,3 @@ export type ProductPage = Readonly<{
 export type StockFilter = "in_stock" | "sold_out";
 export type ProductSort = "recent" | "name";
 export type ProductListCriteria = Readonly<{ search?: string; stock?: StockFilter; sort?: ProductSort; page: number; pageSize: 20 }>;
-export type PhotoSelection = Readonly<{ kind: "keep" }> | Readonly<{ kind: "set"; imageId: ImageId; previewUrl?: string }>
-  | Readonly<{ kind: "remove" }>;

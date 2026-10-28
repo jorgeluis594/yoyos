@@ -13,7 +13,7 @@ const must = <T,>(edit: { success: true; data: T } | { success: false; error: { 
 test("creating a product without options sends its single variant from the base values", async () => {
   const request = jest.fn().mockResolvedValue(ok({ id: productId }));
   const operations = createProductOperations(createProductApi(request, () => 0));
-  await operations.createProduct({ id: productId, country: "PE", name: "Camisa", photo: { kind: "keep" }, draft: createDraft(base) });
+  await operations.createProduct({ id: productId, country: "PE", name: "Camisa", photos: { kind: "untouched" }, draft: createDraft(base) });
   expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({
     id: productId, name: "Camisa", description: null, photoIds: [], currency: "PEN", options: [],
     variants: [{ values: [], sku: "BASE-1", salePrice: 39.9, purchasePrice: 20, initialStock: 4 }],
@@ -24,9 +24,9 @@ test("creating with options sends them in order with one variant per live combin
   const request = jest.fn().mockResolvedValue(ok({ id: productId }));
   const operations = createProductOperations(createProductApi(request, () => 0));
   const draft = must(addOption(createDraft(base), { id: id(1), name: "Talla", values: [{ id: id(10), name: "S" }, { id: id(11), name: "M" }] }));
-  await operations.createProduct({ id: productId, country: "PE", name: "Polo", description: "Algodón", photo: { kind: "set", imageId: id(77) as never }, draft });
+  await operations.createProduct({ id: productId, country: "PE", name: "Polo", description: "Algodón", photos: { kind: "set", photoIds: [id(77), id(78)] }, draft });
   const body = JSON.parse(request.mock.calls[0][1].body);
-  expect(body).toMatchObject({ description: "Algodón", photoIds: [id(77)], options: [{ id: id(1), name: "Talla", values: [{ id: id(10), name: "S" }, { id: id(11), name: "M" }] }] });
+  expect(body).toMatchObject({ description: "Algodón", photoIds: [id(77), id(78)], options: [{ id: id(1), name: "Talla", values: [{ id: id(10), name: "S" }, { id: id(11), name: "M" }] }] });
   expect(body.variants).toEqual([
     { values: [id(10)], sku: null, salePrice: 39.9, purchasePrice: 20, initialStock: 4 },
     { values: [id(11)], sku: null, salePrice: 39.9, purchasePrice: 20, initialStock: 4 },
@@ -34,23 +34,23 @@ test("creating with options sends them in order with one variant per live combin
 });
 
 const saved: Product = {
-  id: productId, name: "Camisa", currency: "PEN", structureVersion: 7, photo: { id: id(77) as never, url: "https://cdn.example/a.jpg" }, options: [],
+  id: productId, name: "Camisa", currency: "PEN", structureVersion: 7, photos: [{ id: id(77) as never, url: "https://cdn.example/a.jpg" }], options: [],
   variants: [{ id: id(100) as never, qrCode: id(200) as never, combination: [], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }],
 };
 
-test("saving sends the version the form was loaded with and omits photoIds unless the photo changes", async () => {
+test("saving without touching photos omits photoIds", async () => {
   const request = jest.fn().mockResolvedValue(ok({ product: { ...saved, description: null, photos: [{ id: id(77), url: "https://cdn.example/a.jpg" }], qrCode: id(300), createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
     variants: [{ id: id(100), combination: [], sku: null, salePrice: { amount: 20, currency: "PEN" }, purchasePrice: null, qrCode: id(200), status: "active", stock: 1, hasOrders: false }] },
   }));
   const operations = createProductOperations(createProductApi(request, () => 0));
-  const result = await operations.saveProduct({ current: saved, name: "Camisa nueva", description: null, photo: { kind: "keep" }, draft: editorDraftOf(saved) });
+  const result = await operations.saveProduct({ current: saved, name: "Camisa nueva", description: null, photos: { kind: "untouched" }, draft: editorDraftOf(saved) });
   expect(request.mock.calls[0][1].method).toBe("PUT");
   expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({
     structureVersion: 7, name: "Camisa nueva", description: null, options: [], variants: [], newVariants: [], deletedVariantIds: [],
   });
   expect(result.success).toBe(true);
-  await operations.saveProduct({ current: saved, name: "Camisa", description: null, photo: { kind: "remove" }, draft: editorDraftOf(saved) });
-  expect(JSON.parse(request.mock.calls[1][1].body).photoIds).toEqual([]);
+  await operations.saveProduct({ current: saved, name: "Camisa", description: null, photos: { kind: "set", photoIds: [id(78), id(77)] }, draft: editorDraftOf(saved) });
+  expect(JSON.parse(request.mock.calls[1][1].body).photoIds).toEqual([id(78), id(77)]);
 });
 
 test("the editor draft of a saved product starts without changes", () => {
