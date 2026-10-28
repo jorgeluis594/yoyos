@@ -10,6 +10,7 @@ import { resolveVariant } from "@core/src/features/products/application/resolve-
 import type { ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import type { DecisionAnswers, DecisionRequest, ExtractionRequest, OrchestrateDependencies, ToolCall } from "@core/src/shared/ai-tools/application/orchestrate";
 import type { AiError } from "@core/src/shared/ai-tools/application/ai-error";
+import { decisionRequestText } from "@core/src/shared/ai-tools/infrastructure/decision-request-text";
 import { mentionedPriceNote } from "@shared/mentioned-price";
 import { chooseSellerNotice } from "@core/src/features/orders/domain/seller-notice";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
@@ -114,7 +115,7 @@ function harness(options: Options = {}) {
   const target: ChatOrderTarget = options.target ?? { kind: "none" };
   if (target.kind === "open") store.orders.set(target.order.id, target.order);
   const ai: OrchestrateDependencies = {
-    minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9,
+    text: decisionRequestText, minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9,
     decide: async (request) => {
       decisions.push(request);
       const decided = options.decision ? options.decision(request) : answer("no_intent");

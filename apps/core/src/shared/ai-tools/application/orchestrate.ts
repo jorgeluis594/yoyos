@@ -38,7 +38,17 @@ export type ExtractionRequest = Readonly<{
   tools: readonly Readonly<{ name: string; description: string; jsonSchema: JsonSchema }>[];
 }>;
 
+/** The fixed wording of the Decision request. It is text for a model, so infrastructure supplies it. */
+export type DecisionRequestText = Readonly<{
+  actionInstructions: string;
+  /** The description of the `several` action choice. */
+  several: string;
+  /** A tool's predicate question, from the tool's description. */
+  predicate: (toolDescription: string) => string;
+}>;
+
 export type OrchestrateDependencies = Readonly<{
+  text: DecisionRequestText;
   decide: (request: DecisionRequest, signal: AbortSignal) => Promise<Result<DecisionAnswers, AiError>>;
   extract: (request: ExtractionRequest, signal: AbortSignal) => Promise<Result<readonly ToolCall[], AiError>>;
   minActionConfidence: number;
@@ -55,19 +65,18 @@ function questionsOf<Context>(tool: OfferedTool<Context>, context: Context): rea
   return tool.args.kind === "none" ? [] : tool.args.questions?.(context) ?? [];
 }
 
-function buildDecisionRequest<Context>(input: OrchestrateInput<Context>, questions: OfferedQuestions): DecisionRequest {
+function buildDecisionRequest<Context>(input: OrchestrateInput<Context>, questions: OfferedQuestions, text: DecisionRequestText): DecisionRequest {
   return {
     contextText: input.contextText,
     messageParts: input.messageParts,
     action: {
-      instructions: "Choose the one action the buyer's message asks for. A request for several things through the same action is that one action. "
-        + "Choose several only when the message asks for two or more different actions of the list.",
+      instructions: text.actionInstructions,
       choices: [
         ...input.tools.map((tool) => ({ value: tool.name, description: tool.description })),
-        { value: SEVERAL, description: "The message asks for two or more different actions of the list, not for several things through one action" },
+        { value: SEVERAL, description: text.several },
       ],
     },
-    predicates: input.tools.map((tool) => ({ tool: tool.name, instructions: `Does the buyer's message ask for this action, alone or next to another request? ${tool.description}` })),
+    predicates: input.tools.map((tool) => ({ tool: tool.name, instructions: text.predicate(tool.description) })),
     choices: input.tools.flatMap((tool) => (questions.get(tool.name) ?? []).map(({ name, ...question }) => ({ id: choiceId(tool.name, name), ...question }))),
   };
 }
@@ -117,7 +126,7 @@ export async function orchestrate<Context>(
 ): Promise<Result<ToolCallPlan, AiError>> {
   if (input.tools.length === 0) return ok({ kind: "ambiguous" });
   const questions: OfferedQuestions = new Map(input.tools.map((tool) => [tool.name, questionsOf(tool, input.context)]));
-  const decided = await deps.decide(buildDecisionRequest(input, questions), signal);
+  const decided = await deps.decide(buildDecisionRequest(input, questions, deps.text), signal);
   if (!decided.success) return decided;
   const answers = decided.data;
 

@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import { orchestrate, type DecisionRequest, type OrchestrateDependencies } from "@core/src/shared/ai-tools/application/orchestrate";
+import { decisionRequestText } from "@core/src/shared/ai-tools/infrastructure/decision-request-text";
 import { createChatToolRegistry, toolsFor } from "@core/src/features/orders/application/chat-message-tools";
 import { contextTextOf } from "@core/src/features/orders/application/apply-chat-message";
 import type { ChatContextItem, ChatToolContext, ChatToolDependencies } from "@core/src/features/orders/application/chat-tool-types";
@@ -40,6 +41,7 @@ const contexts: Readonly<Record<string, ChatToolContext>> = {
 async function decisionRequestOf(context: ChatToolContext): Promise<DecisionRequest> {
   let request: DecisionRequest | null = null;
   const ai: OrchestrateDependencies = {
+    text: decisionRequestText,
     decide: async (sent) => { request = sent; return err({ code: "AI_PROVIDER_UNAVAILABLE", message: "stop" }); },
     extract: async () => ok([]), minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9,
   };
