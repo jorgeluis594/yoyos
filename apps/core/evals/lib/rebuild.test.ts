@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import type { CaseRecord } from "@core/evals/lib/case-record";
-import { rebuildResult } from "@core/evals/lib/rebuild";
+import { splitOf } from "@core/evals/cases/split";
+import { rebuildResult, splitResult } from "@core/evals/lib/rebuild";
 import { buildReport } from "@core/evals/lib/report";
 
 const record: CaseRecord = {
@@ -47,4 +48,19 @@ test("a case that is now a known limitation leaves the score on rebuild", () => 
 
   expect(report.overall.total).toBe(0);
   expect(report.knownLimitations).toHaveLength(1);
+});
+
+test("a split's part of a run keeps its records and their error groups, without the classifier's cost", () => {
+  const meta = { runId: "run", startedAt: "", finishedAt: "", settings: {} };
+  const other = ["int-greeting", "int-thanks", "int-ready", "txt-chompa", "hold-plin"].find((id) => splitOf(id) !== splitOf(record.baseId))!;
+  const second: CaseRecord = { ...record, caseId: other, baseId: other };
+  const classifier = { provider: "anthropic" as const, role: "classifier" as const, endpoint: "/v1/messages", model: "claude-sonnet-5-5", inputTokens: 2000, outputTokens: 300, durationMs: 1, status: 200 };
+  const groups = [{ cause: "low action", explanation: "x", caseIds: [record.caseId, other] }, { cause: "other", explanation: "y", caseIds: [other] }];
+
+  const part = rebuildResult(splitResult({ report: buildReport([record, second], meta, [classifier], groups), records: [record, second], extraCalls: [classifier] }, splitOf(record.baseId)));
+
+  expect(part.records.map(({ caseId }) => caseId)).toEqual([record.caseId]);
+  expect(part.report.errorGroups).toEqual([{ ...groups[0], caseIds: [record.caseId] }]);
+  expect(part.report.usage.byRole.classifier).toBeUndefined();
+  expect(part.report.settings.split).toBe(splitOf(record.baseId));
 });

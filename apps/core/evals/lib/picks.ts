@@ -23,9 +23,21 @@ export function pickOf(certainty: Certainty): string | null | undefined {
 const sortedValues = (values: readonly string[]) => [...values].sort().join(" ");
 const noProductOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["no_intent", "ambiguous_intent", "not_identified", "image_with_request"]);
 
-function gradeAction(pick: string, expectations: readonly MessageExpectation[]): boolean | null {
+/**
+ * Tools the interpreter rewrites after the Decision (variantOnlyRule in chat-message-interpreter.ts): a variant change that is not an
+ * explicit request runs as the variant-only report. The pick is then graded as the tool that ran, so calibration follows the outcome.
+ */
+const rewrites: Readonly<Record<string, string>> = { change_item_variant: "report_variant_without_product" };
+
+/** The tools that ran, from the record's signature («tools|outcomes|order»). */
+const ranTools = (record: CaseRecord) => record.signature.split("|")[0]!.split("+").filter(Boolean);
+
+function gradeAction(chosen: string, record: CaseRecord): boolean | null {
+  const expectations = record.expected as readonly MessageExpectation[];
   const scorable = expectations.filter(({ tools }) => tools !== undefined && tools.length > 0);
   if (!scorable.length) return null;
+  const rewritten = rewrites[chosen];
+  const pick = rewritten !== undefined && ranTools(record).includes(rewritten) && !ranTools(record).includes(chosen) ? rewritten : chosen;
   // One expected tool: the Decision chose it. Several: it chose «several».
   return scorable.some(({ tools }) => tools!.length === 1 ? pick === tools![0] : pick === "several");
 }
@@ -89,7 +101,7 @@ export function gradePick(certainty: Certainty, record: CaseRecord): boolean | n
   // Whether a message photo is a product is not stated by message expectations (a declined product photo also ends as no intent).
   if (certainty.source === "shows_product") return null;
   const expectations = record.expected as readonly MessageExpectation[];
-  if (certainty.source === "action") return pick === null ? null : gradeAction(pick, expectations);
+  if (certainty.source === "action") return pick === null ? null : gradeAction(pick, record);
   if (certainty.source.startsWith("variant")) return gradeMessageVariant(pick, expectations);
   return gradeMessageProduct(pick, expectations);
 }

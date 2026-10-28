@@ -79,7 +79,7 @@ function itemQuestion(context: ChatToolContext, instructions: string): DecisionC
       name: "item",
       instructions,
       choices: [
-        { value: only.label, description: `${variantLabel(only)}, the only item of the open order, also when the message does not name it (eso, bórralo, que sean cuatro)` },
+        { value: only.label, description: `${variantLabel(only)}, the only item of the open order, also when the message does not name it (eso, elimínalo, déjalo en cuatro)` },
         { value: "not_in_order", description: "The message names a product the open order does not contain" },
       ],
     };
@@ -89,7 +89,7 @@ function itemQuestion(context: ChatToolContext, instructions: string): DecisionC
     instructions,
     choices: [
       ...context.items.map((item) => ({ value: item.label, description: variantLabel(item) })),
-      { value: "unnamed", description: "The message refers to an item without saying which (eso, bórralo, déjalo en dos)" },
+      { value: "unnamed", description: "The message refers to an item without saying which (eso, elimínalo, déjalo en dos)" },
       { value: "not_in_order", description: "The message names a product the open order does not contain" },
       { value: "ambiguous", description: "More than one item of the order fits what the message names" },
     ],
@@ -101,7 +101,7 @@ const referenceQuestion: DecisionChoiceQuestion = {
   instructions: "Does the message name the item it refers to?",
   choices: [
     { value: "named", description: "It names the item by its product, size or color" },
-    { value: "unnamed", description: "It refers to the item without naming it (eso, bórralo, que sean cuatro)" },
+    { value: "unnamed", description: "It refers to the item without naming it (eso, elimínalo, déjalo en cuatro)" },
   ],
 };
 
@@ -113,8 +113,22 @@ const amountQuestion: DecisionChoiceQuestion = {
   name: "amount",
   instructions: "Does the buyer remove the whole item or only one unit of it?",
   choices: [
-    { value: "all", description: "Remove the item, whatever its quantity (saca la mochila, bórralo, ya no va)" },
-    { value: "one", description: "Remove a single unit and keep the rest (bájale uno, deja dos de las tres casacas)" },
+    { value: "all", description: "Remove the item, whatever its quantity (saca la mochila, elimínalo, ya no va)" },
+    { value: "one", description: "Remove a single unit and keep the rest (réstale uno, deja dos de las tres casacas)" },
+  ],
+};
+
+/**
+ * Whether the buyer explicitly asks to change the item, or only names a variant. Founder rule (docs/message-to-order.md «Change variant»):
+ * only an explicit request changes an item, at ITEM_CHOICE_MIN_CONFIDENCE; anything else reports `variant_only` and changes nothing.
+ */
+export const changeRequestChoice = choiceOf(z.enum(["requested", "only_named"]));
+const changeRequestQuestion: DecisionChoiceQuestion = {
+  name: "change",
+  instructions: "Does the buyer explicitly ask to change the item to another variant, or only name a variant?",
+  choices: [
+    { value: "requested", description: "The buyer explicitly asks to change the item: a verb of change, or «mejor» putting the new variant in place of the item's current one" },
+    { value: "only_named", description: "The buyer only gives a size or color, or says they want, need or prefer it («la prefiero en XS»), without asking to change the item" },
   ],
 };
 
@@ -205,7 +219,7 @@ async function addLineActions(line: z.output<typeof addLine>, identification: Te
 }
 
 // Item tools
-async function changeItemVariant(args: Readonly<{ item: ItemChoice; reference?: ReferenceChoice; variantWords: readonly string[]; mentionedPrice: StatedPrice | null }>,
+async function changeItemVariant(args: Readonly<{ item: ItemChoice; reference?: ReferenceChoice; change: z.output<typeof changeRequestChoice>; variantWords: readonly string[]; mentionedPrice: StatedPrice | null }>,
   context: ChatToolContext, deps: ChatToolDependencies, signal: AbortSignal): Resolved {
   const target = await itemTargetOf(args.item, context, deps, args.reference);
   if (!target.success) return target;
@@ -237,7 +251,7 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     }),
     defineTool({
       name: "remove_item",
-      description: "The buyer asks to take an item out of the open order, or one unit of it: «saca la mochila», «bórralo», «ya no quiero la casaca», «bájale uno».",
+      description: "The buyer asks to take an item out of the open order, or one unit of it: «saca la mochila», «elimínalo», «ya no quiero la casaca», «réstale uno».",
       args: { kind: "decision", questions: (context) => [...itemQuestions(context, "Which item of the open order does the buyer ask to remove?"), amountQuestion] },
       schema: (context) => withReference(context, { item: itemChoice(context), amount: amountChoice }),
       resolve: async (args, context): Resolved => {
@@ -250,9 +264,9 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     }),
     defineTool({
       name: "change_item_quantity",
-      description: "The buyer changes how many units they want of a product already in the open order: «que sean cuatro», «de la casaca solo una». "
+      description: "The buyer changes how many units they want of a product already in the open order: «déjalo en cuatro», «de la casaca solo una». "
         + "Not for asking for products with a quantity («quiero 3 mochilas» adds them), not for taking an item out («saca el short» removes it), "
-        + "and never for asking for more of something the buyer does not name («pásame 3 de esos», «el mismo otra vez»). Give the new quantity as stated.",
+        + "and never for asking for more of something the buyer does not name («agrégame otros tres», «el mismo otra vez»). Give the new quantity as stated.",
       args: { kind: "extracted", questions: (context) => itemQuestions(context, "Which item of the open order does the buyer change the quantity of?") },
       schema: (context) => withReference(context, { item: itemChoice(context), quantity: z.number().int().min(0) }),
       resolve: async (args, context): Resolved => {
@@ -262,12 +276,14 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     }),
     defineTool({
       name: "change_item_variant",
-      description: "The buyer explicitly asks to change an item of the open order to another variant (size, color), such as «pásalo a talla 40» or «mejor la casaca en celeste». "
-        + "Never for a text that only names a variant («en XS», «la prefiero en XS»). Give the variant words as written and the price only if stated.",
-      args: { kind: "extracted", questions: (context) => itemQuestions(context, "Which item of the open order does the buyer ask to change to another variant?") },
-      schema: (context) => withReference(context, { item: itemChoice(context),
-        variantWords: z.array(z.string().max(60)).min(1).max(5).describe("The size and color words to change to as written, with any «talla» or «color» before them, never product words: «mejor la casaquita celeste» gives «celeste»."),
+      description: "The text gives a size or color for an item already in the open order (a product the order does not have is an add, not this item): it asks to change the item to that variant "
+        + "(«pásalo a talla 40», «mejor la casaca en celeste»), or only names the variant, even in one word («en XS», «la prefiero en XS», «celeste»). "
+        + "Give the variant words as written and the price only if stated.",
+      args: { kind: "extracted", questions: (context) => [...itemQuestions(context, "Which item of the open order does the variant refer to?"), changeRequestQuestion] },
+      schema: (context) => withReference(context, { item: itemChoice(context), change: changeRequestChoice,
+        variantWords: z.array(z.string().max(60)).min(1).max(5).describe("The size and color words as written, with any «talla» or «color» before them, never product words: «mejor la casaquita celeste» gives «celeste»."),
         mentionedPrice: mentionedPriceArgs.nullable() }),
+      // The interpreter sends a call without an explicit change request to report_variant_without_product (variantOnlyRule).
       resolve: (args, context, signal) => changeItemVariant(args, context, deps, signal),
     }),
     defineTool({
@@ -293,19 +309,19 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
       name: "report_variant_without_product",
       description: "The text gives only a size or color, even in a single word, with no product name and no verb that changes an item (pásalo, déjalo en): «en XS», «la prefiero en XS», «celeste», «talla 38». "
         + "Asking for it («la prefiero») with only a size or color is this report, never a change or an add.",
-      args: { kind: "none" }, schema: () => noArgs, resolve: reportOnly({ kind: "variant_only" }),
+      args: { kind: "none" }, reportOnly: true, schema: () => noArgs, resolve: reportOnly({ kind: "variant_only" }),
     }),
     defineTool({
       name: "report_unnamed_add",
-      description: "The buyer asks for more of something without naming it (quiero más, el mismo otra vez, pásame 3 de esos).",
-      args: { kind: "none" }, schema: () => noArgs, resolve: reportOnly({ kind: "unnamed_add" }),
+      description: "The buyer asks for more of something without naming it (quiero más, el mismo otra vez, agrégame otros tres).",
+      args: { kind: "none" }, reportOnly: true, schema: () => noArgs, resolve: reportOnly({ kind: "unnamed_add" }),
     }),
     defineTool({
       name: "report_item_change_without_order",
-      description: "The buyer asks to remove or change something of their order (bórralo, saca el short, que sean cuatro, pásalo a talla 40, la casaca a 90), "
+      description: "The buyer asks to remove or change something of their order (elimínalo, saca el short, déjalo en cuatro, pásalo a talla 40, la casaca a 90), "
         + "but the chat has no open order. Never for asking for products.",
       // Offered instead of the item tools when the order has no items; the order domain reports the missing or closed order.
-      args: { kind: "none" }, schema: () => noArgs, resolve: async (): Resolved => ok(cannotApply(unclear(true, null))),
+      args: { kind: "none" }, reportOnly: true, schema: () => noArgs, resolve: async (): Resolved => ok(cannotApply(unclear(true, null))),
     }),
   ];
 }

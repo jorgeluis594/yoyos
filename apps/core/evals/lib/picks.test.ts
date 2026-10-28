@@ -21,6 +21,15 @@ describe("gradePick", () => {
     expect(gradePick({ source: "action", confidence: 0.5, gate: 0.6, pick: "x" }, record({ expected: [{ outcomes: ["no_intent"] }] }))).toBeNull();
   });
 
+  test("a variant change the interpreter ran as the variant-only report is graded as that report", () => {
+    const variantOnly = (signature: string) => record({ expected: [{ tools: ["report_variant_without_product"], outcomes: ["variant_only"] }], signature });
+    const pick = { source: "action", confidence: 0.9, gate: 0.6, pick: "change_item_variant" } as const;
+
+    expect(gradePick(pick, variantOnly("report_variant_without_product|variant_only|"))).toBe(true);
+    expect(gradePick(pick, variantOnly("change_item_variant|variant_changed|"))).toBe(false);
+    expect(gradePick(pick, record({ expected: [{ tools: ["change_item_variant"], outcomes: ["variant_changed"] }], signature: "report_variant_without_product|variant_only|" }))).toBe(false);
+  });
+
   test("text and variant picks are graded against the acceptable final orders", () => {
     const add = record({ expected: [{ tools: ["add_products"], outcomes: ["added"], order: [line("gorra-trucker", { Color: "Rojo" })] }] });
 

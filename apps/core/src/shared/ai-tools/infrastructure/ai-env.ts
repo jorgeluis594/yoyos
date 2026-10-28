@@ -9,6 +9,7 @@ const aiEnvSchema = z.object({
   AI_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
   MESSAGE_ACTION_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.6),
   MESSAGE_TOOL_PREDICATE_MIN: z.coerce.number().min(0).max(1).default(0.5),
+  MESSAGE_REPORT_PREDICATE_MIN: z.coerce.number().min(0).max(1).default(0.9),
 });
 
 export type AiEnv = z.output<typeof aiEnvSchema>;

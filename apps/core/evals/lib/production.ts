@@ -182,7 +182,7 @@ export function createProductionPath(env: Env) {
 
   return {
     /** The production gates the certainties are compared with, as configured by the same env. */
-    gates: { action: aiTools.minActionConfidence, toolPredicate: aiTools.minToolPredicate, text: textGate, textUnclear: textMatching.identification.unclearMinProbability,
+    gates: { action: aiTools.minActionConfidence, toolPredicate: aiTools.minToolPredicate, reportPredicate: aiTools.minReportPredicate, text: textGate, textUnclear: textMatching.identification.unclearMinProbability,
       variant: textMatching.variants.minConfidence, visual: visualSetup.visual.minConfidence, item: ITEM_CHOICE_MIN_CONFIDENCE },
     embedder: visualSetup.embedder as ImageEmbedder,
     identifyImage: (image: ImageBytes) => inTenant(() => identifyProductsInImage(image, imageIdentification)),

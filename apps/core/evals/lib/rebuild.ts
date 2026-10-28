@@ -1,4 +1,5 @@
 import type { MessageExpectation, OutcomeKind } from "@core/evals/cases/schema";
+import { splitOf, type EvalSplit } from "@core/evals/cases/split";
 import type { CaseRecord } from "@core/evals/lib/case-record";
 import type { ModelCall } from "@core/evals/lib/model-meter";
 import { buildReport, type EvalReport } from "@core/evals/lib/report";
@@ -51,4 +52,16 @@ export function rebuildResult(file: ResultFile, knownLimitations: ReadonlySet<st
   const { runId, startedAt, finishedAt, settings, errorGroups } = file.report;
   const extraCalls = extraCallsOf(file);
   return { report: buildReport(records, { runId, startedAt, finishedAt, settings }, extraCalls, errorGroups), records, extraCalls };
+}
+
+/**
+ * The part of a run in one split (cases/split.ts), to read dev and test apart from one full run. The classifier ran over the whole
+ * run, so its groups keep only this split's cases and its cost is left out.
+ */
+export function splitResult(file: ResultFile, split: EvalSplit): ResultFile {
+  const records = file.records.filter(({ baseId }) => splitOf(baseId) === split);
+  const ids = new Set(records.map(({ caseId }) => caseId));
+  const errorGroups = file.report.errorGroups.map((group) => ({ ...group, caseIds: group.caseIds.filter((id) => ids.has(id)) }))
+    .filter(({ caseIds }) => caseIds.length);
+  return { report: { ...file.report, settings: { ...file.report.settings, split }, errorGroups }, records, extraCalls: [] };
 }

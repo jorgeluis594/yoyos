@@ -1,13 +1,15 @@
 import { parseCases, passes, type EvalCase, type EvalCaseInput, type EvalPass } from "@core/evals/cases/schema";
 import { interpretationCases } from "@core/evals/cases/interpretation";
+import { holdoutV1Cases } from "@core/evals/cases/holdout-v1";
 import { endToEndCaseIds, endToEndCasesFrom } from "@core/evals/cases/end-to-end";
 import { imageCasesFrom, textCases } from "@core/evals/cases/identification";
 import { paraphrases } from "@core/evals/cases/paraphrases";
+import { splitOfCase, type EvalSplit } from "@core/evals/cases/split";
 import { readPhotoManifest, type ImageManifest } from "@core/evals/fixtures/image-manifest";
 
 /** Every base case; the photo cases come from the photo manifest, and without one only the photo-free cases remain. */
 export const baseCasesOf = (manifest: ImageManifest | null): readonly EvalCaseInput[] =>
-  [...interpretationCases, ...textCases, ...imageCasesFrom(manifest), ...endToEndCasesFrom(manifest)];
+  [...interpretationCases, ...holdoutV1Cases, ...textCases, ...imageCasesFrom(manifest), ...endToEndCasesFrom(manifest)];
 
 export const imageManifest = readPhotoManifest(process.env);
 export const baseCases = baseCasesOf(imageManifest);
@@ -37,15 +39,15 @@ export function casesOf(manifest: ImageManifest | null): readonly EvalCase[] {
 
 export const allCases: readonly EvalCase[] = casesOf(imageManifest);
 
-export type Selection = Readonly<{ maxCases?: number; ids?: readonly string[]; skipParaphrases?: boolean }>;
+export type Selection = Readonly<{ maxCases?: number; ids?: readonly string[]; skipParaphrases?: boolean; split?: EvalSplit }>;
 
 /**
- * The cases of this run. Ids select a case and its paraphrases. The cap takes cases round-robin over the passes, in table order,
- * so a small debug run still touches every pass.
+ * The cases of this run. Ids select a case and its paraphrases; a split keeps only its cases (cases/split.ts). The cap takes cases
+ * round-robin over the passes, in table order, so a small debug run still touches every pass.
  */
 export function selectCases(cases: readonly EvalCase[], selection: Selection): readonly EvalCase[] {
   const wanted = cases.filter((testCase) => (!selection.ids?.length || selection.ids.includes(testCase.id) || selection.ids.includes(testCase.paraphraseOf ?? ""))
-    && !(selection.skipParaphrases && testCase.paraphraseOf));
+    && !(selection.skipParaphrases && testCase.paraphraseOf) && (!selection.split || splitOfCase(testCase) === selection.split));
   if (selection.maxCases === undefined || wanted.length <= selection.maxCases) return wanted;
   const queues = passes.map((pass) => wanted.filter((testCase) => testCase.pass === pass));
   const picked: EvalCase[] = [];

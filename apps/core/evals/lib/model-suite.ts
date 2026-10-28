@@ -42,7 +42,7 @@ export function defineModelSuite<Pass extends EvalPass>(name: string, pass: Pass
     ?? (options.photosRequired && !imageManifest ? "Image evals skipped: no photo manifest (evals/fixtures/images/README.md, EVAL_IMAGES_DIR)." : null);
   if (blocker) console.warn(`${name}: ${blocker}`);
   const cases = casesOfPass(selectCases(allCases, { maxCases: env.EVAL_MAX_CASES, ids: env.EVAL_CASES?.split(",").map((id) => id.trim()),
-    skipParaphrases: env.EVAL_SKIP_PARAPHRASES === "1" }), pass);
+    skipParaphrases: env.EVAL_SKIP_PARAPHRASES === "1", split: env.EVAL_SPLIT === "all" ? undefined : env.EVAL_SPLIT }), pass);
   let context: RunCaseContext | null = null;
 
   const harness = createHarness<CaseRun<Extract<EvalCase, { pass: Pass }>>, JsonValue>({

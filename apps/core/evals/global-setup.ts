@@ -46,7 +46,7 @@ export default function setup(project: TestProject) {
     const imagesDir = imagesDirOf(shellAndFile);
     const meta = { runId, startedAt: startedAt.toISOString(), finishedAt: new Date().toISOString(),
       settings: { claudeModel: env.EVAL_CLAUDE_MODEL, maxCases: env.EVAL_MAX_CASES ?? "all", cases: env.EVAL_CASES ?? "all", repeats: env.EVAL_REPEATS,
-        skipParaphrases: env.EVAL_SKIP_PARAPHRASES === "1", imagesDir, photoManifest: readImageManifest(imagesDir) !== null,
+        skipParaphrases: env.EVAL_SKIP_PARAPHRASES === "1", split: env.EVAL_SPLIT, imagesDir, photoManifest: readImageManifest(imagesDir) !== null,
         localPhotos: readImageManifest(localImagesDirOf(shellAndFile))?.entries.length ?? 0, blocker: modelSuitesBlocker(env) } };
     const draft = buildReport(records, meta);
     const classified = await classify(draft.failures, env);

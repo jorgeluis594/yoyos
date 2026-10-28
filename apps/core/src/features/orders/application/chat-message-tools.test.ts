@@ -40,11 +40,11 @@ describe("chat tool registry", () => {
     expect(names("photo_not_product")).toEqual(["no_intent", "report_request_with_non_product_image"]);
   });
 
-  test("offers the item tools only when the open order has items, and the report of a change without order otherwise", () => {
+  test("offers the item tools only when the open order has items, and the reports of a change without order or of a variant without product otherwise", () => {
     const orderItem = { label: "I1", variantId: item.variantId, productId, productName: "Polo", variantAttributes: { Talla: "M" }, quantity: 1, unitPrice: item.unitPrice };
     const names = (items: ChatToolContext["items"]) => toolsFor(registry, { kind: "text", items }).map(({ name }) => name).sort();
     expect(names([orderItem])).toEqual(["add_products", "change_item_quantity", "change_item_variant", "mark_order_ready", "no_intent", "remove_item",
-      "report_unnamed_add", "report_variant_without_product", "set_item_mentioned_price"]);
+      "report_unnamed_add", "set_item_mentioned_price"]);
     expect(names([])).toEqual(["add_products", "mark_order_ready", "no_intent", "report_item_change_without_order", "report_unnamed_add", "report_variant_without_product"]);
   });
 

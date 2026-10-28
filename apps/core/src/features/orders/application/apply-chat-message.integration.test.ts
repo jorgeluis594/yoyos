@@ -67,7 +67,7 @@ const registry = createChatToolRegistry({
   resolveVariant: (input, signal) => resolveVariant(input, { minConfidence: 0.8, chooseVariant: async () => ok({ variantId: null, confidence: 0 }) }, signal),
 });
 // A text is a greeting for the faked decision API.
-const ai = { minActionConfidence: 0.6, minToolPredicate: 0.5, extract: async () => ok([]),
+const ai = { minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9, extract: async () => ok([]),
   decide: async () => ok({ action: { choice: "no_intent", confidence: 0.95 }, predicates: {}, choices: {} }) };
 
 function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = {}): ApplyChatMessageDependencies {

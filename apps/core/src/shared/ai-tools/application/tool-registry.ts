@@ -26,6 +26,8 @@ export type ToolDefinition<Context, Args, Action, E extends AppError> = Readonly
   description: string;
   schema: (context: Context) => z.ZodType<Args>;
   args: ToolArgsSource<Context>;
+  /** The tool only reports to the caller and never changes its state: its own Decision predicate may select it under the action gate. */
+  reportOnly?: boolean;
   /** Runs outside any transaction. */
   resolve: (args: Args, context: Context, signal: AbortSignal) => Promise<Result<readonly Action[], E>>;
 }>;
@@ -34,12 +36,13 @@ export type RegisteredTool<Context, Action, E extends AppError> = Readonly<{
   name: string;
   description: string;
   args: ToolArgsSource<Context>;
+  reportOnly: boolean;
   jsonSchema: (context: Context) => JsonSchema;
   parseAndResolve: (raw: unknown, context: Context, signal: AbortSignal) => Promise<Result<readonly Action[], E | AiError>>;
 }>;
 
 /** What the orchestrator needs to offer a tool: everything but the arguments' parsing and resolution. */
-export type OfferedTool<Context> = Pick<RegisteredTool<Context, never, never>, "name" | "description" | "args" | "jsonSchema">;
+export type OfferedTool<Context> = Pick<RegisteredTool<Context, never, never>, "name" | "description" | "args" | "jsonSchema" | "reportOnly">;
 
 export type ToolRegistry<Context, Action, E extends AppError> = Readonly<{
   tools: readonly RegisteredTool<Context, Action, E>[];
@@ -61,6 +64,7 @@ export function defineTool<Context, Args, Action, E extends AppError>(
     name: definition.name,
     description: definition.description,
     args: definition.args,
+    reportOnly: definition.reportOnly ?? false,
     jsonSchema: (context) => toStrictSchema(originalSchema(definition.schema(context))) as JsonSchema,
     parseAndResolve: async (raw, context, signal) => {
       const schema = definition.schema(context);

@@ -9,8 +9,8 @@ type Action = Readonly<{ kind: string }>;
 
 const itemQuestion = (context: Context) => [{ name: "item", instructions: "Which item?", choices: context.items.map((value) => ({ value })) }];
 
-function fakeTool(name: string, args: ToolArgsSource<Context>, schema: z.ZodType = z.object({})) {
-  return defineTool<Context, unknown, Action, never>({ name, description: `Does ${name}`, schema: () => schema, args, resolve: async () => ok([{ kind: name }]) });
+function fakeTool(name: string, args: ToolArgsSource<Context>, schema: z.ZodType = z.object({}), reportOnly = false) {
+  return defineTool<Context, unknown, Action, never>({ name, description: `Does ${name}`, schema: () => schema, args, reportOnly, resolve: async () => ok([{ kind: name }]) });
 }
 
 const ready = fakeTool("mark_order_ready", { kind: "none" });
@@ -18,6 +18,8 @@ const remove = fakeTool("remove_item", { kind: "decision", questions: itemQuesti
 const add = fakeTool("add_item", { kind: "extracted" }, z.object({ product: z.string() }));
 const setPrice = fakeTool("set_item_mentioned_price", { kind: "extracted", questions: itemQuestion },
   z.object({ item: z.object({ value: z.string(), confidence: z.number() }), price: z.number() }));
+const unnamedAdd = fakeTool("report_unnamed_add", { kind: "none" }, z.object({}), true);
+const variantOnly = fakeTool("report_variant_only", { kind: "none" }, z.object({}), true);
 const tools = [ready, remove, add, setPrice];
 const context: Context = { items: ["A", "B"] };
 const parts = [{ kind: "text", text: "quita la gorra" }] as const;
@@ -28,7 +30,7 @@ function setup(reply: Reply, extracted: readonly { tool: string; args: unknown }
   const decisions: DecisionRequest[] = [];
   const extractions: ExtractionRequest[] = [];
   const deps: OrchestrateDependencies = {
-    minActionConfidence: 0.6, minToolPredicate: 0.5,
+    minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9,
     decide: async (request) => {
       decisions.push(request);
       return ok({ action: { choice: reply.action, confidence: reply.confidence ?? 0.9 },
@@ -88,6 +90,19 @@ describe("orchestrate", () => {
     expect(extractions).toEqual([]);
   });
 
+  test("under the action gate, calls a report-only tool whose own predicate is clear and no other tool's reaches the predicate minimum", async () => {
+    const offered = [ready, remove, add, unnamedAdd, variantOnly];
+    const clear = setup({ action: "add_item", confidence: 0.4, predicates: { report_unnamed_add: 0.95, add_item: 0.45 } });
+    expect(await clear.run(offered)).toEqual({ success: true, data: { kind: "calls", extraction: false, calls: [{ tool: "report_unnamed_add", args: {} }] } });
+    expect(clear.extractions).toEqual([]);
+
+    const changeAlsoLikely = setup({ action: "report_unnamed_add", confidence: 0.4, predicates: { report_unnamed_add: 0.95, add_item: 0.5 } });
+    const twoReports = setup({ action: "report_unnamed_add", confidence: 0.4, predicates: { report_unnamed_add: 0.95, report_variant_only: 0.92 } });
+    const weak = setup({ action: "report_unnamed_add", confidence: 0.4, predicates: { report_unnamed_add: 0.85 } });
+    const notReport = setup({ action: "mark_order_ready", confidence: 0.4, predicates: { mark_order_ready: 1 } });
+    for (const { run } of [changeAlsoLikely, twoReports, weak, notReport]) expect(await run(offered)).toEqual({ success: true, data: { kind: "ambiguous" } });
+  });
+
   test("returns ambiguous when several actions select fewer than two tools", async () => {
     const { run, extractions } = setup({ action: "several", predicates: { add_item: 0.9, remove_item: 0.49 } });
     expect(await run()).toEqual({ success: true, data: { kind: "ambiguous" } });
@@ -141,7 +156,7 @@ describe("orchestrate", () => {
 
   test("returns the provider failure of the decision or extraction call", async () => {
     const unavailable = { code: "AI_PROVIDER_UNAVAILABLE", message: "down" } as const;
-    const deps: OrchestrateDependencies = { minActionConfidence: 0.6, minToolPredicate: 0.5, decide: async () => err(unavailable), extract: async () => err(unavailable) };
+    const deps: OrchestrateDependencies = { minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9, decide: async () => err(unavailable), extract: async () => err(unavailable) };
     const signal = new AbortController().signal;
     expect(await orchestrate({ messageParts: parts, contextText: "", context, tools }, deps, signal)).toEqual(err(unavailable));
     const extractOnly: OrchestrateDependencies = { ...deps, decide: async () => ok({ action: { choice: "add_item", confidence: 1 }, predicates: {}, choices: {} }) };

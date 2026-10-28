@@ -20,13 +20,13 @@ Argument sources:
 
 ## Orchestration
 
-1. One Decision request asks an `action` choice over the offered tool names plus `several`, one predicate per offered tool, and the questions of every offered tool that declares them. Its text is the fixed instructions, the feature's context and «The buyer's message:», followed by the message parts: without that label the model read the order summary as part of the request and chose right with low confidence. Several things through one action are that action; `several` is only for two or more different actions. The feature decides which tools are offered for each message (`toolsFor` in orders).
-2. Action confidence below `MESSAGE_ACTION_MIN_CONFIDENCE` (default 0.6) → `ambiguous`, with no extraction call.
+1. One Decision request asks an `action` choice over the offered tool names plus `several`, one predicate per offered tool (whether the message asks for that action, alone or next to another request: without that clause the model often scored a second request such as «and that's all» low), and the questions of every offered tool that declares them. Its text is the fixed instructions, the feature's context and «The buyer's message:», followed by the message parts: without that label the model read the order summary as part of the request and chose right with low confidence. Several things through one action are that action; `several` is only for two or more different actions. The feature decides which tools are offered for each message (`toolsFor` in orders).
+2. Action confidence below `MESSAGE_ACTION_MIN_CONFIDENCE` (default 0.6) → `ambiguous`, with no extraction call. One exception: a tool registered `reportOnly` (it never changes the caller's state) and without arguments is still called when its own predicate is at least `MESSAGE_REPORT_PREDICATE_MIN` (default 0.9), it is the only report there, and no other offered tool's predicate reaches `MESSAGE_TOOL_PREDICATE_MIN`. The action choice spreads over similar tools («add» and «add without a name») while the tool's own predicate can stay clear; a wrong report costs a notice, never a change. Measured on the eval dev split (T18): it gave three unnamed adds the notice they were missing (missed notices in the eval's terms, not dropped requests) and changed no passing case. Accepting `several` whenever two predicates reach 0.5 was measured too and rejected: it fixed nothing and would have read «bájale una» as a removal plus a quantity change.
 3. The selected set is the chosen tool, or, for `several`, the tools whose predicate is at least `MESSAGE_TOOL_PREDICATE_MIN` (default 0.5); fewer than two → `ambiguous`.
 4. Tools of the set with source `none` or `decision` become calls with their Decision answers.
 5. If the set has `extracted` tools, the extraction model is called once with only those tools, and their Decision answers are merged into each returned call.
 
-So removals, «listo», greetings and «quita la gorra y listo» cost one Decision request and no extraction.
+So removals, «listo», greetings and «borra el short y confírmalo» cost one Decision request and no extraction.
 
 ## Providers
 

@@ -29,6 +29,7 @@ and only `smoke.eval.ts` runs. It refuses to run when `CI` is set, and it is not
 | `EVAL_CASES` | Comma-separated case ids; a base id also selects its paraphrases. |
 | `EVAL_REPEATS` | Runs of each `consistency` case (default 3; 1 turns the check off). |
 | `EVAL_SKIP_PARAPHRASES` | `1` runs base cases only. |
+| `EVAL_SPLIT` | `dev`, `test` or `all` (default): the split of the cases to run (see «Dev and test splits»). |
 | `EVAL_IMAGES_DIR` | Photo folder with its `manifest.json`, relative to `apps/core` (default `evals/fixtures/images`). |
 | `EVAL_LOCAL_IMAGES_DIR` | Local, gitignored folder of real captures with its own manifest, merged at run time (default `evals/fixtures/images-local`). Never commit real captures. |
 
@@ -83,6 +84,16 @@ unscored. Mark a case `ambiguous` with the reason when a reasonable reader could
 `pnpm exec tsx evals/scripts/generate-paraphrases.ts` with Claude, reviewed by hand and committed. Evals never regenerate them,
 so runs stay comparable. Prompt injection cases are not paraphrased.
 
+## Dev and test splits
+
+Every case belongs to the `dev` or the frozen `test` split (`cases/split.ts`): a stable SHA-256 hash of its base id puts about 30%
+of the base cases in `test`, and a paraphrase follows its base case. Adding or removing a case never moves another one. Tune
+prompts and rules on `EVAL_SPLIT=dev` (with `EVAL_CASES` and tags for subsets) and read `test` only after tuning, case by case
+never while tuning. A full run (`all`) is read per split with `EVAL_SPLIT=dev pnpm exec tsx evals/scripts/rebuild-report.ts
+eval-results/<run>.json`, which writes `<run>.dev.json` and leaves the run as it is (the classifier's cost stays in the run).
+`cases/holdout-v1.ts` is the first holdout, used once to judge T16: it is now an ordinary table, split like the others; its
+`probe` rows target risks beyond the design and are reported under `tag:probe`.
+
 ## Scoring
 
 Tool (as a set), outcomes (as a multiset), product, variant, quantity and mentioned price are exact matches against the final
@@ -106,7 +117,8 @@ model returned (mentions, variant words, quantity, price) and each text choice. 
 - calibration per pass and certainty source at the production gate of that source (`gates`: action `MESSAGE_ACTION_MIN_CONFIDENCE`,
   text and variant and visual `PRODUCT_MATCH_MIN_CONFIDENCE`, item `ITEM_CHOICE_MIN_CONFIDENCE`). Each certainty records the model's
   own `pick` and is graded by it (`lib/picks.ts`), not by the outcome, which below a gate the gate itself decides: the Decision's
-  action is right when it is the expected tool (`several` for several tools); a text, visual or variant pick when an acceptable final
+  action is right when it is the expected tool (`several` for several tools; a `change_item_variant` pick the interpreter ran as
+  `report_variant_without_product`, because the buyer did not explicitly ask for the change, counts as that report); a text, visual or variant pick when an acceptable final
   order (or the text or image expectation) has that product or variant; a «none» pick when the case expects nothing identified
   or no product. A pick on a photo the case declines is ungraded: no order says which product it showed. Item choices and picks a case cannot grade are counted as
   ungraded. «none» answers of the text, variant and vision choosers are their own sources (`text_none`, `variant_none`,

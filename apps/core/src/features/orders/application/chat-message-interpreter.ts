@@ -6,6 +6,7 @@ import type { AiError } from "@core/src/shared/ai-tools/application/ai-error";
 import type { ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
 import { toolsFor, type ChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
 import type { ChatToolContext, ToolResolveError } from "@core/src/features/orders/application/chat-tool-types";
+import { changeRequestChoice, ITEM_CHOICE_MIN_CONFIDENCE } from "@core/src/features/orders/application/chat-text-tools";
 
 /** How the interpretation runs: the models choose, or the use case already knows the tool and no model is called. */
 export type InterpretationPlan =
@@ -38,11 +39,28 @@ function inRegistryOrder(plan: Extract<ToolCallPlan, { kind: "calls" }>, registr
   return first ? { ...plan, calls: [first, ...rest] } : plan;
 }
 
+/**
+ * Founder rule (docs/message-to-order.md «Change variant»): only an explicit change request changes an item's variant. A variant call
+ * whose Decision answer is missing or not a confident `requested` becomes the `variant_only` report, once per message, so nothing changes
+ * and the seller is told; the message's other calls stay.
+ */
+export function variantOnlyRule(plan: Extract<ToolCallPlan, { kind: "calls" }>): Extract<ToolCallPlan, { kind: "calls" }> {
+  const requested = (args: unknown) => {
+    const change = changeRequestChoice.safeParse((args as { change?: unknown } | null)?.change);
+    return change.success && change.data.value === "requested" && change.data.confidence >= ITEM_CHOICE_MIN_CONFIDENCE;
+  };
+  const report = { tool: "report_variant_without_product", args: {} };
+  const rewritten = plan.calls.map((call) => call.tool === "change_item_variant" && !requested(call.args) ? report : call);
+  // Two rewritten variant calls are one notice, not two.
+  const [first, ...rest] = rewritten.filter((call, index) => call !== report || rewritten.indexOf(report) === index);
+  return { ...plan, calls: [first!, ...rest] };
+}
+
 /** Binds the generic orchestrator and executor to the chat tools. Without models (`ai` null) only planned tools can run. */
 export function createChatInterpreter(registry: ChatToolRegistry, ai: OrchestrateDependencies | null): InterpretAndApply {
   return async (request, signal, run) => {
     const execute = async (unordered: Extract<ToolCallPlan, { kind: "calls" }>, decisionCalls: number) => {
-      const plan = inRegistryOrder(unordered, registry);
+      const plan = inRegistryOrder(variantOnlyRule(unordered), registry);
       const executed = await executeToolCalls({ plan, registry, context: request.context, signal, run });
       return executed.success ? ok({ applied: executed.data, trace: { tools: plan.calls.map(({ tool }) => tool), extraction: plan.extraction, decisionCalls } }) : executed;
     };

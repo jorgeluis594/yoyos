@@ -67,9 +67,22 @@ describe("createOpenAIVariantChooser", () => {
   const variants = ["S", "M"].map((size, index) => ({ variantId: `variant-${index}` as VariantId, productName: "Polo", variantAttributes: { Talla: size }, sku: null, unitPrice: { amount: 35, currency: "PEN" as const } }));
 
   test("maps the chosen label to a variant and none to null", async () => {
-    expect(await createOpenAIVariantChooser(config(clientFor(async () => answer("B", 0.92, []))))({ words: ["la mediana"], variants }, signal))
+    expect(await createOpenAIVariantChooser(config(clientFor(async () => answer("B", 0.92, []))))({ words: ["la mediana"], variants, base: null }, signal))
       .toEqual({ success: true, data: { variantId: "variant-1", confidence: 0.92 } });
-    expect(await createOpenAIVariantChooser(config(clientFor(async () => answer("none", 0.9, []))))({ words: ["la xl"], variants }, signal))
+    expect(await createOpenAIVariantChooser(config(clientFor(async () => answer("none", 0.9, []))))({ words: ["la xl"], variants, base: null }, signal))
       .toEqual({ success: true, data: { variantId: null, confidence: 0.9 } });
+  });
+
+  test("sends the base variant as data and the rule that unnamed attributes keep its values, only when there is a base", async () => {
+    const bodies: { text: string; instructions: string }[] = [];
+    const record = (sent: { input: { content: { text: string }[] }[]; questions: unknown[] }) =>
+      bodies.push({ text: sent.input[0]!.content[0]!.text, instructions: (sent.questions[0] as { instructions: string }).instructions });
+    const choose = createOpenAIVariantChooser(config(clientFor(async () => answer("B", 0.9, []), record)));
+    await choose({ words: ["XS"], variants, base: variants[0]! }, signal);
+    await choose({ words: ["XS"], variants, base: null }, signal);
+    expect(bodies[0]!.text).toBe("Customer words: XS\nBase variant: Talla: S\nVariants:\nA: Talla: S\nB: Talla: M");
+    expect(bodies[0]!.instructions).toContain("keep the value of the base variant");
+    expect(bodies[1]!.text).not.toContain("Base variant");
+    expect(bodies[1]!.instructions).not.toContain("base");
   });
 });
