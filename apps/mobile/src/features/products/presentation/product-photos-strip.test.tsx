@@ -191,6 +191,16 @@ test("each thumbnail is announced with position, state and the actions hint", as
   expect(controller.field.photos[0]?.key).toBe("saved-2");
 });
 
+test("a failed thumbnail shows No se subió under the square instead of Principal", async () => {
+  render(<Harness />);
+  galleryReturns("a");
+  await chooseFrom("Elegir de galería");
+  await settle();
+  await act(async () => { pending[0]?.resolve(failure("SERVICE_UNAVAILABLE")); });
+  expect(screen.getByText("No se subió")).toBeTruthy();
+  expect(screen.queryByText("Principal")).toBeNull();
+});
+
 test("tapping a failed thumbnail opens Foto 2 de 3 with the reason, Reintentar, Quitar and Cancelar", async () => {
   render(<Harness photos={saved(1)} />);
   galleryReturns("a", "b");
@@ -340,6 +350,7 @@ test("shows the Portuguese texts and singular counts", async () => {
     await act(async () => { pending[0]?.resolve(failure("INTERNAL_ERROR")); });
     expect(screen.getByText("1 foto não foi enviada. Toque nela para ver o motivo.")).toBeTruthy();
     expect(screen.getByLabelText("Foto 2 de 2, não enviada: Não foi possível enviar. Verifique a conexão.")).toBeTruthy();
+    expect(screen.getByText("Não foi enviada")).toBeTruthy();
   } finally { await act(async () => { await i18n.changeLanguage("es"); }); }
 });
 

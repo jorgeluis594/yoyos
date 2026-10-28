@@ -137,7 +137,7 @@ export function ProductPhotosStrip({ photos, disabled = false }: { photos: Photo
           const primary = photos.primary === photo.key;
           const uri = photo.kind === "saved" || photo.kind === "uploaded" ? photo.url : photos.previewOf(photo.key) ?? photo.previewUrl;
           const marked = (photo.kind === "saved" || photo.kind === "uploaded") && photo.marked;
-          const label = marked ? t(photo.kind === "saved" ? "rowWillBeDeleted" : "rowWillBeRemoved") : primary ? t("photoPrimary") : null;
+          const label = photo.kind === "failed" ? t("photoNotUploaded") : marked ? t(photo.kind === "saved" ? "rowWillBeDeleted" : "rowWillBeRemoved") : primary ? t("photoPrimary") : null;
           const actions = actionsOf(photo, primary, photos, t);
           const position = index + 1;
           return <Pressable key={photo.key} ref={(node) => { if (node) nodes.current.set(photo.key, node); else nodes.current.delete(photo.key); }}
