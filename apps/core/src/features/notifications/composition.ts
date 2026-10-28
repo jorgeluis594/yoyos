@@ -1,7 +1,8 @@
 import { err, ok } from "@shared/functional";
-import { orders } from "@core/src/features/orders";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
+import type { ClaimedNotice } from "@core/src/features/orders/domain/seller-notice";
+import type { NoticeLocale } from "@core/src/features/orders/application/describe-chat-message-notice";
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import type { EventHandler } from "@core/src/shared/events/application/contracts";
 import { log } from "@core/src/shared/infrastructure/logger";
@@ -37,11 +38,21 @@ export function pushNoticeDependencies(env: NotificationsEnv = readNotifications
 
 export { sendChatMessageNotice };
 
+/** What the handler needs from orders; `src/composition` supplies it so notifications does not depend on orders. */
+export type NoticeOrders = Readonly<{
+  claimChatMessageNotice: (messageId: ChatMessageId) => ReturnType<SendChatMessageNoticeDependencies<ClaimedNotice>["claimNotice"]>;
+  describeChatMessageNotice: (claim: ClaimedNotice, locale: NoticeLocale) => ReturnType<SendChatMessageNoticeDependencies<ClaimedNotice>["describeNotice"]>;
+  releaseChatMessageNotice: (messageId: ChatMessageId) => ReturnType<SendChatMessageNoticeDependencies["releaseNotice"]>;
+}>;
+
 /** Handler of `chat_message_processed`: claims the notice in orders, then sends it to the phone that registered the message. */
-export function createSendChatMessageNoticeHandler(infrastructure: Pick<SendChatMessageNoticeDependencies, "findDeviceForSession" | "sendPush" | "removeDevice">): EventHandler<AppEvents, "chat_message_processed"> {
+export function createSendChatMessageNoticeHandler(
+  infrastructure: Pick<SendChatMessageNoticeDependencies, "findDeviceForSession" | "sendPush" | "removeDevice">,
+  orders: NoticeOrders,
+): EventHandler<AppEvents, "chat_message_processed"> {
   return (payload, _metadata, context) => withTenantIsolation(payload.companyId, async () => {
     const base = { companyId: payload.companyId, messageId: payload.messageId, attempt: context.attempt };
-    const result = await sendChatMessageNotice(payload, { attempt: context.attempt }, {
+    const result = await sendChatMessageNotice<ClaimedNotice>(payload, { attempt: context.attempt }, {
       ...infrastructure,
       claimNotice: (messageId) => orders.claimChatMessageNotice(messageId as ChatMessageId),
       describeNotice: (claim, locale) => orders.describeChatMessageNotice(claim, locale),
@@ -53,7 +64,3 @@ export function createSendChatMessageNoticeHandler(infrastructure: Pick<SendChat
     return ok(undefined);
   });
 }
-
-let handler: ReturnType<typeof createSendChatMessageNoticeHandler> | undefined;
-export const sendChatMessageNoticeHandler: EventHandler<AppEvents, "chat_message_processed"> = (payload, metadata, context) =>
-  (handler ??= createSendChatMessageNoticeHandler(pushNoticeDependencies()))(payload, metadata, context);

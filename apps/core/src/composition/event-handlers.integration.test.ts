@@ -29,7 +29,7 @@ vi.mock("@core/src/shared/images/infrastructure/qr-code-reader", () => ({
 import { applyChatMessage, sendChatMessageNotice } from "@core/src/composition/event-handlers";
 import { createSendChatMessageNoticeHandler } from "@core/src/features/notifications/composition";
 import type { PushDevice } from "@core/src/features/notifications/domain/push-device";
-import { applyChatMessageHandler } from "@core/src/features/orders/composition";
+import { applyChatMessageHandler, orders } from "@core/src/features/orders/composition";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 async function fixture() {
@@ -275,7 +275,7 @@ describe("notice queue outage", () => {
         findDeviceForSession: async () => ok(device),
         sendPush: async () => { attempts.push(Date.now()); return err({ code: "PROVIDER_UNAVAILABLE", message: "down", retryable: true }); },
         removeDevice: async () => ok(null),
-      }) };
+      }, orders) };
     const producer = createPgBossProvider<AppEvents>({ connectionString, subscriptions: [noticeDefinition] });
     const worker = createPgBossProvider<AppEvents>({ connectionString, subscriptions: [noticeDefinition], consume: true });
     const pool = new pg.Pool({ connectionString });

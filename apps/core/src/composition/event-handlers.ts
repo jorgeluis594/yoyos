@@ -2,9 +2,9 @@ import { err } from "@shared/functional";
 import { restoreCancelledOrderStock, restoreProductStock } from "@core/src/features/products";
 import { parseMessageCreated } from "@core/src/features/chats/infrastructure/event-payloads";
 import { applyChatMessageDeadLetterId, applyChatMessageQueueId, chatMessageDeadLetterPolicy, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
-import { applyChatMessageHandler, chatMessageDeadLetterHandler } from "@core/src/features/orders/composition";
+import { orders, applyChatMessageHandler, chatMessageDeadLetterHandler } from "@core/src/features/orders/composition";
 import { sendChatMessageNoticePolicy, sendChatMessageNoticeQueueId } from "@core/src/features/notifications/application/send-chat-message-notice-policy";
-import { sendChatMessageNoticeHandler } from "@core/src/features/notifications";
+import { createSendChatMessageNoticeHandler, pushNoticeDependencies } from "@core/src/features/notifications";
 import { indexProductImagePolicy } from "@core/src/features/products/application/index-product-image";
 import { indexProductImageHandler } from "@core/src/features/products/composition";
 import { parseProductImageChanged } from "@core/src/features/products/infrastructure/event-payloads";
@@ -57,9 +57,10 @@ export const applyChatMessage = defineEventHandler<AppEvents, "message_created">
   (payload, metadata, context) => applyChatMessageHandler(payload, metadata, context),
   { id: applyChatMessageQueueId, parsePayload: parseMessageCreated, policy: { ...chatMessagePolicy, deadLetter: {
     id: applyChatMessageDeadLetterId, handler: (payload, metadata, context) => chatMessageDeadLetterHandler(payload, metadata, context), policy: chatMessageDeadLetterPolicy } } });
+let sendChatMessageNoticeHandler: ReturnType<typeof createSendChatMessageNoticeHandler> | undefined;
 // The notice is secondary: no ordering key, so a provider outage never holds a chat back.
 export const sendChatMessageNotice = defineEventHandler<AppEvents, "chat_message_processed">("chat_message_processed",
-  (payload, metadata, context) => sendChatMessageNoticeHandler(payload, metadata, context),
+  (payload, metadata, context) => (sendChatMessageNoticeHandler ??= createSendChatMessageNoticeHandler(pushNoticeDependencies(), orders))(payload, metadata, context),
   { id: sendChatMessageNoticeQueueId, parsePayload: parseChatMessageProcessed, policy: sendChatMessageNoticePolicy });
 export const indexProductImage = defineEventHandler<AppEvents, "product_image_changed">("product_image_changed",
   (payload, metadata, context) => indexProductImageHandler(payload, metadata, context),

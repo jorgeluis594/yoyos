@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createSendChatMessageNoticeHandler } from "@core/src/features/notifications/composition";
+import { orders } from "@core/src/features/orders/composition";
 import type { NoticeLocale, PushDevice } from "@core/src/features/notifications/domain/push-device";
 import type { RenderedNotice } from "@core/src/features/notifications/application/send-chat-message-notice";
 import type { ChatMessageOutcomes } from "@core/src/features/orders/domain/chat-message-outcome";
@@ -56,7 +57,7 @@ function handlerFor(locale: NoticeLocale, sendResults: Array<"ok" | "unavailable
       return ok(null);
     },
     removeDevice: async () => ok(null),
-  });
+  }, orders);
   const run = (f: Fixture, messageId: string, attempt = 1) => handler({ companyId: f.companyId as never, messageId: messageId as never },
     { eventId: messageId, occurredAt: new Date().toISOString() }, { signal: new AbortController().signal, attempt });
   return { run, sent, lookups };
