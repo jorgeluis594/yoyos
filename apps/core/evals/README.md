@@ -29,6 +29,7 @@ and only `smoke.eval.ts` runs. It refuses to run when `CI` is set, and it is not
 | `EVAL_CASES` | Comma-separated case ids; a base id also selects its paraphrases. |
 | `EVAL_REPEATS` | Runs of each `consistency` case (default 3; 1 turns the check off). |
 | `EVAL_SKIP_PARAPHRASES` | `1` runs base cases only. |
+| `EVAL_SPLIT` | `dev`, `test` or `all` (default): the split of the cases to run (see «Dev and test splits»). |
 | `EVAL_IMAGES_DIR` | Photo folder with its `manifest.json`, relative to `apps/core` (default `evals/fixtures/images`). |
 | `EVAL_LOCAL_IMAGES_DIR` | Local, gitignored folder of real captures with its own manifest, merged at run time (default `evals/fixtures/images-local`). Never commit real captures. |
 
@@ -82,6 +83,16 @@ unscored. Mark a case `ambiguous` with the reason when a reasonable reader could
 `cases/paraphrases.ts` holds Peruvian-chat rewrites of the message cases, generated once by
 `pnpm exec tsx evals/scripts/generate-paraphrases.ts` with Claude, reviewed by hand and committed. Evals never regenerate them,
 so runs stay comparable. Prompt injection cases are not paraphrased.
+
+## Dev and test splits
+
+Every case belongs to the `dev` or the frozen `test` split (`cases/split.ts`): a stable SHA-256 hash of its base id puts about 30%
+of the base cases in `test`, and a paraphrase follows its base case. Adding or removing a case never moves another one. Tune
+prompts and rules on `EVAL_SPLIT=dev` (with `EVAL_CASES` and tags for subsets) and read `test` only after tuning, case by case
+never while tuning. A full run (`all`) is read per split with `EVAL_SPLIT=dev pnpm exec tsx evals/scripts/rebuild-report.ts
+eval-results/<run>.json`, which writes `<run>.dev.json` and leaves the run as it is (the classifier's cost stays in the run).
+`cases/holdout-v1.ts` is the first holdout, used once to judge T16: it is now an ordinary table, split like the others; its
+`probe` rows target risks beyond the design and are reported under `tag:probe`.
 
 ## Scoring
 

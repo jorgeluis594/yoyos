@@ -13,6 +13,8 @@ const evalEnvSchema = z.object({
   EVAL_REPEATS: z.coerce.number().int().min(1).max(5).default(3),
   /** Skips the generated paraphrases, for a cheaper run on the base cases only. */
   EVAL_SKIP_PARAPHRASES: z.enum(["0", "1"]).default("0"),
+  /** Runs only the dev split (tuning) or the frozen test split (cases/split.ts); `all` runs both. */
+  EVAL_SPLIT: z.enum(["dev", "test", "all"]).default("all"),
   CI: z.string().optional(),
 });
 
