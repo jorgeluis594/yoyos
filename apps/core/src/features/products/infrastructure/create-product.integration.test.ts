@@ -53,7 +53,7 @@ function grid(shape: readonly number[], sku: string): CreateInput {
   const options = shape.map((count, index) => ({ id: randomUUID(), name: `Opción ${index}`, values: names(`V${index}-`, count) }));
   let combinations: string[][] = [[]];
   for (const option of options) combinations = combinations.flatMap((prefix) => option.values.map((value) => [...prefix, value.id]));
-  return { id: randomUUID() as ProductId, name: "Polo", currency: "PEN", options,
+  return { id: randomUUID() as ProductId, name: "Polo", currency: "PEN", photoIds: [], options,
     variants: combinations.map((values, index) => ({ values, sku: `${sku}-${index}`, salePrice: 10, initialStock: 1 })) as unknown as CreateInput["variants"] };
 }
 

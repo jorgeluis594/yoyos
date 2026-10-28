@@ -19,8 +19,11 @@ test("products:index-images publishes only for products of every company missing
   const published = async () => (await pool.query<{ productId: string }>(
     "SELECT data->'payload'->>'productId' AS \"productId\" FROM pgboss.job WHERE name = 'index-product-image' AND data->'payload'->>'productId' = ANY($1) ORDER BY created_on",
     [[...missing, indexed]])).rows.map(({ productId }) => productId);
-  const product = (id: string, imageId?: string) => ({ id, name: "Shirt", currency: "PEN", qrCode: randomUUID(), status: "active", imageId,
-    createdAt: new Date(), updatedAt: new Date() });
+  const product = (id: string) => ({ id, name: "Shirt", currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() });
+  const withPhoto = async (id: string, imageId: string) => {
+    await prisma.product.create({ data: product(id) });
+    await prisma.productPhoto.create({ data: { productId: id, imageId, position: 0 } });
+  };
 
   try {
     for (const [index, companyId] of companies.entries()) {
@@ -28,12 +31,12 @@ test("products:index-images publishes only for products of every company missing
         await prisma.company.create({ data: { id: companyId, name: `Indexing ${index}`, country: "PE" } });
         const imageId = randomUUID();
         await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
-        await prisma.product.create({ data: product(missing[index], imageId) });
+        await withPhoto(missing[index], imageId);
         await prisma.product.create({ data: product(randomUUID()) });
         if (index === 0) {
           const indexedImage = randomUUID();
           await prisma.image.create({ data: { id: indexedImage, storageKey: `images/${indexedImage}` } });
-          await prisma.product.create({ data: product(indexed, indexedImage) });
+          await withPhoto(indexed, indexedImage);
           await prisma.$executeRaw`INSERT INTO "ImageEmbedding" ("imageId", model, embedding, "createdAt")
             VALUES (${indexedImage}::uuid, ${model}, '[1,0]'::vector, now())`;
         }
@@ -44,7 +47,7 @@ test("products:index-images publishes only for products of every company missing
     expect(run()).toContain(model);
     expect((await published()).sort()).toEqual([...missing].sort());
     await withTenantIsolation(companies[1], async () => await prisma.$executeRaw`INSERT INTO "ImageEmbedding" ("imageId", model, embedding, "createdAt")
-      SELECT "imageId", ${model}, '[1,0]'::vector, now() FROM "Product" WHERE id = ${missing[1]}::uuid`);
+      SELECT "imageId", ${model}, '[1,0]'::vector, now() FROM "ProductPhoto" WHERE "productId" = ${missing[1]}::uuid`);
     run();
     expect((await published()).sort()).toEqual([...missing, missing[0]].sort());
   } finally {

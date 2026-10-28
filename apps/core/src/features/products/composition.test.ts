@@ -13,7 +13,7 @@ vi.mock("@core/src/shared/infrastructure/persistance", () => ({
 vi.mock("@core/src/features/products/application/index-product-image", async (original) => ({
   ...await original<typeof import("@core/src/features/products/application/index-product-image")>(), indexProductImage }));
 
-import { createVisualSearch, indexProductImageHandler, publishProductImageChanged } from "@core/src/features/products/composition";
+import { createVisualSearch, indexProductImageHandler, publishProductPhotosAdded } from "@core/src/features/products/composition";
 
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -57,12 +57,12 @@ describe("product image indexing logs", () => {
   const companyId = "00000000-0000-4000-8000-000000000001";
   const productId = "00000000-0000-4000-8000-000000000002";
 
-  test("product_image_changed_publish_failed carries the publication error as err", async () => {
+  test("product_photos_added_publish_failed carries the publication error as err", async () => {
     const error = vi.spyOn(log, "error").mockImplementation(() => {});
     const failure = { code: "EVENT_BUS_UNAVAILABLE", message: "Event bus is not ready" } as const;
     publishEvent.mockResolvedValueOnce(err(failure));
-    expect(await publishProductImageChanged(productId as never)).toEqual(err(failure));
-    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "product_image_changed_publish_failed", companyId, productId, err: failure }), "product_image_changed_publish_failed");
+    expect(await publishProductPhotosAdded(productId as never)).toEqual(err(failure));
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "product_photos_added_publish_failed", companyId, productId, err: failure }), "product_photos_added_publish_failed");
   });
 
   test("product_image_index_failed carries the use case error as err", async () => {

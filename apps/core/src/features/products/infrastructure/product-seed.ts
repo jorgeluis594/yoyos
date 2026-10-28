@@ -22,7 +22,8 @@ export type SeedProduct = Readonly<{
   id?: string;
   name?: string;
   description?: string | null;
-  imageId?: string | null;
+  /** Image ids in position order; the first is the primary. */
+  photoIds?: readonly string[];
   currency?: string;
   qrCode?: string;
   status?: string;
@@ -70,10 +71,11 @@ export async function seedProduct(input: SeedProduct = {}): Promise<SeededProduc
 
   const result = await withinTransaction(async () => {
     await prisma.product.create({ data: {
-      id: productId, name: input.name ?? "Sample product", description: input.description ?? null, imageId: input.imageId ?? null,
+      id: productId, name: input.name ?? "Sample product", description: input.description ?? null,
       currency: input.currency ?? "PEN", qrCode: input.qrCode ?? randomUUID(), status: input.status ?? "active",
       createdAt: input.createdAt ?? now, updatedAt: input.updatedAt ?? now, structureVersion: input.structureVersion ?? 1,
     } });
+    if (input.photoIds?.length) await prisma.productPhoto.createMany({ data: input.photoIds.map((imageId, position) => ({ productId, imageId, position })) });
     if (options.length) {
       await prisma.productOption.createMany({ data: options.map((option, position) => ({ id: optionIds[option.name], productId, name: option.name, position })) });
       await prisma.productOptionValue.createMany({ data: options.flatMap((option) => option.values.map((value, position) => ({
@@ -107,5 +109,6 @@ export async function deleteSeededProducts(): Promise<void> {
   await prisma.productStock.deleteMany({});
   await prisma.productVariant.deleteMany({});
   await prisma.productOption.deleteMany({});
+  await prisma.productPhoto.deleteMany({});
   await prisma.product.deleteMany({});
 }

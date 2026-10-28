@@ -336,7 +336,7 @@ async function indexedProduct(f: Fixture) {
   const variantId = randomUUID();
   await withTenantIsolation(f.companyId, async () => {
     await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
-    await seedProduct({ id: productId, name: "Cap", qrCode: productId, imageId, variants: [{ id: variantId, salePrice: 30, qrCode: variantId }] });
+    await seedProduct({ id: productId, name: "Cap", qrCode: productId, photoIds: [imageId], variants: [{ id: variantId, salePrice: 30, qrCode: variantId }] });
     expect(await saveEmbedding({ imageId, model, vector: [1, 0, 0] as unknown as EmbeddingVector })).toEqual(ok(undefined));
   });
   return variantId;
@@ -386,7 +386,7 @@ test("visual search adds a product that has exactly one active variant left", as
     const [kept, retired] = [randomUUID(), randomUUID()];
     await withTenantIsolation(f.companyId, async () => {
       await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
-      await seedProduct({ id: productId, name: "Cap", qrCode: productId, imageId, variants: [
+      await seedProduct({ id: productId, name: "Cap", qrCode: productId, photoIds: [imageId], variants: [
         { id: kept, attributes: { Talla: "M" }, salePrice: 30, qrCode: kept }, { id: retired, attributes: { Talla: "L" }, salePrice: 30, qrCode: retired, status: "inactive" }] });
       expect(await saveEmbedding({ imageId, model, vector: [1, 0, 0] as unknown as EmbeddingVector })).toEqual(ok(undefined));
     });

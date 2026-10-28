@@ -17,14 +17,14 @@ async function refreshCart(companyId: CompanyId, variantIds: readonly VariantId[
     const found = await findSellableVariants(variantIds);
     if (!found.success) return found;
     const images = new Map<string, string | null>();
-    for (const imageId of new Set(found.data.flatMap((variant) => variant.imageId ? [variant.imageId] : []))) {
+    for (const imageId of new Set(found.data.flatMap((variant) => variant.primaryImageId ? [variant.primaryImageId] : []))) {
       const resolved = await resolvePublicImage(imageId);
       // A photo is decorative in the cart: an unreadable one falls back to the product initial.
       images.set(imageId, resolved.success ? resolved.data?.url ?? null : null);
     }
     return ok(found.data.map((variant): CartVariant => ({ variantId: variant.variantId, productId: variant.productId, productName: variant.productName,
       attributes: variant.variantAttributes, price: variant.unitPrice, maxQuantity: variant.available,
-      imageUrl: variant.imageId ? images.get(variant.imageId) ?? null : null })));
+      imageUrl: variant.primaryImageId ? images.get(variant.primaryImageId) ?? null : null })));
   });
 }
 

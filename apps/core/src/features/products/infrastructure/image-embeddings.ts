@@ -26,9 +26,10 @@ const indexStateSchema = z.object({ imageId: z.uuid().nullable(), indexed: z.boo
 /** The product's current image and whether that image already has an embedding of the model. */
 export async function findImageIndexState(productId: ProductId, model: EmbeddingModel) {
   const rows = await guarded("unable_to_read_image_index_state", () => prisma.$queryRaw<unknown[]>`
-    SELECT p."imageId", EXISTS (SELECT 1 FROM "ImageEmbedding" e
-      WHERE e."companyId" = p."companyId" AND e."imageId" = p."imageId" AND e.model = ${model}) AS indexed
+    SELECT pp."imageId", EXISTS (SELECT 1 FROM "ImageEmbedding" e
+      WHERE e."companyId" = p."companyId" AND e."imageId" = pp."imageId" AND e.model = ${model}) AS indexed
     FROM "Product" p
+    LEFT JOIN "ProductPhoto" pp ON pp."companyId" = p."companyId" AND pp."productId" = p.id AND pp.position = 0
     WHERE p.id = ${productId}::uuid`);
   if (!rows.success) return rows;
   if (rows.data.length === 0) return ok(null);
@@ -55,9 +56,10 @@ export async function saveEmbedding(embedding: ImageEmbedding) {
 export async function listProductsMissingEmbedding(model: EmbeddingModel) {
   const rows = await guarded("unable_to_list_products_missing_embedding", () => prisma.$queryRaw<Array<{ id: string }>>`
     SELECT p.id FROM "Product" p
-    WHERE p.status = 'active' AND p."imageId" IS NOT NULL
+    JOIN "ProductPhoto" pp ON pp."companyId" = p."companyId" AND pp."productId" = p.id AND pp.position = 0
+    WHERE p.status = 'active'
       AND NOT EXISTS (SELECT 1 FROM "ImageEmbedding" e
-        WHERE e."companyId" = p."companyId" AND e."imageId" = p."imageId" AND e.model = ${model})
+        WHERE e."companyId" = p."companyId" AND e."imageId" = pp."imageId" AND e.model = ${model})
     ORDER BY p.id`);
   return rows.success ? ok(rows.data.map(({ id }) => id as ProductId)) : rows;
 }
@@ -66,7 +68,8 @@ export async function listProductsMissingEmbedding(model: EmbeddingModel) {
 export async function hasIndexedProducts(model: EmbeddingModel) {
   const rows = await guarded("unable_to_check_indexed_products", () => prisma.$queryRaw<Array<{ indexed: boolean }>>`
     SELECT EXISTS (SELECT 1 FROM "ImageEmbedding" e
-      JOIN "Product" p ON p."companyId" = e."companyId" AND p."imageId" = e."imageId"
+      JOIN "ProductPhoto" pp ON pp."companyId" = e."companyId" AND pp."imageId" = e."imageId" AND pp.position = 0
+      JOIN "Product" p ON p."companyId" = pp."companyId" AND p.id = pp."productId"
       WHERE e.model = ${model} AND p.status = 'active'
         AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active')) AS indexed`);
   return rows.success ? ok(rows.data[0]?.indexed === true) : rows;
@@ -79,7 +82,8 @@ export async function findNearestProductImages(vector: EmbeddingVector, model: E
   const rows = await guarded("unable_to_find_nearest_product_images", () => prisma.$queryRaw<unknown[]>`
     SELECT p.id AS "productId", e."imageId", (e.embedding <=> ${`[${vector.join(",")}]`}::vector)::float8 AS distance
     FROM "ImageEmbedding" e
-    JOIN "Product" p ON p."companyId" = e."companyId" AND p."imageId" = e."imageId"
+    JOIN "ProductPhoto" pp ON pp."companyId" = e."companyId" AND pp."imageId" = e."imageId" AND pp.position = 0
+    JOIN "Product" p ON p."companyId" = pp."companyId" AND p.id = pp."productId"
     WHERE e.model = ${model} AND p.status = 'active'
       AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active')
     ORDER BY distance, p.id

@@ -9,49 +9,80 @@ import type { ImageLookupError } from "@core/src/shared/images/application/image
 import type { Result } from "@shared/result";
 
 const access = { companyId: "00000000-0000-4000-8000-0000000000c1" as CompanyId };
-const base: CreateInput = { name: " Camisa ", currency: "PEN", options: [], variants: [{ values: [], salePrice: 20 }] };
+const image = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as ImageId;
+const base: CreateInput = { name: " Camisa ", currency: "PEN", photoIds: [], options: [], variants: [{ values: [], salePrice: 20 }] };
 const row = (extra: Partial<CreateInput["variants"][number]> = {}) => ({ values: [], salePrice: 20, ...extra });
 
-function setup(options: Readonly<{ image?: Result<boolean, ImageLookupError>; publishFails?: boolean; skuOwners?: ReadonlyMap<string, VariantId>; foreign?: ReadonlySet<string>; exists?: boolean }> = {}) {
+function setup(options: Readonly<{ images?: Result<ReadonlySet<ImageId>, ImageLookupError>; known?: readonly ImageId[]; publishFails?: boolean; skuOwners?: ReadonlyMap<string, VariantId>; foreign?: ReadonlySet<string>; exists?: boolean }> = {}) {
   let stored: Product | null = null;
   const published: ProductId[] = [];
   const created: unknown[] = [];
   const rejected: CreateError[] = [];
   const skuLookups: (readonly string[])[] = [];
+  const imageLookups: (readonly ImageId[])[] = [];
   let writes = 0;
   let counter = 0;
   const deps: CreateDependencies = {
     transaction: async (_companyId, work) => work(),
     productExists: async () => ok(options.exists ?? false),
-    findImage: async () => options.image ?? ok(true),
+    findImages: async (ids) => { imageLookups.push(ids); return options.images ?? ok(new Set(options.known ?? ids)); },
     findSkuOwners: async (skus) => { skuLookups.push(skus); return ok(options.skuOwners ?? new Map()); },
     findForeignOptionIds: async () => ok(options.foreign ?? new Set()),
     insertProduct: async (product) => { stored = product; writes++; return ok(product.id); },
     newId: () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`,
     clock: () => new Date("2026-09-24T00:00:00.000Z"),
     observe: { created: (summary) => created.push(summary), rejected: ({ error }) => rejected.push(error) },
-    publishProductImageChanged: async (productId: ProductId) => {
+    publishProductPhotosAdded: async (productId: ProductId) => {
       published.push(productId);
       return options.publishFails ? err({ code: "EVENT_BUS_UNAVAILABLE" as const, message: "down" }) : ok(undefined);
     },
   };
-  return { deps, published, created, rejected, skuLookups, get writes() { return writes; }, get stored() { return stored; } };
+  return { deps, published, created, rejected, skuLookups, imageLookups, get writes() { return writes; }, get stored() { return stored; } };
 }
 
 const detailOf = (context: ReturnType<typeof setup>) => (id: ProductId) => getProduct(id, {
-  repository: { get: async () => ok(context.stored) }, findOrderedVariantIds: async () => ok(new Set()), snapshot: (read) => read(), resolveImage: async () => ok(null) });
+  repository: { get: async () => ok(context.stored) }, findOrderedVariantIds: async () => ok(new Set()), snapshot: (read) => read(), resolveImages: async () => ok({ images: [], failures: [] }) });
 
 describe("create product", () => {
-  test("rejects missing images and preserves lookup failures without writing", async () => {
-    const imageId = "00000000-0000-4000-8000-000000000099" as ImageId;
-    const missing = setup({ image: ok(false) });
-    expect(await createProduct({ ...base, imageId }, access, missing.deps)).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+  test("rejects creating with a photo of another company, naming its index, together with other field issues", async () => {
+    const [mine, theirs] = [image(1), image(2)];
+    const missing = setup({ known: [mine] });
+    const result = await createProduct({ ...base, name: " ", photoIds: [mine, theirs] }, access, missing.deps);
+    expect(result).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR" } });
+    if (!result.success && result.error.code === "VALIDATION_ERROR") {
+      expect(result.error.issues).toEqual(expect.arrayContaining([
+        expect.objectContaining({ scope: "photo", field: "photoIds", index: 1, reason: "PHOTO_NOT_FOUND" }),
+        expect.objectContaining({ scope: "product", field: "name", reason: "REQUIRED" }),
+      ]));
+    }
     expect(missing.writes).toBe(0);
+  });
 
+  test("preserves a photo lookup failure without writing", async () => {
     const failure = { code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" };
-    const unavailable = setup({ image: err(failure) });
-    expect(await createProduct({ ...base, imageId }, access, unavailable.deps)).toEqual(err(failure));
+    const unavailable = setup({ images: err(failure) });
+    expect(await createProduct({ ...base, photoIds: [image(1)] }, access, unavailable.deps)).toEqual(err(failure));
     expect(unavailable.writes).toBe(0);
+  });
+
+  test("rejects a ninth and a repeated photo without looking them up", async () => {
+    const context = setup();
+    const nine = await createProduct({ ...base, photoIds: Array.from({ length: 9 }, (_, index) => image(index + 1)) }, access, context.deps);
+    expect(nine).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR", issues: [{ scope: "product", field: "photoIds", reason: "TOO_MANY_PHOTOS", maximum: 8 }] } });
+    const repeated = await createProduct({ ...base, photoIds: [image(1), image(1)] }, access, context.deps);
+    expect(repeated).toMatchObject({ success: false, error: { issues: [{ scope: "photo", index: 1, reason: "DUPLICATE_PHOTO" }] } });
+    expect(context.imageLookups).toEqual([]);
+    expect(context.writes).toBe(0);
+  });
+
+  test("creates a product with three photos in the given order", async () => {
+    const context = setup();
+    const photoIds = [image(3), image(1), image(2)];
+    const result = await createProduct({ ...base, photoIds }, access, context.deps);
+    expect(result.success).toBe(true);
+    expect(context.stored?.photoIds).toEqual(photoIds);
+    expect(context.imageLookups).toEqual([photoIds]);
+    expect(context.created).toEqual([expect.objectContaining({ photoCount: 3 })]);
   });
 
   test("creates and retrieves complete immutable values", async () => {
@@ -75,7 +106,7 @@ describe("create product", () => {
     expect(context.stored?.variants[0].id).toBe("00000000-0000-4000-8000-000000000002");
     expect(context.stored?.variants[0].qrCode).toBe("00000000-0000-4000-8000-000000000003");
     expect(context.stored?.qrCode).toBe("00000000-0000-4000-8000-000000000004");
-    expect(context.created).toEqual([{ productId: context.stored?.id, optionCount: 0, variantCount: 1 }]);
+    expect(context.created).toEqual([{ productId: context.stored?.id, optionCount: 0, variantCount: 1, photoCount: 0 }]);
   });
 
   test("creates Talla and Color combinations in saved order without the unused S / Azul", async () => {
@@ -90,7 +121,7 @@ describe("create product", () => {
     expect(context.stored?.variants.map((variant) => Object.values(variant.combination))).toEqual(combos);
     expect(new Set(context.stored?.variants.map((variant) => variant.qrCode)).size).toBe(5);
     expect(context.stored?.variants.every((variant) => variant.status === "active" && variant.stock.quantity === 2)).toBe(true);
-    expect(context.created).toEqual([{ productId: context.stored?.id, optionCount: 2, variantCount: 5 }]);
+    expect(context.created).toEqual([{ productId: context.stored?.id, optionCount: 2, variantCount: 5, photoCount: 0 }]);
   });
 
   test("a create whose variants never use Azul stores Color without Azul", async () => {
@@ -184,13 +215,13 @@ describe("create product", () => {
   test("uses database-compatible character limits, price precision, and safe stock", async () => {
     const context = setup();
     const valid = await createProduct({
-      name: "🧵".repeat(200), description: "🧵".repeat(5000), currency: "PEN", options: [],
+      name: "🧵".repeat(200), description: "🧵".repeat(5000), currency: "PEN", photoIds: [], options: [],
       variants: [{ values: [], sku: "🧵".repeat(100), salePrice: 999999999.99, purchasePrice: 0, initialStock: Number.MAX_SAFE_INTEGER }],
     }, access, context.deps);
     expect(valid.success).toBe(true);
     expect(context.stored?.variants[0].stock.quantity).toBe(Number.MAX_SAFE_INTEGER);
     const invalid = await createProduct({
-      name: "🧵".repeat(201), description: "🧵".repeat(5001), currency: "PEN", options: [],
+      name: "🧵".repeat(201), description: "🧵".repeat(5001), currency: "PEN", photoIds: [], options: [],
       variants: [{ values: [], sku: "🧵".repeat(101), salePrice: 1.001, purchasePrice: -1, initialStock: Number.MAX_SAFE_INTEGER + 1 }],
     }, access, context.deps);
     expect(invalid.success).toBe(false);
@@ -214,26 +245,31 @@ describe("create product", () => {
     expect(context.writes).toBe(0);
   });
 
-  test("distinguishes absence, absent image, missing image, and technical failure", async () => {
+  test("the product detail resolves every photo in order and fails when one cannot be resolved", async () => {
     const context = setup();
     const detail = detailOf(context);
     expect(await detail("00000000-0000-4000-8000-999999999999" as ProductId)).toEqual({ success: true, data: null });
     const created = await createProduct(base, access, context.deps);
     if (!created.success) return;
-    expect(await detail(created.data)).toMatchObject({ success: true, data: { product: {} } });
+    expect(await detail(created.data)).toMatchObject({ success: true, data: { photos: [] } });
     const stored = context.stored!;
     const deps = { findOrderedVariantIds: async () => ok(new Set<VariantId>()), snapshot: <T>(read: () => Promise<T>) => read() };
-    const withImage = { get: async () => ok({ ...stored, imageId: "00000000-0000-4000-8000-000000000099" as Product["imageId"] }) };
-    expect(await getProduct(created.data, { ...deps, repository: withImage, resolveImage: async () => ok(null) })).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+    const [first, second] = [image(1), image(2)];
+    const withPhotos = { get: async () => ok({ ...stored, photoIds: [second, first] as unknown as Product["photoIds"] }) };
+    const resolved = { images: [{ id: first, url: "https://img.test/1.jpg" }, { id: second, url: "https://img.test/2.jpg" }], failures: [] };
+    expect(await getProduct(created.data, { ...deps, repository: withPhotos, resolveImages: async () => ok(resolved) })).toMatchObject({
+      success: true, data: { photos: [{ id: second, url: "https://img.test/2.jpg" }, { id: first, url: "https://img.test/1.jpg" }] } });
+    expect(await getProduct(created.data, { ...deps, repository: withPhotos, resolveImages: async () => ok({ images: [resolved.images[0]], failures: [] }) })).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+    expect(await getProduct(created.data, { ...deps, repository: withPhotos, resolveImages: async () => ok({ ...resolved, failures: [{ imageId: first, code: "IMAGE_STORAGE_UNAVAILABLE", message: "down" }] }) })).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
     const readFailure = err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" });
-    expect(await getProduct(created.data, { ...deps, repository: { get: async () => readFailure }, resolveImage: async () => ok(null) })).toEqual(readFailure);
-    await expect(getProduct(created.data, { ...deps, repository: withImage, resolveImage: async () => { throw new Error("storage failed"); } })).rejects.toThrow("storage failed");
+    expect(await getProduct(created.data, { ...deps, repository: { get: async () => readFailure }, resolveImages: async () => ok(resolved) })).toEqual(readFailure);
+    await expect(getProduct(created.data, { ...deps, repository: withPhotos, resolveImages: async () => { throw new Error("storage failed"); } })).rejects.toThrow("storage failed");
   });
 
-  test("publishes product_image_changed after creating a product with an image", async () => {
+  test("publishes product_photos_added after creating a product with photos and not without photos", async () => {
     const imageId = "00000000-0000-4000-8000-000000000099" as ImageId;
     const withImage = setup();
-    const result = await createProduct({ ...base, imageId }, access, withImage.deps);
+    const result = await createProduct({ ...base, photoIds: [imageId] }, access, withImage.deps);
     expect(withImage.published).toEqual([result.success && result.data]);
     const withoutImage = setup();
     await createProduct(base, access, withoutImage.deps);
@@ -242,7 +278,7 @@ describe("create product", () => {
 
   test("returns the saved product when publishing the event fails", async () => {
     const context = setup({ publishFails: true });
-    const result = await createProduct({ ...base, imageId: "00000000-0000-4000-8000-000000000099" as ImageId }, access, context.deps);
+    const result = await createProduct({ ...base, photoIds: [image(99)] }, access, context.deps);
     expect(result).toMatchObject({ success: true });
     expect(context.writes).toBe(1);
   });

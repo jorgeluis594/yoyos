@@ -15,8 +15,14 @@ const companyB = randomUUID();
 
 async function product(companyId: string, imageId: string | null) {
   const id = randomUUID() as ProductId;
-  await withTenantIsolation(companyId, async () => { await seedProduct({ id, name: "Shirt", qrCode: id, imageId }); });
+  await withTenantIsolation(companyId, async () => { await seedProduct({ id, name: "Shirt", qrCode: id, photoIds: imageId ? [imageId] : [] }); });
   return id;
+}
+
+/** The product's primary photo becomes this image, as a save with that single photo would leave it. */
+async function setPrimary(productId: string, imageId: string) {
+  await prisma.productPhoto.deleteMany({ where: { productId } });
+  await prisma.productPhoto.create({ data: { productId, imageId, position: 0 } });
 }
 
 async function image(companyId: string) {
@@ -33,7 +39,7 @@ async function indexedSellable(companyId: string, values: number[], embeddingMod
   const imageId = await image(companyId);
   const productId = randomUUID() as ProductId;
   await withTenantIsolation(companyId, async () => {
-    await seedProduct({ id: productId, name: "Shirt", qrCode: productId, imageId });
+    await seedProduct({ id: productId, name: "Shirt", qrCode: productId, photoIds: [imageId] });
     await saveEmbedding({ imageId, model: embeddingModel, vector: vector(...values) });
   });
   return { productId, imageId };
@@ -61,7 +67,7 @@ test("saveEmbedding keeps the first embedding of an image and model and the inde
     expect(await saveEmbedding({ imageId: first, model, vector: vector(0, 0, 1) })).toEqual({ success: true, data: undefined });
     expect(await findImageIndexState(productId, model)).toEqual({ success: true, data: { imageId: first, indexed: true } });
     expect(await findImageIndexState(productId, otherModel)).toEqual({ success: true, data: { imageId: first, indexed: false } });
-    await prisma.product.update({ where: { id: productId }, data: { imageId: second } });
+    await setPrimary(productId, second);
     expect(await findImageIndexState(productId, model)).toEqual({ success: true, data: { imageId: second, indexed: false } });
     expect(await findImageIndexState(randomUUID() as ProductId, model)).toEqual({ success: true, data: null });
   });
@@ -91,7 +97,7 @@ test("listProductsMissingEmbedding lists only active products whose current imag
   await withTenantIsolation(companyA, async () => {
     await saveEmbedding({ imageId: indexed, model, vector: vector(1, 0, 0) });
     await saveEmbedding({ imageId: stale, model, vector: vector(1, 0, 0) });
-    await prisma.product.update({ where: { id: staleId }, data: { imageId: await image(companyA) } });
+    await setPrimary(staleId, await image(companyA));
     await saveEmbedding({ imageId: otherModelOnly, model: otherModel, vector: vector(1) });
     const result = await listProductsMissingEmbedding(model);
     expect(result.success).toBe(true);
@@ -126,7 +132,7 @@ test("hasIndexedProducts is true only when a product of the company has its curr
       await saveEmbedding({ imageId: replaced, model, vector: vector(1, 0, 0) });
       await saveEmbedding({ imageId: orphan, model, vector: vector(1, 0, 0) });
       await saveEmbedding({ imageId: current, model: otherModel, vector: vector(1) });
-      await prisma.product.update({ where: { id: productId }, data: { imageId: current } });
+      await setPrimary(productId, current);
       expect(await hasIndexedProducts(model)).toEqual({ success: true, data: false });
       expect(await hasIndexedProducts(otherModel)).toEqual({ success: true, data: true });
     });
@@ -159,7 +165,7 @@ test("findNearestProductImages ignores embeddings of another model, of a replace
   await indexedSellable(companyA, [1, 0, 0]);
   const newImage = await image(companyB);
   await withTenantIsolation(companyB, async () => {
-    await prisma.product.update({ where: { id: replaced.productId }, data: { imageId: newImage } });
+    await setPrimary(replaced.productId, newImage);
     const found = await findNearestProductImages(vector(1, 0, 0), searchModel, 5);
     expect(found.success && found.data.map(({ productId }) => productId)).toEqual([current.productId]);
   });
@@ -172,7 +178,7 @@ test("hasIndexedProducts and findNearestProductImages ignore a product whose var
     const imageId = await image(company);
     const productId = randomUUID() as ProductId;
     await withTenantIsolation(company, async () => {
-      await seedProduct({ id: productId, name: "Shirt", qrCode: productId, imageId, variants: [{ attributes: { Talla: "M" }, status: "inactive" }, { attributes: { Talla: "L" }, status: "inactive" }] });
+      await seedProduct({ id: productId, name: "Shirt", qrCode: productId, photoIds: [imageId], variants: [{ attributes: { Talla: "M" }, status: "inactive" }, { attributes: { Talla: "L" }, status: "inactive" }] });
       await saveEmbedding({ imageId, model: searchModel, vector: vector(1, 0, 0) });
       expect(await hasIndexedProducts(searchModel)).toEqual({ success: true, data: false });
       expect(await findNearestProductImages(vector(1, 0, 0), searchModel, 5)).toEqual({ success: true, data: [] });

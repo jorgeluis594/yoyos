@@ -4,6 +4,9 @@ export type ProductId = string & { readonly __brand: "ProductId" };
 export type VariantId = string & { readonly __brand: "VariantId" };
 export type ImageId = string & { readonly __brand: "ImageId" };
 
+/** Ordered image ids of a product; position 0 is the primary. At most productPhotoLimits.maxPhotos, no repeats. */
+export type ProductPhotos = readonly ImageId[] & { readonly __brand: "ProductPhotos" };
+
 export type OptionId = string & { readonly __brand: "OptionId" };
 export type OptionValueId = string & { readonly __brand: "OptionValueId" };
 export type OptionText = string & { readonly __brand: "OptionText" };
@@ -27,7 +30,7 @@ export type Product = Readonly<{
   id: ProductId;
   name: string;
   description?: string;
-  imageId?: ImageId;
+  photoIds: ProductPhotos;
   currency: Currency;
   qrCode: string;
   status: "active";

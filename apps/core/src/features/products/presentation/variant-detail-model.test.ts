@@ -10,7 +10,7 @@ const variant = (n: number, size: string, tint: string, extra: Partial<ProductDe
   qrCode: id(40 + n), status: "active", stock: 0, hasOrders: false, ...extra,
 });
 const product = (variants = [variant(1, s, negro), variant(2, xl, azul), variant(3, s, azul)]): ProductDetailResponse["product"] => ({
-  id: id(50), name: "Polo", description: null, imageId: null, currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
+  id: id(50), name: "Polo", description: null, photos: [], currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
   options: [
     { id: talla, name: "Talla", values: [{ id: s, name: "S" }, { id: xl, name: "XL" }] },
     { id: color, name: "Color", values: [{ id: negro, name: "Negro" }, { id: azul, name: "Azul" }] },
