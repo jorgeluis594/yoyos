@@ -13,6 +13,7 @@ export function createAiTools(client: OpenAI | null, config: AiEnv): Orchestrate
     extract: createOpenAiToolCallExtractor({ client, model: config.AI_EXTRACTION_MODEL, timeoutMs: config.AI_TIMEOUT_MS }),
     minActionConfidence: config.MESSAGE_ACTION_MIN_CONFIDENCE,
     minToolPredicate: config.MESSAGE_TOOL_PREDICATE_MIN,
+    minReportPredicate: config.MESSAGE_REPORT_PREDICATE_MIN,
   };
 }
 

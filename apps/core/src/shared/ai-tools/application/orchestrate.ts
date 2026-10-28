@@ -43,6 +43,8 @@ export type OrchestrateDependencies = Readonly<{
   extract: (request: ExtractionRequest, signal: AbortSignal) => Promise<Result<readonly ToolCall[], AiError>>;
   minActionConfidence: number;
   minToolPredicate: number;
+  /** Under the action gate, a report-only tool whose own predicate reaches this, while no other tool's reaches `minToolPredicate`, is still called. */
+  minReportPredicate: number;
 }>;
 
 type OfferedQuestions = ReadonlyMap<string, readonly DecisionChoiceQuestion[]>;
@@ -88,6 +90,18 @@ function withoutFields(schema: JsonSchema, fields: ReadonlySet<string>): JsonSch
   return { ...schema, properties, required };
 }
 
+/**
+ * The report-only tool without arguments the Decision's predicates point at alone, when the action choice is unsure: the action
+ * spreads over similar tools, while the tool's own predicate may still be clear. A report changes nothing, so a wrong one costs a
+ * notice, never a change.
+ */
+function clearReportOf<Context>(tools: readonly OfferedTool<Context>[], answers: DecisionAnswers, deps: OrchestrateDependencies): OfferedTool<Context> | null {
+  const predicateOf = (tool: OfferedTool<Context>) => answers.predicates[tool.name] ?? 0;
+  const [report, ...others] = tools.filter((tool) => tool.reportOnly && tool.args.kind === "none" && predicateOf(tool) >= deps.minReportPredicate);
+  if (!report || others.length) return null;
+  return tools.every((tool) => tool === report || predicateOf(tool) < deps.minToolPredicate) ? report : null;
+}
+
 export type OrchestrateInput<Context> = Readonly<{
   messageParts: readonly MessagePart[];
   contextText: string;
@@ -109,7 +123,10 @@ export async function orchestrate<Context>(
 
   const offered = new Set(input.tools.map(({ name }) => name));
   if (!offered.has(answers.action.choice) && answers.action.choice !== SEVERAL) return err(invalidAiResponse("The decision chose a tool that was not offered"));
-  if (answers.action.confidence < deps.minActionConfidence) return ok({ kind: "ambiguous" });
+  if (answers.action.confidence < deps.minActionConfidence) {
+    const report = clearReportOf(input.tools, answers, deps);
+    return report ? ok({ kind: "calls", calls: [{ tool: report.name, args: {} }], extraction: false }) : ok({ kind: "ambiguous" });
+  }
 
   const selected = answers.action.choice === SEVERAL
     ? input.tools.filter((tool) => (answers.predicates[tool.name] ?? 0) >= deps.minToolPredicate)

@@ -5,7 +5,7 @@ import { createAiTools, createAiToolsFromEnv } from "@core/src/shared/ai-tools/c
 describe("ai env and composition", () => {
   test("uses the documented defaults and treats empty values as unset", () => {
     expect(readAiEnv({ AI_TIMEOUT_MS: "", MESSAGE_ACTION_MIN_CONFIDENCE: "" })).toEqual({
-      AI_EXTRACTION_MODEL: "gpt-6-luna", AI_TIMEOUT_MS: 20_000, MESSAGE_ACTION_MIN_CONFIDENCE: 0.6, MESSAGE_TOOL_PREDICATE_MIN: 0.5 });
+      AI_EXTRACTION_MODEL: "gpt-6-luna", AI_TIMEOUT_MS: 20_000, MESSAGE_ACTION_MIN_CONFIDENCE: 0.6, MESSAGE_TOOL_PREDICATE_MIN: 0.5, MESSAGE_REPORT_PREDICATE_MIN: 0.9 });
   });
 
   test("fails on an invalid tuning value", () => {
@@ -18,7 +18,7 @@ describe("ai env and composition", () => {
   });
 
   test("builds the dependencies from the env thresholds when a key is configured", () => {
-    const deps = createAiToolsFromEnv({ OPENAI_API_KEY: "key", MESSAGE_ACTION_MIN_CONFIDENCE: "0.7", MESSAGE_TOOL_PREDICATE_MIN: "0.4" });
-    expect(deps).toMatchObject({ minActionConfidence: 0.7, minToolPredicate: 0.4 });
+    const deps = createAiToolsFromEnv({ OPENAI_API_KEY: "key", MESSAGE_ACTION_MIN_CONFIDENCE: "0.7", MESSAGE_TOOL_PREDICATE_MIN: "0.4", MESSAGE_REPORT_PREDICATE_MIN: "0.95" });
+    expect(deps).toMatchObject({ minActionConfidence: 0.7, minToolPredicate: 0.4, minReportPredicate: 0.95 });
   });
 });

@@ -99,7 +99,7 @@ function harness(options: Options = {}) {
   const target: ChatOrderTarget = options.target ?? { kind: "none" };
   if (target.kind === "open") store.orders.set(target.order.id, target.order);
   const ai: OrchestrateDependencies = {
-    minActionConfidence: 0.6, minToolPredicate: 0.5,
+    minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9,
     decide: async (request) => {
       decisions.push(request);
       const decided = options.decision ? options.decision(request) : answer("no_intent");
@@ -907,6 +907,13 @@ describe("applyChatMessage: text tools", () => {
       await succeeded(h.run());
       expect(h.decisions).toHaveLength(1);
     }
+  });
+
+  test("reports an add without a name whose own predicate is clear although the action is unsure, and never a change", async () => {
+    const h = harness({ message: textMessage("mándame otros tres así"), target: openWith(line(1, poloM)),
+      decision: () => decided("add_products", {}, { report_unnamed_add: 0.97, add_products: 0.3 }, 0.45) });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "unnamed_add" }], noticeDue: true });
+    expect(h.extractions).toHaveLength(0);
   });
 
   test("reports a variant without a product and an add without a name as problems for the seller", async () => {

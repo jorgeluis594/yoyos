@@ -293,19 +293,19 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
       name: "report_variant_without_product",
       description: "The text gives only a size or color, even in a single word, with no product name and no verb that changes an item (pásalo, déjalo en): «en XS», «la prefiero en XS», «celeste», «talla 38». "
         + "Asking for it («la prefiero») with only a size or color is this report, never a change or an add.",
-      args: { kind: "none" }, schema: () => noArgs, resolve: reportOnly({ kind: "variant_only" }),
+      args: { kind: "none" }, reportOnly: true, schema: () => noArgs, resolve: reportOnly({ kind: "variant_only" }),
     }),
     defineTool({
       name: "report_unnamed_add",
       description: "The buyer asks for more of something without naming it (quiero más, el mismo otra vez, pásame 3 de esos).",
-      args: { kind: "none" }, schema: () => noArgs, resolve: reportOnly({ kind: "unnamed_add" }),
+      args: { kind: "none" }, reportOnly: true, schema: () => noArgs, resolve: reportOnly({ kind: "unnamed_add" }),
     }),
     defineTool({
       name: "report_item_change_without_order",
       description: "The buyer asks to remove or change something of their order (bórralo, saca el short, que sean cuatro, pásalo a talla 40, la casaca a 90), "
         + "but the chat has no open order. Never for asking for products.",
       // Offered instead of the item tools when the order has no items; the order domain reports the missing or closed order.
-      args: { kind: "none" }, schema: () => noArgs, resolve: async (): Resolved => ok(cannotApply(unclear(true, null))),
+      args: { kind: "none" }, reportOnly: true, schema: () => noArgs, resolve: async (): Resolved => ok(cannotApply(unclear(true, null))),
     }),
   ];
 }

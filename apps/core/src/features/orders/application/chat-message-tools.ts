@@ -118,7 +118,7 @@ export function createChatToolRegistry(deps: ChatToolDependencies): ChatToolRegi
       name: "report_request_with_non_product_image",
       description: "The image is not a product and the caption asks to add, remove or change something in the order, "
         + "even when it names the product to add («y súmale una mochila»).",
-      args: { kind: "none" }, schema: () => noArgs,
+      args: { kind: "none" }, reportOnly: true, schema: () => noArgs,
       resolve: async () => ok(report({ kind: "image_with_request" })),
     }),
     defineTool({
