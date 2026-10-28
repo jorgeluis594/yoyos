@@ -41,14 +41,18 @@ function inRegistryOrder(plan: Extract<ToolCallPlan, { kind: "calls" }>, registr
 
 /**
  * Founder rule (docs/message-to-order.md «Change variant»): only an explicit change request changes an item's variant. A variant call
- * whose Decision answer is not a confident `requested` becomes the `variant_only` report, so nothing changes and the seller is told.
+ * whose Decision answer is missing or not a confident `requested` becomes the `variant_only` report, once per message, so nothing changes
+ * and the seller is told; the message's other calls stay.
  */
 export function variantOnlyRule(plan: Extract<ToolCallPlan, { kind: "calls" }>): Extract<ToolCallPlan, { kind: "calls" }> {
   const requested = (args: unknown) => {
     const change = changeRequestChoice.safeParse((args as { change?: unknown } | null)?.change);
     return change.success && change.data.value === "requested" && change.data.confidence >= ITEM_CHOICE_MIN_CONFIDENCE;
   };
-  const [first, ...rest] = plan.calls.map((call) => call.tool === "change_item_variant" && !requested(call.args) ? { tool: "report_variant_without_product", args: {} } : call);
+  const report = { tool: "report_variant_without_product", args: {} };
+  const rewritten = plan.calls.map((call) => call.tool === "change_item_variant" && !requested(call.args) ? report : call);
+  // Two rewritten variant calls are one notice, not two.
+  const [first, ...rest] = rewritten.filter((call, index) => call !== report || rewritten.indexOf(report) === index);
   return { ...plan, calls: [first!, ...rest] };
 }
 
