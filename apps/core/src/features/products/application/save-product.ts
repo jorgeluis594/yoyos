@@ -1,6 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { isEmptyChange, planProductSave, type ProductStructureChange, type SaveRequest } from "@core/src/features/products/domain/product-structure";
+import { parseProductPhotos, samePhotos } from "@core/src/features/products/domain/photos";
 import type { ProductBusinessError, ValidationError, ValidationIssue } from "@core/src/features/products/domain/errors";
 import type { ImageId, Product, ProductId, ProductPhotos, VariantId } from "@core/src/features/products/domain/product";
 import type { Detail, DetailError } from "@core/src/features/products/application/get";
@@ -105,7 +106,9 @@ async function saveInTransaction(input: SaveProductInput, deps: SaveProductDepen
   if (!skus.success) return skus;
   const foreign = await foreignIds(current, input, deps);
   if (!foreign.success) return foreign;
-  const photoLookup = plan.success && plan.data.photos ? await missingPhotos(current, plan.data.photos, deps) : ok([] as readonly ValidationIssue[]);
+  // The list is parsed here too, so a photo of another company is reported together with the plan issues.
+  const listed = input.photoIds === undefined ? undefined : parseProductPhotos(input.photoIds);
+  const photoLookup = listed?.success && !samePhotos(listed.data, current.photoIds) ? await missingPhotos(current, listed.data, deps) : ok([] as readonly ValidationIssue[]);
   if (!photoLookup.success) return photoLookup;
   const issues = [...plan.success ? [] : plan.error.issues, ...photoLookup.data, ...skus.data, ...foreign.data];
   if (issues.length || !plan.success) return err({ code: "VALIDATION_ERROR", message: "Invalid product", issues: issues as unknown as ValidationError["issues"] });

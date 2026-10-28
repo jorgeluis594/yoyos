@@ -193,6 +193,18 @@ describe("save product", () => {
     expect(foreign.applied).toEqual([]);
   });
 
+  test("a photo of another company is reported together with the other plan issues, and nothing is written", async () => {
+    const context = setup({ product: { ...stored, photoIds: photos(image(1)) }, known: [] });
+    const result = await saveProduct({ ...unchanged(), name: " ", photoIds: [image(1), image(2)] }, access, context.deps);
+    expect(result).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR" } });
+    if (!result.success && result.error.code === "VALIDATION_ERROR") {
+      expect(result.error.issues.map((issue) => `${issue.scope}:${issue.reason}`).sort()).toEqual(["photo:PHOTO_NOT_FOUND", "product:REQUIRED"]);
+      expect(result.error.issues).toContainEqual(expect.objectContaining({ scope: "photo", index: 1 }));
+    }
+    expect(context.imageLookups).toEqual([[image(2)]]);
+    expect(context.applied).toEqual([]);
+  });
+
   test("preserves a photo lookup failure without writing", async () => {
     const failure = { code: "PERSISTENCE_UNAVAILABLE" as const, message: "database down" };
     const context = setup({ images: err(failure) });

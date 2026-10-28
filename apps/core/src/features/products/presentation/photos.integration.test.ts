@@ -14,6 +14,7 @@ const { deleteSeededProducts, seedProduct } = await import("@core/src/features/p
 const { products } = await import("@core/src/features/products/composition");
 const { productEditing } = await import("@core/src/features/products/product-editing");
 const { findSellableVariants } = await import("@core/src/features/products/infrastructure/order-stock");
+const { catalogBrowse } = await import("@core/src/features/catalog/browse-composition");
 const { findVariantImages } = await import("@core/src/features/products/infrastructure/variant-photo-repository");
 
 const server = app.listen(0, "127.0.0.1");
@@ -205,6 +206,24 @@ test("product list, catalog cards and checkout thumbnails show no photo for a pr
     const listed = await productEditing.list({ page: 1, pageSize: 20, sort: "recent" } as never, { includeImages: true });
     expect(listed.success && listed.data.items.map((item) => item.image)).toEqual([undefined]);
   });
+});
+
+test("the store appearance preview cards show each product's primary photo", async () => {
+  const { cookie, companyId } = await seller();
+  const [a, b, c] = await images(companyId, 3);
+  const first = createBody([a, b]);
+  const second = createBody([b, c]);
+  const none = createBody([]);
+  for (const body of [first, second, none]) expect((await call("/api/products", cookie, body)).status).toBe(201);
+  const read = await detail(cookie, first.id);
+  expect((await put(cookie, first.id, formOf(read, { photoIds: [b, a] }))).status).toBe(200);
+  const cards = await catalogBrowse.previewCards({ companyId: companyId as never });
+  expect(cards.success).toBe(true);
+  if (!cards.success) return;
+  const urlByName = new Map(cards.data.map((card) => [card.id as string, card.imageUrl]));
+  expect(urlByName.get(first.id)).toBe(urlOf(b));
+  expect(urlByName.get(second.id)).toBe(urlOf(b));
+  expect(urlByName.get(none.id)).toBeNull();
 });
 
 test("the catalog product page data lists every photo in saved order", async () => {

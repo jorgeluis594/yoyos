@@ -34,7 +34,7 @@ export async function getProduct(id: ProductId, deps: GetDependencies): Promise<
   if (!resolved.success) return resolved;
   // The seller never sees a silently hidden photo: a later save would send a list without it.
   const urls = new Map(resolved.data.images.map((image) => [image.id, image.url] as const));
-  const photos = product.photoIds.map((id) => ({ id, url: urls.get(id) }));
-  if (resolved.data.failures.length || photos.some((photo) => photo.url === undefined)) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
-  return ok({ product, orderedVariantIds, photos: photos as readonly Readonly<{ id: ImageId; url: string }>[] });
+  const photos = product.photoIds.flatMap((id) => { const url = urls.get(id); return url === undefined ? [] : [{ id, url }]; });
+  if (resolved.data.failures.length || photos.length !== product.photoIds.length) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
+  return ok({ product, orderedVariantIds, photos });
 }
