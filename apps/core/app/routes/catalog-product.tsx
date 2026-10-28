@@ -6,7 +6,8 @@ import { optionState, selectedVariant, type VariantSelection } from "@core/src/f
 import { bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import type { ColorSchemeHandle } from "@core/app/color-scheme";
 import { storefrontContext } from "@core/app/storefront-context";
-import { CatalogLoadError, CatalogMessage, CatalogProductImage, CatalogShell, catalogHeaders, headingFont, catalogMeta, formatCatalogAmount, formatCatalogPrice } from "@core/app/components/catalog-sections";
+import { CatalogLoadError, CatalogMessage, CatalogShell, catalogHeaders, headingFont, catalogMeta, formatCatalogAmount, formatCatalogPrice } from "@core/app/components/catalog-sections";
+import { CatalogGallery } from "@core/app/components/catalog-gallery";
 import { CatalogCartButton } from "@core/app/components/catalog-cart";
 import { Button } from "@core/app/components/ui/button";
 import type { CatalogProduct } from "@core/src/features/products/domain/catalog-product";
@@ -93,7 +94,7 @@ function FoundProduct({ companyId, storeName, appearance, product }: Readonly<{ 
   return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} />}>
     <BackToCatalog />
     <article className="grid gap-6 md:grid-cols-2 md:gap-10">
-      <CatalogProductImage name={product.name} url={product.photoUrls[0] ?? null} part="catalog-product-photo" />
+      <CatalogGallery name={product.name} photoUrls={product.photoUrls} />
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold text-balance" style={headingFont}>{product.name}</h1>

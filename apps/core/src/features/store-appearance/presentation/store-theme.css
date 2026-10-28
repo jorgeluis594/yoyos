@@ -378,6 +378,17 @@
   background-color: var(--thumbnail-surface);
 }
 
+/* Gallery thumbnails take the product page shape (card rounding and border) and never a photo filter; the one shown large carries the focus color. */
+[data-store-theme] [data-store-part="catalog-gallery-thumbnail"] {
+  border: var(--store-card-border);
+  border-radius: var(--store-radius-card);
+  background-color: var(--thumbnail-surface);
+}
+
+[data-store-theme] [data-store-part="catalog-gallery-thumbnail"][aria-current="true"] {
+  border: 2px solid var(--ring);
+}
+
 /* Opaque surface and text so the badge keeps its contrast over any photo. */
 [data-store-theme] [data-store-part="catalog-sold-out"] {
   background-color: var(--warning-surface);
