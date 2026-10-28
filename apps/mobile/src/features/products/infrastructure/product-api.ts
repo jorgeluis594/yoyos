@@ -16,7 +16,7 @@ import {
 } from "@shared/contracts/products";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { uploadImage, type UploadImageError } from "@mobile/shared/infrastructure/image-api";
+import { uploadImage, type UploadImageError, type UploadImageOptions } from "@mobile/shared/infrastructure/image-api";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 import type { ImageId, OptionId, OptionValueId, Product, ProductId, ProductListCriteria, ProductPage, VariantId, VariantQrCode } from "@mobile/features/products/domain/product";
 import type { GetProductError } from "@mobile/features/products/application/product-printing";
@@ -150,7 +150,7 @@ function productDetail(dto: ReturnType<typeof productDetailResponseSchema.parse>
     name: dto.product.name,
     ...(dto.product.description === null ? {} : { description: dto.product.description }),
     currency: dto.product.currency,
-    ...(dto.image === null ? {} : { photo: { id: dto.image.id as ImageId, url: dto.image.url } }),
+    photos: dto.product.photos.map((photo) => ({ id: photo.id as ImageId, url: photo.url })),
     structureVersion: dto.product.structureVersion,
     options: dto.product.options.map((option) => ({ id: option.id as OptionId, name: option.name, values: option.values.map((value) => ({ id: value.id as OptionValueId, name: value.name })) })),
     variants: dto.product.variants.map((variant) => ({
@@ -225,8 +225,8 @@ export function createProductApi(request: Request, sessionGeneration: () => numb
       const parsed = productIdResponseSchema.safeParse(result.data);
       return parsed.success ? ok(parsed.data.id as ProductId) : err(fieldFailure("INVALID_RESPONSE", "Server returned invalid product ID"));
     },
-    async uploadImage(uri: string): Promise<Result<Readonly<{ id: ImageId; url: string }>, UploadProductImageError>> {
-      const result = await uploadImage(request, uri, "image/jpeg");
+    async uploadImage(uri: string, options: UploadImageOptions = {}): Promise<Result<Readonly<{ id: ImageId; url: string }>, UploadProductImageError>> {
+      const result = await uploadImage(request, uri, "image/jpeg", options);
       return result.success ? ok({ id: result.data.id as ImageId, url: result.data.url }) : result;
     },
     /** The editor's «Guardar cambios»: answers the full detail, so the screen needs no follow-up read. */

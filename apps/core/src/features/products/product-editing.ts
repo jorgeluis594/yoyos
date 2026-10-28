@@ -10,7 +10,7 @@ import { createProduct, type CreateDependencies, type CreateError, type CreateIn
 import { getProduct, type GetDependencies } from "@core/src/features/products/application/get";
 import { saveProduct, type SaveProductDependencies, type SaveProductError, type SaveProductInput } from "@core/src/features/products/application/save-product";
 import { listProducts, type ListInput } from "@core/src/features/products/application/list";
-import { findImage, listImages, publishProductImageChanged, resolveImage } from "@core/src/features/products/composition";
+import { findImages, listImages, publishProductPhotosAdded } from "@core/src/features/products/composition";
 import { applyStructureChange, findForeignOptionIds, findSkuOwners, insertProduct, lockProduct, productExists, productRepository } from "@core/src/features/products/infrastructure/repository";
 import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import type { ProductId } from "@core/src/features/products/domain/product";
@@ -49,16 +49,16 @@ export async function productTransaction<T, E extends AppError>(companyId: strin
   }
 }
 
-const rejections: readonly CreateError["code"][] = ["VALIDATION_ERROR", "PRODUCT_ID_CONFLICT", "DUPLICATE_SKU", "DUPLICATE_COMBINATION", "ID_CONFLICT", "IMAGE_NOT_FOUND"];
+const rejections: readonly CreateError["code"][] = ["VALIDATION_ERROR", "PRODUCT_ID_CONFLICT", "DUPLICATE_SKU", "DUPLICATE_COMBINATION", "ID_CONFLICT"];
 
 /** The create wiring, exported so integration tests can replace single dependencies (images, ids, clock). */
 export function productCreateDependencies(companyId: string, started = performance.now()): CreateDependencies {
   return {
     transaction: (id, work) => productTransaction(id, work),
-    productExists, findImage, findSkuOwners, findForeignOptionIds, insertProduct, publishProductImageChanged,
+    productExists, findImages, findSkuOwners, findForeignOptionIds, insertProduct, publishProductPhotosAdded,
     newId: randomUUID, clock: () => new Date(),
     observe: {
-      created: ({ productId, optionCount, variantCount }) => afterTransactionCommit(() => log.info({ event: "product_created", companyId, productId, optionCount, variantCount,
+      created: ({ productId, optionCount, variantCount, photoCount }) => afterTransactionCommit(() => log.info({ event: "product_created", companyId, productId, optionCount, variantCount, photoCount,
         durationMs: Math.round(performance.now() - started) }, "product_created")),
       rejected: ({ productId, error }) => {
         if (!rejections.includes(error.code)) return;
@@ -70,17 +70,17 @@ export function productCreateDependencies(companyId: string, started = performan
 }
 
 /** The detail read wiring, exported for the same reason. */
-export const productGetDependencies: GetDependencies = { repository: productRepository, findOrderedVariantIds, snapshot: withinReadSnapshot, resolveImage };
+export const productGetDependencies: GetDependencies = { repository: productRepository, findOrderedVariantIds, snapshot: withinReadSnapshot, resolveImages: listImages.resolve };
 
-const saveRejections: readonly SaveProductError["code"][] = ["VALIDATION_ERROR", "PRODUCT_CHANGED", "DUPLICATE_SKU", "DUPLICATE_COMBINATION", "ID_CONFLICT", "VARIANT_HAS_ORDERS", "IMAGE_NOT_FOUND"];
+const saveRejections: readonly SaveProductError["code"][] = ["VALIDATION_ERROR", "PRODUCT_CHANGED", "DUPLICATE_SKU", "DUPLICATE_COMBINATION", "ID_CONFLICT", "VARIANT_HAS_ORDERS"];
 
 /** The save wiring, exported so integration tests can replace single dependencies (images, ids, clock). */
 export function productSaveDependencies(companyId: string, productId: string, started = performance.now()): SaveProductDependencies {
   return {
     transaction: (id, work) => productTransaction(id, work, { productId }),
-    lockProduct, findOrderedVariantIds, findSkuOwners, findForeignOptionIds, findImage, applyStructureChange,
+    lockProduct, findOrderedVariantIds, findSkuOwners, findForeignOptionIds, findImages, applyStructureChange,
     reload: (id) => getProduct(id, productGetDependencies),
-    newId: randomUUID, clock: () => new Date(), publishProductImageChanged,
+    newId: randomUUID, clock: () => new Date(), publishProductPhotosAdded,
     observe: {
       saved: (summary) => afterTransactionCommit(() => log.info({ event: "product_saved", companyId, ...summary, durationMs: Math.round(performance.now() - started) }, "product_saved")),
       rejected: ({ productId: id, error }) => {

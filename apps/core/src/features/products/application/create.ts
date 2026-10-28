@@ -2,9 +2,10 @@ import { err, ok } from "@shared/functional";
 import type { Currency } from "@shared/money";
 import type { Result } from "@shared/result";
 import { validateCreate, type RawVariant } from "@core/src/features/products/domain/rules";
+import { parseProductPhotos } from "@core/src/features/products/domain/photos";
 import type { RawOption } from "@core/src/features/products/domain/product-structure";
 import type { ProductBusinessError, ValidationError, ValidationIssue } from "@core/src/features/products/domain/errors";
-import type { ImageId, Product, ProductId, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
+import type { ImageId, Product, ProductId, ProductPhotos, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
 import type { ProductAccess, ProductReadError } from "@core/src/features/products/application/repository";
 import type { ImageLookupError } from "@core/src/shared/images/application/images";
 import type { EventBusError } from "@core/src/shared/events/application/contracts";
@@ -14,23 +15,25 @@ export type CreateInput = Readonly<{
   id?: ProductId;
   name: string;
   description?: string | null;
-  imageId?: ImageId | null;
+  /** Ordered, position 0 is the primary; omitted = no photos (the HTTP contract requires the list). */
+  photoIds?: readonly ImageId[];
   currency: Currency;
   options: readonly RawOption[];
   variants: readonly [CreateVariantInput, ...CreateVariantInput[]];
 }>;
-export type CreateError = Extract<ProductBusinessError, { code: "VALIDATION_ERROR" | "PRODUCT_ID_CONFLICT" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "ID_CONFLICT" | "IMAGE_NOT_FOUND" }>
+export type CreateError = Extract<ProductBusinessError, { code: "VALIDATION_ERROR" | "PRODUCT_ID_CONFLICT" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "ID_CONFLICT" }>
   | ProductReadError
   | ImageLookupError;
 /** What the composition logs after the commit or on a rejection. Never names, SKUs or prices. */
 export type CreateObserver = Readonly<{
-  created?: (summary: Readonly<{ productId: ProductId; optionCount: number; variantCount: number }>) => void;
+  created?: (summary: Readonly<{ productId: ProductId; optionCount: number; variantCount: number; photoCount: number }>) => void;
   rejected?: (summary: Readonly<{ productId: ProductId; error: CreateError }>) => void;
 }>;
 export type CreateDependencies = Readonly<{
   transaction: <T>(companyId: ProductAccess["companyId"], work: () => Promise<Result<T, CreateError>>) => Promise<Result<T, CreateError>>;
   productExists: (id: ProductId) => Promise<Result<boolean, ProductReadError>>;
-  findImage: (imageId: ImageId) => Promise<Result<boolean, ImageLookupError>>;
+  /** The ids that exist for the company (RLS). */
+  findImages: (ids: readonly ImageId[]) => Promise<Result<ReadonlySet<ImageId>, ImageLookupError>>;
   /** Normalized (trimmed, lowercase) SKUs that other variants of the company already use. */
   findSkuOwners: (normalizedSkus: readonly string[]) => Promise<Result<ReadonlyMap<string, VariantId>, ProductReadError>>;
   /** Option and value ids that already exist in the database. */
@@ -41,7 +44,7 @@ export type CreateDependencies = Readonly<{
   clock: () => Date;
   observe?: CreateObserver;
   /** Failures are logged by the adapter and recovered by products:index-images; the product stays saved. */
-  publishProductImageChanged: (productId: ProductId) => Promise<Result<void, EventBusError>>;
+  publishProductPhotosAdded: (productId: ProductId) => Promise<Result<void, EventBusError>>;
 }>;
 
 const normalizeSku = (sku: string) => sku.trim().toLowerCase();
@@ -78,6 +81,18 @@ async function foreignIds(input: CreateInput, deps: CreateDependencies): Promise
   ]));
 }
 
+/** Photo issues: the parse (limit, repeats) and, for a list that parses, every id the company does not have. */
+async function photoIssues(input: CreateInput, deps: CreateDependencies): Promise<Result<Readonly<{ photos: ProductPhotos | null; issues: readonly ValidationIssue[] }>, ImageLookupError>> {
+  const parsed = parseProductPhotos(Array.isArray(input.photoIds) ? input.photoIds : []);
+  if (!parsed.success) return ok({ photos: null, issues: parsed.error.issues });
+  if (!parsed.data.length) return ok({ photos: parsed.data, issues: [] });
+  const found = await deps.findImages(parsed.data);
+  if (!found.success) return found;
+  const issues = parsed.data.flatMap((id, index): ValidationIssue[] => found.data.has(id)
+    ? [] : [{ scope: "photo", field: "photoIds", index, reason: "PHOTO_NOT_FOUND", message: "Photo is unavailable" }]);
+  return ok({ photos: parsed.data, issues });
+}
+
 async function createInTransaction(input: CreateInput, deps: CreateDependencies): Promise<Result<ProductId, CreateError>> {
   const id = input.id ?? deps.newId() as ProductId;
   if (input.id !== undefined) {
@@ -90,14 +105,11 @@ async function createInTransaction(input: CreateInput, deps: CreateDependencies)
   if (!skus.success) return skus;
   const ids = await foreignIds(input, deps);
   if (!ids.success) return ids;
-  const issues = [...validated.issues, ...skus.data, ...ids.data];
-  if (issues.length || !validated.value) return err({ code: "VALIDATION_ERROR", message: "Invalid product", issues: issues as unknown as ValidationError["issues"] });
+  const photos = await photoIssues(input, deps);
+  if (!photos.success) return photos;
+  const issues = [...validated.issues, ...photos.data.issues, ...skus.data, ...ids.data];
+  if (issues.length || !validated.value || !photos.data.photos) return err({ code: "VALIDATION_ERROR", message: "Invalid product", issues: issues as unknown as ValidationError["issues"] });
   const value = validated.value;
-  if (input.imageId != null) {
-    const image = await deps.findImage(input.imageId);
-    if (!image.success) return image;
-    if (!image.data) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
-  }
   const now = deps.clock();
   const variants = value.variants.map((variant): ProductVariant => {
     const variantId = deps.newId() as VariantId;
@@ -112,12 +124,12 @@ async function createInTransaction(input: CreateInput, deps: CreateDependencies)
   const product: Product = {
     id, name: value.name,
     ...(value.description === undefined ? {} : { description: value.description }),
-    ...(input.imageId == null ? {} : { imageId: input.imageId }),
+    photoIds: photos.data.photos,
     currency: value.currency, qrCode: deps.newId(), status: "active",
     createdAt: new Date(now), updatedAt: new Date(now), structureVersion: 1, options: value.options, variants,
   };
   const inserted = await deps.insertProduct(product);
-  if (inserted.success) deps.observe?.created?.({ productId: id, optionCount: product.options.length, variantCount: variants.length });
+  if (inserted.success) deps.observe?.created?.({ productId: id, optionCount: product.options.length, variantCount: variants.length, photoCount: product.photoIds.length });
   return inserted;
 }
 
@@ -127,7 +139,7 @@ export async function createProduct(input: CreateInput, access: ProductAccess, d
     deps.observe?.rejected?.({ productId: input.id as ProductId, error: created.error });
     return created;
   }
-  if (input.imageId != null) await deps.publishProductImageChanged(created.data);
+  if (input.photoIds?.length) await deps.publishProductPhotosAdded(created.data);
   return created;
 }
 

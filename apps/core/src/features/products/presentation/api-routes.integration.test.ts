@@ -57,7 +57,7 @@ const options = () => [
   { id: randomUUID(), name: "Talla", values: ["S", "M", "L"].map((name) => ({ id: randomUUID(), name })) },
   { id: randomUUID(), name: "Color", values: ["Negro", "Azul"].map((name) => ({ id: randomUUID(), name })) },
 ];
-const request = (overrides: Record<string, unknown> = {}) => ({ id: randomUUID(), name: "Polo básico", description: null, imageId: null, currency: "PEN", options: [],
+const request = (overrides: Record<string, unknown> = {}) => ({ id: randomUUID(), name: "Polo básico", description: null, photoIds: [], currency: "PEN", options: [],
   variants: [{ values: [], sku: null, salePrice: 25, purchasePrice: null, initialStock: 3 }], ...overrides });
 const variantsOf = (opts: ReturnType<typeof options>, pairs: readonly (readonly [number, number])[]) => pairs.map(([size, color]) => ({
   values: [opts[0].values[size].id, opts[1].values[color].id], sku: null, salePrice: 25, purchasePrice: null, initialStock: 2 }));
@@ -75,7 +75,7 @@ test("POST /api/products creates a product without options with one variant", as
   expect(created.status).toBe(201);
   expect(await created.json()).toEqual({ id: body.id });
   const read = await detail(cookie, body.id);
-  expect(read.product).toMatchObject({ name: "Polo básico", description: "Algodón", imageId: null, structureVersion: 1, options: [] });
+  expect(read.product).toMatchObject({ name: "Polo básico", description: "Algodón", photos: [], structureVersion: 1, options: [] });
   expect(read.product.variants).toEqual([expect.objectContaining({ combination: [], sku: "POLO-0", status: "active", stock: 4, hasOrders: false,
     salePrice: { amount: 25.5, currency: "PEN" }, purchasePrice: { amount: 10, currency: "PEN" } })]);
   expect((await call("/api/products", cookie, body)).status).toBe(409);
@@ -203,7 +203,7 @@ type Detail = Awaited<ReturnType<typeof detail>>;
 function formOf(read: Detail) {
   const { product } = read;
   return {
-    structureVersion: product.structureVersion, name: product.name, description: product.description, imageId: product.imageId,
+    structureVersion: product.structureVersion, name: product.name, description: product.description,
     options: product.options.map((option) => ({ id: option.id, name: option.name, values: option.values.map((value) => ({ id: value.id, name: value.name })) })) as { id: string; name: string; values: { id: string; name: string }[]; valueForExistingVariants?: string }[],
     variants: product.variants.map((variant) => ({ id: variant.id, sku: variant.sku, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null })),
     newVariants: [] as { values: string[]; sku: string | null; salePrice: number; purchasePrice: number | null; initialStock: number }[],

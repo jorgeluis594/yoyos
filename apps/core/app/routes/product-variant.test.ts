@@ -19,6 +19,7 @@ const detail = (options: readonly object[] = [{ id: color, name: "Color", values
     variants: [{ id: variantId, combination: options.length ? { [color]: azul } : {}, salePrice: { amount: 10, currency: "PEN" }, qrCode: id(70), status: "active", stock: { quantity } }],
   },
   orderedVariantIds: new Set<string>(),
+  photos: [],
 }) as unknown as Detail;
 
 afterEach(() => vi.restoreAllMocks());

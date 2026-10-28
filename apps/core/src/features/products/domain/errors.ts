@@ -1,4 +1,4 @@
-export type ProductField = "name" | "description" | "imageId" | "currency" | "options" | "variants";
+export type ProductField = "name" | "description" | "photoIds" | "currency" | "options" | "variants";
 export type OptionField = "id" | "name" | "values" | "valueForExistingVariants";
 export type ValueField = "id" | "name";
 export type VariantField = "id" | "values" | "sku" | "salePrice" | "purchasePrice" | "initialStock";
@@ -14,6 +14,9 @@ export type ProductValidationReason =
   | { readonly reason: "DUPLICATE_SKU" }
   | { readonly reason: "DUPLICATE_VARIANT" }
   | { readonly reason: "VARIANT_NOT_FOUND" }
+  | { readonly reason: "TOO_MANY_PHOTOS"; readonly maximum: number }
+  | { readonly reason: "DUPLICATE_PHOTO" }
+  | { readonly reason: "PHOTO_NOT_FOUND" }
   | { readonly reason: "TOO_MANY_OPTIONS"; readonly maximum: number }
   | { readonly reason: "TOO_MANY_VALUES"; readonly maximum: number }
   | { readonly reason: "TOO_MANY_VARIANTS"; readonly maximum: number }
@@ -37,6 +40,7 @@ export type ValidationIssue = (
   | { readonly scope: "value"; readonly optionIndex: number; readonly valueIndex: number; readonly valueId?: string; readonly field: ValueField; readonly message: string }
   | { readonly scope: "variant"; readonly variantId: string; readonly field: VariantField; readonly message: string }
   | { readonly scope: "newVariant"; readonly index: number; readonly field: VariantField; readonly message: string }
+  | { readonly scope: "photo"; readonly index: number; readonly field: "photoIds"; readonly message: string }
 ) & ProductValidationReason;
 export type ValidationError = Readonly<{
   code: "VALIDATION_ERROR";

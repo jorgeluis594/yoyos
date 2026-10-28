@@ -6,13 +6,13 @@ import type { EventHandler } from "@core/src/shared/events/application/contracts
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { getCompanyId, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { getImage, getImages, readImageBytes } from "@core/src/shared/images/application/images";
+import { getImages, readImageBytes } from "@core/src/shared/images/application/images";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
-import { indexProductImage, indexProductImagePolicy, type EmbedImage, type IndexProductImageError } from "@core/src/features/products/application/index-product-image";
+import { indexProductPhotos, indexProductPhotosPolicy, type EmbedImage, type PhotoIndexFailure } from "@core/src/features/products/application/index-product-photos";
 import type { EmbeddingModel } from "@core/src/features/products/domain/image-identification";
-import { findImageIndexState, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
+import { findPhotoIndexState, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import { createOpenAiImageEmbedder } from "@core/src/features/products/infrastructure/product-matching/openai-image-embedder";
 import { createLocalImageEmbedder, DEFAULT_LOCAL_IMAGE_MODEL } from "@core/src/features/products/infrastructure/product-matching/local-image-embedder";
 import type { ListImageDependencies, ListImageFailure } from "@core/src/features/products/application/list";
@@ -36,14 +36,6 @@ const imageStorage = createR2ImageStorage({
   publicBaseUrl: process.env.R2_PUBLIC_BASE_URL ?? "",
 });
 
-export async function resolveImage(imageId: ImageId) {
-  const result = await getImage(imageId, imageStorage, imageRepository);
-  if (!result.success) {
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: result.error.message });
-  }
-  return { success: true as const, data: result.data ? { id: result.data.id as typeof imageId, url: result.data.url } : null };
-}
-
 async function resolveListImages(imageIds: readonly ImageId[]) {
   return map(await getImages(imageIds, imageStorage, imageRepository), ({ images, failures }) => ({
     images: images.map((image) => ({ id: image.id as ImageId, url: image.url })),
@@ -62,14 +54,15 @@ function reportListImageFailures(failures: readonly ListImageFailure[]) {
 
 export const listImages: ListImageDependencies = { resolve: resolveListImages, report: reportListImageFailures };
 
-export async function findImage(imageId: ImageId) {
-  return map(await imageRepository.find(imageId), (image) => image !== null);
+/** The ids of these images that exist for the company (RLS), in one query. */
+export async function findImages(imageIds: readonly ImageId[]) {
+  return map(await imageRepository.findMany(imageIds), (images) => new Set(images.map((image) => image.id as ImageId)) as ReadonlySet<ImageId>);
 }
 
-export async function publishProductImageChanged(productId: ProductId) {
+export async function publishProductPhotosAdded(productId: ProductId) {
   const companyId = getCompanyId() as CompanyId;
-  const published = await applicationEventBus().publishEvent("product_image_changed", { companyId, productId });
-  if (!published.success) log.error({ event: "product_image_changed_publish_failed", companyId, productId, errorCode: published.error.code, err: published.error }, "product_image_changed_publish_failed");
+  const published = await applicationEventBus().publishEvent("product_photos_added", { companyId, productId });
+  if (!published.success) log.error({ event: "product_photos_added_publish_failed", companyId, productId, errorCode: published.error.code, err: published.error }, "product_photos_added_publish_failed");
   return published;
 }
 
@@ -127,33 +120,44 @@ const identificationDependencies = {
   visual: visualSearchSetup.visual,
 };
 
-const retryableIndexCodes: readonly IndexProductImageError["code"][] = ["PERSISTENCE_UNAVAILABLE", "IMAGE_STORAGE_UNAVAILABLE", "EMBEDDER_UNAVAILABLE"];
+const retryableIndexCodes: readonly PhotoIndexFailure["code"][] = ["PERSISTENCE_UNAVAILABLE", "IMAGE_STORAGE_UNAVAILABLE", "EMBEDDER_UNAVAILABLE"];
 
-/** Handler of `product_image_changed`: logs each outcome and tells the bus which failures deserve a retry. */
-export const indexProductImageHandler: EventHandler<AppEvents, "product_image_changed"> = async (payload, metadata, context) => {
+/** Handler of `product_photos_added`: logs each photo outcome and retries the job only when some photo failed with a retryable code. */
+export const indexProductPhotosHandler: EventHandler<AppEvents, "product_photos_added"> = async (payload, metadata, context) => {
   const started = performance.now();
   const base = { companyId: payload.companyId, productId: payload.productId };
   if (!imageEmbedder) {
-    log.debug({ event: "product_image_index_skipped", ...base, reason: "visual_search_disabled" }, "product_image_index_skipped");
+    log.debug({ event: "product_photos_index_skipped", ...base, reason: "visual_search_disabled" }, "product_photos_index_skipped");
     return ok(undefined);
   }
-  const result = await withTenantIsolation(payload.companyId, () => indexProductImage({ productId: payload.productId }, {
-    findImageIndexState, saveEmbedding, embedImage: imageEmbedder.embedImage, model: imageEmbedder.model,
+  const result = await withTenantIsolation(payload.companyId, () => indexProductPhotos({ productId: payload.productId }, {
+    findPhotoIndexState, saveEmbedding, embedImage: imageEmbedder.embedImage, model: imageEmbedder.model,
     readImage: (imageId) => readImageBytes(imageId, imageStorage, imageRepository),
   }));
-  if (result.success) {
-    const outcome = result.data;
-    if (outcome.kind === "indexed") log.info({ event: "product_image_indexed", ...base, imageId: outcome.imageId, model: imageEmbedder.model,
-      durationMs: Math.round(performance.now() - started) }, "product_image_indexed");
-    else log.debug({ event: "product_image_index_skipped", ...base, reason: outcome.reason }, "product_image_index_skipped");
+  if (!result.success) {
+    log.error({ event: "product_photos_index_failed", ...base, eventId: metadata.eventId, errorCode: result.error.code, attempt: context.attempt, err: result.error }, "product_photos_index_failed");
+    return err({ code: result.error.code, message: result.error.message, retryable: true });
+  }
+  const outcome = result.data;
+  if (outcome.kind === "skipped") {
+    log.debug({ event: "product_photos_index_skipped", ...base, reason: outcome.reason }, "product_photos_index_skipped");
     return ok(undefined);
   }
-  const retryable = retryableIndexCodes.includes(result.error.code);
-  // A retryable failure is a warning until the last attempt: then the job stays failed.
-  log[retryable && context.attempt <= indexProductImagePolicy.retries ? "warn" : "error"]({ event: "product_image_index_failed", ...base,
-    eventId: metadata.eventId, errorCode: result.error.code, retryable, attempt: context.attempt, err: result.error }, "product_image_index_failed");
-  return err({ code: result.error.code, message: result.error.message, retryable });
+  if (outcome.indexed.length) log.info({ event: "product_photos_indexed", ...base, imageIds: outcome.indexed, indexedCount: outcome.indexed.length,
+    failedCount: outcome.failed.length, model: imageEmbedder.model, durationMs: Math.round(performance.now() - started),
+    queueLatencyMs: Math.max(0, Date.now() - Date.parse(metadata.occurredAt)) }, "product_photos_indexed");
+  for (const failure of outcome.failed) logPhotoFailure(failure, base, metadata.eventId, context.attempt);
+  const retryable = outcome.failed.find(({ code }) => retryableIndexCodes.includes(code));
+  return retryable ? err({ code: retryable.code, message: retryable.message, retryable: true }) : ok(undefined);
 };
+
+/** A retryable failure is a warning until the last attempt. A permanent one is an error on the job's first attempt and debug on later retries, so one bad photo yields one error line per job. */
+function logPhotoFailure(failure: PhotoIndexFailure, base: Readonly<{ companyId: string; productId: string }>, eventId: string, attempt: number) {
+  const retryable = retryableIndexCodes.includes(failure.code);
+  const level = retryable ? (attempt <= indexProductPhotosPolicy.retries ? "warn" : "error") : (attempt === 1 ? "error" : "debug");
+  log[level]({ event: "product_photo_index_failed", ...base, imageId: failure.imageId, eventId, errorCode: failure.code, retryable, attempt,
+    err: { code: failure.code, message: failure.message } }, "product_photo_index_failed");
+}
 
 export const products = {
   identifyProductsInImage: (image: ImageBytes) => identifyProductsInImage(image, identificationDependencies),

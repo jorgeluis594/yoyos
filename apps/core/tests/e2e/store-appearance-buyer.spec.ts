@@ -44,7 +44,7 @@ async function fixture({ delivery = true, photos = false }: { delivery?: boolean
       if (withPhoto) {
         const imageId = randomUUID();
         await prisma.image.create({ data: { id: imageId, storageKey: `products/${imageId}.svg` } });
-        await prisma.product.update({ where: { id: product.productId }, data: { imageId } });
+        await prisma.productPhoto.create({ data: { productId: product.productId, imageId, position: 0 } });
       }
       return { variantId: variant.id as VariantId, quantity: 1 as PositiveInteger };
     };

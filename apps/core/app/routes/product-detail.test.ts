@@ -6,7 +6,7 @@ import { productEditing } from "@core/src/features/products/product-editing";
 
 const id = "00000000-0000-4000-8000-000000000099";
 const context = { get: () => ({ company: { id: "00000000-0000-4000-8000-000000000001", country: "PE" } }) } as unknown as ActionFunctionArgs["context"];
-const valid = { structureVersion: 3, name: "Nuevo", description: null, imageId: null, options: [], variants: [], newVariants: [], deletedVariantIds: [] };
+const valid = { structureVersion: 3, name: "Nuevo", description: null, options: [], variants: [], newVariants: [], deletedVariantIds: [] };
 const put = (body: unknown, path = "/es-PE/products/1") => new Request(`http://localhost${path}`, { method: "PUT", body: JSON.stringify(body) });
 const run = (request: Request) => action({ request, context, params: { productId: id } } as unknown as ActionFunctionArgs);
 

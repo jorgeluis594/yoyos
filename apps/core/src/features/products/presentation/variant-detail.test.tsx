@@ -22,7 +22,7 @@ const variants = (override: Partial<ProductDetailResponse["product"]["variants"]
   { id: id(61), combination: [{ optionId: talla, valueId: m }, { optionId: color, valueId: azul }], sku: null, salePrice: money(39.9), purchasePrice: null, qrCode: id(71), status: "active", stock: 0, hasOrders: false },
 ];
 const product = (override = {}): ProductDetailResponse["product"] => ({
-  id: id(50), name: "Polo básico", description: null, imageId: null, currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
+  id: id(50), name: "Polo básico", description: null, photos: [], currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
   options: [{ id: talla, name: "Talla", values: [{ id: l, name: "L" }, { id: m, name: "M" }] }, { id: color, name: "Color", values: [{ id: azul, name: "Azul" }] }],
   variants: variants(override),
 });

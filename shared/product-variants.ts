@@ -4,6 +4,7 @@ import { productOptionLimits } from "@shared/contracts/products";
 import { err, ok } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import type { CreateProductRequest, ProductDetailResponse, SaveProductRequest } from "@shared/contracts/products";
+import type { PhotosToSave } from "@shared/product-photos";
 
 type LabelOption = Readonly<{ id: string; values: readonly Readonly<{ id: string; name: string }>[] }>;
 type LabelCombination = readonly Readonly<{ optionId: string; valueId: string }>[] | Readonly<Record<string, string>>;
@@ -53,7 +54,7 @@ export type Edit = Result<EditorDraft, EditFailure>;
 export type RowRemoval = "self" | "value" | "option";
 export type RowPatch = Partial<Readonly<{ sku: string | null; salePrice: number; purchasePrice: number | null; stock: number }>>;
 export type Uncreated = Readonly<{ items: readonly Readonly<{ combination: Readonly<Record<string, string>>; label: string }>[]; hasMore: boolean }>;
-export type ProductMeta = Readonly<{ name: string; description: string | null; imageId: string | null }>;
+export type ProductMeta = Readonly<{ name: string; description: string | null; photos: PhotosToSave }>;
 
 const { options: maxOptions, valuesPerOption: maxValues, variants: maxVariants } = productOptionLimits;
 const uncreatedPageSize = 50;
@@ -413,7 +414,8 @@ export function buildCreateProductBody(draft: EditorDraft, meta: ProductMeta & R
   const { base } = draft;
   const withoutOptions = draft.options.length === 0;
   return {
-    id: meta.id, name: meta.name, description: meta.description, imageId: meta.imageId, currency: meta.currency,
+    id: meta.id, name: meta.name, description: meta.description,
+    photoIds: meta.photos.kind === "set" ? [...meta.photos.photoIds] : [], currency: meta.currency,
     options: optionsBody(draft),
     variants: withoutOptions
       ? [{ values: [], sku: skuOf(base.sku), salePrice: base.salePrice, purchasePrice: base.purchasePrice, initialStock: base.stock }]
@@ -425,7 +427,8 @@ export function buildSaveProductBody(draft: EditorDraft, meta: ProductMeta & Rea
   const live = liveRows(draft).filter((row) => row.id !== null);
   const changed = live.filter((row) => row.original && (skuOf(row.sku) !== row.original.sku || row.salePrice !== row.original.salePrice || row.purchasePrice !== row.original.purchasePrice));
   return {
-    structureVersion: meta.structureVersion, name: meta.name, description: meta.description, imageId: meta.imageId,
+    structureVersion: meta.structureVersion, name: meta.name, description: meta.description,
+    ...meta.photos.kind === "set" ? { photoIds: [...meta.photos.photoIds] } : {},
     options: optionsBody(draft),
     variants: changed.map((row) => ({ id: row.id as string, sku: skuOf(row.sku), salePrice: row.salePrice, purchasePrice: row.purchasePrice })),
     newVariants: newVariantsBody(draft),

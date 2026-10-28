@@ -4,7 +4,7 @@ import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
 type UploadCode = "UNAUTHENTICATED" | "COMPANY_REQUIRED" | "NETWORK_ERROR" | "SERVICE_UNAVAILABLE" | "RATE_LIMITED" | "SERVER_ERROR" | "INVALID_RESPONSE" | "OPERATION_CANCELLED" | "SECURE_STORAGE_ERROR" | "API_ERROR"
-  | "INVALID_IMAGE" | "IMAGE_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "IMAGE_STORAGE_UNAVAILABLE";
+  | "INVALID_IMAGE" | "IMAGE_TOO_LARGE" | "UNSUPPORTED_MEDIA_TYPE" | "IMAGE_STORAGE_UNAVAILABLE" | "ABORTED";
 export type UploadImageError = Readonly<{ code: UploadCode; message: string; http?: Readonly<{ status: number }> }>;
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
 
@@ -27,8 +27,10 @@ function readFailure(error: TransportError): UploadImageError {
   return { ...failure(error.code as UploadCode, error.message), ...http };
 }
 
-/** Uploads a local image to core with its real mimeType; the file is validated by core from its bytes. */
-export async function uploadImage(request: Request, uri: string, mimeType: string): Promise<Result<Readonly<{ id: string; url: string }>, UploadImageError>> {
+export type UploadImageOptions = Readonly<{ signal?: AbortSignal }>;
+
+/** Uploads a local image to core with its real mimeType; the file is validated by core from its bytes. An aborted upload answers `ABORTED`, whatever the transport said. */
+export async function uploadImage(request: Request, uri: string, mimeType: string, options: UploadImageOptions = {}): Promise<Result<Readonly<{ id: string; url: string }>, UploadImageError>> {
   let file: Blob;
   try {
     const source = await fetch(uri).then((response) => response.blob());
@@ -38,7 +40,9 @@ export async function uploadImage(request: Request, uri: string, mimeType: strin
   }
   const form = new FormData();
   form.append("file", file, `image.${extensions[mimeType] ?? "bin"}`);
-  const result = await request("/api/images", { method: "POST", body: form });
+  if (options.signal?.aborted) return err(failure("ABORTED", "Upload aborted"));
+  const result = await request("/api/images", { method: "POST", body: form, ...(options.signal ? { signal: options.signal } : {}) });
+  if (options.signal?.aborted) return err(failure("ABORTED", "Upload aborted"));
   if (!result.success) return err(readFailure(result.error));
   const parsed = imageResponseSchema.safeParse(result.data);
   return parsed.success ? ok({ id: parsed.data.id, url: parsed.data.url }) : err(failure("INVALID_RESPONSE", "Server returned invalid image data"));

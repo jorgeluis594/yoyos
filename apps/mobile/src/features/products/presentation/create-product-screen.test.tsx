@@ -48,7 +48,6 @@ jest.mock("@mobile/features/products/composition", () => ({
 jest.mock("@mobile/features/printing/presentation/print-provider", () => ({ usePrint: () => ({ startAttempt: mockStartAttempt }) }));
 jest.mock("@mobile/features/products/presentation/use-product-navigation-guard", () => ({ useProductNavigationGuard: () => jest.fn() }));
 jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: 0 }) }));
-jest.mock("@mobile/features/products/presentation/product-photo", () => ({ ProductPhoto: () => null }));
 
 const fillForm = () => {
   fireEvent.changeText(screen.getByLabelText("Nombre *"), "Camisa");

@@ -28,7 +28,7 @@ export function toProductDetailResponse(detail: Detail): ProductDetailResponse {
     product: {
       id: product.id, name: product.name,
       description: product.description ?? null,
-      imageId: product.imageId ?? null,
+      photos: detail.photos.map((photo) => ({ id: photo.id, url: photo.url })),
       currency: product.currency, qrCode: product.qrCode,
       createdAt: product.createdAt.toISOString(), updatedAt: product.updatedAt.toISOString(),
       structureVersion: product.structureVersion,
@@ -43,7 +43,6 @@ export function toProductDetailResponse(detail: Detail): ProductDetailResponse {
         hasOrders: detail.orderedVariantIds.has(variant.id),
       })),
     },
-    image: detail.image ?? null,
   });
 }
 

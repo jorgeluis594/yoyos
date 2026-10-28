@@ -1,22 +1,23 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { isEmptyChange, planProductSave, type ProductStructureChange, type SaveRequest } from "@core/src/features/products/domain/product-structure";
+import { parseProductPhotos, samePhotos } from "@core/src/features/products/domain/photos";
 import type { ProductBusinessError, ValidationError, ValidationIssue } from "@core/src/features/products/domain/errors";
-import type { ImageId, Product, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import type { ImageId, Product, ProductId, ProductPhotos, VariantId } from "@core/src/features/products/domain/product";
 import type { Detail, DetailError } from "@core/src/features/products/application/get";
 import type { ProductAccess, ProductReadError } from "@core/src/features/products/application/repository";
 import type { ImageLookupError } from "@core/src/shared/images/application/images";
 import type { EventBusError } from "@core/src/shared/events/application/contracts";
 
 export type SaveProductInput = SaveRequest & Readonly<{ productId: ProductId }>;
-export type SaveProductError = Extract<ProductBusinessError, { code: "VALIDATION_ERROR" | "PRODUCT_NOT_FOUND" | "PRODUCT_CHANGED" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "ID_CONFLICT" | "VARIANT_HAS_ORDERS" | "IMAGE_NOT_FOUND" }>
+export type SaveProductError = Extract<ProductBusinessError, { code: "VALIDATION_ERROR" | "PRODUCT_NOT_FOUND" | "PRODUCT_CHANGED" | "DUPLICATE_SKU" | "DUPLICATE_COMBINATION" | "ID_CONFLICT" | "VARIANT_HAS_ORDERS" }>
   | DetailError
   | ProductReadError
   | ImageLookupError;
 /** What the composition logs after the commit or on a rejection. Never names, SKUs or prices. */
 export type SaveObserver = Readonly<{
   saved?: (summary: Readonly<{ productId: ProductId; structureVersion: number; optionCount: number; variantCount: number; createdVariants: number; updatedVariants: number;
-    deletedVariants: number; rekeyedVariants: number; removedValues: number }>) => void;
+    deletedVariants: number; rekeyedVariants: number; removedValues: number; photoCount: number; photosChanged: boolean }>) => void;
   rejected?: (summary: Readonly<{ productId: ProductId; error: SaveProductError }>) => void;
 }>;
 export type SaveProductDependencies = Readonly<{
@@ -28,7 +29,8 @@ export type SaveProductDependencies = Readonly<{
   findSkuOwners: (normalizedSkus: readonly string[]) => Promise<Result<ReadonlyMap<string, VariantId>, ProductReadError>>;
   /** Option and value ids that already exist in the database. */
   findForeignOptionIds: (ids: readonly string[]) => Promise<Result<ReadonlySet<string>, ProductReadError>>;
-  findImage: (imageId: ImageId) => Promise<Result<boolean, ImageLookupError>>;
+  /** The ids that exist for the company (RLS). */
+  findImages: (ids: readonly ImageId[]) => Promise<Result<ReadonlySet<ImageId>, ImageLookupError>>;
   /** Bulk writes in the fixed order of the design; translates constraint violations into typed errors. */
   applyStructureChange: (change: ProductStructureChange) => Promise<Result<null, SaveProductError>>;
   /** The editing read, inside the same transaction. */
@@ -37,7 +39,7 @@ export type SaveProductDependencies = Readonly<{
   clock: () => Date;
   observe?: SaveObserver;
   /** Failures are logged by the adapter and recovered by products:index-images; the product stays saved. */
-  publishProductImageChanged: (productId: ProductId) => Promise<Result<void, EventBusError>>;
+  publishProductPhotosAdded: (productId: ProductId) => Promise<Result<void, EventBusError>>;
 }>;
 
 const normalizeSku = (sku: string) => sku.trim().toLowerCase();
@@ -78,7 +80,18 @@ async function foreignIds(current: Product, input: SaveProductInput, deps: SaveP
   ]));
 }
 
-type Saved = Readonly<{ detail: Detail; publishImage: boolean }>;
+type Saved = Readonly<{ detail: Detail; addedPhotos: boolean }>;
+
+/** Ids the product does not already have must exist for the company; the ones it has are guaranteed by the foreign key. */
+async function missingPhotos(current: Product, photos: ProductPhotos, deps: SaveProductDependencies): Promise<Result<readonly ValidationIssue[], ImageLookupError>> {
+  const stored = new Set<ImageId>(current.photoIds);
+  const added = photos.filter((id) => !stored.has(id));
+  if (!added.length) return ok([]);
+  const found = await deps.findImages(added);
+  if (!found.success) return found;
+  return ok(photos.flatMap((id, index): ValidationIssue[] => stored.has(id) || found.data.has(id)
+    ? [] : [{ scope: "photo", field: "photoIds", index, reason: "PHOTO_NOT_FOUND", message: "Photo is unavailable" }]));
+}
 
 async function saveInTransaction(input: SaveProductInput, deps: SaveProductDependencies): Promise<Result<Saved, SaveProductError>> {
   const locked = await deps.lockProduct(input.productId);
@@ -93,13 +106,12 @@ async function saveInTransaction(input: SaveProductInput, deps: SaveProductDepen
   if (!skus.success) return skus;
   const foreign = await foreignIds(current, input, deps);
   if (!foreign.success) return foreign;
-  const issues = [...plan.success ? [] : plan.error.issues, ...skus.data, ...foreign.data];
+  // The list is parsed here too, so a photo of another company is reported together with the plan issues.
+  const listed = input.photoIds === undefined ? undefined : parseProductPhotos(input.photoIds);
+  const photoLookup = listed?.success && !samePhotos(listed.data, current.photoIds) ? await missingPhotos(current, listed.data, deps) : ok([] as readonly ValidationIssue[]);
+  if (!photoLookup.success) return photoLookup;
+  const issues = [...plan.success ? [] : plan.error.issues, ...photoLookup.data, ...skus.data, ...foreign.data];
   if (issues.length || !plan.success) return err({ code: "VALIDATION_ERROR", message: "Invalid product", issues: issues as unknown as ValidationError["issues"] });
-  if (input.imageId !== null && input.imageId !== current.imageId) {
-    const image = await deps.findImage(input.imageId);
-    if (!image.success) return image;
-    if (!image.data) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
-  }
   const change = plan.data;
   const changed = !isEmptyChange(change);
   if (changed) {
@@ -115,8 +127,10 @@ async function saveInTransaction(input: SaveProductInput, deps: SaveProductDepen
     variantCount: current.variants.length + change.insertVariants.length - change.deleteVariantIds.length,
     createdVariants: change.insertVariants.length, updatedVariants: change.variantFieldChanges.length, deletedVariants: change.deleteVariantIds.length,
     rekeyedVariants: change.rekeyVariants.length, removedValues: change.deleteValueIds.length,
+    photoCount: (change.photos ?? current.photoIds).length, photosChanged: change.photos !== undefined,
   });
-  return ok({ detail: detail.data, publishImage: typeof change.product.imageId === "string" });
+  const stored = new Set<ImageId>(current.photoIds);
+  return ok({ detail: detail.data, addedPhotos: change.photos?.some((id) => !stored.has(id)) ?? false });
 }
 
 export async function saveProduct(input: SaveProductInput, access: ProductAccess, deps: SaveProductDependencies): Promise<Result<Detail, SaveProductError>> {
@@ -125,7 +139,7 @@ export async function saveProduct(input: SaveProductInput, access: ProductAccess
     deps.observe?.rejected?.({ productId: input.productId, error: saved.error });
     return saved;
   }
-  // Removing the image publishes nothing: searches filter by the current imageId.
-  if (saved.data.publishImage) await deps.publishProductImageChanged(input.productId);
+  // Removing photos publishes nothing: searches join the current photos only.
+  if (saved.data.addedPhotos) await deps.publishProductPhotosAdded(input.productId);
   return ok(saved.data.detail);
 }

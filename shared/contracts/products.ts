@@ -6,6 +6,7 @@ const uuidSchema = z.uuid();
 const moneySchema = z.object({ amount: z.number(), currency: z.enum(currencies) }).readonly();
 
 export const productOptionLimits = { options: 3, valuesPerOption: 30, variants: 100, nameLength: 30 } as const;
+export const productPhotoLimits = { maxPhotos: 8 } as const;
 export const normalizeOptionText = (value: string) => value.trim().toLowerCase();
 
 // Requests are strict: an unknown field is a client bug.
@@ -27,7 +28,8 @@ export const createProductRequestSchema = z.strictObject({
   id: productIdSchema,
   name: z.string(),
   description: z.string().nullable(),
-  imageId: uuidSchema.nullable(),
+  // Ordered, position 0 is the primary. The limit and repeats are checked by core's domain so the client gets typed issues with the index.
+  photoIds: z.array(uuidSchema),
   currency: z.enum(currencies),
   options: z.array(optionRequestSchema),
   variants: z.array(newVariantSchema).min(1),
@@ -37,7 +39,8 @@ export const saveProductRequestSchema = z.strictObject({
   structureVersion: z.number().int().nonnegative(),
   name: z.string(),
   description: z.string().nullable(),
-  imageId: uuidSchema.nullable(),
+  // Omitted = photos untouched; present = the whole new ordered list.
+  photoIds: z.array(uuidSchema).optional(),
   options: z.array(optionRequestSchema),
   variants: z.array(z.strictObject({ id: uuidSchema, sku: z.string().nullable(), salePrice: z.number(), purchasePrice: z.number().nullable() })),
   newVariants: z.array(newVariantSchema),
@@ -107,7 +110,7 @@ export const productDetailResponseSchema = z.object({
     id: uuidSchema,
     name: z.string(),
     description: z.string().nullable(),
-    imageId: uuidSchema.nullable(),
+    photos: z.array(productImageSchema).max(productPhotoLimits.maxPhotos),
     currency: z.enum(currencies),
     qrCode: uuidSchema,
     createdAt: z.iso.datetime(),
@@ -116,12 +119,13 @@ export const productDetailResponseSchema = z.object({
     options: z.array(optionResponseSchema),
     variants: z.array(variantResponseSchema).min(1),
   }),
-  image: productImageSchema.nullable(),
 }).superRefine((response, context) => {
   const { product } = response;
-  if ((product.imageId === null) !== (response.image === null) || response.image && product.imageId !== response.image.id) {
-    context.addIssue({ code: "custom", path: ["image", "id"], message: "Image must match the product reference" });
-  }
+  const photoIds = new Set<string>();
+  product.photos.forEach((photo, photoIndex) => {
+    if (photoIds.has(photo.id)) context.addIssue({ code: "custom", path: ["product", "photos", photoIndex, "id"], message: "Photo must be unique" });
+    photoIds.add(photo.id);
+  });
   const optionIds = new Set<string>();
   const valueIds = new Set<string>();
   const valueOwner = new Map<string, string>();
@@ -157,10 +161,11 @@ export const productIssueReasonSchema = z.enum([
   "TOO_MANY_OPTIONS", "TOO_MANY_VALUES", "TOO_MANY_VARIANTS", "DUPLICATE_OPTION", "DUPLICATE_VALUE", "OPTION_WITHOUT_VALUES",
   "INVALID_COMBINATION", "DUPLICATE_COMBINATION", "VALUE_NOT_FOUND", "VALUE_IN_USE", "MISSING_VALUE_FOR_EXISTING_VARIANTS",
   "VARIANT_HAS_ORDERS", "VARIANT_HAS_STOCK", "LAST_VARIANT", "ID_CONFLICT", "OPTION_HAS_SEVERAL_VALUES", "LAST_OPTION_VARIANT_INACTIVE",
+  "TOO_MANY_PHOTOS", "DUPLICATE_PHOTO", "PHOTO_NOT_FOUND",
   "UNKNOWN_FIELD", "INVALID_FORMAT", "DUPLICATE_FIELD", "INVALID_RANGE", "UNSAFE_PAGINATION",
 ]);
 export const productApiIssueSchema = z.object({
-  scope: z.enum(["product", "option", "value", "variant", "newVariant", "criteria", "input"]).optional(),
+  scope: z.enum(["product", "option", "value", "variant", "newVariant", "photo", "criteria", "input"]).optional(),
   field: z.string(),
   index: z.number().int().nonnegative().optional(),
   optionIndex: z.number().int().nonnegative().optional(),

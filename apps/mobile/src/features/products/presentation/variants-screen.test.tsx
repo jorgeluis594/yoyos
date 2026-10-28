@@ -39,7 +39,6 @@ jest.mock("@mobile/features/products/composition", () => ({
 jest.mock("@mobile/features/printing/presentation/print-provider", () => ({ usePrint: () => ({ startAttempt: jest.fn() }) }));
 jest.mock("@mobile/features/products/presentation/use-product-navigation-guard", () => ({ useProductNavigationGuard: () => jest.fn() }));
 jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: 0, dirty: mockProductDirty, discard: mockDiscard }) }));
-jest.mock("@mobile/features/products/presentation/product-photo", () => ({ ProductPhoto: () => null }));
 jest.mock("@expo/ui/community/menu", () => ({
   MenuView: ({ actions, onPressAction, children }: { actions: { id: string; title: string }[]; onPressAction: (event: { nativeEvent: { event: string } }) => void; children: ReactNode }) => {
     const mockReact = jest.requireActual("react");
@@ -90,7 +89,7 @@ test("a rejected save marks rows and the product shows '2 con errores'", async (
 test("a successful save shows the returned detail without another request", async () => {
   const colorId = id(20);
   const detail = (variants: number) => ({
-    id: productId, name: "Camisa", currency: "PEN", structureVersion: variants, options: [{ id: colorId, name: "Color", values: Array.from({ length: variants }, (_, index) => ({ id: id(30 + index), name: `C${index}` })) }],
+    id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: variants, options: [{ id: colorId, name: "Color", values: Array.from({ length: variants }, (_, index) => ({ id: id(30 + index), name: `C${index}` })) }],
     variants: Array.from({ length: variants }, (_, index) => ({ id: id(40 + index), qrCode: id(50 + index), combination: [{ optionId: colorId, valueId: id(30 + index) }], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false })),
   });
   mockLoad.mockResolvedValue(ok(detail(2)));
@@ -166,7 +165,7 @@ test("a row removed from a new product is marked with Deshacer and leaves the co
 });
 
 test("a deactivated variant is shown as such and is never selected by a chip", () => {
-  const product = { id: productId, name: "Polo", description: null, imageId: null, currency: "PEN" as const, qrCode: id(1), createdAt: "", updatedAt: "", structureVersion: 1,
+  const product = { id: productId, name: "Polo", description: null, photos: [], currency: "PEN" as const, qrCode: id(1), createdAt: "", updatedAt: "", structureVersion: 1,
     options: [{ id: id(1), name: "Talla", values: named(10, ["S", "M"]) }],
     variants: named(10, ["S", "M"]).map((value, index) => ({ id: id(100 + index), combination: [{ optionId: id(1), valueId: value.id }], sku: null, salePrice: { amount: 10, currency: "PEN" as const }, purchasePrice: null, qrCode: id(200 + index), status: index === 1 ? "inactive" : "active", stock: 2, hasOrders: false })) };
   renderVariants(draftFromProduct(product));
@@ -182,7 +181,7 @@ function Capture({ onEditor }: { onEditor: (editor: ReturnType<typeof useProduct
 }
 
 test("a bulk price edit on the variant of a product that had no options survives the save", async () => {
-  const simple = { id: productId, name: "Camisa", currency: "PEN", structureVersion: 1, options: [],
+  const simple = { id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, options: [],
     variants: [{ id: id(40), qrCode: id(50), combination: [], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }] };
   mockLoad.mockResolvedValue(ok(simple));
   mockSave.mockResolvedValue(ok(simple));
@@ -198,7 +197,7 @@ test("a bulk price edit on the variant of a product that had no options survives
 
 test("a save rejected because a marked value now has orders shows the reason on the value in Opciones", async () => {
   const colorId = id(20);
-  const saved = { id: productId, name: "Camisa", currency: "PEN", structureVersion: 1, options: [{ id: colorId, name: "Color", values: [{ id: id(30), name: "Negro" }, { id: id(31), name: "Azul" }] }],
+  const saved = { id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, options: [{ id: colorId, name: "Color", values: [{ id: id(30), name: "Negro" }, { id: id(31), name: "Azul" }] }],
     variants: [30, 31].map((value, index) => ({ id: id(40 + index), qrCode: id(50 + index), combination: [{ optionId: colorId, valueId: id(value) }], salePrice: { amount: 20, currency: "PEN" }, stock: 0, status: "active", hasOrders: false })) };
   mockLoad.mockResolvedValue(ok(saved));
   mockSave.mockResolvedValue(err({ code: "VALIDATION_ERROR", message: "x", issues: [{ scope: "variant", variantId: id(41), field: "id", reason: "VARIANT_HAS_ORDERS" }] }));
@@ -221,7 +220,7 @@ test("a save rejected because a marked value now has orders shows the reason on 
 });
 
 test("a cleared base price does not block saving once the product has options", async () => {
-  const simple = { id: productId, name: "Camisa", currency: "PEN", structureVersion: 1, options: [],
+  const simple = { id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, options: [],
     variants: [{ id: id(40), qrCode: id(50), combination: [], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }] };
   mockLoad.mockResolvedValue(ok(simple));
   mockSave.mockResolvedValue(ok(simple));
