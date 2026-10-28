@@ -1,16 +1,16 @@
 import { useTranslation } from "react-i18next";
-import { Fragment, useEffect, useRef, useState, type ChangeEvent, type FormEvent } from "react";
+import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
-import { FileUploadPreview } from "@core/app/components/ui/file-upload";
 import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 import { Textarea } from "@core/app/components/ui/textarea";
-import { uploadImageFile } from "@core/src/shared/images/presentation/client";
+import { ProductPhotosField, useProductPhotos, type SavedPhoto } from "@core/src/features/products/presentation/product-photos-field";
 import { useClientReady } from "@core/app/use-client-ready";
 import { clearOptions, createDraft, setRow, type EditorDraft } from "@shared/product-variants";
 import type { Currency } from "@shared/money";
+import type { PhotosToSave } from "@shared/product-photos";
 import type { Edit } from "@shared/product-variants";
 import type { FormErrors, SaveFeedback } from "@core/src/features/products/presentation/messages";
 import type { OptionBuffer } from "@core/src/features/products/presentation/option-buffer";
@@ -23,15 +23,11 @@ import { VariantsCard } from "@core/src/features/products/presentation/variants-
 export type ProductFormValues = Readonly<{ name: string; description: string; sku: string; salePrice: string; purchasePrice: string; initialStock: string }>;
 export const emptyProductFormValues: ProductFormValues = { name: "", description: "", sku: "", salePrice: "", purchasePrice: "", initialStock: "" };
 
-export type ProductImageSelection =
-  | Readonly<{ kind: "keep" }>
-  | Readonly<{ kind: "set"; id: string }>
-  | Readonly<{ kind: "remove" }>;
-
-export type ProductFormSubmission = Readonly<{ values: ProductFormValues; image: ProductImageSelection; draft: EditorDraft }>;
+export type ProductFormSubmission = Readonly<{ values: ProductFormValues; photos: PhotosToSave; draft: EditorDraft }>;
 
 const noFeedback: SaveFeedback = { errors: {}, issues: [] };
 const noTargets: FeedbackTargets = { rows: {}, options: {}, values: {}, blockedValues: new Set() };
+const noPhotos: readonly SavedPhoto[] = [];
 const emptyDraft = createDraft({ sku: null, salePrice: 0, purchasePrice: null, stock: 0 });
 const amount = (text: string): number | null => text.trim() === "" ? null : Number(text);
 
@@ -59,19 +55,17 @@ export type ProductFormProps = {
   /** The names the saved product had, to show «Antes …» for renamed values. */
   originalNames?: Readonly<Record<string, string>>;
   submitLabel?: string;
-  imageUrl?: string;
+  /** The photos the product has, primary first. */
+  photos?: readonly SavedPhoto[];
 };
 
-export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending, onSave, onReload, variantHref, values: initialValues = emptyProductFormValues, draft: initialDraft = emptyDraft, originalNames = {}, submitLabel, imageUrl }: ProductFormProps) {
+export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending, onSave, onReload, variantHref, values: initialValues = emptyProductFormValues, draft: initialDraft = emptyDraft, originalNames = {}, submitLabel, photos: savedPhotos = noPhotos }: ProductFormProps) {
   const { t } = useTranslation();
   const errors: FormErrors = feedback.errors;
   const [values, setValues] = useState<ProductFormValues>(initialValues);
   const [draft, setDraft] = useState<EditorDraft>(initialDraft);
-  const [photo, setPhoto] = useState<{ url: string } | null>(imageUrl ? { url: imageUrl } : null);
-  const [uploadedId, setUploadedId] = useState<string | null>(null);
-  const [removed, setRemoved] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [photoError, setPhotoError] = useState("");
+  const photos = useProductPhotos(savedPhotos);
+  const [photosUnusable, setPhotosUnusable] = useState(false);
   const [confirmReload, setConfirmReload] = useState(false);
   const [targets, setTargets] = useState<FeedbackTargets>(noTargets);
   const submitted = useRef<EditorDraft>(initialDraft);
@@ -81,48 +75,30 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
   const withOptions = hasOptions(draft);
   const saved = draft.saved;
   const fields: readonly (keyof ProductFormValues)[] = withOptions ? ["name", "description"] : ["name", "description", "sku", "salePrice", "purchasePrice"];
-  const image: ProductImageSelection = removed ? { kind: "remove" } : uploadedId ? { kind: "set", id: uploadedId } : { kind: "keep" };
-  const dirty = draftSnapshot([values, draft, image.kind === "keep" ? "keep" : image]) !== opened;
+  const dirty = draftSnapshot([values, draft, "keep"]) !== opened || photos.dirty;
   const guard = useDiscardGuard(dirty);
 
   useEffect(() => {
     guard.holdLeaving();
     setTargets(feedback.issues.length > 0 ? feedbackTargets(submitted.current, feedback.issues) : noTargets);
+    const rejected = feedback.issues.filter((issue) => issue.scope === "photo" && issue.index !== undefined).map((issue) => issue.index!);
+    const unusable = rejected.length > 0 && !photos.reject(rejected);
+    setPhotosUnusable(unusable);
+    if (unusable || feedback.errors.photos) photos.focusMessage();
   }, [feedback]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    const toSave = photos.prepareSave();
+    if (!toSave) return;
+    setPhotosUnusable(false);
     const final = withOptions ? draft : syncValues(draft, values);
     submitted.current = final;
     guard.allowLeaving();
-    onSave({ values, image, draft: final });
+    onSave({ values, photos: toSave, draft: final });
   }
 
   const commitOption = (buffer: OptionBuffer): Edit => applyOptionBuffer(withOptions ? draft : syncValues(draft, values), buffer);
-
-  async function selectPhoto(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0];
-    event.target.value = "";
-    if (!file) return;
-    setUploading(true);
-    setPhotoError("");
-    const result = await uploadImageFile(file);
-    if (result.success) {
-      setPhoto({ url: result.data.url });
-      setUploadedId(result.data.id);
-      setRemoved(false);
-    } else {
-      setPhotoError(result.error.code === "IMAGE_TOO_LARGE" ? t("products.imageTooLarge") : result.error.code === "INVALID_IMAGE" ? t("products.invalidImage") : t("products.uploadError"));
-    }
-    setUploading(false);
-  }
-
-  function removePhoto() {
-    setPhoto(null);
-    setUploadedId(null);
-    setRemoved(true);
-    setPhotoError("");
-  }
 
   const reload = () => dirty ? setConfirmReload(true) : onReload?.();
   const reviewed = Object.keys(targets.rows).length;
@@ -154,16 +130,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
         onClearOptions={() => setDraft((current) => clearOptions(current))} />
       </div>
       <aside className="grid gap-5">
-      <Field data-invalid={Boolean(photoError)}>
-        <FieldLabel htmlFor="photo">{t("products.photo")}</FieldLabel>
-        <div className="flex flex-wrap items-center gap-3">
-          <input id="photo" name="photo" type="file" accept="image/jpeg,image/png,image/webp" disabled={uploading} onChange={selectPhoto} aria-invalid={!!photoError} aria-describedby={photoError ? "photo-error" : undefined} className="text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring aria-invalid:border-destructive" />
-          {photo && <Button type="button" variant="outline" onClick={removePhoto}>{t("products.removePhoto")}</Button>}
-        </div>
-        {uploading && <p role="status" className="text-sm text-muted-foreground">{t("products.uploading")}</p>}
-        {photo && <FileUploadPreview src={photo.url} alt={t("products.preview")} />}
-        {photoError && <FieldError id="photo-error">{photoError}</FieldError>}
-      </Field>
+      <ProductPhotosField photos={photos} error={errors.photos ?? (photosUnusable ? t("productPhotos.unusableField") : undefined)} />
       {readOnlyStock ? <Field>
         <FieldLabel htmlFor="initialStock">{t("products.stock")}</FieldLabel>
         <Input id="initialStock" name="initialStock" value={stockTotal(draft)} readOnly aria-readonly="true" aria-describedby={withOptions ? "stock-help" : undefined} className="bg-muted text-muted-foreground" />
@@ -178,7 +145,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
     {reviewed > 0 && <Alert variant="destructive"><AlertDescription>{t("productEditor.reviewVariants", { count: reviewed })}</AlertDescription></Alert>}
     {errors.form && <Alert variant="destructive"><AlertDescription>{errors.form}</AlertDescription></Alert>}
     <div className="flex flex-wrap gap-3 border-t border-border pt-5">
-      <Button type="submit" disabled={pending || uploading || !ready}>{pending ? t("products.saving") : submitLabel ?? t("products.save")}</Button>
+      <Button type="submit" disabled={pending || !ready}>{pending ? t("products.saving") : submitLabel ?? t("products.save")}</Button>
       <Button asChild variant="outline"><Link to={cancelTo}>{t("products.cancel")}</Link></Button>
     </div>
     {guard.dialog}

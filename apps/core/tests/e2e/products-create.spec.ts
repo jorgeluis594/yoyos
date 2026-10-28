@@ -127,7 +127,7 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page.getByRole("row").filter({ has: page.getByLabel("Precio de venta de M") }).getByRole("cell").nth(3)).toHaveText("2");
     await browserExpect(page.getByRole("row").filter({ has: page.getByLabel("Precio de venta de L") }).getByRole("cell").nth(3)).toHaveText("3");
     await browserExpect(page.getByLabel("Stock", { exact: true })).toHaveValue("5");
-    await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveAttribute("src", /prepared-product\.jpg$/);
+    await browserExpect(page.getByRole("group", { name: "Foto 1 de 1, principal" }).locator("img")).toHaveAttribute("src", /prepared-product\.jpg$/);
     await page.getByRole("link", { name: "Volver a productos" }).click();
     const catalogRow = page.getByRole("row", { name: /Camisa con tallas/ });
     await browserExpect(catalogRow).toContainText("Varias variantes");
