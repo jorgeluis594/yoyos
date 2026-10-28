@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { createErrors, feedbackIssues, saveErrors } from "@core/src/features/products/presentation/messages";
+import { createErrors, feedbackIssues, saveErrors, saveFeedback } from "@core/src/features/products/presentation/messages";
 
 test("translates typed product reasons to their fields in Spanish", () => {
   expect(createErrors({ code: "VALIDATION_ERROR", message: "Invalid product", issues: [
@@ -64,4 +64,14 @@ test("rejected saves name the row, option or value with a short text", () => {
     { message: "Tiene pedidos, por eso no se puede eliminar.", variantId: "v2" },
   ].map((item) => ({ index: undefined, variantId: undefined, optionId: undefined, ...item })));
   expect(feedbackIssues({ code: "DUPLICATE_SKU", message: "dup" })).toEqual([]);
+});
+
+test("a save with too many photos names the field and a rejected photo leaves the form-level message to its thumbnail", () => {
+  const tooMany = { code: "VALIDATION_ERROR" as const, message: "invalid", issues: [{ scope: "product" as const, field: "photoIds" as const, reason: "TOO_MANY_PHOTOS" as const, maximum: 8, message: "Too many photos" }] as const };
+  expect(saveFeedback(tooMany).errors).toEqual({ photos: "Un producto puede tener hasta 8 fotos. Quita alguna y guarda de nuevo." });
+  expect(saveFeedback(tooMany, "pt").errors).toEqual({ photos: "Um produto pode ter até 8 fotos. Remova alguma e salve de novo." });
+  const missing = { code: "VALIDATION_ERROR" as const, message: "invalid", issues: [{ scope: "photo" as const, field: "photoIds" as const, index: 1, reason: "PHOTO_NOT_FOUND" as const, message: "Photo is unavailable" }] as const };
+  const feedback = saveFeedback(missing);
+  expect(feedback.errors).toEqual({});
+  expect(feedback.issues).toEqual([{ scope: "photo", field: "photoIds", reason: "PHOTO_NOT_FOUND", message: "No pudimos usar esta foto. Quítala o súbela de nuevo.", index: 1 }]);
 });

@@ -19,7 +19,7 @@ test("returns the uploaded image identifier and URL", async () => {
 
 test("surfaces the server error code for a rejected upload", async () => {
   vi.spyOn(globalThis, "fetch").mockResolvedValue(jsonResponse(502, { code: "IMAGE_STORAGE_UNAVAILABLE", error: "Image storage unavailable" }));
-  expect(await uploadImageFile(file)).toEqual({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "Image upload was rejected" } });
+  expect(await uploadImageFile(file)).toEqual({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "Image upload was rejected", status: 502 } });
 });
 
 test("rejects an invalid response shape and reports unavailable transport", async () => {
@@ -27,4 +27,11 @@ test("rejects an invalid response shape and reports unavailable transport", asyn
   expect(await uploadImageFile(file)).toEqual({ success: false, error: { code: "INVALID_IMAGE_RESPONSE", message: "Invalid image response" } });
   vi.spyOn(globalThis, "fetch").mockRejectedValue(new Error("offline"));
   expect(await uploadImageFile(file)).toEqual({ success: false, error: { code: "IMAGE_UPLOAD_UNAVAILABLE", message: "Unable to reach the image service" } });
+});
+
+test("passes the abort signal to the request and reports an aborted upload as ABORTED", async () => {
+  const controller = new AbortController();
+  const fetchMock = vi.spyOn(globalThis, "fetch").mockImplementation(async () => { controller.abort(); throw new DOMException("aborted", "AbortError"); });
+  expect(await uploadImageFile(file, { signal: controller.signal })).toEqual({ success: false, error: { code: "ABORTED", message: "Image upload was aborted" } });
+  expect(fetchMock).toHaveBeenCalledWith("/api/images", expect.objectContaining({ signal: controller.signal }));
 });

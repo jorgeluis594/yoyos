@@ -6,10 +6,10 @@ const productId = "00000000-0000-4000-8000-000000000001" as ProductId;
 const variantId = "00000000-0000-4000-8000-000000000002";
 const variantQr = "00000000-0000-4000-8000-000000000003";
 const detail = { product: {
-    id: productId, name: "Camisa", description: null, imageId: null, currency: "PEN", qrCode: "00000000-0000-4000-8000-000000000004",
+    id: productId, name: "Camisa", description: null, photos: [], currency: "PEN", qrCode: "00000000-0000-4000-8000-000000000004",
     createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", structureVersion: 1, options: [],
     variants: [{ id: variantId, combination: [], sku: "CAM-S", salePrice: { amount: 20, currency: "PEN" }, purchasePrice: null, qrCode: variantQr, status: "active", stock: 1, hasOrders: false }],
-}, image: null };
+} };
 
 test("keeps the variant QR from the validated product detail", async () => {
   const api = createProductApi(async () => ok(detail), () => 0);
@@ -64,6 +64,18 @@ test("requests stock filter and sort, and maps listing thumbnails", async () => 
   expect(result.data.items.map((product) => product.photo ?? null)).toEqual([{ id: imageId, url: "https://cdn.example/camisa.webp" }, null]);
 });
 
+test("the product api maps the detail photos and photo issues", async () => {
+  const photo = { id: "00000000-0000-4000-8000-0000000000a1", url: "https://cdn.example/a.jpg" };
+  const second = { id: "00000000-0000-4000-8000-0000000000a2", url: "https://cdn.example/b.jpg" };
+  const loaded = await createProductApi(async () => ok({ ...detail, product: { ...detail.product, photos: [photo, second] } }), () => 0).get(productId);
+  expect(loaded.success && loaded.data.photos).toEqual([photo, second]);
+  const none = await createProductApi(async () => ok(detail), () => 0).get(productId);
+  expect(none.success && none.data.photos).toEqual([]);
+  const issues = [{ scope: "photo", field: "photoIds", index: 1, reason: "PHOTO_NOT_FOUND", message: "x" }];
+  const rejected = await createProductApi(async () => failure(422, "VALIDATION_ERROR", issues), () => 0).create({ ...createBody, photoIds: [photo.id, second.id] });
+  expect(rejected).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR", issues: [{ scope: "photo", index: 1, reason: "PHOTO_NOT_FOUND" }] } });
+});
+
 test("uploads product photos through the shared image client", async () => {
   global.fetch = jest.fn(async () => ({ blob: async () => new Blob(["x"]) })) as unknown as typeof fetch;
   const request = jest.fn(async (_path: string, _init?: RequestInit) => ok<unknown>({ id: "00000000-0000-4000-8000-000000000005", url: "https://cdn.example/a.jpg" }));
@@ -99,7 +111,7 @@ test("a list item without active variants has no price", async () => {
 });
 
 const failure = (status: number, code: string, issues?: unknown) => err({ code: "API_ERROR" as const, message: "HTTP failure", http: { status, body: { code, error: "x", ...(issues ? { issues } : {}) } } });
-const createBody = { id: productId, name: "Camisa", description: null, imageId: null, currency: "PEN" as const, options: [], variants: [{ values: [], sku: null, salePrice: 1, purchasePrice: null, initialStock: 0 }] };
+const createBody = { id: productId, name: "Camisa", description: null, photoIds: [], currency: "PEN" as const, options: [], variants: [{ values: [], sku: null, salePrice: 1, purchasePrice: null, initialStock: 0 }] };
 
 test("maps issues by option, value and variant", async () => {
   const issues = [
@@ -133,7 +145,7 @@ test("the create request carries the editor contract with nullable fields", asyn
   expect(await createProductApi(request, () => 0).create({ ...createBody, variants: [] } as never)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
 });
 
-const saveBody = { structureVersion: 1, name: "Camisa", description: null, imageId: null, options: [], variants: [], newVariants: [], deletedVariantIds: [] };
+const saveBody = { structureVersion: 1, name: "Camisa", description: null, options: [], variants: [], newVariants: [], deletedVariantIds: [] };
 
 test("the editor save is a PUT that answers the full detail", async () => {
   const request = jest.fn().mockResolvedValue(ok(withOptions("active")));

@@ -3,7 +3,7 @@ import type { Result } from "@shared/result";
 import type { ImageReadError } from "@core/src/shared/images";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
 import type { ReadQrCodes } from "@core/src/shared/images/infrastructure/qr-code-reader";
-import type { EmbedImage } from "@core/src/features/products/application/index-product-image";
+import type { EmbedImage } from "@core/src/features/products/application/index-product-photos";
 import {
   acceptVisualMatch, selectProductCode, showsProduct,
   type CatalogItem, type EmbeddingModel, type EmbeddingVector, type ImageBytes, type MatchConfidence, type VariantQrCode, type VisualCandidate, type VisualChoice,
@@ -21,7 +21,7 @@ export type ImageIdentification =
   | Readonly<{ kind: "not_product" } & Partial<VisualDistances>>;
 
 // Cosine distances only for logs: measure hits vs non-product images before choosing a threshold.
-export type VisualDistances = Readonly<{ topDistance: number; chosenDistance?: number }>;
+export type VisualDistances = Readonly<{ topDistance: number; chosenDistance?: number; chosenPhotoPosition?: number }>;
 
 export type IdentificationMissReason =
   | "unreadable_image"          // QR step could not decode the image; visual is not attempted
@@ -110,7 +110,7 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<
   const chosenId = choice.data.kind === "product" ? choice.data.productId : null;
   const chosen = available.find(({ candidate }) => candidate.productId === chosenId);
   const distances: VisualDistances = { topDistance: Math.min(...available.map(({ candidate }) => candidate.distance)),
-    ...(chosen && { chosenDistance: chosen.candidate.distance }) };
+    ...(chosen && { chosenDistance: chosen.candidate.distance, chosenPhotoPosition: chosen.candidate.position }) };
   // A photo that is not a product is no purchase intent, whatever the match said: a selfie in a knitted sweater can still resemble one.
   if (!showsProduct(choice.data)) return ok({ kind: "not_product", ...distances });
   if (match.kind === "rejected") return notFound(match.reason, distances);

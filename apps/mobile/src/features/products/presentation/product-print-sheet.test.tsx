@@ -13,7 +13,7 @@ const variant = (id: string, size: keyof typeof sizes, status: "active" | "inact
   id: id as VariantId, qrCode: `${id}-qr` as VariantQrCode, combination: [{ optionId: talla, valueId: sizes[size] }], sku: `POLO-${size}`,
   salePrice: { amount: 20, currency: "PEN" as const }, stock: 1, status, hasOrders: false,
 });
-const product: Product = { id: "p" as Product["id"], name: "Polo", currency: "PEN", structureVersion: 1,
+const product: Product = { id: "p" as Product["id"], name: "Polo", currency: "PEN", photos: [], structureVersion: 1,
   options: [{ id: talla, name: "Talla", values: [{ id: sizes.S, name: "S" }, { id: sizes.L, name: "L" }] }],
   variants: [variant("v1", "S", "active"), variant("v2", "L", "inactive")] };
 

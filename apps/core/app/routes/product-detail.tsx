@@ -33,7 +33,6 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
     return {
       product: detail.product,
       catalog: companyPath(new URL(request.url).pathname, company.country, "/products"),
-      imageUrl: detail.image?.url,
       saved: new URL(request.url).searchParams.get("saved") === "1",
       variantDeleted: new URL(request.url).searchParams.get("variantDeleted") === "1",
     };
@@ -79,7 +78,7 @@ export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { ac
 
 export default function ProductDetail() {
   const { t } = useTranslation();
-  const { product, catalog, imageUrl, saved, variantDeleted } = useLoaderData<typeof loader>();
+  const { product, catalog, saved, variantDeleted } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof clientAction>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -95,10 +94,10 @@ export default function ProductDetail() {
   };
   const originalNames = Object.fromEntries(product.options.flatMap((option) => [[option.id, option.name], ...option.values.map((value) => [value.id, value.name])]));
 
-  function save({ values: next, image, draft }: ProductFormSubmission) {
+  function save({ values: next, photos, draft }: ProductFormSubmission) {
     submit(buildSaveProductBody(draft, {
       structureVersion: product.structureVersion, name: next.name, description: next.description === "" ? null : next.description,
-      imageId: image.kind === "set" ? image.id : image.kind === "remove" ? null : product.imageId,
+      photos,
     }), { method: "put", encType: "application/json", action: `${catalog}/${product.id}` });
   }
 
@@ -118,7 +117,7 @@ export default function ProductDetail() {
     {saved && <Alert variant="success" className="mt-5"><AlertDescription>{t("products.saved")}</AlertDescription></Alert>}
     {variantDeleted && <Alert variant="success" className="mt-5"><AlertDescription>{t("variantDetail.variantDeleted")}</AlertDescription></Alert>}
     <ProductForm key={`${product.updatedAt}:${product.structureVersion}:${reloads}`} currency={product.currency} cancelTo={catalog} feedback={feedback} pending={pending} values={values}
-      draft={draftFromProduct(product)} originalNames={originalNames} variantHref={(variantId) => `${catalog}/${product.id}/variants/${variantId}`} submitLabel={t("products.saveChanges")} imageUrl={imageUrl} onSave={save} onReload={reload} />
+      draft={draftFromProduct(product)} originalNames={originalNames} variantHref={(variantId) => `${catalog}/${product.id}/variants/${variantId}`} submitLabel={t("products.saveChanges")} photos={product.photos} onSave={save} onReload={reload} />
   </PageContainer>;
 }
 

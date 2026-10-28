@@ -12,22 +12,23 @@ export type Language = "es" | "pt";
 /** The fixed translator the product texts of the server use; React escapes what it renders, so values are not escaped twice. */
 export const productText = (language: Language) => translations.getFixedT(language, "translation");
 
-export type FormErrors = Readonly<{ form?: string; changed?: string; inDoubt?: string; name?: string; description?: string; sku?: string; salePrice?: string; purchasePrice?: string; initialStock?: string }>;
+export type FormErrors = Readonly<{ form?: string; photos?: string; changed?: string; inDoubt?: string; name?: string; description?: string; sku?: string; salePrice?: string; purchasePrice?: string; initialStock?: string }>;
 
 /** One rejected part of an editor save, with the text to show next to its option, value or row. */
 export type FeedbackIssue = Readonly<{
-  scope: "product" | "option" | "value" | "variant" | "newVariant";
+  scope: "product" | "option" | "value" | "variant" | "newVariant" | "photo";
   field: string; reason: string; message: string;
   optionId?: string; valueId?: string; variantId?: string; index?: number;
 }>;
 export type SaveFeedback = Readonly<{ errors: FormErrors; issues: readonly FeedbackIssue[] }>;
 
-const labelled = ["id", "name", "description", "sku", "salePrice", "purchasePrice", "initialStock", "currency", "imageId", "variants"] as const;
+const labelled = ["id", "name", "description", "sku", "salePrice", "purchasePrice", "initialStock", "currency", "photoIds", "variants"] as const;
 type Labelled = (typeof labelled)[number];
 const isLabelled = (field: string): field is Labelled => labelled.some((candidate) => candidate === field);
 
-function field(issue: ValidationIssue): keyof FormErrors {
-  if (issue.scope === "product") return issue.field === "name" || issue.field === "description" ? issue.field : "form";
+function field(issue: ValidationIssue): keyof FormErrors | null {
+  if (issue.scope === "photo") return null;
+  if (issue.scope === "product") return issue.reason === "TOO_MANY_PHOTOS" ? "photos" : issue.field === "name" || issue.field === "description" ? issue.field : "form";
   if (issue.scope === "variant" || issue.scope === "newVariant") return issue.field === "sku" || issue.field === "salePrice" || issue.field === "purchasePrice" || issue.field === "initialStock" ? issue.field : "form";
   return "form";
 }
@@ -37,7 +38,7 @@ function message(issue: ValidationIssue, language: Language): string {
   const generic = () => t("productErrors.invalidValue");
   const names = isLabelled(issue.field) ? { label: t(`productErrors.label.${issue.field}`), subject: t(`productErrors.subject.${issue.field}`), field: issue.field } : null;
   switch (issue.reason) {
-    case "REQUIRED": return !names ? generic() : names.field === "variants" ? t("productErrors.requiredVariant") : t(["description", "currency", "imageId"].includes(names.field) ? "productErrors.requiredFeminine" : "productErrors.requiredMasculine", { subject: names.subject });
+    case "REQUIRED": return !names ? generic() : names.field === "variants" ? t("productErrors.requiredVariant") : t(["description", "currency", "photoIds"].includes(names.field) ? "productErrors.requiredFeminine" : "productErrors.requiredMasculine", { subject: names.subject });
     case "TOO_LONG": return names ? t("productErrors.tooLong", { subject: names.subject, maxLength: issue.maxLength }) : generic();
     case "INVALID_CURRENCY": return t("productErrors.invalidCurrency");
     case "INVALID_PRICE": return names ? t("productErrors.invalidPrice", { label: names.label, minimum: issue.minimum, maximum: issue.maximum }) : generic();
@@ -49,6 +50,8 @@ function message(issue: ValidationIssue, language: Language): string {
     case "DUPLICATE_VARIANT": return t("productErrors.duplicateVariant");
     case "VARIANT_NOT_FOUND": return t("productErrors.variantNotFound");
     case "ID_CONFLICT": return t("productErrors.idConflict");
+    case "TOO_MANY_PHOTOS": return t("productPhotos.tooMany");
+    case "PHOTO_NOT_FOUND": case "DUPLICATE_PHOTO": return t("productPhotos.unusablePhoto");
     case "INVALID_TYPE": return names ? t("productErrors.invalidType", { label: names.label }) : generic();
     default: return generic();
   }
@@ -67,7 +70,10 @@ function inputErrors(error: InputError, language: Language): FormErrors {
 
 function validationErrors(error: { issues: readonly [ValidationIssue, ...ValidationIssue[]] }, language: Language): FormErrors {
   const errors: Record<string, string> = {};
-  for (const issue of error.issues) errors[field(issue)] = message(issue, language);
+  for (const issue of error.issues) {
+    const key = field(issue);
+    if (key) errors[key] = message(issue, language);
+  }
   return errors;
 }
 
@@ -109,6 +115,7 @@ function issueText(issue: ValidationIssue, language: Language): string {
     case "VARIANT_HAS_STOCK": return t("productEditor.hasStock");
     case "INVALID_PRICE": case "INVALID_PRECISION": case "TOO_LONG": return message(issue, language);
     case "TOO_MANY_VARIANTS": return t("productEditor.tooManyVariants", { count: issue.maximum });
+    case "TOO_MANY_PHOTOS": case "PHOTO_NOT_FOUND": case "DUPLICATE_PHOTO": return message(issue, language);
     case "OPTION_WITHOUT_VALUES": return t("productEditor.noValues");
     case "DUPLICATE_VALUE": return t("productEditor.valueInvalid");
     default: return issue.scope === "option" ? t("productEditor.optionInvalid") : issue.scope === "value" ? t("productEditor.valueInvalid") : issue.scope === "product" ? message(issue, language) : t("productEditor.rowInvalid");
@@ -123,7 +130,7 @@ export function feedbackIssues(error: CreateError | SaveProductError | InputErro
     ...(issue.scope === "option" && issue.optionId ? { optionId: issue.optionId } : {}),
     ...(issue.scope === "value" && issue.valueId ? { valueId: issue.valueId } : {}),
     ...(issue.scope === "variant" ? { variantId: issue.variantId } : {}),
-    ...(issue.scope === "newVariant" ? { index: issue.index } : {}),
+    ...(issue.scope === "newVariant" || issue.scope === "photo" ? { index: issue.index } : {}),
   }));
 }
 

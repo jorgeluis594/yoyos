@@ -16,8 +16,8 @@ export type CatalogProductRepository = Readonly<{
 export type CatalogProductDependencies = Readonly<{ repository: CatalogProductRepository; images: ListImageDependencies }>;
 
 // Photos are decorative: an unavailable one shows the placeholder instead of hiding the product.
-async function resolveImages(rows: readonly Readonly<{ imageId: ImageId | null }>[], images: ListImageDependencies): Promise<ReadonlyMap<ImageId, string>> {
-  const ids = [...new Set(rows.flatMap((row) => row.imageId ?? []))];
+async function resolveImages(imageIds: readonly ImageId[], images: ListImageDependencies): Promise<ReadonlyMap<ImageId, string>> {
+  const ids = [...new Set(imageIds)];
   const resolved = ids.length ? await images.resolve(ids) : ok({ images: [], failures: [] });
   const failures = resolved.success ? resolved.data.failures : ids.map((imageId) => ({ imageId, code: resolved.error.code, message: resolved.error.message }));
   if (failures.length) images.report(failures);
@@ -27,7 +27,7 @@ async function resolveImages(rows: readonly Readonly<{ imageId: ImageId | null }
 export async function listCatalogProducts(criteria: CatalogCriteria, deps: CatalogProductDependencies): Promise<Result<CatalogPage, ProductReadError>> {
   const listed = await deps.repository.list(criteria);
   if (!listed.success) return listed;
-  const urls = await resolveImages(listed.data.rows, deps.images);
+  const urls = await resolveImages(listed.data.rows.flatMap((row) => row.imageId ?? []), deps.images);
   return ok({ items: listed.data.rows.map((row) => toCatalogCard(row, row.imageId ? urls.get(row.imageId) ?? null : null)), hasMore: listed.data.hasMore });
 }
 
@@ -35,6 +35,7 @@ export async function findCatalogProduct(id: ProductId, currency: Currency, deps
   const found = await deps.repository.find(id, currency);
   if (!found.success) return found;
   if (!found.data) return ok(null);
-  const urls = await resolveImages([found.data], deps.images);
-  return ok(toCatalogProduct(found.data, found.data.imageId ? urls.get(found.data.imageId) ?? null : null));
+  const urls = await resolveImages(found.data.photoIds, deps.images);
+  // A photo that does not resolve is dropped and was already reported; the rest keep the saved order.
+  return ok(toCatalogProduct(found.data, found.data.photoIds.flatMap((id) => urls.get(id) ?? [])));
 }

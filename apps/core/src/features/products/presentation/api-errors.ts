@@ -44,7 +44,8 @@ export function sendOperationError(response: Response, error: { code?: string; i
     case "PRODUCT_WITHOUT_OPTIONS": return apiError(response, 409, "PRODUCT_WITHOUT_OPTIONS", "Product has no options");
     case "PRODUCT_NOT_FOUND": return apiError(response, 404, "PRODUCT_NOT_FOUND", "Product not found");
     case "VARIANT_NOT_FOUND": return apiError(response, 404, "VARIANT_NOT_FOUND", "Variant not found");
-    case "IMAGE_NOT_FOUND": return apiError(response, 404, "IMAGE_NOT_FOUND", "Image not found");
+    // Only the editing read raises it (a stored photo whose URL cannot be built), never a write rejection: it is an outage, not a client error.
+    case "IMAGE_NOT_FOUND": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
     case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
     case "INVALID_STORED_DATA":
       log.error({ event: "invalid_stored_product_data", err: error }, "invalid_stored_product_data");

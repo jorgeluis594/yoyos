@@ -10,7 +10,7 @@ const when = new Date("2026-01-01T00:00:00.000Z");
 async function addProduct(name: string, imageId: string | null) {
   const id = randomUUID();
   const variantId = randomUUID();
-  await seedProduct({ id, name, imageId, createdAt: when, updatedAt: when, variants: [{ id: variantId, salePrice: 10 }] });
+  await seedProduct({ id, name, photoIds: imageId ? [imageId] : [], createdAt: when, updatedAt: when, variants: [{ id: variantId, salePrice: 10 }] });
   return variantId as VariantId;
 }
 
@@ -53,7 +53,7 @@ test("returns the new image after the product image is replaced", async () => {
       const { productId } = await prisma.productVariant.findUniqueOrThrow({ where: { id: variant }, select: { productId: true } });
       return { variant, productId, replacement: await addImage() };
     });
-    await withTenantIsolation(company, async () => await prisma.product.update({ where: { id: productId }, data: { imageId: replacement } }));
+    await withTenantIsolation(company, async () => { await prisma.productPhoto.deleteMany({ where: { productId } }); await prisma.productPhoto.create({ data: { productId, imageId: replacement, position: 0 } }); });
     expect(await withTenantIsolation(company, () => findVariantImages([variant]))).toEqual({ success: true, data: [{ variantId: variant, imageId: replacement }] });
   } finally {
     await withTenantIsolation(company, async () => {

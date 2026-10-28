@@ -2,8 +2,8 @@ import { readFile } from "node:fs/promises";
 import { extname, resolve } from "node:path";
 import { ok } from "@shared/functional";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { findImageIndexState, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
-import { indexProductImage } from "@core/src/features/products/application/index-product-image";
+import { findPhotoIndexState, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
+import { indexProductPhotos } from "@core/src/features/products/application/index-product-photos";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 import type { ImageEmbedder } from "@core/src/features/products/composition";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
@@ -90,7 +90,7 @@ export async function seedEvalCatalog(embedder: ImageEmbedder | null): Promise<v
         await prisma.image.create({ data: { id: imageId, storageKey: `evals/${photo}` } });
         registerImageFile(imageId, photo);
       }
-      await seedProduct({ id: productId, name: product.name, qrCode: productId, imageId, createdAt: now, updatedAt: now, variants: product.variants.map((variant) => {
+      await seedProduct({ id: productId, name: product.name, qrCode: productId, photoIds: imageId ? [imageId] : [], createdAt: now, updatedAt: now, variants: product.variants.map((variant) => {
         const variantId = variantIdOf(product.key, variant.attributes);
         return { id: variantId, attributes: variant.attributes, sku: `EVAL-${variantId.slice(0, 8)}`, salePrice: variant.price, qrCode: variantId };
       }) });
@@ -98,9 +98,9 @@ export async function seedEvalCatalog(embedder: ImageEmbedder | null): Promise<v
   });
   if (!embedder) return;
   for (const product of catalog.filter(({ key }) => photos.has(key))) {
-    const indexed = await withTenantIsolation(evalCompanyId, () => indexProductImage({ productId: evalId(`product:${product.key}`) as ProductId }, {
-      findImageIndexState, saveEmbedding, embedImage: embedder.embedImage, model: embedder.model, readImage: readRegisteredImage,
+    const indexed = await withTenantIsolation(evalCompanyId, () => indexProductPhotos({ productId: evalId(`product:${product.key}`) as ProductId }, {
+      findPhotoIndexState, saveEmbedding, embedImage: embedder.embedImage, model: embedder.model, readImage: readRegisteredImage,
     }));
-    if (!indexed.success || indexed.data.kind !== "indexed") throw new Error(`Indexing ${product.key} failed: ${JSON.stringify(indexed)}`);
+    if (!indexed.success || indexed.data.kind !== "processed" || indexed.data.failed.length) throw new Error(`Indexing ${product.key} failed: ${JSON.stringify(indexed)}`);
   }
 }

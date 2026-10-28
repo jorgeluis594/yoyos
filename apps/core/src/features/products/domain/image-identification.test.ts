@@ -7,7 +7,7 @@ import type { ImageId, ProductId } from "@core/src/features/products/domain/prod
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const confidence = (value: number) => value as MatchConfidence;
-const candidates: VisualCandidate[] = [1, 2].map((n) => ({ productId: id(n) as ProductId, imageId: id(10 + n) as ImageId, distance: n / 10 }));
+const candidates: VisualCandidate[] = [1, 2].map((n) => ({ productId: id(n) as ProductId, imageId: id(10 + n) as ImageId, position: 0, distance: n / 10 }));
 
 describe("selectProductCode", () => {
   test("selectProductCode skips with no_qr_code when nothing was decoded", () => {

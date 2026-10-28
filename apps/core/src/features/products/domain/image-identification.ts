@@ -32,7 +32,8 @@ export function selectProductCode(decoded: readonly string[]): ScanSelection {
 
 export type CatalogItem = Readonly<{ variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; unitPrice: Money }>;
 export type MatchConfidence = number & { readonly __brand: "MatchConfidence" };
-export type VisualCandidate = Readonly<{ productId: ProductId; imageId: ImageId; distance: number }>;
+/** The product's closest photo to the customer image and its position among the product's photos. */
+export type VisualCandidate = Readonly<{ productId: ProductId; imageId: ImageId; position: number; distance: number }>;
 /** `showsProduct` is the probability that the first image shows a product offered for sale (not a payment screenshot, selfie, map or document). */
 export type VisualChoice =
   | Readonly<{ kind: "product"; productId: ProductId; confidence: MatchConfidence; showsProduct: number }>

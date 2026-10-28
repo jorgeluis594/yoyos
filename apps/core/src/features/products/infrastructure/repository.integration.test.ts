@@ -33,10 +33,10 @@ test("product persistence is atomic, isolated, and constrained", async () => {
   const { getProduct } = await import("@core/src/features/products/application/get");
   const { productCreateDependencies, productGetDependencies } = await import("@core/src/features/products/product-editing");
   await expect(productRepository.get(randomUUID() as ProductId)).resolves.toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
-  const newDeps = (companyId: string) => ({ ...productCreateDependencies(companyId), findImage: async (id: ImageId) => ok(!!(await prisma.image.findUnique({ where: { id } }))), newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z"), publishProductImageChanged: async () => ok(undefined) });
+  const newDeps = (companyId: string) => ({ ...productCreateDependencies(companyId), findImages: async (ids: readonly ImageId[]) => ok(new Set((await prisma.image.findMany({ where: { id: { in: [...ids] } }, select: { id: true } })).map((row) => row.id as ImageId))), newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z"), publishProductPhotosAdded: async () => ok(undefined) });
   const create = (companyId: string, input: CreateInput, overrides: Partial<ReturnType<typeof newDeps>> = {}) => createProduct(input, { companyId: companyId as CompanyId }, { ...newDeps(companyId), ...overrides });
-  const detail = (id: ProductId, resolveImage: typeof productGetDependencies.resolveImage = async () => ok(null)) => getProduct(id, { ...productGetDependencies, resolveImage });
-  const base = (sku?: string): CreateInput => ({ name: "Camisa", currency: "PEN", options: [], variants: [{ values: [], salePrice: 19.99, purchasePrice: 0, ...(sku === undefined ? {} : { sku }), initialStock: 4 }] });
+  const detail = (id: ProductId, resolveImages: typeof productGetDependencies.resolveImages = async () => ok({ images: [], failures: [] })) => getProduct(id, { ...productGetDependencies, resolveImages });
+  const base = (sku?: string): CreateInput => ({ name: "Camisa", currency: "PEN", photoIds: [], options: [], variants: [{ values: [], salePrice: 19.99, purchasePrice: 0, ...(sku === undefined ? {} : { sku }), initialStock: 4 }] });
   try {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: id, country: "PE" } }));
     await withTenantIsolation(companyB, async () => await prisma.image.create({ data: { id: imageId, storageKey: "image" } }));
@@ -53,7 +53,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
         expect.objectContaining({ sku: "A-1", salePrice: { amount: 19.99, currency: "PEN" }, purchasePrice: { amount: 0, currency: "PEN" }, stock: expect.objectContaining({ quantity: 4 }) }),
         expect.objectContaining({ salePrice: { amount: 999999999.99, currency: "PEN" }, stock: expect.objectContaining({ quantity: 0 }) }),
       ]));
-      expect(await create(companyA, { ...base(), imageId })).toMatchObject({ success: false, error: { code: "IMAGE_NOT_FOUND" } });
+      expect(await create(companyA, { ...base(), photoIds: [imageId] })).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR", issues: [{ scope: "photo", index: 0, reason: "PHOTO_NOT_FOUND" }] } });
       const [dupeA, dupeB] = await Promise.all([
         create(companyA, base("race")),
         create(companyA, base(" RACE ")),
@@ -99,11 +99,11 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       const loadedSameSku = await productRepository.get(sameSku.data);
       if (!loadedSameSku.success || !loadedSameSku.data) throw new Error("Product was not loaded");
       foreignVariantId = loadedSameSku.data.variants[0].id;
-      const imageProduct = await create(companyB, { ...base(), imageId });
+      const imageProduct = await create(companyB, { ...base(), photoIds: [imageId] });
       expect(imageProduct.success).toBe(true);
       if (imageProduct.success) {
-        const withImage = await detail(imageProduct.data, async (id) => ok({ id, url: "https://example.test/image" }));
-        expect(withImage.success && withImage.data?.image?.url).toBe("https://example.test/image");
+        const withImage = await detail(imageProduct.data, async (ids) => ok({ images: ids.map((id) => ({ id, url: "https://example.test/image" })), failures: [] }));
+        expect(withImage.success && withImage.data?.photos).toEqual([{ id: imageId, url: "https://example.test/image" }]);
       }
     });
 
@@ -113,7 +113,8 @@ test("product persistence is atomic, isolated, and constrained", async () => {
       expect(await detail(foreignProductId!)).toEqual({ success: true, data: null });
       const productId = randomUUID();
       const variantId = randomUUID();
-      await expect(prisma.product.create({ data: { id: productId, name: "Wrong image", imageId, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } })).rejects.toThrow(/Product_companyId_imageId_fkey/);
+      await expect(prisma.product.create({ data: { id: productId, name: "Wrong image", currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: new Date(), updatedAt: new Date() } })).resolves.toBeDefined();
+      await expect(prisma.productPhoto.create({ data: { productId, imageId, position: 0 } })).rejects.toThrow(/ProductPhoto_companyId_imageId_fkey/);
       await expect(prisma.productVariant.create({ data: { id: variantId, productId: foreignProductId!, combinationKey: randomUUID(), salePrice: 1, qrCode: randomUUID(), status: "active" } })).rejects.toThrow(/ProductVariant_companyId_productId_fkey/);
       await expect(prisma.productStock.create({ data: { variantId: foreignVariantId!, quantity: 1n } })).rejects.toThrow(/ProductStock_pkey/);
     });

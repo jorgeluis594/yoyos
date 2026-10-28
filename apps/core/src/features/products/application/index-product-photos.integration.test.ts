@@ -11,11 +11,12 @@ import type { ImageId, ProductId, VariantId } from "@core/src/features/products/
 // Provider and image bytes are faked; bus, tenant isolation, products composition, use case and pgvector are real.
 const { embeddings } = vi.hoisted(() => {
   process.env.OPENAI_API_KEY = "test";
-  return { embeddings: [] as Array<"unavailable" | number[]> };
+  return { embeddings: [] as Array<"unavailable" | "invalid" | number[]> };
 });
 vi.mock("@core/src/features/products/infrastructure/product-matching/local-image-embedder", () => ({
   DEFAULT_LOCAL_IMAGE_MODEL: "fake", createLocalImageEmbedder: () => ({ model: "local/fake", embedImage: async () => {
     const next = embeddings.shift() ?? [1, 0, 0];
+    if (next === "invalid") return err({ code: "INVALID_EMBEDDING", message: "length" });
     return next === "unavailable" ? err({ code: "EMBEDDER_UNAVAILABLE", message: "503" }) : ok(next);
   } }),
 }));
@@ -23,17 +24,18 @@ vi.mock("@core/src/shared/images/application/images", async (importOriginal) => 
   readImageBytes: async () => ok({ bytes: new Uint8Array([1]), contentType: "image/jpeg" }) }));
 
 import { createPublishEvent } from "@core/src/composition/event-bus";
-import { indexProductImage } from "@core/src/composition/event-handlers";
+import { indexProductPhotos } from "@core/src/composition/event-handlers";
+import { findNearestProductImages, listProductsMissingEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import { productEditing, productSaveDependencies } from "@core/src/features/products/product-editing";
 import { saveProduct } from "@core/src/features/products/application/save-product";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
 import { deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
-test("a product created with an image is indexed by the worker, reindexed on image change and retried while the embedder is down", async () => {
+test("a product created with two photos is indexed by the worker for both photos and retried while the embedder is down", async () => {
   expect(process.env.DATABASE_URL, "run sh scripts/run-tests.sh integration").toBeTruthy();
   const connectionString = process.env.DATABASE_URL!;
-  const definition = { ...indexProductImage, id: `index-product-image-${randomUUID().slice(0, 8)}`,
-    policy: { ...indexProductImage.policy, retryDelaySeconds: 0, exponentialBackoff: false } };
+  const definition = { ...indexProductPhotos, id: `index-product-photos-${randomUUID().slice(0, 8)}`,
+    policy: { ...indexProductPhotos.policy, retryDelaySeconds: 0, exponentialBackoff: false } };
   const producer = createPgBossProvider<AppEvents>({ connectionString, subscriptions: [definition] });
   const worker = createPgBossProvider<AppEvents>({ connectionString, subscriptions: [definition], consume: true });
   const pool = new pg.Pool({ connectionString });
@@ -45,13 +47,13 @@ test("a product created with an image is indexed by the worker, reindexed on ima
   const stored = () => withTenantIsolation(companyId, async () => await
     prisma.$queryRaw<Array<{ imageId: string; model: string }>>`SELECT "imageId", model FROM "ImageEmbedding" ORDER BY "createdAt"`);
   // The editor's save, sent exactly as loaded with one field changed.
-  const edit = (productId: ProductId, change: Readonly<{ name?: string; imageId?: ImageId }>) => withTenantIsolation(companyId, async () => {
+  const edit = (productId: ProductId, change: Readonly<{ name?: string; photoIds?: ImageId[] }>) => withTenantIsolation(companyId, async () => {
     const loaded = await productRepository.get(productId);
     if (!loaded.success || !loaded.data) throw new Error("product not found");
     const product = loaded.data;
     // The detail read resolves image URLs, which needs storage; the reload only has to answer.
-    const deps = { ...productSaveDependencies(companyId, productId), reload: async () => ok({ product, orderedVariantIds: new Set<VariantId>() }) };
-    return await saveProduct({ productId, structureVersion: product.structureVersion, name: product.name, description: product.description ?? null, imageId: product.imageId ?? null,
+    const deps = { ...productSaveDependencies(companyId, productId), reload: async () => ok({ product, orderedVariantIds: new Set<VariantId>(), photos: [] }) };
+    return await saveProduct({ productId, structureVersion: product.structureVersion, name: product.name, description: product.description ?? null, photoIds: [...product.photoIds],
       options: [], variants: product.variants.map((variant) => ({ id: variant.id, sku: variant.sku ?? null, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null })),
       newVariants: [], deletedVariantIds: [], ...change }, { companyId: companyId as CompanyId }, deps);
   });
@@ -60,25 +62,42 @@ test("a product created with an image is indexed by the worker, reindexed on ima
     await worker.start();
     expect((await worker.subscribe(definition)).success).toBe(true);
     global.__yoyosEvents = { provider: producer, publishEvent: createPublishEvent(producer) };
-    const [first, second] = [randomUUID() as ImageId, randomUUID() as ImageId];
+    const [front, stand, back] = [randomUUID() as ImageId, randomUUID() as ImageId, randomUUID() as ImageId];
     await withTenantIsolation(companyId, async () => {
       await prisma.company.create({ data: { id: companyId, name: "Indexing", country: "PE" } });
-      for (const id of [first, second]) await prisma.image.create({ data: { id, storageKey: `images/${id}` } });
+      for (const id of [front, stand, back]) await prisma.image.create({ data: { id, storageKey: `images/${id}` } });
     });
-    embeddings.push("unavailable", [1, 0, 0]);
-    const created = await withTenantIsolation(companyId, () => productEditing.create({ name: "Shirt", currency: "PEN", imageId: first, options: [], variants: [{ values: [], salePrice: 10 }] }));
+    // The first photo's embedding fails while the embedder is down; the photo after it is still tried.
+    embeddings.push("unavailable", [0, 1, 0], [0, 0, 1]);
+    const created = await withTenantIsolation(companyId, () => productEditing.create({ name: "Shirt", currency: "PEN", photoIds: [front, stand], options: [], variants: [{ values: [], salePrice: 10 }] }));
     expect(created.success).toBe(true);
     const productId = (created.success ? created.data : "") as ProductId;
     await vi.waitFor(async () => expect(await jobs(productId)).toMatchObject([{ state: "completed", retry_count: 1 }]), { timeout: 20_000, interval: 100 });
-    expect(await stored()).toEqual([{ imageId: first, model: "local/fake" }]);
+    expect(new Set((await stored()).map(({ imageId }) => imageId))).toEqual(new Set([front, stand]));
 
     expect((await edit(productId, { name: "Shirt v2" })).success).toBe(true);
     expect(await jobs(productId)).toHaveLength(1);
 
-    expect((await edit(productId, { imageId: second })).success).toBe(true);
+    // A third photo whose embedding is permanently invalid: the job succeeds without retry and the product stays recognizable by the others.
+    embeddings.push("invalid");
+    expect((await edit(productId, { photoIds: [front, stand, back] })).success).toBe(true);
     await vi.waitFor(async () => expect((await jobs(productId)).map(({ state }) => state)).toEqual(["completed", "completed"]), { timeout: 20_000, interval: 100 });
-    // The old image keeps its cached embedding; search only joins the product's current image.
-    expect(await stored()).toEqual([first, second].map((imageId) => ({ imageId, model: "local/fake" })));
+    expect((await jobs(productId)).map(({ retry_count }) => retry_count)).toEqual([1, 0]);
+    expect((await stored()).map(({ imageId }) => imageId)).not.toContain(back);
+    await withTenantIsolation(companyId, async () => {
+      expect(await listProductsMissingEmbedding("local/fake" as never)).toMatchObject({ success: true, data: [productId] });
+    });
+
+    // What products:index-images does: republish, then only the missing photo is tried and the product is identified by it.
+    embeddings.push([1, 0, 0]);
+    expect(await withTenantIsolation(companyId, () => createPublishEvent(producer)("product_photos_added", { companyId: companyId as CompanyId, productId }))).toMatchObject({ success: true });
+    await vi.waitFor(async () => expect((await jobs(productId)).map(({ state }) => state)).toEqual(["completed", "completed", "completed"]), { timeout: 20_000, interval: 100 });
+    expect(embeddings).toEqual([]);
+    expect(new Set((await stored()).map(({ imageId }) => imageId))).toEqual(new Set([front, stand, back]));
+    await withTenantIsolation(companyId, async () => {
+      expect(await listProductsMissingEmbedding("local/fake" as never)).toEqual({ success: true, data: [] });
+      expect(await findNearestProductImages([1, 0, 0] as never, "local/fake" as never, 5)).toMatchObject({ success: true, data: [{ productId, imageId: back, position: 2, distance: 0 }] });
+    });
   } finally {
     global.__yoyosEvents = previousBus;
     await worker.stop();

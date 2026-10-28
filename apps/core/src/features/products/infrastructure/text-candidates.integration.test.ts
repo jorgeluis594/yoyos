@@ -20,8 +20,9 @@ async function product(companyId: string, name: string, variants: readonly { pri
   const id = randomUUID() as ProductId;
   await withTenantIsolation(companyId, async () => {
     // seedProduct always gives a product a variant; a product without any is written directly.
-    if (!variants.length) await prisma.product.create({ data: { id, name, currency: "PEN", qrCode: id, status, imageId, createdAt: new Date(), updatedAt: new Date() } });
-    else await seedProduct({ id, name, qrCode: id, status, imageId, variants: variants.map((variant) => ({ attributes: variant.attributes, salePrice: variant.price })) });
+    if (!variants.length) await prisma.product.create({ data: { id, name, currency: "PEN", qrCode: id, status, createdAt: new Date(), updatedAt: new Date(),
+      ...(imageId && { photos: { create: { imageId, position: 0 } } }) } });
+    else await seedProduct({ id, name, qrCode: id, status, photoIds: imageId ? [imageId] : [], variants: variants.map((variant) => ({ attributes: variant.attributes, salePrice: variant.price })) });
   });
   return id;
 }

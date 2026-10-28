@@ -5,9 +5,9 @@ import { applyChatMessageDeadLetterId, applyChatMessageQueueId, chatMessageDeadL
 import { orders, applyChatMessageHandler, chatMessageDeadLetterHandler } from "@core/src/features/orders/composition";
 import { sendChatMessageNoticePolicy, sendChatMessageNoticeQueueId } from "@core/src/features/notifications/application/send-chat-message-notice-policy";
 import { createSendChatMessageNoticeHandler, pushNoticeDependencies } from "@core/src/features/notifications";
-import { indexProductImagePolicy } from "@core/src/features/products/application/index-product-image";
-import { indexProductImageHandler } from "@core/src/features/products/composition";
-import { parseProductImageChanged } from "@core/src/features/products/infrastructure/event-payloads";
+import { indexProductPhotosPolicy } from "@core/src/features/products/application/index-product-photos";
+import { indexProductPhotosHandler } from "@core/src/features/products/composition";
+import { parseProductPhotosAdded } from "@core/src/features/products/infrastructure/event-payloads";
 import { parseChatMessageProcessed, parseOrderCancelled } from "@core/src/features/orders/infrastructure/event-payloads";
 import { findOrderForUpdate, saveStockRestoration } from "@core/src/features/orders/infrastructure/order-repository";
 import { getCompanyId, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -62,10 +62,10 @@ let sendChatMessageNoticeHandler: ReturnType<typeof createSendChatMessageNoticeH
 export const sendChatMessageNotice = defineEventHandler<AppEvents, "chat_message_processed">("chat_message_processed",
   (payload, metadata, context) => (sendChatMessageNoticeHandler ??= createSendChatMessageNoticeHandler(pushNoticeDependencies(), orders))(payload, metadata, context),
   { id: sendChatMessageNoticeQueueId, parsePayload: parseChatMessageProcessed, policy: sendChatMessageNoticePolicy });
-export const indexProductImage = defineEventHandler<AppEvents, "product_image_changed">("product_image_changed",
-  (payload, metadata, context) => indexProductImageHandler(payload, metadata, context),
-  { id: "index-product-image", parsePayload: parseProductImageChanged, policy: indexProductImagePolicy });
-export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelledStock, applyChatMessage, sendChatMessageNotice, indexProductImage];
+export const indexProductPhotos = defineEventHandler<AppEvents, "product_photos_added">("product_photos_added",
+  (payload, metadata, context) => indexProductPhotosHandler(payload, metadata, context),
+  { id: "index-product-photos", parsePayload: parseProductPhotosAdded, policy: indexProductPhotosPolicy });
+export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelledStock, applyChatMessage, sendChatMessageNotice, indexProductPhotos];
 
 export function subscribeToEvent<Events extends object, Name extends EventName<Events>>(
   subscriber: EventSubscriber<Events>,

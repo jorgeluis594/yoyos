@@ -12,7 +12,7 @@ type DomainIssue = ProductValidationReason & { readonly message: string };
 type VariantRef = Readonly<{ scope: "newVariant"; index: number }> | Readonly<{ scope: "variant"; variantId: string }>;
 type TranslationOptions = Readonly<{ variantFallback: VariantField; missingVariantsReason: "REQUIRED" | "INVALID_TYPE"; variantRef: (index: number) => VariantRef }>;
 
-const productFields: readonly ProductField[] = ["name", "description", "imageId", "currency", "options", "variants"];
+const productFields: readonly ProductField[] = ["name", "description", "photoIds", "currency", "options", "variants"];
 const variantFields: readonly VariantField[] = ["id", "values", "sku", "salePrice", "purchasePrice", "initialStock"];
 
 const codePoints = (value: string) => [...value].length;
@@ -157,7 +157,7 @@ function invalidType(field: ProductField | VariantField, variantLevel: boolean):
   switch (field) {
     case "name": return { reason: "INVALID_TYPE", message: "Name must be text" };
     case "description": return { reason: "INVALID_TYPE", message: "Description must be text" };
-    case "imageId": return { reason: "INVALID_TYPE", message: "Image must be an identifier" };
+    case "photoIds": return { reason: "INVALID_TYPE", message: "Photos must be a list of identifiers" };
     case "options": return { reason: "INVALID_TYPE", message: "Options must be a list" };
     case "variants": return { reason: "INVALID_TYPE", message: "Variants must be a list" };
     case "sku": return { reason: "INVALID_TYPE", message: "SKU must be text" };

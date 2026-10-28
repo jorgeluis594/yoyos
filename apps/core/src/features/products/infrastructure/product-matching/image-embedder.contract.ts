@@ -1,6 +1,6 @@
 import sharp from "sharp";
 import { expect, test } from "vitest";
-import type { EmbedImage } from "@core/src/features/products/application/index-product-image";
+import type { EmbedImage } from "@core/src/features/products/application/index-product-photos";
 
 /** Stands in for the provider's HTTP endpoint; every adapter test controls this boundary, never the network. */
 export type Transport = typeof fetch;

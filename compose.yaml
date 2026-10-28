@@ -37,9 +37,13 @@ services:
       - "${MAILPIT_UI_PORT:-8025}:8025"
 
   migrate:
-    build:
+    build: &core-build
       context: .
       dockerfile: apps/core/Dockerfile
+      # The containers write the bind-mounted source as this uid:gid; set HOST_UID/HOST_GID when yours is not 1000.
+      args:
+        UID: ${HOST_UID:-1000}
+        GID: ${HOST_GID:-1000}
     command: sh -c 'psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -f scripts/create-role.sql && pnpm exec tsx scripts/migrate.ts && pnpm exec tsx scripts/seed-courier-catalog.ts && psql "$$DATABASE_URL" -v ON_ERROR_STOP=1 -v app_password="$$APP_DB_PASSWORD" -v dbname=core -f scripts/provision-role.sql'
     environment:
       DATABASE_URL: postgresql://core:core@db:5432/core
@@ -49,9 +53,7 @@ services:
         condition: service_healthy
 
   web:
-    build:
-      context: .
-      dockerfile: apps/core/Dockerfile
+    build: *core-build
     command: sh -c "pnpm --dir /workspace/shared install --frozen-lockfile && pnpm exec prisma generate && pnpm dev"
     env_file:
       - ./apps/core/.env
@@ -83,9 +85,7 @@ services:
         condition: service_started
 
   worker:
-    build:
-      context: .
-      dockerfile: apps/core/Dockerfile
+    build: *core-build
     command: sh -c "pnpm --dir /workspace/shared install --frozen-lockfile && pnpm exec prisma generate && exec ./node_modules/.bin/tsx src/worker.ts"
     stop_grace_period: 40s
     env_file:

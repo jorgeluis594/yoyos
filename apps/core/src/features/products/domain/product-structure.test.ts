@@ -18,7 +18,7 @@ function variant(id: string, combination: Record<string, string>): ProductVarian
 }
 
 function product(options: readonly ProductOption[], variants: readonly ProductVariant[]): Product {
-  return { id: "p" as ProductId, name: "Polo", currency, qrCode: "q", status: "active", createdAt: new Date(0), updatedAt: new Date(0),
+  return { id: "p" as ProductId, name: "Polo", photoIds: [] as unknown as Product["photoIds"], currency, qrCode: "q", status: "active", createdAt: new Date(0), updatedAt: new Date(0),
     structureVersion: 1, options, variants: variants as Product["variants"] };
 }
 
@@ -165,7 +165,7 @@ describe("planProductSave", () => {
     variant("l-negro", { "o-talla": "v-l", "o-color": "v-negro" }), variant("l-azul", { "o-talla": "v-l", "o-color": "v-azul" }),
   ]);
   const mirror = (current: Product): SaveRequest => ({
-    structureVersion: current.structureVersion, name: current.name, description: null, imageId: null,
+    structureVersion: current.structureVersion, name: current.name, description: null,
     options: current.options.map((option) => ({ id: option.id, name: option.name, values: option.values.map((value) => ({ id: value.id, name: value.name })) })),
     variants: current.variants.map((item) => ({ id: item.id, sku: item.sku ?? null, salePrice: item.salePrice.amount, purchasePrice: item.purchasePrice?.amount ?? null })),
     newVariants: [], deletedVariantIds: [],

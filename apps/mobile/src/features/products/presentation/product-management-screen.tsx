@@ -13,7 +13,7 @@ import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
-import type { PhotoSelection, Product, ProductId, VariantId } from "../domain/product";
+import type { Product, ProductId, VariantId } from "../domain/product";
 import { editorDraftOf } from "../domain/product-editor";
 import { formEdges, ProductForm } from "./product-form";
 import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
@@ -27,6 +27,8 @@ import { isOnline } from "./is-online";
 import { productPath } from "./product-routes";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
 import { useProductDraft } from "./draft-guard";
+import { messageTarget, usePhotoField } from "./use-photo-field";
+import { photoFormError, photoSaveBlocker, rejectedPhotoIndexes } from "./photo-save-errors";
 import { usePrint } from "@mobile/features/printing/presentation/print-provider";
 import { productPrintWork } from "./product-print-work";
 import translations from '@mobile/i18n';
@@ -42,12 +44,11 @@ export default function ProductManagementScreen() {
   const editor = useProductEditor();
   const [product, setProduct] = useState<Product | null>(null);
   const [values, setValues] = useState<ProductFormValues | null>(null);
-  const [photo, setPhoto] = useState<PhotoSelection>({ kind: "keep" });
   const [errors, setErrors] = useState<Partial<Record<ProductFormField, string>>>({});
   const [loadError, setLoadError] = useState<string | null>(null);
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
-  const [photoBusy, setPhotoBusy] = useState(false);
+  const photos = usePhotoField({ upload: products.uploadImage, onAction: () => setErrors((current) => ({ ...current, form: undefined })) });
   const [uncertain, setUncertain] = useState(false);
   const [changed, setChanged] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
@@ -62,7 +63,7 @@ export default function ProductManagementScreen() {
   const dirty = !!product && !!values && !!original && (
     values.name !== original.name || values.description !== original.description ||
     (simple && (draft?.options.length ?? 0) === 0 && (values.sku !== original.sku || values.salePrice !== original.salePrice || values.purchasePrice !== original.purchasePrice)) ||
-    photo.kind === "remove" && !!product.photo || photo.kind === "set" && photo.imageId !== product.photo?.id || photoBusy || editor.dirty
+    photos.unsaved || editor.dirty
   );
   const setDirty = useProductNavigationGuard(dirty);
 
@@ -71,9 +72,10 @@ export default function ProductManagementScreen() {
     discardVersionRef.current = discardVersion;
     // eslint-disable-next-line react-hooks/set-state-in-effect -- discard is an explicit user event from the global navigation guard.
     if (product) { setValues(valuesForProduct(product)); editor.reset(editorDraftOf(product), product.currency); }
-    setPhoto({ kind: "keep" });
+    photos.reset(product?.photos ?? []);
     setErrors({});
     setChanged(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [discardVersion, product, editor]);
 
   // A saved variant's action answers the refreshed detail; the product screen takes it when it comes back.
@@ -99,7 +101,7 @@ export default function ProductManagementScreen() {
       editor.publish(result.data);
       setValues(valuesForProduct(result.data));
       editor.reset(editorDraftOf(result.data), result.data.currency);
-      setPhoto({ kind: "keep" });
+      photos.reset(result.data.photos);
     });
     return () => { active = false; };
   // The editor session restarts with each load; its identity changes with its own state.
@@ -139,7 +141,10 @@ export default function ProductManagementScreen() {
   const save = async () => {
     const invalid = validateProductForm(values, simple && draft.options.length === 0);
     if (Object.keys(invalid).length) { setErrors(invalid); return; }
-    if (saving || photoBusy) return;
+    if (saving) return;
+    const blocker = photoSaveBlocker(photos);
+    if (blocker) { setErrors({ form: blocker }); return; }
+    photos.reject([]);
     const next = withFormVariant();
     const rows = draft.options.length > 0 ? rowErrors(next) : {};
     if (draft.options.length > 0 && !lone()) { setErrors({ form: t('noVariantsToSave') }); return; }
@@ -154,7 +159,7 @@ export default function ProductManagementScreen() {
       setErrors({ form: t('saveProductError') });
       return;
     }
-    const result = await products.saveProduct({ current: product, name: values.name, description: values.description || null, photo, draft: next });
+    const result = await products.saveProduct({ current: product, name: values.name, description: values.description || null, photos: photos.toSave(), draft: next });
     setSaving(false);
     if (!result.success) {
       if (result.error.code === "PRODUCT_NOT_FOUND") { setProduct(null); setValues(null); setLoadError(t('productNotFound')); return; }
@@ -162,7 +167,10 @@ export default function ProductManagementScreen() {
       editor.setErrors(mapped);
       const summary = errorSummary(mapped);
       const isUncertain = uncertainCodes.includes(result.error.code);
-      setErrors(summary ? { form: summary } : isUncertain ? { form: t('saveUncertain') } : productErrors(result.error, draft.options.length > 0));
+      const photoError = photoFormError(result.error, rejectedPhotoIndexes(result.error));
+      photos.reject(rejectedPhotoIndexes(result.error));
+      if (photoError) photos.reveal(messageTarget);
+      setErrors(photoError ? { form: photoError } : summary ? { form: summary } : isUncertain ? { form: t('saveUncertain') } : productErrors(result.error, draft.options.length > 0));
       setUncertain(isUncertain);
       setChanged(result.error.code === "PRODUCT_CHANGED");
       return;
@@ -172,7 +180,7 @@ export default function ProductManagementScreen() {
     editor.publish(result.data);
     setValues(valuesForProduct(result.data));
     editor.reset(editorDraftOf(result.data), result.data.currency);
-    setPhoto({ kind: "keep" });
+    photos.reset(result.data.photos);
     setErrors({});
     setUncertain(false);
     setChanged(false);
@@ -191,7 +199,7 @@ export default function ProductManagementScreen() {
       editor.publish(result.data);
       setValues(valuesForProduct(result.data));
       editor.reset(editorDraftOf(result.data), result.data.currency);
-      setPhoto({ kind: "keep" });
+      photos.reset(result.data.photos);
       setErrors({});
       setUncertain(false);
       setChanged(false);
@@ -209,8 +217,8 @@ export default function ProductManagementScreen() {
     <ProductForm
       title={t('editProduct')}
       headerAction={product.variants.length > 0 ? <Pressable accessibilityRole="button" accessibilityLabel={t('printLabel')}
-        accessibilityState={{ disabled: saving || photoBusy || uncertain }} disabled={saving || photoBusy || uncertain}
-        onPress={() => setPrinting(true)} style={({ pressed }) => [styles.printAction, { backgroundColor: pressed ? theme.accent : "transparent", opacity: saving || photoBusy || uncertain ? 0.5 : 1 }]}>
+        accessibilityState={{ disabled: saving || uncertain }} disabled={saving || uncertain}
+        onPress={() => setPrinting(true)} style={({ pressed }) => [styles.printAction, { backgroundColor: pressed ? theme.accent : "transparent", opacity: saving || uncertain ? 0.5 : 1 }]}>
         <SymbolView name={{ ios: "printer", android: "print" }} size={24} tintColor={theme.text} />
       </Pressable> : undefined}
       values={values}
@@ -219,12 +227,9 @@ export default function ProductManagementScreen() {
       current={product}
       draft={draft}
       errorCount={rowErrorCount(editor.errors)}
-      photo={photo}
-      onPhotoChange={(value) => { setPhoto(value); setErrors((current) => ({ ...current, form: undefined })); }}
+      photos={photos}
       errors={errors}
       disabled={saving || uncertain}
-      photoBusy={photoBusy}
-      onPhotoBusy={setPhotoBusy}
       onSave={() => void save()}
       onClose={close}
       onReviewCatalog={() => { setDirty(false); router.replace("/products"); }}
