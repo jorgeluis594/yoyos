@@ -348,10 +348,28 @@ test("a screenshot without QR adds the visually identified variant to the chat o
     const variantId = await indexedProduct(f);
     await process(f, await photo(f, [f.variantIds[0]!]));
     const result = await process(f, await photo(f, []));
-    expect(result).toEqual(ok({ kind: "items_added", orderId: expect.any(String), variantIds: [variantId], match: { method: "visual", confidence: 0.9, candidates: 1, topDistance: 0, chosenDistance: 0 } }));
+    expect(result).toEqual(ok({ kind: "items_added", orderId: expect.any(String), variantIds: [variantId], match: { method: "visual", confidence: 0.9, candidates: 1, topDistance: 0, chosenDistance: 0, chosenPhotoPosition: 0 } }));
     const all = await chatOrders(f);
     expect(all).toHaveLength(1);
     expect(quantities(all[0]!)).toEqual({ [f.variantIds[0]!]: 1, [variantId]: 1 });
+  } finally { await f.cleanup(); }
+});
+
+test("message-to-order adds the product when the customer image matches its second photo", async () => {
+  const f = await fixture();
+  try {
+    const productId = randomUUID() as ProductId;
+    const [front, stand] = [randomUUID() as ImageId, randomUUID() as ImageId];
+    const variantId = randomUUID();
+    await withTenantIsolation(f.companyId, async () => {
+      for (const id of [front, stand]) await prisma.image.create({ data: { id, storageKey: `images/${id}` } });
+      await seedProduct({ id: productId, name: "Cap", qrCode: productId, photoIds: [front, stand], variants: [{ id: variantId, salePrice: 30, qrCode: variantId }] });
+      expect(await saveEmbedding({ imageId: front, model, vector: [0, 1, 0] as unknown as EmbeddingVector })).toEqual(ok(undefined));
+      expect(await saveEmbedding({ imageId: stand, model, vector: [1, 0, 0] as unknown as EmbeddingVector })).toEqual(ok(undefined));
+    });
+    const result = await process(f, await photo(f, []));
+    expect(result).toEqual(ok({ kind: "order_created", orderId: expect.any(String), variantIds: [variantId],
+      match: { method: "visual", confidence: 0.9, candidates: 1, topDistance: 0, chosenDistance: 0, chosenPhotoPosition: 1 } }));
   } finally { await f.cleanup(); }
 });
 

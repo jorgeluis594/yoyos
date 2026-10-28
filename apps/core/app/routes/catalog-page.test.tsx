@@ -89,7 +89,9 @@ test("the catalog product page shows the primary of a product with three photos"
   await shows("Polo básico");
   const photo = container.querySelector<HTMLImageElement>('[data-store-part="catalog-product-photo"] img, img[data-store-part="catalog-product-photo"]');
   expect(photo?.getAttribute("src")).toBe(photoUrls[0]);
-  expect([...container.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual([photoUrls[0]]);
+  // The page track holds every photo; the primary is the one shown large.
+  expect([...container.querySelectorAll('[data-store-part="catalog-gallery-track"] img')].map((img) => img.getAttribute("src"))).toEqual(photoUrls);
+  expect(container.querySelector('[data-store-part="catalog-gallery-large"] button:not([tabindex="-1"]) img')?.getAttribute("src")).toBe(photoUrls[0]);
 });
 
 test("a product without photos keeps the neutral block with the initial in the product page", async () => {

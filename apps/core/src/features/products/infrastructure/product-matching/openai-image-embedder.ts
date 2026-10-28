@@ -2,7 +2,7 @@ import OpenAI, { APIConnectionError, APIError } from "openai";
 import sharp from "sharp";
 import { err, ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
-import type { EmbedImage } from "@core/src/features/products/application/index-product-image";
+import type { EmbedImage } from "@core/src/features/products/application/index-product-photos";
 import { parseEmbeddingModel, parseEmbeddingVector, type EmbeddingModel, type ImageBytes } from "@core/src/features/products/domain/image-identification";
 
 // OpenAI has no image embedding endpoint: a vision model describes the product and a text model embeds the description.

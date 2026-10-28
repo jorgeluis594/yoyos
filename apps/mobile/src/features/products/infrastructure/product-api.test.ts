@@ -68,12 +68,12 @@ test("the product api maps the detail photos and photo issues", async () => {
   const photo = { id: "00000000-0000-4000-8000-0000000000a1", url: "https://cdn.example/a.jpg" };
   const second = { id: "00000000-0000-4000-8000-0000000000a2", url: "https://cdn.example/b.jpg" };
   const loaded = await createProductApi(async () => ok({ ...detail, product: { ...detail.product, photos: [photo, second] } }), () => 0).get(productId);
-  expect(loaded.success && loaded.data.photo).toEqual(photo);
+  expect(loaded.success && loaded.data.photos).toEqual([photo, second]);
   const none = await createProductApi(async () => ok(detail), () => 0).get(productId);
-  expect(none.success && none.data.photo).toBeUndefined();
+  expect(none.success && none.data.photos).toEqual([]);
   const issues = [{ scope: "photo", field: "photoIds", index: 1, reason: "PHOTO_NOT_FOUND", message: "x" }];
   const rejected = await createProductApi(async () => failure(422, "VALIDATION_ERROR", issues), () => 0).create({ ...createBody, photoIds: [photo.id, second.id] });
-  expect(rejected).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR" } });
+  expect(rejected).toMatchObject({ success: false, error: { code: "VALIDATION_ERROR", issues: [{ scope: "photo", index: 1, reason: "PHOTO_NOT_FOUND" }] } });
 });
 
 test("uploads product photos through the shared image client", async () => {

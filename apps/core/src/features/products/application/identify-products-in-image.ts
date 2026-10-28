@@ -3,7 +3,7 @@ import type { Result } from "@shared/result";
 import type { ImageReadError } from "@core/src/shared/images";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
 import type { ReadQrCodes } from "@core/src/shared/images/infrastructure/qr-code-reader";
-import type { EmbedImage } from "@core/src/features/products/application/index-product-image";
+import type { EmbedImage } from "@core/src/features/products/application/index-product-photos";
 import {
   acceptVisualMatch, selectProductCode, selectVisualVariant,
   type CatalogItem, type EmbeddingModel, type EmbeddingVector, type ImageBytes, type MatchConfidence, type VariantQrCode, type VisualCandidate, type VisualChoice,
@@ -15,7 +15,7 @@ export type ImageIdentification =
   | Readonly<{ kind: "not_found"; reason: IdentificationMissReason } & Partial<VisualDistances>>;
 
 // Cosine distances only for logs: measure hits vs non-product images before choosing a threshold.
-export type VisualDistances = Readonly<{ topDistance: number; chosenDistance?: number }>;
+export type VisualDistances = Readonly<{ topDistance: number; chosenDistance?: number; chosenPhotoPosition?: number }>;
 
 export type IdentificationMissReason =
   | "unreadable_image"          // QR step could not decode the image; visual is not attempted
@@ -96,7 +96,7 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<
   const chosenId = choice.data.kind === "product" ? choice.data.productId : null;
   const chosen = available.find(({ candidate }) => candidate.productId === chosenId);
   const distances: VisualDistances = { topDistance: Math.min(...available.map(({ candidate }) => candidate.distance)),
-    ...(chosen && { chosenDistance: chosen.candidate.distance }) };
+    ...(chosen && { chosenDistance: chosen.candidate.distance, chosenPhotoPosition: chosen.candidate.position }) };
   if (match.kind === "rejected") return notFound(match.reason, distances);
   const variants = await visual.findSellableVariantsOfProduct(match.productId);
   if (!variants.success) return variants;

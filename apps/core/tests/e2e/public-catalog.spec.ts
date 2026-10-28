@@ -181,5 +181,64 @@ test("a brand host serves only the storefront: other paths, hidden and unknown s
   }
 });
 
+// A 1x1 PNG: the e2e storage serves no object for these keys, so the buyer's browser gets this instead.
+const pixel = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==", "base64");
+
+test("a buyer opens a product with three photos, opens the lightbox from a thumbnail, browses it and closes it with Esc", async ({ page }) => {
+  const email = `catalog-gallery-${randomUUID()}@example.test`;
+  const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Tienda de fotos", country: "PE" });
+  const buyer = await page.context().browser()!.newContext({ baseURL, viewport: { width: 390, height: 844 } });
+  const buyerPage = await buyer.newPage();
+  await buyerPage.route("**/test-images/**", (route) => route.fulfill({ contentType: "image/png", body: pixel }));
+  try {
+    const photos = await withTenantIsolation(companyId, async () => await Promise.all([1, 2, 3].map((n) =>
+      prisma.image.create({ data: { companyId, storageKey: `gallery/${n}-${randomUUID()}.png` } }))));
+    await withTenantIsolation(companyId, () => seedProduct({ name: "Polo con fotos", photoIds: photos.map((photo) => photo.id), variants: [{ attributes: { Color: "Negro" }, salePrice: 45, stock: 5 }] }));
+    const storeAddress = await publishCatalog(companyId);
+    await buyerPage.goto(storeAddress);
+    await buyerPage.getByRole("link", { name: /Polo con fotos/ }).click();
+    await buyerPage.waitForURL(/\/productos\/[0-9a-f-]{36}$/);
+
+    await browserExpect(buyerPage.locator('[data-store-part="catalog-gallery-thumbnail"]')).toHaveCount(3);
+    const lightbox = buyerPage.getByRole("dialog", { name: "Fotos de Polo con fotos" });
+    // Clicks before hydration are lost: retry the first one until the lightbox opens.
+    await browserExpect(async () => {
+      await buyerPage.locator('[data-store-part="catalog-gallery-thumbnail"]').nth(1).click();
+      await browserExpect(lightbox).toBeVisible({ timeout: 1000 });
+    }).toPass({ timeout: 10_000 });
+    await browserExpect(lightbox.getByText("2 de 3")).toBeVisible();
+    const viewport = buyerPage.viewportSize()!;
+    const box = (await lightbox.boundingBox())!;
+    expect(Math.round(box.width)).toBe(viewport.width);
+    expect(Math.round(box.height)).toBe(viewport.height);
+
+    await buyerPage.keyboard.press("ArrowRight");
+    await browserExpect(lightbox.getByText("3 de 3")).toBeVisible();
+    // At the last photo the next button stays focused, so the arrow keys and the focus trap keep working.
+    // Playwright's click waits out aria-disabled, so the keyboard presses it.
+    await lightbox.getByRole("button", { name: "Foto siguiente" }).focus();
+    await buyerPage.keyboard.press("Enter");
+    await browserExpect(lightbox.getByText("3 de 3")).toBeVisible();
+    await browserExpect(lightbox.getByRole("button", { name: "Foto siguiente" })).toBeFocused();
+    await buyerPage.keyboard.press("ArrowLeft");
+    await browserExpect(lightbox.getByText("2 de 3")).toBeVisible();
+    await lightbox.getByRole("button", { name: "Foto anterior" }).click();
+    await browserExpect(lightbox.getByText("1 de 3")).toBeVisible();
+    await buyerPage.keyboard.press("Tab");
+    await browserExpect(lightbox.locator(":focus")).toHaveCount(1);
+
+    await buyerPage.keyboard.press("Escape");
+    await browserExpect(lightbox).toBeHidden();
+    await browserExpect(buyerPage.locator('[data-store-part="catalog-gallery-thumbnail"]').nth(1)).toBeFocused();
+  } finally {
+    await buyer.close();
+    await withTenantIsolation(companyId, async () => {
+      await prisma.productPhoto.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany();
+      await prisma.product.deleteMany(); await prisma.image.deleteMany({ where: { companyId } });
+      await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
+    });
+  }
+});
+
 /** The page without the build-specific bits (script and stylesheet hashes, hydration payloads) that differ per request. */
 const strip = (html: string) => html.replace(/<script[\s\S]*?<\/script>/g, "").replace(/<link[^>]*>/g, "");

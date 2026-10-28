@@ -3,8 +3,8 @@ import { restoreCancelledOrderStock, restoreProductStock } from "@core/src/featu
 import { parseMessageCreated } from "@core/src/features/chats/infrastructure/event-payloads";
 import { messageOrderPolicy } from "@core/src/features/orders/application/message-order-policy";
 import { addMessageProductsHandler } from "@core/src/features/orders/composition";
-import { indexProductImagePolicy } from "@core/src/features/products/application/index-product-image";
-import { indexProductImageHandler } from "@core/src/features/products/composition";
+import { indexProductPhotosPolicy } from "@core/src/features/products/application/index-product-photos";
+import { indexProductPhotosHandler } from "@core/src/features/products/composition";
 import { parseProductPhotosAdded } from "@core/src/features/products/infrastructure/event-payloads";
 import { parseOrderCancelled } from "@core/src/features/orders/infrastructure/event-payloads";
 import { findOrderForUpdate, saveStockRestoration } from "@core/src/features/orders/infrastructure/order-repository";
@@ -53,10 +53,10 @@ export const restoreCancelledStock = defineEventHandler<AppEvents, "order_cancel
 export const addMessageProductsToOrder = defineEventHandler<AppEvents, "message_created">("message_created",
   (payload, metadata, context) => addMessageProductsHandler(payload, metadata, context),
   { id: "add-message-products-to-order", parsePayload: parseMessageCreated, policy: messageOrderPolicy });
-export const indexProductImage = defineEventHandler<AppEvents, "product_photos_added">("product_photos_added",
-  (payload, metadata, context) => indexProductImageHandler(payload, metadata, context),
-  { id: "index-product-image", parsePayload: parseProductPhotosAdded, policy: indexProductImagePolicy });
-export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelledStock, addMessageProductsToOrder, indexProductImage];
+export const indexProductPhotos = defineEventHandler<AppEvents, "product_photos_added">("product_photos_added",
+  (payload, metadata, context) => indexProductPhotosHandler(payload, metadata, context),
+  { id: "index-product-photos", parsePayload: parseProductPhotosAdded, policy: indexProductPhotosPolicy });
+export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelledStock, addMessageProductsToOrder, indexProductPhotos];
 
 export function subscribeToEvent<Events extends object, Name extends EventName<Events>>(
   subscriber: EventSubscriber<Events>,

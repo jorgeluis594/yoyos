@@ -1,5 +1,6 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react-native";
-import { Alert } from "react-native";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react-native";
+import { AccessibilityInfo, Alert, type AlertButton } from "react-native";
+import * as ImagePicker from "expo-image-picker";
 import { err, ok } from "@shared/functional";
 import { createProductApi } from "@mobile/features/products/infrastructure/product-api";
 import { createProductOperations } from "@mobile/features/products/application/product-operations";
@@ -16,9 +17,10 @@ const mockGuard = jest.fn();
 const mockSaveProduct = jest.fn();
 const mockStartAttempt = jest.fn();
 const mockPrintProductLabel = jest.fn();
+const mockUpload = jest.fn();
 const productId = "00000000-0000-4000-8000-000000000001";
 const product = {
-  id: productId, name: "Camisa", currency: "PEN", structureVersion: 1, options: [],
+  id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, options: [],
   variants: [{ id: "variant-1", qrCode: "qr-1", combination: [], sku: "CAM-1", salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }],
 };
 
@@ -28,18 +30,20 @@ const mockPush = jest.fn();
 const renderScreen = () => render(<ProductEditorProvider><ProductManagementScreen /></ProductEditorProvider>);
 jest.mock("expo-network", () => ({ getNetworkStateAsync: async () => ({ isConnected: mockOnline, isInternetReachable: mockOnline }) }));
 jest.mock("expo-router", () => ({ useLocalSearchParams: () => ({ productId }), useRouter: () => ({ replace: mockReplace, push: mockPush, canGoBack: () => false, back: jest.fn() }) }));
+jest.mock("expo-image-picker", () => ({ requestCameraPermissionsAsync: jest.fn(), launchCameraAsync: jest.fn(), launchImageLibraryAsync: jest.fn() }));
+jest.mock("@mobile/shared/infrastructure/jpeg-fitting", () => ({ fitJpeg: async (uri: string) => ({ success: true, data: uri }) }));
 jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireActual("react-native").View }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready" } }) }));
 jest.mock("@mobile/features/products/composition", () => ({
-  products: { loadProduct: (...args: unknown[]) => mockLoadProduct(...args), saveProduct: (...args: unknown[]) => mockSaveProduct(...args), uploadImage: jest.fn() },
+  products: { loadProduct: (...args: unknown[]) => mockLoadProduct(...args), saveProduct: (...args: unknown[]) => mockSaveProduct(...args), uploadImage: (...args: unknown[]) => mockUpload(...args) },
   productPrinting: { printProductLabel: (...args: unknown[]) => mockPrintProductLabel(...args) },
 }));
 jest.mock("@mobile/features/printing/presentation/print-provider", () => ({ usePrint: () => ({ startAttempt: mockStartAttempt }) }));
 jest.mock("@mobile/features/products/presentation/use-product-navigation-guard", () => ({ useProductNavigationGuard: (dirty: boolean) => { mockGuard(dirty); return jest.fn(); } }));
-jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: 0 }) }));
-jest.mock("@mobile/features/products/presentation/product-photo", () => ({ ProductPhoto: () => null }));
+let mockDiscardVersion = 0;
+jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: mockDiscardVersion }) }));
 
-beforeEach(() => { jest.clearAllMocks(); mockOnline = true; });
+beforeEach(() => { jest.clearAllMocks(); mockOnline = true; mockDiscardVersion = 0; });
 
 test("printing with draft changes opens the print sheet and uses the saved product", async () => {
   mockLoadProduct.mockResolvedValue(ok(product));
@@ -252,4 +256,104 @@ test("a product without active variants says so", async () => {
   renderScreen();
   expect(await screen.findByText("Ninguna variante está a la venta. Activa una para volver a venderla en tu tienda y en «Nueva venta».")).toBeTruthy();
   expect(screen.getByText("Sin variantes activas")).toBeTruthy();
+});
+
+describe("photos", () => {
+  const first = { id: "00000000-0000-4000-8000-0000000000a1", url: "https://cdn.example/a.jpg" };
+  const withPhoto = { ...product, photos: [first] };
+  let alert: jest.SpyInstance;
+  let release: (answer: unknown) => void;
+  const addPhoto = async () => {
+    jest.mocked(ImagePicker.launchImageLibraryAsync).mockResolvedValue({ canceled: false, assets: [{ uri: "file:///b.jpg", width: 100, height: 100 }] } as never);
+    fireEvent.press(screen.getByLabelText("Agregar fotos, Cámara o galería"));
+    await act(async () => { (alert.mock.calls.at(-1)?.[2] as AlertButton[]).find((button) => button.text === "Elegir de galería")?.onPress?.(); });
+  };
+  const uploaded = { success: true, data: { id: "00000000-0000-4000-8000-0000000000b2", url: "https://cdn.example/b.jpg" } };
+  beforeEach(() => {
+    alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+    jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => {});
+    jest.spyOn(AccessibilityInfo, "setAccessibilityFocus").mockImplementation(() => {});
+    mockUpload.mockImplementation(() => new Promise((resolve) => { release = resolve; }));
+    mockLoadProduct.mockResolvedValue(ok(withPhoto));
+  });
+  afterEach(() => { alert.mockRestore(); jest.restoreAllMocks(); jest.useRealTimers(); });
+
+  test("saving without touching photos omits photoIds", async () => {
+    mockSaveProduct.mockResolvedValue(ok(withPhoto));
+    renderScreen();
+    fireEvent.changeText(await screen.findByLabelText("Nombre *"), "Camisa nueva");
+    await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+    expect(mockSaveProduct).toHaveBeenCalledWith(expect.objectContaining({ photos: { kind: "untouched" } }));
+  });
+
+  test("while an upload runs, the add tile stays, Guardar explains and sends nothing, and X stays enabled", async () => {
+    renderScreen();
+    await screen.findByText("Editar producto");
+    await addPhoto();
+    expect(screen.getByLabelText("Agregar fotos, Cámara o galería")).toBeTruthy();
+    expect(mockGuard).toHaveBeenLastCalledWith(true);
+    await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+    expect(screen.getByText("Espera a que terminen de subir las fotos.")).toBeTruthy();
+    expect(mockSaveProduct).not.toHaveBeenCalled();
+    expect(screen.getByRole("button", { name: "Cerrar" }).props.accessibilityState.disabled).toBe(false);
+  });
+
+  test("Guardar with a failed photo shows the message at the top and focuses that thumbnail", async () => {
+    jest.useFakeTimers();
+    jest.spyOn(jest.requireActual("react-native"), "findNodeHandle").mockReturnValue(7);
+    renderScreen();
+    await screen.findByText("Editar producto");
+    await addPhoto();
+    await act(async () => { release({ success: false, error: { code: "NETWORK_ERROR", message: "x" } }); });
+    await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+    expect(screen.getByText("Reintenta o quita las fotos que no se subieron.")).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(300); });
+    expect(AccessibilityInfo.setAccessibilityFocus).toHaveBeenCalledWith(7);
+    expect(mockSaveProduct).not.toHaveBeenCalled();
+  });
+
+  test("a save rejected with PHOTO_NOT_FOUND at index 1 marks the second sent photo with its reason", async () => {
+    mockSaveProduct.mockResolvedValue(err({ code: "VALIDATION_ERROR", message: "x", issues: [{ scope: "photo", field: "photoIds", index: 1, reason: "PHOTO_NOT_FOUND" }] }));
+    renderScreen();
+    await screen.findByText("Editar producto");
+    await addPhoto();
+    await act(async () => { release(uploaded); });
+    await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+    expect(mockSaveProduct).toHaveBeenCalledWith(expect.objectContaining({ photos: { kind: "set", photoIds: [first.id, uploaded.data.id] } }));
+    expect(screen.getByLabelText("Foto 2 de 2, No pudimos usar esta foto. Quítala o súbela de nuevo.")).toBeTruthy();
+    expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa");
+  });
+
+  test("Cancelar or X with an upload in progress asks ¿Descartar cambios? and Descartar leaves the product as saved", async () => {
+    const view = renderScreen();
+    await screen.findByText("Editar producto");
+    expect(mockGuard).toHaveBeenLastCalledWith(false);
+    await addPhoto();
+    expect(mockGuard).toHaveBeenLastCalledWith(true);
+    mockDiscardVersion = 1;
+    view.rerender(<ProductEditorProvider><ProductManagementScreen /></ProductEditorProvider>);
+    await act(async () => { release(uploaded); });
+    expect(screen.getByLabelText("Foto 1 de 1, principal")).toBeTruthy();
+    expect(screen.queryByLabelText(/Foto 2 de/)).toBeNull();
+    expect(mockGuard).toHaveBeenLastCalledWith(false);
+  });
+
+  test("a save rejected with TOO_MANY_PHOTOS shows the form-level message and keeps the form", async () => {
+    jest.useFakeTimers();
+    jest.spyOn(jest.requireActual("react-native"), "findNodeHandle").mockReturnValue(9);
+    mockSaveProduct.mockResolvedValue(err({ code: "VALIDATION_ERROR", message: "x", issues: [{ scope: "product", field: "photoIds", reason: "TOO_MANY_PHOTOS", maximum: 8 }] }));
+    renderScreen();
+    fireEvent.changeText(await screen.findByLabelText("Nombre *"), "Camisa nueva");
+    await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+    expect(screen.getByText("Un producto puede tener hasta 8 fotos. Quita alguna y guarda de nuevo.")).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(300); });
+    expect(AccessibilityInfo.setAccessibilityFocus).toHaveBeenCalledWith(9);
+    expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa nueva");
+  });
+
+  test("a product created before the change shows its photo as 1 de 8 fotos and Principal", async () => {
+    renderScreen();
+    expect(await screen.findByText("1 de 8 fotos")).toBeTruthy();
+    expect(screen.getByText("Principal")).toBeTruthy();
+  });
 });

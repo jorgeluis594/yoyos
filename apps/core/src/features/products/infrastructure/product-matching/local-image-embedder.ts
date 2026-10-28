@@ -2,7 +2,7 @@ import { resolve } from "node:path";
 import sharp from "sharp";
 import { err, ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
-import type { EmbedImage } from "@core/src/features/products/application/index-product-image";
+import type { EmbedImage } from "@core/src/features/products/application/index-product-photos";
 import { parseEmbeddingModel, parseEmbeddingVector, type EmbeddingModel, type ImageBytes } from "@core/src/features/products/domain/image-identification";
 
 // Runs a CLIP/SigLIP vision encoder in the worker process with onnxruntime-node: one local inference, no key, no image leaves the server.

@@ -41,7 +41,7 @@ const variant = (id: string, size: keyof typeof sizes, hue: keyof typeof colors,
   salePrice: { amount: 42.9, currency: "PEN" }, purchasePrice: { amount: 21, currency: "PEN" }, stock: 0, status: "active", hasOrders: false, ...patch,
 });
 const productWith = (variants: ProductVariant[]): Product => ({
-  id: "p1" as ProductId, name: "Polo básico", currency: "PEN", structureVersion: 1,
+  id: "p1" as ProductId, name: "Polo básico", currency: "PEN", photos: [], structureVersion: 1,
   options: [{ id: talla, name: "Talla", values: [{ id: sizes.M, name: "M" }, { id: sizes.L, name: "L" }] }, { id: color, name: "Color", values: [{ id: colors.Negro, name: "Negro" }, { id: colors.Azul, name: "Azul" }] }],
   variants,
 });
