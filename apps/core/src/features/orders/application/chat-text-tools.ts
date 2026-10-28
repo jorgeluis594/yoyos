@@ -127,8 +127,8 @@ const changeRequestQuestion: DecisionChoiceQuestion = {
   name: "change",
   instructions: "Does the buyer explicitly ask to change the item to another variant, or only name a variant?",
   choices: [
-    { value: "requested", description: "The buyer asks to change the item: a verb of change, or a word that prefers the new variant over the current one" },
-    { value: "only_named", description: "The buyer only gives a size or color, or says they want or need it, without asking to change the item" },
+    { value: "requested", description: "The buyer explicitly asks to change the item: a verb of change, or «mejor» putting the new variant in place of the item's current one" },
+    { value: "only_named", description: "The buyer only gives a size or color, or says they want, need or prefer it («la prefiero en XS»), without asking to change the item" },
   ],
 };
 
