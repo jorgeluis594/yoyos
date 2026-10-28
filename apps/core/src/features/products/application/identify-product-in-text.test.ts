@@ -44,6 +44,14 @@ describe("identifyProductInText", () => {
       .toEqual(ok({ kind: "not_clear", candidates: [{ productId: id(1), name: "Polo negro" }, { productId: id(2), name: "Polo blanco" }] }));
   });
 
+  test("returns not clear when the names of two candidates hold every word of the mention, however the chooser spread its answer", async () => {
+    const h = harness({ candidates: [[candidate(1, "Mochila escolar"), candidate(2, "Mochila de viaje"), candidate(3, "Mocasín")]], choose: async () => ok(choice(2, 0.7, [[2, 0.7], [1, 0.1]])) });
+    expect(await identifyProductInText({ mention: "las mochilitas", priceHint: null }, h.deps, signal))
+      .toEqual(ok({ kind: "not_clear", candidates: [{ productId: id(1), name: "Mochila escolar" }, { productId: id(2), name: "Mochila de viaje" }] }));
+    const named = harness({ candidates: [[candidate(1, "Mochila escolar"), candidate(2, "Mochila de viaje")]], choose: async () => ok(choice(2, 0.7, [[2, 0.7], [1, 0.1]])) });
+    expect(await identifyProductInText({ mention: "mochila de viaje", priceHint: null }, named.deps, signal)).toEqual(ok({ kind: "not_found" }));
+  });
+
   test("returns not found when a single candidate is likely but below the threshold, or the chooser answers none", async () => {
     const low = harness({ candidates: [[candidate(1, "Polo"), candidate(2, "Gorra")]], choose: async () => ok(choice(1, 0.6, [[1, 0.6], [2, 0.1]])) });
     expect(await identifyProductInText({ mention: "polo", priceHint: null }, low.deps, signal)).toEqual(ok({ kind: "not_found" }));

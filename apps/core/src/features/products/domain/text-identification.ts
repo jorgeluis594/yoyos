@@ -1,7 +1,7 @@
 import type { Money } from "@shared/money";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
-import { valueWordOf } from "@core/src/features/products/domain/variant-words";
+import { baseFormsOf, valueWordOf } from "@core/src/features/products/domain/variant-words";
 
 /** Identity of a product named in a message; prices and stock stay out of it. */
 export type ProductRef = Readonly<{ productId: ProductId; name: string }>;
@@ -86,4 +86,18 @@ export function variantByNamedValues(variants: readonly CatalogItem[], words: re
   const [match] = matches;
   if (!match) return { kind: "not_sellable" };
   return matches.length === 1 ? { kind: "named", item: match } : { kind: "undecided" };
+}
+
+/** Words that tell no product apart («el polo de rayas», «la gorra para niño»). */
+const mentionFillers: ReadonlySet<string> = new Set(["el", "la", "lo", "los", "las", "un", "una", "unos", "unas", "de", "del", "con", "para", "a", "en", "y"]);
+const sameWord = (left: string, right: string) => { const forms = new Set(baseFormsOf(left)); return baseFormsOf(right).some((form) => forms.has(form)); };
+
+/**
+ * Whether a product name holds every word of the mention, in any plural or diminutive form («gorritas» in «Gorra trucker»): the
+ * mention names it as much as any other product whose name holds those words.
+ */
+export function nameHoldsMention(name: string, mention: string): boolean {
+  const words = tokensOf(mention).filter((word) => !mentionFillers.has(word));
+  const nameWords = tokensOf(name);
+  return words.length > 0 && words.every((word) => nameWords.some((nameWord) => sameWord(word, nameWord)));
 }
