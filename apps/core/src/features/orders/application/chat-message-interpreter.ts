@@ -4,9 +4,9 @@ import { orchestrate, type OrchestrateDependencies, type ToolCallPlan } from "@c
 import { executeToolCalls } from "@core/src/shared/ai-tools/application/execute-tool-calls";
 import type { AiError } from "@core/src/shared/ai-tools/application/ai-error";
 import type { ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
-import { toolsFor, type ChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
+import { toolsFor, type ChatToolName, type ChatToolRegistry } from "@core/src/features/orders/application/chat-message-actions";
 import type { ChatToolContext, ToolResolveError } from "@core/src/features/orders/application/chat-tool-types";
-import { changeRequestChoice, ITEM_CHOICE_MIN_CONFIDENCE } from "@core/src/features/orders/application/chat-text-tools";
+import { isChangeRequested } from "@core/src/features/orders/application/chat-text-actions";
 
 /** How the interpretation runs: the models choose, or the use case already knows the tool and no model is called. */
 export type InterpretationPlan =
@@ -17,7 +17,6 @@ export type ChatInterpretationRequest = Readonly<{
   context: ChatToolContext;
   /** The buyer's words, as text only: the image never reaches interpretation. */
   messageText: string | null;
-  contextText: string;
   plan: InterpretationPlan;
 }>;
 
@@ -45,19 +44,19 @@ function inRegistryOrder(plan: Extract<ToolCallPlan, { kind: "calls" }>, registr
  * and the seller is told; the message's other calls stay.
  */
 export function variantOnlyRule(plan: Extract<ToolCallPlan, { kind: "calls" }>): Extract<ToolCallPlan, { kind: "calls" }> {
-  const requested = (args: unknown) => {
-    const change = changeRequestChoice.safeParse((args as { change?: unknown } | null)?.change);
-    return change.success && change.data.value === "requested" && change.data.confidence >= ITEM_CHOICE_MIN_CONFIDENCE;
-  };
-  const report = { tool: "report_variant_without_product", args: {} };
-  const rewritten = plan.calls.map((call) => call.tool === "change_item_variant" && !requested(call.args) ? report : call);
+  const requested = (args: unknown) => isChangeRequested((args as { change?: unknown } | null)?.change);
+  const report = { tool: "report_variant_without_product" satisfies ChatToolName, args: {} };
+  const rewritten = plan.calls.map((call) => call.tool === ("change_item_variant" satisfies ChatToolName) && !requested(call.args) ? report : call);
   // Two rewritten variant calls are one notice, not two.
   const [first, ...rest] = rewritten.filter((call, index) => call !== report || rewritten.indexOf(report) === index);
   return { ...plan, calls: [first!, ...rest] };
 }
 
+/** The order and photo as text for the models; infrastructure words it. */
+export type DescribeChatContext = (context: ChatToolContext) => string;
+
 /** Binds the generic orchestrator and executor to the chat tools. Without models (`ai` null) only planned tools can run. */
-export function createChatInterpreter(registry: ChatToolRegistry, ai: OrchestrateDependencies | null): InterpretAndApply {
+export function createChatInterpreter(registry: ChatToolRegistry, ai: OrchestrateDependencies | null, describeContext: DescribeChatContext): InterpretAndApply {
   return async (request, signal, run) => {
     const execute = async (unordered: Extract<ToolCallPlan, { kind: "calls" }>, decisionCalls: number) => {
       const plan = inRegistryOrder(variantOnlyRule(unordered), registry);
@@ -68,7 +67,7 @@ export function createChatInterpreter(registry: ChatToolRegistry, ai: Orchestrat
     if (!ai) return err({ code: "AI_PROVIDER_UNAVAILABLE" as const, message: "Interpretation is not configured" });
     const plan = await orchestrate({
       messageParts: request.messageText === null ? [] : [{ kind: "text", text: request.messageText }],
-      contextText: request.contextText, context: request.context, tools: toolsFor(registry, request.context),
+      contextText: describeContext(request.context), context: request.context, tools: toolsFor(registry, request.context),
     }, ai, signal);
     if (!plan.success) return plan;
     if (plan.data.kind === "calls") return execute(plan.data, 1);

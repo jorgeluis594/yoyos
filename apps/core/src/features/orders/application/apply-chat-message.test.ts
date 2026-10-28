@@ -2,14 +2,17 @@ import { describe, expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { applyChatMessage, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
-import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
+import { createChatToolRegistry } from "@core/src/features/orders/infrastructure/chat-tools";
+import { createChatToolActions } from "@core/src/features/orders/application/chat-message-actions";
 import type { ChatContextItem } from "@core/src/features/orders/application/chat-tool-types";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
+import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import { identifyProductsInText, type IdentifyProductInTextDependencies } from "@core/src/features/products/application/identify-product-in-text";
 import { resolveVariant } from "@core/src/features/products/application/resolve-variant";
 import type { ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import type { DecisionAnswers, DecisionRequest, ExtractionRequest, OrchestrateDependencies, ToolCall } from "@core/src/shared/ai-tools/application/orchestrate";
 import type { AiError } from "@core/src/shared/ai-tools/application/ai-error";
+import { decisionRequestText } from "@core/src/shared/ai-tools/infrastructure/decision-request-text";
 import { mentionedPriceNote } from "@shared/mentioned-price";
 import { chooseSellerNotice } from "@core/src/features/orders/domain/seller-notice";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
@@ -114,7 +117,7 @@ function harness(options: Options = {}) {
   const target: ChatOrderTarget = options.target ?? { kind: "none" };
   if (target.kind === "open") store.orders.set(target.order.id, target.order);
   const ai: OrchestrateDependencies = {
-    minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9,
+    text: decisionRequestText, minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9,
     decide: async (request) => {
       decisions.push(request);
       const decided = options.decision ? options.decision(request) : answer("no_intent");
@@ -122,7 +125,7 @@ function harness(options: Options = {}) {
     },
     extract: async (request) => { extractions.push(request); return ok(options.extraction ? options.extraction(request) : []); },
   };
-  const registry = createChatToolRegistry({
+  const registry = createChatToolRegistry(createChatToolActions({
     loadSellableVariants: async (ids) => { loadedVariants.push([...ids]); return ok((options.catalog ?? catalog).filter((product) => ids.includes(product.productId))); },
     resolveVariant: (input, signal) => resolveVariant(input, { minConfidence: 0.8, chooseVariant: async (choice) => {
       variantChoices.push(choice.words.slice());
@@ -134,7 +137,7 @@ function harness(options: Options = {}) {
       return ok(lines.map(({ mention }) => options.identify?.[mention] ?? { kind: "not_found" as const }));
     },
     findTopTextCandidate: async (mention) => { topCandidateQueries.push(mention); return ok(options.topCandidate ?? null); },
-  });
+  }));
   const items = (): ChatContextItem[] => target.kind === "open" ? target.order.items.map((item, index) => ({ label: `I${index + 1}`, variantId: item.variantId, productId: target.productIds.get(item.variantId) ?? null,
     productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice })) : [...emptyContext];
   const deps: ApplyChatMessageDependencies = {
@@ -146,7 +149,7 @@ function harness(options: Options = {}) {
     loadSellableProducts: async (ids) => called("loadSellableProducts", ok((options.catalog ?? catalog).filter((product) => ids.includes(product.productId)))),
     catalogSearchReadiness: async () => called("catalogSearchReadiness", ok(options.readiness ?? "ready")),
     interpretationEnabled: options.interpretationEnabled ?? true,
-    interpretAndApply: createChatInterpreter(registry, ai),
+    interpretAndApply: createChatInterpreter(registry, ai, describeChatContext),
     transaction: async (_company, work) => {
       calls.push("transaction");
       const snapshot = structuredClone({ orders: store.orders, customers: store.customers, messages: store.messages, outcomes: store.outcomes });

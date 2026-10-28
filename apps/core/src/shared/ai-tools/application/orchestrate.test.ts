@@ -24,13 +24,15 @@ const tools = [ready, remove, add, setPrice];
 const context: Context = { items: ["A", "B"] };
 const parts = [{ kind: "text", text: "quita la gorra" }] as const;
 
+const text: OrchestrateDependencies["text"] = { actionInstructions: "Choose one.", several: "Two actions", predicate: (description) => `Asked? ${description}` };
+
 type Reply = Readonly<{ action: string; confidence?: number; predicates?: Record<string, number>; choices?: Record<string, DecisionAnswers["choices"][string]> }>;
 
 function setup(reply: Reply, extracted: readonly { tool: string; args: unknown }[] = []) {
   const decisions: DecisionRequest[] = [];
   const extractions: ExtractionRequest[] = [];
   const deps: OrchestrateDependencies = {
-    minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9,
+    text, minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9,
     decide: async (request) => {
       decisions.push(request);
       return ok({ action: { choice: reply.action, confidence: reply.confidence ?? 0.9 },
@@ -128,6 +130,15 @@ describe("orchestrate", () => {
     expect(request.choices).toEqual([]);
   });
 
+  test("words the action and predicates with the supplied text and each tool's description", async () => {
+    const { run, decisions } = setup({ action: "mark_order_ready" });
+    await run([ready]);
+    const request = decisions[0]!;
+    expect(request.action.instructions).toBe("Choose one.");
+    expect(request.action.choices).toEqual([{ value: "mark_order_ready", description: "Does mark_order_ready" }, { value: "several", description: "Two actions" }]);
+    expect(request.predicates).toEqual([{ tool: "mark_order_ready", instructions: "Asked? Does mark_order_ready" }]);
+  });
+
   test("asks the questions of every offered tool that declares them", async () => {
     const { run, decisions } = setup({ action: "mark_order_ready" });
     await run();
@@ -156,7 +167,7 @@ describe("orchestrate", () => {
 
   test("returns the provider failure of the decision or extraction call", async () => {
     const unavailable = { code: "AI_PROVIDER_UNAVAILABLE", message: "down" } as const;
-    const deps: OrchestrateDependencies = { minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9, decide: async () => err(unavailable), extract: async () => err(unavailable) };
+    const deps: OrchestrateDependencies = { text, minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9, decide: async () => err(unavailable), extract: async () => err(unavailable) };
     const signal = new AbortController().signal;
     expect(await orchestrate({ messageParts: parts, contextText: "", context, tools }, deps, signal)).toEqual(err(unavailable));
     const extractOnly: OrchestrateDependencies = { ...deps, decide: async () => ok({ action: { choice: "add_item", confidence: 1 }, predicates: {}, choices: {} }) };

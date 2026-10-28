@@ -4,8 +4,10 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { prisma, systemPrisma, withLockedForUpdate, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { applyChatMessage, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
-import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
+import { createChatToolRegistry } from "@core/src/features/orders/infrastructure/chat-tools";
+import { createChatToolActions } from "@core/src/features/orders/application/chat-message-actions";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
+import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import { allocateOrderNumber, findChatOrderTargetForUpdate, findOrderAggregate, recordProcessedMessage, saveItemChanges, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts/infrastructure/contact-repository";
@@ -20,6 +22,7 @@ import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-messa
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
 import type { VariantQrCode } from "@core/src/features/products/domain/image-identification";
+import { decisionRequestText } from "@core/src/shared/ai-tools/infrastructure/decision-request-text";
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -62,12 +65,12 @@ async function message(f: Fixture, content: { codes: readonly string[] } | { tex
   return messageId;
 }
 
-const registry = createChatToolRegistry({
+const registry = createChatToolRegistry(createChatToolActions({
   loadSellableVariants: loadSellableVariants, identifyProductsInText: async () => ok([]), findTopTextCandidate: async () => ok(null),
   resolveVariant: (input, signal) => resolveVariant(input, { minConfidence: 0.8, chooseVariant: async () => ok({ variantId: null, confidence: 0 }) }, signal),
-});
+}));
 // A text is a greeting for the faked decision API.
-const ai = { minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9, extract: async () => ok([]),
+const ai = { text: decisionRequestText, minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9, extract: async () => ok([]),
   decide: async () => ok({ action: { choice: "no_intent", confidence: 0.95 }, predicates: {}, choices: {} }) };
 
 function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = {}): ApplyChatMessageDependencies {
@@ -87,7 +90,7 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
     loadSellableProducts: loadSellableVariants,
     catalogSearchReadiness: async () => ok("no_searchable_photos"),
     interpretationEnabled: true,
-    interpretAndApply: createChatInterpreter(registry, ai),
+    interpretAndApply: createChatInterpreter(registry, ai, describeChatContext),
     transaction: (_company, work) => withinTransaction(work),
     lockContact,
     ensureCustomerForContact: async (contactId) => { const ensured = await ensureCustomerForContact(contactId); return ensured.success ? ok({ customerId: ensured.data.customerId as CustomerId }) : ensured; },

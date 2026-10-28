@@ -16,10 +16,9 @@ const sourceFiles = readdirSync(join(root, "src"), { recursive: true, encoding: 
 
 /** Files known to hold the text that reaches a model; the discovery above must include them. */
 const promptFiles = [
-  "src/features/orders/application/chat-text-tools.ts",
-  "src/features/orders/application/chat-message-tools.ts",
-  "src/features/orders/application/apply-chat-message.ts",
-  "src/shared/ai-tools/application/orchestrate.ts",
+  "src/features/orders/infrastructure/chat-tools.ts",
+  "src/features/orders/infrastructure/chat-context-text.ts",
+  "src/shared/ai-tools/infrastructure/decision-request-text.ts",
   "src/shared/ai-tools/infrastructure/openai-decision-client.ts",
   "src/shared/ai-tools/infrastructure/openai-tool-call-extractor.ts",
   "src/features/products/infrastructure/product-matching/openai-text-chooser.ts",
