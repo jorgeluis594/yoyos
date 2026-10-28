@@ -13,7 +13,7 @@ import { ok, err } from "@shared/functional";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildPendingOrder, orderStateMachine, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import { findOpenChatOrderCandidate, findOrderAggregate, findOrderedVariantIds, findOrderAggregates, findOrders, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
+import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
 import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
@@ -1934,25 +1934,6 @@ test("reads the confirmation of a catalog order of the company and answers not_c
     expect(await read(a.companyId, randomUUID() as OrderId)).toEqual(ok("not_confirmed"));
     expect(await read(a.companyId, other)).toEqual(ok("not_confirmed"));
     expect(await read(b.companyId, other)).toEqual(ok("confirmed"));
-  } finally { await a.cleanup(); await b.cleanup(); }
-});
-
-test("findOrderedVariantIds counts unconfirmed catalog orders", async () => {
-  const a = await fixture();
-  const b = await fixture();
-  try {
-    const sold = a.variantIds[0] as VariantId;
-    const unsold = a.variantIds[1] as VariantId;
-    await withTenantIsolation(a.companyId, async () => {
-      expect(await findOrderedVariantIds([sold, unsold])).toEqual(ok(new Set()));
-      expect(await findOrderedVariantIds([])).toEqual(ok(new Set()));
-      const orderId = randomUUID();
-      // An open catalog order: nobody has confirmed checkout yet.
-      await prisma.order.create({ data: { id: orderId, number: 2001n, currency: "PEN", total: 10, itemsTotal: 10, createdAt: new Date(), fromCatalog: true, sellerId: null, checkoutEnabledAt: new Date() } });
-      await prisma.orderItem.create({ data: { orderId, variantId: sold, productName: "Sample product", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 } });
-      expect(await findOrderedVariantIds([sold, unsold, randomUUID() as VariantId])).toEqual(ok(new Set([sold])));
-    });
-    await withTenantIsolation(b.companyId, async () => expect(await findOrderedVariantIds([sold])).toEqual(ok(new Set())));
   } finally { await a.cleanup(); await b.cleanup(); }
 });
 
