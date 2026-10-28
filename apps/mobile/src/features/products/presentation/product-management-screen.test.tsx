@@ -72,14 +72,14 @@ test("an explicit variant prints saved data and copies while saving the draft do
   const request = jest.fn(async (_path: string, init?: RequestInit) => {
     if (init?.method === "PUT") savedName = JSON.parse(init.body as string).name;
     return ok({ product: {
-      id: productId, name: savedName, description: null, imageId: null, currency: "PEN", qrCode: "00000000-0000-4000-8000-000000000006",
+      id: productId, name: savedName, description: null, photos: [], currency: "PEN", qrCode: "00000000-0000-4000-8000-000000000006",
       createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", structureVersion: 1,
       options: [{ id: colorId, name: "Color", values: [{ id: redId, name: "Rojo" }, { id: blueId, name: "Azul" }] }],
       variants: [
         { id: firstId, combination: [{ optionId: colorId, valueId: redId }], sku: null, salePrice: { amount: 20, currency: "PEN" }, purchasePrice: null, qrCode: "00000000-0000-4000-8000-000000000004", status: "active", stock: 1, hasOrders: false },
         { id: secondId, combination: [{ optionId: colorId, valueId: blueId }], sku: "AZUL-1", salePrice: { amount: 22, currency: "PEN" }, purchasePrice: null, qrCode: secondQr, status: "active", stock: 2, hasOrders: false },
       ],
-    }, image: null });
+    } });
   });
   const products = createProductOperations(createProductApi(request, () => 0));
   const renderProductLabel = jest.fn(async (_label: ProductLabel) => ok({ uri: "file:///label.png", widthPx: 696, heightPx: 271 }));

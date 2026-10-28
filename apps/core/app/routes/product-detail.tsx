@@ -33,7 +33,7 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
     return {
       product: detail.product,
       catalog: companyPath(new URL(request.url).pathname, company.country, "/products"),
-      imageUrl: detail.image?.url,
+      imageUrl: detail.product.photos[0]?.url,
       saved: new URL(request.url).searchParams.get("saved") === "1",
       variantDeleted: new URL(request.url).searchParams.get("variantDeleted") === "1",
     };
@@ -98,7 +98,7 @@ export default function ProductDetail() {
   function save({ values: next, image, draft }: ProductFormSubmission) {
     submit(buildSaveProductBody(draft, {
       structureVersion: product.structureVersion, name: next.name, description: next.description === "" ? null : next.description,
-      imageId: image.kind === "set" ? image.id : image.kind === "remove" ? null : product.imageId,
+      photos: image.kind === "set" ? { kind: "set", photoIds: [image.id] } : image.kind === "remove" ? { kind: "set", photoIds: [] } : { kind: "untouched" },
     }), { method: "put", encType: "application/json", action: `${catalog}/${product.id}` });
   }
 

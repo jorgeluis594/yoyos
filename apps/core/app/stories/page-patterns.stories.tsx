@@ -169,7 +169,7 @@ export const ProductFormErrors: Story = {
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const ids = { talla: "00000000-0000-4000-8000-000000000001", m: "00000000-0000-4000-8000-000000000002", l: "00000000-0000-4000-8000-000000000003" };
 const storyProduct = (variants: readonly { id: string; value?: string; stock: number }[]) => ({
-  id: "00000000-0000-4000-8000-0000000000aa", name: "Polo oversize", description: null, imageId: null, currency: "PEN" as const, qrCode: "00000000-0000-4000-8000-0000000000ab",
+  id: "00000000-0000-4000-8000-0000000000aa", name: "Polo oversize", description: null, photos: [], currency: "PEN" as const, qrCode: "00000000-0000-4000-8000-0000000000ab",
   createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
   options: variants.some((variant) => variant.value) ? [{ id: ids.talla, name: "Talla", values: [{ id: ids.m, name: "M" }, { id: ids.l, name: "L" }] }] : [],
   variants: variants.map((variant) => ({

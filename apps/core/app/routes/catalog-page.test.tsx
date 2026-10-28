@@ -67,7 +67,7 @@ test("an unavailable catalog and a failed load show their own messages, never an
 
 test("a sold-out variant is not selectable and the quantity stops at the available stock", async () => {
   const variant = (talla: string, amount: number, maxQuantity: number) => ({ id: crypto.randomUUID(), attributes: { Talla: talla, Color: "Negro" }, price: pen(amount), maxQuantity });
-  const product = { id: crypto.randomUUID(), name: "Polo básico", description: null, imageUrl: null, price: { kind: "from", amount: pen(45) }, soldOut: false,
+  const product = { id: crypto.randomUUID(), name: "Polo básico", description: null, photoUrls: [], price: { kind: "from", amount: pen(45) }, soldOut: false,
     attributes: [{ name: "Color", values: ["Negro"] }, { name: "Talla", values: ["M", "L"] }], variants: [variant("M", 45, 3), variant("L", 49, 0)] };
   await mount(`/productos/${product.id}`, [{ path: "/productos/:productId", Component: CatalogProductPage,
     loader: () => ({ kind: "found", storeName: "Moda Lucía", companyId, appearance: { logoUrl: null, theme: "classic" }, product }) }]);
@@ -78,6 +78,28 @@ test("a sold-out variant is not selectable and the quantity stops at the availab
   for (let index = 0; index < 4; index++) await act(async () => { if (!button("Agregar uno").disabled) button("Agregar uno").click(); });
   expect(container.querySelector("output")!.textContent).toBe("3");
   expect(button("Agregar uno").disabled).toBe(true);
+});
+
+test("the catalog product page shows the primary of a product with three photos", async () => {
+  const photoUrls = ["https://img.test/primary.jpg", "https://img.test/second.jpg", "https://img.test/third.jpg"];
+  const product = { id: crypto.randomUUID(), name: "Polo básico", description: null, photoUrls, price: { kind: "single", amount: pen(45) }, soldOut: false,
+    attributes: [], variants: [{ id: crypto.randomUUID(), attributes: {}, price: pen(45), maxQuantity: 3 }] };
+  await mount(`/productos/${product.id}`, [{ path: "/productos/:productId", Component: CatalogProductPage,
+    loader: () => ({ kind: "found", storeName: "Moda Lucía", companyId, appearance: { logoUrl: null, theme: "classic" }, product }) }]);
+  await shows("Polo básico");
+  const photo = container.querySelector<HTMLImageElement>('[data-store-part="catalog-product-photo"] img, img[data-store-part="catalog-product-photo"]');
+  expect(photo?.getAttribute("src")).toBe(photoUrls[0]);
+  expect([...container.querySelectorAll("img")].map((img) => img.getAttribute("src"))).toEqual([photoUrls[0]]);
+});
+
+test("a product without photos keeps the neutral block with the initial in the product page", async () => {
+  const product = { id: crypto.randomUUID(), name: "Polo básico", description: null, photoUrls: [], price: { kind: "single", amount: pen(45) }, soldOut: false,
+    attributes: [], variants: [{ id: crypto.randomUUID(), attributes: {}, price: pen(45), maxQuantity: 3 }] };
+  await mount(`/productos/${product.id}`, [{ path: "/productos/:productId", Component: CatalogProductPage,
+    loader: () => ({ kind: "found", storeName: "Moda Lucía", companyId, appearance: { logoUrl: null, theme: "classic" }, product }) }]);
+  await shows("Polo básico");
+  expect(container.querySelector("img")).toBeNull();
+  expect(container.querySelector('[data-store-part="catalog-product-photo"]')?.textContent).toBe("P");
 });
 
 test("the product page shows Este producto ya no está disponible inside the store theme with the store name, status 404 and the request outcome unavailable", async () => {
