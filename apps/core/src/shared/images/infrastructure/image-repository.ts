@@ -38,6 +38,8 @@ export const imageRepository: ImageRepository = {
       return ok(await prisma.image.findMany({ where: { id: { in: [...ids] } }, select: { id: true, storageKey: true } }));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
+      // Same rule as find: inside an editing transaction a timeout or lock conflict is the transaction boundary's to report.
+      if (inActiveTransaction() && transactionFailureStage(cause)) throw cause;
       log.error({ event: "unable_to_find_image_records", count: ids.length, err: cause }, "unable_to_find_image_records");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find image records" });
     }

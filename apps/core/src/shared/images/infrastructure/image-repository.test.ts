@@ -62,3 +62,12 @@ it("find rethrows a lock timeout inside a transaction and answers unavailable ou
   transaction.active = true;
   await expect(imageRepository.find("image")).rejects.toBe(timeout);
 });
+
+it("findMany rethrows a lock timeout inside a transaction and answers unavailable outside one", async () => {
+  vi.spyOn(log, "error").mockImplementation(() => {});
+  const timeout = new Prisma.PrismaClientKnownRequestError("canceling statement due to lock timeout 55P03", { code: "P2010", clientVersion: "7.10.0" });
+  queries.findMany.mockRejectedValue(timeout);
+  expect(await imageRepository.findMany(["image"])).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+  transaction.active = true;
+  await expect(imageRepository.findMany(["image"])).rejects.toBe(timeout);
+});
