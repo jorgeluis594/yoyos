@@ -37,6 +37,7 @@ type Props = Readonly<{
 }>;
 
 const { options: maxOptions, variants: maxVariants } = productOptionLimits;
+const itemClass = "py-3 first:pt-0 last:pb-0";
 const tagVariant = { new: "info", inactive: "secondary", removed: "warning", deleted: "destructive" } as const;
 
 export function VariantsCard({ draft, setDraft, variantHref, currency, originalNames, targets, commitOption, onClearOptions }: Props) {
@@ -113,7 +114,7 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
   const optionSummary = (option: EditorOption, index: number) => {
     const live = option.values.filter((value) => !value.marked);
     const kept = live.find((value) => value.id === option.valueForExistingVariants) ?? live[0];
-    return <li key={option.id} {...reorder.itemProps(option.id)} className="grid gap-2 rounded-lg border border-border p-3">
+    return <li key={option.id} {...reorder.itemProps(option.id)} className={`grid gap-2 ${itemClass}`}>
       <div className="flex flex-wrap items-center gap-2">
         <ReorderHandle id={option.id} name={option.name} position={index + 1} total={draft.options.length} onMove={reorder.move} announce={reorder.announce} dragProps={reorder.handleProps(option.id)} />
         <strong className={option.marked ? "line-through" : undefined}>{option.name}</strong>
@@ -184,12 +185,12 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
           <div><Button type="button" variant="outline" onClick={() => open(newOptionBuffer(crypto.randomUUID()))}>{t("productEditor.addOptions")}</Button></div>
           <p className="text-sm text-muted-foreground">{t("productEditor.addOptionsHelp")}</p>
         </div>}
-        {(hasOptions || editing) && <ul className="grid gap-3">
+        {(hasOptions || editing) && <ul className={`grid divide-y divide-border${hasOptions ? " border-b border-border pb-4" : ""}`}>
           {draft.options.map((option, index) => editing && editing.optionId === option.id
-            ? <li key={option.id}><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={notices[option.id] ?? targets.options[option.id]} valueNotices={{ ...valueNotices, ...targets.values }}
+            ? <li key={option.id} className={itemClass}><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={notices[option.id] ?? targets.options[option.id]} valueNotices={{ ...valueNotices, ...targets.values }}
                 onChange={setEditing} onDone={done} onDelete={() => remove(editing)} onRemoveValue={removeFromEditor} onUndoValue={(id) => edit((current) => undoRemoveValue(current, id))} /></li>
             : optionSummary(option, index))}
-          {editing?.isNew && <li><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={undefined} valueNotices={{}}
+          {editing?.isNew && <li className={itemClass}><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={undefined} valueNotices={{}}
             onChange={setEditing} onDone={done} onDelete={() => remove(editing)} onRemoveValue={() => undefined} onUndoValue={() => undefined} /></li>}
         </ul>}
         {hasOptions && !editing && (draft.options.length >= maxOptions

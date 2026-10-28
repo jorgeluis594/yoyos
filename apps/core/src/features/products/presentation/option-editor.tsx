@@ -80,7 +80,7 @@ export function OptionEditor({ draft, buffer, issues, originalNames, notice, val
   const existingCount = draft.rows.filter((row) => row.id !== null).length;
   const showExisting = draft.saved && (buffer.isNew || option?.saved === false) && live.length > 1 && existingCount > 0;
 
-  return <section aria-label={t("productEditor.optionEditor", { name: buffer.name || t("productEditor.newOption") })} className="grid gap-4 rounded-lg border border-border bg-muted/30 p-4">
+  return <section aria-label={t("productEditor.optionEditor", { name: buffer.name || t("productEditor.newOption") })} className="grid gap-4">
     <Field data-invalid={Boolean(nameText)}>
       <FieldLabel htmlFor={`option-name-${buffer.optionId}`}>{t("productEditor.optionName")}</FieldLabel>
       <Input id={`option-name-${buffer.optionId}`} value={buffer.name} aria-invalid={Boolean(nameText) || undefined} aria-describedby={nameText ? `option-name-error-${buffer.optionId}` : undefined}
