@@ -137,7 +137,10 @@ export function ProductPhotosStrip({ photos, disabled = false }: { photos: Photo
           const primary = photos.primary === photo.key;
           const uri = photo.kind === "saved" || photo.kind === "uploaded" ? photo.url : photos.previewOf(photo.key) ?? photo.previewUrl;
           const marked = (photo.kind === "saved" || photo.kind === "uploaded") && photo.marked;
-          const label = photo.kind === "failed" ? t("photoNotUploaded") : marked ? t(photo.kind === "saved" ? "rowWillBeDeleted" : "rowWillBeRemoved") : primary ? t("photoPrimary") : null;
+          const labels = [
+            primary ? t("photoPrimary") : null,
+            photo.kind === "failed" ? t("photoNotUploaded") : marked ? t(photo.kind === "saved" ? "rowWillBeDeleted" : "rowWillBeRemoved") : null,
+          ].filter((text): text is string => text !== null);
           const actions = actionsOf(photo, primary, photos, t);
           const position = index + 1;
           return <Pressable key={photo.key} ref={(node) => { if (node) nodes.current.set(photo.key, node); else nodes.current.delete(photo.key); }}
@@ -146,13 +149,13 @@ export function ProductPhotosStrip({ photos, disabled = false }: { photos: Photo
             onAccessibilityAction={(event) => { if (!disabled) actions.find((action) => action.name === event.nativeEvent.actionName)?.run(); }}
             disabled={disabled} onPress={() => openSheet(photo, position)}
             style={styles.cell}>
-            <View style={[styles.thumb, { borderColor: photo.kind === "failed" || (photo.kind !== "uploading" && photo.rejected) ? theme.error : theme.border, backgroundColor: theme.backgroundElement }]}>
+            <View testID="photo-square" style={[styles.thumb, { borderColor: photo.kind === "failed" || (photo.kind !== "uploading" && photo.rejected) ? theme.error : theme.border, backgroundColor: theme.backgroundElement }]}>
             {uri ? <Image source={{ uri }} contentFit="cover" style={[styles.image, (marked || photo.kind !== "saved" && photo.kind !== "uploaded") && styles.dim]} accessibilityElementsHidden importantForAccessibility="no" /> : null}
             {photo.kind === "uploading" ? <View style={styles.center}><ActivityIndicator color={theme.text} /></View> : null}
             {photo.kind === "failed" || (photo.kind !== "uploading" && photo.rejected)
               ? <View style={styles.center}><SymbolView name={{ ios: "exclamationmark.triangle.fill", android: "warning" }} size={24} tintColor={theme.error} /></View> : null}
             </View>
-            {label ? <ThemedText type="small" style={styles.label} testID="photo-label">{label}</ThemedText> : null}
+            {labels.map((text) => <ThemedText key={text} type="small" style={styles.label} testID="photo-label">{text}</ThemedText>)}
           </Pressable>;
         })}
       </ScrollView>

@@ -1,6 +1,6 @@
 import { useEffect } from "react";
 import { AccessibilityInfo, Alert, StyleSheet, type AlertButton } from "react-native";
-import { act, fireEvent, render, screen } from "@testing-library/react-native";
+import { act, fireEvent, render, screen, within } from "@testing-library/react-native";
 import * as ImagePicker from "expo-image-picker";
 import { err, ok } from "@shared/functional";
 import i18n from "@mobile/i18n";
@@ -191,14 +191,15 @@ test("each thumbnail is announced with position, state and the actions hint", as
   expect(controller.field.photos[0]?.key).toBe("saved-2");
 });
 
-test("a failed thumbnail shows No se subió under the square instead of Principal", async () => {
+test("a failed primary keeps Principal and adds No se subió, and still says it is the primary", async () => {
   render(<Harness />);
   galleryReturns("a");
   await chooseFrom("Elegir de galería");
   await settle();
   await act(async () => { pending[0]?.resolve(failure("SERVICE_UNAVAILABLE")); });
+  expect(screen.getByText("Principal")).toBeTruthy();
   expect(screen.getByText("No se subió")).toBeTruthy();
-  expect(screen.queryByText("Principal")).toBeNull();
+  expect(thumb("Foto 1 de 1, principal, no se subió: No se pudo subir. Revisa la conexión.")).toBeTruthy();
 });
 
 test("tapping a failed thumbnail opens Foto 2 de 3 with the reason, Reintentar, Quitar and Cancelar", async () => {
@@ -369,10 +370,12 @@ test("the state label sits under the square at the small text size and wraps onl
 
 test("the thumbnail square keeps 64 px and the label is not inside it", () => {
   render(<Harness photos={saved(2)} />);
-  const label = screen.getByTestId("photo-label");
-  let node = label.parent;
-  while (node && StyleSheet.flatten(node.props.style)?.height !== 64) node = node.parent;
-  expect(node).toBeNull();
+  const [square] = screen.getAllByTestId("photo-square");
+  const style = StyleSheet.flatten(square?.props.style);
+  expect(style.width).toBe(64);
+  expect(style.height).toBe(64);
+  expect(within(square!).queryByTestId("photo-label")).toBeNull();
+  expect(screen.getByTestId("photo-label")).toBeTruthy();
 });
 
 test("the accessibility focus does not ask for a native node handle on web", async () => {
