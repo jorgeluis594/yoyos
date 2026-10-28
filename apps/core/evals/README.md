@@ -117,7 +117,8 @@ model returned (mentions, variant words, quantity, price) and each text choice. 
 - calibration per pass and certainty source at the production gate of that source (`gates`: action `MESSAGE_ACTION_MIN_CONFIDENCE`,
   text and variant and visual `PRODUCT_MATCH_MIN_CONFIDENCE`, item `ITEM_CHOICE_MIN_CONFIDENCE`). Each certainty records the model's
   own `pick` and is graded by it (`lib/picks.ts`), not by the outcome, which below a gate the gate itself decides: the Decision's
-  action is right when it is the expected tool (`several` for several tools); a text, visual or variant pick when an acceptable final
+  action is right when it is the expected tool (`several` for several tools; a `change_item_variant` pick the interpreter ran as
+  `report_variant_without_product`, because the buyer did not explicitly ask for the change, counts as that report); a text, visual or variant pick when an acceptable final
   order (or the text or image expectation) has that product or variant; a «none» pick when the case expects nothing identified
   or no product. A pick on a photo the case declines is ungraded: no order says which product it showed. Item choices and picks a case cannot grade are counted as
   ungraded. «none» answers of the text, variant and vision choosers are their own sources (`text_none`, `variant_none`,
