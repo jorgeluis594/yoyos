@@ -511,6 +511,8 @@ describe("applyChatMessage: text tools", () => {
   // The reference answer is only read when the order has a single item.
   const itemChoice = (tool: string, value: string, confidence = 0.95, reference: "named" | "unnamed" = "named"): DecisionAnswers["choices"] =>
     ({ [`${tool}:item`]: { value, confidence }, [`${tool}:reference`]: { value: reference, confidence: 0.9 } });
+  const variantChange = (value: string, change: "requested" | "only_named" = "requested", confidence = 0.95): DecisionAnswers["choices"] =>
+    ({ ...itemChoice("change_item_variant", value), "change_item_variant:change": { value: change, confidence } });
   const removal = (value: string, confidence = 0.95, amount: "all" | "one" = "all"): DecisionAnswers["choices"] =>
     ({ ...itemChoice("remove_item", value, confidence), "remove_item:amount": { value: amount, confidence: 0.95 } });
   const add = (productMention: string, variantWords: string[] = [], quantity: number | null = null) => ({ productMention, variantWords, quantity, mentionedPrice: null });
@@ -783,7 +785,7 @@ describe("applyChatMessage: text tools", () => {
   });
 
   test("changes the variant of the chosen item through the same variant resolution as adds", async () => {
-    const h = harness({ message: textMessage("mejor en talla L"), target: openWith(line(1, poloM, 2)), decision: () => decided("change_item_variant", itemChoice("change_item_variant", "I1")),
+    const h = harness({ message: textMessage("mejor en talla L"), target: openWith(line(1, poloM, 2)), decision: () => decided("change_item_variant", variantChange("I1")),
       extraction: () => [{ tool: "change_item_variant", args: { variantWords: ["L"], mentionedPrice: null } }] });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "variant_changed", fromVariantId: poloM.variantId, toVariantId: poloL.variantId, namedItem: true }] });
     expect(h.loadedVariants).toEqual([[productPolo]]);
@@ -795,23 +797,41 @@ describe("applyChatMessage: text tools", () => {
     const negroL = variant(6, "Polo básico", { Talla: "L", Color: "Negro" });
     const blancoL = variant(7, "Polo básico", { Talla: "L", Color: "Blanco" });
     const h = harness({ message: textMessage("cámbialo a talla L"), target: openWith(line(1, negroM, 2)), catalog: [{ productId: productPolo, name: "Polo básico", variants: [negroM, negroL, blancoL] }],
-      decision: () => decided("change_item_variant", itemChoice("change_item_variant", "I1")),
+      decision: () => decided("change_item_variant", variantChange("I1")),
       extraction: () => [{ tool: "change_item_variant", args: { variantWords: ["talla", "L"], mentionedPrice: null } }] });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "variant_changed", fromVariantId: negroM.variantId, toVariantId: negroL.variantId }] });
     expect(h.variantChoices).toEqual([["talla", "L"]]);
   });
 
   test("reports a variant that is not available and keeps the item when the new variant does not exist", async () => {
-    const h = harness({ message: textMessage("mejor en XL"), target: openWith(line(1, poloM)), decision: () => decided("change_item_variant", itemChoice("change_item_variant", "I1")),
+    const h = harness({ message: textMessage("mejor en XL"), target: openWith(line(1, poloM)), decision: () => decided("change_item_variant", variantChange("I1")),
       extraction: () => [{ tool: "change_item_variant", args: { variantWords: ["XL"], mentionedPrice: null } }] });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "variant_not_available", productId: productPolo }], noticeDue: true });
     expect(quantities(h.store)).toEqual({ [poloM.variantId]: 1 });
   });
 
+  test("reports variant only and changes nothing when the buyer does not explicitly ask for the change, or the answer is unsure", async () => {
+    for (const choices of [variantChange("I1", "only_named"), variantChange("I1", "requested", 0.79)]) {
+      const h = harness({ message: textMessage("la prefiero en talla L"), target: openWith(line(1, poloM)), decision: () => decided("change_item_variant", choices),
+        extraction: () => [{ tool: "change_item_variant", args: { variantWords: ["talla", "L"], mentionedPrice: null } }] });
+      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "variant_only" }], noticeDue: true, trace: { tools: ["report_variant_without_product"] } });
+      expect(quantities(h.store)).toEqual({ [poloM.variantId]: 1 });
+      expect(h.variantChoices).toEqual([]);
+    }
+  });
+
+  test("asks whether the change is explicitly requested in the same Decision request as the item", async () => {
+    const h = harness({ message: textMessage("mejor en talla L"), target: openWith(line(1, poloM)), decision: () => decided("change_item_variant", variantChange("I1")),
+      extraction: () => [{ tool: "change_item_variant", args: { variantWords: ["L"], mentionedPrice: null } }] });
+    await succeeded(h.run());
+    expect(h.decisions[0]!.choices.map(({ id }) => id)).toEqual(expect.arrayContaining(["change_item_variant:item", "change_item_variant:change"]));
+    expect(h.decisions[0]!.action.choices.map(({ value }) => value)).not.toContain("report_variant_without_product");
+  });
+
   test("reports an unclear item for a variant change when the order's item has no known product", async () => {
     const target = openWith(line(1, poloM));
     const h = harness({ message: textMessage("mejor en talla L"), target: target.kind === "open" ? { ...target, productIds: new Map() } : target,
-      decision: () => decided("change_item_variant", itemChoice("change_item_variant", "I1")), extraction: () => [{ tool: "change_item_variant", args: { variantWords: ["L"], mentionedPrice: null } }] });
+      decision: () => decided("change_item_variant", variantChange("I1")), extraction: () => [{ tool: "change_item_variant", args: { variantWords: ["L"], mentionedPrice: null } }] });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "unclear_item", namedProductId: null }] });
     expect(quantities(h.store)).toEqual({ [poloM.variantId]: 1 });
   });

@@ -32,7 +32,8 @@ export const chatToolOffers: Readonly<Record<string, ToolOffer>> = {
   change_item_variant: { kinds: ["text"], items: "some" },
   set_item_mentioned_price: { kinds: ["text"], items: "some" },
   mark_order_ready: { kinds: ["text"] },
-  report_variant_without_product: { kinds: ["text"] },
+  // With items, a variant text goes to change_item_variant, whose change question decides; the interpreter then runs this report.
+  report_variant_without_product: { kinds: ["text"], items: "none" },
   report_unnamed_add: { kinds: ["text"] },
   report_item_change_without_order: { kinds: ["text"], items: "none" },
 };

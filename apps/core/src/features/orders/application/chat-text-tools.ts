@@ -118,6 +118,20 @@ const amountQuestion: DecisionChoiceQuestion = {
   ],
 };
 
+/**
+ * Whether the buyer explicitly asks to change the item, or only names a variant. Founder rule (docs/message-to-order.md «Change variant»):
+ * only an explicit request changes an item, at ITEM_CHOICE_MIN_CONFIDENCE; anything else reports `variant_only` and changes nothing.
+ */
+export const changeRequestChoice = choiceOf(z.enum(["requested", "only_named"]));
+const changeRequestQuestion: DecisionChoiceQuestion = {
+  name: "change",
+  instructions: "Does the buyer explicitly ask to change the item to another variant, or only name a variant?",
+  choices: [
+    { value: "requested", description: "The buyer asks to change the item: a verb of change, or a word that prefers the new variant over the current one" },
+    { value: "only_named", description: "The buyer only gives a size or color, or says they want or need it, without asking to change the item" },
+  ],
+};
+
 const unclear = (namedItem: boolean, namedProductId: ProductId | null): ItemTarget => ({ kind: "unclear", namedItem, namedProductId });
 
 /** What the Decision step's item choice refers to, or why nothing can be changed. Never a model call of its own. */
@@ -205,7 +219,7 @@ async function addLineActions(line: z.output<typeof addLine>, identification: Te
 }
 
 // Item tools
-async function changeItemVariant(args: Readonly<{ item: ItemChoice; reference?: ReferenceChoice; variantWords: readonly string[]; mentionedPrice: StatedPrice | null }>,
+async function changeItemVariant(args: Readonly<{ item: ItemChoice; reference?: ReferenceChoice; change: z.output<typeof changeRequestChoice>; variantWords: readonly string[]; mentionedPrice: StatedPrice | null }>,
   context: ChatToolContext, deps: ChatToolDependencies, signal: AbortSignal): Resolved {
   const target = await itemTargetOf(args.item, context, deps, args.reference);
   if (!target.success) return target;
@@ -262,12 +276,14 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     }),
     defineTool({
       name: "change_item_variant",
-      description: "The buyer explicitly asks to change an item of the open order to another variant (size, color), such as «pásalo a talla 40» or «mejor la casaca en celeste». "
-        + "Never for a text that only names a variant («en XS», «la prefiero en XS»). Give the variant words as written and the price only if stated.",
-      args: { kind: "extracted", questions: (context) => itemQuestions(context, "Which item of the open order does the buyer ask to change to another variant?") },
-      schema: (context) => withReference(context, { item: itemChoice(context),
-        variantWords: z.array(z.string().max(60)).min(1).max(5).describe("The size and color words to change to as written, with any «talla» or «color» before them, never product words: «mejor la casaquita celeste» gives «celeste»."),
+      description: "The text gives a size or color for an item of the open order, without naming a product the order does not have: it asks to change the item to that variant "
+        + "(«pásalo a talla 40», «mejor la casaca en celeste»), or only names the variant, even in one word («en XS», «la prefiero en XS», «celeste»). "
+        + "Give the variant words as written and the price only if stated.",
+      args: { kind: "extracted", questions: (context) => [...itemQuestions(context, "Which item of the open order does the variant refer to?"), changeRequestQuestion] },
+      schema: (context) => withReference(context, { item: itemChoice(context), change: changeRequestChoice,
+        variantWords: z.array(z.string().max(60)).min(1).max(5).describe("The size and color words as written, with any «talla» or «color» before them, never product words: «mejor la casaquita celeste» gives «celeste»."),
         mentionedPrice: mentionedPriceArgs.nullable() }),
+      // The interpreter sends a call without an explicit change request to report_variant_without_product (variantOnlyRule).
       resolve: (args, context, signal) => changeItemVariant(args, context, deps, signal),
     }),
     defineTool({
