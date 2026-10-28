@@ -9,7 +9,7 @@ import type { ProductIdentification } from "@core/src/features/orders/domain/cha
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import type { ProductWithSellableVariants, TextIdentification, VariantResolution } from "@core/src/features/products/domain/text-identification";
-import type { ChatContextItem, ChatToolContext, ChatToolDependencies, ToolResolveError } from "@core/src/features/orders/application/chat-message-tools";
+import type { ChatContextItem, ChatToolContext, ChatToolDependencies, ToolResolveError } from "@core/src/features/orders/application/chat-tool-types";
 
 type ChatTool = RegisteredTool<ChatToolContext, ResolvedChatAction, ToolResolveError>;
 type Resolved = Promise<Result<readonly ResolvedChatAction[], ToolResolveError>>;

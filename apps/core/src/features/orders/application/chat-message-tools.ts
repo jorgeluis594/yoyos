@@ -1,62 +1,14 @@
 import { z } from "zod";
 import { ok } from "@shared/functional";
-import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import { defineTool, defineToolRegistry, type RegisteredTool, type ToolRegistry } from "@core/src/shared/ai-tools/application/tool-registry";
 import type { ReportOutcome, ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
-import type { ProductIdentification } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
-import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
-import type { ProductMatcherError, ProductWithSellableVariants, VariantResolution } from "@core/src/features/products/domain/text-identification";
-import type { identifyProductsInText, findTopTextCandidate } from "@core/src/features/products/application/identify-product-in-text";
+import type { ChatToolContext, ChatToolDependencies, ChatMessageKind, ShownProduct, ToolResolveError } from "@core/src/features/orders/application/chat-tool-types";
 import { createChatTextTools, mentionedPriceArgs, priceOf } from "@core/src/features/orders/application/chat-text-tools";
-import type { resolveVariant } from "@core/src/features/products/application/resolve-variant";
 
-type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
-
-/** What a message is, once its photo (if any) is identified. A photo that matched nothing asks nothing of the models. */
 export { toChangeVariantResolution } from "@core/src/features/orders/application/chat-text-tools";
-
-export type ChatMessageKind = "photo_product" | "photo_not_product" | "text";
-
-/** One line of the chat's open order as the models see it: `label` is how they refer to it. */
-export type ChatContextItem = Readonly<{
-  label: string;
-  variantId: VariantId;
-  /** Null when the variant no longer belongs to a product; a change that needs the product then degrades to an unclear item. */
-  productId: ProductId | null;
-  productName: string;
-  variantAttributes: Readonly<Record<string, string>>;
-  quantity: number;
-  unitPrice: Money;
-}>;
-
-/** A product a photo shows, with the sellable variants a caption can choose from. */
-export type ShownProduct = Readonly<{
-  product: ProductWithSellableVariants;
-  /** The variant printed on a QR label; a caption that names another variant wins over it. */
-  preselectedVariantId: VariantId | null;
-  identification: ProductIdentification;
-}>;
-
-export type ChatToolContext = Readonly<{
-  kind: ChatMessageKind;
-  /** The buyer's words: a photo's caption, or the text of a text message. */
-  caption: string | null;
-  items: readonly ChatContextItem[];
-  shown: readonly ShownProduct[];
-}>;
-
-export type ToolResolveError = PersistenceError | ProductMatcherError;
-
-/** Capabilities the tools use outside orders; text tools only add tools, never dependencies. */
-export type ChatToolDependencies = Readonly<{
-  loadSellableVariants: (productIds: readonly ProductId[]) => Promise<Result<readonly ProductWithSellableVariants[], PersistenceError>>;
-  resolveVariant: (input: Parameters<typeof resolveVariant>[0], signal: AbortSignal) => Promise<Result<VariantResolution, ProductMatcherError>>;
-  identifyProductsInText: (lines: Parameters<typeof identifyProductsInText>[0], signal: AbortSignal) => ReturnType<typeof identifyProductsInText>;
-  findTopTextCandidate: (mention: string) => ReturnType<typeof findTopTextCandidate>;
-}>;
 
 export type ChatToolRegistry = ToolRegistry<ChatToolContext, ResolvedChatAction, ToolResolveError>;
 export type ChatTool = RegisteredTool<ChatToolContext, ResolvedChatAction, ToolResolveError>;

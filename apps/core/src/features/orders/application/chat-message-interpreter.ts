@@ -4,7 +4,8 @@ import { orchestrate, type OrchestrateDependencies, type ToolCallPlan } from "@c
 import { executeToolCalls } from "@core/src/shared/ai-tools/application/execute-tool-calls";
 import type { AiError } from "@core/src/shared/ai-tools/application/ai-error";
 import type { ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
-import { toolsFor, type ChatToolContext, type ChatToolRegistry, type ToolResolveError } from "@core/src/features/orders/application/chat-message-tools";
+import { toolsFor, type ChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
+import type { ChatToolContext, ToolResolveError } from "@core/src/features/orders/application/chat-tool-types";
 
 /** How the interpretation runs: the models choose, or the use case already knows the tool and no model is called. */
 export type InterpretationPlan =

@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { ok } from "@shared/functional";
-import { createChatToolRegistry, hasReadableText, toChangeVariantResolution, toolsFor, type ChatToolContext, type ChatToolDependencies } from "@core/src/features/orders/application/chat-message-tools";
+import { createChatToolRegistry, hasReadableText, toChangeVariantResolution, toolsFor } from "@core/src/features/orders/application/chat-message-tools";
+import type { ChatToolContext, ChatToolDependencies } from "@core/src/features/orders/application/chat-tool-types";
 import { priceHintOf, toMentionedPriceArgs } from "@core/src/features/orders/application/chat-text-tools";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";

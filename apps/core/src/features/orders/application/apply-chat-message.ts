@@ -8,7 +8,8 @@ import type { ChatId, OrderChatSource } from "@core/src/features/orders/domain/m
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { OrderAggregate, OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, ContactId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
-import { hasReadableText, type ChatContextItem, type ChatToolContext, type ShownProduct, type ToolResolveError } from "@core/src/features/orders/application/chat-message-tools";
+import { hasReadableText } from "@core/src/features/orders/application/chat-message-tools";
+import type { ChatContextItem, ChatToolContext, ShownProduct, ToolResolveError } from "@core/src/features/orders/application/chat-tool-types";
 import type { InterpretAndApply, Interpreted, InterpretationTrace } from "@core/src/features/orders/application/chat-message-interpreter";
 import type { IdentifyProductsError, ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import type { ImageBytes } from "@core/src/features/products/domain/image-identification";
