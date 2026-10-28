@@ -243,6 +243,8 @@ function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: 
   const { t } = useTranslation();
   const local = photos.previews[photo.key];
   const primary = primaryKey(photos.field) === photo.key;
+  // The 2×2 cell is always the photo at index 0, whatever its state, so the box keeps its height; «Principal» stays on the primary, which may be a 1×1 tile.
+  const big = index === 0;
   const position = { position: index + 1, total };
   const marked = isMarked(photo);
   const src = isKept(photo) ? photo.url : local?.previewUrl ?? photo.previewUrl;
@@ -253,21 +255,21 @@ function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: 
   const fileName = photo.kind === "failed" ? local?.file.name : undefined;
   const label = [t("productPhotos.name", position), primary ? t("productPhotos.nameState.primary") : "", fileName, state].filter(Boolean).join(", ");
   const rejected = isKept(photo) && photo.rejected && !photo.marked;
-  // Each failed or rejected tile is described by its own reason, whatever the shared status line shows.
-  const reason = photo.kind === "failed" ? failure : rejected ? t("productPhotos.unusablePhoto") : "";
+  // A rejected tile is described by its own text, whatever the shared status line shows; a failed tile already carries its reason in its name.
+  const reason = rejected ? t("productPhotos.unusablePhoto") : "";
   const action = (name: string, verb: string, icon: ReactNode, run: () => void, extra: Readonly<{ action?: string }> = {}) =>
     <button type="button" className={overlayButton} data-action={extra.action} aria-label={name} title={verb} onClick={run}>{icon}</button>;
   const remove = (run: () => void) => action(t("productPhotos.removeLabel", position), t("productPhotos.removeLabel", position), <Trash2 aria-hidden="true" />, run, { action: "remove" });
-  // On a 1×1 tile (about 68 px) the chip drops its icon and wraps only between words, so each word fits whole at text-xs; the primary 2×2 tile keeps the icon.
+  // On a 1×1 tile (about 68 px) the chip drops its icon and wraps only between words, so each word fits whole at text-xs; the 2×2 tile keeps the icon.
   const chip = "absolute inset-x-0.5 bottom-0.5 flex items-center justify-center gap-1 rounded bg-background px-0.5 py-0.5 text-center text-xs leading-tight";
 
-  return <li data-photo={photo.key} className={`group/tile relative aspect-square ${primary ? "col-span-2 row-span-2" : ""}`}>
+  return <li data-photo={photo.key} className={`group/tile relative aspect-square ${big ? "col-span-2 row-span-2" : ""}`}>
     <div role="group" aria-label={label} aria-describedby={reason ? `photo-reason-${photo.key}` : undefined} className="relative size-full overflow-hidden rounded-md border border-border bg-muted">
       {src && <img src={src} alt="" decoding="async" className={marked || photo.kind === "uploading" || photo.kind === "failed" ? "size-full object-cover opacity-40" : "size-full object-cover"} />}
       {reason && <span id={`photo-reason-${photo.key}`} className="sr-only">{reason}</span>}
       {primary && <span className="absolute left-1 top-1 rounded bg-foreground px-1.5 py-0.5 text-xs font-medium text-background">{t("productPhotos.primary")}</span>}
-      {photo.kind === "uploading" && <span className={`${chip} text-foreground`}>{primary && <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />}{t("productPhotos.uploading")}</span>}
-      {photo.kind === "failed" && <span className={`${chip} text-destructive`}>{primary && <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />}{t("productPhotos.failed")}</span>}
+      {photo.kind === "uploading" && <span className={`${chip} text-foreground`}>{big && <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />}{t("productPhotos.uploading")}</span>}
+      {photo.kind === "failed" && <span className={`${chip} text-destructive`}>{big && <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />}{t("productPhotos.failed")}</span>}
       {marked && <span className={`${chip} text-foreground`}>{t(photo.kind === "saved" ? "productPhotos.markSaved" : "productPhotos.markNew")}</span>}
     </div>
     <div className="absolute right-0.5 top-0.5 flex gap-0.5 opacity-0 transition-opacity group-hover/tile:opacity-100 group-focus-within/tile:opacity-100 [@media(hover:none)]:opacity-100">
@@ -343,7 +345,7 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
   const smallPhotos = Math.max(0, field.photos.length - 1);
   const addCells = empty || full ? 0 : 1;
   const rest = Math.max(0, smallCells - smallPhotos - addCells);
-  const statusClass = "text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const statusClass = "-mx-1 rounded-sm px-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
   const addTile = "flex size-full flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-muted-foreground/50 bg-background p-1 text-center text-xs font-medium text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background";
 
   return <Field data-invalid={Boolean(message)}>

@@ -107,8 +107,7 @@ test("a file over 10 MB fails at once with the weight text and is never uploaded
   expect(thumbText(1)).toContain("No se subió");
   expect(thumbText(1)).not.toContain("grande.jpg");
   expect(status()).toBe("Foto 2 de 3: grande.jpg. Pesa más de 10 MB.");
-  const describedBy = thumbs()[1].querySelector("[role='group']")?.getAttribute("aria-describedby");
-  expect(document.getElementById(describedBy!)?.textContent).toBe("Pesa más de 10 MB.");
+  expect(thumbs()[1].querySelector("[role='group']")?.getAttribute("aria-describedby")).toBeNull();
   expect(button("Reintentar la foto 2 de 3")).toBeUndefined();
   expect(button("Quitar la foto 2 de 3")).toBeDefined();
   expect(uploads.map((upload) => upload.file.name)).toEqual(["frente.jpg", "puesto.jpg"]);
@@ -555,17 +554,13 @@ test("a failed photo's reason takes the status line while no message or notice i
   expect(container.querySelector("#photos-status")!.className).toContain("text-destructive");
 });
 
-test("a failed or rejected tile is described by its own reason while the status line shows something else", () => {
-  const onSave = vi.fn();
-  mount({ photos: savedPhotos(2), onSave });
+test("a failed tile carries its reason in its name and is not described a second time", () => {
+  mount({ photos: savedPhotos(2) });
   select(file("grande.png", 12_000_000), file("b.png"), file("c.png"), file("d.png"), file("e.png"), file("f.png"), file("g.png"));
   expect(status()).toContain("Elegiste");
   const group = thumbs()[2].querySelector("[role='group']")!;
-  const described = document.getElementById(group.getAttribute("aria-describedby")!)!;
-  expect(described.textContent).toBe("Pesa más de 10 MB.");
-  submit();
-  expect(status()).toBe("Espera a que terminen de subir las fotos.");
-  expect(document.getElementById(group.getAttribute("aria-describedby")!)!.textContent).toBe("Pesa más de 10 MB.");
+  expect(group.getAttribute("aria-label")).toContain("no se subió: pesa más de 10 MB");
+  expect(group.getAttribute("aria-describedby")).toBeNull();
 });
 
 test("a rejected photo is described by its own text even while the field message is up", () => {
@@ -584,4 +579,19 @@ test("on 1×1 tiles the state chips carry text only; the primary tile keeps the 
   expect(thumbs()[0].querySelector("svg.animate-spin")).not.toBeNull();
   expect(thumbs()[1].querySelector("svg.animate-spin")).toBeNull();
   expect(thumbs()[1].textContent).toBe("Subiendo…");
+});
+
+test("the 2×2 cell stays on the photo at index 0 while marked photos pass the primary on, and the badge follows the primary", () => {
+  mount({ photos: savedPhotos(4) });
+  click(button("Quitar la foto 1 de 4"));
+  expect(thumbs().map((thumb) => thumb.className.includes("col-span-2"))).toEqual([true, false, false, false]);
+  expect(thumbText(0)).not.toContain("Principal");
+  expect(thumbText(1)).toContain("Principal");
+  click(button("Quitar la foto 2 de 4")); click(button("Quitar la foto 3 de 4"));
+  expect(thumbs().map((thumb) => thumb.className.includes("col-span-2"))).toEqual([true, false, false, false]);
+  expect(thumbText(3)).toContain("Principal");
+  expect(container.querySelectorAll("[aria-label='Fotos del producto'] > li")).toHaveLength(9);
+  click(button("Quitar la foto 4 de 4"));
+  expect(thumbs()[0].className).toContain("col-span-2");
+  expect(container.querySelectorAll("[aria-label='Fotos del producto'] > li")).toHaveLength(9);
 });
