@@ -43,6 +43,7 @@ import { findOrderSourceMessage } from "@core/src/features/chats";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
 import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
+import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import { createChatMessageDeadLetterHandler, createChatMessageHandler, type ChatMessageHandlerDependencies } from "@core/src/features/orders/application/chat-message-handler";
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
@@ -493,7 +494,7 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   loadSellableProducts: (productIds) => products.loadSellableVariants(productIds),
   catalogSearchReadiness: () => products.catalogSearchReadiness(),
   interpretationEnabled: aiTools !== null,
-  interpretAndApply: createChatInterpreter(chatToolRegistry, aiTools),
+  interpretAndApply: createChatInterpreter(chatToolRegistry, aiTools, describeChatContext),
   transaction: scopedOrderTransaction,
   lockContact,
   ensureCustomerForContact: async (contactId) => {

@@ -17,7 +17,6 @@ export type ChatInterpretationRequest = Readonly<{
   context: ChatToolContext;
   /** The buyer's words, as text only: the image never reaches interpretation. */
   messageText: string | null;
-  contextText: string;
   plan: InterpretationPlan;
 }>;
 
@@ -56,8 +55,11 @@ export function variantOnlyRule(plan: Extract<ToolCallPlan, { kind: "calls" }>):
   return { ...plan, calls: [first!, ...rest] };
 }
 
+/** The order and photo as text for the models; infrastructure words it. */
+export type DescribeChatContext = (context: ChatToolContext) => string;
+
 /** Binds the generic orchestrator and executor to the chat tools. Without models (`ai` null) only planned tools can run. */
-export function createChatInterpreter(registry: ChatToolRegistry, ai: OrchestrateDependencies | null): InterpretAndApply {
+export function createChatInterpreter(registry: ChatToolRegistry, ai: OrchestrateDependencies | null, describeContext: DescribeChatContext): InterpretAndApply {
   return async (request, signal, run) => {
     const execute = async (unordered: Extract<ToolCallPlan, { kind: "calls" }>, decisionCalls: number) => {
       const plan = inRegistryOrder(variantOnlyRule(unordered), registry);
@@ -68,7 +70,7 @@ export function createChatInterpreter(registry: ChatToolRegistry, ai: Orchestrat
     if (!ai) return err({ code: "AI_PROVIDER_UNAVAILABLE" as const, message: "Interpretation is not configured" });
     const plan = await orchestrate({
       messageParts: request.messageText === null ? [] : [{ kind: "text", text: request.messageText }],
-      contextText: request.contextText, context: request.context, tools: toolsFor(registry, request.context),
+      contextText: describeContext(request.context), context: request.context, tools: toolsFor(registry, request.context),
     }, ai, signal);
     if (!plan.success) return plan;
     if (plan.data.kind === "calls") return execute(plan.data, 1);

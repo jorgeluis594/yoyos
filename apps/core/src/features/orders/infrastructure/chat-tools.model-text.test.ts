@@ -3,7 +3,7 @@ import { err, ok } from "@shared/functional";
 import { orchestrate, type DecisionRequest, type OrchestrateDependencies } from "@core/src/shared/ai-tools/application/orchestrate";
 import { decisionRequestText } from "@core/src/shared/ai-tools/infrastructure/decision-request-text";
 import { createChatToolRegistry, toolsFor } from "@core/src/features/orders/application/chat-message-tools";
-import { contextTextOf } from "@core/src/features/orders/application/apply-chat-message";
+import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import type { ChatContextItem, ChatToolContext, ChatToolDependencies } from "@core/src/features/orders/application/chat-tool-types";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -45,7 +45,7 @@ async function decisionRequestOf(context: ChatToolContext): Promise<DecisionRequ
     decide: async (sent) => { request = sent; return err({ code: "AI_PROVIDER_UNAVAILABLE", message: "stop" }); },
     extract: async () => ok([]), minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9,
   };
-  await orchestrate({ messageParts: [], contextText: contextTextOf(context.items, context.shown, context.kind), context, tools: toolsFor(registry, context) }, ai, new AbortController().signal);
+  await orchestrate({ messageParts: [], contextText: describeChatContext(context), context, tools: toolsFor(registry, context) }, ai, new AbortController().signal);
   if (!request) throw new Error("No Decision request");
   return request;
 }

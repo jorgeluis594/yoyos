@@ -6,6 +6,7 @@ import { prisma, systemPrisma, withLockedForUpdate, withTenantIsolation, withinT
 import { applyChatMessage, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
 import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
+import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import { allocateOrderNumber, findChatOrderTargetForUpdate, findOrderAggregate, recordProcessedMessage, saveItemChanges, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts/infrastructure/contact-repository";
@@ -88,7 +89,7 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
     loadSellableProducts: loadSellableVariants,
     catalogSearchReadiness: async () => ok("no_searchable_photos"),
     interpretationEnabled: true,
-    interpretAndApply: createChatInterpreter(registry, ai),
+    interpretAndApply: createChatInterpreter(registry, ai, describeChatContext),
     transaction: (_company, work) => withinTransaction(work),
     lockContact,
     ensureCustomerForContact: async (contactId) => { const ensured = await ensureCustomerForContact(contactId); return ensured.success ? ok({ customerId: ensured.data.customerId as CustomerId }) : ensured; },

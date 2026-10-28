@@ -5,6 +5,7 @@ import { applyChatMessage, type ApplyChatMessageDependencies, type ChatSourceMes
 import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
 import type { ChatContextItem } from "@core/src/features/orders/application/chat-tool-types";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
+import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import { identifyProductsInText, type IdentifyProductInTextDependencies } from "@core/src/features/products/application/identify-product-in-text";
 import { resolveVariant } from "@core/src/features/products/application/resolve-variant";
 import type { ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
@@ -147,7 +148,7 @@ function harness(options: Options = {}) {
     loadSellableProducts: async (ids) => called("loadSellableProducts", ok((options.catalog ?? catalog).filter((product) => ids.includes(product.productId)))),
     catalogSearchReadiness: async () => called("catalogSearchReadiness", ok(options.readiness ?? "ready")),
     interpretationEnabled: options.interpretationEnabled ?? true,
-    interpretAndApply: createChatInterpreter(registry, ai),
+    interpretAndApply: createChatInterpreter(registry, ai, describeChatContext),
     transaction: async (_company, work) => {
       calls.push("transaction");
       const snapshot = structuredClone({ orders: store.orders, customers: store.customers, messages: store.messages, outcomes: store.outcomes });

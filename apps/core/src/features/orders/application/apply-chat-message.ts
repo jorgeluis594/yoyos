@@ -138,20 +138,9 @@ async function rereadProcessed(messageId: ChatMessageId, deps: ApplyChatMessageD
     : err({ code: "PERSISTENCE_UNAVAILABLE", message: "Processed message is not visible" });
 }
 
-const itemLine = (item: ChatContextItem) => `${item.label}: ${item.productName}${variantText(item.variantAttributes)}, quantity ${item.quantity}, unit price ${item.unitPrice.amount} ${item.unitPrice.currency}`;
-const variantText = (attributes: Readonly<Record<string, string>>) => Object.keys(attributes).length ? ` (${Object.entries(attributes).map(([name, value]) => `${name}: ${value}`).join(", ")})` : "";
-
-/** The only context the models get besides the message: the open order and, for a photo, the product it shows as text, or that it shows none. */
-export function contextTextOf(items: readonly ChatContextItem[], shown: readonly ShownProduct[], kind: ChatToolContext["kind"] = "text"): string {
-  const order = items.length ? items.map(itemLine).join("\n") : "The chat has no open order.";
-  const photo = shown.map(({ product }) => `The photo shows ${product.name}. Variants: ${product.variants.map((variant) => Object.values(variant.variantAttributes).join(" ") || "single variant").join("; ")}.`);
-  const notProduct = kind === "photo_not_product" ? ["The photo does not show a catalog product."] : [];
-  return ["Open order items:", order, ...photo, ...notProduct].join("\n");
-}
-
 function applyText(message: ChatSourceMessage, order: ChatOrderContext, run: Run, deps: ApplyChatMessageDependencies, signal: AbortSignal): Promise<Stage> {
   const context: ChatToolContext = { kind: "text", caption: message.text, items: order.items, shown: [] };
-  return deps.interpretAndApply({ context, messageText: message.text, contextText: contextTextOf(order.items, []), plan: { kind: "decide", fallbackTool: null } },
+  return deps.interpretAndApply({ context, messageText: message.text, plan: { kind: "decide", fallbackTool: null } },
     signal, (actions) => silenceTextMisses(actions, run, deps));
 }
 
@@ -228,7 +217,7 @@ function interpretCaption(kind: "photo_product" | "photo_not_product", caption: 
 function interpretShown(shown: readonly ShownProduct[], order: ChatOrderContext, run: Run, deps: ApplyChatMessageDependencies, signal: AbortSignal,
   plan: Parameters<ApplyChatMessageDependencies["interpretAndApply"]>[0]["plan"], caption: string | null, kind: "photo_product" | "photo_not_product" = "photo_product"): Promise<Stage> {
   const context: ChatToolContext = { kind, caption, items: order.items, shown };
-  return deps.interpretAndApply({ context, messageText: caption, contextText: contextTextOf(order.items, shown, kind), plan }, signal, run);
+  return deps.interpretAndApply({ context, messageText: caption, plan }, signal, run);
 }
 
 async function applyInTransaction(message: ChatSourceMessage, actions: readonly ResolvedChatAction[], deps: ApplyChatMessageDependencies): Promise<Result<AppliedChatMessage, PersistenceError | InvalidStoredData | ContactNotFound | SellerUnavailable | MessageAlreadyProcessed | OrderDomainError>> {

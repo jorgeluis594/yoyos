@@ -22,6 +22,7 @@ import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDep
 import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
 import { ITEM_CHOICE_MIN_CONFIDENCE } from "@core/src/features/orders/application/chat-text-tools";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
+import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import { chatMessageDeadlineMs } from "@core/src/features/orders/application/chat-message-policy";
 import { allocateOrderNumber, findChatOrderTargetForUpdate, findOpenChatOrderCandidate, findOrderAggregate, recordProcessedMessage, saveItemChanges, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
@@ -177,7 +178,7 @@ export function createProductionPath(env: Env) {
     identifyProductsInText: (lines, signal) => identifyProductsInText(lines, identification, signal),
     findTopTextCandidate: (mention) => findTopTextCandidate(mention, identification),
   });
-  const interpretAndApply = createChatInterpreter(registry, ai);
+  const interpretAndApply = createChatInterpreter(registry, ai, describeChatContext);
   const readiness = { visualModel: visual.model, hasActiveProducts, hasIndexedProducts };
 
   return {
