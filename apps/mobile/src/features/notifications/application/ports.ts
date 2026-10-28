@@ -1,8 +1,9 @@
 import type { Result } from "@shared/result";
-import type { RegisterPushDeviceRequest } from "@shared/contracts/push-devices";
 
 export type NoticePermission = "granted" | "denied" | "undetermined";
-export type NoticeLocale = RegisterPushDeviceRequest["locale"];
+export type NoticeLocale = "es" | "pt-BR";
+/** What the app tells the core about the phone that receives notices. */
+export type RegisterDeviceRequest = Readonly<{ version: 1; token: string; platform: "ios" | "android"; locale: NoticeLocale }>;
 export type NoticeError = Readonly<{ code: "NOTICE_UNAVAILABLE" | "NETWORK_ERROR"; message: string }>;
 
 /** A tap on a system notice; `id` tells the app launch's last response apart from one already handled. */
@@ -39,7 +40,7 @@ export type NoticeStore = Readonly<{
 }>;
 
 export type PushDeviceApi = Readonly<{
-  register: (request: RegisterPushDeviceRequest) => Promise<Result<null, NoticeError>>;
+  register: (request: RegisterDeviceRequest) => Promise<Result<null, NoticeError>>;
   /** Unauthenticated: the token is the proof. */
   unregister: (token: string) => Promise<Result<null, NoticeError>>;
 }>;

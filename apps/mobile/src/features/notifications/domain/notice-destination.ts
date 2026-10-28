@@ -1,11 +1,18 @@
-import { sellerNoticeDataSchema, type SellerNoticeData } from "@shared/contracts/seller-notices";
+import { z } from "zod";
 
-export type NoticeDestination = SellerNoticeData;
+/** The `data` of a seller notice push, as the app reads it. */
+const noticeDestinationSchema = z.strictObject({
+  v: z.literal(1),
+  companyId: z.uuid(),
+  messageId: z.uuid(),
+  target: z.enum(["message", "order"]),
+});
+export type NoticeDestination = z.infer<typeof noticeDestinationSchema>;
 export type NoticeSession = Readonly<{ companyId: string }> | null;
 
 /** Reads the `data` of a push; anything that is not a v1 seller notice is `null`. */
 export function parseNoticeDestination(data: unknown): NoticeDestination | null {
-  const parsed = sellerNoticeDataSchema.safeParse(data);
+  const parsed = noticeDestinationSchema.safeParse(data);
   return parsed.success ? parsed.data : null;
 }
 
