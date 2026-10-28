@@ -1,5 +1,6 @@
 import { parseCases, passes, type EvalCase, type EvalCaseInput, type EvalPass } from "@core/evals/cases/schema";
 import { interpretationCases } from "@core/evals/cases/interpretation";
+import { holdoutV1Cases } from "@core/evals/cases/holdout-v1";
 import { endToEndCaseIds, endToEndCasesFrom } from "@core/evals/cases/end-to-end";
 import { imageCasesFrom, textCases } from "@core/evals/cases/identification";
 import { paraphrases } from "@core/evals/cases/paraphrases";
@@ -7,7 +8,7 @@ import { readPhotoManifest, type ImageManifest } from "@core/evals/fixtures/imag
 
 /** Every base case; the photo cases come from the photo manifest, and without one only the photo-free cases remain. */
 export const baseCasesOf = (manifest: ImageManifest | null): readonly EvalCaseInput[] =>
-  [...interpretationCases, ...textCases, ...imageCasesFrom(manifest), ...endToEndCasesFrom(manifest)];
+  [...interpretationCases, ...holdoutV1Cases, ...textCases, ...imageCasesFrom(manifest), ...endToEndCasesFrom(manifest)];
 
 export const imageManifest = readPhotoManifest(process.env);
 export const baseCases = baseCasesOf(imageManifest);
