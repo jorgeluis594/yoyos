@@ -149,6 +149,13 @@ describe("resolveVariant", () => {
       expect(h.asked).toEqual([["talla", "L"]]);
     });
 
+    test("plural, feminine and diminutive color words name their value without asking the model («blancas talla L», «negritas»)", async () => {
+      const h = harness();
+      expect(await resolveVariant({ product: polos, words: ["blancas", "talla L"], preselectedVariantId: null }, h.deps, signal)).toEqual(ok({ kind: "resolved", item: polos.variants[2] }));
+      expect(await resolveVariant({ product: polos, words: ["negritas"], preselectedVariantId: "variant-4" as VariantId }, h.deps, signal)).toEqual(ok({ kind: "resolved", item: polos.variants[0] }));
+      expect(h.asked).toEqual([]);
+    });
+
     test("words that name no attribute value still go to the model even with a base variant", async () => {
       const h = harness({ variantId: "variant-2" as VariantId, confidence: 0.9 });
       expect(await resolveVariant({ product: polos, words: ["la grande"], preselectedVariantId: "variant-1" as VariantId }, h.deps, signal)).toEqual(ok({ kind: "resolved", item: polos.variants[1] }));
