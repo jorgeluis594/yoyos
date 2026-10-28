@@ -3,14 +3,14 @@ import { expect, test } from "vitest";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { findVariantImages } from "@core/src/features/products/infrastructure/variant-photo-repository";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 const when = new Date("2026-01-01T00:00:00.000Z");
 
 async function addProduct(name: string, imageId: string | null) {
   const id = randomUUID();
   const variantId = randomUUID();
-  await prisma.product.create({ data: { id, name, currency: "PEN", qrCode: randomUUID(), status: "active", imageId, createdAt: when, updatedAt: when } });
-  await prisma.productVariant.create({ data: { id: variantId, productId: id, attributes: {}, salePrice: 10, qrCode: randomUUID(), status: "active" } });
+  await seedProduct({ id, name, imageId, createdAt: when, updatedAt: when, variants: [{ id: variantId, salePrice: 10 }] });
   return variantId as VariantId;
 }
 
@@ -37,8 +37,7 @@ test("returns the product image of each variant", async () => {
     ].sort((a, b) => a.variantId.localeCompare(b.variantId)));
   } finally {
     await withTenantIsolation(company, async () => {
-      await prisma.productVariant.deleteMany({});
-      await prisma.product.deleteMany({});
+      await deleteSeededProducts();
       await prisma.image.deleteMany({});
       await prisma.company.delete({ where: { id: company } });
     });
@@ -58,8 +57,7 @@ test("returns the new image after the product image is replaced", async () => {
     expect(await withTenantIsolation(company, () => findVariantImages([variant]))).toEqual({ success: true, data: [{ variantId: variant, imageId: replacement }] });
   } finally {
     await withTenantIsolation(company, async () => {
-      await prisma.productVariant.deleteMany({});
-      await prisma.product.deleteMany({});
+      await deleteSeededProducts();
       await prisma.image.deleteMany({});
       await prisma.company.delete({ where: { id: company } });
     });
@@ -75,8 +73,7 @@ test("does not return variants of another company", async () => {
     expect(result).toEqual({ success: true, data: [] });
   } finally {
     for (const id of [mine, other]) await withTenantIsolation(id, async () => {
-      await prisma.productVariant.deleteMany({});
-      await prisma.product.deleteMany({});
+      await deleteSeededProducts();
       await prisma.image.deleteMany({});
       await prisma.company.delete({ where: { id } });
     });

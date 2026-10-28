@@ -48,3 +48,9 @@ test("rejects obsolete initial delivery with either charge choice", async () => 
   }
   expect(create).not.toHaveBeenCalled();
 });
+
+test("returns the variant of an item that is no longer available so the sale can mark it", async () => {
+  const variantId = input.items[0].variantId;
+  vi.spyOn(composition, "createConfiguredOrder").mockResolvedValue({ success: false, error: { code: "VARIANT_NOT_FOUND", message: "Variant is not available", variantId } });
+  expect(await save(input)).toMatchObject({ code: "VARIANT_NOT_FOUND", variantId });
+});

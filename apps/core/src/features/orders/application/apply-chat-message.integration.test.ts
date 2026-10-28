@@ -6,11 +6,12 @@ import { prisma, systemPrisma, withLockedForUpdate, withTenantIsolation, withinT
 import { applyChatMessage, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
 import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
-import { allocateOrderNumber, findChatOrderTargetForUpdate, recordProcessedMessage, saveItemChanges, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
+import { allocateOrderNumber, findChatOrderTargetForUpdate, findOrderAggregate, recordProcessedMessage, saveItemChanges, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts/infrastructure/contact-repository";
 import { findProductIdsOfVariants, findSellableVariantsByQrCodes } from "@core/src/features/products";
 import { loadSellableVariants } from "@core/src/features/products/infrastructure/order-stock";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 import { identifyProductsInImage } from "@core/src/features/products/application/identify-products-in-image";
 import { resolveVariant } from "@core/src/features/products/application/resolve-variant";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
@@ -32,15 +33,14 @@ async function fixture() {
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Message orders", country: "PE" } });
     await systemPrisma.user.create({ data: { id: sellerId, name: "Seller", email: `${sellerId}@example.test`, companyId } });
-    await prisma.product.create({ data: { id: productId, name: "Shirt", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    for (const [index, variantId] of variantIds.entries())
-      await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Size: index ? "L" : "M" }, sku: `SKU-${variantId}`, salePrice: index ? 20 : 10, qrCode: variantId, status: "active" } });
+    await seedProduct({ id: productId, name: "Shirt", qrCode: productId, variants: variantIds.map((variantId, index) => ({
+      id: variantId, attributes: { Size: index ? "L" : "M" }, sku: `SKU-${variantId}`, salePrice: index ? 20 : 10, qrCode: variantId })) });
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "111@lid", whatsappLid: "222@lid" } });
     await prisma.chat.create({ data: { id: chatId, contactId } });
   });
   return { companyId, sellerId, contactId, chatId, productId, variantIds, async cleanup() {
     await withTenantIsolation(companyId, async () => {
-      for (const table of ["chatMessageOutcome", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productVariant", "product", "image"] as const)
+      for (const table of ["chatMessageOutcome", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productStock", "productVariant", "productOption", "product", "image"] as const)
         await (prisma[table] as unknown as { deleteMany(): Promise<unknown> }).deleteMany();
       await systemPrisma.user.deleteMany({ where: { companyId } });
       await prisma.company.delete({ where: { id: companyId } });
@@ -267,5 +267,46 @@ test("a failure inside the transaction rolls back customer, order, items and mes
     expect(await inTenant(f, () => prisma.orderItem.count())).toBe(0);
     expect(await inTenant(f, () => prisma.customer.count())).toBe(0);
     expect(await inTenant(f, () => prisma.orderMessage.count())).toBe(0);
+  } finally { await f.cleanup(); }
+});
+
+test("a photo of a QR keeps the combination of the order item in option order after reading it back", async () => {
+  const f = await fixture();
+  try {
+    // Talla is saved before Color: stored as jsonb the keys would come back alphabetically, as Color first.
+    const variantId = randomUUID();
+    await inTenant(f, () => seedProduct({ name: "Polo", variants: [{ id: variantId, qrCode: variantId, attributes: { Talla: "M", Color: "Negro" }, salePrice: 45 }] }));
+    expect(await apply(f, await message(f, { codes: [variantId] }))).toMatchObject({ success: true, data: { kind: "applied", createdOrder: true } });
+    const [order] = await chatOrders(f);
+    const [stored] = await inTenant(f, () => prisma.$queryRaw<{ attributes: string }[]>`SELECT "variantAttributes"::text AS attributes FROM "OrderItem" WHERE "orderId" = ${order!.id}::uuid`);
+    expect(Object.entries(JSON.parse(stored!.attributes))).toEqual([["Talla", "M"], ["Color", "Negro"]]);
+    const read = await inTenant(f, () => findOrderAggregate(order!.id as OrderId, f.companyId as CompanyId));
+    expect(read.success && read.data?.items.map((item) => Object.entries(item.variantAttributes))).toEqual([[["Talla", "M"], ["Color", "Negro"]]]);
+  } finally { await f.cleanup(); }
+});
+
+test("a photo of the QR of an inactive variant adds no item", async () => {
+  const f = await fixture();
+  try {
+    await inTenant(f, () => prisma.productVariant.update({ where: { id: f.variantIds[1]! }, data: { status: "inactive" } }));
+    expect(await apply(f, await message(f, { codes: [f.variantIds[1]!] }))).toMatchObject({ success: true });
+    expect(await inTenant(f, () => prisma.orderItem.count())).toBe(0);
+    // The active variant of the same product is still added by its own label.
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    const [order] = await chatOrders(f);
+    expect(quantities(order!)).toEqual({ [f.variantIds[0]!]: 1 });
+  } finally { await f.cleanup(); }
+});
+
+test("a variant deleted between the scan and the item insert fails as a retryable persistence error and writes nothing", async () => {
+  const f = await fixture();
+  try {
+    const result = await apply(f, await message(f, { codes: [f.variantIds[1]!] }), { saveNewOrder: async (order, source) => {
+      await prisma.productStock.deleteMany({ where: { variantId: f.variantIds[1]! } });
+      await prisma.productVariant.delete({ where: { id: f.variantIds[1]! } });
+      return savePendingOrder(order, source);
+    } });
+    expect(result).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(await inTenant(f, () => prisma.order.count())).toBe(0);
   } finally { await f.cleanup(); }
 });

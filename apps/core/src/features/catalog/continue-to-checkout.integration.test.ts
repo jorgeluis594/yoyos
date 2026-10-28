@@ -1,34 +1,60 @@
 import { randomUUID } from "node:crypto";
+import { request as httpRequest } from "node:http";
 import { afterAll, afterEach, expect, test, vi } from "vitest";
 import { RouterContextProvider, type LoaderFunctionArgs } from "react-router";
 import type { CatalogSubdomain } from "@shared/catalog-subdomain";
 import { app } from "@core/src/app";
 import { loader as catalogLoader } from "@core/app/routes/catalog";
-import { loader as checkoutLoader } from "@core/app/routes/checkout";
+import { action as checkoutAction, loader as checkoutLoader } from "@core/app/routes/checkout";
 import { storeAppearance } from "@core/src/features/store-appearance/composition";
 import { catalogCart } from "@core/src/features/catalog/cart-composition";
 import { catalogStorefront } from "@core/src/features/catalog/composition";
 import type { PublishedStorefront } from "@core/src/features/catalog/application/resolve-storefront";
 import { action as cartAction, loader as cartLoader } from "@core/app/routes/catalog-cart";
+import { brandHostCompanyContext } from "@core/app/brand-host-context";
 import { requestHostContext } from "@core/app/request-host-context";
 import { storefrontContext } from "@core/app/storefront-context";
 import { storefrontMiddleware } from "@core/app/middleware/storefront";
 import { orders } from "@core/src/features/orders/composition";
+import { restoreCancelledStock } from "@core/src/composition/event-handlers";
 import { parseBuyer } from "@core/src/features/orders/domain/checkout";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type { CartQuantity } from "@core/src/features/orders/domain/catalog-order";
 import type { CompanyId, OrderId, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
+import { findOrderAggregate } from "@core/src/features/orders/infrastructure/order-repository";
+
+// The read of the sellable variants is real; the hook lets a test change the store right after it, like a concurrent seller would.
+const afterSellableRead = vi.hoisted(() => ({ run: undefined as (() => Promise<void>) | undefined }));
+vi.mock("@core/src/features/products/infrastructure/order-stock", async (importOriginal) => {
+  const original = await importOriginal<typeof import("@core/src/features/products/infrastructure/order-stock")>();
+  return { ...original, findSellableVariants: async (ids: readonly string[]) => {
+    const found = await original.findSellableVariants(ids);
+    const hook = afterSellableRead.run;
+    afterSellableRead.run = undefined;
+    await hook?.();
+    return found;
+  } };
+});
 
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
 const address = server.address();
 if (!address || typeof address === "string") throw new Error("Catalog test server did not bind");
-const base = `http://127.0.0.1:${address.port}`;
+const port = address.port;
 const cleanups: (() => Promise<void>)[] = [];
-afterEach(() => vi.restoreAllMocks());
+afterEach(() => { vi.restoreAllMocks(); afterSellableRead.run = undefined; });
 afterAll(async () => { for (const cleanup of cleanups) await cleanup(); await new Promise((resolve) => server.close(resolve)); });
 
+/** The buyer payment view on the company's brand host, with the `Host` header chosen by the test. */
+function buyerPayment(host: string, orderId: string) {
+  return new Promise<number>((resolve, reject) => {
+    const req = httpRequest({ host: "127.0.0.1", port, path: `/api/buyer/orders/${orderId}/payment`, headers: { host: `${host}:${port}` } }, (res) => { res.resume(); res.on("end", () => resolve(res.statusCode ?? 0)); });
+    req.on("error", reject);
+    req.end();
+  });
+}
 const subdomainOf = (companyId: string) => `s${companyId.replaceAll("-", "").slice(0, 20)}` as CatalogSubdomain;
 /** What the brand host middleware resolves for a published company, as the cart compositions receive it. */
 async function storefrontOf(companyId: CompanyId): Promise<PublishedStorefront> {
@@ -43,6 +69,11 @@ async function cartContext(companyId: CompanyId) {
   await storefrontMiddleware({ request: new Request("http://localhost/carrito"), params: {}, context } as never, async () => new Response());
   return context;
 }
+function hostContext(companyId: CompanyId) {
+  const context = new RouterContextProvider();
+  context.set(brandHostCompanyContext, companyId);
+  return context;
+}
 const cartRequest = (body: unknown) => new Request("http://localhost/carrito", { method: "POST", body: JSON.stringify(body) });
 
 async function store(published = true) {
@@ -51,19 +82,15 @@ async function store(published = true) {
   const [black, beige] = [randomUUID(), randomUUID()] as VariantId[];
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Moda Lucía", country: "PE", catalogPublished: published, catalogSubdomain: subdomainOf(companyId) } });
-    await prisma.product.create({ data: { id: productId, name: "Polo básico", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    for (const [variantId, color, stock] of [[black, "Negro", 3n], [beige, "Beige", 1n]] as const) {
-      await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Talla: "M", Color: color }, sku: `SKU-${variantId}`, salePrice: 45, purchasePrice: 20, qrCode: variantId, status: "active" } });
-      await prisma.productStock.create({ data: { variantId, quantity: stock } });
-    }
+    await seedProduct({ id: productId, name: "Polo básico", qrCode: productId, variants: ([[black, "Negro", 3n], [beige, "Beige", 1n]] as const).map(([variantId, color, stock]) => ({
+      id: variantId, attributes: { Talla: "M", Color: color }, sku: `SKU-${variantId}`, salePrice: 45, purchasePrice: 20, qrCode: variantId, stock })) });
   });
   cleanups.push(() => withTenantIsolation(companyId, async () => {
+    await prisma.payment.deleteMany();
     await prisma.orderBuyer.deleteMany();
     await prisma.orderItem.deleteMany();
     await prisma.order.deleteMany();
-    await prisma.productStock.deleteMany();
-    await prisma.productVariant.deleteMany();
-    await prisma.product.deleteMany();
+    await deleteSeededProducts();
     await prisma.company.delete({ where: { id: companyId } });
   }));
   return { companyId, black, beige };
@@ -83,6 +110,18 @@ test("two simultaneous Continuar with the same id create one order and consume o
   const stored = await withTenantIsolation(companyId, async () => await prisma.order.findMany({ include: { items: true } }));
   expect(stored).toMatchObject([{ id: input.orderId, fromCatalog: true, sellerId: null, checkoutConfirmedAt: null, items: [{ quantity: 3n }] }]);
   expect(stored[0].checkoutEnabledAt).toBeInstanceOf(Date);
+});
+
+test("a catalog order keeps the combination in option order, not alphabetical, after reading it back", async () => {
+  const { companyId, black } = await store();
+  const orderId = randomUUID() as OrderId;
+  expect(await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1)] }, await storefrontOf(companyId))).toMatchObject({ success: true });
+  await withTenantIsolation(companyId, async () => {
+    const [stored] = await prisma.$queryRaw<{ attributes: string }[]>`SELECT "variantAttributes"::text AS attributes FROM "OrderItem"`;
+    expect(Object.entries(JSON.parse(stored.attributes))).toEqual([["Talla", "M"], ["Color", "Negro"]]);
+    const read = await findOrderAggregate(orderId, companyId);
+    expect(read.success && read.data?.items.map((item) => Object.entries(item.variantAttributes))).toEqual([[["Talla", "M"], ["Color", "Negro"]]]);
+  });
 });
 
 test("a rejected cart allocates no number", async () => {
@@ -151,11 +190,34 @@ test("check_order answers confirmed only for this store's confirmed order", asyn
   expect(await check(other.companyId)).toMatchObject({ data: { order: "not_confirmed" } });
 });
 
-test("Continuar answers the full checkout URL on the app host", async () => {
+test("confirming company A's order on company B's published host goes through the middleware and answers «no disponible»", async () => {
+  const mine = await store();
+  const other = await store();
+  const orderId = randomUUID() as OrderId;
+  const created = await catalogCart.continueToCheckout({ orderId, lines: [line(mine.black, 1)] }, await storefrontOf(mine.companyId));
+  if (!created.success) throw new Error(created.error.code);
+  const context = new RouterContextProvider();
+  context.set(requestHostContext, `${subdomainOf(other.companyId)}.localhost`);
+  const params = { orderId };
+  const form = new URLSearchParams({ name: "Ana", phone: "+51987654321", expectedTotal: JSON.stringify(created.data.total), delivery: JSON.stringify({ kind: "keep" }) });
+  const request = new Request(`http://localhost/checkout/${orderId}`, { method: "POST", body: form });
+  const answered = await storefrontMiddleware({ request, params, context } as never, async () => checkoutAction({ request, params, context } as never) as never);
+  expect(answered).toMatchObject({ data: { unavailable: true }, init: { status: 404 } });
+  // The page reads the order under the host's company: another company's order and an unknown id are the same «Enlace no disponible».
+  for (const id of [orderId, randomUUID(), "not-a-uuid"]) {
+    const read = await checkoutLoader({ params: { orderId: id }, context: hostContext(other.companyId), request } as unknown as LoaderFunctionArgs).catch((error) => error);
+    expect(read).toMatchObject({ status: 404 });
+    expect(await read.text()).toBe("Enlace no disponible");
+  }
+  const check = await cartAction({ request: cartRequest({ intent: "check_order", orderId }), context: await cartContext(mine.companyId) } as never);
+  expect(check).toMatchObject({ data: { order: "not_confirmed" } });
+});
+
+test("Continuar answers the full checkout URL on the store's brand host", async () => {
   const { companyId, black } = await store();
   const orderId = randomUUID();
   const response = await cartAction({ request: cartRequest({ intent: "continue", orderId, lines: [{ variantId: black, quantity: 1 }] }), context: await cartContext(companyId) } as never);
-  expect(response).toMatchObject({ data: { checkoutUrl: new URL(`/checkout/${companyId}/${orderId}`, process.env.BETTER_AUTH_URL).toString() }, init: { status: 200 } });
+  expect(response).toMatchObject({ data: { checkoutUrl: `http://${subdomainOf(companyId)}.localhost:3000/checkout/${orderId}` }, init: { status: 200 } });
 });
 
 test("buyer payment routes reject an unconfirmed catalog order, and the seller sees it only after confirmation", async () => {
@@ -163,7 +225,7 @@ test("buyer payment routes reject an unconfirmed catalog order, and the seller s
   const orderId = randomUUID() as OrderId;
   const created = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 2)] }, await storefrontOf(companyId));
   if (!created.success) throw new Error(created.error.code);
-  expect((await fetch(`${base}/api/buyer/orders/${orderId}/payment`)).status).toBe(404);
+  expect(await buyerPayment(`${subdomainOf(companyId)}.localhost`, orderId)).toBe(404);
   const seller = { companyId, userId: randomUUID() as UserId };
   const listed = () => withTenantIsolation(companyId, () => orders.listAggregates({ page: 1, customer: { kind: "all" } }, seller));
   expect(await listed()).toMatchObject({ success: true, data: { items: [] } });
@@ -172,7 +234,7 @@ test("buyer payment routes reject an unconfirmed catalog order, and the seller s
   expect(await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: created.data.total }, { companyId, orderId }))
     .toMatchObject({ success: true });
   expect(await listed()).toMatchObject({ success: true, data: { items: [{ id: orderId, fromCatalog: true, sellerId: null }] } });
-  expect((await fetch(`${base}/api/buyer/orders/${orderId}/payment`)).status).toBe(200);
+  expect(await buyerPayment(`${subdomainOf(companyId)}.localhost`, orderId)).toBe(200);
 });
 
 test("Continuar takes the current price and the checkout keeps working after the catalog is hidden", async () => {
@@ -199,7 +261,94 @@ test("a buyer whose store appearance cannot be read browses in Clásico without 
   const created = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1)] }, await storefrontOf(companyId));
   expect(created).toMatchObject({ success: true, data: { id: orderId, fromCatalog: true } });
 
-  const checkout = await checkoutLoader({ params: { companyId, orderId }, request: new Request(`http://localhost/checkout/${companyId}/${orderId}`) } as unknown as LoaderFunctionArgs);
+  const checkout = await checkoutLoader({ params: { orderId }, context: hostContext(companyId), request: new Request(`http://localhost/checkout/${orderId}`) } as unknown as LoaderFunctionArgs);
   if (!created.success) return;
   expect(checkout).toMatchObject({ data: { checkout: { number: created.data.number, companyName: "Moda Lucía", items: [{ productName: "Polo básico", quantity: 1 }] }, appearance: null } });
+});
+
+test("Continuar with a deactivated variant marks the line unavailable and creates no order", async () => {
+  const { companyId, black, beige } = await store();
+  await withTenantIsolation(companyId, async () => await prisma.productVariant.update({ where: { id: beige }, data: { status: "inactive" } }));
+  const before = await nextNumber(companyId);
+  const orderId = randomUUID() as OrderId;
+  expect(await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1), line(beige, 1)] }, await storefrontOf(companyId)))
+    .toMatchObject({ success: false, error: { code: "LINES_UNAVAILABLE", issues: [{ variantId: beige, reason: "unavailable" }] } });
+  expect(await nextNumber(companyId)).toBe(before);
+  expect(await withTenantIsolation(companyId, async () => await prisma.order.count({ where: { id: orderId } }))).toBe(0);
+  const refreshed = await catalogCart.refresh(await storefrontOf(companyId), [black, beige]);
+  expect(refreshed.success && refreshed.data.map(({ variantId }) => variantId)).toEqual([black]);
+});
+
+test("a variant deleted after the cart was checked marks the line unavailable and leaves no order nor number", async () => {
+  const { companyId, black, beige } = await store();
+  const before = await nextNumber(companyId);
+  afterSellableRead.run = () => withTenantIsolation(companyId, async () => {
+    await prisma.productStock.delete({ where: { variantId: beige } });
+    await prisma.productVariant.delete({ where: { id: beige } });
+  });
+  const orderId = randomUUID() as OrderId;
+  expect(await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1), line(beige, 1)] }, await storefrontOf(companyId)))
+    .toMatchObject({ success: false, error: { code: "LINES_UNAVAILABLE", issues: [{ variantId: beige, reason: "unavailable" }] } });
+  expect(await nextNumber(companyId)).toBe(before);
+  expect(await withTenantIsolation(companyId, async () => await prisma.order.count({ where: { id: orderId } }))).toBe(0);
+});
+
+test("an unconfirmed catalog order with a variant deactivated later can be confirmed and paid", async () => {
+  const { companyId, black } = await store();
+  const orderId = randomUUID() as OrderId;
+  const created = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 2)] }, await storefrontOf(companyId));
+  if (!created.success) throw new Error(created.error.code);
+  await withTenantIsolation(companyId, async () => await prisma.productVariant.update({ where: { id: black }, data: { status: "inactive" } }));
+  const again = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 2)] }, await storefrontOf(companyId));
+  expect(again).toMatchObject({ success: true, data: { id: orderId } });
+  const buyer = parseBuyer({ name: "Ana", phone: "+51987654321" });
+  if (!buyer.success) throw new Error(buyer.error.code);
+  expect(await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: created.data.total }, { companyId, orderId })).toMatchObject({ success: true });
+  const seller = { companyId, userId: randomUUID() as UserId };
+  await withTenantIsolation(companyId, async () => {
+    expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as never, amount: created.data.total, method: "digital_wallet", deductStockIfPartial: false }, seller))
+      .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+    expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: black } })).quantity).toBe(1n);
+  });
+});
+
+test("a catalog purchase of M / Negro reaches checkout, deducts stock when paid and restores it when cancelled", async () => {
+  const { companyId, black } = await store();
+  const orderId = randomUUID() as OrderId;
+  const created = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 2)] }, await storefrontOf(companyId));
+  if (!created.success) throw new Error(created.error.code);
+  const checkout = await orders.getCheckout({ companyId, orderId });
+  expect(checkout).toMatchObject({ success: true, data: { checkout: { number: created.data.number } } });
+  const buyer = parseBuyer({ name: "Ana", phone: "+51987654321" });
+  if (!buyer.success) throw new Error(buyer.error.code);
+  expect(await orders.confirmCheckout({ buyer: buyer.data, expectedTotal: created.data.total }, { companyId, orderId })).toMatchObject({ success: true });
+  const seller = { companyId, userId: randomUUID() as UserId };
+  const stock = () => withTenantIsolation(companyId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId: black } })).quantity);
+  expect(await stock()).toBe(3n);
+  await withTenantIsolation(companyId, async () => {
+    expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as never, amount: created.data.total, method: "digital_wallet", deductStockIfPartial: false }, seller))
+      .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+  });
+  expect(await stock()).toBe(1n);
+  await withTenantIsolation(companyId, async () => expect(await orders.cancel(orderId, seller)).toMatchObject({ success: true, data: { cancelled: true } }));
+  expect(await restoreCancelledStock.handler({ orderId, companyId } as never, {} as never, {} as never)).toMatchObject({ success: true });
+  expect(await stock()).toBe(3n);
+});
+
+test("renaming a seeded value keeps the old order and checkout snapshot and a new order uses the new name", async () => {
+  const { companyId, black } = await store();
+  const first = randomUUID() as OrderId;
+  const second = randomUUID() as OrderId;
+  expect(await catalogCart.continueToCheckout({ orderId: first, lines: [line(black, 1)] }, await storefrontOf(companyId))).toMatchObject({ success: true });
+  await withTenantIsolation(companyId, async () => await prisma.productOptionValue.updateMany({ where: { name: "Negro" }, data: { name: "Negro carbón" } }));
+  expect(await catalogCart.continueToCheckout({ orderId: second, lines: [line(black, 1)] }, await storefrontOf(companyId))).toMatchObject({ success: true });
+  const attributesOf = async (id: OrderId) => {
+    const read = await withTenantIsolation(companyId, () => findOrderAggregate(id, companyId));
+    return read.success ? read.data?.items.map((item) => Object.entries(item.variantAttributes)) : null;
+  };
+  expect(await attributesOf(first)).toEqual([[["Talla", "M"], ["Color", "Negro"]]]);
+  expect(await attributesOf(second)).toEqual([[["Talla", "M"], ["Color", "Negro carbón"]]]);
+  const checkout = await orders.getCheckout({ companyId, orderId: first });
+  expect(JSON.stringify(checkout)).toContain("Negro");
+  expect(JSON.stringify(checkout)).not.toContain("carbón");
 });

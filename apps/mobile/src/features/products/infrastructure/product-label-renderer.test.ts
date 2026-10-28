@@ -67,3 +67,13 @@ test("reports a render failure even when cleanup also fails", async () => {
       { widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 })).resolves.toMatchObject({ success: false, error: { code: "RENDER_FAILED" } });
   } finally { mockWriteFailure = false; }
 });
+
+test("the combination line fits under the name, and a very long one is shortened", async () => {
+  const { renderProductLabel } = jest.requireActual("@mobile/features/products/infrastructure/product-label-renderer");
+  const profile = { widthPx: 696, heightPx: 271, dpiX: 300, dpiY: 300 };
+  const label = { productName: "Polo básico", combination: "L / Azul", sku: "POLO-AZU-L", qrCode: "00000000-0000-4000-8000-000000000004" } as ProductLabel;
+  expect(await renderProductLabel(label, profile)).toMatchObject({ success: true });
+  const image = mockSkia.Image.MakeImageFromEncoded(mockSkia.Data.fromBytes(mockPng!));
+  expect(jsQR(Uint8ClampedArray.from(image!.readPixels()!), 696, 271)?.data).toBe(label.qrCode);
+  expect(await renderProductLabel({ ...label, combination: "Talla grande / Azul marino / Manga larga ".repeat(6) }, profile)).toMatchObject({ success: true });
+});

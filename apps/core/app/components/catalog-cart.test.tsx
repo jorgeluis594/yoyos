@@ -47,6 +47,12 @@ const button = (name: string, scope: ParentNode = container) => [...scope.queryS
 const click = (element: HTMLElement) => act(async () => { element.click(); });
 const lineItem = (productName: string) => [...container.querySelectorAll("li")].find((item) => item.textContent?.includes(productName))!;
 
+test("a line shows its combination in today's «M · Azul» format", () => {
+  act(() => writeCart(companyId, { orderId, lines: [{ ...line(id(3), "Polo negro", 1), attributes: { Talla: "M", Color: "Azul" } }] }));
+  act(() => root.render(<MemoryRouter><Sheet><CatalogCartPanel companyId={companyId} catalogPath="/" /></Sheet></MemoryRouter>));
+  expect(lineItem("Polo negro").textContent).toContain("M · Azul");
+});
+
 test("Reintentar after a lost response resends the same order id", async () => {
   answers.push(() => Promise.reject(new TypeError("network")), () => Promise.resolve(json({ code: "SERVICE_UNAVAILABLE" }, 503)));
   await click(button("Continuar"));
@@ -63,6 +69,15 @@ test("a line without enough stock is marked alone and unmarked once its quantity
   expect(container.textContent).toContain("Algunos productos ya no están disponibles");
   await click(button("Quitar una unidad", lineItem("Polo negro")));
   expect(lineItem("Polo negro").textContent).not.toContain("Solo queda 1");
+});
+
+test("a deactivated or deleted variant is marked «Ya no está disponible» on its line alone and the cart is kept", async () => {
+  answers.push(() => Promise.resolve(json({ code: "LINES_UNAVAILABLE", issues: [{ variantId: id(4), reason: "unavailable" }] }, 409)));
+  await click(button("Continuar"));
+  expect(lineItem("Polo beige").textContent).toContain("Ya no está disponible");
+  expect(lineItem("Polo negro").textContent).not.toContain("Ya no está disponible");
+  expect(container.textContent).toContain("Algunos productos ya no están disponibles");
+  expect(lineItem("Polo negro")).toBeDefined();
 });
 
 test("ORDER_ID_CONFLICT retries once with a new order id, then shows the generic error", async () => {
@@ -103,7 +118,7 @@ test("cart lines show the theme thumbnail shape with the product initial when th
 });
 
 test("Continuar navigates to the full checkout URL on the app host and marks the cart as continued", async () => {
-  const checkoutUrl = `https://app.yoyos.lat/checkout/${companyId}/${orderId}`;
+  const checkoutUrl = `https://app.yoyos.lat/checkout/${orderId}`;
   const assign = vi.fn();
   vi.stubGlobal("location", { assign });
   answers.push(() => Promise.resolve(json({ checkoutUrl })));

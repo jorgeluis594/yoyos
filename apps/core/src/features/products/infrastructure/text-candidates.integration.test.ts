@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 import { saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import { findTextCandidates } from "@core/src/features/products/infrastructure/text-candidates";
 import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
@@ -18,8 +19,9 @@ const options = { limit: 8, minSimilarity: 0.3 };
 async function product(companyId: string, name: string, variants: readonly { price: number; attributes?: Record<string, string> }[], status = "active", imageId: string | null = null) {
   const id = randomUUID() as ProductId;
   await withTenantIsolation(companyId, async () => {
-    await prisma.product.create({ data: { id, name, currency: "PEN", qrCode: id, status, imageId, createdAt: new Date(), updatedAt: new Date() } });
-    for (const variant of variants) await prisma.productVariant.create({ data: { id: randomUUID(), productId: id, qrCode: randomUUID(), attributes: variant.attributes ?? {}, sku: null, salePrice: variant.price, status: "active" } });
+    // seedProduct always gives a product a variant; a product without any is written directly.
+    if (!variants.length) await prisma.product.create({ data: { id, name, currency: "PEN", qrCode: id, status, imageId, createdAt: new Date(), updatedAt: new Date() } });
+    else await seedProduct({ id, name, qrCode: id, status, imageId, variants: variants.map((variant) => ({ attributes: variant.attributes, salePrice: variant.price })) });
   });
   return id;
 }
@@ -31,15 +33,14 @@ beforeAll(async () => {
 
 afterAll(async () => {
   for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => {
-    await prisma.productVariant.deleteMany();
-    await prisma.product.deleteMany();
+    await deleteSeededProducts();
     await prisma.image.deleteMany();
     await prisma.company.delete({ where: { id } });
   });
 });
 
 test("text candidates come only from the company's active sellable products with their price range", async () => {
-  const basic = await product(companyA, "Polo básico", [{ price: 35 }, { price: 40 }]);
+  const basic = await product(companyA, "Polo básico", [{ price: 35, attributes: { Talla: "S" } }, { price: 40, attributes: { Talla: "M" } }]);
   await product(companyA, "Polo sin variantes", []);
   await product(companyA, "Gorra", [{ price: 20 }]);
   await product(companyB, "Polo de otra empresa", [{ price: 1 }]);
@@ -53,12 +54,12 @@ test("text candidates come only from the company's active sellable products with
   expect(result.data[1]).toEqual([]);
 });
 
-test("loads the sellable variants of several products in one call and omits products without variants", async () => {
+test("loads the sellable variants of several products in one call, in saved option order, and omits products without variants", async () => {
   const sizes = await product(companyA, "Camisa", [{ price: 50, attributes: { Talla: "M" } }, { price: 55, attributes: { Talla: "L" } }]);
   const bare = await product(companyA, "Camisa sin variantes", []);
   const loaded = await withTenantIsolation(companyA, () => loadSellableVariants([sizes, bare]));
-  expect(loaded.success && loaded.data.map(({ productId, name, variants }) => ({ productId, name, sizes: variants.map(({ variantAttributes }) => variantAttributes.Talla).sort() })))
-    .toEqual([{ productId: sizes, name: "Camisa", sizes: ["L", "M"] }]);
+  expect(loaded.success && loaded.data.map(({ productId, name, variants }) => ({ productId, name, sizes: variants.map(({ variantAttributes }) => variantAttributes.Talla) })))
+    .toEqual([{ productId: sizes, name: "Camisa", sizes: ["M", "L"] }]);
 });
 
 test("search readiness reports no searchable photos until an active product image is embedded", async () => {

@@ -2,11 +2,13 @@ import { formatCurrency } from "@core/app/format-currency";
 import { browserExpect, chooseOption, expect, openOptions, prepareVerifiedCompany, selectedValue, test } from "@core/tests/e2e/fixtures";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { orders } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { chooseDistrict, chooseDistrictInProvince } from "@core/tests/e2e/district-combobox";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 test("seller completes a wallet sale and sees backend totals and stock", async ({ page, request }) => {
   const email = `orders-${crypto.randomUUID()}@example.test`;
@@ -20,9 +22,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.goto("/es-PE/dashboard");
     await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
     const tenantId = companyId;
-    const created = await withTenantIsolation(tenantId, () => products.create({ name: "Cuaderno POS", currency: "PEN",
-      variants: [{ attributes: { Size: "M" }, sku: "POS-M", salePrice: 0.29, initialStock: 3 }] }));
-    expect(created.success).toBe(true);
+    await withTenantIsolation(tenantId, () => seedProduct({ name: "Cuaderno POS", variants: [{ attributes: { Size: "M" }, sku: "POS-M", salePrice: 0.29, stock: 3 }] }));
 
     await page.getByRole("complementary").getByRole("link", { name: "Ventas" }).click();
     await page.getByRole("link", { name: "Nueva venta" }).click();
@@ -54,7 +54,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page.getByText("Entrega por definir", { exact: true })).toHaveCount(0);
     await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
     await browserExpect(page.getByText("Público general")).toBeVisible();
-    await browserExpect(page.getByText(`Total: ${formatCurrency(0.58, "PEN", "es")}`)).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pagos" }).getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.58, "PEN", "es"), { exact: true })).toBeVisible();
     const immediateId = page.url().split("/").at(-1)!;
     expect(await (await page.request.get(`/api/orders/${immediateId}/aggregate`)).json()).toMatchObject({
       status: "completed", paymentStatus: "paid", deliveryStatus: "delivered", stockDeducted: true,
@@ -82,7 +82,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(0.29, "PEN", "es"));
     await page.getByRole("button", { name: "Guardar pedido" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
-    await browserExpect(page.getByText(`Total: ${formatCurrency(0.30, "PEN", "es")}`)).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pagos" }).getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.30, "PEN", "es"), { exact: true })).toBeVisible();
     const completedUrl = page.url();
     await page.getByRole("link", { name: "Ver ventas" }).click();
     await page.getByRole("button", { name: "Filtros" }).click();
@@ -174,6 +174,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
         await prisma.contact.deleteMany();
         await prisma.productStock.deleteMany();
         await prisma.productVariant.deleteMany();
+        await prisma.productOption.deleteMany();
         await prisma.product.deleteMany();
       });
       await systemPrisma.user.deleteMany({ where: { email: accountEmail } });
@@ -188,8 +189,8 @@ test("pending order remains active when paid before delivery", async ({ page }) 
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Pending Seller", companyName: "Pending company", country: "PE" });
     const tenantId = companyId;
-    const product = await withTenantIsolation(tenantId, () => products.create({ name: "Producto pendiente", currency: "PEN",
-      variants: [{ attributes: {}, sku: "PENDING", salePrice: 10, initialStock: 2 }] }));
+    const product = await withTenantIsolation(tenantId, () => productEditing.create({ name: "Producto pendiente", currency: "PEN",
+      options: [], variants: [{ values: [], sku: "PENDING", salePrice: 10, initialStock: 2 }] }));
     expect(product.success).toBe(true);
     if (!product.success) return;
     const variantId = await withTenantIsolation(tenantId, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
@@ -207,7 +208,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
     await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/orders/${orderId}$`));
     await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Saldo pendiente", { exact: true }).locator("..").getByText(formatCurrency(10, "PEN", "es"), { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Pagos" }).getByText("Pendiente", { exact: true }).locator("..").getByText(formatCurrency(10, "PEN", "es"), { exact: true })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(2n);
     const paymentId = crypto.randomUUID();
     const paid = await page.request.post(`/api/orders/${orderId}/payments`, { data: { paymentId,
@@ -227,6 +228,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
       await prisma.order.deleteMany();
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
+      await prisma.productOption.deleteMany();
       await prisma.product.deleteMany();
     });
     await systemPrisma.user.deleteMany({ where: { email } });
@@ -238,8 +240,8 @@ test("new order saves partial payments, paid pending delivery and configured del
   const email = `orders-complete-${crypto.randomUUID()}@example.test`;
   try {
     const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Complete orders", country: "PE" });
-    const product = await withTenantIsolation(companyId, () => products.create({ name: "Agenda", currency: "PEN",
-      variants: [{ attributes: {}, sku: "AGENDA", salePrice: 10, initialStock: 5 }] }));
+    const product = await withTenantIsolation(companyId, () => productEditing.create({ name: "Agenda", currency: "PEN",
+      options: [], variants: [{ values: [], sku: "AGENDA", salePrice: 10, initialStock: 5 }] }));
     expect(product.success).toBe(true);
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true },
       store: { enabled: false, pickupPoint: null }, agency: { enabled: false } } })).ok()).toBe(true);
@@ -263,9 +265,7 @@ test("new order saves partial payments, paid pending delivery and configured del
         await page.getByLabel("Importe recibido").nth(1).fill("3");
         await page.getByLabel("Configurar datos de entrega").check();
         await page.getByLabel("Dirección de entrega", { exact: true }).fill("Av. Lima 123");
-        await page.getByLabel("Departamento", { exact: true }).selectOption("04");
-        await page.getByLabel("Provincia", { exact: true }).selectOption("0401");
-        await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+        await chooseDistrict(page, "040110");
         const tariff = selectedValue(page, "rateId");
         const chooseRate = async () => {
           const rates = await openOptions(page, "Tarifa de entrega");
@@ -275,11 +275,11 @@ test("new order saves partial payments, paid pending delivery and configured del
         };
         let rateId = await chooseRate();
         if (!rateId) throw new Error("Expected delivery rate");
-        await page.getByLabel("Distrito", { exact: true }).selectOption("040101");
+        await chooseDistrictInProvince(page, "040101");
         await browserExpect(page.getByRole("status").filter({ hasText: "No hay tarifas para esta modalidad y distrito." })).toBeVisible();
         await browserExpect(page.locator("#resumen strong")).toHaveText("—");
         await browserExpect(page.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
-        await page.getByLabel("Distrito", { exact: true }).selectOption("040110");
+        await chooseDistrictInProvince(page, "040110");
         await browserExpect(tariff).toHaveValue("");
         const reselectedRate = await chooseRate();
         if (!reselectedRate) throw new Error("Expected new quotation after district change");
@@ -329,7 +329,7 @@ test("new order saves partial payments, paid pending delivery and configured del
     const user = await systemPrisma.user.findUnique({ where: { email }, select: { companyId: true } });
     if (user?.companyId) await withTenantIsolation(user.companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
       await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();

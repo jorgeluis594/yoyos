@@ -106,14 +106,14 @@ it("normalizes checkout URLs while logging orderId as an explicit field", () => 
       res.sendStatus(200);
     });
     const server = app.listen(0);
-    await fetch("http://127.0.0.1:" + server.address().port + "/checkout/claimed-company/secret-order-uuid?secret-link");
+    await fetch("http://127.0.0.1:" + server.address().port + "/checkout/secret-order-uuid?secret-link");
     server.close();
   `], { cwd: process.cwd(), encoding: "utf8" });
-  for (const value of ["secret-order-uuid", "secret-link", "Private buyer", "Private phone", "claimed-company"]) expect(output).not.toContain(value);
+  for (const value of ["secret-order-uuid", "secret-link", "Private buyer", "Private phone"]) expect(output).not.toContain(value);
   const entries = output.trim().split("\n").map((line) => JSON.parse(line));
   expect(entries.find((entry) => entry.event === "privacy_probe")).toMatchObject({ orderId: "logged-order-uuid" });
   expect(entries.filter((entry) => entry.event === "http_request_completed")).toEqual([
-    expect.objectContaining({ route: "/checkout/:companyId/:orderId", operation: "get_checkout", outcome: "pending", orderNumber: 1001, companyId: "verified-company" }),
+    expect.objectContaining({ route: "/checkout/:orderId", operation: "get_checkout", outcome: "pending", orderNumber: 1001, companyId: "verified-company" }),
   ]);
 });
 
@@ -193,25 +193,31 @@ it("keeps the checkout appearance label and normalizes the buyer checkout route"
     import { requestLogging, bindRequestOperation } from "./src/shared/infrastructure/logger.ts";
     const app = express();
     app.use(requestLogging);
-    app.get("/checkout/:companyId/:orderId", (req, res) => {
+    app.get("/checkout/:orderId", (req, res) => {
       bindRequestOperation({ outcome: "pending", storeAppearance: req.query.a });
       res.sendStatus(200);
     });
     const server = app.listen(0);
     const base = "http://127.0.0.1:" + server.address().port;
-    for (const kind of ["custom", "default", "fallback"]) await fetch(base + "/checkout/company-secret/order-secret?a=" + kind);
+    for (const kind of ["custom", "default", "fallback"]) await fetch(base + "/checkout/order-secret?a=" + kind);
+    await fetch(base + "/checkout/company-secret/order-secret");
     server.close();
   `], { cwd: process.cwd(), encoding: "utf8" });
   expect(output).not.toContain("order-secret");
-  const completed = output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed");
+  expect(output).not.toContain("company-secret");
+  const all = output.trim().split("\n").map((line) => JSON.parse(line)).filter((entry) => entry.event === "http_request_completed");
+  const completed = all.filter((entry) => entry.statusCode === 200);
   expect(completed.map((entry) => entry.storeAppearance)).toEqual(["custom", "default", "fallback"]);
-  for (const entry of completed) expect(entry).toMatchObject({ route: "/checkout/:companyId/:orderId", operation: "get_checkout", outcome: "pending", statusCode: 200 });
+  for (const entry of completed) expect(entry).toMatchObject({ route: "/checkout/:orderId", operation: "get_checkout", outcome: "pending", statusCode: 200 });
+  // The former three-segment path is not routed any more, yet its log line is still normalized.
+  expect(all.filter((entry) => entry.statusCode === 404)).toEqual([expect.objectContaining({ route: "/checkout/:orderId", operation: "get_checkout" })]);
 });
 
 it("names the four routes of the feature in New Relic without capturing one another", () => {
   const require = createRequire(import.meta.url);
   const rules: { pattern: string; name: string }[] = require("../../../newrelic.cjs").config.rules.name;
   const nameOf = (path: string) => rules.find((rule) => new RegExp(rule.pattern).test(path))?.name;
+  expect(nameOf("/checkout/0b6f3a5e-0000-4000-8000-000000000000")).toBe("checkout");
   expect(nameOf("/checkout/6d2a7c1e-0000-4000-8000-000000000000/0b6f3a5e-0000-4000-8000-000000000000")).toBe("checkout");
   expect(nameOf("/es-PE/settings/store-appearance")).toBe("settings/store-appearance");
   expect(nameOf("/es-PE/settings/store-appearance.data")).toBe("settings/store-appearance");
@@ -226,14 +232,14 @@ it("shares context between independently loaded source and server-bundled module
     const separate = await import('./src/shared/infrastructure/logger.ts?server-build');
     const app = express();
     app.use(requestLogging);
-    app.get('/checkout/:companyId/:orderId', (_req, res) => {
+    app.get('/checkout/:orderId', (_req, res) => {
       separate.bindRequestOperation({ operation: 'get_checkout', outcome: 'pending', orderNumber: 1001 });
       separate.bindCompanyToRequest('verified-company');
       separate.log.info({ event: 'shared_context_probe' }, 'Shared context probe');
       res.sendStatus(200);
     });
     const server = app.listen(0);
-    await fetch('http://127.0.0.1:' + server.address().port + '/checkout/company/order', { headers: { 'x-request-id': 'bundled-request' } });
+    await fetch('http://127.0.0.1:' + server.address().port + '/checkout/order', { headers: { 'x-request-id': 'bundled-request' } });
     server.close();
   `], { cwd: process.cwd(), encoding: "utf8" });
   const events = output.trim().split("\n").map((line) => JSON.parse(line));

@@ -2,7 +2,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { ImageReadError } from "@core/src/shared/images";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
-import type { ReadQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
+import type { ReadQrCodes } from "@core/src/shared/images/infrastructure/qr-code-reader";
 import type { EmbedImage } from "@core/src/features/products/application/index-product-image";
 import {
   acceptVisualMatch, selectProductCode, showsProduct,

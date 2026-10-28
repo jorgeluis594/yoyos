@@ -13,7 +13,8 @@ import { checkoutState, checkoutView, checkExpectedTotal, parseBuyer,
 } from "@core/src/features/orders/domain/checkout";
 
 export type ConfirmOrderCheckoutInput = Readonly<{ buyer: BuyerData; expectedTotal: Money }>;
-export type CheckoutDeliveryChange = Readonly<{ kind: "keep" }> | Readonly<{ kind: "replace"; selection: RatedDeliverySelection; expectedPrice: Money }>;
+/** `recipient` names who receives the delivery that is kept; without it the kept delivery is untouched. */
+export type CheckoutDeliveryChange = Readonly<{ kind: "keep"; recipient?: Readonly<{ name: string; phone: string }> }> | Readonly<{ kind: "replace"; selection: RatedDeliverySelection; expectedPrice: Money }>;
 export type ConfirmCheckoutDeliveryInput = ConfirmOrderCheckoutInput & Readonly<{ delivery: CheckoutDeliveryChange }>;
 export type ConfirmCheckoutDeliveryError = CheckoutError | SetDeliveryError;
 export type ConfirmCheckoutDeliveryDependencies = Pick<CheckoutDependencies, "saveBuyer" | "saveConfirmed"> &
@@ -26,7 +27,6 @@ export type CheckoutDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, CheckoutError>>) => Promise<Result<T, CheckoutError>>;
   findOrder: (access: CheckoutAccess) => Promise<Result<CheckoutOrder | null, CheckoutError>>;
   findOrderForUpdate: (access: CheckoutAccess) => Promise<Result<CheckoutOrder | null, CheckoutError>>;
-  saveEnabled: (access: CheckoutAccess, at: Date) => Promise<Result<null, CheckoutError>>;
   saveBuyer: (access: CheckoutAccess, buyer: ConfirmedBuyer) => Promise<Result<null, CheckoutError>>;
   saveConfirmed: (access: CheckoutAccess, at: Date) => Promise<Result<null, CheckoutError>>;
 }>;
@@ -40,28 +40,25 @@ export type GetOrderCheckoutDependencies = Pick<CheckoutDependencies, "findOrder
 export type CheckoutPage = Readonly<{ checkout: CheckoutView; photos: ReadonlyMap<VariantId, string> }>;
 
 const accessSchema = z.strictObject({ companyId: z.uuid(), orderId: z.uuid() });
-const deliveryChangeSchema = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("keep") }),
+const deliveryChangeSchema = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("keep"), recipient: z.strictObject({ name: z.string().trim().min(1), phone: z.string().trim().min(1) }).optional() }),
   z.strictObject({ kind: z.literal("replace"), selection: z.unknown(), expectedPrice: z.unknown() })]);
 const unavailable = () => err({ code: "CHECKOUT_UNAVAILABLE" as const, message: "Checkout is unavailable" });
 function matches(order: CheckoutOrder | null, access: CheckoutAccess): order is CheckoutOrder {
   return order !== null && order.id === access.orderId && order.companyId === access.companyId;
 }
 
-export async function enableOrderCheckout(orderId: OrderId, context: OrderAccess, now: Date, deps: Pick<CheckoutDependencies, "transaction" | "findOrderForUpdate" | "saveEnabled">): Promise<Result<Readonly<{ number: OrderNumber; changed: boolean }>, CheckoutError>> {
+/** The seller's read of an order's checkout: a plain tenant-scoped read, never a write or a row lock that would hold back a buyer confirming. */
+export async function enableOrderCheckout(orderId: OrderId, context: OrderAccess, deps: Pick<CheckoutDependencies, "findOrder">): Promise<Result<Readonly<{ number: OrderNumber }>, CheckoutError>> {
   const access = { companyId: context.companyId, orderId };
-  if (!accessSchema.safeParse(access).success || !context.userId || !z.date().safeParse(now).success) return unavailable();
-  return deps.transaction<Readonly<{ number: OrderNumber; changed: boolean }>>(access.companyId, async () => {
-    const found = await deps.findOrderForUpdate(access);
-    if (!found.success) return found;
-    if (!matches(found.data, access)) return unavailable();
-    const order = found.data;
-    const state = checkoutState(order);
-    if (!state.success) return state;
-    if (order.cancelled) return err({ code: "ORDER_CANCELLED", message: "Order is cancelled" });
-    if (order.checkoutEnabledAt) return ok({ number: order.number, changed: false });
-    const saved = await deps.saveEnabled(access, now);
-    return saved.success ? ok({ number: order.number, changed: true }) : saved;
-  });
+  if (!accessSchema.safeParse(access).success || !context.userId) return unavailable();
+  const found = await deps.findOrder(access);
+  if (!found.success) return found;
+  if (!matches(found.data, access)) return unavailable();
+  const order = found.data;
+  const state = checkoutState(order);
+  if (!state.success) return state;
+  if (order.cancelled) return err({ code: "ORDER_CANCELLED", message: "Order is cancelled" });
+  return order.checkoutEnabledAt ? ok({ number: order.number }) : unavailable();
 }
 
 export async function getOrderCheckout(access: CheckoutAccess, deps: GetOrderCheckoutDependencies): Promise<Result<CheckoutPage, CheckoutError>> {
@@ -76,7 +73,7 @@ export async function getOrderCheckout(access: CheckoutAccess, deps: GetOrderChe
   return ok({ checkout: checkout.data, photos: photos.success ? photos.data : new Map() });
 }
 
-export async function confirmOrderCheckout(input: ConfirmOrderCheckoutInput, access: CheckoutAccess, now: Date, deps: Omit<CheckoutDependencies, "findOrder" | "saveEnabled">): Promise<Result<CheckoutMutation, CheckoutError>> {
+export async function confirmOrderCheckout(input: ConfirmOrderCheckoutInput, access: CheckoutAccess, now: Date, deps: Omit<CheckoutDependencies, "findOrder">): Promise<Result<CheckoutMutation, CheckoutError>> {
   if (!accessSchema.safeParse(access).success || !z.date().safeParse(now).success) return unavailable();
   return deps.transaction<CheckoutMutation>(access.companyId, async () => {
     const found = await deps.findOrderForUpdate(access);
@@ -120,6 +117,10 @@ export async function confirmCheckoutDelivery(input: ConfirmCheckoutDeliveryInpu
     let next = order;
     if (input.delivery.kind === "keep") {
       if (!order.delivery) return err({ code: "INVALID_CHECKOUT", message: "There is no delivery to keep" });
+      const who = input.delivery.recipient;
+      // A delivery that has already progressed keeps its recipient: the confirmation goes through without rewriting it.
+      if (who && orderStateMachine.canSetDelivery(order).success && (order.delivery.recipient.name !== who.name || order.delivery.recipient.phone !== who.phone))
+        next = { ...order, delivery: { ...order.delivery, recipient: { ...order.delivery.recipient, name: who.name, phone: who.phone } } as typeof order.delivery };
     } else {
       const allowed = orderStateMachine.canSetDelivery(order);
       if (!allowed.success) return allowed;

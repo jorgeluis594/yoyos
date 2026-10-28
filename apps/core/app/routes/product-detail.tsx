@@ -1,21 +1,23 @@
+import { useState } from "react";
 import { useTranslation } from "react-i18next";
 import { companyPath, languageForLocale, localizedPath } from "@core/app/locale";
 import resources from "@core/app/locales";
-import { formatCurrency } from "@core/app/format-currency";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { isRouteErrorResponse, Link, useActionData, useLoaderData, useNavigation, useSubmit, useLocation, redirect, type ActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
+import { data, isRouteErrorResponse, Link, useActionData, useLoaderData, useLocation, useNavigation, useRevalidator, useSubmit, redirect, type ActionFunctionArgs, type ClientActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { DescriptionDetails, DescriptionItem, DescriptionList, DescriptionTerm } from "@/components/ui/description-list";
 import { ErrorState } from "@/components/ui/error-state";
 import { PageContainer } from "@/components/ui/page-container";
 import { PageHeader } from "@/components/ui/page-header";
 import { privateUserContext } from "@/private-user-context";
-import { products } from "@core/src/features/products/composition";
-import { parseUpdateJson } from "@core/src/features/products/presentation/input";
-import { updateErrors, type FormErrors } from "@core/src/features/products/presentation/messages";
-import { ProductForm, type ProductFormValues, type ProductImageSelection } from "@core/src/features/products/presentation/product-form";
+import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
+import { saveProductRequestSchema } from "@shared/contracts/products";
+import { buildSaveProductBody, draftFromProduct } from "@shared/product-variants";
+import { productEditing } from "@core/src/features/products/product-editing";
+import { toProductDetailResponse } from "@core/src/features/products/presentation/product-presenter";
+import { parseRequestJson, toSaveInput } from "@core/src/features/products/presentation/request-input";
+import { saveFeedback, type SaveFeedback } from "@core/src/features/products/presentation/messages";
+import { ProductForm, type ProductFormSubmission, type ProductFormValues } from "@core/src/features/products/presentation/product-form";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -24,26 +26,16 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
   if (!params.productId || !uuid.test(params.productId)) throw new Response("Not found", { status: 404 });
   const company = context.get(privateUserContext).company;
   try {
-    const result = await products.get(params.productId as ProductId);
+    const result = await productEditing.get(params.productId as ProductId);
     if (!result.success) throw new Response("La imagen no está disponible.", { status: 503 });
     if (!result.data) throw new Response("Not found", { status: 404 });
-    const { product } = result.data;
-    const variant = product.variants.length === 1 ? product.variants[0] : undefined;
+    const detail = toProductDetailResponse(result.data);
     return {
-      product,
+      product: detail.product,
       catalog: companyPath(new URL(request.url).pathname, company.country, "/products"),
-      imageUrl: result.data.image?.url,
-      variantId: variant?.id,
+      imageUrl: detail.image?.url,
       saved: new URL(request.url).searchParams.get("saved") === "1",
-      stock: product.variants.reduce((sum, item) => sum + item.stock.quantity, 0),
-      values: {
-        name: product.name,
-        description: product.description ?? "",
-        sku: variant?.sku ?? "",
-        salePrice: variant ? String(variant.salePrice.amount) : "",
-        purchasePrice: variant?.purchasePrice ? String(variant.purchasePrice.amount) : "",
-        initialStock: "",
-      } satisfies ProductFormValues,
+      variantDeleted: new URL(request.url).searchParams.get("variantDeleted") === "1",
     };
   } catch (cause) {
     if (cause instanceof Response) throw cause;
@@ -52,43 +44,68 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
   }
 }
 
-export async function action({ request, context, params }: ActionFunctionArgs): Promise<Response | { errors: FormErrors }> {
+export async function action({ request, context, params }: ActionFunctionArgs): Promise<Response | SaveFeedback> {
   const language = languageForLocale(new URL(request.url).pathname.split("/")[1]);
   if (!params.productId || !uuid.test(params.productId)) throw new Response("Not found", { status: 404 });
-  const parsed = parseUpdateJson(await request.text());
-  if (!parsed.success) return { errors: updateErrors(parsed.error, language) };
+  const parsed = parseRequestJson(saveProductRequestSchema, await request.text(), "Invalid product update");
+  if (!parsed.success) return saveFeedback(parsed.error, language);
   const company = context.get(privateUserContext).company;
   try {
-    const result = await products.update(params.productId as ProductId, parsed.data);
-    if (!result.success) return { errors: updateErrors(result.error, language) };
-    return redirect(`${companyPath(new URL(request.url).pathname, company.country, `/products/${result.data}`)}?saved=1`);
+    const result = await productEditing.save(toSaveInput(params.productId as ProductId, parsed.data));
+    if (!result.success) return saveFeedback(result.error, language);
+    return redirect(`${companyPath(new URL(request.url).pathname, company.country, `/products/${result.data.product.id}`)}?saved=1`);
   } catch (cause) {
     log.error({ event: "unable_to_update_product", err: cause }, "unable_to_update_product");
-    return { errors: { form: resources[language].translation.productErrors.saveError } };
+    return { errors: { inDoubt: resources[language].translation.productEditor.inDoubtSave }, issues: [] };
   }
 }
 
+// A request that never reached the server is a connection problem; a gateway failure after it left is an uncertain result. Redirects and client errors keep their usual handling.
+export async function clientAction({ request, serverAction }: ClientActionFunctionArgs) {
+  try { return await serverAction<typeof action>(); }
+  catch (cause) {
+    const lost = lostResponse(cause);
+    if (!lost) throw cause;
+    const { productEditor } = resources[languageForLocale(new URL(request.url).pathname.split("/")[1])].translation;
+    const errors = lost === "offline" ? { form: productEditor.offline } : { inDoubt: productEditor.inDoubtSave };
+    return data<SaveFeedback>({ errors, issues: [] }, { status: lostResponseStatus });
+  }
+}
+
+// A rejected save leaves the form as it is: reloading is the seller's decision.
+export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { actionResult?: unknown; defaultShouldRevalidate: boolean }) {
+  return actionResult && typeof actionResult === "object" && "errors" in actionResult ? false : defaultShouldRevalidate;
+}
+
 export default function ProductDetail() {
-  const { t, i18n } = useTranslation();
-  const { product, catalog, values, stock, variantId, imageUrl, saved } = useLoaderData<typeof loader>();
-  const actionData = useActionData<typeof action>();
+  const { t } = useTranslation();
+  const { product, catalog, imageUrl, saved, variantDeleted } = useLoaderData<typeof loader>();
+  const actionData = useActionData<typeof clientAction>();
   const submit = useSubmit();
   const navigation = useNavigation();
-  const errors = actionData && "errors" in actionData ? actionData.errors : {};
+  const revalidator = useRevalidator();
+  const [reloads, setReloads] = useState(0);
+  const [dismissed, setDismissed] = useState<unknown>();
+  const feedback = actionData && "errors" in actionData && actionData !== dismissed ? actionData : undefined;
   const pending = navigation.state === "submitting";
+  const single = product.options.length === 0 ? product.variants[0] : undefined;
+  const values: ProductFormValues = {
+    name: product.name, description: product.description ?? "", sku: single?.sku ?? "",
+    salePrice: single ? single.salePrice.amount.toFixed(2) : "", purchasePrice: single?.purchasePrice ? single.purchasePrice.amount.toFixed(2) : "", initialStock: "",
+  };
+  const originalNames = Object.fromEntries(product.options.flatMap((option) => [[option.id, option.name], ...option.values.map((value) => [value.id, value.name])]));
 
-  function save(next: ProductFormValues, image: ProductImageSelection) {
-    submit({
-      name: next.name,
-      description: next.description === "" ? null : next.description,
-      ...(image.kind === "set" ? { imageId: image.id } : image.kind === "remove" ? { imageId: null } : {}),
-      ...(variantId === undefined ? {} : { variants: [{
-        id: variantId,
-        sku: next.sku === "" ? null : next.sku,
-        salePrice: Number(next.salePrice),
-        purchasePrice: next.purchasePrice === "" ? null : Number(next.purchasePrice),
-      }] }),
-    }, { method: "post", encType: "application/json", action: `${catalog}/${product.id}` });
+  function save({ values: next, image, draft }: ProductFormSubmission) {
+    submit(buildSaveProductBody(draft, {
+      structureVersion: product.structureVersion, name: next.name, description: next.description === "" ? null : next.description,
+      imageId: image.kind === "set" ? image.id : image.kind === "remove" ? null : product.imageId,
+    }), { method: "put", encType: "application/json", action: `${catalog}/${product.id}` });
+  }
+
+  async function reload() {
+    setDismissed(actionData);
+    await revalidator.revalidate();
+    setReloads((current) => current + 1);
   }
 
   return <PageContainer>
@@ -99,21 +116,9 @@ export default function ProductDetail() {
       <PageHeader.Actions><Button asChild variant="outline"><Link to={catalog}>{t("products.backProducts")}</Link></Button></PageHeader.Actions>
     </PageHeader>
     {saved && <Alert variant="success" className="mt-5"><AlertDescription>{t("products.saved")}</AlertDescription></Alert>}
-    <ProductForm currency={product.currency} cancelTo={catalog} errors={errors} pending={pending} values={values} variantFields={variantId ? "editable" : "hidden"} stock={stock} submitLabel={t("products.saveChanges")} imageUrl={imageUrl} onSave={save} variants={variantId ? undefined : <section aria-labelledby="variants-heading">
-      <h2 id="variants-heading" className="text-base font-semibold">{t("products.variants")}</h2>
-      <div className="mt-3 grid gap-3">{product.variants.map((variant, index) => <Card key={variant.id} role="article">
-        <CardHeader><CardTitle className="text-base font-medium">{t("products.variant", { number: index + 1 })}</CardTitle></CardHeader>
-        <CardContent>
-          <DescriptionList orientation="vertical" className="grid gap-3 sm:grid-cols-2">
-            {Object.entries(variant.attributes).map(([name, value]) => <DescriptionItem key={name}><DescriptionTerm>{name}</DescriptionTerm><DescriptionDetails>{value}</DescriptionDetails></DescriptionItem>)}
-            <DescriptionItem><DescriptionTerm>SKU</DescriptionTerm><DescriptionDetails>{variant.sku ?? t("products.noSku")}</DescriptionDetails></DescriptionItem>
-            <DescriptionItem><DescriptionTerm>{t("products.salePrice")}</DescriptionTerm><DescriptionDetails>{formatCurrency(variant.salePrice.amount, variant.salePrice.currency, i18n.language)}</DescriptionDetails></DescriptionItem>
-            <DescriptionItem><DescriptionTerm>{t("products.purchasePrice")}</DescriptionTerm><DescriptionDetails>{variant.purchasePrice ? formatCurrency(variant.purchasePrice.amount, variant.purchasePrice.currency, i18n.language) : t("products.noPrice")}</DescriptionDetails></DescriptionItem>
-            <DescriptionItem><DescriptionTerm>{t("products.stock")}</DescriptionTerm><DescriptionDetails>{variant.stock.quantity}</DescriptionDetails></DescriptionItem>
-          </DescriptionList>
-        </CardContent>
-      </Card>)}</div>
-    </section>} />
+    {variantDeleted && <Alert variant="success" className="mt-5"><AlertDescription>{t("variantDetail.variantDeleted")}</AlertDescription></Alert>}
+    <ProductForm key={`${product.updatedAt}:${product.structureVersion}:${reloads}`} currency={product.currency} cancelTo={catalog} feedback={feedback} pending={pending} values={values}
+      draft={draftFromProduct(product)} originalNames={originalNames} variantHref={(variantId) => `${catalog}/${product.id}/variants/${variantId}`} submitLabel={t("products.saveChanges")} imageUrl={imageUrl} onSave={save} onReload={reload} />
   </PageContainer>;
 }
 

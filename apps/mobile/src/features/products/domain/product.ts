@@ -5,14 +5,25 @@ export type VariantId = string & { readonly __brand: "VariantId" };
 export type VariantQrCode = string & { readonly __brand: "VariantQrCode" };
 export type ImageId = string & { readonly __brand: "ImageId" };
 
+export type OptionId = string & { readonly __brand: "OptionId" };
+export type OptionValueId = string & { readonly __brand: "OptionValueId" };
+
+export type ProductOptionValue = Readonly<{ id: OptionValueId; name: string }>;
+export type ProductOption = Readonly<{ id: OptionId; name: string; values: readonly ProductOptionValue[] }>;
+/** Core sends any string; only "active" is on sale, so every other value reads as deactivated. */
+export type VariantStatus = "active" | "inactive";
+
 export type ProductVariant = Readonly<{
   id: VariantId;
   qrCode: VariantQrCode;
-  attributes: Readonly<Record<string, string>>;
+  /** One entry per option, in saved option order. Empty for a product without options. */
+  combination: readonly Readonly<{ optionId: OptionId; valueId: OptionValueId }>[];
   sku?: string;
   salePrice: Money;
   purchasePrice?: Money;
   stock: number;
+  status: VariantStatus;
+  hasOrders: boolean;
 }>;
 
 export type Product = Readonly<{
@@ -21,6 +32,8 @@ export type Product = Readonly<{
   description?: string;
   currency: Currency;
   photo?: Readonly<{ id: ImageId; url: string }>;
+  structureVersion: number;
+  options: readonly ProductOption[];
   variants: readonly ProductVariant[];
 }>;
 
@@ -28,8 +41,10 @@ export type ProductListItem = Readonly<{
   id: ProductId;
   name: string;
   variantCount: number;
+  activeVariantCount: number;
   sku?: string;
-  price: Money;
+  /** Lowest price among active variants; null when none is active. */
+  price: Money | null;
   priceFrom: boolean;
   stock: number;
   photo?: Readonly<{ id: ImageId; url: string }>;

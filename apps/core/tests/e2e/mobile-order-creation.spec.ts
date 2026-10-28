@@ -3,7 +3,7 @@ import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 test("mobile creation screen integrates with real order API, database and persisted recovery", async ({ page }) => {
@@ -14,7 +14,7 @@ test("mobile creation screen integrates with real order API, database and persis
     companyId = await prepareVerifiedCompany(page, { email, name: "Mobile seller", companyName: "Journey company", country: "PE" });
     const tenantId = companyId;
     const variantId = await withTenantIsolation(tenantId, async () => {
-      const product = await products.create({ name: "Journey product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 5 }] });
+      const product = await productEditing.create({ name: "Journey product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 5 }] });
       if (!product.success) throw new Error("Product setup failed");
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
     });
@@ -61,7 +61,7 @@ test("mobile creation screen integrates with real order API, database and persis
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
       await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany();
       await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();

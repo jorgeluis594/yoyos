@@ -1,8 +1,7 @@
-import type { ComponentType } from "react";
+import { useMemo, type ComponentType } from "react";
 import type { Meta, StoryObj } from "@storybook/react-vite";
-import { MemoryRouter } from "react-router";
+import { createMemoryRouter, RouterProvider } from "react-router";
 import { Button } from "@/components/ui/button";
-import { Card } from "@/components/ui/card";
 import { DataTable, type TableColumn } from "@/components/ui/data-table";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -13,15 +12,18 @@ import {
   type ProductFormValues,
 } from "@core/src/features/products/presentation/product-form";
 import type { FormErrors } from "@core/src/features/products/presentation/messages";
+import { draftFromProduct } from "@shared/product-variants";
+
+// The product form blocks navigation with unsaved changes, which needs a data router.
+function StoryRouter({ Story }: { Story: ComponentType }) {
+  const router = useMemo(() => createMemoryRouter([{ path: "*", element: <Story /> }]), [Story]);
+  return <RouterProvider router={router} />;
+}
 
 const meta = {
   title: "Design System/Patterns",
   decorators: [
-    (Story: ComponentType) => (
-      <MemoryRouter>
-        <Story />
-      </MemoryRouter>
-    ),
+    (Story: ComponentType) => <StoryRouter Story={Story} />,
   ],
 } satisfies Meta;
 export default meta;
@@ -138,7 +140,7 @@ function FormPage({ errors }: { errors?: FormErrors }) {
       <ProductForm
         currency="PEN"
         cancelTo="/products"
-        errors={errors ?? {}}
+        feedback={{ errors: errors ?? {}, issues: [] }}
         pending={false}
         onSave={() => {}}
       />
@@ -164,6 +166,18 @@ export const ProductFormErrors: Story = {
   ),
 };
 
+const money = (amount: number) => ({ amount, currency: "PEN" as const });
+const ids = { talla: "00000000-0000-4000-8000-000000000001", m: "00000000-0000-4000-8000-000000000002", l: "00000000-0000-4000-8000-000000000003" };
+const storyProduct = (variants: readonly { id: string; value?: string; stock: number }[]) => ({
+  id: "00000000-0000-4000-8000-0000000000aa", name: "Polo oversize", description: null, imageId: null, currency: "PEN" as const, qrCode: "00000000-0000-4000-8000-0000000000ab",
+  createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
+  options: variants.some((variant) => variant.value) ? [{ id: ids.talla, name: "Talla", values: [{ id: ids.m, name: "M" }, { id: ids.l, name: "L" }] }] : [],
+  variants: variants.map((variant) => ({
+    id: variant.id, combination: variant.value ? [{ optionId: ids.talla, valueId: variant.value }] : [], sku: null, salePrice: money(59.9), purchasePrice: money(32),
+    qrCode: variant.id, status: "active", stock: variant.stock, hasOrders: false,
+  })),
+});
+
 export const ProductDetail: Story = {
   name: "Manejo de producto",
   render: () => (
@@ -172,7 +186,7 @@ export const ProductDetail: Story = {
         <PageHeader.Heading><PageHeader.Title>Polo oversize</PageHeader.Title></PageHeader.Heading>
         <PageHeader.Actions><Button asChild variant="outline"><a href="/products">Volver a productos</a></Button></PageHeader.Actions>
       </PageHeader>
-      <ProductForm currency="PEN" cancelTo="/products" errors={{}} pending={false} values={editValues} stock={24} submitLabel="Guardar cambios" onSave={() => {}} />
+      <ProductForm currency="PEN" cancelTo="/products" pending={false} values={editValues} draft={draftFromProduct(storyProduct([{ id: "00000000-0000-4000-8000-0000000000b1", stock: 24 }]))} submitLabel="Guardar cambios" onSave={() => {}} />
     </PageContainer>
   ),
 };
@@ -182,21 +196,8 @@ export const ProductDetailMultipleVariants: Story = {
   render: () => (
     <PageContainer>
       <PageHeader><PageHeader.Heading><PageHeader.Title>Polo oversize</PageHeader.Title></PageHeader.Heading></PageHeader>
-      <ProductForm currency="PEN" cancelTo="/products" errors={{}} pending={false} values={editValues} stock={41} variantFields="hidden" submitLabel="Guardar cambios" onSave={() => {}} variants={
-        <section aria-labelledby="variants-story-heading">
-          <h2 id="variants-story-heading" className="text-base font-semibold">Variantes</h2>
-          <div className="mt-3 grid gap-3">{["M", "L"].map((size, index) => <Card key={size} role="article" className="p-4">
-            <h3 className="font-medium">Variante {index + 1}</h3>
-            <dl className="mt-3 grid gap-3 text-sm sm:grid-cols-2">
-              <div><dt className="text-muted-foreground">Talla</dt><dd>{size}</dd></div>
-              <div><dt className="text-muted-foreground">SKU</dt><dd>POLO-{size}-CAR</dd></div>
-              <div><dt className="text-muted-foreground">Precio de venta</dt><dd>59.90 PEN</dd></div>
-              <div><dt className="text-muted-foreground">Precio de compra</dt><dd>32.00 PEN</dd></div>
-              <div><dt className="text-muted-foreground">Stock</dt><dd>{size === "M" ? 24 : 17}</dd></div>
-            </dl>
-          </Card>)}</div>
-        </section>
-      } />
+      <ProductForm currency="PEN" cancelTo="/products" pending={false} values={editValues} submitLabel="Guardar cambios" onSave={() => {}}
+        draft={draftFromProduct(storyProduct([{ id: "00000000-0000-4000-8000-0000000000b1", value: ids.m, stock: 24 }, { id: "00000000-0000-4000-8000-0000000000b2", value: ids.l, stock: 17 }]))} />
     </PageContainer>
   ),
 };

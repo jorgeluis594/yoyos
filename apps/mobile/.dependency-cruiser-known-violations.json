@@ -1,0 +1,668 @@
+[
+  {
+    "type": "dependency",
+    "from": "src/features/products/application/product-operations.ts",
+    "to": "src/features/products/infrastructure/product-api.ts",
+    "unresolvedTo": "../infrastructure/product-api",
+    "dependencyTypes": [
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "application-imports-adapter"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/presentation/product-print-work.ts",
+    "to": "src/features/printing/presentation/print-provider.tsx",
+    "unresolvedTo": "@mobile/features/printing/presentation/print-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-adapter-type"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/delivery-settings/presentation/delivery-settings-screen.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/application/dispatch-print-batch.ts",
+    "to": "src/features/printing/domain/printing.ts",
+    "unresolvedTo": "@mobile/features/printing/domain/printing",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/infrastructure/dispatch-label-renderer.ts",
+    "to": "src/features/products/infrastructure/label-text.ts",
+    "unresolvedTo": "@mobile/features/products/infrastructure/label-text",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/infrastructure/dispatch-label-renderer.ts",
+    "to": "src/features/products/infrastructure/product-label-renderer.ts",
+    "unresolvedTo": "@mobile/features/products/infrastructure/product-label-renderer",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/presentation/dispatch-print-review.tsx",
+    "to": "src/features/printing/presentation/print-provider.tsx",
+    "unresolvedTo": "@mobile/features/printing/presentation/print-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/presentation/dispatch-print-review.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/presentation/new-order-screen.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/presentation/order-delivery-screen.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/presentation/order-detail-screen.tsx",
+    "to": "src/features/catalog/presentation/use-copy-link.ts",
+    "unresolvedTo": "@mobile/features/catalog/presentation/use-copy-link",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/presentation/order-detail-screen.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/presentation/order-history-screen.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/presentation/pending-order-sync-provider.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/printing/presentation/print-provider.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/application/product-printing.ts",
+    "to": "src/features/printing/domain/printing.ts",
+    "unresolvedTo": "@mobile/features/printing/domain/printing",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/presentation/catalog-screen.tsx",
+    "to": "src/features/printing/presentation/print-provider.tsx",
+    "unresolvedTo": "@mobile/features/printing/presentation/print-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/presentation/catalog-screen.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/presentation/create-product-screen.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/presentation/product-management-screen.tsx",
+    "to": "src/features/printing/presentation/print-provider.tsx",
+    "unresolvedTo": "@mobile/features/printing/presentation/print-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/presentation/product-management-screen.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/presentation/product-print-sheet.tsx",
+    "to": "src/features/printing/presentation/print-provider.tsx",
+    "unresolvedTo": "@mobile/features/printing/presentation/print-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/whatsapp/presentation/conversation-screen.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/whatsapp/presentation/conversations-screen.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/whatsapp/presentation/whatsapp-provider.tsx",
+    "to": "src/features/users/presentation/access-provider.tsx",
+    "unresolvedTo": "@mobile/features/users/presentation/access-provider",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/companies/application/generate-company.ts",
+    "to": "node_modules/.pnpm/expo-crypto@57.0.3_expo@57.0.24/node_modules/expo-crypto/build/Crypto.js",
+    "unresolvedTo": "expo-crypto",
+    "dependencyTypes": [
+      "npm",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-package"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/catalog/domain/catalog-link.ts",
+    "to": "../../shared/contracts/catalog.ts",
+    "unresolvedTo": "@shared/contracts/catalog",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/companies/application/create-company.ts",
+    "to": "../../shared/contracts/registration.ts",
+    "unresolvedTo": "@shared/contracts/registration",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/delivery-settings/application/delivery-settings.ts",
+    "to": "../../shared/contracts/delivery-settings.ts",
+    "unresolvedTo": "@shared/contracts/delivery-settings",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/delivery-settings/application/quotation.ts",
+    "to": "../../shared/contracts/quotations.ts",
+    "unresolvedTo": "@shared/contracts/quotations",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/application/order-operations.ts",
+    "to": "../../shared/contracts/orders.ts",
+    "unresolvedTo": "@shared/contracts/orders",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/application/order-printing.ts",
+    "to": "../../shared/contracts/orders.ts",
+    "unresolvedTo": "@shared/contracts/orders",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/domain/order-draft.ts",
+    "to": "../../shared/contracts/orders.ts",
+    "unresolvedTo": "@shared/contracts/orders",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/products/application/product-operations.ts",
+    "to": "../../shared/contracts/products.ts",
+    "unresolvedTo": "@shared/contracts/products",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/store-appearance/application/store-appearance.ts",
+    "to": "../../shared/contracts/store-appearance.ts",
+    "unresolvedTo": "@shared/contracts/store-appearance",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/store-appearance/domain/logo-file.ts",
+    "to": "../../shared/contracts/images.ts",
+    "unresolvedTo": "@shared/contracts/images",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/users/application/register.ts",
+    "to": "../../shared/contracts/account-actions.ts",
+    "unresolvedTo": "@shared/contracts/account-actions",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/users/application/user-access.ts",
+    "to": "../../shared/contracts/registration.ts",
+    "unresolvedTo": "@shared/contracts/registration",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "type-only",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "inner-layer-imports-shared-contract"
+    }
+  },
+  {
+    "type": "dependency",
+    "from": "src/app/_layout.tsx",
+    "to": "src/features/whatsapp/infrastructure/local-database.ts",
+    "unresolvedTo": "@mobile/features/whatsapp/infrastructure/local-database",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "routes-import-feature-infrastructure"
+    }
+  }
+]

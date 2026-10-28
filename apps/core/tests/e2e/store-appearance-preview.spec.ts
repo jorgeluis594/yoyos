@@ -71,14 +71,16 @@ test("shows the checkout with sample data and labelled sample payment methods", 
 test("shows the company's real payment methods in the payment state", async ({ page }) => {
   await withCompany(async () => {
     await page.goto("/es-PE/settings/payments");
-    await page.getByLabel("Ofrecer billetera digital").check();
-    await page.getByLabel("Proveedor").fill("Plin Lima");
+    // A wallet needs a checked QR image, so the saved method is a bank transfer.
+    await page.getByLabel("Ofrecer transferencia bancaria").check();
+    await page.getByLabel("Banco", { exact: true }).fill("BCP Lima");
     await page.getByLabel("Titular").first().fill("Lima Studio");
-    await page.getByRole("button", { name: "Guardar medios de cobro" }).click();
+    await page.getByLabel("CCI").fill("00200000000000000001");
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
     await browserExpect(page.getByText("Medios de cobro guardados.")).toBeVisible();
     await openPreview(page);
     await post(page, update({ state: "payment" }));
-    await browserExpect(page.getByRole("radio", { name: "Plin Lima" })).toBeVisible();
+    await browserExpect(page.getByRole("radio", { name: "Transferencia", exact: true })).toBeVisible();
     await browserExpect(page.getByRole("note")).toHaveCount(0);
   }, page);
 });
@@ -153,7 +155,7 @@ test("applies the theme draft to the preview without changing the public checkou
     if (companyId) {
       await withTenantIsolation(companyId, async () => {
         await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-        await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+        await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       });
       await removeCompanyAppearance(companyId);
       await withTenantIsolation(companyId, async () => {
@@ -179,6 +181,25 @@ test("never confirms orders, registers payments or submits forms from the previe
     await browserExpect(page.getByRole("button", { name: "Ya pagué" })).toBeDisabled();
     expect(page.url()).toBe(url);
     expect(requests).toEqual([]);
+  }, page);
+});
+
+test("keeps every payment detail inside its box at 390 px in the five themes and lets the total label wrap", async ({ page }) => {
+  await withCompany(async () => {
+    await page.setViewportSize({ width: 390, height: 938 });
+    await openPreview(page);
+    for (const theme of ["classic", "boutique", "antojo", "suave", "noche"] as const) {
+      await post(page, update({ state: "payment", appearance: { logoUrl: null, theme } }));
+      const details = page.locator(`[data-store-theme-id="${theme}"] [data-store-part=payment-details]`);
+      await browserExpect(details).toBeVisible();
+      const overflow = await details.evaluate((box) => {
+        const edge = box.getBoundingClientRect().right;
+        return [...box.querySelectorAll("*")].filter((child) => child.getBoundingClientRect().right > edge + 0.5).map((child) => child.textContent?.trim());
+      });
+      expect(overflow, theme).toEqual([]);
+      // The sample methods carry no QR, so the narrow column is guarded by the label being allowed to wrap beside one.
+      await browserExpect(details.locator("[data-store-part=total-label]")).toHaveCSS("white-space", "normal");
+    }
   }, page);
 });
 

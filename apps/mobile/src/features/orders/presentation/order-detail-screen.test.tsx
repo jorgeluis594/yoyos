@@ -1,4 +1,4 @@
-import { Alert } from "react-native";
+import { AccessibilityInfo, Alert, Linking, Share, StyleSheet } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
@@ -18,6 +18,7 @@ let mockArrival: (destination: unknown) => void = () => undefined;
 const mockStopArrivals = jest.fn();
 const mockRegisterPayment = jest.fn();
 const mockVoidPayment = jest.fn();
+const mockRejectPayment = jest.fn();
 const mockEnableCheckout = jest.fn();
 const mockShip = jest.fn();
 const mockDeliver = jest.fn();
@@ -38,7 +39,7 @@ const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, company
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
     unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" }, mentionedPrice: null }] };
 let mockOrder = initialOrder;
-beforeEach(() => { mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockLoads = 0; mockNoticeAt = null; mockStopArrivals.mockReset(); mockEnableCheckout.mockReset(); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
+beforeEach(() => { mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockLoads = 0; mockNoticeAt = null; mockStopArrivals.mockReset(); mockEnableCheckout.mockReset(); mockEnableCheckout.mockResolvedValue({ success: true, data: { url: linkUrl } }); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockRejectPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
 
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }),
   useLocalSearchParams: () => ({ id: mockId, ...(mockNoticeAt === null ? {} : { noticeAt: mockNoticeAt }) }),
@@ -54,6 +55,7 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   clearPendingOrderConfirmation: async () => ({ success: true, data: undefined }),
   registerPayment: (...args: unknown[]) => mockRegisterPayment(...args),
   voidPayment: (...args: unknown[]) => mockVoidPayment(...args),
+  rejectPayment: (...args: unknown[]) => mockRejectPayment(...args),
 } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
   status: "ready", user: { id: mockUserId }, company: { id: "00000000-0000-4000-8000-000000000001", country: mockCountry },
@@ -124,6 +126,23 @@ test("seller confirms a reported partial amount from the mobile order", async ()
     method: "digital_wallet", deductStockIfPartial: false,
   }));
   expect(screen.getByText("No hay stock suficiente para confirmar el pago.")).toBeTruthy();
+});
+
+test("never labels a rejected payment as confirmed", async () => {
+  const rejectedId = "00000000-0000-4000-8000-000000000097";
+  mockOrder = { ...initialOrder, status: "active", paymentStatus: "pending", completedAt: null,
+    paidAmount: { amount: 0, currency: "PEN" }, balanceDue: { amount: 12, currency: "PEN" },
+    deliveryStatus: "pending", stockDeducted: false,
+    payments: [{ id: rejectedId, orderId: mockId, status: "rejected", currency: "PEN", amount: null, method: null,
+      data: { report: { receiptImageId: "00000000-0000-4000-8000-000000000098", reportedAt: "2026-09-29T11:30:00.000Z" },
+        rejectedAt: "2026-09-29T12:00:00.000Z", rejectedBy: "seller", reason: "No coincide" } }] };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Saldo pendiente");
+  fireEvent.press(screen.getByRole("button", { name: "Ver pagos" }));
+  expect(screen.getByText("Pago rechazado")).toBeTruthy();
+  expect(screen.queryByText("Pago confirmado")).toBeNull();
+  expect(screen.queryByRole("button", { name: "Anular pago" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Revisar comprobante" })).toBeNull();
 });
 
 test("seller can void a confirmed payment from mobile", async () => {
@@ -253,64 +272,104 @@ test("home details show historical address, district, instructions and seller al
   expect(screen.getByText(/Cargo al cliente:/)).toBeTruthy();
 });
 
-test("seller obtains and copies checkout link without changing the payment display", async () => {
-  const url = `https://shop.example/checkout/${initialOrder.companyId}/${mockId}`;
-  mockEnableCheckout.mockImplementation(async () => {
-    mockOrder = { ...mockOrder, checkoutEnabledAt: "2026-10-05T00:00:00.000Z" };
-    return { success: true, data: { url } };
-  });
+const linkUrl = `https://fantasio.yoyos.lat/checkout/${mockId}`;
+
+test("the order link shows when the screen opens, without a get-link step or a disclosure", async () => {
+  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", completedAt: null, deliveredAt: null };
   const screen = render(<OrderDetailScreen />);
-  await screen.findByText("Enlace aún no habilitado");
-  fireEvent.press(screen.getByRole("button", { name: "Confirmación del comprador" }));
-  fireEvent.press(screen.getByText("Obtener enlace"));
   await screen.findByText("Pendiente de confirmación");
+  expect(await screen.findByText(linkUrl)).toBeTruthy();
+  expect(screen.getByText(linkUrl).props.selectable).toBe(true);
+  expect(mockEnableCheckout).toHaveBeenCalledTimes(1);
   expect(mockEnableCheckout).toHaveBeenCalledWith(mockId);
-  expect(screen.queryByText(url)).toBeNull();
-  expect(screen.queryByRole("button", { name: "Obtener enlace" })).toBeNull();
-  const reveal = screen.getByRole("button", { name: "Ver enlace" });
-  expect(reveal.props.accessibilityState).toEqual({ expanded: false });
-  fireEvent.press(reveal);
-  expect(screen.getByText(url).props.selectable).toBe(true);
-  fireEvent.press(reveal);
-  expect(screen.queryByText(url)).toBeNull();
-  fireEvent.press(screen.getByText("Copiar enlace"));
-  await screen.findByText("Enlace copiado");
-  expect(Clipboard.setStringAsync).toHaveBeenCalledWith(url);
+  expect(screen.getByText("Enlace del pedido")).toBeTruthy();
+  expect(screen.getByText("Comparte este enlace con el comprador para que confirme y pague.")).toBeTruthy();
+  expect(screen.queryByText("Obtener enlace")).toBeNull();
+  expect(screen.queryByText("Ver enlace")).toBeNull();
+  expect(screen.queryByText("Confirmación del comprador")).toBeNull();
   expect(screen.getByText(/Pago cubierto/)).toBeTruthy();
-  jest.mocked(Clipboard.setStringAsync).mockResolvedValueOnce(false);
-  fireEvent.press(screen.getByText("Copiar enlace"));
-  await screen.findByText("Mantén pulsado el enlace para copiarlo.");
-  expect(screen.getByText(url).props.selectable).toBe(true);
 });
 
-test("clipboard rejection reveals the complete selectable link for manual recovery", async () => {
-  const url = `https://shop.example/checkout/${mockId}`;
-  mockEnableCheckout.mockResolvedValue({ success: true, data: { url } });
-  jest.mocked(Clipboard.setStringAsync).mockRejectedValueOnce(new Error("Clipboard unavailable"));
+test("copy announces politely, share and open use the link, and a refused copy fails silently", async () => {
+  const share = jest.spyOn(Share, "share").mockResolvedValue({ action: "sharedAction" });
+  const open = jest.spyOn(Linking, "openURL").mockResolvedValue(true);
   const screen = render(<OrderDetailScreen />);
-  fireEvent.press(await screen.findByRole("button", { name: "Confirmación del comprador" }));
-  fireEvent.press(screen.getByRole("button", { name: "Obtener enlace" }));
-  fireEvent.press(await screen.findByRole("button", { name: "Copiar enlace" }));
-  await screen.findByText("Mantén pulsado el enlace para copiarlo.");
-  expect(screen.getByText(url).props.selectable).toBe(true);
-  expect(screen.getByRole("button", { name: "Ver enlace" }).props.accessibilityState).toEqual({ expanded: true });
+  await screen.findByText(linkUrl);
+  jest.mocked(Clipboard.setStringAsync).mockResolvedValueOnce(false);
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Copiar enlace" })));
+  expect(screen.queryByText("Enlace copiado")).toBeNull();
+  jest.mocked(Clipboard.setStringAsync).mockRejectedValueOnce(new Error("denied"));
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Copiar enlace" })));
+  expect(screen.queryByText("Enlace copiado")).toBeNull();
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Copiar enlace" })));
+  expect(Clipboard.setStringAsync).toHaveBeenLastCalledWith(linkUrl);
+  expect(screen.getByText("Enlace copiado").props.accessibilityLiveRegion).toBe("polite");
+  fireEvent.press(screen.getByRole("button", { name: "Compartir enlace" }));
+  fireEvent.press(screen.getByRole("button", { name: "Abrir enlace" }));
+  expect(share).toHaveBeenCalledWith({ message: linkUrl });
+  expect(open).toHaveBeenCalledWith(linkUrl);
+  share.mockRestore(); open.mockRestore();
 });
 
-test("confirmed and cancelled checkouts display persisted state while link failures remain retryable", async () => {
+test("the link actions are at least 44 points tall", async () => {
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText(linkUrl);
+  for (const name of ["Copiar enlace", "Compartir enlace", "Abrir enlace"]) {
+    const style = StyleSheet.flatten(screen.getByRole("button", { name }).props.style);
+    expect(style.minHeight).toBeGreaterThanOrEqual(44);
+  }
+});
+
+test("a confirmed order says so and still shows its link", async () => {
   mockOrder = { ...initialOrder, number: 10000, checkoutEnabledAt: "2026-10-05T00:00:00.000Z", checkoutConfirmedAt: "2026-10-05T01:00:00.000Z", buyer: { name: "Ana", phone: "+51987654321", contactId: null } };
-  const confirmed = render(<OrderDetailScreen />);
-  await confirmed.findByText("Confirmado por el comprador");
-  expect(confirmed.getByText("Pedido #10000")).toBeTruthy();
-  mockEnableCheckout.mockResolvedValue({ success: false, error: { code: "SERVICE_UNAVAILABLE" } });
-  fireEvent.press(confirmed.getByRole("button", { name: "Confirmación del comprador" }));
-  fireEvent.press(confirmed.getByText("Obtener enlace"));
-  await confirmed.findByText("No se pudo obtener el enlace. Inténtalo de nuevo.");
-  expect(confirmed.queryByText("Copiar enlace")).toBeNull();
-  confirmed.unmount();
-  mockOrder = { ...mockOrder, cancelled: true, status: "cancelled" };
-  const cancelled = render(<OrderDetailScreen />);
-  await cancelled.findByText("Pedido cancelado");
-  expect(cancelled.queryByText("Obtener enlace")).toBeNull();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Confirmado por el comprador");
+  expect(await screen.findByText(linkUrl)).toBeTruthy();
+});
+
+test("without a subdomain the screen explains and leads to Apariencia de la tienda", async () => {
+  mockEnableCheckout.mockResolvedValue({ success: false, error: { code: "SUBDOMAIN_REQUIRED", message: "Choose the catalog link" } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Elige el link de tu tienda para compartir este pedido.");
+  expect(screen.queryByText(linkUrl)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Copiar enlace" })).toBeNull();
+  expect(screen.queryByText("No se pudo obtener el enlace. Inténtalo de nuevo.")).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Ir a Apariencia de la tienda" }));
+  expect(mockPush).toHaveBeenCalledWith("/settings/appearance?focus=catalog");
+});
+
+test("other failures keep the retryable error and show no link", async () => {
+  mockEnableCheckout.mockResolvedValueOnce({ success: false, error: { code: "SERVICE_UNAVAILABLE" } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("No se pudo obtener el enlace. Inténtalo de nuevo.");
+  expect(screen.queryByText(linkUrl)).toBeNull();
+  expect(screen.queryByRole("button", { name: "Copiar enlace" })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Reintentar" }));
+  expect(await screen.findByText(linkUrl)).toBeTruthy();
+  expect(mockEnableCheckout).toHaveBeenCalledTimes(2);
+});
+
+test("a rejected request shows the same error", async () => {
+  mockEnableCheckout.mockRejectedValueOnce(new Error("boom"));
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("No se pudo obtener el enlace. Inténtalo de nuevo.");
+});
+
+test("a cancelled order offers no link action and never asks for the link", async () => {
+  mockOrder = { ...initialOrder, cancelled: true, status: "cancelled", checkoutEnabledAt: "2026-10-05T00:00:00.000Z" };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Pedido cancelado");
+  expect(mockEnableCheckout).not.toHaveBeenCalled();
+  expect(screen.queryByText(linkUrl)).toBeNull();
+  for (const name of ["Copiar enlace", "Compartir enlace", "Abrir enlace", "Ir a Apariencia de la tienda"]) expect(screen.queryByRole("button", { name })).toBeNull();
+});
+
+test("returning to the screen asks for the link again so a new subdomain shows", async () => {
+  mockEnableCheckout.mockResolvedValueOnce({ success: false, error: { code: "SUBDOMAIN_REQUIRED", message: "x" } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Elige el link de tu tienda para compartir este pedido.");
+  await act(async () => { mockFocus(); });
+  expect(await screen.findByText(linkUrl)).toBeTruthy();
 });
 
 
@@ -479,15 +538,14 @@ test.each(["NETWORK_ERROR", "RATE_LIMITED"])("%s uncertainty blocks writes and m
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Orden activa");
   fireEvent.press(screen.getByRole("button", { name: "Ver pagos" }));
-  fireEvent.press(screen.getByRole("button", { name: "Confirmación del comprador" }));
   acceptCancellation(screen);
   await screen.findByText(/No pudimos confirmar si se canceló/);
-  for (const name of ["Cancelar pedido", "Anular pago", "Marcar enviado", "Asignar datos", "Obtener enlace"]) {
+  for (const name of ["Cancelar pedido", "Anular pago", "Marcar enviado", "Asignar datos"]) {
     expect(screen.getByRole("button", { name })).toBeDisabled();
     fireEvent.press(screen.getByRole("button", { name }));
   }
   expect(mockVoidPayment).not.toHaveBeenCalled(); expect(mockShip).not.toHaveBeenCalled();
-  expect(mockEnableCheckout).not.toHaveBeenCalled(); expect(mockPush).not.toHaveBeenCalled();
+  expect(mockPush).not.toHaveBeenCalled();
   mockOrder = { ...mockOrder, deliveryStatus: "shipped" };
   mockCheckCancellation.mockResolvedValue({ success: true, data: { kind: "dispatched", order: { id: mockId, cancelled: false, status: "active", deliveryStatus: "shipped" } } });
   fireEvent.press(screen.getByRole("button", { name: "Consultar estado" }));
@@ -733,4 +791,149 @@ describe("notices arriving while the order is open", () => {
     await act(async () => { jest.advanceTimersByTime(5000); });
     expect(mockLoads).toBe(loadsBefore);
   });
+});
+
+const reportId = "00000000-0000-4000-8000-000000000099";
+const receiptId = "00000000-0000-4000-8000-000000000098";
+const report = { receiptImageId: receiptId, reportedAt: "2026-09-29T11:30:00.000Z" };
+const reportedOrder = (overrides: Partial<OrderAggregateResponse> = {}): OrderAggregateResponse => ({ ...initialOrder, status: "active", paymentStatus: "pending",
+  completedAt: null, paidAmount: { amount: 0, currency: "PEN" }, balanceDue: { amount: 12, currency: "PEN" }, deliveryStatus: "pending", stockDeducted: false,
+  payments: [{ id: reportId, orderId: mockId, status: "reported", currency: "PEN", amount: null, method: null, data: report }], ...overrides });
+
+test("labels a rejected payment as Pago rechazado with its reason and Ver captura", async () => {
+  mockOrder = reportedOrder({ payments: [{ id: reportId, orderId: mockId, status: "rejected", currency: "PEN", amount: null, method: null,
+    data: { report, rejectedAt: "2026-09-29T12:00:00.000Z", rejectedBy: "seller", reason: "El monto no coincide" } }] });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Saldo pendiente");
+  fireEvent.press(screen.getByRole("button", { name: "Ver pagos" }));
+  expect(screen.getByText("Pago rechazado")).toBeTruthy();
+  expect(screen.getByText("El monto no coincide")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Ver captura" })).toBeTruthy();
+  expect(screen.queryByText("Pago confirmado")).toBeNull();
+  expect(screen.queryByText("Pago por revisar")).toBeNull();
+});
+
+test("rejects a report from the review sheet with an optional reason", async () => {
+  const rejected = reportedOrder({ payments: [{ id: reportId, orderId: mockId, status: "rejected", currency: "PEN", amount: null, method: null,
+    data: { report, rejectedAt: "2026-09-29T12:00:00.000Z", rejectedBy: "seller", reason: "El monto no coincide" } }] });
+  mockRejectPayment.mockResolvedValueOnce({ kind: "already_reviewed" }).mockResolvedValueOnce({ kind: "rejected", order: rejected });
+  mockOrder = reportedOrder();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar" }));
+  expect(screen.getByText("¿Rechazar este comprobante?")).toBeTruthy();
+  expect(screen.getByText("El saldo seguirá pendiente y el comprador podrá enviar otro comprobante.")).toBeTruthy();
+  fireEvent.changeText(screen.getByLabelText("Motivo (opcional, lo verá el comprador)"), "  El monto no coincide ");
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar comprobante" }));
+  await screen.findByText("Este pago ya fue revisado.");
+  expect(mockRejectPayment).toHaveBeenLastCalledWith(mockId, reportId, "El monto no coincide");
+  await waitFor(() => expect(screen.getByRole("button", { name: "Rechazar comprobante" })).toBeEnabled());
+  mockOrder = rejected;
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar comprobante" }));
+  await waitFor(() => expect(mockRejectPayment).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByText("¿Rechazar este comprobante?")).toBeNull(), { timeout: 5000 });
+  expect(screen.getByText("Pago rechazado")).toBeTruthy();
+  expect(screen.getByText("El monto no coincide")).toBeTruthy();
+});
+
+test("rejecting without a reason sends null and Volver returns to the review step", async () => {
+  mockRejectPayment.mockResolvedValue({ kind: "unknown" });
+  mockOrder = reportedOrder();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Volver" }));
+  expect(screen.getByRole("button", { name: "Confirmar pago" })).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Rechazar comprobante" }));
+  await screen.findByText("No sabemos si se guardó. Revisa el pedido antes de repetir.");
+  expect(mockRejectPayment).toHaveBeenCalledWith(mockId, reportId, null);
+});
+
+test("shows the partial stock box only when the amount is below the balance", async () => {
+  mockOrder = reportedOrder();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  expect(screen.queryByLabelText("Descontar stock con abono parcial")).toBeNull();
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "4.50");
+  expect(screen.getByLabelText("Descontar stock con abono parcial")).toBeTruthy();
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "12");
+  expect(screen.queryByLabelText("Descontar stock con abono parcial")).toBeNull();
+});
+
+test("hides the partial stock box when stock was already deducted", async () => {
+  mockOrder = reportedOrder({ stockDeducted: true });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.changeText(screen.getByLabelText(/Importe recibido/), "4.50");
+  expect(screen.queryByLabelText("Descontar stock con abono parcial")).toBeNull();
+});
+
+test("shows Pago por revisar while a report is pending", async () => {
+  mockOrder = reportedOrder();
+  const pending = render(<OrderDetailScreen />);
+  await pending.findByText("Saldo pendiente");
+  expect(pending.getByText("Pago por revisar")).toBeTruthy();
+  pending.unmount();
+  mockOrder = reportedOrder({ cancelled: true, status: "cancelled" });
+  const cancelled = render(<OrderDetailScreen />);
+  await cancelled.findByText("Saldo pendiente");
+  expect(cancelled.queryByText("Pago por revisar")).toBeNull();
+});
+
+test.each([
+  ["PAYMENT_CONFLICT", "Este pago ya fue revisado."],
+  ["INVALID_TRANSITION", "Este pago ya fue revisado."],
+  ["NETWORK_ERROR", "No sabemos si se guardó. Revisa el pedido antes de repetir."],
+])("confirming from the review sheet answers %s with its message and reloads the order", async (code, message) => {
+  const decided = reportedOrder({ payments: [{ id: reportId, orderId: mockId, status: "rejected", currency: "PEN", amount: null, method: null,
+    data: { report, rejectedAt: "2026-09-29T12:00:00.000Z", rejectedBy: "seller", reason: "El monto no coincide" } }] });
+  // Somebody else decided the report meanwhile: only a reload of the order can show it.
+  mockRegisterPayment.mockImplementation(async () => { mockOrder = decided; return { success: false, error: { code } }; });
+  mockOrder = reportedOrder();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "1 comprobante por revisar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  await screen.findByText(message);
+  await screen.findByText("Pago rechazado");
+  expect(mockRegisterPayment).toHaveBeenCalledTimes(1);
+});
+
+test("while the link loads the card says so instead of looking empty", async () => {
+  let release: (value: unknown) => void = () => undefined;
+  mockEnableCheckout.mockImplementationOnce(() => new Promise(resolve => { release = resolve; }));
+  const screen = render(<OrderDetailScreen />);
+  expect(await screen.findByText("Cargando enlace…")).toBeTruthy();
+  expect(screen.getByText("Enlace del pedido")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "Copiar enlace" })).toBeNull();
+  await act(async () => release({ success: true, data: { url: linkUrl } }));
+  expect(await screen.findByText(linkUrl)).toBeTruthy();
+  expect(screen.queryByText("Cargando enlace…")).toBeNull();
+});
+
+test("a completed order the buyer never confirmed shows no pending state, like the history", async () => {
+  mockOrder = { ...initialOrder, checkoutEnabledAt: "2026-10-05T00:00:00.000Z" };
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText(linkUrl);
+  expect(screen.queryByText("Pendiente de confirmación")).toBeNull();
+  expect(screen.queryByText("Confirmado por el comprador")).toBeNull();
+});
+
+test("the copy confirmation is also announced for VoiceOver", async () => {
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => undefined);
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText(linkUrl);
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Copiar enlace" })));
+  expect(announce).toHaveBeenCalledWith("Enlace copiado");
+  announce.mockRestore();
 });

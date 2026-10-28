@@ -5,7 +5,7 @@ import { writeFile } from "node:fs/promises";
 import pg from "pg";
 import { vi } from "vitest";
 import { expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createEventBusRuntime } from "@core/src/composition/event-bus";
 import { bootstrapEventHandlers, eventHandlers } from "@core/src/composition/event-handlers";
@@ -57,7 +57,7 @@ test.runIf(process.env.NATIVE_ANDROID_TEST === "1")("Android cancels real orders
   const email = `native-cancel-${crypto.randomUUID()}@example.test`;
   const companyId = await prepareVerifiedCompany(page, { email, name: "Native seller", companyName: "Native cancellation", country: "PE" });
   const variantId = await withTenantIsolation(companyId, async () => {
-    const created = await products.create({ name: "Native cancellation product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 20 }] });
+    const created = await productEditing.create({ name: "Native cancellation product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 20 }] });
     if (!created.success) throw new Error("Product setup failed");
     return (await prisma.productVariant.findFirstOrThrow({ where: { productId: created.data } })).id;
   });
@@ -220,7 +220,7 @@ test.runIf(process.env.NATIVE_ANDROID_TEST === "1")("Android cancels real orders
     try { await pool.query("DELETE FROM pgboss.job WHERE data->'payload'->>'companyId' = $1", [companyId]); } finally { await pool.end(); }
     await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });
   }

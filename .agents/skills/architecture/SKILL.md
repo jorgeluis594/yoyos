@@ -46,6 +46,7 @@ A behavior definition: a product draft in `docs/drafts/<concept>.md`, a Todoist 
 - The document describes only the current design. Reorganizing never removes detail. No history of previous decisions.
 - What belongs to another feature or branch does not go in, but the meeting contract is defined so the other only adds.
 - A code fact or a convention learned during definition is recorded in the repository memory, not in this skill.
+- Nothing is designed for one country inside a general piece. Country-specific data and rules (geography, phones, tax identifiers, currency) go in that country's module behind a general interface, following rule 5.7 of the guide. If the feature touches code that already breaks the rule, the draft says so and proposes the decoupling as its own task, without expanding the scope.
 - If a necessary product decision appears during design (what the user sees, what a button means), it is noted as an assumption in the document and taken to the questions block; it is not developed.
 
 ## After this skill

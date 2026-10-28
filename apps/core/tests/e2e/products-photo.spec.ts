@@ -54,17 +54,21 @@ test("create, replace, keep, and remove a product photo", async ({ page }) => {
     await page.goto(productUrl);
     await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveAttribute("src", /photo-first\.png$/);
     await page.getByLabel("Nombre *").fill("Cuaderno con foto editado");
+    let reloaded = page.waitForResponse((response) => response.request().method() === "GET" && response.url().includes(".data"));
     await page.getByRole("button", { name: "Guardar cambios" }).click();
     await browserExpect(page).toHaveURL(`${productUrl}?saved=1`);
     await browserExpect(page.locator("main img")).toHaveAttribute("src", /photo-first\.png$/);
+    await reloaded;
 
     const second = await prepare("photo-second.png");
     upload = { id: second.id, url: `${publicBase}/${second.storageKey}` };
     await page.getByLabel("Foto", { exact: true }).setInputFiles(file("second.png"));
     await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveAttribute("src", /photo-second\.png$/);
+    reloaded = page.waitForResponse((response) => response.request().method() === "GET" && response.url().includes(".data"));
     await page.getByRole("button", { name: "Guardar cambios" }).click();
     await browserExpect(page).toHaveURL(`${productUrl}?saved=1`);
     await browserExpect(page.locator("main img")).toHaveAttribute("src", /photo-second\.png$/);
+    await reloaded;
 
     await page.getByRole("button", { name: "Quitar foto" }).click();
     await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveCount(0);
@@ -81,6 +85,7 @@ test("create, replace, keep, and remove a product photo", async ({ page }) => {
     await page.getByLabel("Foto", { exact: true }).setInputFiles(file("cancelled.png"));
     await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toBeVisible();
     await page.getByRole("link", { name: "Cancelar" }).click();
+    await page.getByRole("button", { name: "Descartar" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/products$/);
     expect(await withTenantIsolation(tenantId, async () => await prisma.product.count({ where: { companyId: tenantId } }))).toBe(before);
   } finally {
@@ -91,6 +96,7 @@ test("create, replace, keep, and remove a product photo", async ({ page }) => {
         await withTenantIsolation(user.companyId, async () => {
           await prisma.productStock.deleteMany({ where: { companyId: user.companyId! } });
           await prisma.productVariant.deleteMany({ where: { companyId: user.companyId! } });
+          await prisma.productOption.deleteMany({ where: { companyId: user.companyId! } });
           await prisma.product.deleteMany({ where: { companyId: user.companyId! } });
           await prisma.image.deleteMany({ where: { companyId: user.companyId! } });
           await prisma.company.delete({ where: { id: user.companyId! } });

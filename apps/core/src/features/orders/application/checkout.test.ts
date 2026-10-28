@@ -30,7 +30,6 @@ function fixture(initial: CheckoutOrder | null = base) {
     transaction: async (_companyId, work) => work(),
     findOrder: async () => ok(order),
     findOrderForUpdate: async () => ok(order),
-    saveEnabled: async (_access, at) => { writes.push("enabled"); order = { ...order!, checkoutEnabledAt: at }; return ok(null); },
     saveBuyer: async (_access, data) => { writes.push("buyer"); order = { ...order!, buyer: data }; return ok(null); },
     saveConfirmed: async (_access, at) => { writes.push("confirmed"); order = { ...order!, checkoutConfirmedAt: at }; return ok(null); },
   };
@@ -38,12 +37,27 @@ function fixture(initial: CheckoutOrder | null = base) {
   return { deps: { ...deps, findItemPhotos } satisfies CheckoutDependencies & GetOrderCheckoutDependencies, writes, stored: () => order, findItemPhotos };
 }
 
-test("enables once and preserves the original enable timestamp on reuse", async () => {
-  const f = fixture({ ...base, checkoutEnabledAt: null });
-  expect(await enableOrderCheckout(access.orderId, seller, now, f.deps)).toMatchObject({ data: { number: 1001, changed: true } });
-  expect(await enableOrderCheckout(access.orderId, seller, new Date("2027-01-01"), f.deps)).toMatchObject({ data: { changed: false } });
-  expect(f.stored()?.checkoutEnabledAt).toEqual(now);
-  expect(f.writes).toEqual(["enabled"]);
+test("enabling is an idempotent read that never writes or moves the enable timestamp", async () => {
+  const f = fixture();
+  for (let attempt = 0; attempt < 2; attempt += 1)
+    expect(await enableOrderCheckout(access.orderId, seller, f.deps)).toMatchObject({ data: { number: 1001 } });
+  expect(f.stored()?.checkoutEnabledAt).toEqual(base.checkoutEnabledAt);
+  expect(f.writes).toEqual([]);
+});
+
+test("the seller's link read takes no row lock and opens no transaction", async () => {
+  const f = fixture();
+  const forUpdate = vi.fn(f.deps.findOrderForUpdate);
+  const transaction = vi.fn(f.deps.transaction);
+  const deps = { ...f.deps, findOrderForUpdate: forUpdate, transaction };
+  expect(await enableOrderCheckout(access.orderId, seller, deps)).toMatchObject({ data: { number: 1001 } });
+  expect(forUpdate).not.toHaveBeenCalled();
+  expect(transaction).not.toHaveBeenCalled();
+});
+
+test("the seller's link read of another company's order is unavailable", async () => {
+  const f = fixture({ ...base, companyId: uuid(9) as CompanyId });
+  expect(await enableOrderCheckout(access.orderId, seller, { findOrder: f.deps.findOrder })).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
 });
 
 test("public view exposes only checkout data and uses the order total, not a recomputed subtotal", async () => {
@@ -99,7 +113,7 @@ test("repeated confirmations return the existing summary even with stale total a
     .toMatchObject({ data: { changed: false, checkout: { buyer, state: { kind: "confirmed", confirmedAt: now } } } });
   expect(f.stored()).toEqual(first);
   expect(f.writes).toEqual(["buyer", "confirmed"]);
-  expect(await enableOrderCheckout(access.orderId, seller, now, f.deps)).toMatchObject({ data: { changed: false } });
+  expect(await enableOrderCheckout(access.orderId, seller, f.deps)).toMatchObject({ data: { number: 1001 } });
 });
 
 test("unavailable links do not disclose or mutate absent, disabled or mismatched orders", async () => {
@@ -108,7 +122,7 @@ test("unavailable links do not disclose or mutate absent, disabled or mismatched
     expect(await getOrderCheckout(access, f.deps)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
     expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, f.deps)).toMatchObject({ error: { code: "CHECKOUT_UNAVAILABLE" } });
     expect(f.writes).toEqual([]);
-    if (order?.checkoutEnabledAt !== null) expect(await enableOrderCheckout(access.orderId, seller, now, f.deps)).toMatchObject({ success: false });
+    expect(await enableOrderCheckout(access.orderId, seller, f.deps)).toMatchObject({ success: false });
   }
 });
 
@@ -116,7 +130,7 @@ test("cancellation blocks enable and confirm and takes precedence over existing 
   for (const checkoutConfirmedAt of [null, now]) {
     const f = fixture({ ...base, cancelled: true, checkoutConfirmedAt, buyer: { ...buyer, contactId: null } });
     expect(await getOrderCheckout(access, f.deps)).toMatchObject({ data: { checkout: { state: { kind: "cancelled" } } } });
-    expect(await enableOrderCheckout(access.orderId, seller, now, f.deps)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
+    expect(await enableOrderCheckout(access.orderId, seller, f.deps)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
     expect(await confirmOrderCheckout({ buyer, expectedTotal: total }, access, now, f.deps)).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
     expect(f.writes).toEqual([]);
   }
@@ -193,6 +207,39 @@ test("checkout keep requires an existing delivery and preserves historical price
   expect(f.deps.saveDelivery).not.toHaveBeenCalled();
   expect(f.deps.getStoreSettings).not.toHaveBeenCalled();
   expect(f.deps.resolveSelectedDeliveryRate).not.toHaveBeenCalled();
+});
+
+test("checkout keep sets only the recipient name and phone of the kept delivery when told who receives", async () => {
+  const f = deliveryFixture();
+  const kept = { ...f.order, deliveryCost: { amount: 30, currency: "PEN" as const }, deliveryCharge: { amount: 0, currency: "PEN" as const }, delivery: { method: "home" as const, recipient: { name: "Seller typed", phone: "999", identity: { kind: "absent" as const } },
+    destination: { address: "Home street", country: "PE" as const, districtCode: "150101", district: "Old district", province: "Lima", department: "Lima", instructions: null },
+    pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 },
+    recordedBy: { kind: "seller" as const, userId: seller.userId } } } as unknown as typeof f.order;
+  f.deps = { ...f.deps, findOrderForUpdate: async () => ok(kept) };
+  const input = { ...f.input, expectedTotal: kept.total, delivery: { kind: "keep" as const, recipient: { name: "Ana", phone: "+51977909427" } } };
+  expect(await confirmCheckoutDelivery(input, access, now, f.deps)).toMatchObject({ data: { changed: true } });
+  expect(f.deps.saveDelivery).toHaveBeenCalledWith(access.orderId, access.companyId, expect.objectContaining({ delivery: expect.objectContaining({
+    method: "home", recipient: { name: "Ana", phone: "+51977909427", identity: { kind: "absent" } },
+    destination: expect.objectContaining({ address: "Home street" }) }) }));
+  vi.mocked(f.deps.saveDelivery).mockClear();
+  const same = { ...input, delivery: { kind: "keep" as const, recipient: { name: "Seller typed", phone: "999" } } };
+  await confirmCheckoutDelivery(same, access, now, f.deps);
+  expect(f.deps.saveDelivery).not.toHaveBeenCalled();
+});
+
+test("checkout keep leaves the recipient of a delivery that already progressed untouched and still confirms", async () => {
+  const f = deliveryFixture();
+  const kept = { ...f.order, deliveryCost: { amount: 30, currency: "PEN" as const }, deliveryCharge: { amount: 0, currency: "PEN" as const }, deliveryStatus: "shipped" as const, shippedAt: now,
+    delivery: { method: "home" as const, recipient: { name: "Seller typed", phone: "999", identity: { kind: "absent" as const } },
+    destination: { address: "Home street", country: "PE" as const, districtCode: "150101", district: "Old district", province: "Lima", department: "Lima", instructions: null },
+    pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 },
+    recordedBy: { kind: "seller" as const, userId: seller.userId } } } as unknown as typeof f.order;
+  f.deps = { ...f.deps, findOrderForUpdate: async () => ok(kept) };
+  const input = { ...f.input, expectedTotal: kept.total, delivery: { kind: "keep" as const, recipient: { name: "Ana", phone: "+51977909427" } } };
+  expect(await confirmCheckoutDelivery(input, access, now, f.deps)).toMatchObject({ data: { changed: true } });
+  expect(f.deps.saveDelivery).not.toHaveBeenCalled();
+  expect(f.deps.saveBuyer).toHaveBeenCalled();
+  expect(f.deps.saveConfirmed).toHaveBeenCalled();
 });
 
 test("checkout confirmation replay preserves buyer and delivery without resolving or writing again", async () => {

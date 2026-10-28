@@ -1,39 +1,56 @@
 import { createInstance } from "i18next";
 import resources from "@core/app/locales";
 import type { CreateError } from "@core/src/features/products/application/create";
-import type { UpdateError } from "@core/src/features/products/application/update";
-import type { InputError } from "@core/src/features/products/presentation/input";
+import type { SaveProductError } from "@core/src/features/products/application/save-product";
+import type { InputError } from "@core/src/features/products/presentation/request-input";
 import type { ValidationIssue } from "@core/src/features/products/domain/errors";
 
 const translations = createInstance();
-void translations.init({ lng: "es", fallbackLng: "es", resources, initAsync: false });
-type Language = "es" | "pt";
+void translations.init({ lng: "es", fallbackLng: "es", resources, initAsync: false, interpolation: { escapeValue: false } });
+export type Language = "es" | "pt";
 
-export type FormErrors = Readonly<{ form?: string; name?: string; description?: string; sku?: string; salePrice?: string; purchasePrice?: string; initialStock?: string }>;
+/** The fixed translator the product texts of the server use; React escapes what it renders, so values are not escaped twice. */
+export const productText = (language: Language) => translations.getFixedT(language, "translation");
+
+export type FormErrors = Readonly<{ form?: string; changed?: string; inDoubt?: string; name?: string; description?: string; sku?: string; salePrice?: string; purchasePrice?: string; initialStock?: string }>;
+
+/** One rejected part of an editor save, with the text to show next to its option, value or row. */
+export type FeedbackIssue = Readonly<{
+  scope: "product" | "option" | "value" | "variant" | "newVariant";
+  field: string; reason: string; message: string;
+  optionId?: string; valueId?: string; variantId?: string; index?: number;
+}>;
+export type SaveFeedback = Readonly<{ errors: FormErrors; issues: readonly FeedbackIssue[] }>;
+
+const labelled = ["id", "name", "description", "sku", "salePrice", "purchasePrice", "initialStock", "currency", "imageId", "variants"] as const;
+type Labelled = (typeof labelled)[number];
+const isLabelled = (field: string): field is Labelled => labelled.some((candidate) => candidate === field);
 
 function field(issue: ValidationIssue): keyof FormErrors {
-  return issue.scope === "product" ? issue.field === "name" || issue.field === "description" ? issue.field : "form" :
-    issue.field === "sku" || issue.field === "salePrice" || issue.field === "purchasePrice" || issue.field === "initialStock" ? issue.field : "form";
+  if (issue.scope === "product") return issue.field === "name" || issue.field === "description" ? issue.field : "form";
+  if (issue.scope === "variant" || issue.scope === "newVariant") return issue.field === "sku" || issue.field === "salePrice" || issue.field === "purchasePrice" || issue.field === "initialStock" ? issue.field : "form";
+  return "form";
 }
 
 function message(issue: ValidationIssue, language: Language): string {
   const t = translations.getFixedT(language, "translation");
-  const label = t(`productErrors.label.${issue.field}`);
-  const subject = t(`productErrors.subject.${issue.field}`);
+  const generic = () => t("productErrors.invalidValue");
+  const names = isLabelled(issue.field) ? { label: t(`productErrors.label.${issue.field}`), subject: t(`productErrors.subject.${issue.field}`), field: issue.field } : null;
   switch (issue.reason) {
-    case "REQUIRED": return issue.field === "variants" ? t("productErrors.requiredVariant") : t(["description", "currency", "imageId"].includes(issue.field) ? "productErrors.requiredFeminine" : "productErrors.requiredMasculine", { subject });
-    case "TOO_LONG": return t("productErrors.tooLong", { subject, maxLength: issue.maxLength });
+    case "REQUIRED": return !names ? generic() : names.field === "variants" ? t("productErrors.requiredVariant") : t(["description", "currency", "imageId"].includes(names.field) ? "productErrors.requiredFeminine" : "productErrors.requiredMasculine", { subject: names.subject });
+    case "TOO_LONG": return names ? t("productErrors.tooLong", { subject: names.subject, maxLength: issue.maxLength }) : generic();
     case "INVALID_CURRENCY": return t("productErrors.invalidCurrency");
-    case "INVALID_PRICE": return t("productErrors.invalidPrice", { label, minimum: issue.minimum, maximum: issue.maximum });
-    case "INVALID_PRECISION": return t("productErrors.invalidPrecision", { label, maxDecimals: issue.maxDecimals });
+    case "INVALID_PRICE": return names ? t("productErrors.invalidPrice", { label: names.label, minimum: issue.minimum, maximum: issue.maximum }) : generic();
+    case "INVALID_PRECISION": return names ? t("productErrors.invalidPrecision", { label: names.label, maxDecimals: issue.maxDecimals }) : generic();
     case "INVALID_STOCK": return t("productErrors.invalidStock");
     case "INVALID_TOTAL_STOCK": return t("productErrors.invalidTotalStock");
-    case "DUPLICATE_SKU": return t("productErrors.duplicateSku");
-    case "DUPLICATE_ATTRIBUTES": return t("productErrors.duplicateAttributes");
+    case "DUPLICATE_SKU": return t("productErrors.skuInUse");
+    case "DUPLICATE_COMBINATION": return t("productErrors.duplicateAttributes");
     case "DUPLICATE_VARIANT": return t("productErrors.duplicateVariant");
     case "VARIANT_NOT_FOUND": return t("productErrors.variantNotFound");
-    case "INVALID_ATTRIBUTES": return t("productErrors.invalidAttributes");
-    case "INVALID_TYPE": return t("productErrors.invalidType", { label });
+    case "ID_CONFLICT": return t("productErrors.idConflict");
+    case "INVALID_TYPE": return names ? t("productErrors.invalidType", { label: names.label }) : generic();
+    default: return generic();
   }
 }
 
@@ -54,23 +71,61 @@ function validationErrors(error: { issues: readonly [ValidationIssue, ...Validat
   return errors;
 }
 
-function translate(error: CreateError | UpdateError | InputError, language: Language): FormErrors {
+function translate(error: CreateError | SaveProductError | InputError, language: Language): FormErrors {
   const t = translations.getFixedT(language, "translation");
-  if (error.code === "PRODUCT_NOT_FOUND") return { form: t("productErrors.productNotFound") };
-  if (error.code === "DUPLICATE_SKU") return { sku: t("productErrors.skuInUse") };
-  if (error.code === "PRODUCT_ID_CONFLICT") return { form: t("productErrors.idConflict") };
-  if (error.code === "IMAGE_NOT_FOUND") return { form: t("productErrors.imageNotFound") };
-  if (error.code === "PERSISTENCE_UNAVAILABLE") return { form: t("productErrors.persistenceUnavailable") };
-  if (error.code === "INVALID_STORED_DATA") return { form: t("productErrors.invalidStoredData") };
-  if (error.code === "MALFORMED_JSON") return { form: t("productErrors.malformedJson") };
-  if (error.code === "INVALID_INPUT") return inputErrors(error, language);
-  return validationErrors(error, language);
+  switch (error.code) {
+    case "PRODUCT_NOT_FOUND": return { form: t("productErrors.productNotFound") };
+    case "DUPLICATE_SKU": return { sku: t("productErrors.skuInUse") };
+    case "PRODUCT_ID_CONFLICT": return { form: t("productErrors.idConflict") };
+    case "ID_CONFLICT": return { form: t("productErrors.idConflict") };
+    case "DUPLICATE_COMBINATION": return { form: t("productErrors.duplicateAttributes") };
+    case "PRODUCT_CHANGED": return { changed: t("productEditor.changed") };
+    case "VARIANT_HAS_ORDERS": return { form: t("productEditor.deletedBlocked") };
+    case "IMAGE_NOT_FOUND": return { form: t("productErrors.imageNotFound") };
+    case "PERSISTENCE_UNAVAILABLE": return { form: t("productErrors.persistenceUnavailable") };
+    case "INVALID_STORED_DATA": return { form: t("productErrors.invalidStoredData") };
+    case "MALFORMED_JSON": return { form: t("productErrors.malformedJson") };
+    case "INVALID_INPUT": return inputErrors(error, language);
+    case "VALIDATION_ERROR": return validationErrors(error, language);
+  }
 }
 
 export function createErrors(error: CreateError | InputError, language: Language = "es"): FormErrors {
   return translate(error, language);
 }
 
-export function updateErrors(error: UpdateError | InputError, language: Language = "es"): FormErrors {
+export function saveErrors(error: SaveProductError | InputError, language: Language = "es"): FormErrors {
   return translate(error, language);
 }
+
+function issueText(issue: ValidationIssue, language: Language): string {
+  const t = translations.getFixedT(language, "translation");
+  switch (issue.reason) {
+    case "DUPLICATE_SKU": return t("productEditor.skuInUse");
+    case "REQUIRED": return issue.scope === "variant" || issue.scope === "newVariant" ? (issue.field === "salePrice" ? t("productEditor.priceMissing") : message(issue, language)) : message(issue, language);
+    case "INVALID_STOCK": return t("productEditor.stockInvalid");
+    case "DUPLICATE_COMBINATION": case "DUPLICATE_VARIANT": return t("productEditor.combinationRepeated");
+    case "VARIANT_HAS_ORDERS": return t("productEditor.hasOrders");
+    case "VARIANT_HAS_STOCK": return t("productEditor.hasStock");
+    case "INVALID_PRICE": case "INVALID_PRECISION": case "TOO_LONG": return message(issue, language);
+    case "TOO_MANY_VARIANTS": return t("productEditor.tooManyVariants", { count: issue.maximum });
+    case "OPTION_WITHOUT_VALUES": return t("productEditor.noValues");
+    case "DUPLICATE_VALUE": return t("productEditor.valueInvalid");
+    default: return issue.scope === "option" ? t("productEditor.optionInvalid") : issue.scope === "value" ? t("productEditor.valueInvalid") : issue.scope === "product" ? message(issue, language) : t("productEditor.rowInvalid");
+  }
+}
+
+/** The editor's per-option, per-value and per-row messages of a rejected save; empty for every other failure. */
+export function feedbackIssues(error: CreateError | SaveProductError | InputError, language: Language = "es"): readonly FeedbackIssue[] {
+  if (error.code !== "VALIDATION_ERROR") return [];
+  return error.issues.map((issue): FeedbackIssue => ({
+    scope: issue.scope, field: issue.field, reason: issue.reason, message: issueText(issue, language),
+    ...(issue.scope === "option" && issue.optionId ? { optionId: issue.optionId } : {}),
+    ...(issue.scope === "value" && issue.valueId ? { valueId: issue.valueId } : {}),
+    ...(issue.scope === "variant" ? { variantId: issue.variantId } : {}),
+    ...(issue.scope === "newVariant" ? { index: issue.index } : {}),
+  }));
+}
+
+export const createFeedback = (error: CreateError | InputError, language: Language = "es"): SaveFeedback => ({ errors: createErrors(error, language), issues: feedbackIssues(error, language) });
+export const saveFeedback = (error: SaveProductError | InputError, language: Language = "es"): SaveFeedback => ({ errors: saveErrors(error, language), issues: feedbackIssues(error, language) });

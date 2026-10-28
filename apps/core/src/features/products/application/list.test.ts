@@ -5,7 +5,7 @@ import { err, ok } from "@shared/functional";
 
 const output: ListPage = { items: [], page: 1, pageSize: 20, total: 0 };
 const summary = (id: string, imageId?: string): ProductSummary => ({
-  id: id as ProductId, name: id, variantCount: 1, minSalePrice: { amount: 10, currency: "PEN" }, hasDifferentPrices: false, totalStock: 2,
+  id: id as ProductId, name: id, variantCount: 1, activeVariantCount: 1, minSalePrice: { amount: 10, currency: "PEN" }, hasDifferentPrices: false, totalStock: 2,
   ...(imageId === undefined ? {} : { imageId: imageId as ImageId }),
 });
 

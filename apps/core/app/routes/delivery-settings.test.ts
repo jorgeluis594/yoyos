@@ -1,7 +1,8 @@
 import { afterEach, expect, test, vi } from "vitest";
-import type { ActionFunctionArgs } from "react-router";
-import { action } from "@core/app/routes/delivery-settings";
+import type { ActionFunctionArgs, LoaderFunctionArgs } from "react-router";
+import { action, loader } from "@core/app/routes/delivery-settings";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
+import { dispatchSender } from "@core/src/features/dispatch-sender/composition";
 import { log } from "@core/src/shared/infrastructure/logger";
 
 const access = { company: { id: "00000000-0000-4000-8000-000000000001", country: "PE" }, user: { id: "00000000-0000-4000-8000-000000000002" } };
@@ -71,4 +72,24 @@ test("zone technical failure never returns a saved configuration", async () => {
   expect(await save(zoneInput)).toEqual({ zonesError: { code: "INTERNAL_ERROR" } });
   expect(failure).toHaveBeenCalledOnce();
   expect(failure.mock.calls[0][0]).toMatchObject({ event: "delivery_zones_request_failed", operation: "save_delivery_zones", entryPoint: "web_action" });
+});
+
+test("the loader returns the sender state of the session company without touching the settings version", async () => {
+  const state = { configured: { name: null, phone: "977" }, effective: { name: "Mi Negocio", phone: "977" } };
+  const read = vi.spyOn(dispatchSender, "get").mockResolvedValue({ success: true, data: state });
+  const settings = { version: 3, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false as const, pickupPoint: null } };
+  vi.spyOn(deliverySettings, "get").mockResolvedValue({ success: true, data: settings });
+  vi.spyOn(deliverySettings, "getCourierCatalog").mockResolvedValue({ success: true, data: [] });
+  vi.spyOn(deliverySettings, "getZones").mockResolvedValue({ success: true, data: { version: 3, currency: "PEN", home: { enabled: false }, agency: { enabled: false }, zones: [], agencies: [] } });
+  const named = { get: () => ({ ...access, company: { ...access.company, name: "Mi Negocio" } }) } as unknown as LoaderFunctionArgs["context"];
+  const loaded = await loader({ context: named, request: new Request("http://localhost/es-PE/settings/delivery") } as LoaderFunctionArgs);
+  expect(loaded).toMatchObject({ version: 3, sender: state, companyName: "Mi Negocio" });
+  expect(read).toHaveBeenCalledWith(access.company.id);
+});
+
+test("the loader fails with 503 when the sender cannot be read instead of showing an empty card", async () => {
+  vi.spyOn(dispatchSender, "get").mockResolvedValue({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "down" } });
+  vi.spyOn(deliverySettings, "get").mockResolvedValue({ success: true, data: { version: 3, agency: { enabled: false }, couriers: [], home: { enabled: false }, store: { enabled: false as const, pickupPoint: null } } });
+  vi.spyOn(deliverySettings, "getCourierCatalog").mockResolvedValue({ success: true, data: [] });
+  await expect(loader({ context, request: new Request("http://localhost/x") } as LoaderFunctionArgs)).rejects.toMatchObject({ status: 503 });
 });

@@ -8,7 +8,7 @@ import type { Result } from "@shared/result";
 import type { RenderError } from "@mobile/features/printing/application/contracts";
 import type { RenderProfile, RenderedDocument } from "@mobile/features/printing/domain/printing";
 import type { ProductLabel } from "@mobile/features/products/domain/product-label";
-import { fitLabelLines } from "@mobile/features/products/infrastructure/label-text";
+import { fitLabelLines } from "@shared/dispatch-label/label-text";
 
 const fontAsset = require("../../../../assets/fonts/InterVariable.ttf");
 let fontData: Promise<Awaited<ReturnType<typeof Skia.Data.fromURI>>> | null = null;
@@ -46,8 +46,10 @@ export async function renderProductLabel(label: ProductLabel, profile: RenderPro
     const skuHeight = Math.ceil(skuFont.getSize() * 1.16);
     const gap = Math.ceil(dpiY / 25.4);
     const nameLines = fitLabelLines(label.productName, textWidth, (text) => nameFont.getTextWidth(text), 2, true);
+    const combinationLines = label.combination ? fitLabelLines(label.combination, textWidth, (text) => skuFont.getTextWidth(text), 2, true) : [];
     const skuLines = label.sku ? fitLabelLines(label.sku, textWidth, (text) => skuFont.getTextWidth(text), 3, false) : [];
-    if (!nameLines || !skuLines || nameLines.length * nameHeight + (skuLines.length ? gap + skuLines.length * skuHeight : 0) > heightPx - 2 * margin) {
+    const lineCount = (combinationLines?.length ?? 0) + (skuLines?.length ?? 0);
+    if (!nameLines || !combinationLines || !skuLines || nameLines.length * nameHeight + (lineCount ? gap + lineCount * skuHeight : 0) > heightPx - 2 * margin) {
       return err({ code: "LABEL_CONTENT_OVERFLOW", message: "Label text does not fit on this paper" });
     }
     const surface = Skia.Surface.MakeOffscreen(widthPx, heightPx);
@@ -64,6 +66,7 @@ export async function renderProductLabel(label: ProductLabel, profile: RenderPro
     let baseline = margin + nameHeight;
     for (const line of nameLines) { canvas.drawText(line, textX, baseline, paint, nameFont); baseline += nameHeight; }
     baseline += gap;
+    for (const line of combinationLines) { canvas.drawText(line, textX, baseline, paint, skuFont); baseline += skuHeight; }
     for (const line of skuLines) { canvas.drawText(line, textX, baseline, paint, skuFont); baseline += skuHeight; }
     surface.flush();
     const png = surface.makeImageSnapshot().encodeToBytes();

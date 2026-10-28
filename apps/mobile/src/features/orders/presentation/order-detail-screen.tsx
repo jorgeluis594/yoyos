@@ -10,26 +10,30 @@ import type { CancellationRequestError, CancellationRecoveryError } from "@mobil
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { mentionedPriceNote } from "@shared/mentioned-price";
 import { PaymentFields, type PaymentFieldsValue } from "@mobile/features/orders/presentation/payment-fields";
-import * as Clipboard from "expo-clipboard";
-import { useCallback, useLayoutEffect, useRef, useState } from "react";
-import { ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { AccessibilityInfo, ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import * as Crypto from "expo-crypto";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
 import { useTranslation } from "react-i18next";
 import { subtract } from "@shared/money";
+import { offersPartialStockDeduction } from "@shared/orders-payment";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { orders } from "@mobile/features/orders/composition";
+import { confirmPaymentFailure } from "@mobile/features/orders/application/order-operations";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
+import { Field, FieldLabel } from "@mobile/components/ui/field";
+import { Input } from "@mobile/components/ui/input";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useNotices } from "@mobile/features/notifications/presentation/notices-provider";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { deliveryMethodLabel, deliveryStatusLabel, documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
+import { useCopyLink } from "@mobile/features/catalog/presentation/use-copy-link";
 import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
@@ -47,6 +51,12 @@ export type CancellationUiState =
   | Readonly<{ kind: "failed"; error: CancellationRequestError }>
   | Readonly<{ kind: "uncertain"; orderId: string; cause: CancellationRecoveryError }>;
 
+type CheckoutLinkState =
+  | Readonly<{ kind: "loading" }>
+  | Readonly<{ kind: "ready"; url: string }>
+  | Readonly<{ kind: "subdomain_required" }>
+  | Readonly<{ kind: "error" }>;
+
 export default function OrderDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
@@ -58,9 +68,9 @@ export default function OrderDetailScreen() {
   const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
-  const [checkoutUrl, setCheckoutUrl] = useState("");
-  const [checkoutBusy, setCheckoutBusy] = useState(false);
-  const [checkoutMessage, setCheckoutMessage] = useState("");
+  const [linkResult, setLinkResult] = useState<Readonly<{ orderId: string; link: Exclude<CheckoutLinkState, { kind: "loading" }> }> | null>(null);
+  const [linkRefresh, setLinkRefresh] = useState(0);
+  const linkRequest = useRef(0);
   const checkoutGeneration = useRef(0);
   const [paymentError, setPaymentError] = useState("");
   const [savingPayment, setSavingPayment] = useState<string | null>(null);
@@ -75,10 +85,9 @@ export default function OrderDetailScreen() {
   const summaryPosition = useRef(0);
   const [paymentsOpen, setPaymentsOpen] = useState(false);
   const [deliveryOpen, setDeliveryOpen] = useState(false);
-  const [checkoutOpen, setCheckoutOpen] = useState(false);
-  const [checkoutUrlOpen, setCheckoutUrlOpen] = useState(false);
   const [internalOpen, setInternalOpen] = useState(false);
   const [editor, setEditor] = useState<"manual" | { paymentId: string; receiptImageId: string } | null>(null);
+  const [rejection, setRejection] = useState<{ reason: string } | null>(null);
   const companyId = state.status === "ready" ? state.company.id : "";
   const [cancellation, setCancellation] = useState<CancellationUiState>({ kind: "idle" });
   const [detailRefreshFailed, setDetailRefreshFailed] = useState(false);
@@ -88,7 +97,10 @@ export default function OrderDetailScreen() {
   useLayoutEffect(() => { currentScope.current = scope; }, [scope]);
   const cancellationBusy = cancellation.kind === "submitting" || cancellation.kind === "verifying";
   const cancellationBlocked = cancellationBusy || cancellation.kind === "uncertain" || detailRefreshFailed;
-  const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling || checkoutBusy;
+  // A result belongs to the order it was read for, so another order never shows this one's link while its own loads.
+  const checkoutLink: CheckoutLinkState = linkResult && linkResult.orderId === order?.id ? linkResult.link : { kind: "loading" };
+  const { copied, copy: copyLink, open: openLink } = useCopyLink(checkoutLink.kind === "ready" ? checkoutLink.url : null);
+  const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling;
   const reload = useCallback(async (silent = false) => {
     const generation = checkoutGeneration.current;
     const requestScope = scope;
@@ -137,7 +149,26 @@ export default function OrderDetailScreen() {
       setOrder(result.data.order); setEditor(null); setPaymentsOpen(true);
       if (source === "manual") manualPaymentId.current = null;
     }
-    else setPaymentError(result.error.code === "INSUFFICIENT_STOCK" ? t("paymentStockError") : t("paymentSaveError"));
+    else {
+      const failure = confirmPaymentFailure(result.error.code);
+      setPaymentError(result.error.code === "INSUFFICIENT_STOCK" ? t("paymentStockError") : failure === "already_reviewed" ? t("paymentAlreadyReviewed")
+        : failure === "unknown" ? t("paymentUnknownResult") : t("paymentSaveError"));
+      if (failure !== "failed") { const refreshed = await orders.loadOrderAggregate(order.id); if (refreshed.success) setOrder(refreshed.data); }
+    }
+    setSavingPayment(null);
+  }
+  async function rejectReport(paymentId: string, reason: string) {
+    if (!order || cancellationLock.current || writeBusy || order.cancelled) return;
+    const trimmed = reason.trim();
+    if (trimmed.length > 200) { setPaymentError(t("rejectReasonTooLong")); return; }
+    setSavingPayment(paymentId); setPaymentError("");
+    const outcome = await orders.rejectPayment(order.id, paymentId, trimmed || null);
+    if (outcome.kind === "rejected") { setOrder(outcome.order); setEditor(null); setRejection(null); setPaymentsOpen(true); }
+    else {
+      setPaymentError(t(outcome.kind === "already_reviewed" ? "paymentAlreadyReviewed" : outcome.kind === "order_cancelled" ? "rejectCancelled"
+        : outcome.kind === "unknown" ? "paymentUnknownResult" : "paymentSaveError"));
+      if (outcome.kind !== "failed") { const refreshed = await orders.loadOrderAggregate(order.id); if (refreshed.success) setOrder(refreshed.data); }
+    }
     setSavingPayment(null);
   }
   async function voidPayment(paymentId: string) {
@@ -177,7 +208,7 @@ export default function OrderDetailScreen() {
   useFocusEffect(useCallback(() => {
     checkoutGeneration.current += 1;
     cancellationLock.current = false; setCancellation({ kind: "idle" }); setDetailRefreshFailed(false);
-    setCheckoutUrl(""); setCheckoutUrlOpen(false); setCheckoutMessage("");
+    setLinkRefresh(count => count + 1);
     if (companyId) void reload();
     return () => {
       checkoutGeneration.current += 1;
@@ -185,20 +216,25 @@ export default function OrderDetailScreen() {
     };
   }, [companyId, id, notice, clear, reload]));
 
-  async function obtainCheckoutLink() {
-    if (cancellationLock.current || writeBusy || order?.cancelled) return;
-    const generation = checkoutGeneration.current;
-    setCheckoutBusy(true); setCheckoutMessage("");
-    try {
-      const result = await orders.enableOrderCheckout(id);
-      if (generation !== checkoutGeneration.current) return;
-      if (result.success) { await reload(); if (generation === checkoutGeneration.current) setCheckoutUrl(result.data.url); }
-      else setCheckoutMessage(t("checkoutLinkError"));
-    } catch { if (generation === checkoutGeneration.current) setCheckoutMessage(t("checkoutLinkError")); }
-    finally { setCheckoutBusy(false); }
-  }
+  // The link is a read of the order's current brand-host URL, so it loads with the screen and again on every return (a subdomain may have been chosen meanwhile).
+  const linkOrderId = order?.id;
+  const linkCancelled = order?.cancelled ?? false;
+  useEffect(() => { if (copied) AccessibilityInfo.announceForAccessibility(translations.t("checkoutCopied")); }, [copied]);
+  useEffect(() => {
+    if (!linkOrderId || linkCancelled) return;
+    const request = ++linkRequest.current;
+    void (async () => {
+      try {
+        const result = await orders.enableOrderCheckout(linkOrderId);
+        if (request !== linkRequest.current) return;
+        setLinkResult({ orderId: linkOrderId, link: result.success ? { kind: "ready", url: result.data.url }
+          : result.error.code === "SUBDOMAIN_REQUIRED" ? { kind: "subdomain_required" } : { kind: "error" } });
+      } catch { if (request === linkRequest.current) setLinkResult({ orderId: linkOrderId, link: { kind: "error" } }); }
+    })();
+    return () => { linkRequest.current += 1; };
+  }, [linkOrderId, linkCancelled, linkRefresh]);
   async function runCancellation(verify: boolean) {
-    if (!order || cancellationBusy || cancellationLock.current || savingPayment || fulfilling || checkoutBusy) return;
+    if (!order || cancellationBusy || cancellationLock.current || savingPayment || fulfilling) return;
     if (!verify && (cancellationBlocked || order.cancelled || order.status !== "active" || order.deliveryStatus !== "pending")) return;
     const generation = checkoutGeneration.current;
     const requestScope = scope;
@@ -206,7 +242,7 @@ export default function OrderDetailScreen() {
     cancellationLock.current = true;
     setCancellation({ kind: verify ? "verifying" : "submitting", orderId: order.id });
     setDetailRefreshFailed(false);
-    setCheckoutUrl(""); setCheckoutUrlOpen(false); setCheckoutMessage(""); setEditor(null);
+    setEditor(null);
     let confirmed = false;
     try {
       const result = await orders[verify ? "checkCancellation" : "cancelOrder"](order.id);
@@ -238,14 +274,6 @@ export default function OrderDetailScreen() {
       confirmLabel: t("orderCancellation.cancel"), cancelLabel: t("orderCancellation.keep"), destructive: true,
       onConfirm: () => { if (generation === checkoutGeneration.current && requestScope === currentScope.current) void runCancellation(false); } });
   }
-  async function copyCheckoutLink() {
-    try {
-      const copied = await Clipboard.setStringAsync(checkoutUrl);
-      setCheckoutMessage(t(copied ? "checkoutCopied" : "checkoutCopyManually"));
-      if (!copied) setCheckoutUrlOpen(true);
-    } catch { setCheckoutUrlOpen(true); setCheckoutMessage(t("checkoutCopyManually")); }
-  }
-
   if (state.status !== "ready") return null;
   if (loading) return <ScreenState status="loading" title={t('loadingOrder')} />;
   if (!order || error) return <ScreenState status="error" title={t('openOrderError')} description={error} onRetry={() => void reload()} />;
@@ -259,13 +287,13 @@ export default function OrderDetailScreen() {
   const format = (value: { amount: number; currency: string }) => money(value.amount, value.currency, locale);
   const reports = order.payments.filter((payment) => payment.status === "reported");
   const canEditDelivery = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
-  const checkoutState = t(order.cancelled ? "checkoutCancelled" : order.checkoutConfirmedAt ? "checkoutConfirmed" : order.checkoutEnabledAt ? "checkoutPending" : "checkoutDisabled");
+  const checkoutState = order.cancelled ? t("checkoutCancelled") : order.checkoutConfirmedAt ? t("checkoutConfirmed") : order.status === "active" ? t("checkoutPending") : null;
   const openPayments = () => {
     setPaymentsOpen(true);
     scroll.current?.scrollTo({ y: summaryPosition.current + paymentPosition.current, animated: false });
   };
-  const openEditor = (value: NonNullable<typeof editor>) => { if (cancellationLock.current || writeBusy || order.cancelled) return; setPaymentError(""); setEditor(value); };
-  const closeEditor = () => { if (!savingPayment) { setEditor(null); setPaymentError(""); } };
+  const openEditor = (value: NonNullable<typeof editor>) => { if (cancellationLock.current || writeBusy || order.cancelled) return; setPaymentError(""); setRejection(null); setEditor(value); };
+  const closeEditor = () => { if (!savingPayment) { setEditor(null); setRejection(null); setPaymentError(""); } };
   const fulfillmentActions = (["ship", "deliver"] as const).filter(operation => !fulfillmentBlock(order, operation));
   const deliveryBlock = fulfillmentBlock(order, "deliver");
   const fulfillmentReason = deliveryBlock === "PAYMENT_REQUIRED" || deliveryBlock === "STOCK_NOT_DEDUCTED" ? deliveryBlock : null;
@@ -350,6 +378,7 @@ export default function OrderDetailScreen() {
                 <ThemedText style={styles.semibold}>{format(order.balanceDue)}</ThemedText>
               </View>
             </View>
+            {reports.length > 0 && !order.cancelled ? <ThemedText type="small" style={{ color: theme.warning }}>{t('paymentToReview')}</ThemedText> : null}
             {order.overpaidAmount.amount > 0 ? <ThemedText type="small" style={{ color: theme.warning }}>{t('overpaid', { amount: format(order.overpaidAmount) })}</ThemedText> : null}
             {!order.cancelled && order.balanceDue.amount > 0 ? <Button disabled={writeBusy} onPress={() => openEditor("manual")}>{t('detailRegisterPayment')}</Button> : null}
             {paymentError && !editor ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
@@ -357,12 +386,14 @@ export default function OrderDetailScreen() {
               <Disclosure label={t('detailViewPayments')} open={paymentsOpen} onPress={() => setPaymentsOpen(!paymentsOpen)} />
               {paymentsOpen ? order.payments.map((payment) => {
                 const receiptImageId = payment.status === "reported" ? payment.data.receiptImageId
+                  : payment.status === "rejected" ? payment.data.report.receiptImageId
                   : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
                 return <View key={payment.id} style={[styles.payment, { borderColor: theme.border }]}>
                   <ThemedText style={styles.semibold}>{payment.status === "reported" ? t('paymentReported')
-                    : payment.status === "voided" ? t('paymentVoided') : t('detailPaymentConfirmed')}</ThemedText>
-                  {payment.status !== "reported" ? <MoneyRow label={t(payment.method === "digital_wallet" ? 'wallet' : 'bankTransfer')} value={format(payment.amount)} /> : null}
-                  <ThemedText type="small" themeColor="textSecondary">{date(payment.status === "reported" ? payment.data.reportedAt : payment.data.confirmedAt, locale)}</ThemedText>
+                    : payment.status === "voided" ? t('paymentVoided') : payment.status === "rejected" ? t('paymentRejected') : t('detailPaymentConfirmed')}</ThemedText>
+                  {payment.amount ? <MoneyRow label={t(payment.method === "digital_wallet" ? 'wallet' : 'bankTransfer')} value={format(payment.amount)} /> : null}
+                  <ThemedText type="small" themeColor="textSecondary">{date(payment.status === "reported" ? payment.data.reportedAt : payment.status === "rejected" ? payment.data.rejectedAt : payment.data.confirmedAt, locale)}</ThemedText>
+                  {payment.status === "rejected" && payment.data.reason ? <ThemedText type="small">{payment.data.reason}</ThemedText> : null}
                   {receiptImageId ? <Button variant="ghost" onPress={() => void viewReceipt(receiptImageId)}>{t('viewReceipt')}</Button> : null}
                   {payment.status === "reported" && !order.cancelled ? <Button variant="secondary" disabled={writeBusy} onPress={() => openEditor({ paymentId: payment.id, receiptImageId: payment.data.receiptImageId })}>{t('detailReviewPayment')}</Button> : null}
                   {payment.status === "confirmed" && !order.cancelled ? <Button variant="ghost" disabled={writeBusy} onPress={() => void voidPayment(payment.id)}>{t('voidPayment')}</Button> : null}
@@ -426,14 +457,26 @@ export default function OrderDetailScreen() {
           </View> : null}
         </View> : null}
         <View style={[styles.card, styles.section, cardStyle]}>
-          <Disclosure label={t('checkoutTitle')} description={checkoutState} open={checkoutOpen} onPress={() => setCheckoutOpen(!checkoutOpen)} />
-          {checkoutOpen && !order.cancelled ? <>
-            {checkoutUrl ? <>
-              <OrderAction label={t('copyCheckoutLink')} onPress={() => void copyCheckoutLink()} />
-              <Disclosure label={t('viewCheckoutLink')} open={checkoutUrlOpen} onPress={() => setCheckoutUrlOpen(!checkoutUrlOpen)} />
-              {checkoutUrlOpen ? <ThemedText type="small" themeColor="textSecondary" selectable>{checkoutUrl}</ThemedText> : null}
-            </> : <OrderAction label={t('getCheckoutLink')} disabled={writeBusy} loading={checkoutBusy} onPress={() => void obtainCheckoutLink()} />}
-            {checkoutMessage ? <ThemedText accessibilityRole="alert">{checkoutMessage}</ThemedText> : null}
+          <View><ThemedText style={styles.semibold} accessibilityRole="header">{t('checkoutTitle')}</ThemedText>
+            {checkoutState ? <ThemedText type="small" themeColor="textSecondary">{checkoutState}</ThemedText> : null}</View>
+          {!order.cancelled && checkoutLink.kind === "loading" ? <View style={styles.linkLoading} accessibilityRole="progressbar" accessibilityLabel={t('checkoutLoading')}>
+            <ActivityIndicator color={theme.text} /><ThemedText type="small" themeColor="textSecondary">{t('checkoutLoading')}</ThemedText>
+          </View> : null}
+          {!order.cancelled && checkoutLink.kind === "ready" ? <>
+            <ThemedText type="small" selectable>{checkoutLink.url}</ThemedText>
+            <Button variant="secondary" onPress={() => void copyLink()}>{t('copyCheckoutLink')}</Button>
+            <Button variant="secondary" onPress={() => void Share.share({ message: checkoutLink.url }).catch(() => undefined)}>{t('shareCheckoutLink')}</Button>
+            <Button variant="secondary" onPress={openLink}>{t('openCheckoutLink')}</Button>
+            {copied ? <ThemedText accessibilityLiveRegion="polite">{t('checkoutCopied')}</ThemedText> : null}
+            <ThemedText type="small" themeColor="textSecondary">{t('checkoutHelp')}</ThemedText>
+          </> : null}
+          {!order.cancelled && checkoutLink.kind === "subdomain_required" ? <>
+            <ThemedText>{t('checkoutSubdomainRequired')}</ThemedText>
+            <Button variant="secondary" onPress={() => router.push("/settings/appearance?focus=catalog")}>{t('catalogGoToAppearance')}</Button>
+          </> : null}
+          {!order.cancelled && checkoutLink.kind === "error" ? <>
+            <ThemedText accessibilityRole="alert">{t('checkoutLinkError')}</ThemedText>
+            <Button variant="secondary" onPress={() => { setLinkResult(null); setLinkRefresh(count => count + 1); }}>{t('retry')}</Button>
           </> : null}
         </View>
         <View style={[styles.card, styles.section, cardStyle]}>
@@ -462,12 +505,16 @@ export default function OrderDetailScreen() {
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
             <ThemedText>{t('balanceDue', { amount: format(order.balanceDue) })}</ThemedText>
             {editor && editor !== "manual" ? <Button variant="secondary" onPress={() => void viewReceipt(editor.receiptImageId)}>{t('viewReceipt')}</Button> : null}
-            {editor ? <PaymentEditor key={editor === "manual" ? "manual" : editor.paymentId} currency={order.total.currency} balance={order.balanceDue.amount} busy={writeBusy} onConfirm={(amount, method, deduct) => {
+            {editor && rejection && editor !== "manual" ? <RejectionForm busy={writeBusy} reason={rejection.reason}
+              onChange={reason => setRejection({ reason })} onBack={() => { setRejection(null); setPaymentError(""); }}
+              onConfirm={() => void rejectReport(editor.paymentId, rejection.reason)} /> : null}
+            {editor && !rejection ? <PaymentEditor key={editor === "manual" ? "manual" : editor.paymentId} order={order} busy={writeBusy} onConfirm={(amount, method, deduct) => {
               if (editor === "manual") {
                 manualPaymentId.current ??= Crypto.randomUUID();
                 void confirmPayment(manualPaymentId.current, "manual", amount, method, deduct);
               } else void confirmPayment(editor.paymentId, "buyer_report", amount, method, deduct);
             }} /> : null}
+            {editor && editor !== "manual" && !rejection ? <Button variant="secondary" disabled={writeBusy} onPress={() => { setPaymentError(""); setRejection({ reason: "" }); }}>{t('rejectPayment')}</Button> : null}
             {paymentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
           </ScrollView>
         </KeyboardAvoidingView>
@@ -531,6 +578,7 @@ const styles = StyleSheet.create({
   deliverySummary: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   deliveryIdentity: { flexGrow: 1, flexShrink: 1, flexBasis: 150 },
   action: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 4, borderRadius: 6, borderWidth: 2 },
+  linkLoading: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 12 },
   receiptNotice: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   section: { gap: 10 },
   product: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8, paddingVertical: 12 },
@@ -545,11 +593,27 @@ const styles = StyleSheet.create({
   item: { gap: 4, paddingVertical: 12 },
 });
 
-function PaymentEditor({ currency, balance, busy, onConfirm }: { currency: string; balance: number; busy: boolean;
+function PaymentEditor({ order, busy, onConfirm }: { order: OrderAggregateResponse; busy: boolean;
   onConfirm: (amount: string, method: "digital_wallet" | "bank_transfer", deductStockIfPartial: boolean) => void }) {
   const { t } = useTranslation();
+  const balance = order.balanceDue.amount;
   const [value, setValue] = useState<PaymentFieldsValue>({ amount: balance > 0 ? balance.toFixed(2) : "", method: "digital_wallet", deductStockIfPartial: false });
-  return <View style={styles.section}><PaymentFields value={value} onChange={setValue} currency={currency} busy={busy} />
-    <Button disabled={busy} loading={busy} onPress={() => onConfirm(value.amount, value.method, value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
+  const typed = Number(normalizeDecimalInput(value.amount));
+  const showStock = offersPartialStockDeduction(order, value.amount.trim() && Number.isFinite(typed) ? { amount: typed, currency: order.total.currency } : null);
+  return <View style={styles.section}><PaymentFields value={value} onChange={setValue} currency={order.total.currency} busy={busy} showStockOption={showStock} />
+    <Button disabled={busy} loading={busy} onPress={() => onConfirm(value.amount, value.method, showStock && value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
+  </View>;
+}
+
+function RejectionForm({ reason, busy, onChange, onBack, onConfirm }: { reason: string; busy: boolean;
+  onChange: (reason: string) => void; onBack: () => void; onConfirm: () => void }) {
+  const { t } = useTranslation();
+  return <View style={styles.section}>
+    <ThemedText type="subtitle" accessibilityRole="header">{t('rejectTitle')}</ThemedText>
+    <ThemedText>{t('rejectHelp')}</ThemedText>
+    <Field disabled={busy}><FieldLabel>{t('rejectReason')}</FieldLabel>
+      <Input value={reason} onChangeText={onChange} maxLength={200} multiline accessibilityLabel={t('rejectReason')} /></Field>
+    <Button disabled={busy} loading={busy} onPress={onConfirm}>{t('rejectConfirm')}</Button>
+    <Button variant="ghost" disabled={busy} onPress={onBack}>{t('rejectBack')}</Button>
   </View>;
 }

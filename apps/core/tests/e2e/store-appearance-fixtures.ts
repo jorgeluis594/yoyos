@@ -1,14 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
-import { browserExpect, expect, prepareVerifiedCompany } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, storeUrl, subdomainOf } from "@core/tests/e2e/fixtures";
 import { orders } from "@core/src/features/orders/composition";
-import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { parseCompanyId, parseImageId } from "@core/src/features/store-appearance/domain/store-appearance";
 import type { StoreThemeId } from "@shared/store-themes";
 import { persistStoreAppearance } from "@core/src/features/store-appearance/infrastructure/store-appearance-repository";
 import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 type StoredAppearance = Readonly<{ theme: StoreThemeId; withLogo: boolean }>;
 
@@ -41,16 +41,15 @@ export async function sharedCheckoutPath(companyId: string, email: string) {
   const user = await systemPrisma.user.findUniqueOrThrow({ where: { email }, select: { id: true } });
   const [tenant, userId, orderId, contactId] = [companyId as CompanyId, user.id as UserId, crypto.randomUUID() as OrderId, crypto.randomUUID() as ContactId];
   await withTenantIsolation(tenant, async () => {
-    const product = await products.create({ name: "Cuaderno", currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
-    if (!product.success) throw new Error("Product fixture failed");
-    const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
+    const variant = { id: (await seedProduct({ name: "Cuaderno", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, stock: 3 }] })).variantIds[0] };
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
     const created = await orders.create({ id: orderId, items: [{ variantId: variant.id as VariantId, quantity: 1 as PositiveInteger }] }, { companyId: tenant, userId });
     if (!created.success) throw new Error("Order fixture failed");
     await prisma.orderBuyer.create({ data: { orderId, contactId, name: "Ana", phone: "+51987654321" } });
+    await prisma.company.update({ where: { id: tenant }, data: { catalogSubdomain: subdomainOf(companyId) } });
     expect(await orders.enableCheckout(orderId, { companyId: tenant, userId })).toMatchObject({ success: true });
   });
-  return `/checkout/${companyId}/${orderId}`;
+  return storeUrl(subdomainOf(companyId), `/checkout/${orderId}`);
 }
 
 export async function removeCompanyAppearance(companyId: string) {

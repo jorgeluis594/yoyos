@@ -5,7 +5,7 @@ import type { Result } from "@shared/result";
 import { type DispatchDate } from "@shared/dispatch-date";
 import { z } from "zod";
 import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type MentionedPrice, type OrderId, type OrderItem, type OrderItemId, type PositiveInteger, type UserId } from "@core/src/features/orders/domain/order";
-import { parsePayment, voidPayment, type ConfirmedPayment, type Payment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
+import { parsePayment, rejectPayment, voidPayment, type ConfirmedPayment, type Payment, type Rejection, type RejectedPayment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
 import { parsePeruDistrictCode, peruDeliveryDistrict, type PeruDistrictCode, type PeruDistrictError } from "@shared/peru-geography";
 import type { QuotationId, DeliveryRateId, DeliveryOptionId, DeliveryAgencyId, DeliverySettingsVersion, ResolvedDeliveryRate, CourierId } from "@core/src/features/delivery-settings";
 import type { PickupPoint } from "@core/src/features/delivery-settings";
@@ -106,7 +106,7 @@ function newPendingOrder(input: BuildOrderInput & Pick<BuildPendingOrderInput, "
   const zero: Money = { amount: 0, currency: snapshot.total.currency };
   return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
     buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
-    fromCatalog, checkoutEnabledAt: null, checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
+    fromCatalog, checkoutEnabledAt: new Date(input.createdAt), checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
     createdAt: new Date(input.createdAt), scheduledDispatchDate: input.scheduledDispatchDate ?? null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
     itemsTotal: snapshot.total, deliveryCost: zero, deliveryCharge: zero });
@@ -208,7 +208,7 @@ function paymentSummary(order: OrderAggregate): Result<PaymentSummary, Aggregate
   for (const payment of order.payments) {
     if (!parsePayment(payment).success || ids.has(payment.id) || payment.orderId !== order.id)
       return failure("INVALID_PAYMENT", "Invalid payment");
-    const currency = payment.status === "reported" ? payment.currency : payment.amount.currency;
+    const currency = payment.status === "reported" || payment.status === "rejected" ? payment.currency : payment.amount.currency;
     if (currency !== order.total.currency) return failure("CURRENCY_MISMATCH", "Payment currency differs from order");
     ids.add(payment.id);
     if (payment.status !== "confirmed") continue;
@@ -343,6 +343,7 @@ function registerPayment(order: OrderAggregate, payment: ConfirmedPayment): Resu
     existing.method === payment.method && existing.data.evidence.kind === payment.data.evidence.kind
     ? ok(order) : failure("PAYMENT_CONFLICT", "Payment ID has different data");
   if (existing?.status === "voided") return failure("INVALID_TRANSITION", "Voided payment cannot be confirmed");
+  if (existing?.status === "rejected") return failure("PAYMENT_CONFLICT", "Rejected payment cannot be confirmed");
   if (existing && (payment.data.evidence.kind !== "buyer_report" || payment.data.evidence.report.receiptImageId !== existing.data.receiptImageId))
     return failure("PAYMENT_CONFLICT", "Payment report differs");
   const next = { ...order, payments: existing ? order.payments.map((item) => item.id === payment.id ? payment : item) : [...order.payments, payment] };
@@ -365,7 +366,7 @@ function voidConfirmedPayment(order: OrderAggregate, paymentId: string, actor: U
   const state = lifecycle(order);
   if (!state.success) return state;
   const existing = order.payments.find((item) => item.id === paymentId);
-  if (!existing || existing.status === "reported")
+  if (!existing || existing.status === "reported" || existing.status === "rejected")
     return failure("INVALID_TRANSITION", "Payment cannot be voided");
   if (existing.status === "voided") return ok(order);
   const payment = voidPayment(existing, actor, at);
@@ -374,6 +375,37 @@ function voidConfirmedPayment(order: OrderAggregate, paymentId: string, actor: U
   const summary = paymentSummary(next);
   if (!summary.success) return summary;
   return ok({ ...next, completedAt: summary.data.status === "paid" ? order.completedAt : null });
+}
+
+function rejectReportedPayment(order: OrderAggregate, paymentId: string, rejection: Rejection): Result<Readonly<{ order: OrderAggregate; applied: boolean }>, OrderDomainError> {
+  const existing = order.payments.find((item) => item.id === paymentId);
+  if (existing?.status === "rejected") return ok({ order, applied: false });
+  const state = lifecycle(order);
+  if (!state.success) return state;
+  if (state.data.status === "cancelled") return failure("ORDER_CANCELLED", "Order is cancelled");
+  if (!existing) return failure("PAYMENT_CONFLICT", "Payment is not available");
+  const payment = rejectPayment(existing, rejection);
+  if (!payment.success) return failure(payment.error.code === "PAYMENT_CONFLICT" ? "PAYMENT_CONFLICT" : "INVALID_PAYMENT", payment.error.message);
+  const next = { ...order, payments: order.payments.map((item) => item.id === paymentId ? payment.data : item) };
+  const summary = paymentSummary(next);
+  return summary.success ? ok({ order: next, applied: true }) : summary;
+}
+
+function buyerReportedAt(payment: Payment): Date | null {
+  if (payment.status === "reported") return payment.data.reportedAt;
+  if (payment.status === "rejected") return payment.data.report.reportedAt;
+  return payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.reportedAt : null;
+}
+
+function rejectionAwaitingNewReport(order: OrderAggregate): RejectedPayment | null {
+  if (order.payments.some((item) => item.status === "reported")) return null;
+  let latest: Payment | null = null;
+  let latestAt = 0;
+  for (const item of order.payments) {
+    const reportedAt = buyerReportedAt(item)?.getTime();
+    if (reportedAt !== undefined && (latest === null || reportedAt > latestAt)) { latest = item; latestAt = reportedAt; }
+  }
+  return latest?.status === "rejected" ? latest : null;
 }
 
 function planStockDeduction(order: OrderAggregate, requestedIfPartial: boolean): Result<StockDeductionPlan, OrderDomainError> {
@@ -430,5 +462,5 @@ function cancel(order: OrderAggregate): Result<CancellationPlan, CancellationDom
     emitOrderCancelled: !order.cancelled });
 }
 
-export const orderStateMachine = { appendItems, removeItem, setItemQuantity, replaceItemVariant, setItemMentionedPrice, setDelivery, canSetDelivery, registerPayment, addReportedPayment, voidConfirmedPayment, planStockDeduction, registerShipment, scheduleDispatch,
+export const orderStateMachine = { appendItems, removeItem, setItemQuantity, replaceItemVariant, setItemMentionedPrice, setDelivery, canSetDelivery, registerPayment, addReportedPayment, voidConfirmedPayment, rejectReportedPayment, rejectionAwaitingNewReport, planStockDeduction, registerShipment, scheduleDispatch,
   registerDelivery, cancel, getPaymentSummary: paymentSummary, getLifecycle: lifecycle } as const;

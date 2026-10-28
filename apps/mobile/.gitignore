@@ -45,3 +45,7 @@ example
 
 # native module build output
 /modules/*/android/build/
+
+# Stryker mutation testing output (pnpm test:mutation).
+reports/
+.stryker-tmp/

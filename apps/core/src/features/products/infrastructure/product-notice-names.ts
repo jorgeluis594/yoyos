@@ -12,11 +12,9 @@ const isKnownFailure = (cause: unknown) => cause instanceof Prisma.PrismaClientK
 export async function findProductNoticeNames(productIds: readonly ProductId[]) {
   if (productIds.length === 0) return ok<ReadonlyMap<ProductId, ProductNoticeNames>>(new Map());
   try {
-    const rows = await prisma.product.findMany({ where: { id: { in: [...productIds] } }, select: { id: true, name: true, variants: { select: { attributes: true }, orderBy: { id: "asc" } } } });
-    return ok<ReadonlyMap<ProductId, ProductNoticeNames>>(new Map(rows.map((row) => {
-      const keys = row.variants.flatMap(({ attributes }) => (attributes && typeof attributes === "object" && !Array.isArray(attributes) ? Object.keys(attributes) : []));
-      return [row.id as ProductId, { name: row.name, attributeNames: [...new Set(keys.map((key) => key.toLowerCase()))] }];
-    })));
+    const rows = await prisma.product.findMany({ where: { id: { in: [...productIds] } }, select: { id: true, name: true, options: { select: { name: true }, orderBy: { position: "asc" } } } });
+    return ok<ReadonlyMap<ProductId, ProductNoticeNames>>(new Map(rows.map((row) =>
+      [row.id as ProductId, { name: row.name, attributeNames: [...new Set(row.options.map((option) => option.name.toLowerCase()))] }])));
   } catch (cause) {
     if (!isKnownFailure(cause)) throw cause;
     log.error({ event: "unable_to_read_product_notice_names", err: cause }, "unable_to_read_product_notice_names");

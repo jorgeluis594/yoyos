@@ -1,9 +1,10 @@
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { mkdir } from "node:fs/promises";
-import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, prepareVerifiedCompany, subdomainOf, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
+import { chooseDistrict, chooseDistrictInProvince } from "@core/tests/e2e/district-combobox";
 
 test("seller toggles delivery methods and the pickup point without a save button and they persist after reload", async ({ page, request }) => {
   const email = `delivery-settings-${crypto.randomUUID()}@example.test`;
@@ -225,27 +226,27 @@ test("seller manages overlapping zones with delivery options and preserves an ed
       await browserExpect(page.getByLabel("Nombre de la zona", { exact: true })).toHaveCount(0);
     }
     const variantId = await withTenantIsolation(companyId, async () => {
-      const created = await products.create({ name: "Coverage product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
+      const created = await productEditing.create({ name: "Coverage product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 3 }] });
       if (!created.success) throw new Error(created.error.message);
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: created.data } })).id;
     });
     const orderId = crypto.randomUUID();
     expect((await page.request.post("/api/orders", { data: { id: orderId, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    const owner = companyId;
+    await withTenantIsolation(owner, async () => { await prisma.company.update({ where: { id: owner }, data: { catalogSubdomain: subdomainOf(owner) } }); });
     const enabled = await page.request.post(`/api/orders/${orderId}/checkout-link`);
     expect(enabled.ok()).toBe(true);
     const buyerPage = await buyer.newPage();
     await buyerPage.goto((await enabled.json()).url);
-    await buyerPage.getByLabel("Departamento", { exact: true }).selectOption("15");
-    await buyerPage.getByLabel("Provincia", { exact: true }).selectOption("1501");
-    await buyerPage.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    await chooseDistrict(buyerPage, "150122");
     const buyerRates = buyerPage.getByLabel("Tarifa de envío");
     await browserExpect(buyerRates.locator("option")).toHaveCount(3);
     await browserExpect(buyerRates).toContainText(/Moto · S\/\s?8[.,]00/);
     await browserExpect(buyerRates).toContainText(/Camión · S\/\s?12[.,]00/);
     await page.getByRole("button", { name: "Desactivar Cercana", exact: true }).click();
     await browserExpect(page.getByRole("button", { name: "Reactivar Cercana", exact: true })).toBeVisible();
-    await buyerPage.getByLabel("Distrito", { exact: true }).selectOption("");
-    await buyerPage.getByLabel("Distrito", { exact: true }).selectOption("150122");
+    await chooseDistrictInProvince(buyerPage, "150101");
+    await chooseDistrictInProvince(buyerPage, "150122");
     await browserExpect(buyerRates.locator("option")).toHaveCount(2);
     await browserExpect(buyerRates).toContainText(/Camión/);
     await browserExpect(buyerRates).not.toContainText(/Moto/);
@@ -313,7 +314,7 @@ test("seller manages overlapping zones with delivery options and preserves an ed
     await buyer.close();
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany();
       await prisma.quotation.deleteMany();
       await prisma.deliveryOptionAgency.deleteMany();
@@ -402,19 +403,19 @@ test("seller creates Zona sur with Arequipa and Cusco complete and a Cayma buyer
     await page.getByRole("button", { name: "Cancelar edición", exact: true }).click();
 
     const variantId = await withTenantIsolation(companyId, async () => {
-      const created = await products.create({ name: "Sur product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
+      const created = await productEditing.create({ name: "Sur product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 3 }] });
       if (!created.success) throw new Error(created.error.message);
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: created.data } })).id;
     });
     const orderId = crypto.randomUUID();
     expect((await page.request.post("/api/orders", { data: { id: orderId, items: [{ variantId, quantity: 1 }] } })).status()).toBe(201);
+    const owner = companyId;
+    await withTenantIsolation(owner, async () => { await prisma.company.update({ where: { id: owner }, data: { catalogSubdomain: subdomainOf(owner) } }); });
     const link = await page.request.post(`/api/orders/${orderId}/checkout-link`);
     expect(link.ok()).toBe(true);
     const buyerPage = await buyer.newPage();
     await buyerPage.goto((await link.json()).url);
-    await buyerPage.getByLabel("Departamento", { exact: true }).selectOption("04");
-    await buyerPage.getByLabel("Provincia", { exact: true }).selectOption("0401");
-    await buyerPage.getByLabel("Distrito", { exact: true }).selectOption("040103");
+    await chooseDistrict(buyerPage, "040103");
     const rates = buyerPage.getByLabel("Tarifa de envío");
     await browserExpect(rates).toContainText(/Moto sur · S\/\s?15[.,]00/);
     await browserExpect(rates).toContainText(/Moto · S\/\s?6[.,]00/);
@@ -422,7 +423,7 @@ test("seller creates Zona sur with Arequipa and Cusco complete and a Cayma buyer
     await buyer.close();
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
       await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany();
       await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZoneProvince.deleteMany(); await prisma.deliveryZoneDepartment.deleteMany();

@@ -116,6 +116,9 @@ model Company {
   products Product[]
   productVariants ProductVariant[]
   productStocks ProductStock[]
+  productOptions ProductOption[]
+  productOptionValues ProductOptionValue[]
+  productVariantOptionValues ProductVariantOptionValue[]
   orders Order[]
   customers Customer[]
   orderMessages OrderMessage[]
@@ -125,6 +128,7 @@ model Company {
   payments Payment[]
   deliverySettings CompanyDeliverySettings?
   paymentSettings CompanyPaymentSettings?
+  dispatchSender CompanyDispatchSender?
   checkoutAppearance CompanyCheckoutAppearance?
   couriers CompanyCourier[]
   deliveryZones DeliveryZone[]
@@ -299,6 +303,14 @@ model CompanyPaymentSettings {
   settings Json
 }
 
+model CompanyDispatchSender {
+  companyId String   @id @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company  @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  name      String?  @db.VarChar(120)
+  phone     String?  @db.VarChar(30)
+  updatedAt DateTime @updatedAt
+}
+
 enum CheckoutTheme {
   classic
   boutique
@@ -357,7 +369,9 @@ model Product {
   status String
   createdAt DateTime
   updatedAt DateTime
+  structureVersion Int @default(0)
   variants ProductVariant[]
+  options ProductOption[]
 
   @@unique([companyId, id])
   @@index([companyId])
@@ -382,7 +396,7 @@ model ProductVariant {
   company Company @relation(fields: [companyId], references: [id])
   productId String @db.Uuid
   product Product @relation(fields: [companyId, productId], references: [companyId, id])
-  attributes Json
+  combinationKey String
   sku String? @db.VarChar(100)
   salePrice Decimal @db.Decimal(11, 2)
   purchasePrice Decimal? @db.Decimal(11, 2)
@@ -390,10 +404,55 @@ model ProductVariant {
   status String
   stock ProductStock?
   orderItems OrderItem[]
+  optionValues ProductVariantOptionValue[]
 
   @@unique([companyId, id])
-  @@index([companyId, productId])
+  @@unique([companyId, productId, id])
+  @@unique([companyId, productId, combinationKey])
   @@index([sku(ops: raw("gin_trgm_ops"))], type: Gin)
+}
+
+model ProductOption {
+  id String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  productId String @db.Uuid
+  product Product @relation(fields: [companyId, productId], references: [companyId, id], onDelete: Restrict)
+  name String @db.VarChar(30)
+  position Int
+  values ProductOptionValue[]
+  variantLinks ProductVariantOptionValue[]
+
+  @@unique([companyId, productId, id])
+}
+
+model ProductOptionValue {
+  id String @id @db.Uuid
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  optionId String @db.Uuid
+  productId String @db.Uuid
+  option ProductOption @relation(fields: [companyId, productId, optionId], references: [companyId, productId, id], onDelete: Cascade)
+  name String @db.VarChar(30)
+  position Int
+  variantLinks ProductVariantOptionValue[]
+
+  @@unique([companyId, optionId, id])
+}
+
+model ProductVariantOptionValue {
+  companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company Company @relation(fields: [companyId], references: [id])
+  productId String @db.Uuid
+  variantId String @db.Uuid
+  optionId String @db.Uuid
+  valueId String @db.Uuid
+  variant ProductVariant @relation(fields: [companyId, productId, variantId], references: [companyId, productId, id], onDelete: Cascade)
+  option ProductOption @relation(fields: [companyId, productId, optionId], references: [companyId, productId, id], onDelete: Restrict)
+  value ProductOptionValue @relation(fields: [companyId, optionId, valueId], references: [companyId, optionId, id], onDelete: Restrict)
+
+  @@id([companyId, variantId, optionId])
+  @@index([companyId, optionId, valueId])
 }
 
 model ProductStock {
@@ -543,7 +602,7 @@ model OrderItem {
   variantId String @db.Uuid
   variant ProductVariant @relation(fields: [companyId, variantId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
   productName String
-  variantAttributes Json
+  variantAttributes Json @db.Json
   sku String?
   quantity BigInt
   unitPrice Decimal @db.Decimal(11, 2)

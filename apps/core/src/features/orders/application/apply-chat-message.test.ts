@@ -939,7 +939,7 @@ describe("applyChatMessage: failures", () => {
   test("treats a lost image as a lost message and a storage outage as retryable", async () => {
     const lost = harness({ overrides: { readImage: async () => err({ code: "IMAGE_NOT_FOUND", message: "gone" }) } });
     expect(await lost.run()).toMatchObject({ success: false, error: { code: "MESSAGE_NOT_FOUND" } });
-    const down = harness({ overrides: { readImage: async () => err({ code: "IMAGE_STORAGE_UNAVAILABLE", message: "down" }) } });
+    const down = harness({ overrides: { readImage: async () => err({ code: "IMAGE_STORAGE_UNAVAILABLE", storageCode: "IMAGE_STORAGE_UNAVAILABLE", message: "down" }) } });
     expect(await down.run()).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE" } });
   });
 

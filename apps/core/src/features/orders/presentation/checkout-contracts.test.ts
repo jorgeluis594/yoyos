@@ -10,7 +10,7 @@ test("checkout boundaries reject extra authority, malformed UUIDs and invalid mo
     { ...valid, buyer: { name: " ", phone: valid.buyer.phone } }, { ...valid, expectedTotal: { amount: 10.501, currency: "PEN" } },
     { ...valid, expectedTotal: { amount: Infinity, currency: "PEN" } }, { ...valid, expectedTotal: { amount: -1, currency: "PEN" } },
     { ...valid, expectedTotal: { amount: 10, currency: "XXX" } }, { buyer: valid.buyer }]) expect(confirmCheckoutSchema.safeParse(body).success).toBe(false);
-  expect(checkoutPathSchema.safeParse({ companyId: "company", orderId: "1001" }).success).toBe(false);
+  expect(checkoutPathSchema.safeParse({ orderId: "1001" }).success).toBe(false);
 });
 
 test("public response validates confirmed buyers and excludes private aggregate fields", () => {
@@ -68,4 +68,16 @@ test("checkout delivery options require an agency coverage flag and reject extra
   expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { enabled: true } }).success).toBe(false);
   expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { ...options.agency, zones: [] } }).success).toBe(false);
   expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { ...options.agency, covered: "yes" } }).success).toBe(false);
+});
+
+test("the other-recipient flag is a form-only boolean that defaults to the buyer receiving", () => {
+  const request = { ...valid, delivery: { kind: "keep" } };
+  expect(confirmCheckoutDeliverySchema.parse(request).otherRecipient).toBe(false);
+  expect(confirmCheckoutDeliverySchema.parse({ ...request, otherRecipient: true }).otherRecipient).toBe(true);
+  expect(confirmCheckoutDeliverySchema.safeParse({ ...request, otherRecipient: "yes" }).success).toBe(false);
+});
+
+test("a kept delivery may carry the recipient of the form, and nothing else", () => {
+  expect(confirmCheckoutDeliverySchema.safeParse({ ...valid, delivery: { kind: "keep", recipient: { name: "Luis", phone: "+14155552671" } } }).success).toBe(true);
+  expect(confirmCheckoutDeliverySchema.safeParse({ ...valid, delivery: { kind: "keep", recipient: { name: "Luis", phone: "1", identity: {} } } }).success).toBe(false);
 });

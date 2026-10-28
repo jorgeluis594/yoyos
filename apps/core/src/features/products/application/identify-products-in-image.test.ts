@@ -150,7 +150,7 @@ describe("identifyProductsInImage", () => {
       [{ embedImage: async () => err({ code: "INVALID_EMBEDDING", message: "x" }) }, "INVALID_EMBEDDING"],
       [{ chooseProduct: async () => err({ code: "PRODUCT_MATCHER_UNAVAILABLE", message: "x" }) }, "PRODUCT_MATCHER_UNAVAILABLE"],
       [{ chooseProduct: async () => err({ code: "INVALID_MATCHER_RESPONSE", message: "x" }) }, "INVALID_MATCHER_RESPONSE"],
-      [{ readImage: async () => err({ code: "IMAGE_STORAGE_UNAVAILABLE", message: "x" }) }, "IMAGE_STORAGE_UNAVAILABLE"],
+      [{ readImage: async () => err({ code: "IMAGE_STORAGE_UNAVAILABLE", storageCode: "IMAGE_STORAGE_UNAVAILABLE", message: "x" }) }, "IMAGE_STORAGE_UNAVAILABLE"],
       [{ findNearestProductImages: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "x" }) }, "PERSISTENCE_UNAVAILABLE"],
     ];
     for (const [visual, code] of failures) expect(await harness({ visual }).run()).toMatchObject({ success: false, error: { code } });

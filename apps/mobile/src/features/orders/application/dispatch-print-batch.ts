@@ -2,7 +2,7 @@ import type { Result } from "@shared/result";
 import { dispatchLabelFormat, makeCopyCount } from "@mobile/features/printing/domain/printing";
 import type { PrintReceipt } from "@mobile/features/printing/domain/printing";
 import type { PrintExecution, PrintFailure, PrinterSession, RenderDocument, SendError } from "@mobile/features/printing/application/contracts";
-import type { DispatchLabel } from "@mobile/features/orders/domain/dispatch-label";
+import type { DispatchLabel } from "@shared/dispatch-label/types";
 
 type NotSent = PrintFailure & Readonly<{ outcome: "not-sent" }>;
 type Unknown = SendError & Readonly<{ outcome: "unknown" }>;

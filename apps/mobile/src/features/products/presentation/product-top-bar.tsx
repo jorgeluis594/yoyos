@@ -9,18 +9,20 @@ import { useTheme } from "@mobile/hooks/use-theme";
 import tokens from "../../../../../../docs/design-tokens.json";
 
 /** Product screens hide the tab bar, so this bar is their way out in every state. */
-export function ProductTopBar({ title, onClose, closeDisabled = false, children }: {
+export function ProductTopBar({ title, onClose, closeDisabled = false, back = false, children }: {
   title: string;
   onClose: () => void;
   closeDisabled?: boolean;
+  /** An arrow that returns to the previous screen, instead of the X that leaves the flow. */
+  back?: boolean;
   children?: ReactNode;
 }) {
   const { t } = useTranslation();
   const theme = useTheme();
   return <View style={[styles.bar, { borderBottomColor: theme.border }]}>
-    <Pressable accessibilityRole="button" accessibilityLabel={t('close')} accessibilityState={{ disabled: closeDisabled }} disabled={closeDisabled}
+    <Pressable accessibilityRole="button" accessibilityLabel={back ? t('back') : t('close')} accessibilityState={{ disabled: closeDisabled }} disabled={closeDisabled}
       onPress={onClose} style={({ pressed }) => [styles.iconAction, { backgroundColor: pressed ? theme.accent : "transparent", opacity: closeDisabled ? 0.5 : 1 }]}>
-      <SymbolView name={{ ios: "xmark", android: "close" }} size={tokens.sizing.iconNavigation} tintColor={theme.text} />
+      <SymbolView name={back ? { ios: "chevron.left", android: "arrow_back" } : { ios: "xmark", android: "close" }} size={tokens.sizing.iconNavigation} tintColor={theme.text} />
     </Pressable>
     <ThemedText type="subtitle" accessibilityRole="header" numberOfLines={2} style={styles.title}>{title}</ThemedText>
     {children ? <View style={styles.actions}>{children}</View> : null}

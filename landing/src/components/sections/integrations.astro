@@ -16,12 +16,12 @@ const label = navLinks.find((link) => link.anchor === "integraciones")?.label;
   <div class="container">
     <SectionHeading id="integraciones-titulo" label={label} heading={integrationsContent.heading} lead={integrationsContent.lead} />
 
-    <ul class="items">
+    <ul class="items" data-reveal>
       {
-        integrationsContent.items.map((item, index) => {
+        integrationsContent.items.map((item) => {
           const Icon = icons[item.icon];
           return (
-            <li class="item" data-reveal data-lift style={`--motion-order: ${index % 2}`}>
+            <li class="item" data-lift>
               <Icon class="icon" aria-hidden="true" />
               <p>
                 <strong>{item.title}</strong> {item.text}

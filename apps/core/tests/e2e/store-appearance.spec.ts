@@ -3,8 +3,8 @@ import { describe } from "vitest";
 import { browserExpect, expect, test } from "@core/tests/e2e/fixtures";
 import { storeThemeIds, storeThemes } from "@shared/store-themes";
 import { openEditor, rgb, sharedCheckoutPath } from "@core/tests/e2e/store-appearance-fixtures";
-import { products } from "@core/src/features/products/composition";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
 const origin = `http://127.0.0.1:${process.env.CORE_E2E_PORT ?? "4173"}`;
@@ -331,8 +331,7 @@ describe("store appearance editor with the live preview", () => {
     await chooseSubdomain(companyId);
     await withTenantIsolation(companyId, async () => {
       for (const name of ["Polo", "Casaca", "Gorra", "Medias", "Mochila"]) {
-        const created = await products.create({ name, currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
-        if (!created.success) throw new Error("Product fixture failed");
+        await seedProduct({ name, variants: [{ attributes: { Color: "Azul" }, salePrice: 10, stock: 3 }] });
       }
     });
     await page.reload({ waitUntil: "networkidle" });

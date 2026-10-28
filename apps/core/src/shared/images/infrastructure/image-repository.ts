@@ -1,5 +1,6 @@
 import { log } from "@core/src/shared/infrastructure/logger";
-import { prisma } from "@core/src/shared/infrastructure/persistance";
+import { inActiveTransaction, prisma } from "@core/src/shared/infrastructure/persistance";
+import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import type { ImageRepository } from "@core/src/shared/images/application/images";
 import { err, ok } from "@shared/functional";
 import { Prisma } from "@prisma/client";
@@ -25,6 +26,8 @@ export const imageRepository: ImageRepository = {
       return ok(await prisma.image.findFirst({ where: { id }, select: { id: true, storageKey: true } }));
     } catch (cause) {
       if (!isPersistenceFailure(cause)) throw cause;
+      // Inside an editing transaction a timeout or lock conflict is the transaction boundary's to report.
+      if (inActiveTransaction() && transactionFailureStage(cause)) throw cause;
       log.error({ event: "unable_to_find_image_record", err: cause }, "unable_to_find_image_record");
       return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to find image record" });
     }

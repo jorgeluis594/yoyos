@@ -168,14 +168,14 @@ test("delivery API validates the complete authored snapshot and updated aggregat
 
 test("checkout link adapter validates IDs, responses and operation-specific failures", async () => {
   const calls: string[] = [];
-  const url = `https://shop.example/checkout/${id(2)}/${id(1)}`;
+  const url = `https://shop.example/checkout/${id(2)}`;
   const api = createOrderApi(async (path) => { calls.push(path); return ok({ url }); });
   expect(await api.enableCheckout("1001")).toMatchObject({ error: { code: "INVALID_INPUT" } });
   expect(calls).toEqual([]);
   expect(await api.enableCheckout(id(1))).toEqual(ok({ url }));
   expect(calls).toEqual([`/api/orders/${id(1)}/checkout-link`]);
   expect(await createOrderApi(async () => ok({ url: "bad" })).enableCheckout(id(1))).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
-  for (const [code, status] of [["ORDER_CANCELLED", 409], ["ORDER_NOT_FOUND", 404], ["INVALID_INPUT", 422]] as const) {
+  for (const [code, status] of [["ORDER_CANCELLED", 409], ["SUBDOMAIN_REQUIRED", 409], ["ORDER_NOT_FOUND", 404], ["INVALID_INPUT", 422]] as const) {
     const failed = createOrderApi(async () => err({ code: "API_ERROR", message: "failure", http: { status, body: { code, error: "Rejected" } } }));
     expect(await failed.enableCheckout(id(1))).toMatchObject({ error: { code } });
   }
@@ -300,4 +300,43 @@ test("order API patches shipping only with a valid body and order ID", async () 
   expect(request).not.toHaveBeenCalled();
   expect(await api.updateShipping(id(1), { scheduledDispatchDate: null })).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
   expect(request).toHaveBeenCalledWith(`/api/orders/${id(1)}/shipping`, expect.objectContaining({ method: "PATCH", body: JSON.stringify({ scheduledDispatchDate: null }) }));
+});
+
+test("order API reads the effective dispatch sender and rejects malformed or failed replies", async () => {
+  const paths: string[] = [];
+  const reply = { configured: { name: null, phone: "977000111" }, effective: { name: "Mi tienda", phone: "977000111" } };
+  const api = createOrderApi(async (path) => { paths.push(path); return ok(reply); });
+  expect(await api.getDispatchSender()).toEqual(ok({ name: "Mi tienda", phone: "977000111" }));
+  expect(paths).toEqual(["/api/company/dispatch-sender"]);
+  expect(await createOrderApi(async () => ok({ effective: { name: "" } })).getDispatchSender()).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  const down: TransportError = { code: "NETWORK_ERROR", message: "offline" };
+  expect(await createOrderApi(async () => err(down)).getDispatchSender()).toMatchObject({ success: false, error: { code: "NETWORK_ERROR" } });
+});
+
+test("rejectPayment posts the reason and parses the order aggregate", async () => {
+  const calls: [string, RequestInit | undefined][] = [];
+  const order = { unexpected: true };
+  const api = createOrderApi(async (path, init) => { calls.push([path, init]); return ok(order); });
+  expect(await api.rejectPayment(id(1), id(2), "El monto no coincide")).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
+  expect(calls[0][0]).toBe(`/api/orders/${id(1)}/payments/${id(2)}/reject`);
+  expect(calls[0][1]?.method).toBe("POST");
+  expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ reason: "El monto no coincide" });
+  await api.rejectPayment(id(1), id(2), null);
+  expect(JSON.parse(String(calls[1][1]?.body))).toEqual({ reason: null });
+  expect(await api.rejectPayment("bad", id(2), null)).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  expect(calls).toHaveLength(2);
+  const conflict = createOrderApi(async () => err({ code: "API_ERROR", message: "Conflict",
+    http: { status: 409, body: { code: "PAYMENT_CONFLICT", error: "Reviewed" } } }));
+  expect(await conflict.rejectPayment(id(1), id(2), null)).toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
+});
+
+test("an order response keeps variantAttributes in option order after parsing", async () => {
+  const total = { amount: 10, currency: "PEN" as const };
+  const zero = { amount: 0, currency: "PEN" as const };
+  const order = { number: 1001, id: id(1), companyId: id(2), buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
+    sellerId: "seller", createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending",
+    stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero, cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
+    items: [{ id: id(3), variantId: id(4), productName: "Polo", variantAttributes: { Talla: "L", Color: "Azul", Manga: "Larga" }, sku: null, quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
+  const result = await createOrderApi(async () => ok(order)).getAggregate(id(1));
+  expect(result.success && Object.entries(result.data.items[0].variantAttributes)).toEqual([["Talla", "L"], ["Color", "Azul"], ["Manga", "Larga"]]);
 });

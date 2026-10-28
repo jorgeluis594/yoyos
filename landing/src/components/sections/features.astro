@@ -12,8 +12,8 @@ const label = navLinks.find((link) => link.anchor === "funciones")?.label;
     <SectionHeading id="funciones-titulo" label={label} heading={featuresContent.heading} />
     <ul class="grid">
       {featuresContent.cards.map((card, index) => (
-        <li class="card" data-reveal data-lift style={`--motion-order: ${index % 2}`}>
-          <div data-reveal="capture" style={`--motion-order: ${(index % 2) + 1}`}><Screenshot capture={card.capture} /></div>
+        <li class="card" data-reveal style={`--motion-order: ${index % 2}`}>
+          <Screenshot capture={card.capture} />
           <h3>{card.title}</h3>
           <p class="card-text">{card.text}</p>
         </li>

@@ -6,6 +6,7 @@ import { deleteCompanyCatalogOrderBatch, deleteConfiguredExpiredCatalogOrders } 
 import { log } from "@core/src/shared/infrastructure/logger";
 import { listCompaniesWithExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 // Rows live in 2001 so the sweep cannot touch data of tests running in parallel.
 const now = new Date("2001-01-10T09:00:00.000Z");
@@ -23,15 +24,13 @@ async function company() {
     await prisma.company.create({ data: { id: companyId, name: "Cleanup test", country: "PE" } });
     await systemPrisma.user.create({ data: { id: sellerId, name: "Seller", email: `${sellerId}@example.test`, companyId } });
     const productId = randomUUID();
-    await prisma.product.create({ data: { id: productId, name: "Polo", currency: "PEN", qrCode: productId, status: "active", createdAt: now, updatedAt: now } });
-    await prisma.productVariant.create({ data: { id: variantId, productId, attributes: {}, salePrice: 10, qrCode: variantId, status: "active" } });
+    await seedProduct({ id: productId, name: "Polo", qrCode: productId, createdAt: now, updatedAt: now, variants: [{ id: variantId, salePrice: 10, qrCode: variantId }] });
   });
   cleanups.push(() => withTenantIsolation(companyId, async () => {
     await prisma.payment.deleteMany();
     await prisma.orderItem.deleteMany();
     await prisma.order.deleteMany();
-    await prisma.productVariant.deleteMany();
-    await prisma.product.deleteMany();
+    await deleteSeededProducts();
     await systemPrisma.user.delete({ where: { id: sellerId } });
     await prisma.company.delete({ where: { id: companyId } });
   }));

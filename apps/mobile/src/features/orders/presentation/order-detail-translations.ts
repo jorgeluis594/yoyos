@@ -26,6 +26,11 @@ export const orderDetailTranslations = {
     detailSeller: 'Vendedor: {{id}}', detailClose: 'Cerrar',
     mentionedPrice_one: 'El cliente mencionó {{amount}} por unidad', mentionedPrice_other: 'El cliente mencionó {{amount}} por {{count}}',
     orderItemDetailLabel: '{{quantity}} × {{unit}}, {{subtotal}}',
+    paymentToReview: 'Pago por revisar', rejectPayment: 'Rechazar', rejectTitle: '¿Rechazar este comprobante?',
+    rejectHelp: 'El saldo seguirá pendiente y el comprador podrá enviar otro comprobante.',
+    rejectReason: 'Motivo (opcional, lo verá el comprador)', rejectConfirm: 'Rechazar comprobante', rejectBack: 'Volver',
+    paymentAlreadyReviewed: 'Este pago ya fue revisado.', paymentUnknownResult: 'No sabemos si se guardó. Revisa el pedido antes de repetir.',
+    rejectCancelled: 'El pedido está cancelado y ya no admite revisar comprobantes.', rejectReasonTooLong: 'El motivo admite hasta 200 caracteres.',
   },
   'pt-BR': {
     orderCancellation: {
@@ -54,5 +59,10 @@ export const orderDetailTranslations = {
     detailSeller: 'Vendedor: {{id}}', detailClose: 'Fechar',
     mentionedPrice_one: 'O cliente mencionou {{amount}} por unidade', mentionedPrice_other: 'O cliente mencionou {{amount}} por {{count}}',
     orderItemDetailLabel: '{{quantity}} × {{unit}}, {{subtotal}}',
+    paymentToReview: 'Pagamento para revisar', rejectPayment: 'Rejeitar', rejectTitle: 'Rejeitar este comprovante?',
+    rejectHelp: 'O saldo continuará pendente e o comprador poderá enviar outro comprovante.',
+    rejectReason: 'Motivo (opcional, o comprador verá)', rejectConfirm: 'Rejeitar comprovante', rejectBack: 'Voltar',
+    paymentAlreadyReviewed: 'Este pagamento já foi revisado.', paymentUnknownResult: 'Não sabemos se foi salvo. Revise o pedido antes de repetir.',
+    rejectCancelled: 'O pedido está cancelado e não admite mais revisar comprovantes.', rejectReasonTooLong: 'O motivo admite até 200 caracteres.',
   },
 };

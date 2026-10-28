@@ -7,7 +7,7 @@ Code: `apps/core/src/features/products/application/identify-products-in-image.ts
 ## Photo cascade
 
 1. **QR.** Read the QR codes of the image.
-   - Product QR codes found (a variant UUID, what labels print): their sellable variants are the result, each with its product (one item per distinct variant). Codes that match no sellable variant are reported as product not found.
+   - Product QR codes found (a variant UUID, what labels print): their sellable (active) variants are the result, each with its product; a deactivated or deleted variant matches nothing (one item per distinct variant). Codes that match no sellable variant are reported as product not found.
    - Only non-product QR codes (Yape/Plin payments, URLs): the photo is not a product. Reason: such a QR says the image is not a product photo.
    - Unreadable image: stop.
    - No QR code at all: continue to visual search.
@@ -17,6 +17,7 @@ Code: `apps/core/src/features/products/application/identify-products-in-image.ts
    3. A vision model receives the customer image as it came, the photo cut out of it or its brightened copy if any, and the candidate images, labelled `A`, `B`, …, and answers one label or `none` with a confidence, plus the probability that the image's main subject is an item a shop could sell (`shows_product`): alone, worn, held, on a screen, in a social post screenshot, or dark, blurry or cropped; not a selfie or portrait, a building or place, a payment or transfer, a chat, a map, a receipt, a document or a meme.
    4. `shows_product` below 0.5 means the photo is not a product, whatever the choice and its confidence. Reason: a selfie in a knitted sweater can resemble a catalog sweater, and a photo that is not a product is no purchase intent.
    5. Otherwise accept the choice only if it is one of the candidates and its confidence is at least `PRODUCT_MATCH_MIN_CONFIDENCE` (default 0.8). The result is the product, not a variant. With no accepted choice, it is a product that was not found.
+   Products without active variants are not candidates, and a company with none answers `no_indexed_products`.
 
 Results: `found` (QR items or the visual product, with method and confidence), `not_product`, or `not_found` with its reason (`unreadable_image`, `unrecognized_qr_code`, `product_not_found`, `visual_search_disabled`, `no_indexed_products`, `no_visual_match`, `low_confidence`). A visual match returns at most one product per image (a live screenshot shows the product being offered) and is added like a QR match, without a confirmation step.
 

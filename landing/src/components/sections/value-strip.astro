@@ -9,11 +9,11 @@ const icons = { camera: Camera, link: Link, truck: Truck } as const;
 
 <section class="strip" data-section="value-strip">
   <div class="container">
-    <ul class="items">
-      {valueStripContent.items.map((item, index) => {
+    <ul class="items" data-reveal>
+      {valueStripContent.items.map((item) => {
         const Icon = icons[item.icon];
         return (
-          <li class="item" data-reveal style={`--motion-order: ${index % 3}`}>
+          <li class="item">
             <span class="icon-box"><Icon aria-hidden="true" /></span>
             <p class="item-title">{item.title}</p>
             <p class="item-text">{item.text}</p>

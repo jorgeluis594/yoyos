@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { vi } from "vitest";
 import pg from "pg";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createEventBusRuntime } from "@core/src/composition/event-bus";
 import { bootstrapEventHandlers, eventHandlers } from "@core/src/composition/event-handlers";
@@ -11,7 +11,7 @@ async function fixture(page: Page) {
   const email = `cancellation-${crypto.randomUUID()}@example.test`;
   const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Cancellation", country: "PE" });
   const variantId = await withTenantIsolation(companyId, async () => {
-    const product = await products.create({ name: "Cancellation product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 20 }] });
+    const product = await productEditing.create({ name: "Cancellation product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 20 }] });
     if (!product.success) throw new Error("Product setup failed");
     return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
   });
@@ -30,7 +30,7 @@ async function fixture(page: Page) {
       finally { await pool.end(); }
       await withTenantIsolation(companyId, async () => {
         await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-        await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+        await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
         await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
       });
     },
@@ -121,8 +121,8 @@ test("core resolves a committed lost response, offers manual verification and re
       await confirm(page);
       await committed;
       await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
-      await browserExpect(page.getByRole("button", { name: "Confirmar pago", exact: true })).toBeDisabled();
-      await browserExpect(page.getByRole("button", { name: "Anular pago", exact: true })).toBeDisabled();
+      await browserExpect(page.getByRole("button", { name: "¿Te pagaron por fuera? Registrar pago", exact: true })).toBeDisabled();
+      await browserExpect(page.getByRole("button", { name: /^Anular pago del/ })).toBeDisabled();
       await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toBeDisabled();
       release();
       if (uncertain) {
@@ -145,7 +145,7 @@ test("core resolves a committed lost response, offers manual verification and re
 }, 120000);
 
 
-test("new loader data replaces a recovered active cancellation snapshot after checkout activation", async ({ page }) => {
+test("new loader data replaces a recovered active cancellation snapshot after a payment is registered", async ({ page }) => {
   const f = await fixture(page);
   try {
     const id = await f.create();
@@ -156,11 +156,11 @@ test("new loader data replaces a recovered active cancellation snapshot after ch
     await confirm(page);
     await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toBeEnabled();
     await browserExpect(page.getByRole("alert")).toBeVisible();
-    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toBeVisible();
-    await page.unroute(dataRoute);
-    await page.getByRole("button", { name: "Obtener enlace", exact: true }).click();
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Enlace aún no habilitado", { exact: true })).toHaveCount(0);
+    await page.unroute(dataRoute);
+    await page.getByRole("button", { name: "¿Te pagaron por fuera? Registrar pago", exact: true }).click();
+    await page.getByRole("dialog", { name: "Registrar pago" }).getByRole("button", { name: "Confirmar pago" }).click();
+    await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
     expect((await f.detail(id)).checkoutEnabledAt).not.toBeNull();
   } finally { await f.cleanup(); }
 });
@@ -176,6 +176,6 @@ test("confirmed cancellation snapshot survives a failed detail refresh", async (
     await browserExpect(page.getByRole("alert")).toContainText("El pedido está cancelado, pero no se pudo actualizar el detalle");
     await browserExpect(page.getByRole("status")).toContainText("Pedido cancelado");
     await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toHaveCount(0);
-    await browserExpect(page.getByRole("button", { name: "Obtener enlace", exact: true })).toHaveCount(0);
+    await browserExpect(page.getByRole("textbox", { name: "Enlace del pedido" })).toHaveCount(0);
   } finally { await f.cleanup(); }
 });

@@ -4,6 +4,7 @@ import { ok } from "@shared/functional";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { findImageIndexState, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import { indexProductImage } from "@core/src/features/products/application/index-product-image";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 import type { ImageEmbedder } from "@core/src/features/products/composition";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
 import type { ImageBytes } from "@core/src/features/products/domain/image-identification";
@@ -48,7 +49,7 @@ export async function readRegisteredImage(imageId: ImageId) {
 }
 
 const companyTables = ["chatMessageOutcome", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer",
-  "productStock", "productVariant", "product", "image"] as const;
+  "productStock", "productVariant", "productOption", "product", "image"] as const;
 
 async function deleteEvalCompany() {
   await withTenantIsolation(evalCompanyId, async () => {
@@ -89,12 +90,10 @@ export async function seedEvalCatalog(embedder: ImageEmbedder | null): Promise<v
         await prisma.image.create({ data: { id: imageId, storageKey: `evals/${photo}` } });
         registerImageFile(imageId, photo);
       }
-      await prisma.product.create({ data: { id: productId, name: product.name, currency: "PEN", qrCode: productId, status: "active", imageId, createdAt: now, updatedAt: now } });
-      for (const variant of product.variants) {
+      await seedProduct({ id: productId, name: product.name, qrCode: productId, imageId, createdAt: now, updatedAt: now, variants: product.variants.map((variant) => {
         const variantId = variantIdOf(product.key, variant.attributes);
-        await prisma.productVariant.create({ data: { id: variantId, productId, attributes: variant.attributes, sku: `EVAL-${variantId.slice(0, 8)}`,
-          salePrice: variant.price, qrCode: variantId, status: "active" } });
-      }
+        return { id: variantId, attributes: variant.attributes, sku: `EVAL-${variantId.slice(0, 8)}`, salePrice: variant.price, qrCode: variantId };
+      }) });
     }
   });
   if (!embedder) return;

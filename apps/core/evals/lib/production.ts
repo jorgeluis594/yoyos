@@ -12,7 +12,7 @@ import { resolveVariant } from "@core/src/features/products/application/resolve-
 import { catalogSearchReadiness } from "@core/src/features/products/application/catalog-search-readiness";
 import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
 import { hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
-import { readQrCodes } from "@core/src/features/products/infrastructure/qr-code-reader";
+import { readQrCodes } from "@core/src/shared/images/infrastructure/qr-code-reader";
 import { findSellableVariantsByQrCodes, loadSellableVariants } from "@core/src/features/products/infrastructure/order-stock";
 import { findProductIdsOfVariants } from "@core/src/features/products";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";

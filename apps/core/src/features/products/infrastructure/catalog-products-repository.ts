@@ -3,9 +3,10 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import { currencies } from "@shared/money";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { getCompanyId, prisma } from "@core/src/shared/infrastructure/persistance";
+import { getCompanyId, prisma, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
+import { loadAttributesOfProducts, savedVariantOrder, type VariantAttributes } from "@core/src/features/products/infrastructure/variant-combinations";
 import type { CatalogProductRepository } from "@core/src/features/products/application/catalog-products";
-import type { StoredCatalogProduct } from "@core/src/features/products/domain/catalog-product";
+import type { StoredCatalogCard, StoredCatalogProduct } from "@core/src/features/products/domain/catalog-product";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 
 const variantSchema = z.object({ id: z.string().transform((value) => value as VariantId), attributes: z.record(z.string(), z.string()),
@@ -13,15 +14,23 @@ const variantSchema = z.object({ id: z.string().transform((value) => value as Va
 const storedSchema = z.object({
   id: z.string().transform((value) => value as ProductId), name: z.string(), description: z.string().nullable(),
   imageId: z.string().transform((value) => value as ImageId).nullable(), currency: z.enum(currencies),
+  options: z.array(z.object({ name: z.string(), values: z.array(z.string()) })),
   variants: z.tuple([variantSchema], variantSchema),
 });
+const cardSchema = z.object({
+  id: z.string().transform((value) => value as ProductId), name: z.string(),
+  imageId: z.string().transform((value) => value as ImageId).nullable(), currency: z.enum(currencies),
+  minPrice: z.number().nonnegative(), maxPrice: z.number().nonnegative(), soldOut: z.boolean(),
+});
+type CardRow = Readonly<{ id: string; name: string; imageId: string | null; currency: string; minPrice: Prisma.Decimal; maxPrice: Prisma.Decimal; soldOut: boolean }>;
 
 const sellable = { status: "active", variants: { some: { status: "active" } } } as const;
 const include = { variants: { where: { status: "active" }, include: { stock: true }, orderBy: { id: "asc" } } } as const;
 type Row = Prisma.ProductGetPayload<{ include: typeof include }>;
+type Option = Prisma.ProductOptionGetPayload<{ include: { values: true } }>;
 
-function parseRow(row: Row): StoredCatalogProduct | null {
-  const parsed = storedSchema.safeParse({ ...row, variants: row.variants.map((variant) => ({ id: variant.id, attributes: variant.attributes,
+function parseRow(row: Row, attributes: VariantAttributes, options: readonly Option[]): StoredCatalogProduct | null {
+  const parsed = storedSchema.safeParse({ ...row, options: options.map(({ name, values }) => ({ name, values: values.map((value) => value.name) })), variants: row.variants.map((variant) => ({ id: variant.id, attributes: attributes.get(variant.id) ?? {},
     salePrice: variant.salePrice.toNumber(), stock: variant.stock && variant.stock.quantity <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(variant.stock.quantity) : null })) });
   return parsed.success ? parsed.data : null;
 }
@@ -39,35 +48,47 @@ export const catalogProductRepository: CatalogProductRepository = {
   async list({ currency, search, offset, limit }) {
     const companyId = getCompanyId();
     const pattern = search === null ? null : `%${search.replace(/[\\%_]/g, "\\$&")}%`;
-    let rows: Row[];
-    let hasMore: boolean;
+    let rows: CardRow[];
     try {
-      const ids = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT p.id FROM "Product" p
-        WHERE p."companyId" = ${companyId}::uuid AND p.status = 'active' AND p.currency = ${currency}
-          AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p.id AND v."companyId" = p."companyId" AND v.status = 'active')
-          ${pattern === null ? Prisma.empty : Prisma.sql`AND unaccent(lower(p.name)) LIKE unaccent(lower(${pattern}))`}
-        ORDER BY p."createdAt" DESC, p.id ASC LIMIT ${limit + 1} OFFSET ${offset}`);
-      hasMore = ids.length > limit;
-      const pageIds = ids.slice(0, limit).map(({ id }) => id);
-      const found = await prisma.product.findMany({ where: { id: { in: pageIds }, ...sellable }, include });
-      const byId = new Map(found.map((row) => [row.id, row]));
-      rows = pageIds.flatMap((id) => byId.get(id) ?? []);
+      // The page is cut first, with a semi-join on the active variants, so the aggregates below run for one page of products
+      // and not for every product of the company. They are SQL aggregates, so the cost does not grow with the variants per product.
+      rows = await prisma.$queryRaw<CardRow[]>(Prisma.sql`SELECT p.id, p.name, p."imageId", p.currency,
+          a."minPrice", a."maxPrice", COALESCE(a."inStock", false) = false AS "soldOut"
+        FROM (SELECT p.id, p.name, p."imageId", p.currency, p."companyId", p."createdAt" FROM "Product" p
+          WHERE p."companyId" = ${companyId}::uuid AND p.status = 'active' AND p.currency = ${currency}
+            AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active')
+            ${pattern === null ? Prisma.empty : Prisma.sql`AND unaccent(lower(p.name)) LIKE unaccent(lower(${pattern}))`}
+          ORDER BY p."createdAt" DESC, p.id ASC LIMIT ${limit + 1} OFFSET ${offset}) p
+        CROSS JOIN LATERAL (SELECT min(v."salePrice") AS "minPrice", max(v."salePrice") AS "maxPrice", bool_or(s.quantity > 0) AS "inStock"
+          FROM "ProductVariant" v LEFT JOIN "ProductStock" s ON s."companyId" = v."companyId" AND s."variantId" = v.id
+          WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active') a
+        ORDER BY p."createdAt" DESC, p.id ASC`);
     } catch (cause) {
       return unavailable("list_catalog_products", cause);
     }
-    const parsed = rows.map(parseRow).filter((row) => row !== null);
-    if (parsed.length !== rows.length) return invalid("list_catalog_products");
-    return ok({ rows: parsed, hasMore });
+    const parsed = rows.slice(0, limit).map((row) => cardSchema.safeParse({ ...row, minPrice: new Prisma.Decimal(row.minPrice).toNumber(), maxPrice: new Prisma.Decimal(row.maxPrice).toNumber() }));
+    const cards: StoredCatalogCard[] = parsed.flatMap((result) => result.success ? [result.data] : []);
+    if (cards.length !== parsed.length) return invalid("list_catalog_products");
+    return ok({ rows: cards, hasMore: rows.length > limit });
   },
   async find(id, currency) {
     let row: Row | null;
+    let attributes: VariantAttributes;
+    let options: Option[];
     try {
-      row = await prisma.product.findFirst({ where: { id, currency, ...sellable }, include });
+      ({ row, attributes, options } = await withinReadSnapshot(async () => {
+        const row = await prisma.product.findFirst({ where: { id, currency, ...sellable }, include });
+        if (!row) return { row, attributes: new Map<string, Record<string, string>>(), options: [] };
+        const options = await prisma.productOption.findMany({ where: { productId: row.id }, orderBy: { position: "asc" },
+          include: { values: { orderBy: { position: "asc" } } } });
+        const bySavedOrder = await savedVariantOrder([row.id]);
+        return { row: { ...row, variants: [...row.variants].sort(bySavedOrder) }, attributes: await loadAttributesOfProducts([row.id], true), options };
+      }));
     } catch (cause) {
       return unavailable("find_catalog_product", cause);
     }
     if (!row) return ok(null);
-    const parsed = parseRow(row);
+    const parsed = parseRow(row, attributes, options);
     return parsed ? ok(parsed) : invalid("find_catalog_product");
   },
 };

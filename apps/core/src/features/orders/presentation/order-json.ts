@@ -23,7 +23,9 @@ export function toOrderAggregateJson(order: OrderAggregate) {
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,
     payments: order.payments.map((item) => item.status === "reported" ? { ...item,
-      data: { ...item.data, reportedAt: item.data.reportedAt.toISOString() } } : { ...item,
+      data: { ...item.data, reportedAt: item.data.reportedAt.toISOString() } } : item.status === "rejected" ? { ...item,
+      data: { ...item.data, report: { ...item.data.report, reportedAt: item.data.report.reportedAt.toISOString() },
+        rejectedAt: item.data.rejectedAt.toISOString() } } : { ...item,
       data: { ...item.data, confirmedAt: item.data.confirmedAt.toISOString(),
         evidence: item.data.evidence.kind === "manual" ? item.data.evidence : { kind: "buyer_report",
           report: { ...item.data.evidence.report, reportedAt: item.data.evidence.report.reportedAt.toISOString() } },
@@ -36,6 +38,14 @@ export function toOrderAggregateListJson(page: AggregatePage) {
     return orderAggregateSummarySchema.parse({ number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, source, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total,
       courier: delivery?.method === "agency" ? delivery.courier : null });
   }) });
+}
+
+// Web-only list data read from the stored snapshot; never added to the mobile list JSON.
+export function toOrderListDispatchFields({ delivery }: OrderAggregate) {
+  if (!delivery) return { deliveryMethod: "none", district: null } as const;
+  if (delivery.method === "home") return { deliveryMethod: "home", district: delivery.destination.district } as const;
+  if (delivery.method === "agency") return { deliveryMethod: "agency", district: delivery.agency.location.district } as const;
+  return { deliveryMethod: "pickup", district: null } as const;
 }
 
 export function toOrderListJson(list: ListOrdersOutput) {

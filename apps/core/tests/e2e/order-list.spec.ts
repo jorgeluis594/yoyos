@@ -1,6 +1,6 @@
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 test("seller scans units and independent states, searches orders and combines work views with dates", async ({ page }) => {
   const email = `order-list-${crypto.randomUUID()}@example.test`;
@@ -9,13 +9,11 @@ test("seller scans units and independent states, searches orders and combines wo
     companyId = await prepareVerifiedCompany(page, { email, name: "Vendedor Demo", companyName: "Pedidos de prueba", country: "PE" });
     const tenantId = companyId;
     const variantIds = await withTenantIsolation(tenantId, async () => {
-      const product = await products.create({ name: "Producto", currency: "PEN", variants: [
-        { attributes: { Size: "M" }, salePrice: 10, initialStock: 20 },
-        { attributes: { Size: "L" }, salePrice: 20, initialStock: 20 },
+      const seeded = await seedProduct({ name: "Producto", variants: [
+        { attributes: { Size: "M" }, salePrice: 10, stock: 20 },
+        { attributes: { Size: "L" }, salePrice: 20, stock: 20 },
       ] });
-      if (!product.success) throw new Error("Product setup failed");
-      const variants = await prisma.productVariant.findMany({ where: { productId: product.data }, orderBy: { salePrice: "asc" } });
-      return variants.map((variant) => variant.id);
+      return [...seeded.variantIds];
     });
     const summaries: { id: string; number: number; kind: string }[] = [];
     for (const [index, kind] of ["partial", "paid", "shipped", "completed", "cancelled", "historical"].entries()) {
@@ -45,7 +43,7 @@ test("seller scans units and independent states, searches orders and combines wo
     const row = (kind: string) => rows.filter({ hasText: `#${summaries.find((summary) => summary.kind === kind)!.number}` });
     await browserExpect(page.getByRole("navigation", { name: "Vistas de pedidos" }).getByRole("link", { name: "Todos", exact: true })).toHaveAttribute("aria-current", "page");
     await browserExpect(rows).toHaveCount(6);
-    await browserExpect(table.getByRole("columnheader")).toHaveText(["Pedido", "Cliente", "Fecha", "Unidades", "Total"]);
+    await browserExpect(table.getByRole("columnheader")).toHaveText(["", "Pedido", "Cliente", "Distrito", "Fecha", "Unidades", "Total"]);
     await browserExpect(row("partial").locator('[data-column="itemCount"]')).toHaveText("5");
     await row("partial").locator("summary").first().focus();
     await page.keyboard.press("Enter");
@@ -98,14 +96,14 @@ test("seller scans units and independent states, searches orders and combines wo
     await row("partial").locator("summary").first().click();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/pt-BR/orders");
-    await browserExpect(page.getByRole("columnheader")).toHaveText(["Pedido", "Cliente", "Data", "Unidades", "Total"]);
+    await browserExpect(page.getByRole("columnheader")).toHaveText(["", "Pedido", "Cliente", "Distrito", "Data", "Unidades", "Total"]);
     await browserExpect(page.locator('summary[aria-label="Concluído"]')).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: "test-results/order-list-desktop-pt.png", fullPage: true, animations: "disabled" });
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } });
       await prisma.company.delete({ where: { id: companyId } });
     });

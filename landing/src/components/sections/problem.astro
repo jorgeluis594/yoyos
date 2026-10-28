@@ -7,9 +7,9 @@ import { problemContent } from "@landing/src/content/sections/problem";
 <section id="problema" class="section" aria-labelledby="problema-titulo">
   <div class="container stack">
     <SectionHeading id="problema-titulo" heading={problemContent.heading} />
-    <ul class="bullets">
-      {problemContent.bullets.map((bullet, index) => (
-        <li data-reveal style={`--motion-order: ${index % 3}`}><X class="mark" aria-hidden="true" /><span>{bullet}</span></li>
+    <ul class="bullets" data-reveal>
+      {problemContent.bullets.map((bullet) => (
+        <li><X class="mark" aria-hidden="true" /><span>{bullet}</span></li>
       ))}
     </ul>
     <p class="closing">{problemContent.closing}</p>

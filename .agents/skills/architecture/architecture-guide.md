@@ -146,6 +146,9 @@ An encrypted session lives in the phone's secure storage, is persisted before co
 **5.6 Routes and types without channel or country names when the concept is general.**
 `POST /api/messages`, not `/api/whatsapp/messages`, if the message enters through the API and the channel is an attribute. `DeliveryDistrict`, not `PeruDistrict`, if the code can be abstracted from the place. The channel name stays only where the content is specific.
 
+**5.7 Country rules live in one module per country, behind a country-agnostic interface.**
+Geography, phone formats, tax identifiers, currency and documents vary by country. A component, use case or contract consumes a general interface (`LocationHierarchy`, `PhoneCountry`), and the country's data and rules live in its own module that implements it (`shared/geography/peru.ts`). Branches like `if (country === "PE")`, ubigeo codes or the levels «Departamento → Provincia → Distrito» written inside a component or use case are not designed. The design names the single place where the country is chosen. Supporting only Peru today is no exception: there is one implementation, not a design for Peru.
+
 ---
 
 ## Step 6. Guarantee consistency

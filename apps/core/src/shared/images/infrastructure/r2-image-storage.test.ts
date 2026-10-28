@@ -127,3 +127,23 @@ it("read reports a missing key as not found and network failures as unavailable"
   send.mockRejectedValueOnce(new Error("network down"));
   expect(await storage.read("key")).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE" } });
 });
+
+it("read passes the abort signal to the request", async () => {
+  const storage = createR2ImageStorage(config);
+  const controller = new AbortController();
+  send.mockResolvedValueOnce({ Body: { transformToByteArray: async () => new Uint8Array([1]) }, ContentType: "image/png" });
+  await storage.read("key", { signal: controller.signal });
+  expect(send.mock.calls[0][1]).toEqual({ abortSignal: controller.signal });
+});
+
+it("does not log r2_image_read_failed for an aborted read", async () => {
+  const logged = vi.spyOn(log, "error").mockImplementation(() => {});
+  const storage = createR2ImageStorage(config);
+  const controller = new AbortController();
+  send.mockImplementationOnce(async () => {
+    controller.abort();
+    throw Object.assign(new Error("aborted"), { code: "ECONNRESET" });
+  });
+  expect(await storage.read("key", { signal: controller.signal })).toMatchObject({ success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE" } });
+  expect(logged).not.toHaveBeenCalled();
+});

@@ -7,7 +7,7 @@ import resources from "@core/app/locales";
 import { afterEach, expect, test, vi } from "vitest";
 import type { LoaderFunctionArgs } from "react-router";
 import OrderList, { loader } from "@core/app/routes/order-list";
-import { buildPendingOrder, orderStateMachine } from "@core/src/features/orders/domain/order-state-machine";
+import { buildPendingOrder, orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -128,6 +128,61 @@ test("order list shows «Desde el catálogo» for catalog orders only", async ()
     expect(rows[0]).toContain("#1042");
     expect(rows[0]).toContain("Desde el catálogo");
     expect(rows[1]).not.toContain("Desde el catálogo");
+  } finally {
+    router.dispose();
+  }
+});
+
+test("web list loader returns the delivery method and district of each stored snapshot without extra reads", async () => {
+  const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+  const built = (n: number) => {
+    const result = buildPendingOrder({ number: (1000 + n) as OrderNumber, id: id(n) as OrderId, companyId: id(2) as CompanyId,
+      sellerId: "seller" as UserId, customer: { kind: "general_public" }, createdAt: new Date("2026-09-28T12:00:00Z"),
+      items: [{ id: id(n + 20) as OrderItemId, variantId: id(n + 30) as VariantId, productName: "Producto", variantAttributes: {}, sku: null,
+        quantity: 1, unitPrice: { amount: 10, currency: "PEN" } }] });
+    if (!result.success) throw new Error(result.error.message);
+    return result.data;
+  };
+  const district = (name: string) => ({ country: "PE", districtCode: "150122", district: name, province: "LIMA METROPOLITANA", department: "LIMA" }) as const;
+  const recipient = { name: "Ana", phone: "999", identity: { kind: "absent" } } as const;
+  const pricing = { quotationId: id(11), rateId: id(12), optionId: id(13), settingsVersion: 1 };
+  const recordedBy = { kind: "buyer" } as const;
+  const home = { method: "home", recipient, destination: { ...district("MIRAFLORES"), address: "Av. 1", instructions: null }, pricing, recordedBy };
+  const agency = { method: "agency", recipient: { ...recipient, identity: { kind: "document", documentType: "passport", document: "001" } }, destination: district("SURCO"), pricing, courier: { id: id(14), name: "Olva" },
+    agency: { id: id(15), name: "Sede", address: "Jr. 1", location: district("LA VICTORIA") }, recordedBy };
+  const store = { method: "store", recipient, pickupPoint: { name: "Tienda", address: "Calle 1", instructions: null }, settingsVersion: 1, recordedBy };
+  const items = [{ ...built(1), delivery: home }, { ...built(2), delivery: agency }, { ...built(3), delivery: store },
+    built(4), { ...built(5), delivery: home, cancelled: true }] as unknown as OrderAggregate[];
+  const list = vi.spyOn(orders, "listAggregates").mockResolvedValue({ success: true, data: { items, page: 1, pageSize: 20, total: 5 } });
+
+  const result = await loader(args("http://localhost/es-PE/orders"));
+
+  expect(list).toHaveBeenCalledTimes(1);
+  expect(result.list.items.map(({ deliveryMethod, district }) => ({ deliveryMethod, district }))).toEqual([
+    { deliveryMethod: "home", district: "MIRAFLORES" }, { deliveryMethod: "agency", district: "LA VICTORIA" },
+    { deliveryMethod: "pickup", district: null }, { deliveryMethod: "none", district: null },
+    { deliveryMethod: "home", district: "MIRAFLORES" },
+  ]);
+});
+
+test("«Pendiente de confirmación» only marks active orders the buyer has not confirmed", async () => {
+  const i18n = createInstance();
+  await i18n.init({ lng: "es", resources });
+  const item = (number: number, status: string, confirmed: boolean) => ({ id: `sale-${number}`, number, source: "manual", buyer: null,
+    createdAt: "2026-10-17T12:00:00.000Z", itemCount: 1, balanceDue: { amount: 10, currency: "PEN" }, status, paymentStatus: "pending",
+    deliveryStatus: "pending", total: { amount: 10, currency: "PEN" }, checkoutEnabledAt: "2026-10-17T12:00:00.000Z",
+    checkoutConfirmedAt: confirmed ? "2026-10-17T12:05:00.000Z" : null, deliveredAt: null, completedAt: status === "completed" ? "2026-10-17T12:10:00.000Z" : null });
+  const items = [item(1, "active", false), item(2, "active", true), item(3, "completed", false), item(4, "completed", true), item(5, "cancelled", false)];
+  const router = createMemoryRouter([{ id: "orders", path: "/", element: createElement(OrderList), loader: () => null }], {
+    hydrationData: { loaderData: { orders: { list: { items, page: 1, pageSize: 20, total: 5 }, filters: { customer: "all", page: 1 }, contacts: [], customerSearch: "", base: "/es-PE/orders" } } },
+  });
+  try {
+    const rows = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))).split("<tr").slice(2);
+    expect(rows[0]).toContain("Pendiente de confirmación");
+    expect(rows[1]).toContain("Confirmado por el comprador");
+    expect(rows[2]).not.toContain("Pendiente de confirmación");
+    expect(rows[3]).toContain("Confirmado por el comprador");
+    expect(rows[4]).not.toContain("Pendiente de confirmación");
   } finally {
     router.dispose();
   }

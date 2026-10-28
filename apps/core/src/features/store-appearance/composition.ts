@@ -53,12 +53,13 @@ async function paymentMethods(companyId: CompanyId) {
   const settings = await companyPaymentSettings.get(companyId);
   // The payment settings repository already logs its own failures, so none is logged here.
   if (!settings.success) return { success: false as const, error: { code: "PERSISTENCE_UNAVAILABLE" as const, message: "Payment settings unavailable" } };
-  const methods = await Promise.all(settings.data.map(async (item): Promise<PreviewPaymentMethod> => {
+  const resolved = await Promise.all(settings.data.map(async (item): Promise<PreviewPaymentMethod | null> => {
     const url = await paymentImageUrl(item.imageId);
-    return item.method === "digital_wallet"
-      ? { method: item.method, provider: item.provider, holder: item.holder, imageUrl: url }
-      : { method: item.method, bank: item.bank, holder: item.holder, accountNumber: item.accountNumber, cci: item.cci, imageUrl: url };
+    if (item.method === "bank_transfer") return { method: item.method, bank: item.bank, holder: item.holder, accountNumber: item.accountNumber, cci: item.cci, imageUrl: url };
+    // Like the buyer checkout, the preview does not list a wallet whose QR url does not resolve.
+    return url ? { method: item.method, provider: item.provider, holder: item.holder, imageUrl: url } : null;
   }));
+  const methods = resolved.filter((method): method is PreviewPaymentMethod => method !== null);
   return { success: true as const, data: methods };
 }
 

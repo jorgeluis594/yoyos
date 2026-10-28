@@ -2,22 +2,27 @@ import { requestDeliveryQuotation } from "@core/src/features/delivery-settings/i
 import { applicationEventBus } from "@core/src/composition/event-bus";
 import { createCancellationOperations } from "@mobile/features/orders/application/cancel-order";
 import { loader as checkoutLoader, action as confirmCheckoutAction } from "@core/app/routes/checkout";
-import type { LoaderFunctionArgs, ActionFunctionArgs } from "react-router";
+import { RouterContextProvider, type LoaderFunctionArgs, type ActionFunctionArgs } from "react-router";
+import { brandHostCompanyContext } from "@core/app/brand-host-context";
 import { createOrderOperations } from "@mobile/features/orders/application/order-operations";
 import { addDraftItem, emptyOrderDraft } from "@mobile/features/orders/domain/order-draft";
 import { createPendingOrderConfirmationStore } from "@mobile/features/orders/infrastructure/pending-order-confirmation";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { createDeliverySettingsApi } from "@mobile/features/delivery-settings/infrastructure/delivery-settings-api";
+import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
 import { randomUUID } from "node:crypto";
+import { request as httpRequest } from "node:http";
 import { afterAll, afterEach, expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { createOrderApi } from "@mobile/features/orders/infrastructure/order-api";
 import { quotationResponseSchema } from "@shared/contracts/quotations";
 import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
-import { cancelOrderResponseSchema, cancelOrderErrorSchema, orderAggregateSchema } from "@shared/contracts/orders";
+import { buyerPaymentViewSchema, cancelOrderResponseSchema, cancelOrderErrorSchema, orderAggregateSchema } from "@shared/contracts/orders";
 import { app } from "@core/src/app";
+import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { deleteAgencies, insertAgency, seededCourier, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 const shalomId = (await seededCourier("shalom")).id;
 
@@ -25,7 +30,8 @@ const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
 const address = server.address();
 if (!address || typeof address === "string") throw new Error("Orders test server did not bind");
-const base = `http://127.0.0.1:${address.port}`;
+const port = address.port;
+const base = `http://127.0.0.1:${port}`;
 const origin = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
 
 const fixtures: { cleanup: () => Promise<void> }[] = [];
@@ -36,6 +42,55 @@ async function call(path: string, cookie?: string, input?: unknown, method?: str
     ...(input === undefined ? {} : { "content-type": "application/json" }) },
     ...(input === undefined ? {} : { body: JSON.stringify(input) }) });
 }
+
+function hostContext(companyId: string) {
+  const context = new RouterContextProvider();
+  context.set(brandHostCompanyContext, companyId as never);
+  return context;
+}
+const subdomains = new Map<string, string>();
+
+/** The brand host of `companyId`, created on first use: the buyer APIs answer on the store's own origin only. */
+async function brandHost(companyId: string) {
+  let subdomain = subdomains.get(companyId);
+  if (!subdomain) {
+    subdomain = `t4-${randomUUID().slice(0, 8)}`;
+    await withTenantIsolation(companyId, async () => { await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: subdomain } }); });
+    subdomains.set(companyId, subdomain);
+  }
+  return `${subdomain}.localhost:${port}`;
+}
+
+/** Plain `http` so the test chooses the `Host` header, which `fetch` may override. Same shape as `call`, for `/api/buyer/orders/...` on a brand host. */
+async function callOnHost(host: string, path: string, _cookie?: string, input?: unknown, method?: string) {
+  const payload = input === undefined ? undefined : JSON.stringify(input);
+  return new Promise<{ status: number; headers: Record<string, string | string[] | undefined>; json: () => Promise<unknown> }>((resolve, reject) => {
+    const req = httpRequest({ host: "127.0.0.1", port, path, method: method ?? (input === undefined ? "GET" : "POST"),
+      headers: { host, ...(payload === undefined ? {} : { "content-type": "application/json", "content-length": Buffer.byteLength(payload) }) } }, (res) => {
+      let text = "";
+      res.on("data", (chunk) => { text += chunk; });
+      res.on("end", () => resolve({ status: res.statusCode ?? 0, headers: res.headers, json: async () => JSON.parse(text) }));
+    });
+    req.on("error", reject);
+    req.end(payload);
+  });
+}
+/** A `fetch` that reaches the test server with the brand host in `Host`, as the checkout page does from its own origin. */
+function fetchOnHost(host: string): typeof fetch {
+  return (url, init) => new Promise<Response>((resolve, reject) => {
+    const target = new URL(String(url), `http://${host}`);
+    const body = typeof init?.body === "string" ? init.body : undefined;
+    const headers = { ...Object.fromEntries(new Headers(init?.headers)), host, ...(body === undefined ? {} : { "content-length": String(Buffer.byteLength(body)) }) };
+    const req = httpRequest({ host: "127.0.0.1", port, path: target.pathname + target.search, method: init?.method ?? "GET", headers }, (res) => {
+      let text = "";
+      res.on("data", (chunk) => { text += chunk; });
+      res.on("end", () => resolve(new Response(text, { status: res.statusCode ?? 0, headers: Object.fromEntries(Object.entries(res.headers).flatMap(([name, value]) => typeof value === "string" ? [[name, value]] : [])) })));
+    });
+    req.on("error", reject);
+    req.end(body);
+  });
+}
+const buyerCallFor = (companyId: string) => async (path: string, cookie?: string, input?: unknown, method?: string) => callOnHost(await brandHost(companyId), path, cookie, input, method);
 
 async function fixture(country: "PE" | "CL") {
   const companyId = randomUUID();
@@ -56,11 +111,7 @@ async function fixture(country: "PE" | "CL") {
   const cookie = login.headers.get("set-cookie")?.split(";")[0];
   if (!cookie) throw new Error("Orders test session missing");
   await withTenantIsolation(companyId, async () => {
-    await prisma.product.create({ data: { id: productId, name: "Camisa", currency: "PEN", qrCode: productId,
-      status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`,
-      salePrice: 10, qrCode: variantId, status: "active" } });
-    await prisma.productStock.create({ data: { variantId, quantity: 3n } });
+    await seedProduct({ id: productId, name: "Camisa", qrCode: productId, variants: [{ id: variantId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId, stock: 3n }] });
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "1@lid", whatsappLid: "2@lid" } });
   });
   const result = { companyId, userId, cookie, productId, variantId, contactId, async cleanup() {
@@ -69,9 +120,7 @@ async function fixture(country: "PE" | "CL") {
       await prisma.orderItem.deleteMany();
       await prisma.order.deleteMany();
       await prisma.contact.deleteMany();
-      await prisma.productStock.deleteMany();
-      await prisma.productVariant.deleteMany();
-      await prisma.product.deleteMany();
+      await deleteSeededProducts();
       await prisma.deliveryRate.deleteMany();
       await prisma.quotation.deleteMany();
       await prisma.deliveryOptionAgency.deleteMany();
@@ -155,6 +204,7 @@ test("orders HTTP requires authentication", async () => {
 
 test("buyer payment cannot bypass pending checkout and resumes after confirmation without changing stock", async () => {
   const seller = await fixture("PE");
+  const callBuyer = buyerCallFor(seller.companyId);
   const orderId = randomUUID();
   const imageId = randomUUID();
   const paymentId = randomUUID();
@@ -165,10 +215,10 @@ test("buyer payment cannot bypass pending checkout and resumes after confirmatio
     await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } });
   });
   const path = `/api/buyer/orders/${orderId}`;
-  const view = await call(`${path}/payment`);
+  const view = await callBuyer(`${path}/payment`);
   expect(view.status).toBe(409);
   expect(await view.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
-  const report = await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST");
+  const report = await callBuyer(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST");
   expect(report.status).toBe(409);
   expect(await report.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
   await withTenantIsolation(seller.companyId, async () => {
@@ -177,8 +227,8 @@ test("buyer payment cannot bypass pending checkout and resumes after confirmatio
     await prisma.order.update({ where: { id: orderId }, data: { checkoutConfirmedAt: new Date(),
       buyer: { create: { name: "Ana", phone: "+51987654321" } } } });
   });
-  expect((await call(`${path}/payment`)).status).toBe(200);
-  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
+  expect((await callBuyer(`${path}/payment`)).status).toBe(200);
+  expect((await callBuyer(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
   await withTenantIsolation(seller.companyId, async () => {
     expect(await prisma.payment.count()).toBe(1);
     expect(await prisma.productStock.findUnique({ where: { variantId: seller.variantId } })).toMatchObject({ quantity: 3n });
@@ -187,41 +237,42 @@ test("buyer payment cannot bypass pending checkout and resumes after confirmatio
 
 test("buyer order link resolves one company and reports only its receipt", async () => {
   const seller = await fixture("PE");
+  const callBuyer = buyerCallFor(seller.companyId);
   const other = await fixture("CL");
   const orderId = randomUUID();
   const paymentId = randomUUID();
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
   const path = `/api/buyer/orders/${orderId}`;
-  const unavailable = await call(`${path}/payment`);
+  const unavailable = await callBuyer(`${path}/payment`);
   expect(unavailable.status).toBe(409);
   expect(await unavailable.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
-  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: randomUUID() }, "POST")).status).toBe(409);
+  expect((await callBuyer(`${path}/reports`, undefined, { paymentId, receiptImageId: randomUUID() }, "POST")).status).toBe(409);
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date(),
       buyer: { create: { name: "Ana", phone: "+51987654321" } } } });
   });
-  const view = await call(`${path}/payment`);
+  const view = await callBuyer(`${path}/payment`);
   expect(view.status).toBe(200);
   expect(await view.json()).toMatchObject({ orderId, total: { amount: 10, currency: "PEN" }, balanceDue: { amount: 10 }, payments: [] });
-  expect((await call("/api/buyer/orders/not-a-uuid/payment")).status).toBe(400);
-  expect((await call(`/api/buyer/orders/${randomUUID()}/payment`)).status).toBe(404);
-  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: randomUUID() }, "POST")).status).toBe(422);
+  expect((await callBuyer("/api/buyer/orders/not-a-uuid/payment")).status).toBe(404);
+  expect((await callBuyer(`/api/buyer/orders/${randomUUID()}/payment`)).status).toBe(404);
+  expect((await callBuyer(`${path}/reports`, undefined, { paymentId, receiptImageId: randomUUID() }, "POST")).status).toBe(422);
   const foreignImageId = randomUUID();
   await withTenantIsolation(other.companyId, async () => {
     await prisma.image.create({ data: { id: foreignImageId, storageKey: `test/${foreignImageId}` } });
   });
-  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: foreignImageId }, "POST")).status).toBe(422);
+  expect((await callBuyer(`${path}/reports`, undefined, { paymentId, receiptImageId: foreignImageId }, "POST")).status).toBe(422);
   const imageId = randomUUID();
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } });
   });
   const info = vi.spyOn(log, "info");
   const debug = vi.spyOn(log, "debug");
-  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
-  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
+  expect((await callBuyer(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
+  expect((await callBuyer(`${path}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
   await withTenantIsolation(seller.companyId, async () => expect(await prisma.payment.count()).toBe(1));
-  expect((await call(`${path}/reports`, undefined, { paymentId, receiptImageId: foreignImageId }, "POST")).status).toBe(409);
+  expect((await callBuyer(`${path}/reports`, undefined, { paymentId, receiptImageId: foreignImageId }, "POST")).status).toBe(409);
   const paymentEvents = info.mock.calls.map(([entry]) => entry).filter((entry) => typeof entry === "object" && entry !== null && "event" in entry && entry.event === "payment_reported");
   expect(paymentEvents).toEqual([{ event: "payment_reported", paymentId, imageId, actorKind: "buyer", outcome: "applied" }]);
   expect(debug.mock.calls.map(([entry]) => entry)).toEqual(expect.arrayContaining([
@@ -229,8 +280,30 @@ test("buyer order link resolves one company and reports only its receipt", async
     { event: "payment_operation_conflict", operation: "report", paymentId, errorCode: "PAYMENT_CONFLICT" },
   ]));
   info.mockRestore(); debug.mockRestore();
-  expect((await call(`${path}/images/${imageId}`)).status).toBe(404);
+  expect((await callBuyer(`${path}/images/${imageId}`)).status).toBe(404);
   expect((await call(`/api/orders/${orderId}/aggregate`)).status).toBe(401);
+});
+
+test("orders HTTP answers VARIANT_NOT_FOUND for a deactivated variant and keeps the combination of a sale in option order", async () => {
+  const seller = await fixture("PE");
+  const { inactive, active } = await withTenantIsolation(seller.companyId, async () => {
+    const seeded = await seedProduct({ name: "Polo", variants: [
+      { attributes: { Talla: "M", Color: "Negro" }, salePrice: 45, stock: 2, status: "inactive" },
+      { attributes: { Talla: "L", Color: "Negro" }, salePrice: 45, stock: 2 },
+    ] });
+    return { inactive: seeded.variantIds[0], active: seeded.variantIds[1] };
+  });
+  const sale = (variantId: string) => ({ id: randomUUID(), items: [{ variantId, quantity: 1 }], payment: { method: "digital_wallet" }, delivery: { method: "handover" } });
+  const refused = await call("/api/orders", seller.cookie, sale(inactive), "POST");
+  expect(refused.status).toBe(404);
+  expect(await refused.json()).toMatchObject({ code: "VARIANT_NOT_FOUND", issues: [{ variantId: inactive }] });
+  const created = await call("/api/orders", seller.cookie, sale(active), "POST");
+  expect(created.status).toBe(201);
+  const { id } = await created.json() as { id: string };
+  const detail = await (await call(`/api/orders/${id}`, seller.cookie)).json() as { items: { variantAttributes: Record<string, string> }[] };
+  expect(detail.items.map((item) => Object.entries(item.variantAttributes))).toEqual([[["Talla", "L"], ["Color", "Negro"]]]);
+  const [stored] = await withTenantIsolation(seller.companyId, async () => await prisma.$queryRaw<{ attributes: string }[]>`SELECT "variantAttributes"::text AS attributes FROM "OrderItem" WHERE "orderId" = ${id}::uuid`);
+  expect(Object.entries(JSON.parse(stored.attributes))).toEqual([["Talla", "L"], ["Color", "Negro"]]);
 });
 
 test("orders HTTP lets a Chile company complete sales, returns historical data, and isolates other companies", async () => {
@@ -337,10 +410,14 @@ test("mixed orders list uses creation date and includes pending and completed or
   });
   const list = await call("/api/orders/mixed", seller.cookie);
   expect(list.status).toBe(200);
-  expect(await list.json()).toMatchObject({ total: 2, page: 1, items: [
+  const body = await list.json();
+  expect(body).toMatchObject({ total: 2, page: 1, items: [
     { id: pendingId, status: "active", paymentStatus: "pending", createdAt: "2026-09-30T12:00:00.000Z" },
     { id: completedId, status: "completed", paymentStatus: "paid", createdAt: "2026-09-29T12:00:00.000Z" },
   ] });
+  const mixedKeys = body.items.flatMap((item: object) => Object.keys(item));
+  expect(mixedKeys).not.toContain("deliveryMethod");
+  expect(mixedKeys).not.toContain("district");
   expect(await (await call("/api/orders/mixed?createdFrom=2026-09-30T00%3A00%3A00.000Z", seller.cookie)).json())
     .toMatchObject({ total: 1, items: [{ id: pendingId }] });
   expect(await (await call("/api/orders", seller.cookie)).json()).toMatchObject({ total: 1, items: [{ id: completedId }] });
@@ -532,12 +609,20 @@ test("checkout-link HTTP requires the seller company and returns a stable UUID U
   expect((await call(path, "", {})).status).toBe(401);
   expect((await call(path, other.cookie, {})).status).toBe(404);
   expect((await call(path, owner.cookie, { companyId: other.companyId })).status).toBe(422);
+  const withoutSubdomain = await call(path, owner.cookie, {});
+  expect(withoutSubdomain.status).toBe(409);
+  expect(await withoutSubdomain.json()).toMatchObject({ code: "SUBDOMAIN_REQUIRED" });
+  const subdomain = (await brandHost(owner.companyId)).split(".")[0];
   const first = await call(path, owner.cookie, {});
   expect(first.status).toBe(200);
   expect(first.headers.get("cache-control")).toBe("no-store");
   const link = await first.json();
-  expect(link).toEqual({ url: `${process.env.BETTER_AUTH_URL}/checkout/${owner.companyId}/${id}` });
+  expect(link).toEqual({ url: `${storefrontConfig.baseUrl.protocol}//${subdomain}.${storefrontConfig.baseUrl.host}/checkout/${id}` });
+  const stored = () => withTenantIsolation(owner.companyId, async () => await prisma.order.findUniqueOrThrow({ where: { id } }));
+  const created = await stored();
+  expect(created.checkoutEnabledAt).toEqual(created.createdAt);
   expect(await (await call(path, owner.cookie, {})).json()).toEqual(link);
+  expect(await stored()).toEqual(created);
   await withTenantIsolation(owner.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true } }));
   expect((await call(path, owner.cookie, {})).status).toBe(409);
 });
@@ -610,26 +695,30 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   const orderId = randomUUID();
   const destination = { country: "PE", districtCode: "150122", address: null, instructions: null };
   const input = { orderId, destination };
-  const before = await call("/api/quotations", foreign.cookie, input);
+  const sellerHost = await brandHost(seller.companyId);
+  const foreignHost = await brandHost(foreign.companyId);
+  const buyer = (host: string) => callOnHost(host, "/api/quotations", undefined, input);
+  expect((await call("/api/quotations", foreign.cookie, input)).status).toBe(404);
+  const before = await buyer(sellerHost);
   expect(before.status).toBe(404);
   expect(await before.json()).toMatchObject({ code: "CHECKOUT_UNAVAILABLE" });
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, 
     items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   expect((await call("/api/quotations", foreign.cookie, input)).status).toBe(404);
+  expect((await buyer(foreignHost)).status).toBe(404);
+  expect((await callOnHost(sellerHost, "/api/quotations", undefined, { destination })).status).toBe(404);
   expect((await call(`/api/orders/${orderId}/checkout-link`, seller.cookie, {})).status).toBe(200);
   expect((await call("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 0,
     zones: [0, 8, 8].map(amount => ({ kind: "new", name: "Private zone", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount, currency: "PEN" } }] })) }, "PUT")).status).toBe(200);
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 1, home: { enabled: true }, agency: { enabled: true },
     store: { enabled: false, pickupPoint: null } }, "PUT")).status).toBe(200);
   const orderBefore = await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json();
-  const browserFetch: typeof fetch = (url, init) => fetch(new URL(String(url), base), {
-    ...init, headers: { ...Object.fromEntries(new Headers(init?.headers)), origin },
-  });
+  const browserFetch = fetchOnHost(sellerHost);
   const a = await requestDeliveryQuotation({ orderId, districtCode: destination.districtCode }, undefined, browserFetch);
-  const b = await call("/api/quotations", foreign.cookie, input);
+  const b = await buyer(sellerHost);
   expect(a.success).toBe(true);
   expect(b.status).toBe(201);
-  expect(b.headers.get("cache-control")).toBe("no-store");
+  expect(b.headers["cache-control"]).toBe("no-store");
   if (!a.success) throw new Error("Browser quotation failed");
   const first = a.data;
   const second = quotationResponseSchema.parse(await b.json());
@@ -649,7 +738,7 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
   });
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(orderBefore);
   await withTenantIsolation(seller.companyId, async () => await prisma.order.update({ where: { id: orderId }, data: { cancelled: true } }));
-  const cancelled = await call("/api/quotations", foreign.cookie, input);
+  const cancelled = await buyer(sellerHost);
   expect(cancelled.status).toBe(422);
   expect(await cancelled.json()).toMatchObject({ code: "ORDER_CANCELLED" });
   expect(await requestDeliveryQuotation({ orderId, districtCode: destination.districtCode }, undefined, browserFetch))
@@ -767,25 +856,58 @@ test("rated delivery HTTP assigns the selected option, reports price conflicts a
 });
 
 
+test("buyer APIs answer on the company's brand host only: not on the app host, not on another company's host, not on an unheld one", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("CL");
+  const orderId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date(),
+      buyer: { create: { name: "Ana", phone: "+51987654321" } } } });
+  });
+  const path = `/api/buyer/orders/${orderId}/payment`;
+  const own = await brandHost(seller.companyId);
+  // The catalog is hidden (never published): the checkout and its APIs keep working.
+  expect((await callOnHost(own, path)).status).toBe(200);
+  const foreign = await callOnHost(await brandHost(other.companyId), path);
+  const missing = await callOnHost(own, `/api/buyer/orders/${randomUUID()}/payment`);
+  expect(foreign.status).toBe(404);
+  const missingBody = await missing.json();
+  expect(await foreign.json()).toEqual(missingBody);
+  // An id that is not a UUID answers exactly like an unknown one.
+  const malformed = await callOnHost(own, "/api/buyer/orders/not-a-uuid/payment");
+  expect(malformed.status).toBe(missing.status);
+  expect(await malformed.json()).toEqual(missingBody);
+  const unheld = await callOnHost(`no-existe-${randomUUID().slice(0, 8)}.localhost:${port}`, path);
+  expect(unheld.status).toBe(404);
+  expect(await unheld.json()).toEqual({ code: "NOT_FOUND", error: "Not found" });
+  expect((await call(path)).status).toBe(404);
+  expect((await callOnHost(`localhost:${port}`, path)).status).toBe(404);
+  expect((await callOnHost(own, "/api/orders")).status).toBe(404);
+  expect((await callOnHost(own, `/api/buyer/orders/${orderId}/images/${randomUUID()}`)).status).toBe(404);
+  expect((await callOnHost(await brandHost(other.companyId), `/api/buyer/orders/${orderId}/reports`, undefined, { paymentId: randomUUID(), receiptImageId: randomUUID() }, "POST")).status).toBe(404);
+});
+
 test("public checkout delivery action persists buyer pickup and redirects to existing payment", async () => {
   const seller = await fixture("PE");
+  const callBuyer = buyerCallFor(seller.companyId);
   const orderId = randomUUID();
   expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, "PUT")).status).toBe(200);
   expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } });
   });
-  const loaded = await checkoutLoader({ params: { companyId: seller.companyId, orderId } } as unknown as LoaderFunctionArgs);
+  const loaded = await checkoutLoader({ params: { orderId }, context: hostContext(seller.companyId) } as unknown as LoaderFunctionArgs);
   expect(loaded.data.deliveryOptions).toEqual({ home: { enabled: false }, agency: { enabled: false, covered: false },
     store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } });
   const input = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: { amount: 10, currency: "PEN" }, delivery: { kind: "replace",
     selection: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } } };
-  const result = await confirmCheckoutAction({ params: { companyId: seller.companyId, orderId }, request: new Request(`${base}/checkout/${seller.companyId}/${orderId}`, {
+  const result = await confirmCheckoutAction({ params: { orderId }, context: hostContext(seller.companyId), request: new Request(`${base}/checkout/${orderId}`, {
     method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(input),
   }) } as unknown as ActionFunctionArgs);
   expect(result).toBeInstanceOf(Response);
-  expect((result as Response).headers.get("Location")).toBe(`/checkout/${seller.companyId}/${orderId}`);
-  expect((await call(`/api/buyer/orders/${orderId}/payment`)).status).toBe(200);
+  expect((result as Response).headers.get("Location")).toBe(`/checkout/${orderId}`);
+  expect((await callBuyer(`/api/buyer/orders/${orderId}/payment`)).status).toBe(200);
   await withTenantIsolation(seller.companyId, async () => {
     expect(await prisma.order.findUnique({ where: { id: orderId } })).toMatchObject({ stockDeducted: false,
       delivery: { method: "store", recordedBy: { kind: "buyer" }, settingsVersion: 1 } });
@@ -802,11 +924,7 @@ test("catalog lookup by variant IDs bypasses search pagination and excludes unav
   const extra = Array.from({ length: 21 }, () => ({ productId: randomUUID(), variantId: randomUUID() }));
   await withTenantIsolation(seller.companyId, async () => {
     for (const value of extra) {
-      await prisma.product.create({ data: { id: value.productId, name: "A catalog product", currency: "PEN", qrCode: value.productId,
-        status: "active", createdAt: new Date(), updatedAt: new Date() } });
-      await prisma.productVariant.create({ data: { id: value.variantId, productId: value.productId, attributes: {}, salePrice: 12,
-        qrCode: value.variantId, status: "active" } });
-      await prisma.productStock.create({ data: { variantId: value.variantId, quantity: 2n } });
+      await seedProduct({ id: value.productId, name: "A catalog product", qrCode: value.productId, variants: [{ id: value.variantId, salePrice: 12, qrCode: value.variantId, stock: 2n }] });
     }
     await prisma.productStock.delete({ where: { variantId: extra[0].variantId } });
     await prisma.productVariant.delete({ where: { id: extra[0].variantId } });
@@ -1064,4 +1182,207 @@ test("GET /api/orders/:id/aggregate returns the item's mentioned price", async (
   });
   const priced = orderAggregateSchema.parse(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json());
   expect(priced.items[0]?.mentionedPrice).toEqual({ amount: { amount: 7.5, currency: "PEN" }, units: 2 });
+});
+
+async function reportedOrder(seller: Awaited<ReturnType<typeof fixture>>, quantity = 1) {
+  const orderId = randomUUID();
+  const paymentId = randomUUID();
+  const imageId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity }] }, "POST")).status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date(),
+      buyer: { create: { name: "Ana", phone: "+51987654321" } } } });
+    await prisma.image.create({ data: { id: imageId, storageKey: `test/${imageId}` } });
+  });
+  const buyerPath = `/api/buyer/orders/${orderId}`;
+  const buyer = buyerCallFor(seller.companyId);
+  expect((await buyer(`${buyerPath}/reports`, undefined, { paymentId, receiptImageId: imageId }, "POST")).status).toBe(201);
+  return { orderId, paymentId, imageId, buyerPath, buyer, reject: (cookie: string, reason: string | null = null, id = paymentId) =>
+    call(`/api/orders/${orderId}/payments/${id}/reject`, cookie, { reason }, "POST") };
+}
+
+const confirmBody = (paymentId: string, amount = 10) => ({ paymentId, source: "buyer_report", amount: { amount, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false });
+
+test("POST reject marks a reported payment rejected and keeps the balance", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  const stockBefore = await withTenantIsolation(seller.companyId, async () => await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } }));
+  const info = vi.spyOn(log, "info");
+  const rejected = await report.reject(seller.cookie, "  El monto no coincide ");
+  expect(rejected.status).toBe(200);
+  const body = orderAggregateSchema.parse(await rejected.json());
+  expect(body).toMatchObject({ paymentStatus: "pending", paidAmount: { amount: 0 }, balanceDue: { amount: 10 }, stockDeducted: false, completedAt: null,
+    payments: [{ id: report.paymentId, status: "rejected", amount: null, method: null, currency: "PEN",
+      data: { reason: "El monto no coincide", rejectedBy: seller.userId, report: { receiptImageId: report.imageId } } }] });
+  await withTenantIsolation(seller.companyId, async () => {
+    expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity).toBe(stockBefore.quantity);
+    expect(await prisma.payment.count()).toBe(1);
+  });
+  expect(info.mock.calls.map(([entry]) => entry)).toContainEqual({ event: "payment_rejected", companyId: seller.companyId, userId: seller.userId,
+    orderId: report.orderId, paymentId: report.paymentId, hasReason: true });
+  expect((await call(`/api/orders/${report.orderId}/payments/${report.paymentId}/reject`, seller.cookie, { reason: "x".repeat(1001) }, "POST")).status).toBe(400);
+  expect((await call(`/api/orders/${report.orderId}/payments/${report.paymentId}/reject`, seller.cookie, { }, "POST")).status).toBe(400);
+});
+
+test("POST reject answers 422 INVALID_PAYMENT for a reason longer than 200 characters", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  const response = await report.reject(seller.cookie, "x".repeat(201));
+  expect(response.status).toBe(422);
+  expect(await response.json()).toMatchObject({ code: "INVALID_PAYMENT" });
+  expect((await report.reject(seller.cookie, "   ")).status).toBe(200);
+});
+
+test("POST reject answers 409 PAYMENT_CONFLICT for a confirmed payment", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await call(`/api/orders/${report.orderId}/payments`, seller.cookie, confirmBody(report.paymentId), "POST")).status).toBe(200);
+  const response = await report.reject(seller.cookie, "tarde");
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "PAYMENT_CONFLICT" });
+  expect((await report.reject(seller.cookie, null, randomUUID())).status).toBe(404);
+});
+
+test("POST reject answers 409 ORDER_CANCELLED in a cancelled order", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await call(`/api/orders/${report.orderId}/cancel`, seller.cookie, undefined, "POST")).status).toBe(200);
+  const response = await report.reject(seller.cookie);
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "ORDER_CANCELLED" });
+});
+
+test("POST reject answers 404 for an order of another company", async () => {
+  const seller = await fixture("PE");
+  const other = await fixture("CL");
+  const report = await reportedOrder(seller);
+  const response = await report.reject(other.cookie);
+  expect(response.status).toBe(404);
+  expect(await response.json()).toMatchObject({ code: "ORDER_NOT_FOUND" });
+  expect((await call(`/api/orders/${report.orderId}/payments/${report.paymentId}/reject`, undefined, { reason: null }, "POST")).status).toBe(401);
+  await withTenantIsolation(seller.companyId, async () =>
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: report.paymentId } })).status).toBe("reported"));
+});
+
+test("repeating POST reject returns the same rejection", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  const first = await report.reject(seller.cookie, "Primero");
+  const debug = vi.spyOn(log, "debug");
+  const again = await report.reject(seller.cookie, "Otro motivo");
+  expect(again.status).toBe(200);
+  expect(await again.json()).toEqual(await first.json());
+  expect(debug.mock.calls.map(([entry]) => entry)).toContainEqual({ event: "payment_operation_replayed", operation: "reject", paymentId: report.paymentId });
+  expect((await report.reject(seller.cookie, "x".repeat(300))).status).toBe(200);
+});
+
+test("confirming a rejected payment answers 409 PAYMENT_CONFLICT", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await report.reject(seller.cookie, "No coincide")).status).toBe(200);
+  const response = await call(`/api/orders/${report.orderId}/payments`, seller.cookie, confirmBody(report.paymentId), "POST");
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "PAYMENT_CONFLICT" });
+  await withTenantIsolation(seller.companyId, async () =>
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: report.paymentId } })).status).toBe("rejected"));
+});
+
+test("POST void of a rejected payment answers 409 INVALID_TRANSITION", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await report.reject(seller.cookie)).status).toBe(200);
+  const response = await call(`/api/orders/${report.orderId}/payments/${report.paymentId}/void`, seller.cookie, undefined, "POST");
+  expect(response.status).toBe(409);
+  expect(await response.json()).toMatchObject({ code: "INVALID_TRANSITION" });
+});
+
+test("buyer view exposes the rejected status, its reason and rejectedReport", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  const pending = await (await report.buyer(`${report.buyerPath}/payment`)).json();
+  expect(pending).toMatchObject({ payments: [{ id: report.paymentId, status: "reported", rejectionReason: null }], rejectedReport: null });
+  expect((await report.reject(seller.cookie, "El monto no coincide")).status).toBe(200);
+  const view = await report.buyer(`${report.buyerPath}/payment`);
+  expect(view.status).toBe(200);
+  expect(buyerPaymentViewSchema.parse(await view.json())).toMatchObject({ balanceDue: { amount: 10 },
+    payments: [{ id: report.paymentId, status: "rejected", amount: null, method: null, rejectionReason: "El monto no coincide" }],
+    rejectedReport: { reason: "El monto no coincide" } });
+  const newPaymentId = randomUUID();
+  const newImageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => { await prisma.image.create({ data: { id: newImageId, storageKey: `test/${newImageId}` } }); });
+  expect((await report.buyer(`${report.buyerPath}/reports`, undefined, { paymentId: newPaymentId, receiptImageId: newImageId }, "POST")).status).toBe(201);
+  expect(await (await report.buyer(`${report.buyerPath}/payment`)).json()).toMatchObject({ rejectedReport: null,
+    payments: expect.arrayContaining([expect.objectContaining({ status: "rejected" }), expect.objectContaining({ id: newPaymentId, status: "reported" })]) });
+});
+
+test("buyer view resolves the bank transfer image and every receipt url with one image lookup", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await report.reject(seller.cookie)).status).toBe(200);
+  const secondImageId = randomUUID();
+  const bankImageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.image.create({ data: { id: secondImageId, storageKey: `test/${secondImageId}` } });
+    await prisma.image.create({ data: { id: bankImageId, storageKey: `test/${bankImageId}` } });
+    await prisma.companyPaymentSettings.create({ data: { companyId: seller.companyId, settings: [{ method: "bank_transfer", bank: "BCP", holder: "Ana",
+      accountNumber: "1234", cci: null, imageId: bankImageId }] } });
+  });
+  expect((await report.buyer(`${report.buyerPath}/reports`, undefined, { paymentId: randomUUID(), receiptImageId: secondImageId }, "POST")).status).toBe(201);
+  const findMany = vi.spyOn(imageRepository, "findMany");
+  const find = vi.spyOn(imageRepository, "find");
+  const view = await report.buyer(`${report.buyerPath}/payment`);
+  expect(view.status).toBe(200);
+  expect(findMany).toHaveBeenCalledTimes(1);
+  expect(findMany.mock.calls[0]?.[0]).toEqual(expect.arrayContaining([bankImageId, report.imageId, secondImageId]));
+  expect(find).not.toHaveBeenCalled();
+  expect(await view.json()).toMatchObject({ settings: [{ method: "bank_transfer", bank: "BCP" }], payments: expect.arrayContaining([expect.objectContaining({ status: "rejected" }), expect.objectContaining({ status: "reported" })]) });
+});
+
+test("buyer view drops a wallet whose image url does not resolve", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  const bankImageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.image.create({ data: { id: bankImageId, storageKey: `test/${bankImageId}` } });
+    await prisma.companyPaymentSettings.create({ data: { companyId: seller.companyId, settings: [
+      { method: "digital_wallet", provider: "Yape", holder: "Ana", qr: { status: "verified", imageId: randomUUID() } },
+      { method: "bank_transfer", bank: "BCP", holder: "Ana", accountNumber: "1234", cci: null, imageId: bankImageId }] } });
+  });
+  const view = await report.buyer(`${report.buyerPath}/payment`);
+  expect(view.status).toBe(200);
+  const parsed = buyerPaymentViewSchema.parse(await view.json());
+  expect(parsed.settings.map((setting) => setting.method)).toEqual(["bank_transfer"]);
+});
+
+test("repeating a buyer report after its rejection returns the rejected payment", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller);
+  expect((await report.reject(seller.cookie, "No coincide")).status).toBe(200);
+  const replay = await report.buyer(`${report.buyerPath}/reports`, undefined, { paymentId: report.paymentId, receiptImageId: report.imageId }, "POST");
+  expect(replay.status).toBe(201);
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.payment.count()).toBe(1);
+    expect((await prisma.payment.findUniqueOrThrow({ where: { id: report.paymentId } })).status).toBe("rejected");
+  });
+  expect(await (await report.buyer(`${report.buyerPath}/payment`)).json()).toMatchObject({ payments: [{ id: report.paymentId, status: "rejected" }], rejectedReport: { reason: "No coincide" } });
+  const otherImageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => { await prisma.image.create({ data: { id: otherImageId, storageKey: `test/${otherImageId}` } }); });
+  expect((await report.buyer(`${report.buyerPath}/reports`, undefined, { paymentId: report.paymentId, receiptImageId: otherImageId }, "POST")).status).toBe(409);
+});
+
+test("repeating a manual payment after a lost response keeps a single payment", async () => {
+  const seller = await fixture("PE");
+  const id = randomUUID();
+  const paymentId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id, items: [{ variantId: seller.variantId, quantity: 4 }] })).status).toBe(201);
+  const manual = { paymentId, source: "manual", amount: { amount: 15, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false };
+  const first = await call(`/api/orders/${id}/payments`, seller.cookie, manual, "POST");
+  expect(first.status).toBe(200);
+  // The seller never saw that answer and presses «Confirmar pago» again with the same open form.
+  const repeated = await call(`/api/orders/${id}/payments`, seller.cookie, manual, "POST");
+  expect(repeated.status).toBe(200);
+  expect(await repeated.json()).toMatchObject({ order: { paidAmount: { amount: 15 }, balanceDue: { amount: 25 }, payments: [{ id: paymentId, status: "confirmed" }] } });
+  await withTenantIsolation(seller.companyId, async () => {
+    expect(await prisma.payment.count({ where: { orderId: id } })).toBe(1);
+  });
 });

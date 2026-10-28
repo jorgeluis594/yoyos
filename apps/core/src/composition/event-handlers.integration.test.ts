@@ -20,7 +20,7 @@ vi.mock("@core/src/shared/images", async (importOriginal) => ({ ...await importO
 // The notice is published on the real bus in production; here a recorder says what would be published and when it fails.
 const { publishNotice } = vi.hoisted(() => ({ publishNotice: vi.fn() }));
 vi.mock("@core/src/composition/event-bus", () => ({ applicationEventBus: () => ({ provider: { publish: publishNotice } }) }));
-vi.mock("@core/src/features/products/infrastructure/qr-code-reader", () => ({
+vi.mock("@core/src/shared/images/infrastructure/qr-code-reader", () => ({
   readQrCodes: async ({ bytes }: { bytes: Uint8Array }) => {
     const next = scans.get(new TextDecoder().decode(bytes))?.shift();
     return next && "error" in next ? err({ code: next.error, message: "QR reader unavailable" }) : ok(next?.codes ?? []);
@@ -30,6 +30,7 @@ import { applyChatMessage, sendChatMessageNotice } from "@core/src/composition/e
 import { createSendChatMessageNoticeHandler } from "@core/src/features/notifications/composition";
 import type { PushDevice } from "@core/src/features/notifications/domain/push-device";
 import { applyChatMessageHandler } from "@core/src/features/orders/composition";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 async function fixture() {
   const companyId = randomUUID();
@@ -41,8 +42,7 @@ async function fixture() {
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Handler orders", country: "PE" } });
     await systemPrisma.user.create({ data: { id: sellerId, name: "Seller", email: `${sellerId}@example.test`, companyId } });
-    await prisma.product.create({ data: { id: productId, name: "Shirt", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Size: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId, status: "active" } });
+    await seedProduct({ id: productId, name: "Shirt", qrCode: productId, variants: [{ id: variantId, attributes: { Size: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId }] });
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "111@lid", whatsappLid: "222@lid" } });
     await prisma.chat.create({ data: { id: chatId, contactId } });
   });
@@ -68,7 +68,7 @@ async function fixture() {
   }
   return { companyId, chatId, sellerId, variantId, photo, otherChat, async cleanup() {
     await withTenantIsolation(companyId, async () => {
-      for (const table of ["chatMessageOutcome", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productVariant", "product", "image"] as const)
+      for (const table of ["chatMessageOutcome", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productStock", "productVariant", "productOption", "product", "image"] as const)
         await (prisma[table] as unknown as { deleteMany(): Promise<unknown> }).deleteMany();
       await systemPrisma.user.deleteMany({ where: { companyId } });
       await prisma.company.delete({ where: { id: companyId } });
@@ -210,8 +210,8 @@ describe("message_created handler on the event bus", () => {
         expect(orders).toHaveLength(2);
         expect(orders.find(({ chatId }) => chatId === f.chatId)?.items.map(({ quantity }) => quantity)).toEqual([2n]);
         expect(orders.find(({ chatId }) => chatId !== f.chatId)?.items.map(({ quantity }) => quantity)).toEqual([1n]);
-        // After any message the order stays open: nothing paid, no checkout, not cancelled or completed.
-        expect(orders.every((order) => !order.cancelled && order.payments.length === 0 && order.checkoutEnabledAt === null && order.checkoutConfirmedAt === null && order.completedAt === null)).toBe(true);
+        // After any message the order stays open: nothing paid, checkout not confirmed, not cancelled or completed.
+        expect(orders.every((order) => !order.cancelled && order.payments.length === 0 && order.checkoutConfirmedAt === null && order.completedAt === null)).toBe(true);
       });
     } finally { warn.mockRestore(); await f.cleanup(); }
   }, 90_000);
