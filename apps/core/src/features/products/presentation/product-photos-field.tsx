@@ -290,7 +290,7 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
       </div>
       {photos.notice && <p data-photo-notice className="text-sm text-muted-foreground">{photos.notice}</p>}
       {message && <FieldError id="photos-error">{message}</FieldError>}
-      <p role="status" aria-live="polite" data-photo-live className="sr-only">{photos.announcement}</p>
+      <p aria-live="polite" aria-atomic="true" data-photo-live className="sr-only">{photos.announcement}</p>
     </div>
   </Field>;
 }
