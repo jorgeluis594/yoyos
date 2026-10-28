@@ -5,6 +5,7 @@ import { Link } from "react-router";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Badge } from "@core/app/components/ui/badge";
 import { Button } from "@core/app/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { Checkbox } from "@core/app/components/ui/checkbox";
 import { FieldError } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
@@ -176,75 +177,79 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
   const addUncreated = (combination: Readonly<Record<string, string>>) => edit((current) => { const next = addCombination(current, combination); return next.success ? next.data : current; });
   const single = uncreated === 1 ? uncreatedCombinations(draft, { limit: 1 }).items[0] : null;
 
-  return <section aria-labelledby="variants-heading" className="grid gap-4">
-    <h2 id="variants-heading" className="text-base font-semibold">{t("productEditor.variants")}</h2>
-    {!hasOptions && !editing && <div className="grid gap-2">
-      <div><Button type="button" variant="outline" onClick={() => open(newOptionBuffer(crypto.randomUUID()))}>{t("productEditor.addOptions")}</Button></div>
-      <p className="text-sm text-muted-foreground">{t("productEditor.addOptionsHelp")}</p>
-    </div>}
-    {(hasOptions || editing) && <ul className="grid divide-y divide-border">
-      {draft.options.map((option, index) => editing && editing.optionId === option.id
-        ? <li key={option.id} className={itemClass}><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={notices[option.id] ?? targets.options[option.id]} valueNotices={{ ...valueNotices, ...targets.values }}
-            onChange={setEditing} onDone={done} onDelete={() => remove(editing)} onRemoveValue={removeFromEditor} onUndoValue={(id) => edit((current) => undoRemoveValue(current, id))} /></li>
-        : optionSummary(option, index))}
-      {editing?.isNew && <li className={itemClass}><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={undefined} valueNotices={{}}
-        onChange={setEditing} onDone={done} onDelete={() => remove(editing)} onRemoveValue={() => undefined} onUndoValue={() => undefined} /></li>}
-    </ul>}
-    {hasOptions && !editing && (draft.options.length >= maxOptions
-      ? <p className="text-sm text-muted-foreground">{t("productEditor.maxOptions", { count: maxOptions })}</p>
-      : <div className="grid gap-1"><div><Button type="button" variant="outline" onClick={() => open(newOptionBuffer(crypto.randomUUID()))}>{t("productEditor.addAnotherOption")}</Button></div>
-          <p className="text-sm text-muted-foreground">{t("productEditor.optionsHelp", { count: maxOptions })}</p></div>)}
-    <p aria-live="polite" className="sr-only">{reorder.announcement}</p>
-    {noneActive && <Alert variant="warning"><AlertDescription>{t("productEditor.noActive")}</AlertDescription></Alert>}
-    {hasOptions && <>
-      {stockNotice !== null && <Alert variant="info"><AlertDescription>{t("productEditor.stockCopied", { count: stockNotice })}</AlertDescription></Alert>}
-      {inactiveSources > 0 && <Alert variant="warning"><AlertDescription>{t("productEditor.inactiveSource", { count: inactiveSources })}</AlertDescription></Alert>}
-      <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("productEditor.select")}>
-        <span className="text-sm font-medium">{t("productEditor.select")}</span>
-        <Chip active={allActive} onToggle={() => setSelected((current) => toggleAll(draft, current, filter))}>{t("productEditor.all")}</Chip>
-        {liveOptions.flatMap((option) => option.values.filter((value) => !value.marked).map((value) => <Chip key={value.id} active={isChipActive(draft, selected, value.id, filter)} onToggle={() => setSelected((current) => toggleChip(draft, current, value.id, filter))}>{value.name}</Chip>))}
-        <label className="ml-auto flex items-center gap-2 text-sm">{t("productEditor.filter")}
-          <select className="h-8 rounded-md border border-input bg-background px-2 text-sm" value={filter ?? ""} onChange={(event) => setFilter(event.target.value || null)}>
-            <option value="">{t("productEditor.filterAny")}</option>
-            {liveOptions.flatMap((option) => option.values.filter((value) => !value.marked).map((value) => <option key={value.id} value={value.id}>{option.name}: {value.name}</option>))}
-          </select>
-        </label>
-      </div>
-      <p className="text-sm text-muted-foreground" aria-live="polite">{t("productEditor.counter", { count: counter.count, max: counter.maximum })}{counter.inactive > 0 && ` · ${t("productEditor.counterInactive", { count: counter.inactive })}`}</p>
-      {selectedLive.length > 0 && <div role="toolbar" className="flex flex-wrap items-center gap-2 rounded-lg bg-muted p-2 text-sm">
-        <span>{t("productEditor.selected", { count: selectedLive.length })}{hidden > 0 && ` (${t("productEditor.hiddenByFilter", { count: hidden })})`}</span>
-        <Button type="button" size="sm" variant="outline" onClick={() => setBulk("salePrice")}>{t("productEditor.editSalePrice")}</Button>
-        <Button type="button" size="sm" variant="outline" disabled={newSelected === 0} onClick={() => setBulk("stock")}>{t("productEditor.editStock")}</Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => setBulk("purchasePrice")}>{t("productEditor.editPurchasePrice")}</Button>
-        {newSelected > 0 && <Button type="button" size="sm" variant="outline" onClick={removeSelected}>{t("productEditor.remove")}</Button>}
-        <Button type="button" size="sm" variant="ghost" onClick={() => setSelected([])}>{t("productEditor.clearSelection")}</Button>
-      </div>}
-      <div className="overflow-x-auto">
-        <Table>
-          <TableHeader><TableRow>
-            <TableHead className="w-10" />
-            <TableHead>{t("productEditor.colVariant")}</TableHead>
-            <TableHead>{t("productEditor.colSalePrice")} ({currency})</TableHead>
-            <TableHead>{t("productEditor.colStock")}</TableHead>
-            <TableHead className="w-10" />
-          </TableRow></TableHeader>
-          <TableBody>{visible.map(tableRow)}</TableBody>
-          <TableFooter><TableRow><TableCell /><TableCell>{t("productEditor.stockTotal")}</TableCell><TableCell /><TableCell>{stockTotal(draft)}</TableCell><TableCell /></TableRow></TableFooter>
-        </Table>
-      </div>
-      {uncreated > 0 && <div className="grid gap-2 text-sm">
-        {single ? <p className="flex flex-wrap items-center gap-2">{t("productEditor.uncreatedOne", { count: 1, label: single.label })}
-            <Button type="button" size="sm" variant="outline" disabled={limitReached} aria-label={t("productEditor.addNamed", { label: single.label })} onClick={() => addUncreated(single.combination)}>{t("productEditor.add")}</Button>
-            {limitReached && <span>{t("productEditor.limitReached", { count: maxVariants })}</span>}</p>
-          : <p className="flex flex-wrap items-center gap-2">{t("productEditor.uncreatedMany", { count: uncreated })}
-            <Button type="button" size="sm" variant="outline" aria-expanded={uncreatedOpen} onClick={() => setUncreatedOpen((current) => !current)}>{uncreatedOpen ? t("productEditor.hide") : t("productEditor.show")}</Button></p>}
-        {page && !single && <ul className="grid gap-1">{page.items.map((item) => <li key={item.label} className="flex items-center gap-2">
-          <span>{item.label}</span>
-          <Button type="button" size="sm" variant="outline" disabled={limitReached} aria-label={t("productEditor.addNamed", { label: item.label })} onClick={() => addUncreated(item.combination)}>{t("productEditor.add")}</Button></li>)}
-          {page.hasMore && <li><Button type="button" size="sm" variant="ghost" onClick={() => setUncreatedLimit((current) => current + 50)}>{t("productEditor.showMore")}</Button></li>}
-          {limitReached && <li>{t("productEditor.limitReached", { count: maxVariants })}</li>}</ul>}
-      </div>}
-    </>}
+  return <section aria-labelledby="variants-heading">
+    <Card>
+      <CardHeader><CardTitle id="variants-heading" className="text-base">{t("productEditor.variants")}</CardTitle></CardHeader>
+      <CardContent className="grid gap-4">
+        {!hasOptions && !editing && <div className="grid gap-2">
+          <div><Button type="button" variant="outline" onClick={() => open(newOptionBuffer(crypto.randomUUID()))}>{t("productEditor.addOptions")}</Button></div>
+          <p className="text-sm text-muted-foreground">{t("productEditor.addOptionsHelp")}</p>
+        </div>}
+        {(hasOptions || editing) && <ul className={`grid divide-y divide-border${hasOptions ? " border-b border-border pb-4" : ""}`}>
+          {draft.options.map((option, index) => editing && editing.optionId === option.id
+            ? <li key={option.id} className={itemClass}><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={notices[option.id] ?? targets.options[option.id]} valueNotices={{ ...valueNotices, ...targets.values }}
+                onChange={setEditing} onDone={done} onDelete={() => remove(editing)} onRemoveValue={removeFromEditor} onUndoValue={(id) => edit((current) => undoRemoveValue(current, id))} /></li>
+            : optionSummary(option, index))}
+          {editing?.isNew && <li className={itemClass}><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={undefined} valueNotices={{}}
+            onChange={setEditing} onDone={done} onDelete={() => remove(editing)} onRemoveValue={() => undefined} onUndoValue={() => undefined} /></li>}
+        </ul>}
+        {hasOptions && !editing && (draft.options.length >= maxOptions
+          ? <p className="text-sm text-muted-foreground">{t("productEditor.maxOptions", { count: maxOptions })}</p>
+          : <div className="grid gap-1"><div><Button type="button" variant="outline" onClick={() => open(newOptionBuffer(crypto.randomUUID()))}>{t("productEditor.addAnotherOption")}</Button></div>
+              <p className="text-sm text-muted-foreground">{t("productEditor.optionsHelp", { count: maxOptions })}</p></div>)}
+        <p aria-live="polite" className="sr-only">{reorder.announcement}</p>
+        {noneActive && <Alert variant="warning"><AlertDescription>{t("productEditor.noActive")}</AlertDescription></Alert>}
+        {hasOptions && <>
+          {stockNotice !== null && <Alert variant="info"><AlertDescription>{t("productEditor.stockCopied", { count: stockNotice })}</AlertDescription></Alert>}
+          {inactiveSources > 0 && <Alert variant="warning"><AlertDescription>{t("productEditor.inactiveSource", { count: inactiveSources })}</AlertDescription></Alert>}
+          <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("productEditor.select")}>
+            <span className="text-sm font-medium">{t("productEditor.select")}</span>
+            <Chip active={allActive} onToggle={() => setSelected((current) => toggleAll(draft, current, filter))}>{t("productEditor.all")}</Chip>
+            {liveOptions.flatMap((option) => option.values.filter((value) => !value.marked).map((value) => <Chip key={value.id} active={isChipActive(draft, selected, value.id, filter)} onToggle={() => setSelected((current) => toggleChip(draft, current, value.id, filter))}>{value.name}</Chip>))}
+            <label className="ml-auto flex items-center gap-2 text-sm">{t("productEditor.filter")}
+              <select className="h-8 rounded-md border border-input bg-background px-2 text-sm" value={filter ?? ""} onChange={(event) => setFilter(event.target.value || null)}>
+                <option value="">{t("productEditor.filterAny")}</option>
+                {liveOptions.flatMap((option) => option.values.filter((value) => !value.marked).map((value) => <option key={value.id} value={value.id}>{option.name}: {value.name}</option>))}
+              </select>
+            </label>
+          </div>
+          <p className="text-sm text-muted-foreground" aria-live="polite">{t("productEditor.counter", { count: counter.count, max: counter.maximum })}{counter.inactive > 0 && ` · ${t("productEditor.counterInactive", { count: counter.inactive })}`}</p>
+          {selectedLive.length > 0 && <div role="toolbar" className="flex flex-wrap items-center gap-2 rounded-lg bg-muted p-2 text-sm">
+            <span>{t("productEditor.selected", { count: selectedLive.length })}{hidden > 0 && ` (${t("productEditor.hiddenByFilter", { count: hidden })})`}</span>
+            <Button type="button" size="sm" variant="outline" onClick={() => setBulk("salePrice")}>{t("productEditor.editSalePrice")}</Button>
+            <Button type="button" size="sm" variant="outline" disabled={newSelected === 0} onClick={() => setBulk("stock")}>{t("productEditor.editStock")}</Button>
+            <Button type="button" size="sm" variant="outline" onClick={() => setBulk("purchasePrice")}>{t("productEditor.editPurchasePrice")}</Button>
+            {newSelected > 0 && <Button type="button" size="sm" variant="outline" onClick={removeSelected}>{t("productEditor.remove")}</Button>}
+            <Button type="button" size="sm" variant="ghost" onClick={() => setSelected([])}>{t("productEditor.clearSelection")}</Button>
+          </div>}
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader><TableRow>
+                <TableHead className="w-10" />
+                <TableHead>{t("productEditor.colVariant")}</TableHead>
+                <TableHead>{t("productEditor.colSalePrice")} ({currency})</TableHead>
+                <TableHead>{t("productEditor.colStock")}</TableHead>
+                <TableHead className="w-10" />
+              </TableRow></TableHeader>
+              <TableBody>{visible.map(tableRow)}</TableBody>
+              <TableFooter><TableRow><TableCell /><TableCell>{t("productEditor.stockTotal")}</TableCell><TableCell /><TableCell>{stockTotal(draft)}</TableCell><TableCell /></TableRow></TableFooter>
+            </Table>
+          </div>
+          {uncreated > 0 && <div className="grid gap-2 text-sm">
+            {single ? <p className="flex flex-wrap items-center gap-2">{t("productEditor.uncreatedOne", { count: 1, label: single.label })}
+                <Button type="button" size="sm" variant="outline" disabled={limitReached} aria-label={t("productEditor.addNamed", { label: single.label })} onClick={() => addUncreated(single.combination)}>{t("productEditor.add")}</Button>
+                {limitReached && <span>{t("productEditor.limitReached", { count: maxVariants })}</span>}</p>
+              : <p className="flex flex-wrap items-center gap-2">{t("productEditor.uncreatedMany", { count: uncreated })}
+                <Button type="button" size="sm" variant="outline" aria-expanded={uncreatedOpen} onClick={() => setUncreatedOpen((current) => !current)}>{uncreatedOpen ? t("productEditor.hide") : t("productEditor.show")}</Button></p>}
+            {page && !single && <ul className="grid gap-1">{page.items.map((item) => <li key={item.label} className="flex items-center gap-2">
+              <span>{item.label}</span>
+              <Button type="button" size="sm" variant="outline" disabled={limitReached} aria-label={t("productEditor.addNamed", { label: item.label })} onClick={() => addUncreated(item.combination)}>{t("productEditor.add")}</Button></li>)}
+              {page.hasMore && <li><Button type="button" size="sm" variant="ghost" onClick={() => setUncreatedLimit((current) => current + 50)}>{t("productEditor.showMore")}</Button></li>}
+              {limitReached && <li>{t("productEditor.limitReached", { count: maxVariants })}</li>}</ul>}
+          </div>}
+        </>}
+      </CardContent>
+    </Card>
     {bulk && <BulkDialog kind={bulk} selected={selectedLive.length} hidden={hidden} newCount={newSelected} onApply={applyBulkPatch} onClose={() => setBulk(null)} />}
     {rowRef && (() => {
       const view = views.find((candidate) => candidate.row.ref === rowRef);
