@@ -11,7 +11,7 @@ import { privateUserContext } from "@/private-user-context";
 import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
 import { createProductRequestSchema } from "@shared/contracts/products";
 import { buildCreateProductBody } from "@shared/product-variants";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { parseRequestJson, toCreateInput } from "@core/src/features/products/presentation/request-input";
 import { createFeedback, type SaveFeedback } from "@core/src/features/products/presentation/messages";
 import { ProductForm, type ProductFormSubmission } from "@core/src/features/products/presentation/product-form";

@@ -74,7 +74,7 @@ async function sellerWithVariants(page: Page) {
   const account: { email: string; companyId?: string } = { email };
   accounts.push(account);
   const companyId = account.companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Message orders", country: "PE" });
-  const { productEditing } = await import("@core/src/composition/product-editing");
+  const { productEditing } = await import("@core/src/features/products/product-editing");
   await withTenantIsolation(companyId, async () => {
     for (const [name, salePrice, qrCode] of [["Camisa lino", 10, firstQr], ["Pantalon lino", 25, secondQr]] as const) {
       const product = await productEditing.create({ name, currency: "PEN", options: [], variants: [{ values: [], salePrice, initialStock: 10 }] });

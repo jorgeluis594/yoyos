@@ -13,7 +13,7 @@ import { privateUserContext } from "@/private-user-context";
 import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
 import { saveProductRequestSchema } from "@shared/contracts/products";
 import { buildSaveProductBody, draftFromProduct } from "@shared/product-variants";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { toProductDetailResponse } from "@core/src/features/products/presentation/product-presenter";
 import { parseRequestJson, toSaveInput } from "@core/src/features/products/presentation/request-input";
 import { saveFeedback, type SaveFeedback } from "@core/src/features/products/presentation/messages";

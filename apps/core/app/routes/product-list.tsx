@@ -11,7 +11,7 @@ import { Pagination, PaginationContent, PaginationItem, PaginationLink } from "@
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { TextLink } from "@core/app/components/ui/text-link";
 import { privateUserContext } from "@core/app/private-user-context";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const company = context.get(privateUserContext).company;

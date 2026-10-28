@@ -5,7 +5,7 @@ import type { CompanyId } from "@shared/identity";
 import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, withinReadSnapshot, withinTransaction, withTenantIsolation, type TransactionOptions } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { findOrderedVariantIds } from "@core/src/features/orders/composition";
+import { findOrderedVariantIds } from "@core/src/features/products/infrastructure/ordered-variants";
 import { createProduct, type CreateDependencies, type CreateError, type CreateInput } from "@core/src/features/products/application/create";
 import { getProduct, type GetDependencies } from "@core/src/features/products/application/get";
 import { saveProduct, type SaveProductDependencies, type SaveProductError, type SaveProductInput } from "@core/src/features/products/application/save-product";

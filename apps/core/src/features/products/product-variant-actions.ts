@@ -3,7 +3,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { findOrderedVariantIds } from "@core/src/features/orders/composition";
+import { findOrderedVariantIds } from "@core/src/features/products/infrastructure/ordered-variants";
 import { changeVariantCombination, type ChangeVariantCombinationInput } from "@core/src/features/products/application/change-variant-combination";
 import { changeVariantStatus, type ChangeVariantStatusInput } from "@core/src/features/products/application/change-variant-status";
 import { deleteVariant, type DeleteVariantInput } from "@core/src/features/products/application/delete-variant";
@@ -13,7 +13,7 @@ import { findForeignOptionIds, findSkuOwners, productRepository } from "@core/sr
 import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import { applyCombinationChange, applyVariantDeletion, lockProduct, setVariantStatus, updateVariantFields, type VariantActionContext } from "@core/src/features/products/infrastructure/variant-repository";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
-import { productEditing, productWriteTransactionOptions } from "@core/src/composition/product-editing";
+import { productEditing, productWriteTransactionOptions } from "@core/src/features/products/product-editing";
 
 const writeOptions = productWriteTransactionOptions(process.env);
 

@@ -3,7 +3,7 @@ import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/
 import { resolve } from "node:path";
 import { promisify } from "node:util";
 import { expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 test("mobile creation screen integrates with real order API, database and persisted recovery", async ({ page }) => {

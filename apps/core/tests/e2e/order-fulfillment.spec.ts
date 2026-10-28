@@ -1,6 +1,6 @@
 import { startMobileWeb } from "@core/tests/e2e/mobile-web";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 test("seller ships or delivers directly, refreshes details and list, and preserves payments", async ({ page }) => {

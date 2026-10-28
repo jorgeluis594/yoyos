@@ -9,7 +9,7 @@ vi.mock("@core/src/shared/infrastructure/persistance", async (importOriginal) =>
 }));
 
 const { log } = await import("@core/src/shared/infrastructure/logger");
-const { productTransaction, productWriteTransactionOptions } = await import("@core/src/composition/product-editing");
+const { productTransaction, productWriteTransactionOptions } = await import("@core/src/features/products/product-editing");
 const { transactionFailureStage } = await import("@core/src/shared/infrastructure/persistence-error");
 
 class PrismaLikeError extends Error {

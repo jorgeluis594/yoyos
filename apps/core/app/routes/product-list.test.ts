@@ -2,7 +2,7 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
 import type { LoaderFunctionArgs } from "react-router";
 import { loader } from "@core/app/routes/product-list";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 
 const context = { get: () => ({ company: { id: "00000000-0000-4000-8000-000000000001", country: "PE" } }) } as unknown as LoaderFunctionArgs["context"];
 const args = (url: string) => ({ request: new Request(url), context }) as LoaderFunctionArgs;

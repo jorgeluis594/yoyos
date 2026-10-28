@@ -4,7 +4,7 @@ import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/per
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
 import { toProductDetailResponse } from "@core/src/features/products/presentation/product-presenter";
 import { deleteSeededProducts, seedProduct } from "@core/src/features/products/infrastructure/product-seed";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 const companyA = randomUUID();

@@ -1,6 +1,6 @@
 import { expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 
 test("web creation rejects a stale rate atomically and retries the same order with the reviewed full charge", async ({ page }) => {
   const email = `rated-create-web-${crypto.randomUUID()}@example.test`;

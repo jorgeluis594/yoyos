@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { browserExpect, expect, prepareVerifiedCompany, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
 import { startMobileWeb } from "@core/tests/e2e/mobile-web";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 test("mobile seller copies checkout and sees the anonymous buyer confirmation in detail and history", async ({ page }) => {

@@ -130,7 +130,7 @@ Web and mobile apply the same rules, limits and error codes. Mobile creates and 
 - A save that changes saved combinations locks those variants in id order, and orders insert their items in variant order, so the two cannot deadlock.
 - Reads that issue several queries (the product detail with `hasOrders`, the catalog product, sellable lookups) run in one read snapshot, so a write committing between their queries cannot surface as inconsistent data.
 - Deactivating a variant and creating an order in the same instant are not serialized: the order is equivalent to one created just before.
-- «Has orders» is a lookup owned by orders and supplied to products from `src/composition/`. The final guard against deleting a variant that has orders is the database foreign key from order items to variants, which restricts deletion; a variant deleted while an order is being created makes that order fail as `VARIANT_NOT_FOUND` ([Orders](orders.md)).
+- «Has orders» is a lookup owned by orders and supplied to products by `src/features/products/product-editing.ts`. The final guard against deleting a variant that has orders is the database foreign key from order items to variants, which restricts deletion; a variant deleted while an order is being created makes that order fail as `VARIANT_NOT_FOUND` ([Orders](orders.md)).
 
 ## Observability
 
