@@ -5,7 +5,7 @@ import { err, ok } from "@shared/functional";
 import { getCompanyId, prisma, systemPrisma, withLockedForUpdate, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { orders } from "@core/src/features/orders/composition";
 import { addMessageProductsToOrder, type AddMessageProductsDependencies, type OrderSourceMessage } from "@core/src/features/orders/application/add-message-products-to-order";
-import { allocateOrderNumber, findOpenChatOrderCandidate, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
+import { findOrderAggregate, allocateOrderNumber, findOpenChatOrderCandidate, findOrderForUpdate, findProcessedMessage, recordProcessedMessage, saveAddedItems, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariantsByQrCodes, findSellableVariantsOfProduct } from "@core/src/features/products/infrastructure/order-stock";
 import { findNearestProductImages, hasIndexedProducts, saveEmbedding } from "@core/src/features/products/infrastructure/image-embeddings";
 import { identifyProductsInImage, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
@@ -16,6 +16,7 @@ import type { CompanyId, ContactId, OrderId, OrderItemId, UserId } from "@core/s
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
 
@@ -29,9 +30,8 @@ async function fixture() {
   await withTenantIsolation(companyId, async () => {
     await prisma.company.create({ data: { id: companyId, name: "Message orders", country: "PE" } });
     await systemPrisma.user.create({ data: { id: sellerId, name: "Seller", email: `${sellerId}@example.test`, companyId } });
-    await prisma.product.create({ data: { id: productId, name: "Shirt", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    for (const [index, variantId] of variantIds.entries())
-      await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Size: index ? "L" : "M" }, sku: `SKU-${variantId}`, salePrice: index ? 20 : 10, qrCode: variantId, status: "active" } });
+    await seedProduct({ id: productId, name: "Shirt", qrCode: productId, variants: variantIds.map((variantId, index) => ({
+      id: variantId, attributes: { Size: index ? "L" : "M" }, sku: `SKU-${variantId}`, salePrice: index ? 20 : 10, qrCode: variantId })) });
     await prisma.contact.create({ data: { id: contactId, whatsappAccountId: "111@lid", whatsappLid: "222@lid" } });
     await prisma.chat.create({ data: { id: chatId, contactId } });
   });
@@ -45,8 +45,7 @@ async function fixture() {
       await prisma.chat.deleteMany();
       await prisma.contact.deleteMany();
       await prisma.customer.deleteMany();
-      await prisma.productVariant.deleteMany();
-      await prisma.product.deleteMany();
+      await deleteSeededProducts();
       await prisma.image.deleteMany();
       await systemPrisma.user.deleteMany({ where: { companyId } });
       await prisma.company.delete({ where: { id: companyId } });
@@ -140,6 +139,21 @@ test("an incoming label photo creates an order for the contact's new customer li
     expect(order).toMatchObject({ customerId: contact.customerId, chatId: f.chatId, sellerId: f.sellerId, buyer: { contactId: f.contactId, name: null, phone: null } });
     expect(quantities(order!)).toEqual({ [f.variantIds[0]!]: 1 });
     expect(await inTenant(f, () => prisma.orderMessage.count())).toBe(1);
+  } finally { await f.cleanup(); }
+});
+
+test("a photo of a QR keeps the combination of the order item in option order after reading it back", async () => {
+  const f = await fixture();
+  try {
+    // Talla is saved before Color: stored as jsonb the keys would come back alphabetically, as Color first.
+    const variantId = randomUUID();
+    await inTenant(f, () => seedProduct({ name: "Polo", variants: [{ id: variantId, qrCode: variantId, attributes: { Talla: "M", Color: "Negro" }, salePrice: 45 }] }));
+    expect(await process(f, await photo(f, [variantId]))).toMatchObject({ success: true, data: { kind: "order_created", variantIds: [variantId] } });
+    const [order] = await chatOrders(f);
+    const [stored] = await inTenant(f, () => prisma.$queryRaw<{ attributes: string }[]>`SELECT "variantAttributes"::text AS attributes FROM "OrderItem" WHERE "orderId" = ${order!.id}::uuid`);
+    expect(Object.entries(JSON.parse(stored.attributes))).toEqual([["Talla", "M"], ["Color", "Negro"]]);
+    const read = await inTenant(f, () => findOrderAggregate(order!.id as OrderId, f.companyId as CompanyId));
+    expect(read.success && read.data?.items.map((item) => Object.entries(item.variantAttributes))).toEqual([[["Talla", "M"], ["Color", "Negro"]]]);
   } finally { await f.cleanup(); }
 });
 
@@ -322,8 +336,7 @@ async function indexedProduct(f: Fixture) {
   const variantId = randomUUID();
   await withTenantIsolation(f.companyId, async () => {
     await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
-    await prisma.product.create({ data: { id: productId, name: "Cap", currency: "PEN", qrCode: productId, status: "active", imageId, createdAt: new Date(), updatedAt: new Date() } });
-    await prisma.productVariant.create({ data: { id: variantId, productId, attributes: {}, sku: null, salePrice: 30, qrCode: variantId, status: "active" } });
+    await seedProduct({ id: productId, name: "Cap", qrCode: productId, imageId, variants: [{ id: variantId, salePrice: 30, qrCode: variantId }] });
     expect(await saveEmbedding({ imageId, model, vector: [1, 0, 0] as unknown as EmbeddingVector })).toEqual(ok(undefined));
   });
   return variantId;
@@ -350,5 +363,47 @@ test("a label photo still adds by QR without calling the visual adapters", async
     const result = await process(f, await photo(f, [f.variantIds[1]!]));
     expect(result).toMatchObject({ success: true, data: { kind: "order_created", variantIds: [f.variantIds[1]], match: { method: "qr", unknownCodes: [] } } });
     expect(visualCalls).toEqual([]);
+  } finally { await f.cleanup(); }
+});
+
+test("a photo of the QR of an inactive variant adds no item", async () => {
+  const f = await fixture();
+  try {
+    await inTenant(f, () => prisma.productVariant.update({ where: { id: f.variantIds[1]! }, data: { status: "inactive" } }));
+    const result = await process(f, await photo(f, [f.variantIds[1]!]));
+    expect(result).toMatchObject({ success: true, data: { kind: "skipped" } });
+    expect(await inTenant(f, () => prisma.orderItem.count())).toBe(0);
+    // The active variant of the same product is still added by its own label.
+    expect(await process(f, await photo(f, [f.variantIds[0]!]))).toMatchObject({ success: true, data: { kind: "order_created", variantIds: [f.variantIds[0]] } });
+  } finally { await f.cleanup(); }
+});
+
+test("visual search adds a product that has exactly one active variant left", async () => {
+  const f = await fixture();
+  try {
+    const productId = randomUUID() as ProductId;
+    const imageId = randomUUID() as ImageId;
+    const [kept, retired] = [randomUUID(), randomUUID()];
+    await withTenantIsolation(f.companyId, async () => {
+      await prisma.image.create({ data: { id: imageId, storageKey: `images/${imageId}` } });
+      await seedProduct({ id: productId, name: "Cap", qrCode: productId, imageId, variants: [
+        { id: kept, attributes: { Talla: "M" }, salePrice: 30, qrCode: kept }, { id: retired, attributes: { Talla: "L" }, salePrice: 30, qrCode: retired, status: "inactive" }] });
+      expect(await saveEmbedding({ imageId, model, vector: [1, 0, 0] as unknown as EmbeddingVector })).toEqual(ok(undefined));
+    });
+    const result = await process(f, await photo(f, []));
+    expect(result).toMatchObject({ success: true, data: { kind: "order_created", variantIds: [kept], match: { method: "visual" } } });
+  } finally { await f.cleanup(); }
+});
+
+test("a variant deleted between the scan and the item insert fails as a retryable persistence error and writes nothing", async () => {
+  const f = await fixture();
+  try {
+    const result = await process(f, await photo(f, [f.variantIds[1]!]), { saveNewOrder: async (order, source) => {
+      await prisma.productStock.deleteMany({ where: { variantId: f.variantIds[1]! } });
+      await prisma.productVariant.delete({ where: { id: f.variantIds[1]! } });
+      return savePendingOrder(order, source);
+    } });
+    expect(result).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(await inTenant(f, () => prisma.order.count())).toBe(0);
   } finally { await f.cleanup(); }
 });

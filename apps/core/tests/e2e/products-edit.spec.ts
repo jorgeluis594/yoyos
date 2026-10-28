@@ -1,6 +1,6 @@
 import { browserExpect, expect, prepareVerifiedCompany, test } from "./fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { products } from "@core/src/features/products/composition";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 test("edit products from the private form, preserve unchanged data, and enforce boundaries", async ({ page, request }) => {
   const email = `edit-${crypto.randomUUID()}@example.test`;
@@ -90,26 +90,23 @@ test("edit products from the private form, preserve unchanged data, and enforce 
     expect(await manipulated.text()).toContain("La solicitud contiene campos no permitidos.");
     expect((await withTenantIsolation(tenantId, async () => await prisma.product.findUniqueOrThrow({ where: { id: firstProductId } }))).name).toBe("Cuaderno editado");
 
-    const prepared = await withTenantIsolation(tenantId, async () => products.create({
-      name: "Camisa con tallas", currency: "PEN",
+    const prepared = await withTenantIsolation(tenantId, async () => seedProduct({
+      name: "Camisa con tallas",
       variants: [
-        { attributes: { Talla: "M" }, sku: "CAM-M", salePrice: 20, initialStock: 2 },
-        { attributes: { Talla: "L" }, sku: "CAM-L", salePrice: 25, initialStock: 3 },
+        { attributes: { Talla: "M" }, sku: "CAM-M", salePrice: 20, stock: 2 },
+        { attributes: { Talla: "L" }, sku: "CAM-L", salePrice: 25, stock: 3 },
       ],
     }));
-    if (!prepared.success) throw new Error("Could not prepare multivariant product");
-    await page.goto(`/es-PE/products/${prepared.data}`);
-    await browserExpect(page.getByText("Puedes editar los datos generales y la foto. Las variantes son de solo lectura.")).toBeVisible();
+    await page.goto(`/es-PE/products/${prepared.productId}`);
+    await browserExpect(page.getByLabel("Precio de venta de M")).toHaveValue("20.00");
     await browserExpect(page.getByLabel("SKU")).toHaveCount(0);
     await browserExpect(page.getByLabel("Stock")).toHaveValue("5");
     await page.getByLabel("Nombre *").fill("Camisa con tallas editada");
     await page.getByRole("button", { name: "Guardar cambios" }).click();
-    await browserExpect(page).toHaveURL(new RegExp(`/es-PE/products/${prepared.data}\\?saved=1$`));
+    await browserExpect(page).toHaveURL(new RegExp(`/es-PE/products/${prepared.productId}\\?saved=1$`));
     await browserExpect(page.getByRole("heading", { name: "Camisa con tallas editada" })).toBeVisible();
-    await browserExpect(page.getByText("CAM-M")).toBeVisible();
-    await browserExpect(page.getByText("CAM-L")).toBeVisible();
-    await browserExpect(page.getByText("M", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("L", { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Precio de venta de M")).toHaveValue("20.00");
+    await browserExpect(page.getByLabel("Precio de venta de L")).toHaveValue("25.00");
 
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.getByRole("button", { name: "Cerrar sesión" }).click();
@@ -126,6 +123,7 @@ test("edit products from the private form, preserve unchanged data, and enforce 
       if (user?.companyId) await withTenantIsolation(user.companyId, async () => {
         await prisma.productStock.deleteMany({ where: { companyId: user.companyId! } });
         await prisma.productVariant.deleteMany({ where: { companyId: user.companyId! } });
+        await prisma.productOption.deleteMany({ where: { companyId: user.companyId! } });
         await prisma.product.deleteMany({ where: { companyId: user.companyId! } });
         await prisma.image.deleteMany({ where: { companyId: user.companyId! } });
         await prisma.company.delete({ where: { id: user.companyId! } });

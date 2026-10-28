@@ -1,7 +1,6 @@
 import { readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 import { brandHostHeaders, browserExpect, expect, publishCatalog, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
 import { orders } from "@core/src/features/orders/composition";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deleteAgencies, insertAgency, seededCatalogId } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
@@ -14,6 +13,7 @@ import type { Page } from "@playwright/test";
 import type { CompanyId, ContactId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { chooseDistrict } from "@core/tests/e2e/district-combobox";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 const logoSvg = '<svg xmlns="http://www.w3.org/2000/svg" width="80" height="40"><rect width="80" height="40" fill="#2F6B4F"/></svg>';
 const png = Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64");
@@ -39,13 +39,12 @@ async function fixture({ delivery = true, photos = false }: { delivery?: boolean
     await prisma.company.create({ data: { id: companyId, name: "Tienda con marca", country: "PE" } });
     await systemPrisma.user.create({ data: { id: userId, name: "Seller", email: `${userId}@example.test`, companyId } });
     const addLine = async (name: string, withPhoto: boolean): Promise<OrderLine> => {
-      const product = await products.create({ name, currency: "PEN", variants: [{ attributes: { Color: "Azul" }, salePrice: 10, initialStock: 3 }] });
-      if (!product.success) throw new Error("Product fixture failed");
-      const variant = await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } });
+      const product = await seedProduct({ name, variants: [{ attributes: { Color: "Azul" }, salePrice: 10, stock: 3 }] });
+      const variant = { id: product.variantIds[0] };
       if (withPhoto) {
         const imageId = randomUUID();
         await prisma.image.create({ data: { id: imageId, storageKey: `products/${imageId}.svg` } });
-        await prisma.product.update({ where: { id: product.data }, data: { imageId } });
+        await prisma.product.update({ where: { id: product.productId }, data: { imageId } });
       }
       return { variantId: variant.id as VariantId, quantity: 1 as PositiveInteger };
     };
@@ -69,7 +68,7 @@ async function fixture({ delivery = true, photos = false }: { delivery?: boolean
     async cleanup() {
       await withTenantIsolation(companyId, async () => {
         await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-        await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+        await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
         await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany(); await prisma.deliveryZoneDistrict.deleteMany();
         await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany(); await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
         await prisma.companyPaymentSettings.deleteMany();

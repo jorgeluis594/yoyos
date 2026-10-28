@@ -21,7 +21,7 @@ function fixture() {
   const order = built.data;
   const create = vi.fn(async (selection: Parameters<typeof createOrder>[0]) => createOrder(selection, context, {
     transaction: async (_companyId, work) => work(), orderExists: async () => ok(false), 
-    findVariant: async () => ok(order.items[0]), allocateNumber: async () => ok(order.number),
+    findVariants: async () => ok([order.items[0]]), allocateNumber: async () => ok(order.number),
     saveOrder: async () => ok(null), newItemId: () => order.items[0].id, clock: () => order.createdAt }));
   const registerPayment = vi.fn(async () => ok({ order, stock: { kind: "not_requested" as const } }));
   const deliver = vi.fn(async () => ok(order));

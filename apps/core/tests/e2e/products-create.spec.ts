@@ -1,8 +1,7 @@
 import { formatCurrency } from "@core/app/format-currency";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "./fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { products } from "@core/src/features/products/composition";
-import type { ImageId } from "@core/src/features/products/domain/product";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 test("create products from the private form, validate input, and reload detail", async ({ page, request }) => {
   const email = `product-${crypto.randomUUID()}@example.test`;
@@ -38,7 +37,7 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
     const firstProductUrl = page.url();
     await browserExpect(page.getByRole("heading", { name: "Cuaderno" })).toBeVisible();
-    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("12.5");
+    await browserExpect(page.getByLabel("Precio de venta (PEN) *")).toHaveValue("12.50");
     await browserExpect(page.getByLabel("SKU")).toHaveValue("");
     await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("");
     await browserExpect(page.getByLabel("Stock")).toHaveValue("0");
@@ -64,7 +63,7 @@ test("create products from the private form, validate input, and reload detail",
     await browserExpect(page).toHaveURL(/\/es-PE\/products\/[0-9a-f-]+$/);
     await page.reload();
     await browserExpect(page.getByLabel("SKU")).toHaveValue("LAP-1");
-    await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("1.2");
+    await browserExpect(page.getByLabel("Precio de compra (PEN)")).toHaveValue("1.20");
     await browserExpect(page.getByLabel("Descripción")).toHaveValue("Grafito");
     await browserExpect(page.getByLabel("Stock")).toHaveValue("7");
 
@@ -98,6 +97,10 @@ test("create products from the private form, validate input, and reload detail",
     await page.goto("/es-PE/products/new");
     await page.getByLabel("Nombre *").fill("Cancelado");
     await page.getByRole("link", { name: "Cancelar" }).click();
+    await page.getByRole("button", { name: "Seguir editando" }).click();
+    await browserExpect(page.getByLabel("Nombre *")).toHaveValue("Cancelado");
+    await page.getByRole("link", { name: "Cancelar" }).click();
+    await page.getByRole("button", { name: "Descartar" }).click();
     await browserExpect(page).toHaveURL(/\/products$/);
     expect(await withTenantIsolation(companyId, async () => prisma.product.count({ where: { companyId } }))).toBe(3);
 
@@ -108,29 +111,22 @@ test("create products from the private form, validate input, and reload detail",
 
     const prepared = await withTenantIsolation(tenantId, async () => {
       const image = await prisma.image.create({ data: { companyId: tenantId, storageKey: "prepared-product.jpg" } });
-      return products.create({
-        name: "Camisa con tallas", currency: "PEN", imageId: image.id as ImageId,
+      return seedProduct({
+        name: "Camisa con tallas", imageId: image.id,
         variants: [
-          { attributes: { Talla: "M" }, sku: "CAM-M", salePrice: 20, initialStock: 2 },
-          { attributes: { Talla: "L" }, sku: "CAM-L", salePrice: 25, initialStock: 3 },
+          { attributes: { Talla: "M" }, sku: "CAM-M", salePrice: 20, stock: 2 },
+          { attributes: { Talla: "L" }, sku: "CAM-L", salePrice: 25, stock: 3 },
         ],
       });
     });
-    expect(prepared.success).toBe(true);
-    if (!prepared.success) throw new Error("Could not prepare multivariant product");
     await page.route("**/test-images/*", (route) => route.fulfill({ status: 200, contentType: "image/png", body: Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScL/nwAAAABJRU5ErkJggg==", "base64") }));
-    await page.goto(`/es-PE/products/${prepared.data}`);
+    await page.goto(`/es-PE/products/${prepared.productId}`);
     await browserExpect(page.getByRole("heading", { name: "Camisa con tallas" })).toBeVisible();
-    await browserExpect(page.getByRole("article")).toHaveCount(2);
-    await browserExpect(page.getByText("CAM-M")).toBeVisible();
-    await browserExpect(page.getByText("CAM-L")).toBeVisible();
-    await browserExpect(page.getByText("Talla", { exact: true })).toHaveCount(2);
-    await browserExpect(page.getByText("M", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("L", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText(formatCurrency(20, "PEN", "es"))).toBeVisible();
-    await browserExpect(page.getByText(formatCurrency(25, "PEN", "es"))).toBeVisible();
-    await browserExpect(page.getByRole("article").filter({ hasText: "CAM-M" })).toContainText("Stock2");
-    await browserExpect(page.getByRole("article").filter({ hasText: "CAM-L" })).toContainText("Stock3");
+    await browserExpect(page.getByLabel("Precio de venta de M")).toHaveValue("20.00");
+    await browserExpect(page.getByLabel("Precio de venta de L")).toHaveValue("25.00");
+    await browserExpect(page.getByRole("row").filter({ has: page.getByLabel("Precio de venta de M") }).getByRole("cell").nth(3)).toHaveText("2");
+    await browserExpect(page.getByRole("row").filter({ has: page.getByLabel("Precio de venta de L") }).getByRole("cell").nth(3)).toHaveText("3");
+    await browserExpect(page.getByLabel("Stock", { exact: true })).toHaveValue("5");
     await browserExpect(page.getByRole("img", { name: "Vista previa de la foto del producto" })).toHaveAttribute("src", /prepared-product\.jpg$/);
     await page.getByRole("link", { name: "Volver a productos" }).click();
     const catalogRow = page.getByRole("row", { name: /Camisa con tallas/ });
@@ -165,6 +161,7 @@ test("create products from the private form, validate input, and reload detail",
       if (user?.companyId) await withTenantIsolation(user.companyId, async () => {
         await prisma.productStock.deleteMany({ where: { companyId: user.companyId! } });
         await prisma.productVariant.deleteMany({ where: { companyId: user.companyId! } });
+        await prisma.productOption.deleteMany({ where: { companyId: user.companyId! } });
         await prisma.product.deleteMany({ where: { companyId: user.companyId! } });
         await prisma.image.deleteMany({ where: { companyId: user.companyId! } });
         await prisma.company.delete({ where: { id: user.companyId! } });

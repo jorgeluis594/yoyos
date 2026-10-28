@@ -60,6 +60,7 @@ afterEach(async () => {
       await prisma.customer.deleteMany({ where: { companyId } });
       await prisma.productStock.deleteMany({ where: { companyId } });
       await prisma.productVariant.deleteMany({ where: { companyId } });
+      await prisma.productOption.deleteMany({ where: { companyId } });
       await prisma.product.deleteMany({ where: { companyId } });
       await prisma.image.deleteMany({ where: { companyId } });
     });
@@ -73,10 +74,10 @@ async function sellerWithVariants(page: Page) {
   const account: { email: string; companyId?: string } = { email };
   accounts.push(account);
   const companyId = account.companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Message orders", country: "PE" });
-  const { products } = await import("@core/src/features/products/composition");
+  const { productEditing } = await import("@core/src/features/products/product-editing");
   await withTenantIsolation(companyId, async () => {
     for (const [name, salePrice, qrCode] of [["Camisa lino", 10, firstQr], ["Pantalon lino", 25, secondQr]] as const) {
-      const product = await products.create({ name, currency: "PEN", variants: [{ attributes: {}, salePrice, initialStock: 10 }] });
+      const product = await productEditing.create({ name, currency: "PEN", options: [], variants: [{ values: [], salePrice, initialStock: 10 }] });
       if (!product.success) throw new Error("Product setup failed");
       await prisma.productVariant.updateMany({ where: { productId: product.data }, data: { qrCode } });
     }

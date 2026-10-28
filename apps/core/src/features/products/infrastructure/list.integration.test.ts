@@ -3,6 +3,7 @@ import { expect, test } from "vitest";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { listProducts as listWith, type ListInput } from "@core/src/features/products/application/list";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 const listProducts = (input: ListInput) => listWith(input, { repository: productRepository });
 
@@ -12,12 +13,8 @@ test("catalog searches distinct products and summarizes all variants within the 
   const when = new Date("2026-01-01T00:00:00.000Z");
   const add = async (name: string, variants: { sku?: string; price: number; stock: number }[]) => {
     const id = randomUUID();
-    await prisma.product.create({ data: { id, name, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: when, updatedAt: when } });
-    for (const variant of variants) {
-      const variantId = randomUUID();
-      await prisma.productVariant.create({ data: { id: variantId, productId: id, attributes: {}, sku: variant.sku, salePrice: variant.price, qrCode: randomUUID(), status: "active" } });
-      await prisma.productStock.create({ data: { variantId, quantity: BigInt(variant.stock) } });
-    }
+    await seedProduct({ id, name, createdAt: when, updatedAt: when, variants: variants.map((variant, index) => ({
+      attributes: variants.length > 1 ? { Variante: String(index) } as Record<string, string> : {}, sku: variant.sku, salePrice: variant.price, stock: variant.stock })) });
     return id;
   };
   try {
@@ -54,9 +51,7 @@ test("catalog searches distinct products and summarizes all variants within the 
     });
   } finally {
     for (const id of [companyA, companyB]) await withTenantIsolation(id, async () => {
-      await prisma.productStock.deleteMany({ where: { companyId: id } });
-      await prisma.productVariant.deleteMany({ where: { companyId: id } });
-      await prisma.product.deleteMany({ where: { companyId: id } });
+      await deleteSeededProducts();
       await prisma.company.deleteMany({ where: { id } });
     });
   }
@@ -67,12 +62,8 @@ test("catalog filters by total stock, sorts by name and keeps image references",
   const when = new Date("2026-01-01T00:00:00.000Z");
   const add = async (name: string, stocks: number[], createdAt: Date, imageId?: string) => {
     const id = randomUUID();
-    await prisma.product.create({ data: { id, name, imageId, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt, updatedAt: createdAt } });
-    for (const quantity of stocks) {
-      const variantId = randomUUID();
-      await prisma.productVariant.create({ data: { id: variantId, productId: id, attributes: {}, salePrice: 10, qrCode: randomUUID(), status: "active" } });
-      await prisma.productStock.create({ data: { variantId, quantity: BigInt(quantity) } });
-    }
+    await seedProduct({ id, name, imageId, createdAt, updatedAt: createdAt, variants: stocks.map((quantity, index) => ({
+      attributes: stocks.length > 1 ? { Variante: String(index) } as Record<string, string> : {}, salePrice: 10, stock: quantity })) });
     return id;
   };
   try {
@@ -97,9 +88,7 @@ test("catalog filters by total stock, sorts by name and keeps image references",
     });
   } finally {
     await withTenantIsolation(company, async () => {
-      await prisma.productStock.deleteMany({ where: { companyId: company } });
-      await prisma.productVariant.deleteMany({ where: { companyId: company } });
-      await prisma.product.deleteMany({ where: { companyId: company } });
+      await deleteSeededProducts();
       await prisma.image.deleteMany({ where: { companyId: company } });
       await prisma.company.deleteMany({ where: { id: company } });
     });
@@ -111,10 +100,7 @@ test("catalog sorts names case- and accent-insensitively for Spanish speakers wi
   const when = new Date("2026-01-01T00:00:00.000Z");
   const add = async (name: string) => {
     const id = randomUUID();
-    await prisma.product.create({ data: { id, name, currency: "PEN", qrCode: randomUUID(), status: "active", createdAt: when, updatedAt: when } });
-    const variantId = randomUUID();
-    await prisma.productVariant.create({ data: { id: variantId, productId: id, attributes: {}, salePrice: 10, qrCode: randomUUID(), status: "active" } });
-    await prisma.productStock.create({ data: { variantId, quantity: 1n } });
+    await seedProduct({ id, name, createdAt: when, updatedAt: when, variants: [{ salePrice: 10, stock: 1n }] });
     return id;
   };
   try {
@@ -134,9 +120,7 @@ test("catalog sorts names case- and accent-insensitively for Spanish speakers wi
     });
   } finally {
     await withTenantIsolation(company, async () => {
-      await prisma.productStock.deleteMany({ where: { companyId: company } });
-      await prisma.productVariant.deleteMany({ where: { companyId: company } });
-      await prisma.product.deleteMany({ where: { companyId: company } });
+      await deleteSeededProducts();
       await prisma.company.deleteMany({ where: { id: company } });
     });
   }

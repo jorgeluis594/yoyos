@@ -5,7 +5,8 @@ import { err, ok } from "@shared/functional";
 import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createPgBossProvider } from "@core/src/shared/events/infrastructure/pg-boss-provider";
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
-import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
+import type { CompanyId } from "@shared/identity";
+import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 
 // Provider and image bytes are faked; bus, tenant isolation, products composition, use case and pgvector are real.
 const { embeddings } = vi.hoisted(() => {
@@ -23,7 +24,10 @@ vi.mock("@core/src/shared/images/application/images", async (importOriginal) => 
 
 import { createPublishEvent } from "@core/src/composition/event-bus";
 import { indexProductImage } from "@core/src/composition/event-handlers";
-import { products } from "@core/src/features/products/composition";
+import { productEditing, productSaveDependencies } from "@core/src/features/products/product-editing";
+import { saveProduct } from "@core/src/features/products/application/save-product";
+import { productRepository } from "@core/src/features/products/infrastructure/repository";
+import { deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 test("a product created with an image is indexed by the worker, reindexed on image change and retried while the embedder is down", async () => {
   expect(process.env.DATABASE_URL, "run sh scripts/run-tests.sh integration").toBeTruthy();
@@ -40,6 +44,17 @@ test("a product created with an image is indexed by the worker, reindexed on ima
     "SELECT state, retry_count FROM pgboss.job WHERE name = $1 AND data->'payload'->>'productId' = $2 ORDER BY created_on", [definition.id, productId])).rows;
   const stored = () => withTenantIsolation(companyId, async () => await
     prisma.$queryRaw<Array<{ imageId: string; model: string }>>`SELECT "imageId", model FROM "ImageEmbedding" ORDER BY "createdAt"`);
+  // The editor's save, sent exactly as loaded with one field changed.
+  const edit = (productId: ProductId, change: Readonly<{ name?: string; imageId?: ImageId }>) => withTenantIsolation(companyId, async () => {
+    const loaded = await productRepository.get(productId);
+    if (!loaded.success || !loaded.data) throw new Error("product not found");
+    const product = loaded.data;
+    // The detail read resolves image URLs, which needs storage; the reload only has to answer.
+    const deps = { ...productSaveDependencies(companyId, productId), reload: async () => ok({ product, orderedVariantIds: new Set<VariantId>() }) };
+    return await saveProduct({ productId, structureVersion: product.structureVersion, name: product.name, description: product.description ?? null, imageId: product.imageId ?? null,
+      options: [], variants: product.variants.map((variant) => ({ id: variant.id, sku: variant.sku ?? null, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null })),
+      newVariants: [], deletedVariantIds: [], ...change }, { companyId: companyId as CompanyId }, deps);
+  });
   try {
     await producer.start();
     await worker.start();
@@ -51,16 +66,16 @@ test("a product created with an image is indexed by the worker, reindexed on ima
       for (const id of [first, second]) await prisma.image.create({ data: { id, storageKey: `images/${id}` } });
     });
     embeddings.push("unavailable", [1, 0, 0]);
-    const created = await withTenantIsolation(companyId, () => products.create({ name: "Shirt", currency: "PEN", imageId: first, variants: [{ attributes: {}, salePrice: 10 }] }));
+    const created = await withTenantIsolation(companyId, () => productEditing.create({ name: "Shirt", currency: "PEN", imageId: first, options: [], variants: [{ values: [], salePrice: 10 }] }));
     expect(created.success).toBe(true);
     const productId = (created.success ? created.data : "") as ProductId;
     await vi.waitFor(async () => expect(await jobs(productId)).toMatchObject([{ state: "completed", retry_count: 1 }]), { timeout: 20_000, interval: 100 });
     expect(await stored()).toEqual([{ imageId: first, model: "local/fake" }]);
 
-    expect((await withTenantIsolation(companyId, () => products.update(productId, { name: "Shirt v2" }))).success).toBe(true);
+    expect((await edit(productId, { name: "Shirt v2" })).success).toBe(true);
     expect(await jobs(productId)).toHaveLength(1);
 
-    expect((await withTenantIsolation(companyId, () => products.update(productId, { imageId: second }))).success).toBe(true);
+    expect((await edit(productId, { imageId: second })).success).toBe(true);
     await vi.waitFor(async () => expect((await jobs(productId)).map(({ state }) => state)).toEqual(["completed", "completed"]), { timeout: 20_000, interval: 100 });
     // The old image keeps its cached embedding; search only joins the product's current image.
     expect(await stored()).toEqual([first, second].map((imageId) => ({ imageId, model: "local/fake" })));
@@ -72,9 +87,7 @@ test("a product created with an image is indexed by the worker, reindexed on ima
     await pool.query("DELETE FROM pgboss.queue WHERE name = $1", [definition.id]);
     await pool.end();
     await withTenantIsolation(companyId, async () => {
-      await prisma.productStock.deleteMany();
-      await prisma.productVariant.deleteMany();
-      await prisma.product.deleteMany();
+      await deleteSeededProducts();
       await prisma.image.deleteMany();
       await prisma.company.deleteMany({ where: { id: companyId } });
     });

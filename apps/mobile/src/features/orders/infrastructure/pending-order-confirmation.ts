@@ -9,7 +9,8 @@ const pendingSchema = z.strictObject({
   companyId: z.uuid(), id: z.uuid(),
   shownTotal: z.strictObject({ amount: z.number().positive().finite(), currency: z.enum(currencies) }),
   version: z.literal(2), request: completeOrderSchema,
-  rejection: z.strictObject({ code: z.string().min(1).max(64), message: z.string().max(500) }).optional(),
+  rejection: z.strictObject({ code: z.string().min(1).max(64), message: z.string().max(500), variantId: z.uuid().optional() }).optional(),
+  itemLabels: z.record(z.uuid(), z.string().max(200)).optional(),
 }).refine(value => value.request.id === value.id, { message: "Pending order identity mismatch" });
 const indexSchema = z.array(z.uuid());
 

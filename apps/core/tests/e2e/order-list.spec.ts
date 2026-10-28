@@ -1,6 +1,6 @@
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 test("seller scans units and independent states, searches orders and combines work views with dates", async ({ page }) => {
   const email = `order-list-${crypto.randomUUID()}@example.test`;
@@ -9,13 +9,11 @@ test("seller scans units and independent states, searches orders and combines wo
     companyId = await prepareVerifiedCompany(page, { email, name: "Vendedor Demo", companyName: "Pedidos de prueba", country: "PE" });
     const tenantId = companyId;
     const variantIds = await withTenantIsolation(tenantId, async () => {
-      const product = await products.create({ name: "Producto", currency: "PEN", variants: [
-        { attributes: { Size: "M" }, salePrice: 10, initialStock: 20 },
-        { attributes: { Size: "L" }, salePrice: 20, initialStock: 20 },
+      const seeded = await seedProduct({ name: "Producto", variants: [
+        { attributes: { Size: "M" }, salePrice: 10, stock: 20 },
+        { attributes: { Size: "L" }, salePrice: 20, stock: 20 },
       ] });
-      if (!product.success) throw new Error("Product setup failed");
-      const variants = await prisma.productVariant.findMany({ where: { productId: product.data }, orderBy: { salePrice: "asc" } });
-      return variants.map((variant) => variant.id);
+      return [...seeded.variantIds];
     });
     const summaries: { id: string; number: number; kind: string }[] = [];
     for (const [index, kind] of ["partial", "paid", "shipped", "completed", "cancelled", "historical"].entries()) {
@@ -105,7 +103,7 @@ test("seller scans units and independent states, searches orders and combines wo
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } });
       await prisma.company.delete({ where: { id: companyId } });
     });

@@ -11,7 +11,7 @@ import { Pagination, PaginationContent, PaginationItem, PaginationLink } from "@
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { TextLink } from "@core/app/components/ui/text-link";
 import { privateUserContext } from "@core/app/private-user-context";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/features/products/product-editing";
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   const company = context.get(privateUserContext).company;
@@ -23,7 +23,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     ...(query.has("pageSize") ? { pageSize: numberParam("pageSize") } : {}),
   };
   try {
-    const result = await products.list(input);
+    const result = await productEditing.list(input);
     if (!result.success) throw new Response("Criterios de búsqueda no válidos.", { status: 400 });
     return { list: result.data, search: input.search?.trim() ?? "", base: companyPath(new URL(request.url).pathname, company.country, "/products") };
   } catch (cause) {
@@ -61,7 +61,8 @@ export default function ProductList() {
       header: t("products.salePrice"),
       mobile: "value",
       align: "right",
-      cell: (item) => `${item.hasDifferentPrices ? t("products.from") : ""}${formatCurrency(item.minSalePrice.amount, item.minSalePrice.currency, i18n.language)}`,
+      cell: (item) => item.activeVariantCount === 0 ? t("productEditor.noActiveList")
+        : item.minSalePrice ? `${item.hasDifferentPrices ? t("products.from") : ""}${formatCurrency(item.minSalePrice.amount, item.minSalePrice.currency, i18n.language)}` : t("products.noPrice"),
     },
     {
       id: "stock",

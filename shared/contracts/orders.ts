@@ -192,7 +192,7 @@ export const orderApiErrorSchema = z.strictObject({
   currentPrice: moneySchema.extend({ amount: z.number().finite().nonnegative().max(9999999999999.99).multipleOf(0.01) }).optional(),
 });
 export type OrderApiError = z.infer<typeof orderApiErrorSchema>;
-export const orderActionErrorSchema = z.strictObject({ code: z.string(), error: z.string(), currentPrice: orderApiErrorSchema.shape.currentPrice });
+export const orderActionErrorSchema = z.strictObject({ code: z.string(), error: z.string(), currentPrice: orderApiErrorSchema.shape.currentPrice, variantId: z.uuid().optional() });
 export const newOrderLoaderSchema = z.strictObject({ products: orderCatalogSchema, base: z.string() });
 export const orderListLoaderSchema = z.strictObject({ list: listOrderAggregatesResponseSchema.extend({ items: z.array(orderAggregateSummarySchema.extend({ itemCount: z.number().int().positive().safe(), balanceDue: moneySchema,
   deliveryMethod: z.enum(["home", "agency", "pickup", "none"]), district: z.string().nullable() })) }), filters: listOrderAggregatesSchema, base: z.string() });

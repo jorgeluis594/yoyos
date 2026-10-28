@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
-import { SafeAreaView, type Edge } from "react-native-safe-area-context";
+import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
+import type { EditorDraft } from "@shared/product-variants";
 import type { Currency } from "@shared/money";
 import { Button } from "@mobile/components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@mobile/components/ui/field";
@@ -13,16 +14,17 @@ import { ProductPhoto } from "@mobile/features/products/presentation/product-pho
 import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
 import { QuantityStepper } from "@mobile/features/products/presentation/quantity-stepper";
 import type { Product, PhotoSelection } from "@mobile/features/products/domain/product";
+import { VariantsCard } from "./variants-card";
+import { editorSummary } from "./product-editor-summary";
 import tokens from "../../../../../../docs/design-tokens.json";
 
 export type ProductFormValues = Readonly<{ name: string; description: string; sku: string; salePrice: string; purchasePrice: string; stock: string }>;
 export type ProductFormField = keyof ProductFormValues | "form";
 
-// The bottom inset is scrolled content, so the form uses the full height when the tab bar is hidden.
-export const formEdges: readonly Edge[] = ["top", "left", "right"];
+export { formEdges } from "./form-edges";
 
 export function ProductForm({
-  title, headerAction, values, setValue, currency, current, photo, onPhotoChange, errors, disabled, photoBusy, onPhotoBusy, onSave, onClose, onReviewCatalog, onCheckStatus, saving, conflict, uncertain,
+  title, headerAction, values, setValue, currency, current, draft, errorCount, photo, onPhotoChange, errors, disabled, photoBusy, onPhotoBusy, onSave, onClose, onReviewCatalog, onReload, onEditOptions, onOpenVariants, saving, conflict, uncertain, changed,
 }: {
   title: string;
   headerAction?: ReactNode;
@@ -30,6 +32,9 @@ export function ProductForm({
   setValue: (field: keyof ProductFormValues, value: string) => void;
   currency: Currency;
   current?: Product;
+  draft: EditorDraft;
+  /** Rows the last rejected save marked. */
+  errorCount: number;
   photo: PhotoSelection;
   onPhotoChange: (value: PhotoSelection) => void;
   errors: Partial<Record<ProductFormField, string>>;
@@ -39,12 +44,18 @@ export function ProductForm({
   onSave: () => void;
   onClose: () => void;
   onReviewCatalog: () => void;
-  onCheckStatus?: () => void;
+  /** Reloads the saved product, after the discard confirmation. */
+  onReload?: () => void;
+  onEditOptions: () => void;
+  onOpenVariants: () => void;
   saving: boolean;
   conflict?: boolean;
   uncertain?: boolean;
+  /** The save was rejected because the product changed since it was opened. */
+  changed?: boolean;
 }) {
-  const multiVariant = (current?.variants.length ?? 1) > 1;
+  const hasOptions = draft.options.length > 0;
+  const summary = editorSummary(draft);
   const { t, i18n } = useTranslation();
   const theme = useTheme();
   // Paired fields wrap their labels under enlarged text, so they stack to keep each input aligned with its label.
@@ -78,7 +89,7 @@ export function ProductForm({
           {errors.description ? <FieldError>{errors.description}</FieldError> : null}
         </Field>
       </FieldGroup>
-      {!multiVariant ? <View style={card}>
+      {!hasOptions ? <View style={card}>
         <View style={styles.cardTitle}>
           <ThemedText type="small" accessibilityRole="header" style={styles.cardHeading}>{t('price')}</ThemedText>
           <ThemedText type="small" themeColor="textSecondary">{currency}</ThemedText>
@@ -94,15 +105,18 @@ export function ProductForm({
           </Field>
         </FieldGroup>
       </View> : null}
+      {draft.saved && hasOptions && summary.active === 0 ? <View style={[styles.notice, { backgroundColor: theme.warningSurface }]}>
+        <ThemedText type="small" style={{ color: theme.warning }}>{t('noVariantOnSale')}</ThemedText>
+      </View> : null}
+      <VariantsCard draft={draft} disabled={disabled} errorCount={errorCount} formatPrice={(amount) => price.format(amount)} onEditOptions={onEditOptions} onOpenVariants={onOpenVariants} />
       <View style={card}>
-        <ThemedText type="small" accessibilityRole="header" style={styles.cardHeading}>{multiVariant ? t('variants') : t('inventory')}</ThemedText>
-        {multiVariant ? <View style={styles.variants}>
-          {current?.variants.map((variant, index) => <View key={variant.id} style={[styles.variant, { borderColor: theme.border }]}>
-            <ThemedText type="smallBold">{Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || t('numberedVariant', { count: index + 1 })}</ThemedText>
-            <ThemedText themeColor="textSecondary">{variant.sku ?? t('noSku')} · {t('saleAmount', { amount: price.format(variant.salePrice.amount) })}{variant.purchasePrice ? ` · ${t('purchaseAmount', { amount: price.format(variant.purchasePrice.amount) })}` : ""}</ThemedText>
-            <ThemedText themeColor="textSecondary">{t('stockCount', { count: variant.stock })}</ThemedText>
-          </View>)}
-        </View> : <FieldGroup style={styles.columns}>
+        <ThemedText type="small" accessibilityRole="header" style={styles.cardHeading}>{t('inventory')}</ThemedText>
+        {hasOptions ? <Field disabled>
+          <FieldLabel>{t('stock')}</FieldLabel>
+          <QuantityStepper value={String(summary.stock)} onChange={() => {}} disabled
+            accessibilityLabel={t('readonlyStock', { count: summary.stock })} decreaseLabel={t('decreaseStock')} increaseLabel={t('increaseStock')} />
+          <ThemedText type="small" themeColor="textSecondary">{draft.saved ? t('stockSumActive') : t('stockSum')}</ThemedText>
+        </Field> : <FieldGroup style={styles.columns}>
           <Field style={fieldColumn} invalid={!!errors.sku} disabled={disabled}>
             <FieldLabel>SKU</FieldLabel><Input value={values.sku} onChangeText={(value) => setValue("sku", value)} maxLength={100} placeholder={t('optional')} accessibilityLabel={t('optionalSku')} autoCapitalize="characters" />
             {errors.sku ? <FieldError>{errors.sku}</FieldError> : null}
@@ -120,7 +134,7 @@ export function ProductForm({
         </FieldGroup>}
       </View>
       {conflict ? <Button variant="secondary" onPress={onReviewCatalog}>{t('backToCatalog')}</Button> : null}
-      {uncertain && onCheckStatus ? <Button variant="secondary" onPress={onCheckStatus}>{t('checkProductStatus')}</Button> : null}
+      {(uncertain || changed) && onReload ? <Button variant="secondary" onPress={onReload}>{t('reloadProduct')}</Button> : null}
       <SafeAreaView edges={["bottom"]} />
     </ScrollView>
   </View>;
@@ -137,5 +151,5 @@ const styles = StyleSheet.create({
   column: { flexGrow: 1, flexBasis: 136, minWidth: 0 },
   stacked: { flexBasis: "100%" },
   amount: { fontVariant: ["tabular-nums"] },
-  variants: { gap: 10 }, variant: { borderWidth: 1, borderRadius: 12, padding: 14, gap: 4 },
+  notice: { borderRadius: tokens.radius.control, padding: tokens.spacing["3"] },
 });

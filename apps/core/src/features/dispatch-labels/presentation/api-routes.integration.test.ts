@@ -4,6 +4,7 @@ import { app } from "@core/src/app";
 import { dispatchLabels } from "@core/src/features/dispatch-labels/composition";
 import { createLabelPdf } from "@core/src/features/dispatch-labels/infrastructure/label-pdf";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
 
 const server = app.listen(0, "127.0.0.1");
 await new Promise<void>((resolve) => server.once("listening", resolve));
@@ -45,8 +46,7 @@ async function seller() {
   const productId = randomUUID();
   const variantId = randomUUID();
   await withTenantIsolation(companyId, async () => {
-    await prisma.product.create({ data: { id: productId, name: "Camisa", currency: "PEN", qrCode: productId, status: "active", createdAt: new Date(), updatedAt: new Date() } });
-    await prisma.productVariant.create({ data: { id: variantId, productId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId, status: "active" } });
+    await seedProduct({ id: productId, name: "Camisa", qrCode: productId, variants: [{ id: variantId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId }] });
   });
   let next = 1001n;
   async function order(delivery: unknown, extra: { cancelled?: boolean } = {}) {
@@ -72,8 +72,7 @@ afterAll(async () => {
     await prisma.companyDispatchSender.deleteMany();
     await prisma.orderItem.deleteMany();
     await prisma.order.deleteMany();
-    await prisma.productVariant.deleteMany();
-    await prisma.product.deleteMany();
+    await deleteSeededProducts();
     await systemPrisma.user.delete({ where: { id: userId } });
     await prisma.company.delete({ where: { id: companyId } });
   });

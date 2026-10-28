@@ -2,7 +2,7 @@ import type { Page } from "@playwright/test";
 import { vi } from "vitest";
 import pg from "pg";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createEventBusRuntime } from "@core/src/composition/event-bus";
 import { bootstrapEventHandlers, eventHandlers } from "@core/src/composition/event-handlers";
@@ -11,7 +11,7 @@ async function fixture(page: Page) {
   const email = `cancellation-${crypto.randomUUID()}@example.test`;
   const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Cancellation", country: "PE" });
   const variantId = await withTenantIsolation(companyId, async () => {
-    const product = await products.create({ name: "Cancellation product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 20 }] });
+    const product = await productEditing.create({ name: "Cancellation product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 20 }] });
     if (!product.success) throw new Error("Product setup failed");
     return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
   });
@@ -30,7 +30,7 @@ async function fixture(page: Page) {
       finally { await pool.end(); }
       await withTenantIsolation(companyId, async () => {
         await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-        await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+        await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
         await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
       });
     },

@@ -62,12 +62,13 @@ export async function listProductsMissingEmbedding(model: EmbeddingModel) {
   return rows.success ? ok(rows.data.map(({ id }) => id as ProductId)) : rows;
 }
 
-/** Whether some active product of the company (RLS) has its current image embedded with the model. */
+/** Whether some active product of the company (RLS) with an active variant has its current image embedded with the model. */
 export async function hasIndexedProducts(model: EmbeddingModel) {
   const rows = await guarded("unable_to_check_indexed_products", () => prisma.$queryRaw<Array<{ indexed: boolean }>>`
     SELECT EXISTS (SELECT 1 FROM "ImageEmbedding" e
       JOIN "Product" p ON p."companyId" = e."companyId" AND p."imageId" = e."imageId"
-      WHERE e.model = ${model} AND p.status = 'active') AS indexed`);
+      WHERE e.model = ${model} AND p.status = 'active'
+        AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active')) AS indexed`);
   return rows.success ? ok(rows.data[0]?.indexed === true) : rows;
 }
 

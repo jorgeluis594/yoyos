@@ -2,12 +2,13 @@ import { formatCurrency } from "@core/app/format-currency";
 import { browserExpect, chooseOption, expect, openOptions, prepareVerifiedCompany, selectedValue, test } from "@core/tests/e2e/fixtures";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { orders } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { chooseDistrict, chooseDistrictInProvince } from "@core/tests/e2e/district-combobox";
+import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 test("seller completes a wallet sale and sees backend totals and stock", async ({ page, request }) => {
   const email = `orders-${crypto.randomUUID()}@example.test`;
@@ -21,9 +22,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.goto("/es-PE/dashboard");
     await browserExpect(page).toHaveURL(/\/es-PE\/dashboard$/);
     const tenantId = companyId;
-    const created = await withTenantIsolation(tenantId, () => products.create({ name: "Cuaderno POS", currency: "PEN",
-      variants: [{ attributes: { Size: "M" }, sku: "POS-M", salePrice: 0.29, initialStock: 3 }] }));
-    expect(created.success).toBe(true);
+    await withTenantIsolation(tenantId, () => seedProduct({ name: "Cuaderno POS", variants: [{ attributes: { Size: "M" }, sku: "POS-M", salePrice: 0.29, stock: 3 }] }));
 
     await page.getByRole("complementary").getByRole("link", { name: "Ventas" }).click();
     await page.getByRole("link", { name: "Nueva venta" }).click();
@@ -175,6 +174,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
         await prisma.contact.deleteMany();
         await prisma.productStock.deleteMany();
         await prisma.productVariant.deleteMany();
+        await prisma.productOption.deleteMany();
         await prisma.product.deleteMany();
       });
       await systemPrisma.user.deleteMany({ where: { email: accountEmail } });
@@ -189,8 +189,8 @@ test("pending order remains active when paid before delivery", async ({ page }) 
   try {
     companyId = await prepareVerifiedCompany(page, { email, name: "Pending Seller", companyName: "Pending company", country: "PE" });
     const tenantId = companyId;
-    const product = await withTenantIsolation(tenantId, () => products.create({ name: "Producto pendiente", currency: "PEN",
-      variants: [{ attributes: {}, sku: "PENDING", salePrice: 10, initialStock: 2 }] }));
+    const product = await withTenantIsolation(tenantId, () => productEditing.create({ name: "Producto pendiente", currency: "PEN",
+      options: [], variants: [{ values: [], sku: "PENDING", salePrice: 10, initialStock: 2 }] }));
     expect(product.success).toBe(true);
     if (!product.success) return;
     const variantId = await withTenantIsolation(tenantId, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
@@ -228,6 +228,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
       await prisma.order.deleteMany();
       await prisma.productStock.deleteMany();
       await prisma.productVariant.deleteMany();
+      await prisma.productOption.deleteMany();
       await prisma.product.deleteMany();
     });
     await systemPrisma.user.deleteMany({ where: { email } });
@@ -239,8 +240,8 @@ test("new order saves partial payments, paid pending delivery and configured del
   const email = `orders-complete-${crypto.randomUUID()}@example.test`;
   try {
     const companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Complete orders", country: "PE" });
-    const product = await withTenantIsolation(companyId, () => products.create({ name: "Agenda", currency: "PEN",
-      variants: [{ attributes: {}, sku: "AGENDA", salePrice: 10, initialStock: 5 }] }));
+    const product = await withTenantIsolation(companyId, () => productEditing.create({ name: "Agenda", currency: "PEN",
+      options: [], variants: [{ values: [], sku: "AGENDA", salePrice: 10, initialStock: 5 }] }));
     expect(product.success).toBe(true);
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 0, home: { enabled: true },
       store: { enabled: false, pickupPoint: null }, agency: { enabled: false } } })).ok()).toBe(true);
@@ -328,7 +329,7 @@ test("new order saves partial payments, paid pending delivery and configured del
     const user = await systemPrisma.user.findUnique({ where: { email }, select: { companyId: true } });
     if (user?.companyId) await withTenantIsolation(user.companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany();
       await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();

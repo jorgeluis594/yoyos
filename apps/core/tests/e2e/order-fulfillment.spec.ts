@@ -1,6 +1,6 @@
 import { startMobileWeb } from "@core/tests/e2e/mobile-web";
 import { browserExpect, expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { products } from "@core/src/features/products/composition";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 test("seller ships or delivers directly, refreshes details and list, and preserves payments", async ({ page }) => {
@@ -10,7 +10,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
     companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Fulfillment", country: "PE" });
     const tenantId = companyId;
     const variantId = await withTenantIsolation(tenantId, async () => {
-      const product = await products.create({ name: "Fulfillment product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 5 }] });
+      const product = await productEditing.create({ name: "Fulfillment product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 5 }] });
       if (!product.success) throw new Error("Product setup failed");
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
     });
@@ -96,7 +96,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } });
       await prisma.company.delete({ where: { id: companyId } });
@@ -113,7 +113,7 @@ test("mobile fulfillment refreshes details and history through the real API", as
     companyId = await prepareVerifiedCompany(page, { email, name: "Mobile seller", companyName: "Mobile fulfillment", country: "PE" });
     const tenantId = companyId;
     const variantId = await withTenantIsolation(tenantId, async () => {
-      const product = await products.create({ name: "Mobile fulfillment product", currency: "PEN", variants: [{ attributes: {}, salePrice: 10, initialStock: 3 }] });
+      const product = await productEditing.create({ name: "Mobile fulfillment product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 3 }] });
       if (!product.success) throw new Error("Product setup failed");
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
     });
@@ -167,7 +167,7 @@ test("mobile fulfillment refreshes details and history through the real API", as
     await mobile.close();
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
-      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.product.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });
   }

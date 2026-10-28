@@ -6,8 +6,8 @@ import type { Product, ProductId, VariantId, VariantQrCode } from "@mobile/featu
 import type { CopyCount } from "@mobile/features/printing/domain/printing";
 
 const productId = "product" as ProductId;
-const product: Product = { id: productId, name: "Camisa", currency: "PEN", variants: [
-  { id: "small" as VariantId, qrCode: "small-qr" as VariantQrCode, sku: "CAM-S", attributes: {}, salePrice: { amount: 20, currency: "PEN" }, stock: 1 },
+const product: Product = { id: productId, name: "Camisa", currency: "PEN", structureVersion: 1, options: [], variants: [
+  { id: "small" as VariantId, qrCode: "small-qr" as VariantQrCode, sku: "CAM-S", combination: [], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false },
 ] };
 const execution = { isSessionCurrent: () => true, onStage: () => {} };
 const copies = 2 as CopyCount;
