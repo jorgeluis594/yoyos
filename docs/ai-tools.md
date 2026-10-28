@@ -1,8 +1,10 @@
 # AI tools
 
-`apps/core/src/shared/ai-tools/` turns a buyer's message into calls to tools a feature defines, and validates and resolves those calls before the feature applies them. It is generic: it knows no orders or products types. [Message-to-order](message-to-order.md) is its consumer; its tools are in `orders/application/chat-message-tools.ts` and `chat-text-tools.ts`.
+`apps/core/src/shared/ai-tools/` turns a buyer's message into calls to tools a feature defines, and validates and resolves those calls before the feature applies them. It is generic: it knows no orders or products types. [Message-to-order](message-to-order.md) is its consumer; its tool definitions are in `orders/infrastructure/chat-tools.ts` and the actions they run in `orders/application/chat-message-actions.ts` and `chat-text-actions.ts`.
 
-Code: `application/tool-registry.ts` (registry), `orchestrate.ts` (orchestrator), `execute-tool-calls.ts` (executor), `infrastructure/openai-decision-client.ts`, `openai-tool-call-extractor.ts`, `ai-env.ts`, `composition.ts`.
+Code: `application/tool-registry.ts` (registry), `orchestrate.ts` (orchestrator), `execute-tool-calls.ts` (executor), `infrastructure/decision-request-text.ts` (the Decision request's fixed wording), `openai-decision-client.ts`, `openai-tool-call-extractor.ts`, `ai-env.ts`, `composition.ts`.
+
+Layering: domain and application code hold no natural-language text for the models. A feature's tool is a typed application function (plain input, the context and its dependencies, returning actions), where the business rules live: confidence gates, currency handling, which tools a context offers. What the models see is infrastructure: the tool name, its description, field descriptions, Decision question wording, prompt examples, the context text and the strict Zod schema that validates the model's JSON, plus the mapping from validated output to the function's input. The generic orchestrator gets its own wording (`DecisionRequestText`) the same way, through `OrchestrateDependencies`. Composition wires the registry from the definitions and injects the application functions.
 
 ## Pieces
 

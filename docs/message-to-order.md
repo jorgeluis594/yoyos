@@ -5,7 +5,7 @@ Every incoming photo or text of an individual chat updates that chat's open orde
 Sources of truth:
 
 - Use case: `apps/core/src/features/orders/application/apply-chat-message.ts`; handler and dead-letter handler: `chat-message-handler.ts`; queue policy: `chat-message-policy.ts`.
-- Tools offered to the models: `apps/core/src/features/orders/application/chat-message-tools.ts` (photos) and `chat-text-tools.ts` (texts).
+- Tools offered to the models: their definitions (names, descriptions, Decision questions, strict schemas and the mapping to typed input) in `apps/core/src/features/orders/infrastructure/chat-tools.ts`, and the context text in `chat-context-text.ts`; the actions they run, with every business rule (gates, currency, price hints, which tools a message is offered), in `orders/application/chat-message-actions.ts` (photos, offers) and `chat-text-actions.ts` (texts). Application code holds no text for the models ([AI tools](ai-tools.md)); `orders/infrastructure/chat-tools.model-text.json` pins every text they get, so a change to it is deliberate.
 - Order transitions and outcomes (pure): `apps/core/src/features/orders/domain/chat-order.ts`, `chat-message-outcome.ts`, `mentioned-price.ts`; open-order rule: `message-order.ts`.
 - Notice choice: `apps/core/src/features/orders/domain/seller-notice.ts`; texts (es, pt-BR): `orders/presentation/seller-notice-texts.ts`.
 - Contracts: `shared/contracts/whatsapp-messages.ts`, `shared/contracts/orders.ts` (`mentionedPrice`), `shared/contracts/seller-notices.ts`.
