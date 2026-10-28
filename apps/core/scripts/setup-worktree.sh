@@ -32,8 +32,10 @@ ports_in_use() {
 
 write_ports() {
   local slot="$1" web_port=$((3000 + $1))
-  grep -vE '^(WEB_PORT|BETTER_AUTH_URL|MAILPIT_SMTP_PORT|MAILPIT_UI_PORT|CORE_TEST_PORT)=' .env > .env.tmp || true
+  grep -vE '^(WEB_PORT|BETTER_AUTH_URL|MAILPIT_SMTP_PORT|MAILPIT_UI_PORT|CORE_TEST_PORT|HOST_UID|HOST_GID)=' .env > .env.tmp || true
   cat >> .env.tmp <<EOF
+HOST_UID=$(id -u)
+HOST_GID=$(id -g)
 WEB_PORT=$web_port
 BETTER_AUTH_URL=http://localhost:$web_port
 MAILPIT_SMTP_PORT=$((1025 + slot))
@@ -50,9 +52,13 @@ if [ "$repo_root" != "$main_root" ]; then
   write_ports "$(reserve_slot)"
 fi
 
+# Docker creates missing mount points of the node_modules volumes as root, which breaks a host pnpm install there.
+mkdir -p apps/core/node_modules shared/node_modules
+
 docker compose build migrate web
 docker compose run --rm web sh -c 'pnpm exec prisma generate && pnpm seed'
-docker compose up -d
+# Fresh node_modules volumes, so a rebuilt image's dependencies are not hidden by the previous container's.
+docker compose up -d --renew-anon-volumes
 
 web_port="$(awk -F= '$1 == "WEB_PORT" { print $2 }' .env 2>/dev/null)"
 echo "Ready: http://localhost:${web_port:-3000}"
