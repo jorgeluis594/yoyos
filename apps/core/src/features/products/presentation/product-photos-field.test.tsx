@@ -73,6 +73,7 @@ const thumbs = () => [...container.querySelectorAll<HTMLElement>("[data-photo]")
 const thumbText = (index: number) => thumbs()[index]?.textContent ?? "";
 const names = () => thumbs().map((thumb) => thumb.querySelector("[role='group']")?.getAttribute("aria-label"));
 const live = () => container.querySelector("[data-photo-live]")?.textContent ?? "";
+const status = () => container.querySelector("#photos-status")?.textContent ?? "";
 const field = () => container.querySelector("[data-photos-field]")?.textContent ?? "";
 const answer = async (index: number, result: unknown) => { await act(async () => { uploads[index].resolve(result); }); };
 const done = (index: number) => ok({ id: id(300 + index), url: `https://img.test/new-${index}.png` });
@@ -104,8 +105,9 @@ test("a file over 10 MB fails at once with the weight text and is never uploaded
   select(file("frente.jpg"), file("grande.jpg", 12_000_000), file("puesto.jpg"));
   expect(names()[1]).toBe("Foto 2 de 3, grande.jpg, no se subió: pesa más de 10 MB");
   expect(thumbText(1)).toContain("No se subió");
-  expect(thumbText(1)).toContain("grande.jpg");
-  expect(thumbText(1)).toContain("Pesa más de 10 MB.");
+  expect(thumbText(1)).not.toContain("grande.jpg");
+  expect(status()).toBe("Foto 2 de 3: grande.jpg. Pesa más de 10 MB.");
+  expect(thumbs()[1].querySelector("[role='group']")?.getAttribute("aria-describedby")).toBe("photos-status");
   expect(button("Reintentar la foto 2 de 3")).toBeUndefined();
   expect(button("Quitar la foto 2 de 3")).toBeDefined();
   expect(uploads.map((upload) => upload.file.name)).toEqual(["frente.jpg", "puesto.jpg"]);
@@ -115,7 +117,7 @@ test("a 413 for a file under 10 MB shows the dimensions text", async () => {
   mount();
   select(file("enorme.png", 6_000_000));
   await answer(0, rejected("IMAGE_TOO_LARGE", 413));
-  expect(thumbText(0)).toContain("Supera 8000 px por lado o 24 MP.");
+  expect(status()).toContain("Supera 8000 px por lado o 24 MP.");
   expect(button(/Reintentar/)).toBeUndefined();
 });
 
@@ -202,18 +204,17 @@ test("Deshacer returns a marked first photo to primary and keeps the other edits
 test("marking one of 8 saved photos does not bring back Agregar fotos until the save", () => {
   mount({ photos: savedPhotos(8) });
   expect(button("Agregar fotos")).toBeUndefined();
-  expect(field()).toContain("Llegaste al máximo de 8 fotos.");
+  expect(status()).toBe("8 de 8 fotos. Llegaste al máximo.");
   click(button("Quitar la foto 8 de 8"));
   expect(button("Agregar fotos")).toBeUndefined();
-  expect(field()).toContain("Llegaste al máximo de 8 fotos. Guarda los cambios para liberar lugar.");
+  expect(status()).toBe("8 de 8 fotos · 1 se eliminará. Guarda para liberar lugar.");
 });
 
 test("selecting four files with two free places adds two and shows the notice before any upload ends", () => {
   mount({ photos: savedPhotos(6) });
   select(file("a.png"), file("b.png"), file("c.png"), file("d.png"));
   expect(thumbs()).toHaveLength(8);
-  expect(field()).toContain("Elegiste 4 fotos y quedan 2 lugares. Se agregan las 2 primeras.");
-  expect(field()).toContain("8 de 8 fotos");
+  expect(status()).toBe("Elegiste 4 fotos y quedan 2 lugares. Se agregan las 2 primeras.");
   expect(button("Agregar fotos")).toBeUndefined();
   expect(uploads.map((upload) => upload.file.name)).toEqual(["a.png", "b.png"]);
 });
@@ -221,15 +222,15 @@ test("selecting four files with two free places adds two and shows the notice be
 test("with seven photos and three selected the notice uses the singular", () => {
   mount({ photos: savedPhotos(7) });
   select(file("a.png"), file("b.png"), file("c.png"));
-  expect(field()).toContain("Elegiste 3 fotos y queda 1 lugar. Se agrega la primera.");
+  expect(status()).toBe("Elegiste 3 fotos y queda 1 lugar. Se agrega la primera.");
 });
 
-test("filling the last place replaces Agregar fotos with the limit text and moves focus to it", () => {
+test("filling the last place removes the add tile, merges the limit into the counter and moves focus to it", () => {
   mount({ photos: savedPhotos(7) });
   select(file("a.png"));
   expect(button("Agregar fotos")).toBeUndefined();
   const limit = container.querySelector("[data-photos-limit]")!;
-  expect(limit.textContent).toBe("Llegaste al máximo de 8 fotos.");
+  expect(limit.textContent).toBe("8 de 8 fotos. Llegaste al máximo.");
   expect(document.activeElement).toBe(limit);
   expect(live()).toContain("Llegaste al máximo de 8 fotos.");
 });
@@ -267,7 +268,7 @@ test("an upload without answer for two minutes becomes a retryable failure", asy
   await act(async () => { vi.advanceTimersByTime(119_000); });
   expect(thumbText(0)).toContain("Subiendo…");
   await act(async () => { vi.advanceTimersByTime(1_500); });
-  expect(thumbText(0)).toContain("No se pudo subir. Revisa la conexión.");
+  expect(status()).toContain("No se pudo subir. Revisa la conexión.");
   expect(uploads[0].signal?.aborted).toBe(true);
   expect(button("Reintentar la foto 1 de 1")).toBeDefined();
 });
@@ -330,11 +331,10 @@ test("a save rejected with PHOTO_NOT_FOUND or DUPLICATE_PHOTO at index 1 marks t
   mount({ photos: savedPhotos(3), onSave });
   submit();
   update({ photos: savedPhotos(3), onSave, feedback: photoIssue(1, "PHOTO_NOT_FOUND") });
-  expect(thumbText(1)).toContain("No pudimos usar esta foto. Quítala o súbela de nuevo.");
-  expect(thumbText(0)).not.toContain("No pudimos usar");
+  expect(status()).toBe("Foto 2 de 3: No pudimos usar esta foto. Quítala o súbela de nuevo.");
   expect(document.activeElement).toBe(thumbs()[1].querySelector("button"));
   click(button("Quitar la foto 2 de 3"));
-  expect(thumbText(1)).not.toContain("No pudimos usar");
+  expect(status()).not.toContain("No pudimos usar");
 });
 
 test("a save rejected with TOO_MANY_PHOTOS shows the field message with the form intact and focuses it", () => {
@@ -364,9 +364,7 @@ test("rejection indexes point into the sent list even when the photos changed af
   click(button("Hacer principal la foto 3 de 3"));
   update({ photos: savedPhotos(3), feedback: photoIssue(2, "DUPLICATE_PHOTO") });
   // The sent list was [C, A, B], so index 2 is B, which now leads the field.
-  expect(thumbText(0)).toContain("No pudimos usar esta foto. Quítala o súbela de nuevo.");
-  expect(thumbText(1)).not.toContain("No pudimos usar");
-  expect(thumbText(2)).not.toContain("No pudimos usar");
+  expect(status()).toBe("Foto 1 de 3: No pudimos usar esta foto. Quítala o súbela de nuevo.");
 });
 
 test("announcing the same text twice in a row renders a new node each time", () => {
@@ -387,7 +385,7 @@ test("a weight failure found at selection is announced and a late answer after t
   await act(async () => { vi.advanceTimersByTime(121_000); });
   expect(live()).toBe("La foto 1 no se subió: no se pudo subir. Revisa la conexión.");
   await act(async () => { uploads[0].resolve(done(0)); });
-  expect(thumbText(0)).toContain("No se pudo subir. Revisa la conexión.");
+  expect(status()).toContain("Foto 1 de 2: a.png. No se pudo subir. Revisa la conexión.");
   expect(names()[0]).toContain("no se subió");
 });
 
@@ -412,7 +410,6 @@ test("with the keyboard only, make primary, remove and save leave A, B, D, E and
   expect(document.activeElement).toBe(button("Deshacer quitar la foto 1 de 5"));
   expect(live()).toContain("Foto 1 de 5 se eliminará al guardar. La foto 2 ahora es la principal.");
   expect(thumbText(1)).toContain("Principal");
-  expect(container.querySelector("[data-photo] [class*='group-hover']")).toBeNull();
   expect(button("Hacer principal la foto 2 de 5")).toBeUndefined();
   // C was moved first and removed, so the remaining order is A, B, D, E.
   submit();
@@ -435,7 +432,7 @@ test("shows the Portuguese texts and singular counts", async () => {
   select(file("a.png"), file("grande.png", 12_000_000));
   expect(names()[2]).toBe("Foto 3 de 3, grande.png, não enviada: tem mais de 10 MB");
   expect(thumbText(2)).toContain("Não enviada");
-  expect(thumbText(2)).toContain("Tem mais de 10 MB.");
+  expect(status()).toContain("Tem mais de 10 MB.");
   expect(live()).toBe("2 fotos adicionadas. A foto 3 não foi enviada: tem mais de 10 MB.");
   expect(names()[1]).toBe("Foto 2 de 3, enviando");
   click(button(/^Salvar/));
@@ -445,8 +442,8 @@ test("shows the Portuguese texts and singular counts", async () => {
   click(button("Remover a foto 2 de 2"));
   expect(live()).toBe("Foto removida. Resta 1 foto.");
   select(file("b.png"), file("c.png"), file("d.png"), file("e.png"), file("f.png"), file("g.png"), file("h.png"), file("i.png"), file("j.png"));
-  expect(field()).toContain("Você escolheu 9 fotos e restam 7 lugares. As 7 primeiras foram adicionadas.");
-  expect(field()).toContain("Você chegou ao máximo de 8 fotos.");
+  expect(live()).toContain("Você escolheu 9 fotos e restam 7 lugares. As 7 primeiras foram adicionadas.");
+  expect(live()).toContain("Você chegou ao máximo de 8 fotos.");
 });
 
 test("focus on Cancelar subida moves to the thumbnail's first action when its upload finishes, fails or times out", async () => {
@@ -473,4 +470,86 @@ test("an upload that settles leaves focus alone when it is elsewhere", async () 
   act(() => button("Cancelar la subida de la foto 2 de 2")!.focus());
   await answer(0, done(0));
   expect(document.activeElement).toBe(button("Cancelar la subida de la foto 2 de 2"));
+});
+
+test("each thumbnail keeps its actions as icon buttons overlaid on the photo, with the same names and a verb tooltip", async () => {
+  mount({ photos: savedPhotos(3) });
+  const overlay = (index: number) => [...thumbs()[index].querySelectorAll("button")].map((item) => `${item.getAttribute("aria-label")}|${item.title}`);
+  expect(overlay(0)).toEqual(["Quitar la foto 1 de 3|Quitar la foto 1 de 3"]);
+  expect(overlay(1)).toEqual(["Hacer principal la foto 2 de 3|Hacer principal", "Quitar la foto 2 de 3|Quitar la foto 2 de 3"]);
+  expect(thumbs()[1].textContent).toBe("");
+  expect(thumbs()[1].querySelector("button")!.parentElement!.className).toMatch(/opacity-0.*group-hover\/tile:opacity-100.*group-focus-within\/tile:opacity-100.*\[@media\(hover:none\)\]:opacity-100/);
+  click(button("Quitar la foto 2 de 3"));
+  expect(overlay(1)).toEqual(["Deshacer quitar la foto 2 de 3|Deshacer"]);
+  select(file("a.png"), file("grande.png", 12_000_000));
+  expect(overlay(3)).toEqual(["Cancelar la subida de la foto 4 de 5|Cancelar subida"]);
+  expect(overlay(4)).toEqual(["Quitar la foto 5 de 5|Quitar la foto 5 de 5"]);
+  await answer(0, rejected("INTERNAL_ERROR", 500));
+  expect(overlay(3)).toEqual(["Reintentar la foto 4 de 5|Reintentar", "Quitar la foto 4 de 5|Quitar la foto 4 de 5"]);
+});
+
+test("the primary spans 2×2 and the box reserves the same cells from one to eight photos", () => {
+  const cells = () => container.querySelectorAll("[aria-label='Fotos del producto'] > li").length;
+  mount({ photos: savedPhotos(1) });
+  expect(thumbs()[0].className).toContain("col-span-2 row-span-2");
+  expect(thumbs()[1]).toBeUndefined();
+  const one = cells();
+  update({ photos: savedPhotos(8) });
+  expect(cells()).toBe(1 + 8);
+  expect(one).toBe(1 + 8);
+});
+
+test("the add tile opens the file picker, follows the last photo and disappears at 8", () => {
+  mount({ photos: savedPhotos(2) });
+  const picker = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  const open = vi.spyOn(picker, "click");
+  click(button("Agregar fotos"));
+  expect(open).toHaveBeenCalledTimes(1);
+  const items = [...container.querySelectorAll("[aria-label='Fotos del producto'] > li")];
+  expect(items[2].contains(button("Agregar fotos")!)).toBe(true);
+  select(...Array.from({ length: 6 }, (_, at) => file(`n${at}.png`)));
+  expect(thumbs()).toHaveLength(8);
+  expect(button("Agregar fotos")).toBeUndefined();
+});
+
+test("without photos the 2×2 primary cell is the add tile with the hint and no counter", () => {
+  mount();
+  const tile = button("Agregar fotos")!;
+  expect(tile.closest("li")!.className).toContain("col-span-2 row-span-2");
+  expect(tile.textContent).toContain("Hasta 8 fotos. La primera es la principal.");
+  expect(tile.getAttribute("aria-describedby")).toBe("photos-hint");
+  expect(thumbs()).toHaveLength(0);
+  expect(status()).toBe("");
+  const picker = container.querySelector<HTMLInputElement>('input[type="file"]')!;
+  const open = vi.spyOn(picker, "click");
+  click(tile);
+  expect(open).toHaveBeenCalled();
+});
+
+test("the single status line shows the validation message, then the notice, then failed or rejected photos, then the counter", async () => {
+  mount({ photos: savedPhotos(3) });
+  expect(status()).toBe("3 de 8 fotos");
+  select(file("grande.png", 12_000_000), file("b.png"), file("c.png"), file("d.png"), file("e.png"), file("f.png"));
+  // Notice beats the failed photo's reason and the counter.
+  expect(status()).toBe("Elegiste 6 fotos y quedan 5 lugares. Se agregan las 5 primeras.");
+  expect(container.querySelectorAll("#photos-status")).toHaveLength(1);
+  // The validation message beats the notice.
+  submit();
+  expect(status()).toBe("Espera a que terminen de subir las fotos.");
+  expect(container.querySelector("#photos-status")!.hasAttribute("data-photos-message")).toBe(true);
+  for (const index of [0, 1, 2, 3]) await answer(index, done(index));
+  // The next Guardar clears the notice; the failed photo blocks the save and its message leads.
+  submit();
+  expect(status()).toBe("Reintenta o quita las fotos que no se subieron.");
+  click(button("Quitar la foto 4 de 8"));
+  submit();
+  expect(status()).toBe("7 de 8 fotos");
+});
+
+test("a failed photo's reason takes the status line while no message or notice is up", async () => {
+  mount();
+  select(file("a.png"));
+  await answer(0, rejected("INTERNAL_ERROR", 500));
+  expect(status()).toMatch(/^Foto 1 de 1: a\.png\./);
+  expect(container.querySelector("#photos-status")!.className).toContain("text-destructive");
 });
