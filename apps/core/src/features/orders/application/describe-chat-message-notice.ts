@@ -1,6 +1,5 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { SellerNoticeData } from "@shared/contracts/seller-notices";
 import type { OrderId } from "@core/src/features/orders/domain/order";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import { noticeReferences, type ClaimedNotice, type SellerNotice } from "@core/src/features/orders/domain/seller-notice";
@@ -12,7 +11,9 @@ export type NoticeProductNames = Readonly<{ name: string; attributeNames: readon
 /** Order numbers and product names of the ids a notice carries, read when the notice is described. */
 export type NoticeNames = Readonly<{ orderNumbers: ReadonlyMap<OrderId, number>; products: ReadonlyMap<ProductId, NoticeProductNames> }>;
 export type NoticeContext = Readonly<{ companyId: string; messageId: string; chatId: string; names: NoticeNames }>;
-export type RenderedSellerNotice = Readonly<{ title: string; body: string; data: SellerNoticeData; groupKey: string }>;
+/** The data a notice push carries; the presentation layer validates it against the transport contract. */
+export type RenderedNoticeData = Readonly<{ v: 1; companyId: string; messageId: string; target: "message" | "order" }>;
+export type RenderedSellerNotice = Readonly<{ title: string; body: string; data: RenderedNoticeData; groupKey: string }>;
 
 export type DescribeChatMessageNoticeDependencies = Readonly<{
   companyId: () => string;
