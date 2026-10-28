@@ -1,11 +1,11 @@
+import { useEffect } from "react";
 import { AccessibilityInfo, Alert, type AlertButton } from "react-native";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import * as ImagePicker from "expo-image-picker";
 import { err, ok } from "@shared/functional";
 import i18n from "@mobile/i18n";
 import { ProductPhotosStrip } from "./product-photos-strip";
-import { usePhotoField, type PhotoAsset, type SavedPhoto } from "./use-photo-field";
-import type { PhotoFieldController } from "./use-photo-field";
+import { usePhotoField, type PhotoAsset, type PhotoFieldController, type SavedPhoto } from "./use-photo-field";
 
 jest.mock("expo-image-picker", () => ({ requestCameraPermissionsAsync: jest.fn(), launchCameraAsync: jest.fn(), launchImageLibraryAsync: jest.fn() }));
 
@@ -32,7 +32,7 @@ const failure = (code: string, status?: number) => err({ code, message: code, ..
 
 function Harness({ photos = [] }: { photos?: SavedPhoto[] }) {
   const field = usePhotoField({ upload, prepare, saved: photos });
-  controller = field;
+  useEffect(() => { controller = field; });
   return <ProductPhotosStrip photos={field} />;
 }
 const settle = () => act(async () => {});
@@ -62,7 +62,7 @@ test("choosing three gallery photos and one camera photo adds four thumbnails in
   picker.launchCameraAsync.mockResolvedValue({ canceled: false, assets: assets("c1") } as never);
   await chooseFrom("Tomar foto");
   await settle();
-  expect(controller.field.photos.map((photo) => controller.previews.get(photo.key)?.uri)).toEqual(["file:///g1.jpg", "file:///g2.jpg", "file:///g3.jpg", "file:///c1.jpg"]);
+  expect(controller.field.photos.map((photo) => controller.previewOf(photo.key))).toEqual(["file:///g1.jpg", "file:///g2.jpg", "file:///g3.jpg", "file:///c1.jpg"]);
   expect(thumb("Foto 1 de 4, principal, subiendo")).toBeTruthy();
   expect(thumb("Foto 4 de 4, subiendo")).toBeTruthy();
 });

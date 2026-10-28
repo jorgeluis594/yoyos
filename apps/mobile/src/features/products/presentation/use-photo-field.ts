@@ -40,6 +40,7 @@ export function usePhotoField({ upload, prepare = prepareJpeg, saved = [], onAct
   const uploadRef = useRef(upload);
   const prepareRef = useRef(prepare);
   const actionRef = useRef(onAction);
+  const pumpRef = useRef<() => void>(() => {});
   useEffect(() => { uploadRef.current = upload; prepareRef.current = prepare; actionRef.current = onAction; });
 
   const apply = useCallback((change: (current: PhotoField) => PhotoField) => {
@@ -89,9 +90,8 @@ export function usePhotoField({ upload, prepare = prepareJpeg, saved = [], onAct
     } finally {
       if (job.timer) clearTimeout(job.timer);
       if (jobs.current.get(key) === job) jobs.current.delete(key);
-      pump();
+      pumpRef.current();
     }
-  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [apply, fail]);
 
   const pump = useCallback(() => {
@@ -101,6 +101,8 @@ export function usePhotoField({ upload, prepare = prepareJpeg, saved = [], onAct
       if (photo.kind === "uploading" && photo.startedAt === null && !jobs.current.has(photo.key)) void run(photo.key);
     }
   }, [run]);
+
+  useEffect(() => { pumpRef.current = pump; });
 
   useEffect(() => {
     mounted.current = true;
@@ -192,12 +194,14 @@ export function usePhotoField({ upload, prepare = prepareJpeg, saved = [], onAct
     pump();
   }, [apply, focusOn, pump]);
 
+  const previewOf = useCallback((key: string) => assets.current.get(key)?.uri ?? null, []);
+  const toSave = useCallback(() => photosToSave(fieldRef.current), []);
+  const blocker = useCallback(() => saveBlocker(fieldRef.current), []);
+
   const reject = useCallback((indexes: readonly number[]) => { apply((current) => markRejected(current, indexes)); }, [apply]);
 
   return {
-    field, notice, focus, previews: assets.current,
-    toSave: () => photosToSave(fieldRef.current),
-    blocker: () => saveBlocker(fieldRef.current),
+    field, notice, focus, previewOf, toSave, blocker,
     unsaved: hasUnsavedPhotos(field),
     summary: counter(field), free: freePlaces(field), primary: primaryKey(field),
     max: productPhotoLimits.maxPhotos,

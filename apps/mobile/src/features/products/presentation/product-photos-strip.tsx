@@ -132,7 +132,7 @@ export function ProductPhotosStrip({ photos, disabled = false }: { photos: Photo
       <ScrollView ref={scroll} horizontal showsHorizontalScrollIndicator={false} style={styles.scroll} contentContainerStyle={styles.thumbs}>
         {field.photos.map((photo, index) => {
           const primary = photos.primary === photo.key;
-          const uri = photo.kind === "saved" || photo.kind === "uploaded" ? photo.url : photos.previews.get(photo.key)?.uri ?? photo.previewUrl;
+          const uri = photo.kind === "saved" || photo.kind === "uploaded" ? photo.url : photos.previewOf(photo.key) ?? photo.previewUrl;
           const marked = (photo.kind === "saved" || photo.kind === "uploaded") && photo.marked;
           const band = marked ? t(photo.kind === "saved" ? "rowWillBeDeleted" : "rowWillBeRemoved") : primary ? t("photoPrimary") : null;
           const actions = actionsOf(photo, primary, photos, t);
