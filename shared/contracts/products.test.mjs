@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
   changeCombinationRequestSchema, createProductRequestSchema, normalizeOptionText, productApiErrorCodeSchema, productDetailResponseSchema,
-  productIssueReasonSchema, productListResponseSchema, productOptionLimits, saveProductRequestSchema,
+  productIssueReasonSchema, productListResponseSchema, productOptionLimits, productPhotoLimits, saveProductRequestSchema,
 } from "./products.ts";
 import { apiErrorCodeSchema } from "./registration.ts";
 
@@ -10,7 +10,7 @@ const id = (n) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const money = { amount: 10, currency: "PEN" };
 const detail = () => ({
   product: {
-    id: id(1), name: "Polo", description: null, imageId: null, currency: "PEN", qrCode: id(2), createdAt: "2026-10-26T10:00:00.000Z", updatedAt: "2026-10-26T10:00:00.000Z",
+    id: id(1), name: "Polo", description: null, photos: [], currency: "PEN", qrCode: id(2), createdAt: "2026-10-26T10:00:00.000Z", updatedAt: "2026-10-26T10:00:00.000Z",
     structureVersion: 1,
     options: [{ id: id(10), name: "Talla", values: [{ id: id(11), name: "S" }, { id: id(12), name: "M" }] }],
     variants: [
@@ -18,7 +18,6 @@ const detail = () => ({
       { id: id(22), combination: [{ optionId: id(10), valueId: id(12) }], sku: "P-M", salePrice: money, purchasePrice: money, qrCode: id(23), status: "inactive", stock: 0, hasOrders: true },
     ],
   },
-  image: null,
 });
 
 test("product detail schema accepts unknown fields on options, values and variants", () => {
@@ -45,10 +44,18 @@ test("product detail schema rejects a variant whose combination misses an option
   assert.equal(productDetailResponseSchema.safeParse(repeated).success, false);
 });
 
-test("product detail schema keeps the image, currency and ownership checks", () => {
+test("product detail schema takes ordered photos, at most the limit and none repeated", () => {
+  const photo = (n) => ({ id: id(n), url: `https://img.test/${n}.jpg` });
   const body = detail();
-  body.product.imageId = id(30);
+  body.product.photos = [photo(30), photo(31)];
+  assert.deepEqual(productDetailResponseSchema.parse(body).product.photos.map((item) => item.id), [id(30), id(31)]);
+  body.product.photos = [photo(30), photo(30)];
   assert.equal(productDetailResponseSchema.safeParse(body).success, false);
+  body.product.photos = Array.from({ length: productPhotoLimits.maxPhotos + 1 }, (_, index) => photo(40 + index));
+  assert.equal(productDetailResponseSchema.safeParse(body).success, false);
+});
+
+test("product detail schema keeps the currency and ownership checks", () => {
   const currency = detail();
   currency.product.variants[0].salePrice = { amount: 1, currency: "USD" };
   assert.equal(productDetailResponseSchema.safeParse(currency).success, false);
@@ -63,20 +70,24 @@ test("a product without options is one variant with an empty combination", () =>
 
 test("create request is strict and takes ordered options with variants that reference value ids", () => {
   const request = {
-    id: id(1), name: "Polo", description: null, imageId: null, currency: "PEN",
+    id: id(1), name: "Polo", description: null, photoIds: [], currency: "PEN",
     options: [{ id: id(10), name: "Talla", values: [{ id: id(11), name: "S" }] }],
     variants: [{ values: [id(11)], sku: null, salePrice: 10, purchasePrice: null, initialStock: 0 }],
   };
   assert.ok(createProductRequestSchema.safeParse(request).success);
   assert.equal(createProductRequestSchema.safeParse({ ...request, companyId: "x" }).success, false);
   assert.equal(createProductRequestSchema.safeParse({ ...request, variants: [] }).success, false);
+  assert.equal(createProductRequestSchema.safeParse({ ...request, photoIds: undefined }).success, false);
+  assert.equal(createProductRequestSchema.safeParse({ ...request, photoIds: [id(40), id(41)] }).success, true);
   assert.equal(createProductRequestSchema.safeParse({ ...request, options: [{ ...request.options[0], extra: 1 }] }).success, false);
 });
 
 test("save and combination requests are strict", () => {
-  const save = { structureVersion: 2, name: "Polo", description: null, imageId: null, options: [], variants: [], newVariants: [], deletedVariantIds: [] };
+  const save = { structureVersion: 2, name: "Polo", description: null, options: [], variants: [], newVariants: [], deletedVariantIds: [] };
   assert.ok(saveProductRequestSchema.safeParse(save).success);
   assert.equal(saveProductRequestSchema.safeParse({ ...save, structureVersion: -1 }).success, false);
+  assert.deepEqual(saveProductRequestSchema.parse({ ...save, photoIds: [] }).photoIds, []);
+  assert.equal(saveProductRequestSchema.parse(save).photoIds, undefined);
   assert.ok(changeCombinationRequestSchema.safeParse({ values: [{ optionId: id(10), valueId: id(11) }, { optionId: id(12), newValue: { id: id(13), name: "XL" } }] }).success);
 });
 
@@ -91,6 +102,8 @@ test("limits, text normalization and typed codes", () => {
   assert.ok(productApiErrorCodeSchema.safeParse("PRODUCT_CHANGED").success);
   assert.equal(productApiErrorCodeSchema.safeParse("NOPE").success, false);
   assert.ok(productIssueReasonSchema.safeParse("ID_CONFLICT").success);
+  for (const reason of ["TOO_MANY_PHOTOS", "DUPLICATE_PHOTO", "PHOTO_NOT_FOUND"]) assert.ok(productIssueReasonSchema.safeParse(reason).success, reason);
+  assert.deepEqual(productPhotoLimits, { maxPhotos: 8 });
   assert.equal(productIssueReasonSchema.safeParse("INVALID_ATTRIBUTES").success, false);
   for (const code of ["PRODUCT_CHANGED", "ID_CONFLICT", "DUPLICATE_COMBINATION", "VARIANT_HAS_ORDERS", "VARIANT_HAS_STOCK", "LAST_VARIANT", "PRODUCT_WITHOUT_OPTIONS"])
     assert.ok(apiErrorCodeSchema.safeParse(code).success, code);

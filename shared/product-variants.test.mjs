@@ -45,7 +45,7 @@ const money = (amount) => ({ amount, currency: "PEN" });
 function savedProduct(optionList, variants, overrides = {}) {
   const valueId = (optionName, valueName) => optionList.find((option) => option.name === optionName).values.find((value) => value.name === valueName).id;
   return {
-    id: uuid(1), name: "Polo", description: null, imageId: null, currency: "PEN", qrCode: uuid(2), createdAt: "2026-10-26T10:00:00.000Z",
+    id: uuid(1), name: "Polo", description: null, photos: [], currency: "PEN", qrCode: uuid(2), createdAt: "2026-10-26T10:00:00.000Z",
     updatedAt: "2026-10-26T10:00:00.000Z", structureVersion: 3, options: optionList,
     variants: variants.map((entry, index) => ({
       id: uuid(5000 + index),
@@ -208,7 +208,7 @@ test("adding Manga and then deleting it leaves the Corta combinations with their
   draft = must(removeOption(draft, uuid(300)));
   assert.equal(variantCounter(draft).count, 4);
   assert.deepEqual(labels(draft).filter((label) => removalOf(draft, rowOf(draft, label)) === null), ["S / Negro / Corta", "S / Azul / Corta", "M / Negro / Corta", "M / Azul / Corta"]);
-  const body = buildSaveProductBody(draft, { structureVersion: 3, name: "Polo", description: null, imageId: null });
+  const body = buildSaveProductBody(draft, { structureVersion: 3, name: "Polo", description: null, photos: { kind: "untouched" } });
   const parsed = saveProductRequestSchema.parse(body);
   assert.deepEqual(parsed.options.map((option) => option.name), ["Talla", "Color"]);
   assert.deepEqual([parsed.newVariants.length, parsed.deletedVariantIds.length], [0, 0]);
@@ -217,7 +217,7 @@ test("adding Manga and then deleting it leaves the Corta combinations with their
 
 test("the body for a saved product that adds Manga carries valueForExistingVariants", () => {
   const draft = must(addOption(draftFromProduct(fullPolo({ "S / Azul": { status: "inactive" } })), optionSpec(3, "Manga", ["Corta", "Larga"])));
-  const body = saveProductRequestSchema.parse(buildSaveProductBody(draft, { structureVersion: 3, name: "Polo", description: "x", imageId: null }));
+  const body = saveProductRequestSchema.parse(buildSaveProductBody(draft, { structureVersion: 3, name: "Polo", description: "x", photos: { kind: "untouched" } }));
   const manga = body.options[2];
   assert.deepEqual([manga.name, manga.valueForExistingVariants, manga.values.map((value) => value.name)], ["Manga", uuid(301), ["Corta", "Larga"]]);
   assert.equal(body.options[0].valueForExistingVariants, undefined);
@@ -314,7 +314,7 @@ test("marking a value and deleting its option in the same draft builds a valid s
   assert.equal(removeOption(draft, uuid(200)).error.code, "OPTION_HAS_SEVERAL_VALUES");
   const marked = must(removeValue(draft, uuid(202)));
   const removed = must(removeOption(marked, uuid(200)));
-  const body = saveProductRequestSchema.parse(buildSaveProductBody(removed, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
+  const body = saveProductRequestSchema.parse(buildSaveProductBody(removed, { structureVersion: 3, name: "Polo", description: null, photos: { kind: "untouched" } }));
   assert.deepEqual(body.options.map((option) => option.name), ["Talla"]);
   assert.deepEqual(body.deletedVariantIds, [uuid(5001), uuid(5003)]);
   assert.deepEqual([body.variants, body.newVariants], [[], []]);
@@ -329,7 +329,7 @@ test("a value whose variants have orders or stock cannot be marked, and the last
   const single = draftFromProduct(savedProduct([talla], [{ values: ["S"], status: "inactive" }]));
   assert.equal(removeOption(single, talla.id).error.code, "LAST_OPTION_VARIANT_INACTIVE");
   const active = must(removeOption(draftFromProduct(savedProduct([talla], [{ values: ["S"], price: 33 }])), talla.id));
-  const body = saveProductRequestSchema.parse(buildSaveProductBody(active, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
+  const body = saveProductRequestSchema.parse(buildSaveProductBody(active, { structureVersion: 3, name: "Polo", description: null, photos: { kind: "untouched" } }));
   assert.deepEqual([body.options, body.variants, body.deletedVariantIds], [[], [], []]);
 });
 
@@ -339,16 +339,27 @@ test("a draft from a product treats every status other than active as inactive",
   assert.equal(variantCounter(draft).inactive, 1);
 });
 
+test("the photo list goes to the create body and the save body omits it when untouched", () => {
+  const draft = newPolo();
+  const meta = { id: "11111111-1111-4111-8111-111111111111", name: "Polo", description: null, currency: "PEN" };
+  assert.deepEqual(buildCreateProductBody(draft, { ...meta, photos: { kind: "untouched" } }).photoIds, []);
+  assert.deepEqual(buildCreateProductBody(draft, { ...meta, photos: { kind: "set", photoIds: [uuid(900), uuid(901)] } }).photoIds, [uuid(900), uuid(901)]);
+  const saved = draftFromProduct(fullPolo());
+  const untouched = buildSaveProductBody(saved, { structureVersion: 3, name: "Polo", description: null, photos: { kind: "untouched" } });
+  assert.equal("photoIds" in untouched, false);
+  assert.deepEqual(buildSaveProductBody(saved, { structureVersion: 3, name: "Polo", description: null, photos: { kind: "set", photoIds: [] } }).photoIds, []);
+});
+
 test("builds the create body from the draft without the removed rows", () => {
   let draft = newPolo();
   draft = dropRow(draft, rowOf(draft, "S / Azul").ref);
   draft = setRow(draft, rowOf(draft, "L / Azul").ref, { salePrice: 42.9, sku: " L-A " });
-  const body = createProductRequestSchema.parse(buildCreateProductBody(draft, { id: "11111111-1111-4111-8111-111111111111", name: "Polo", description: null, imageId: null, currency: "PEN" }));
+  const body = createProductRequestSchema.parse(buildCreateProductBody(draft, { id: "11111111-1111-4111-8111-111111111111", name: "Polo", description: null, photos: { kind: "untouched" }, currency: "PEN" }));
   assert.equal(body.variants.length, 5);
   assert.deepEqual(body.variants[4], { values: [uuid(103), uuid(202)], sku: "L-A", salePrice: 42.9, purchasePrice: 20, initialStock: 4 });
   assert.deepEqual(body.options.map((option) => option.valueForExistingVariants), [undefined, undefined]);
 
-  const plain = createProductRequestSchema.parse(buildCreateProductBody(createDraft({ ...base, sku: "POLO" }), { id: "11111111-1111-4111-8111-111111111111", name: "Polo", description: null, imageId: null, currency: "PEN" }));
+  const plain = createProductRequestSchema.parse(buildCreateProductBody(createDraft({ ...base, sku: "POLO" }), { id: "11111111-1111-4111-8111-111111111111", name: "Polo", description: null, photos: { kind: "untouched" }, currency: "PEN" }));
   assert.deepEqual([plain.options, plain.variants], [[], [{ values: [], sku: "POLO", salePrice: 39.9, purchasePrice: 20, initialStock: 4 }]]);
 });
 
@@ -364,7 +375,7 @@ test("changing the value for existing variants keeps saved variants and swaps wh
   assert.equal(rowOf(swapped, "S / Negro / Larga").sku, "S-N");
   assert.equal(rowOf(swapped, "S / Azul / Corta").copiedFromInactive, true);
   assert.equal(swapped.options.length, 3);
-  const body = saveProductRequestSchema.parse(buildSaveProductBody(swapped, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
+  const body = saveProductRequestSchema.parse(buildSaveProductBody(swapped, { structureVersion: 3, name: "Polo", description: null, photos: { kind: "untouched" } }));
   assert.deepEqual([body.options[2].valueForExistingVariants, body.deletedVariantIds, body.newVariants.length], [uuid(302), [], 4]);
   assert.equal(setValueForExistingVariants(draft, uuid(100), uuid(101)).error.code, "OPTION_NOT_NEW");
   assert.equal(setValueForExistingVariants(draft, uuid(999), uuid(101)).error.code, "OPTION_NOT_FOUND");
@@ -376,7 +387,7 @@ test("a row removed before the value for existing variants changes is not remove
   const marked = must(removeRow(draft, rowOf(draft, "S / Negro / Larga").ref));
   const swapped = must(setValueForExistingVariants(marked, uuid(300), uuid(302)));
   assert.deepEqual(swapped.rows.filter((row) => row.marked), []);
-  const body = saveProductRequestSchema.parse(buildSaveProductBody(swapped, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
+  const body = saveProductRequestSchema.parse(buildSaveProductBody(swapped, { structureVersion: 3, name: "Polo", description: null, photos: { kind: "untouched" } }));
   assert.deepEqual([body.deletedVariantIds, body.newVariants.length], [[], 4]);
 });
 
@@ -388,7 +399,7 @@ test("a removal mark follows its combination when two new rows trade values", ()
   draft = must(removeRow(draft, rowOf(draft, "L / Corta").ref));
   const swapped = must(setValueForExistingVariants(draft, uuid(300), uuid(302)));
   assert.deepEqual(swapped.rows.filter((row) => removalOf(swapped, row) !== null).map((row) => rowLabel(swapped, row)), ["L / Corta"]);
-  const body = saveProductRequestSchema.parse(buildSaveProductBody(swapped, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
+  const body = saveProductRequestSchema.parse(buildSaveProductBody(swapped, { structureVersion: 3, name: "Polo", description: null, photos: { kind: "untouched" } }));
   assert.deepEqual([body.deletedVariantIds, body.newVariants.length], [[], 3]);
 });
 
@@ -426,7 +437,7 @@ test("the value given to existing variants cannot be removed, so saved variants 
   assert.equal(removeValue(draft, uuid(301)).error.code, "VALUE_FOR_EXISTING_VARIANTS");
   const swapped = must(setValueForExistingVariants(draft, uuid(300), uuid(302)));
   const marked = must(removeValue(swapped, uuid(301)));
-  const body = saveProductRequestSchema.parse(buildSaveProductBody(marked, { structureVersion: 3, name: "Polo", description: null, imageId: null }));
+  const body = saveProductRequestSchema.parse(buildSaveProductBody(marked, { structureVersion: 3, name: "Polo", description: null, photos: { kind: "untouched" } }));
   assert.deepEqual([body.deletedVariantIds, body.newVariants.length, body.options[2].values.map((value) => value.name)], [[], 0, ["Larga"]]);
 });
 
@@ -435,7 +446,7 @@ test("an option left without live values is not sent, and neither are its values
   draft = must(addOption(draft, optionSpec(1, "Talla", ["S", "M"])));
   draft = must(addOption(draft, optionSpec(2, "Color", ["Negro"])));
   draft = must(removeValue(draft, uuid(201)));
-  const meta = { id: "11111111-1111-4111-8111-111111111111", name: "Polo", description: null, imageId: null, currency: "PEN" };
+  const meta = { id: "11111111-1111-4111-8111-111111111111", name: "Polo", description: null, photos: { kind: "untouched" }, currency: "PEN" };
   const body = buildCreateProductBody(draft, meta);
   assert.deepEqual(body.options.map((option) => option.name), ["Talla"]);
   assert.deepEqual(body.variants, []);
