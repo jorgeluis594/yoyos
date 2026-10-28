@@ -141,6 +141,7 @@ test("a connection failure keeps the photo in its place and Reintentar uploads i
   expect(names()[1]).toBe("Foto 2 de 3, b.png, no se subió: no se pudo subir. Revisa la conexión");
   click(button("Reintentar la foto 2 de 3"));
   expect(names()[1]).toBe("Foto 2 de 3, subiendo");
+  expect(document.activeElement).toBe(button("Cancelar la subida de la foto 2 de 3"));
   expect(uploads.map((upload) => upload.file.name)).toEqual(["a.png", "b.png", "c.png", "b.png"]);
   await answer(2, done(2));
   await answer(3, done(1));
@@ -325,8 +326,10 @@ test("a save that only changes the price omits photoIds", () => {
 const photoIssue = (index: number, reason: string) => ({ errors: {}, issues: [{ scope: "photo" as const, field: "photoIds", reason, message: "No pudimos usar esta foto. Quítala o súbela de nuevo.", index }] });
 
 test("a save rejected with PHOTO_NOT_FOUND or DUPLICATE_PHOTO at index 1 marks the second sent photo", () => {
-  mount({ photos: savedPhotos(3) });
-  update({ photos: savedPhotos(3), feedback: photoIssue(1, "PHOTO_NOT_FOUND") });
+  const onSave = vi.fn();
+  mount({ photos: savedPhotos(3), onSave });
+  submit();
+  update({ photos: savedPhotos(3), onSave, feedback: photoIssue(1, "PHOTO_NOT_FOUND") });
   expect(thumbText(1)).toContain("No pudimos usar esta foto. Quítala o súbela de nuevo.");
   expect(thumbText(0)).not.toContain("No pudimos usar");
   expect(document.activeElement).toBe(thumbs()[1].querySelector("button"));
@@ -334,10 +337,66 @@ test("a save rejected with PHOTO_NOT_FOUND or DUPLICATE_PHOTO at index 1 marks t
   expect(thumbText(1)).not.toContain("No pudimos usar");
 });
 
-test("a save rejected with TOO_MANY_PHOTOS shows the field message with the form intact", () => {
-  mount({ photos: savedPhotos(2), feedback: { errors: { photos: "Un producto puede tener hasta 8 fotos. Quita alguna y guarda de nuevo." }, issues: [] } });
+test("a save rejected with TOO_MANY_PHOTOS shows the field message with the form intact and focuses it", () => {
+  mount({ photos: savedPhotos(2) });
+  const name = container.querySelector<HTMLInputElement>("#name")!;
+  act(() => { Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(name, "Polo nuevo"); name.dispatchEvent(new Event("input", { bubbles: true })); });
+  update({ photos: savedPhotos(2), feedback: { errors: { photos: "Un producto puede tener hasta 8 fotos. Quita alguna y guarda de nuevo." }, issues: [] } });
   expect(field()).toContain("Un producto puede tener hasta 8 fotos. Quita alguna y guarda de nuevo.");
+  expect(document.activeElement).toBe(container.querySelector("[data-photos-message]"));
+  expect(container.querySelector<HTMLInputElement>("#name")!.value).toBe("Polo nuevo");
   expect(thumbs()).toHaveLength(2);
+});
+
+test("a rejection that names no thumbnail shows the field text and focuses it", () => {
+  mount({ photos: savedPhotos(2) });
+  update({ photos: savedPhotos(2), feedback: photoIssue(7, "PHOTO_NOT_FOUND") });
+  expect(field()).toContain("No pudimos usar una de las fotos. Quítala o súbela de nuevo.");
+  expect(document.activeElement).toBe(container.querySelector("[data-photos-message]"));
+});
+
+test("rejection indexes point into the sent list even when the photos changed after pressing Guardar", () => {
+  const onSave = vi.fn();
+  mount({ photos: savedPhotos(3), onSave });
+  click(button("Hacer principal la foto 3 de 3"));
+  submit();
+  expect(lastSaved(onSave).photos).toEqual({ kind: "set", photoIds: [id(202), id(200), id(201)] });
+  click(button("Hacer principal la foto 3 de 3"));
+  update({ photos: savedPhotos(3), feedback: photoIssue(2, "DUPLICATE_PHOTO") });
+  // The sent list was [C, A, B], so index 2 is B, which now leads the field.
+  expect(thumbText(0)).toContain("No pudimos usar esta foto. Quítala o súbela de nuevo.");
+  expect(thumbText(1)).not.toContain("No pudimos usar");
+  expect(thumbText(2)).not.toContain("No pudimos usar");
+});
+
+test("announcing the same text twice in a row renders a new node each time", () => {
+  mount();
+  select(file("a.png"));
+  const first = container.querySelector("[data-photo-live] span");
+  expect(live()).toBe("Se agregó 1 foto.");
+  select(file("b.png"));
+  expect(live()).toBe("Se agregó 1 foto.");
+  expect(container.querySelector("[data-photo-live] span")).not.toBe(first);
+});
+
+test("a weight failure found at selection is announced and a late answer after the timeout changes nothing", async () => {
+  vi.useFakeTimers();
+  mount();
+  select(file("a.png"), file("grande.jpg", 12_000_000));
+  expect(live()).toBe("Se agregaron 2 fotos. La foto 2 no se subió: pesa más de 10 MB.");
+  await act(async () => { vi.advanceTimersByTime(121_000); });
+  expect(live()).toBe("La foto 1 no se subió: no se pudo subir. Revisa la conexión.");
+  await act(async () => { uploads[0].resolve(done(0)); });
+  expect(thumbText(0)).toContain("No se pudo subir. Revisa la conexión.");
+  expect(names()[0]).toContain("no se subió");
+});
+
+test("the selection notice is cleared by the next Guardar", () => {
+  mount({ photos: savedPhotos(7) });
+  select(file("a.png"), file("b.png"), file("c.png"));
+  expect(container.querySelector("[data-photo-notice]")?.textContent).toContain("Elegiste 3 fotos");
+  submit();
+  expect(container.querySelector("[data-photo-notice]")).toBeNull();
 });
 
 test("with the keyboard only, make primary, remove and save leave A, B, D, E and no action needs hover", async () => {
@@ -361,7 +420,7 @@ test("with the keyboard only, make primary, remove and save leave A, B, D, E and
   expect(c).toBeDefined();
 });
 
-test("shows the Portuguese texts and singular counts", () => {
+test("shows the Portuguese texts and singular counts", async () => {
   mount({ photos: savedPhotos(1) }, "pt");
   expect(field()).toContain("Fotos");
   expect(field()).toContain("1 de 8 fotos");
@@ -371,6 +430,21 @@ test("shows the Portuguese texts and singular counts", () => {
   expect(thumbText(0)).toContain("Será excluída");
   expect(field()).toContain("1 de 8 fotos · 1 será excluída");
   expect(live()).toContain("Foto 1 de 1 será excluída ao salvar.");
-  select(file("a.png"));
-  expect(names()[1]).toBe("Foto 2 de 2, principal, enviando");
+  click(button("Desfazer a remoção da foto 1 de 1"));
+  expect(live()).toContain("Foto 1 de 1 será mantida. Agora é a principal.");
+  select(file("a.png"), file("grande.png", 12_000_000));
+  expect(names()[2]).toBe("Foto 3 de 3, grande.png, não enviada: tem mais de 10 MB");
+  expect(thumbText(2)).toContain("Não enviada");
+  expect(thumbText(2)).toContain("Tem mais de 10 MB.");
+  expect(live()).toBe("2 fotos adicionadas. A foto 3 não foi enviada: tem mais de 10 MB.");
+  expect(names()[1]).toBe("Foto 2 de 3, enviando");
+  click(button(/^Salvar/));
+  expect(field()).toContain("Aguarde o envio das fotos terminar.");
+  click(button("Cancelar o envio da foto 2 de 3"));
+  expect(live()).toBe("Foto removida. Restam 2 fotos.");
+  click(button("Remover a foto 2 de 2"));
+  expect(live()).toBe("Foto removida. Resta 1 foto.");
+  select(file("b.png"), file("c.png"), file("d.png"), file("e.png"), file("f.png"), file("g.png"), file("h.png"), file("i.png"), file("j.png"));
+  expect(field()).toContain("Você escolheu 9 fotos e restam 7 lugares. As 7 primeiras foram adicionadas.");
+  expect(field()).toContain("Você chegou ao máximo de 8 fotos.");
 });

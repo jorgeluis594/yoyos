@@ -16,7 +16,8 @@ export type SavedPhoto = Readonly<{ id: string; url: string }>;
 type Focus =
   | Readonly<{ kind: "action"; key: string; action: "remove" | "undo" | "first" }>
   | Readonly<{ kind: "add" }>
-  | Readonly<{ kind: "limit" }>;
+  | Readonly<{ kind: "limit" }>
+  | Readonly<{ kind: "message" }>;
 type Local = Readonly<{ file: File; previewUrl: string | null }>;
 type Attempt = Readonly<{ controller: AbortController; timer: ReturnType<typeof setTimeout> }>;
 type Blocked = "uploading" | "failed" | null;
@@ -31,6 +32,7 @@ const failureText = (translate: Translate, failure: PhotoFailure): string => tra
 const accepted = "image/jpeg,image/png,image/webp";
 const isKept = (photo: FieldPhoto): photo is Extract<FieldPhoto, { kind: "saved" | "uploaded" }> => photo.kind === "saved" || photo.kind === "uploaded";
 const isMarked = (photo: FieldPhoto) => isKept(photo) && photo.marked;
+const keptKeys = (field: PhotoField): string[] => field.photos.filter((photo) => isKept(photo) && !photo.marked).map((photo) => photo.key);
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 const shortName = (name: string) => name.length > 20 ? `${name.slice(0, 11)}…${name.slice(-8)}` : name;
 
@@ -45,16 +47,20 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
   const sequence = useRef(0);
   const [previews, setPreviews] = useState<Readonly<Record<string, Local>>>({});
   const [notice, setNotice] = useState("");
-  const [announcement, setAnnouncement] = useState("");
+  // Each announcement is a new value, so the same text twice in a row reaches the screen reader twice.
+  const [announcement, setAnnouncement] = useState<Readonly<{ text: string; id: number }>>({ text: "", id: 0 });
+  const sent = useRef<readonly string[]>([]);
   const [blocked, setBlocked] = useState<Blocked>(null);
   const [focus, setFocus] = useState<Focus | null>(null);
   // The translator changes identity with the language; the queue reads the latest one.
   const translate = useRef(t);
   translate.current = t;
 
+  const announce = useCallback((text: string) => setAnnouncement((current) => ({ text, id: current.id + 1 })), []);
   const commit = useCallback((next: PhotoField) => { fieldRef.current = next; setField(next); }, []);
   const positionOf = (key: string, from: PhotoField = fieldRef.current) => from.photos.findIndex((photo) => photo.key === key) + 1;
-  const reasonText = (failure: PhotoFailure) => failureText((key) => translate.current(key), failure);
+  // The announcement reads «no se subió: pesa más de 10 MB.»: lowercase, and the template adds the final period.
+  const reasonText = (failure: PhotoFailure) => lowerFirst(failureText((key) => translate.current(key), failure)).replace(/\.$/, "");
 
   const release = useCallback((key: string) => {
     const attempt = attempts.current.get(key);
@@ -73,7 +79,7 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
     else {
       const reason = uploadFailure(outcome);
       commit(failUpload(fieldRef.current, key, reason));
-      setAnnouncement(translate.current("productPhotos.uploadFailed", { position: positionOf(key), reason: reasonText(reason.failure) }));
+      announce(translate.current("productPhotos.uploadFailed", { position: positionOf(key), reason: reasonText(reason.failure) }));
     }
     pump();
   }, []); // eslint-disable-line react-hooks/exhaustive-deps
@@ -100,7 +106,7 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
         controller.abort();
         const reason = { failure: "connection", retryable: true } as const;
         commit(failUpload(fieldRef.current, key, reason));
-        setAnnouncement(translate.current("productPhotos.uploadFailed", { position: positionOf(key), reason: reasonText("connection") }));
+        announce(translate.current("productPhotos.uploadFailed", { position: positionOf(key), reason: reasonText("connection") }));
         pump();
       }, photoUploadSettings.timeoutMs),
     };
@@ -117,11 +123,13 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
     const result = addSelection(before, keys);
     if (result.added === 0) return;
     let next = result.field;
+    const heavy: string[] = [];
     keys.slice(0, result.added).forEach((key, index) => {
       const file = files[index]!;
       locals.current.set(key, { file, previewUrl: typeof URL.createObjectURL === "function" ? URL.createObjectURL(file) : null });
-      if (file.size > imageUploadLimits.maxBytes) next = failUpload(next, key, { failure: "weight", retryable: false });
+      if (file.size > imageUploadLimits.maxBytes) { next = failUpload(next, key, { failure: "weight", retryable: false }); heavy.push(key); }
     });
+    const weightFailures = heavy.map((key) => t("productPhotos.uploadFailed", { position: positionOf(key, next), reason: reasonText("weight") }));
     commit(next);
     setPreviews((current) => ({ ...current, ...Object.fromEntries(keys.slice(0, result.added).map((key) => [key, locals.current.get(key)!])) }));
     const free = freePlaces(before);
@@ -130,7 +138,7 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
     setNotice(text);
     const full = freePlaces(next) === 0;
     const limit = full ? t(counter(next).marked > 0 ? "productPhotos.limitMarked" : "productPhotos.limit") : "";
-    setAnnouncement([text || t("productPhotos.added", { count: result.added }), limit].filter(Boolean).join(" "));
+    announce([text || t("productPhotos.added", { count: result.added }), ...weightFailures, limit].filter(Boolean).join(" "));
     if (full) setFocus({ kind: "limit" });
     pump();
   }
@@ -138,7 +146,7 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
   function promote(key: string) {
     const before = fieldRef.current;
     commit(makePrimary(before, key));
-    setAnnouncement(t("productPhotos.madePrimary", { total: before.photos.length }));
+    announce(t("productPhotos.madePrimary", { total: before.photos.length }));
     setFocus({ kind: "action", key, action: "remove" });
   }
 
@@ -150,7 +158,7 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
     const promoted = wasPrimary ? primaryKey(next) : null;
     commit(next);
     const mark = photo?.kind === "saved" ? "productPhotos.announceSaved" : "productPhotos.announceNew";
-    setAnnouncement(t(mark, { position: positionOf(key, before), total: before.photos.length }) + (promoted ? t("productPhotos.promoted", { position: positionOf(promoted, next) }) : ""));
+    announce(t(mark, { position: positionOf(key, before), total: before.photos.length }) + (promoted ? t("productPhotos.promoted", { position: positionOf(promoted, next) }) : ""));
     setFocus({ kind: "action", key, action: "undo" });
   }
 
@@ -159,7 +167,7 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
     const next = undoRemoval(before, key);
     commit(next);
     const again = primaryKey(next) === key && primaryKey(before) !== key;
-    setAnnouncement(t("productPhotos.kept", { position: positionOf(key, before), total: before.photos.length }) + (again ? t("productPhotos.primaryAgain") : ""));
+    announce(t("productPhotos.kept", { position: positionOf(key, before), total: before.photos.length }) + (again ? t("productPhotos.primaryAgain") : ""));
     setFocus({ kind: "action", key, action: "remove" });
   }
 
@@ -172,7 +180,7 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
     const next = cancelUpload(before, key);
     commit(next);
     const left = next.photos.length;
-    setAnnouncement(left === 0 ? t("productPhotos.removedNone") : t("productPhotos.removed", { count: left }));
+    announce(left === 0 ? t("productPhotos.removedNone") : t("productPhotos.removed", { count: left }));
     setFocus(neighbour ? { kind: "action", key: neighbour.key, action: "first" } : { kind: "add" });
     pump();
   }
@@ -181,21 +189,28 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
     const photo = fieldRef.current.photos.find((candidate) => candidate.key === key);
     if (photo?.kind !== "failed" || !photo.retryable) return;
     commit(retryUpload(fieldRef.current, key));
+    // The retried button unmounts; focus stays on the same thumbnail, on its Cancelar subida.
+    setFocus({ kind: "action", key, action: "first" });
     pump();
   }
 
   /** Maps the rejected indexes of a save to thumbnails; false when none could be identified. */
   function reject(indexes: readonly number[]): boolean {
-    const next = markRejected(fieldRef.current, indexes);
+    // The indexes point into the list the save sent; the field may have changed since, so they are mapped through the sent keys.
+    const current = keptKeys(fieldRef.current);
+    const mapped = indexes.flatMap((index) => { const at = sent.current[index] === undefined ? -1 : current.indexOf(sent.current[index]); return at < 0 ? [] : [at]; });
+    const next = markRejected(fieldRef.current, mapped);
     commit(next);
     const hit = next.photos.find((photo) => isKept(photo) && photo.rejected);
     if (hit) setFocus({ kind: "action", key: hit.key, action: "first" });
     return Boolean(hit);
   }
 
-  /** Clears earlier rejections; returns what to send, or null (with the reason shown) while a photo is uploading or failed. */
+  /** Clears earlier rejections and the selection notice; returns what to send, or null (with the reason shown) while a photo is uploading or failed. */
   function prepareSave(): PhotosToSave | null {
     commit(markRejected(fieldRef.current, []));
+    setNotice("");
+    sent.current = keptKeys(fieldRef.current);
     const blocker = saveBlocker(fieldRef.current);
     setBlocked(blocker?.kind ?? null);
     if (!blocker) return photosToSave(fieldRef.current);
@@ -203,10 +218,12 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
     return null;
   }
 
+  function focusMessage() { setFocus({ kind: "message" }); }
+
   return {
     field, notice, announcement, blocked, focus, previews,
     dirty: hasUnsavedPhotos(field),
-    select, promote, remove, undo, discard, retry, reject, prepareSave,
+    select, promote, remove, undo, discard, retry, reject, prepareSave, focusMessage,
   };
 }
 
@@ -262,6 +279,7 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
   useEffect(() => {
     if (!focus || !root.current) return;
     const target = focus.kind === "limit" ? root.current.querySelector("[data-photos-limit]")
+      : focus.kind === "message" ? root.current.querySelector("[data-photos-message]")
       : focus.kind === "add" ? root.current.querySelector("[data-photos-add]")
       : root.current.querySelector(focus.action === "first" ? `[data-photo="${focus.key}"] button` : `[data-photo="${focus.key}"] [data-action="${focus.action}"]`);
     if (target instanceof HTMLElement) target.focus();
@@ -275,8 +293,8 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
     : t("productPhotos.count", { count }) + (marked > 0 ? t(markedSaved ? "productPhotos.markedSaved" : "productPhotos.markedNew", { count: marked }) : "");
 
   return <Field data-invalid={Boolean(message)}>
-    <div ref={root} data-photos-field className="grid gap-3">
-      <FieldLabel htmlFor="photos">{t("productPhotos.label")}</FieldLabel>
+    <div ref={root} data-photos-field role="group" aria-labelledby="photos-label" className="grid gap-3">
+      <FieldLabel id="photos-label">{t("productPhotos.label")}</FieldLabel>
       <input ref={input} id="photos" name="photos" type="file" multiple accept={accepted} tabIndex={-1} aria-hidden="true" className="sr-only"
         onChange={(event) => { const files = [...(event.target.files ?? [])]; event.target.value = ""; if (files.length > 0) photos.select(files); }} />
       {field.photos.length > 0 && <ul aria-label={t("productPhotos.list")} className="flex flex-wrap gap-4">
@@ -285,12 +303,12 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
       <div className="flex flex-wrap items-center gap-3">
         {full
           ? <p data-photos-limit tabIndex={-1} className="text-sm text-muted-foreground outline-none">{t(marked > 0 ? "productPhotos.limitMarked" : "productPhotos.limit")}</p>
-          : <Button type="button" variant="outline" data-photos-add onClick={() => input.current?.click()}>{t("productPhotos.add")}</Button>}
-        <p className="text-sm text-muted-foreground">{summary}</p>
+          : <Button type="button" variant="outline" data-photos-add aria-describedby="photos-summary" onClick={() => input.current?.click()}>{t("productPhotos.add")}</Button>}
+        <p id="photos-summary" className="text-sm text-muted-foreground">{summary}</p>
       </div>
       {photos.notice && <p data-photo-notice className="text-sm text-muted-foreground">{photos.notice}</p>}
-      {message && <FieldError id="photos-error">{message}</FieldError>}
-      <p aria-live="polite" aria-atomic="true" data-photo-live className="sr-only">{photos.announcement}</p>
+      {message && <FieldError id="photos-error" data-photos-message tabIndex={-1} className="text-sm text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring">{message}</FieldError>}
+      <p aria-live="polite" aria-atomic="true" data-photo-live className="sr-only"><span key={photos.announcement.id}>{photos.announcement.text}</span></p>
     </div>
   </Field>;
 }

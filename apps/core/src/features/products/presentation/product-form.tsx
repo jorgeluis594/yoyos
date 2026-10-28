@@ -82,7 +82,9 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
     guard.holdLeaving();
     setTargets(feedback.issues.length > 0 ? feedbackTargets(submitted.current, feedback.issues) : noTargets);
     const rejected = feedback.issues.filter((issue) => issue.scope === "photo" && issue.index !== undefined).map((issue) => issue.index!);
-    setPhotosUnusable(rejected.length > 0 && !photos.reject(rejected));
+    const unusable = rejected.length > 0 && !photos.reject(rejected);
+    setPhotosUnusable(unusable);
+    if (unusable || feedback.errors.photos) photos.focusMessage();
   }, [feedback]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function save(event: FormEvent<HTMLFormElement>) {
