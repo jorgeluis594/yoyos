@@ -1,7 +1,6 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
 import { useTranslation } from "react-i18next";
-import { Loader2, Trash2, TriangleAlert } from "lucide-react";
-import { Button } from "@core/app/components/ui/button";
+import { Loader2, Plus, RotateCcw, Star, Trash2, TriangleAlert, Undo2, X } from "lucide-react";
 import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { uploadImageFile } from "@core/src/shared/images/presentation/client";
 import { imageUploadLimits } from "@shared/contracts/images";
@@ -35,6 +34,8 @@ const isMarked = (photo: FieldPhoto) => isKept(photo) && photo.marked;
 const keptKeys = (field: PhotoField): string[] => field.photos.filter((photo) => isKept(photo) && !photo.marked).map((photo) => photo.key);
 const lowerFirst = (text: string) => text.charAt(0).toLowerCase() + text.slice(1);
 const shortName = (name: string) => name.length > 20 ? `${name.slice(0, 11)}…${name.slice(-8)}` : name;
+// The box always reserves a 2×2 primary plus 8 small cells (4 columns × 3 rows), so its height never depends on how many photos there are.
+const smallCells = 8;
 
 /** State, upload queue and focus rules of the «Fotos» field; the pure rules live in `shared/product-photos`. */
 export function useProductPhotos(saved: readonly SavedPhoto[]) {
@@ -235,10 +236,15 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
 
 export type ProductPhotos = ReturnType<typeof useProductPhotos>;
 
+// Plain buttons, not the design-system Button: its touch rule would grow them to the touch minimum (two of them no longer fit a 4-column tile on a phone); 32 px is the field's approved hit area.
+const overlayButton = "inline-flex size-8 items-center justify-center rounded-md bg-background/95 text-foreground shadow-sm transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background dark:bg-background [&_svg]:size-4";
+
 function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: number; total: number; photos: ProductPhotos }) {
   const { t } = useTranslation();
   const local = photos.previews[photo.key];
   const primary = primaryKey(photos.field) === photo.key;
+  // The 2×2 cell is always the photo at index 0, whatever its state, so the box keeps its height; «Principal» stays on the primary, which may be a 1×1 tile.
+  const big = index === 0;
   const position = { position: index + 1, total };
   const marked = isMarked(photo);
   const src = isKept(photo) ? photo.url : local?.previewUrl ?? photo.previewUrl;
@@ -249,31 +255,61 @@ function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: 
   const fileName = photo.kind === "failed" ? local?.file.name : undefined;
   const label = [t("productPhotos.name", position), primary ? t("productPhotos.nameState.primary") : "", fileName, state].filter(Boolean).join(", ");
   const rejected = isKept(photo) && photo.rejected && !photo.marked;
-  const text = "inline-flex h-8 items-center px-1 text-sm text-primary underline-offset-4 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
-  const remove = (action: () => void) => <Button type="button" variant="ghost" size="icon" data-action="remove" aria-label={t("productPhotos.removeLabel", position)} title={t("productPhotos.removeLabel", position)} onClick={action}><Trash2 aria-hidden="true" /></Button>;
+  // A rejected tile is described by its own text, whatever the shared status line shows; a failed tile already carries its reason in its name.
+  const reason = rejected ? t("productPhotos.unusablePhoto") : "";
+  const action = (name: string, verb: string, icon: ReactNode, run: () => void, extra: Readonly<{ action?: string }> = {}) =>
+    <button type="button" className={overlayButton} data-action={extra.action} aria-label={name} title={verb} onClick={run}>{icon}</button>;
+  const remove = (run: () => void) => action(t("productPhotos.removeLabel", position), t("productPhotos.removeLabel", position), <Trash2 aria-hidden="true" />, run, { action: "remove" });
+  // On a 1×1 tile (about 68 px) the chip drops its icon and wraps only between words, so each word fits whole at text-xs; the 2×2 tile keeps the icon.
+  const chip = "absolute inset-x-0.5 bottom-0.5 flex items-center justify-center gap-1 rounded bg-background px-0.5 py-0.5 text-center text-xs leading-tight";
 
-  return <li data-photo={photo.key} className="grid w-28 content-start gap-1">
-    <div role="group" aria-label={label} className="relative size-28 overflow-hidden rounded-md border border-border bg-muted">
+  return <li data-photo={photo.key} className={`group/tile relative aspect-square ${big ? "col-span-2 row-span-2" : ""}`}>
+    <div role="group" aria-label={label} aria-describedby={reason ? `photo-reason-${photo.key}` : undefined} className="relative size-full overflow-hidden rounded-md border border-border bg-muted">
       {src && <img src={src} alt="" decoding="async" className={marked || photo.kind === "uploading" || photo.kind === "failed" ? "size-full object-cover opacity-40" : "size-full object-cover"} />}
+      {reason && <span id={`photo-reason-${photo.key}`} className="sr-only">{reason}</span>}
       {primary && <span className="absolute left-1 top-1 rounded bg-foreground px-1.5 py-0.5 text-xs font-medium text-background">{t("productPhotos.primary")}</span>}
-      {photo.kind === "uploading" && <span className="absolute inset-x-1 bottom-1 inline-flex items-center justify-center gap-1 rounded bg-background px-1.5 py-0.5 text-xs text-foreground"><Loader2 aria-hidden="true" className="size-3 animate-spin motion-reduce:animate-none" />{t("productPhotos.uploading")}</span>}
-      {photo.kind === "failed" && <span className="absolute inset-x-1 bottom-1 inline-flex items-center justify-center gap-1 rounded bg-background px-1.5 py-0.5 text-xs text-destructive"><TriangleAlert aria-hidden="true" className="size-3" />{t("productPhotos.failed")}</span>}
-      {marked && <span className="absolute inset-x-1 bottom-1 rounded bg-background px-1.5 py-0.5 text-center text-xs text-foreground">{t(photo.kind === "saved" ? "productPhotos.markSaved" : "productPhotos.markNew")}</span>}
+      {photo.kind === "uploading" && <span className={`${chip} text-foreground`}>{big && <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />}{t("productPhotos.uploading")}</span>}
+      {photo.kind === "failed" && <span className={`${chip} text-destructive`}>{big && <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />}{t("productPhotos.failed")}</span>}
+      {marked && <span className={`${chip} text-foreground`}>{t(photo.kind === "saved" ? "productPhotos.markSaved" : "productPhotos.markNew")}</span>}
     </div>
-    {photo.kind === "failed" && <div className="grid gap-0.5 text-xs">
-      {fileName && <span title={fileName} className="text-foreground">{shortName(fileName)}</span>}
-      <span className="text-destructive">{failure}</span>
-    </div>}
-    {rejected && <p className="text-xs text-destructive">{t("productPhotos.unusablePhoto")}</p>}
-    <div className="flex min-h-8 flex-wrap items-center gap-x-1">
-      {photo.kind === "uploading" && <button type="button" className={text} aria-label={t("productPhotos.cancelUploadLabel", position)} onClick={() => photos.discard(photo.key)}>{t("productPhotos.cancelUpload")}</button>}
-      {photo.kind === "failed" && photo.retryable && <button type="button" className={text} aria-label={t("productPhotos.retryLabel", position)} onClick={() => photos.retry(photo.key)}>{t("productPhotos.retry")}</button>}
+    <div className="absolute right-0.5 top-0.5 flex gap-0.5 opacity-0 transition-opacity group-hover/tile:opacity-100 group-focus-within/tile:opacity-100 [@media(hover:none)]:opacity-100">
+      {photo.kind === "uploading" && action(t("productPhotos.cancelUploadLabel", position), t("productPhotos.cancelUpload"), <X aria-hidden="true" />, () => photos.discard(photo.key))}
+      {photo.kind === "failed" && photo.retryable && action(t("productPhotos.retryLabel", position), t("productPhotos.retry"), <RotateCcw aria-hidden="true" />, () => photos.retry(photo.key))}
       {photo.kind === "failed" && remove(() => photos.discard(photo.key))}
-      {isKept(photo) && marked && <button type="button" data-action="undo" className={text} aria-label={t("productPhotos.undoLabel", position)} onClick={() => photos.undo(photo.key)}>{t("productPhotos.undo")}</button>}
-      {isKept(photo) && !marked && !primary && <button type="button" className={text} aria-label={t("productPhotos.makePrimaryLabel", position)} onClick={() => photos.promote(photo.key)}>{t("productPhotos.makePrimary")}</button>}
+      {isKept(photo) && marked && action(t("productPhotos.undoLabel", position), t("productPhotos.undo"), <Undo2 aria-hidden="true" />, () => photos.undo(photo.key), { action: "undo" })}
+      {isKept(photo) && !marked && !primary && action(t("productPhotos.makePrimaryLabel", position), t("productPhotos.makePrimary"), <Star aria-hidden="true" />, () => photos.promote(photo.key))}
       {isKept(photo) && !marked && remove(() => photos.remove(photo.key))}
     </div>
   </li>;
+}
+
+type StatusText = Readonly<{
+  name: (position: number, total: number) => string; failure: (failure: PhotoFailure) => string; unusable: string;
+  count: (count: number) => string; countFull: (count: number) => string; marks: (marked: number, saved: boolean) => string; freeUp: string;
+}>;
+type Status = Readonly<{ kind: "message" | "notice" | "photos" | "counter" | "none"; text: ReactNode }>;
+
+/** The single line under the box: validation message, selection notice, failed or rejected photos, or the counter, in that order. */
+function photoStatus(photos: Pick<ProductPhotos, "field" | "notice" | "previews">, message: string | undefined, text: StatusText): Status {
+  if (message) return { kind: "message", text: message };
+  if (photos.notice) return { kind: "notice", text: photos.notice };
+  const { field, previews } = photos;
+  const total = field.photos.length;
+  const problems = field.photos.flatMap((photo, index) => {
+    const name = text.name(index + 1, total);
+    if (photo.kind === "failed") {
+      const fileName = previews[photo.key]?.file.name;
+      return [`${name}: ${fileName ? `${shortName(fileName)}. ` : ""}${text.failure(photo.failure)}`];
+    }
+    if (isKept(photo) && photo.rejected && !photo.marked) return [`${name}: ${text.unusable}`];
+    return [];
+  });
+  if (problems.length > 0) return { kind: "photos", text: problems.map((line) => <span key={line} className="block">{line}</span>) };
+  if (total === 0) return { kind: "none", text: "" };
+  const { count, marked, markedSaved } = counter(field);
+  const marks = marked > 0 ? text.marks(marked, markedSaved) : "";
+  if (freePlaces(field) > 0) return { kind: "counter", text: text.count(count) + marks };
+  return { kind: "counter", text: marked > 0 ? text.count(count) + marks + text.freeUp : text.countFull(count) };
 }
 
 export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; error?: string }) {
@@ -290,30 +326,49 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
       : root.current.querySelector(focus.action === "first" ? `[data-photo="${focus.key}"] button` : `[data-photo="${focus.key}"] [data-action="${focus.action}"]`);
     if (target instanceof HTMLElement) target.focus();
   }, [focus]);
-  const { count, marked, markedSaved } = counter(field);
   const full = freePlaces(field) === 0;
   const blocker = saveBlocker(field);
   const blockText = photos.blocked && blocker?.kind === photos.blocked ? t(photos.blocked === "uploading" ? "productPhotos.waitUploads" : "productPhotos.retryFailed") : "";
   const message = blockText || error;
-  const summary = count === 0 ? t("productPhotos.hint")
-    : t("productPhotos.count", { count }) + (marked > 0 ? t(markedSaved ? "productPhotos.markedSaved" : "productPhotos.markedNew", { count: marked }) : "");
+  const status = photoStatus(photos, message, {
+    name: (position, total) => t("productPhotos.name", { position, total }),
+    failure: (failure) => failureText((key) => t(key), failure),
+    unusable: t("productPhotos.unusablePhoto"),
+    count: (count) => t("productPhotos.count", { count }),
+    countFull: (count) => t("productPhotos.countFull", { count }),
+    marks: (marked, savedOnes) => t(savedOnes ? "productPhotos.markedSaved" : "productPhotos.markedNew", { count: marked }),
+    freeUp: t("productPhotos.freeUp"),
+  });
+  const empty = field.photos.length === 0;
+  const open = () => input.current?.click();
+  // Free cells keep the box at 12 cells: the 8 small ones minus those taken by the photos next to the primary and by the add tile.
+  const smallPhotos = Math.max(0, field.photos.length - 1);
+  const addCells = empty || full ? 0 : 1;
+  const rest = Math.max(0, smallCells - smallPhotos - addCells);
+  const statusClass = "-mx-1 rounded-sm px-1 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+  const addTile = "flex size-full flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-muted-foreground/50 bg-background p-1 text-center text-xs font-medium text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background";
 
   return <Field data-invalid={Boolean(message)}>
     <div ref={root} data-photos-field role="group" aria-labelledby="photos-label" className="grid gap-3">
       <FieldLabel id="photos-label">{t("productPhotos.label")}</FieldLabel>
       <input ref={input} id="photos" name="photos" type="file" multiple accept={accepted} tabIndex={-1} aria-hidden="true" className="sr-only"
         onChange={(event) => { const files = [...(event.target.files ?? [])]; event.target.value = ""; if (files.length > 0) photos.select(files); }} />
-      {field.photos.length > 0 && <ul aria-label={t("productPhotos.list")} className="flex flex-wrap gap-4">
+      <ul aria-label={t("productPhotos.list")} className="grid grid-cols-4 gap-1">
+        {empty && <li className="col-span-2 row-span-2 aspect-square">
+          <button type="button" data-photos-add aria-label={t("productPhotos.add")} aria-describedby="photos-hint" className={addTile} onClick={open}>
+            <Plus aria-hidden="true" className="size-5" /><span className="text-sm text-foreground">{t("productPhotos.add")}</span><span id="photos-hint" className="font-normal">{t("productPhotos.hint")}</span>
+          </button>
+        </li>}
         {field.photos.map((photo, index) => <Thumbnail key={photo.key} photo={photo} index={index} total={field.photos.length} photos={photos} />)}
-      </ul>}
-      <div className="flex flex-wrap items-center gap-3">
-        {full
-          ? <p data-photos-limit tabIndex={-1} className="text-sm text-muted-foreground outline-none">{t(marked > 0 ? "productPhotos.limitMarked" : "productPhotos.limit")}</p>
-          : <Button type="button" variant="outline" data-photos-add aria-describedby="photos-summary" onClick={() => input.current?.click()}>{t("productPhotos.add")}</Button>}
-        <p id="photos-summary" className="text-sm text-muted-foreground">{summary}</p>
-      </div>
-      {photos.notice && <p data-photo-notice className="text-sm text-muted-foreground">{photos.notice}</p>}
-      {message && <FieldError id="photos-error" data-photos-message tabIndex={-1} className="text-sm text-destructive outline-none focus-visible:ring-2 focus-visible:ring-ring">{message}</FieldError>}
+        {!empty && !full && <li className="aspect-square">
+          <button type="button" data-photos-add aria-describedby="photos-status" className={addTile} onClick={open}><Plus aria-hidden="true" className="size-5" />{t("productPhotos.add")}</button>
+        </li>}
+        {Array.from({ length: rest }, (_, at) => <li key={`free-${at}`} aria-hidden="true" className="aspect-square" />)}
+      </ul>
+      {status.kind !== "none" && (status.kind === "message"
+        ? <FieldError id="photos-status" data-photos-message {...(full ? { "data-photos-limit": "" } : {})} tabIndex={-1} className={`${statusClass} text-destructive`}>{status.text}</FieldError>
+        : <p id="photos-status" tabIndex={full ? -1 : undefined} {...(full ? { "data-photos-limit": "" } : {})} {...(status.kind === "notice" ? { "data-photo-notice": "" } : {})}
+            className={`${statusClass} ${status.kind === "photos" ? "text-destructive" : "text-muted-foreground"}`}>{status.text}</p>)}
       <p aria-live="polite" aria-atomic="true" data-photo-live className="sr-only"><span key={photos.announcement.id}>{photos.announcement.text}</span></p>
     </div>
   </Field>;
