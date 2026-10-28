@@ -237,7 +237,7 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
 export type ProductPhotos = ReturnType<typeof useProductPhotos>;
 
 // Plain buttons, not the design-system Button: its touch rule would grow them to the touch minimum (two of them no longer fit a 4-column tile on a phone); 32 px is the field's approved hit area.
-const overlayButton = "inline-flex size-8 items-center justify-center rounded-md bg-background/90 text-foreground shadow-sm transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [&_svg]:size-4";
+const overlayButton = "inline-flex size-8 items-center justify-center rounded-md bg-background/95 text-foreground shadow-sm transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background dark:bg-background [&_svg]:size-4";
 
 function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: number; total: number; photos: ProductPhotos }) {
   const { t } = useTranslation();
@@ -253,20 +253,24 @@ function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: 
   const fileName = photo.kind === "failed" ? local?.file.name : undefined;
   const label = [t("productPhotos.name", position), primary ? t("productPhotos.nameState.primary") : "", fileName, state].filter(Boolean).join(", ");
   const rejected = isKept(photo) && photo.rejected && !photo.marked;
+  // Each failed or rejected tile is described by its own reason, whatever the shared status line shows.
+  const reason = photo.kind === "failed" ? failure : rejected ? t("productPhotos.unusablePhoto") : "";
   const action = (name: string, verb: string, icon: ReactNode, run: () => void, extra: Readonly<{ action?: string }> = {}) =>
     <button type="button" className={overlayButton} data-action={extra.action} aria-label={name} title={verb} onClick={run}>{icon}</button>;
   const remove = (run: () => void) => action(t("productPhotos.removeLabel", position), t("productPhotos.removeLabel", position), <Trash2 aria-hidden="true" />, run, { action: "remove" });
-  const chip = "absolute inset-x-1 bottom-1 inline-flex items-center justify-center gap-1 rounded bg-background px-1 py-0.5 text-center text-xs leading-tight";
+  // On a 1×1 tile (about 68 px) the chip drops its icon and wraps only between words, so each word fits whole at text-xs; the primary 2×2 tile keeps the icon.
+  const chip = "absolute inset-x-0.5 bottom-0.5 flex items-center justify-center gap-1 rounded bg-background px-0.5 py-0.5 text-center text-xs leading-tight";
 
   return <li data-photo={photo.key} className={`group/tile relative aspect-square ${primary ? "col-span-2 row-span-2" : ""}`}>
-    <div role="group" aria-label={label} aria-describedby={photo.kind === "failed" || rejected ? "photos-status" : undefined} className="relative size-full overflow-hidden rounded-md border border-border bg-muted">
+    <div role="group" aria-label={label} aria-describedby={reason ? `photo-reason-${photo.key}` : undefined} className="relative size-full overflow-hidden rounded-md border border-border bg-muted">
       {src && <img src={src} alt="" decoding="async" className={marked || photo.kind === "uploading" || photo.kind === "failed" ? "size-full object-cover opacity-40" : "size-full object-cover"} />}
+      {reason && <span id={`photo-reason-${photo.key}`} className="sr-only">{reason}</span>}
       {primary && <span className="absolute left-1 top-1 rounded bg-foreground px-1.5 py-0.5 text-xs font-medium text-background">{t("productPhotos.primary")}</span>}
-      {photo.kind === "uploading" && <span className={`${chip} text-foreground`}><Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />{t("productPhotos.uploading")}</span>}
-      {photo.kind === "failed" && <span className={`${chip} text-destructive`}><TriangleAlert aria-hidden="true" className="size-3 shrink-0" />{t("productPhotos.failed")}</span>}
+      {photo.kind === "uploading" && <span className={`${chip} text-foreground`}>{primary && <Loader2 aria-hidden="true" className="size-3 shrink-0 animate-spin motion-reduce:animate-none" />}{t("productPhotos.uploading")}</span>}
+      {photo.kind === "failed" && <span className={`${chip} text-destructive`}>{primary && <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />}{t("productPhotos.failed")}</span>}
       {marked && <span className={`${chip} text-foreground`}>{t(photo.kind === "saved" ? "productPhotos.markSaved" : "productPhotos.markNew")}</span>}
     </div>
-    <div className="absolute right-0.5 top-0.5 flex opacity-0 transition-opacity group-hover/tile:opacity-100 group-focus-within/tile:opacity-100 [@media(hover:none)]:opacity-100">
+    <div className="absolute right-0.5 top-0.5 flex gap-0.5 opacity-0 transition-opacity group-hover/tile:opacity-100 group-focus-within/tile:opacity-100 [@media(hover:none)]:opacity-100">
       {photo.kind === "uploading" && action(t("productPhotos.cancelUploadLabel", position), t("productPhotos.cancelUpload"), <X aria-hidden="true" />, () => photos.discard(photo.key))}
       {photo.kind === "failed" && photo.retryable && action(t("productPhotos.retryLabel", position), t("productPhotos.retry"), <RotateCcw aria-hidden="true" />, () => photos.retry(photo.key))}
       {photo.kind === "failed" && remove(() => photos.discard(photo.key))}
@@ -275,6 +279,35 @@ function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: 
       {isKept(photo) && !marked && remove(() => photos.remove(photo.key))}
     </div>
   </li>;
+}
+
+type StatusText = Readonly<{
+  name: (position: number, total: number) => string; failure: (failure: PhotoFailure) => string; unusable: string;
+  count: (count: number) => string; countFull: (count: number) => string; marks: (marked: number, saved: boolean) => string; freeUp: string;
+}>;
+type Status = Readonly<{ kind: "message" | "notice" | "photos" | "counter" | "none"; text: ReactNode }>;
+
+/** The single line under the box: validation message, selection notice, failed or rejected photos, or the counter, in that order. */
+function photoStatus(photos: Pick<ProductPhotos, "field" | "notice" | "previews">, message: string | undefined, text: StatusText): Status {
+  if (message) return { kind: "message", text: message };
+  if (photos.notice) return { kind: "notice", text: photos.notice };
+  const { field, previews } = photos;
+  const total = field.photos.length;
+  const problems = field.photos.flatMap((photo, index) => {
+    const name = text.name(index + 1, total);
+    if (photo.kind === "failed") {
+      const fileName = previews[photo.key]?.file.name;
+      return [`${name}: ${fileName ? `${shortName(fileName)}. ` : ""}${text.failure(photo.failure)}`];
+    }
+    if (isKept(photo) && photo.rejected && !photo.marked) return [`${name}: ${text.unusable}`];
+    return [];
+  });
+  if (problems.length > 0) return { kind: "photos", text: problems.map((line) => <span key={line} className="block">{line}</span>) };
+  if (total === 0) return { kind: "none", text: "" };
+  const { count, marked, markedSaved } = counter(field);
+  const marks = marked > 0 ? text.marks(marked, markedSaved) : "";
+  if (freePlaces(field) > 0) return { kind: "counter", text: text.count(count) + marks };
+  return { kind: "counter", text: marked > 0 ? text.count(count) + marks + text.freeUp : text.countFull(count) };
 }
 
 export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; error?: string }) {
@@ -295,35 +328,23 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
   const blocker = saveBlocker(field);
   const blockText = photos.blocked && blocker?.kind === photos.blocked ? t(photos.blocked === "uploading" ? "productPhotos.waitUploads" : "productPhotos.retryFailed") : "";
   const message = blockText || error;
-  /** The single line under the box: validation, selection notice, failed or rejected photos, or the counter, in that order. */
-  function statusLine(message: string | undefined): Readonly<{ kind: "message" | "notice" | "photos" | "counter" | "none"; text: ReactNode }> {
-    const { field } = photos;
-    if (message) return { kind: "message", text: message };
-    if (photos.notice) return { kind: "notice", text: photos.notice };
-    const total = field.photos.length;
-    const problems = field.photos.flatMap((photo, index) => {
-      const name = t("productPhotos.name", { position: index + 1, total });
-      if (photo.kind === "failed") {
-        const fileName = photos.previews[photo.key]?.file.name;
-        return [`${name}: ${fileName ? `${shortName(fileName)}. ` : ""}${failureText((key) => t(key), photo.failure)}`];
-      }
-      if (isKept(photo) && photo.rejected && !photo.marked) return [`${name}: ${t("productPhotos.unusablePhoto")}`];
-      return [];
-    });
-    if (problems.length > 0) return { kind: "photos", text: problems.map((text) => <span key={text} className="block">{text}</span>) };
-    const { count, marked, markedSaved } = counter(field);
-    if (total === 0) return { kind: "none", text: "" };
-    const marks = marked > 0 ? t(markedSaved ? "productPhotos.markedSaved" : "productPhotos.markedNew", { count: marked }) : "";
-    if (freePlaces(field) > 0) return { kind: "counter", text: t("productPhotos.count", { count }) + marks };
-    return { kind: "counter", text: marked > 0 ? t("productPhotos.count", { count }) + marks + t("productPhotos.freeUp") : t("productPhotos.countFull", { count }) };
-  }
-
-  const status = statusLine(message);
+  const status = photoStatus(photos, message, {
+    name: (position, total) => t("productPhotos.name", { position, total }),
+    failure: (failure) => failureText((key) => t(key), failure),
+    unusable: t("productPhotos.unusablePhoto"),
+    count: (count) => t("productPhotos.count", { count }),
+    countFull: (count) => t("productPhotos.countFull", { count }),
+    marks: (marked, savedOnes) => t(savedOnes ? "productPhotos.markedSaved" : "productPhotos.markedNew", { count: marked }),
+    freeUp: t("productPhotos.freeUp"),
+  });
   const empty = field.photos.length === 0;
   const open = () => input.current?.click();
-  const rest = Math.max(0, smallCells - Math.max(0, field.photos.length - 1) - (empty || full ? 0 : 1));
+  // Free cells keep the box at 12 cells: the 8 small ones minus those taken by the photos next to the primary and by the add tile.
+  const smallPhotos = Math.max(0, field.photos.length - 1);
+  const addCells = empty || full ? 0 : 1;
+  const rest = Math.max(0, smallCells - smallPhotos - addCells);
   const statusClass = "text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring";
-  const addTile = "flex size-full flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-border bg-background p-1 text-center text-xs font-medium text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring";
+  const addTile = "flex size-full flex-col items-center justify-center gap-1 rounded-md border-2 border-dashed border-muted-foreground/50 bg-background p-1 text-center text-xs font-medium text-muted-foreground transition-colors hover:border-primary hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background";
 
   return <Field data-invalid={Boolean(message)}>
     <div ref={root} data-photos-field role="group" aria-labelledby="photos-label" className="grid gap-3">

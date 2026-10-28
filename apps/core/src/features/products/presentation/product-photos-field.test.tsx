@@ -107,7 +107,8 @@ test("a file over 10 MB fails at once with the weight text and is never uploaded
   expect(thumbText(1)).toContain("No se subió");
   expect(thumbText(1)).not.toContain("grande.jpg");
   expect(status()).toBe("Foto 2 de 3: grande.jpg. Pesa más de 10 MB.");
-  expect(thumbs()[1].querySelector("[role='group']")?.getAttribute("aria-describedby")).toBe("photos-status");
+  const describedBy = thumbs()[1].querySelector("[role='group']")?.getAttribute("aria-describedby");
+  expect(document.getElementById(describedBy!)?.textContent).toBe("Pesa más de 10 MB.");
   expect(button("Reintentar la foto 2 de 3")).toBeUndefined();
   expect(button("Quitar la foto 2 de 3")).toBeDefined();
   expect(uploads.map((upload) => upload.file.name)).toEqual(["frente.jpg", "puesto.jpg"]);
@@ -552,4 +553,35 @@ test("a failed photo's reason takes the status line while no message or notice i
   await answer(0, rejected("INTERNAL_ERROR", 500));
   expect(status()).toMatch(/^Foto 1 de 1: a\.png\./);
   expect(container.querySelector("#photos-status")!.className).toContain("text-destructive");
+});
+
+test("a failed or rejected tile is described by its own reason while the status line shows something else", () => {
+  const onSave = vi.fn();
+  mount({ photos: savedPhotos(2), onSave });
+  select(file("grande.png", 12_000_000), file("b.png"), file("c.png"), file("d.png"), file("e.png"), file("f.png"), file("g.png"));
+  expect(status()).toContain("Elegiste");
+  const group = thumbs()[2].querySelector("[role='group']")!;
+  const described = document.getElementById(group.getAttribute("aria-describedby")!)!;
+  expect(described.textContent).toBe("Pesa más de 10 MB.");
+  submit();
+  expect(status()).toBe("Espera a que terminen de subir las fotos.");
+  expect(document.getElementById(group.getAttribute("aria-describedby")!)!.textContent).toBe("Pesa más de 10 MB.");
+});
+
+test("a rejected photo is described by its own text even while the field message is up", () => {
+  const onSave = vi.fn();
+  mount({ photos: savedPhotos(3), onSave });
+  submit();
+  update({ photos: savedPhotos(3), onSave, feedback: photoIssue(1, "PHOTO_NOT_FOUND") });
+  const group = thumbs()[1].querySelector("[role='group']")!;
+  expect(document.getElementById(group.getAttribute("aria-describedby")!)!.textContent).toBe("No pudimos usar esta foto. Quítala o súbela de nuevo.");
+  expect(thumbs()[0].querySelector("[role='group']")!.getAttribute("aria-describedby")).toBeNull();
+});
+
+test("on 1×1 tiles the state chips carry text only; the primary tile keeps the icon", () => {
+  mount();
+  select(file("a.png"), file("b.png"));
+  expect(thumbs()[0].querySelector("svg.animate-spin")).not.toBeNull();
+  expect(thumbs()[1].querySelector("svg.animate-spin")).toBeNull();
+  expect(thumbs()[1].textContent).toBe("Subiendo…");
 });
