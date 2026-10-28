@@ -4,14 +4,13 @@ import type { AiError } from "@core/src/shared/ai-tools/application/ai-error";
 import { applyChatActions, needsNewChatOrder, type ChatOrderTarget, type ChatOrderItemChanges, type ChatOrderLimits, type ReportOutcome, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
 import type { ChatMessageFailureCode, ChatMessageOutcomes, StoredChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
 import { chooseSellerNotice, isNoticeDue } from "@core/src/features/orders/domain/seller-notice";
-import { isVariantOnlyText } from "@core/src/features/orders/domain/variant-only-text";
 import type { ChatId, OrderChatSource } from "@core/src/features/orders/domain/message-order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { OrderAggregate, OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, ContactId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
 import { hasReadableText } from "@core/src/features/orders/application/chat-message-tools";
 import type { ChatContextItem, ChatToolContext, ShownProduct, ToolResolveError } from "@core/src/features/orders/application/chat-tool-types";
-import type { InterpretAndApply, Interpreted, InterpretationPlan, InterpretationTrace } from "@core/src/features/orders/application/chat-message-interpreter";
+import type { InterpretAndApply, Interpreted, InterpretationTrace } from "@core/src/features/orders/application/chat-message-interpreter";
 import type { IdentifyProductsError, ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import type { ImageBytes } from "@core/src/features/products/domain/image-identification";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
@@ -150,14 +149,9 @@ function contextTextOf(items: readonly ChatContextItem[], shown: readonly ShownP
   return ["Open order items:", order, ...photo, ...notProduct].join("\n");
 }
 
-/** A text that only names a variant reports it without asking the models which action it is (docs/message-to-order.md «Change variant»). */
-const textPlanOf = (text: string | null, items: readonly ChatContextItem[]): InterpretationPlan =>
-  text !== null && isVariantOnlyText(text, items.flatMap(({ variantAttributes }) => Object.values(variantAttributes)))
-    ? { kind: "tool", tool: "report_variant_without_product" } : { kind: "decide", fallbackTool: null };
-
 function applyText(message: ChatSourceMessage, order: ChatOrderContext, run: Run, deps: ApplyChatMessageDependencies, signal: AbortSignal): Promise<Stage> {
   const context: ChatToolContext = { kind: "text", caption: message.text, items: order.items, shown: [] };
-  return deps.interpretAndApply({ context, messageText: message.text, contextText: contextTextOf(order.items, []), plan: textPlanOf(message.text, order.items) },
+  return deps.interpretAndApply({ context, messageText: message.text, contextText: contextTextOf(order.items, []), plan: { kind: "decide", fallbackTool: null } },
     signal, (actions) => silenceTextMisses(actions, run, deps));
 }
 

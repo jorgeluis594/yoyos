@@ -586,7 +586,7 @@ describe("applyChatMessage: text tools", () => {
 
   test("reports the likely products when the text names a product that two candidates fit", async () => {
     const refs: [ProductRef, ProductRef] = [{ productId: productPolo, name: "Polo básico" }, { productId: productCap, name: "Gorra" }];
-    const h = harness({ message: textMessage("quiero el clásico"), identify: { "clásico": { kind: "not_clear", candidates: refs } }, decision: () => decided("add_products"), extraction: () => [addCall(add("clásico"))] });
+    const h = harness({ message: textMessage("quiero el negro"), identify: { negro: { kind: "not_clear", candidates: refs } }, decision: () => decided("add_products"), extraction: () => [addCall(add("negro"))] });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "not_clear", productIds: [productPolo, productCap], silent: false }], noticeDue: true });
   });
 
@@ -893,29 +893,12 @@ describe("applyChatMessage: text tools", () => {
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "no_intent" }], noticeDue: false });
   });
 
-  test("reports a text that only names a variant without asking the models which action it is, whatever the order holds", async () => {
-    for (const [text, target] of [["la prefiero en XS", capAndPolo()], ["celestes porfa", openWith(line(1, poloM))], ["talla 38", { kind: "none" } as ChatOrderTarget]] as const) {
-      const h = harness({ message: textMessage(text), target, decision: () => decided("change_item_variant", itemChoice("change_item_variant", "I1")) });
-      expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "variant_only" }], noticeDue: true, trace: { tools: ["report_variant_without_product"], decisionCalls: 0 } });
-      expect(h.decisions).toHaveLength(0);
-    }
-  });
-
-  test("leaves a variant with a change verb, a product, a quantity or a question to the models", async () => {
-    for (const text of ["mejor en XS", "pásalo a celeste", "la casaca en XS", "2 en XS", "hay en XS?"]) {
-      const h = harness({ message: textMessage(text), target: capAndPolo(), decision: () => decided("no_intent") });
-      await succeeded(h.run());
-      expect(h.decisions).toHaveLength(1);
-    }
-  });
-
   test("reports an add without a name whose own predicate is clear although the action is unsure, and never a change", async () => {
     const h = harness({ message: textMessage("mándame otros tres así"), target: openWith(line(1, poloM)),
       decision: () => decided("add_products", {}, { report_unnamed_add: 0.97, add_products: 0.3 }, 0.45) });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "unnamed_add" }], noticeDue: true });
     expect(h.extractions).toHaveLength(0);
   });
-
   test("reports a variant without a product and an add without a name as problems for the seller", async () => {
     const variantOnly = harness({ message: textMessage("en talla L"), decision: () => decided("report_variant_without_product") });
     expect(await succeeded(variantOnly.run())).toMatchObject({ outcomes: [{ kind: "variant_only" }], noticeDue: true });
