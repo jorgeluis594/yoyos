@@ -1,5 +1,5 @@
 import { useEffect } from "react";
-import { AccessibilityInfo, Alert, type AlertButton } from "react-native";
+import { AccessibilityInfo, Alert, StyleSheet, type AlertButton } from "react-native";
 import { act, fireEvent, render, screen } from "@testing-library/react-native";
 import * as ImagePicker from "expo-image-picker";
 import { err, ok } from "@shared/functional";
@@ -30,10 +30,10 @@ const assets = (...names: string[]) => names.map((name) => ({ uri: `file:///${na
 const done = (n: number) => ok({ id: `new-${n}`, url: `https://cdn.example/new-${n}.jpg` });
 const failure = (code: string, status?: number) => err({ code, message: code, ...(status ? { http: { status } } : {}) });
 
-function Harness({ photos = [] }: { photos?: SavedPhoto[] }) {
-  const field = usePhotoField({ upload, prepare, saved: photos });
+function Harness({ photos = [], disabled = false, send = upload }: { photos?: SavedPhoto[]; disabled?: boolean; send?: Parameters<typeof usePhotoField>[0]["upload"] }) {
+  const field = usePhotoField({ upload: send, prepare, saved: photos });
   useEffect(() => { controller = field; });
-  return <ProductPhotosStrip photos={field} />;
+  return <ProductPhotosStrip photos={field} disabled={disabled} />;
 }
 const settle = () => act(async () => {});
 const buttons = (): AlertButton[] => alert.mock.calls.at(-1)?.[2] ?? [];
@@ -341,4 +341,30 @@ test("shows the Portuguese texts and singular counts", async () => {
     expect(screen.getByText("1 foto não foi enviada. Toque nela para ver o motivo.")).toBeTruthy();
     expect(screen.getByLabelText("Foto 2 de 2, não enviada: Não foi possível enviar. Verifique a conexão.")).toBeTruthy();
   } finally { await act(async () => { await i18n.changeLanguage("es"); }); }
+});
+
+test("the band keeps the app's small text size and may wrap instead of shrinking", () => {
+  render(<Harness photos={saved(2)} />);
+  const style = StyleSheet.flatten(screen.getByText("Principal").props.style);
+  expect(style.fontSize).toBe(14);
+  expect(screen.getByText("Principal").props.numberOfLines).toBeUndefined();
+});
+
+test("an upload that never settles still fails after two minutes and frees its slot", async () => {
+  jest.useFakeTimers();
+  const silent = jest.fn((_uri: string, _options: { signal: AbortSignal }) => new Promise<Answer>(() => {}));
+  render(<Harness send={silent} />);
+  galleryReturns("a", "b", "c");
+  await chooseFrom("Elegir de galería");
+  await act(async () => { jest.advanceTimersByTime(1_000); });
+  expect(silent).toHaveBeenCalledTimes(2);
+  await act(async () => { jest.advanceTimersByTime(120_000); });
+  expect(thumb("Foto 1 de 3, principal, no se subió: No se pudo subir. Revisa la conexión.")).toBeTruthy();
+  expect(silent).toHaveBeenCalledTimes(3);
+});
+
+test("accessibility actions do nothing while the form is saving", () => {
+  render(<Harness photos={saved(2)} disabled />);
+  fireEvent(thumb("Foto 2 de 2"), "accessibilityAction", { nativeEvent: { actionName: "makePrimary" } });
+  expect(controller.field.photos[0]?.key).toBe("saved-1");
 });

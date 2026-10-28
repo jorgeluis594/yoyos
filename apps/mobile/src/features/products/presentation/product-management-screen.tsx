@@ -27,7 +27,7 @@ import { isOnline } from "./is-online";
 import { productPath } from "./product-routes";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
 import { useProductDraft } from "./draft-guard";
-import { lineTarget, usePhotoField } from "./use-photo-field";
+import { messageTarget, usePhotoField } from "./use-photo-field";
 import { photoFormError, photoSaveBlocker, rejectedPhotoIndexes } from "./photo-save-errors";
 import { usePrint } from "@mobile/features/printing/presentation/print-provider";
 import { productPrintWork } from "./product-print-work";
@@ -169,7 +169,7 @@ export default function ProductManagementScreen() {
       const isUncertain = uncertainCodes.includes(result.error.code);
       const photoError = photoFormError(result.error, rejectedPhotoIndexes(result.error));
       photos.reject(rejectedPhotoIndexes(result.error));
-      if (photoError) photos.reveal(lineTarget);
+      if (photoError) photos.reveal(messageTarget);
       setErrors(photoError ? { form: photoError } : summary ? { form: summary } : isUncertain ? { form: t('saveUncertain') } : productErrors(result.error, draft.options.length > 0));
       setUncertain(isUncertain);
       setChanged(result.error.code === "PRODUCT_CHANGED");

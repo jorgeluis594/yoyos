@@ -20,7 +20,7 @@ import { isOnline } from "./is-online";
 import { productPath } from "./product-routes";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
 import { useProductDraft } from "./draft-guard";
-import { lineTarget, usePhotoField } from "./use-photo-field";
+import { messageTarget, usePhotoField } from "./use-photo-field";
 import { photoFormError, photoSaveBlocker, rejectedPhotoIndexes } from "./photo-save-errors";
 
 const emptyDraft = () => createDraft(baseOf(emptyProductForm));
@@ -118,7 +118,7 @@ export default function CreateProductScreen() {
       setUncertain(uncertainCodes.includes(result.error.code));
       const photoError = photoFormError(result.error, rejectedPhotoIndexes(result.error));
       photos.reject(rejectedPhotoIndexes(result.error));
-      if (photoError) photos.reveal(lineTarget);
+      if (photoError) photos.reveal(messageTarget);
       setErrors(photoError ? { form: photoError } : summary ? { form: summary } : uncertainCodes.includes(result.error.code) ? { form: t('productCreationUncertain') } : productErrors(result.error, hasOptions));
       setConflict(result.error.code === "PRODUCT_ID_CONFLICT");
       return;

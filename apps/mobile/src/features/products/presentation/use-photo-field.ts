@@ -15,11 +15,13 @@ export type PhotoAsset = Readonly<{ uri: string; width: number; height: number }
 export type SavedPhoto = Readonly<{ id: string; url: string }>;
 type Upload = (uri: string, options: Readonly<{ signal: AbortSignal }>) => Promise<Result<Readonly<{ id: string; url: string }>, Readonly<{ code: string; message: string; http?: Readonly<{ status: number }> }>>>;
 type Prepare = (asset: PhotoAsset) => Promise<Result<string, Readonly<{ message: string }>>>;
-type Job = { controller: AbortController; timer: ReturnType<typeof setTimeout> | null; timedOut: boolean };
+type Job = { controller: AbortController; timer: ReturnType<typeof setTimeout> | null };
 /** The strip moves accessibility focus (and the form scrolls) to a thumbnail, the add tile or the line under the strip. */
 export type PhotoFocus = Readonly<{ target: string; nonce: number; reveal: boolean }>;
 export const addTileTarget = "add";
 export const lineTarget = "line";
+/** The form-level message above the strip, which the form itself focuses. */
+export const messageTarget = "message";
 
 const bounds = { maxSide: imageUploadLimits.maxSide, maxPixels: imageUploadLimits.maxPixels, maxBytes: imageUploadLimits.maxBytes } as const;
 const prepareJpeg: Prepare = (asset) => fitJpeg(asset.uri, asset.width, asset.height, bounds);
@@ -62,7 +64,7 @@ export function usePhotoField({ upload, prepare = prepareJpeg, saved = [], onAct
   const fail = useCallback((key: string, reason: Readonly<{ failure: PhotoFailure; retryable: boolean }>) => { apply((current) => failUpload(current, key, reason)); }, [apply]);
 
   const run = useCallback(async (key: string) => {
-    const job: Job = { controller: new AbortController(), timer: null, timedOut: false };
+    const job: Job = { controller: new AbortController(), timer: null };
     jobs.current.set(key, job);
     const asset = assets.current.get(key);
     const attempt = attempts.current.get(key) ?? 0;
@@ -80,13 +82,20 @@ export function usePhotoField({ upload, prepare = prepareJpeg, saved = [], onAct
         if (jobs.current.get(key) === job) fail(key, { failure: attempt > 0 ? "file_gone" : "prepare", retryable: false });
         return;
       }
-      job.timer = setTimeout(() => { job.timedOut = true; job.controller.abort(); }, photoUploadSettings.timeoutMs);
+      // The timeout settles the photo itself, so a transport that never answers cannot keep the photo uploading or hold its slot.
+      job.timer = setTimeout(() => {
+        if (jobs.current.get(key) !== job) return;
+        jobs.current.delete(key);
+        job.controller.abort();
+        fail(key, { failure: "connection", retryable: true });
+        pumpRef.current();
+      }, photoUploadSettings.timeoutMs);
       const result = await uploadRef.current(uri, { signal: job.controller.signal });
       // A cancelled or replaced job ignores its late answer.
       if (jobs.current.get(key) !== job) return;
       if (result.success) apply((current) => finishUpload(current, key, { imageId: result.data.id, url: result.data.url }));
-      else if (result.error.code === "ABORTED" && !job.timedOut) return;
-      else fail(key, job.timedOut ? { failure: "connection", retryable: true } : uploadFailure({ code: result.error.code, ...(result.error.http ? { status: result.error.http.status } : {}) }));
+      else if (result.error.code === "ABORTED") return;
+      else fail(key, uploadFailure({ code: result.error.code, ...(result.error.http ? { status: result.error.http.status } : {}) }));
     } finally {
       if (job.timer) clearTimeout(job.timer);
       if (jobs.current.get(key) === job) jobs.current.delete(key);

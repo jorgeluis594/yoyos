@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { AccessibilityInfo, findNodeHandle, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { EditorDraft } from "@shared/product-variants";
@@ -10,7 +10,7 @@ import { Input } from "@mobile/components/ui/input";
 import { ThemedText } from "@mobile/components/themed-text";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { ProductPhotosStrip } from "@mobile/features/products/presentation/product-photos-strip";
-import type { PhotoFieldController } from "@mobile/features/products/presentation/use-photo-field";
+import { messageTarget, type PhotoFieldController } from "@mobile/features/products/presentation/use-photo-field";
 import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
 import { QuantityStepper } from "@mobile/features/products/presentation/quantity-stepper";
 import type { Product } from "@mobile/features/products/domain/product";
@@ -55,6 +55,14 @@ export function ProductForm({
   const revealNonce = photos.focus?.reveal ? photos.focus.nonce : null;
   // A save that the photos block shows its message above the strip, so the form returns to its top.
   useEffect(() => { if (revealNonce !== null) page.current?.scrollTo({ y: 0, animated: true }); }, [revealNonce]);
+  const message = useRef<View>(null);
+  const messageNonce = photos.focus?.target === messageTarget ? photos.focus.nonce : null;
+  // A photo rejection that no thumbnail can carry is read from the form-level message above the strip.
+  useEffect(() => {
+    if (messageNonce === null) return;
+    const timer = setTimeout(() => { const tag = message.current ? findNodeHandle(message.current) : null; if (tag) AccessibilityInfo.setAccessibilityFocus(tag); }, 250);
+    return () => clearTimeout(timer);
+  }, [messageNonce]);
   const hasOptions = draft.options.length > 0;
   const summary = editorSummary(draft);
   const { t, i18n } = useTranslation();
@@ -71,7 +79,7 @@ export function ProductForm({
       <Button onPress={onSave} loading={saving} disabled={disabled}>{t('save')}</Button>
     </ProductTopBar>
     <ScrollView ref={page} style={styles.scroll} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
-      {errors.form ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{errors.form}</ThemedText> : null}
+      {errors.form ? <View ref={message} accessible><ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{errors.form}</ThemedText></View> : null}
       <ProductPhotosStrip photos={photos} disabled={disabled} />
       <FieldGroup style={card}>
         <Field required invalid={!!errors.name} disabled={disabled}>

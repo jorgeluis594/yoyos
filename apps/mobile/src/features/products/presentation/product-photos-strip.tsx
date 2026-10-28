@@ -140,14 +140,14 @@ export function ProductPhotosStrip({ photos, disabled = false }: { photos: Photo
           return <Pressable key={photo.key} ref={(node) => { if (node) nodes.current.set(photo.key, node); else nodes.current.delete(photo.key); }}
             accessibilityRole="button" accessibilityLabel={nameOf(photo, primary, position, field.photos.length, t)} accessibilityHint={t("photoHint")}
             accessibilityActions={actions.map((action) => ({ name: action.name, label: action.label }))}
-            onAccessibilityAction={(event) => actions.find((action) => action.name === event.nativeEvent.actionName)?.run()}
+            onAccessibilityAction={(event) => { if (!disabled) actions.find((action) => action.name === event.nativeEvent.actionName)?.run(); }}
             disabled={disabled} onPress={() => openSheet(photo, position)}
             style={[styles.thumb, { borderColor: photo.kind === "failed" || (photo.kind !== "uploading" && photo.rejected) ? theme.error : theme.border, backgroundColor: theme.backgroundElement }]}>
             {uri ? <Image source={{ uri }} contentFit="cover" style={[styles.image, (marked || photo.kind !== "saved" && photo.kind !== "uploaded") && styles.dim]} accessibilityElementsHidden importantForAccessibility="no" /> : null}
             {photo.kind === "uploading" ? <View style={styles.center}><ActivityIndicator color={theme.text} /></View> : null}
             {photo.kind === "failed" || (photo.kind !== "uploading" && photo.rejected)
               ? <View style={styles.center}><SymbolView name={{ ios: "exclamationmark.triangle.fill", android: "warning" }} size={24} tintColor={theme.error} /></View> : null}
-            {band ? <View style={[styles.band, { backgroundColor: theme.backgroundElement }]}><ThemedText type="small" style={styles.bandText}>{band}</ThemedText></View> : null}
+            {band ? <View style={[styles.band, { backgroundColor: theme.backgroundElement }]}><ThemedText type="small" style={styles.bandText} testID="photo-band-text">{band}</ThemedText></View> : null}
           </Pressable>;
         })}
       </ScrollView>
@@ -170,5 +170,6 @@ const styles = StyleSheet.create({
   dim: { opacity: 0.45 },
   center: { ...StyleSheet.absoluteFill, alignItems: "center", justifyContent: "center" },
   band: { position: "absolute", left: 0, right: 0, bottom: 0, paddingHorizontal: 2, paddingVertical: 1 },
-  bandText: { textAlign: "center", fontSize: 11, lineHeight: 13 },
+  // The band grows to a second line rather than shrinking the app's small text.
+  bandText: { textAlign: "center" },
 });

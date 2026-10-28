@@ -40,9 +40,10 @@ jest.mock("@mobile/features/products/composition", () => ({
 }));
 jest.mock("@mobile/features/printing/presentation/print-provider", () => ({ usePrint: () => ({ startAttempt: mockStartAttempt }) }));
 jest.mock("@mobile/features/products/presentation/use-product-navigation-guard", () => ({ useProductNavigationGuard: (dirty: boolean) => { mockGuard(dirty); return jest.fn(); } }));
-jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: 0 }) }));
+let mockDiscardVersion = 0;
+jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: mockDiscardVersion }) }));
 
-beforeEach(() => { jest.clearAllMocks(); mockOnline = true; });
+beforeEach(() => { jest.clearAllMocks(); mockOnline = true; mockDiscardVersion = 0; });
 
 test("printing with draft changes opens the print sheet and uses the saved product", async () => {
   mockLoadProduct.mockResolvedValue(ok(product));
@@ -323,12 +324,30 @@ describe("photos", () => {
     expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa");
   });
 
+  test("Cancelar or X with an upload in progress asks ¿Descartar cambios? and Descartar leaves the product as saved", async () => {
+    const view = renderScreen();
+    await screen.findByText("Editar producto");
+    expect(mockGuard).toHaveBeenLastCalledWith(false);
+    await addPhoto();
+    expect(mockGuard).toHaveBeenLastCalledWith(true);
+    mockDiscardVersion = 1;
+    view.rerender(<ProductEditorProvider><ProductManagementScreen /></ProductEditorProvider>);
+    await act(async () => { release(uploaded); });
+    expect(screen.getByLabelText("Foto 1 de 1, principal")).toBeTruthy();
+    expect(screen.queryByLabelText(/Foto 2 de/)).toBeNull();
+    expect(mockGuard).toHaveBeenLastCalledWith(false);
+  });
+
   test("a save rejected with TOO_MANY_PHOTOS shows the form-level message and keeps the form", async () => {
+    jest.useFakeTimers();
+    jest.spyOn(jest.requireActual("react-native"), "findNodeHandle").mockReturnValue(9);
     mockSaveProduct.mockResolvedValue(err({ code: "VALIDATION_ERROR", message: "x", issues: [{ scope: "product", field: "photoIds", reason: "TOO_MANY_PHOTOS", maximum: 8 }] }));
     renderScreen();
     fireEvent.changeText(await screen.findByLabelText("Nombre *"), "Camisa nueva");
     await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
     expect(screen.getByText("Un producto puede tener hasta 8 fotos. Quita alguna y guarda de nuevo.")).toBeTruthy();
+    await act(async () => { jest.advanceTimersByTime(300); });
+    expect(AccessibilityInfo.setAccessibilityFocus).toHaveBeenCalledWith(9);
     expect(screen.getByLabelText("Nombre *").props.value).toBe("Camisa nueva");
   });
 
