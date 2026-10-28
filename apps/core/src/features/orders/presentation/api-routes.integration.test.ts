@@ -1171,6 +1171,19 @@ test("seller list and detail do not include unconfirmed catalog orders, and incl
   expect(await ids("/api/orders")).toEqual([completed]);
 });
 
+test("GET /api/orders/:id/aggregate returns the item's mentioned price", async () => {
+  const seller = await fixture("PE");
+  const orderId = randomUUID();
+  expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity: 2 }] })).status).toBe(201);
+  const unpriced = orderAggregateSchema.parse(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json());
+  expect(unpriced.items.map((item) => item.mentionedPrice)).toEqual([null]);
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.orderItem.updateMany({ where: { orderId }, data: { mentionedPriceAmount: "7.5", mentionedPriceUnits: 2 } });
+  });
+  const priced = orderAggregateSchema.parse(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json());
+  expect(priced.items[0]?.mentionedPrice).toEqual({ amount: { amount: 7.5, currency: "PEN" }, units: 2 });
+});
+
 async function reportedOrder(seller: Awaited<ReturnType<typeof fixture>>, quantity = 1) {
   const orderId = randomUUID();
   const paymentId = randomUUID();

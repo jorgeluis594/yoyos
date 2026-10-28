@@ -185,6 +185,39 @@ test("listMessages pages by arrival sequence and ignores other companies", async
   database.close();
 });
 
+test("findByCoreMessageId finds the synced message of the company and null otherwise", async () => {
+  const { database, store, linked } = await setup();
+  const placement = await linked();
+  await store.saveOnce(text(1), placement, now);
+  await store.saveOnce(text(2, "3@lid"), placement, now);
+  await store.markSynced(text(2, "3@lid").id, "core-2" as CoreMessageId, now);
+  expect(await store.findByCoreMessageId(company, "core-2" as CoreMessageId)).toMatchObject({ success: true, data: { id: text(2).id, chatId: "3@lid", arrivalSeq: 2 } });
+  expect(await store.findByCoreMessageId(otherCompany, "core-2" as CoreMessageId)).toEqual({ success: true, data: null });
+  expect(await store.findByCoreMessageId(company, "core-9" as CoreMessageId)).toEqual({ success: true, data: null });
+  database.close();
+});
+
+test("findByCoreMessageId uses the company and core message index", async () => {
+  const { database } = await setup();
+  const plan = await database.getAllAsync<{ detail: string }>(
+    "EXPLAIN QUERY PLAN SELECT * FROM whatsapp_messages WHERE company_id = ? AND core_message_id = ?", ["c", "m"]);
+  expect(plan.map((row) => row.detail).join(" ")).toContain("whatsapp_messages_core");
+  database.close();
+});
+
+test("listFromArrivalSeq returns the chat messages from the sequence to the newest, newest first, up to the limit", async () => {
+  const { database, store, linked } = await setup();
+  const placement = await linked();
+  for (const n of [1, 2, 3, 4, 5]) await store.saveOnce(text(n, n === 3 ? "3@lid" : "2@lid"), placement, now);
+  const chat = "2@lid" as WhatsAppChatId;
+  const all = await store.listFromArrivalSeq(company, chat, 2, 10);
+  expect(all.success && all.data.map((m) => m.arrivalSeq)).toEqual([5, 4, 2]);
+  const limited = await store.listFromArrivalSeq(company, chat, 1, 2);
+  expect(limited.success && limited.data.map((m) => m.arrivalSeq)).toEqual([5, 4]);
+  expect(await store.listFromArrivalSeq(otherCompany, chat, 1, 10)).toEqual({ success: true, data: [] });
+  database.close();
+});
+
 test("findImage returns the reference for the company and null otherwise", async () => {
   const { database, store, linked } = await setup();
   const placement = await linked();

@@ -161,7 +161,7 @@ async function withSeededVariants(run: (ctx: { mine: { id: string; qrCode: strin
 test("findSellableVariantsByQrCodes returns active variants with price, currency and qrCode", () => withSeededVariants(async ({ mine, companyA, find, withTenantIsolation }) => {
   await withTenantIsolation(companyA, async () => {
     expect(await find([mine.qrCode, randomUUID()])).toEqual({ success: true, data: [
-      { variantId: mine.id, qrCode: mine.qrCode, productName: "Camisa", variantAttributes: { color: "azul" }, sku: "CAM-1", unitPrice: { amount: 19.99, currency: "PEN" } },
+      { variantId: mine.id, productId: expect.any(String), qrCode: mine.qrCode, productName: "Camisa", variantAttributes: { color: "azul" }, sku: "CAM-1", unitPrice: { amount: 19.99, currency: "PEN" } },
     ] });
   });
 }));
@@ -177,22 +177,5 @@ test("findSellableVariantsByQrCodes does not return a deactivated variant", () =
     const inactive = { id: randomUUID(), qrCode: randomUUID() };
     await seedProduct({ variants: [{ ...inactive, attributes: { Color: "Rojo" }, status: "inactive" }, { attributes: { Color: "Azul" } }] });
     expect(await find([mine.qrCode, inactive.qrCode])).toMatchObject({ success: true, data: [{ variantId: mine.id }] });
-  });
-}));
-
-test("findSellableVariantsOfProduct returns the active variants of the product with price and currency", () => withSeededVariants(async ({ companyA, withTenantIsolation }) => {
-  const { findSellableVariantsOfProduct } = await import("@core/src/features/products/infrastructure/order-stock");
-  await withTenantIsolation(companyA, async () => {
-    const first = randomUUID();
-    const second = randomUUID();
-    const { productId } = await seedProduct({ name: "Camisa", variants: [
-      { id: first, attributes: { color: "azul" }, sku: "CAM-2", salePrice: 19.99 },
-      { id: second, attributes: { color: "rojo" }, salePrice: 25 },
-    ] });
-    const found = await findSellableVariantsOfProduct(productId as ProductId);
-    expect(found.success && [...found.data].sort((a, b) => a.variantId.localeCompare(b.variantId))).toEqual([
-      { variantId: first, productName: "Camisa", variantAttributes: { color: "azul" }, sku: "CAM-2", unitPrice: { amount: 19.99, currency: "PEN" } },
-      { variantId: second, productName: "Camisa", variantAttributes: { color: "rojo" }, sku: null, unitPrice: { amount: 25, currency: "PEN" } },
-    ].sort((a, b) => a.variantId.localeCompare(b.variantId)));
   });
 }));

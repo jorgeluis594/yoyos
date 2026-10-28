@@ -6,7 +6,7 @@ import type { ProductId } from "@core/src/features/products/domain/product";
 
 /** What the provider's HTTP boundary answers; each adapter test translates it to its provider's wire format. */
 export type ProviderReply =
-  | Readonly<{ kind: "choice"; choice: string; confidence: number }>
+  | Readonly<{ kind: "choice"; choice: string; confidence: number; showsProduct: number }>
   | Readonly<{ kind: "malformed" }>
   | Readonly<{ kind: "status"; status: number }>
   | Readonly<{ kind: "timeout" }>
@@ -25,22 +25,22 @@ async function input() {
 /** Every ChooseProduct adapter runs this suite against its controlled HTTP boundary. */
 export function productChooserContract(harness: ChooserHarness) {
   test("sends the query image and every candidate image once", async () => {
-    const adapter = harness({ kind: "choice", choice: "A", confidence: 0.9 });
+    const adapter = harness({ kind: "choice", choice: "A", confidence: 0.9, showsProduct: 0.9 });
     await adapter.choose(await input());
     expect(adapter.sentImages()).toEqual([3]);
   });
 
   test("returns the candidate chosen in the provider's structured output", async () => {
-    expect(await harness({ kind: "choice", choice: "B", confidence: 0.91 }).choose(await input()))
-      .toEqual({ success: true, data: { kind: "product", productId: "product-b", confidence: 0.91 } });
+    expect(await harness({ kind: "choice", choice: "B", confidence: 0.91, showsProduct: 0.8 }).choose(await input()))
+      .toEqual({ success: true, data: { kind: "product", productId: "product-b", confidence: 0.91, showsProduct: 0.8 } });
   });
 
   test("returns none when the provider answers none", async () => {
-    expect(await harness({ kind: "choice", choice: "none", confidence: 0.7 }).choose(await input())).toEqual({ success: true, data: { kind: "none" } });
+    expect(await harness({ kind: "choice", choice: "none", confidence: 0.7, showsProduct: 0.1 }).choose(await input())).toEqual({ success: true, data: { kind: "none", confidence: 0.7, showsProduct: 0.1 } });
   });
 
   test("returns INVALID_MATCHER_RESPONSE when the provider output is not the expected JSON", async () => {
-    for (const reply of [{ kind: "malformed" }, { kind: "choice", choice: "Z", confidence: 0.9 }, { kind: "status", status: 400 }] as const) {
+    for (const reply of [{ kind: "malformed" }, { kind: "choice", choice: "Z", confidence: 0.9, showsProduct: 0.9 }, { kind: "status", status: 400 }] as const) {
       expect(await harness(reply).choose(await input())).toMatchObject({ success: false, error: { code: "INVALID_MATCHER_RESPONSE" } });
     }
   });

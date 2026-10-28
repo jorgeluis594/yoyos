@@ -21,6 +21,8 @@
     "react-router.config.ts",
     "vite.config.ts",
     "vitest.config.ts",
+    "vitest.evals.config.ts",
+    "evals",
     "../../shared/**/*.ts"
   ]
 }

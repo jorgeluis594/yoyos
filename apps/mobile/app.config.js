@@ -4,7 +4,14 @@ const development = process.env.NODE_ENV === 'development';
 module.exports = {
   ...expo,
   scheme: 'yoyos',
-  android: { ...expo.android, package: 'com.yoyos.mobile', minSdkVersion: 24 },
+  // EAS injects GOOGLE_SERVICES_JSON as a file secret (FCM v1); google-services.json stays out of Git.
+  android: {
+    ...expo.android,
+    package: 'com.yoyos.mobile',
+    minSdkVersion: 24,
+    ...(process.env.GOOGLE_SERVICES_JSON ? { googleServicesFile: process.env.GOOGLE_SERVICES_JSON } : {}),
+  },
+  extra: { ...expo.extra, eas: { ...expo.extra?.eas, ...(process.env.EAS_PROJECT_ID ? { projectId: process.env.EAS_PROJECT_ID } : {}) } },
   ios: {
     ...expo.ios,
     deploymentTarget: '16.4',
@@ -19,6 +26,7 @@ module.exports = {
   plugins: [
     ...expo.plugins,
     'expo-asset',
+    ['expo-notifications', { defaultChannel: 'chat-notices' }],
     ['expo-sqlite', { useSQLCipher: true }],
     ['expo-image-picker', {
       photosPermission: 'Permitir que Yoyos use tus fotos en productos.',

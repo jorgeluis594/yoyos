@@ -8,6 +8,7 @@
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import type { CancellationRequestError, CancellationRecoveryError } from "@mobile/features/orders/application/cancel-order";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
+import { mentionedPriceNote } from "@shared/mentioned-price";
 import { PaymentFields, type PaymentFieldsValue } from "@mobile/features/orders/presentation/payment-fields";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { AccessibilityInfo, ActivityIndicator, KeyboardAvoidingView, Linking, Modal, Platform, Pressable, ScrollView, Share, StyleSheet, View } from "react-native";
@@ -27,6 +28,7 @@ import { Button } from "@mobile/components/ui/button";
 import { Field, FieldLabel } from "@mobile/components/ui/field";
 import { Input } from "@mobile/components/ui/input";
 import { ScreenState } from "@mobile/components/ui/screen-state";
+import { useNotices } from "@mobile/features/notifications/composition";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { deliveryMethodLabel, deliveryStatusLabel, documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
@@ -39,6 +41,9 @@ import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
 
 const money = (amount: number, currency: string, locale: string) => new Intl.NumberFormat(locale, { style: "currency", currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(amount);
 const date = (value: string, locale: string) => new Intl.DateTimeFormat(locale, { dateStyle: "long", timeStyle: "short", timeZone: "America/Lima" }).format(new Date(value));
+
+/** Notices that arrive in a burst refresh the open order once, this long after the first. */
+const noticeReloadWindowMs = 2000;
 
 export type CancellationUiState =
   | Readonly<{ kind: "idle" }>
@@ -57,7 +62,7 @@ export default function OrderDetailScreen() {
   const theme = useTheme();
   const { t, i18n } = useTranslation();
   const locale = i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE';
-  const { id } = useLocalSearchParams<{ id: string }>();
+  const { id, noticeAt } = useLocalSearchParams<{ id: string; noticeAt?: string }>();
   const { state } = useAccess();
   const { notice, clear } = useOrderResult();
   const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
@@ -96,16 +101,40 @@ export default function OrderDetailScreen() {
   const checkoutLink: CheckoutLinkState = linkResult && linkResult.orderId === order?.id ? linkResult.link : { kind: "loading" };
   const { copied, copy: copyLink, open: openLink } = useCopyLink(checkoutLink.kind === "ready" ? checkoutLink.url : null);
   const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling;
-  const reload = useCallback(async () => {
+  const reload = useCallback(async (silent = false) => {
     const generation = checkoutGeneration.current;
     const requestScope = scope;
-    setLoading(true);
+    if (!silent) setLoading(true);
     const result = await orders.loadOrderAggregate(id);
     if (generation !== checkoutGeneration.current || requestScope !== currentScope.current) return;
+    // A refresh the seller did not ask for keeps what is on screen when it fails.
     if (result.success) { setOrder(result.data); setError(""); loaded.current = true; }
-    else setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
+    else if (!silent) setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
   }, [id, scope]);
+  // A notice tapped while this very order is open navigates to the same route; its `noticeAt` is the only change.
+  const handledNoticeAt = useRef(noticeAt);
+  useFocusEffect(useCallback(() => {
+    if (noticeAt === handledNoticeAt.current) return;
+    handledNoticeAt.current = noticeAt;
+    if (companyId) void reload(true);
+  }, [noticeAt, companyId, reload]));
+  const noticeWatch = useNotices()?.watchArrivals;
+  const writing = useRef(false);
+  useLayoutEffect(() => { writing.current = writeBusy; });
+  // Any notice that arrives while the order is open may have changed it: refresh it, coalescing a burst.
+  useFocusEffect(useCallback(() => {
+    if (!noticeWatch || !companyId) return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    const refresh = () => {
+      // A write in flight owns the screen; look again after it settles.
+      if (writing.current || cancellationLock.current) { timer = setTimeout(refresh, noticeReloadWindowMs); return; }
+      timer = null;
+      void reload(true);
+    };
+    const stop = noticeWatch(() => { if (timer === null) timer = setTimeout(refresh, noticeReloadWindowMs); });
+    return () => { stop(); if (timer !== null) clearTimeout(timer); };
+  }, [noticeWatch, companyId, reload]));
   async function confirmPayment(paymentId: string, source: "manual" | "buyer_report", amountText: string,
     method: "digital_wallet" | "bank_transfer", deductStockIfPartial: boolean) {
     if (!order || cancellationLock.current || writeBusy || order.cancelled) return;
@@ -311,15 +340,22 @@ export default function OrderDetailScreen() {
         </View> : null}
         <View onLayout={(event) => { summaryPosition.current = event.nativeEvent.layout.y; }} style={[styles.card, cardStyle]}>
           <ThemedText type="subtitle" accessibilityRole="header">{t('detailProducts', { count: order.items.reduce((sum, item) => sum + item.quantity, 0) })}</ThemedText>
-          {order.items.map((item, index) => <View key={item.id} style={[styles.product, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.border }]}>
+          {order.items.map((item, index) => {
+            const note = mentionedPriceNote(item);
+            const noteText = note ? t('mentionedPrice', { count: note.units, amount: money(note.amount, item.unitPrice.currency, locale) }) : null;
+            const variant = Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ");
+            const label = [[item.productName, variant, item.sku ? `SKU ${item.sku}` : null, t('orderItemDetailLabel', { quantity: item.quantity, unit: format(item.unitPrice), subtotal: format(item.subtotal) })].filter(Boolean).join(", "), noteText].filter(Boolean).join(". ");
+            return <View key={item.id} accessible accessibilityLabel={label} style={[styles.product, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.border }]}>
             <View style={styles.productIdentity}>
               <ThemedText style={styles.semibold}>{item.productName}</ThemedText>
-              {Object.entries(item.variantAttributes).length > 0 ? <ThemedText type="small" themeColor="textSecondary">{Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ")}</ThemedText> : null}
+              {Object.entries(item.variantAttributes).length > 0 ? <ThemedText type="small" themeColor="textSecondary">{variant}</ThemedText> : null}
               {item.sku ? <ThemedText type="small" themeColor="textSecondary">SKU {item.sku}</ThemedText> : null}
               <ThemedText type="small" themeColor="textSecondary">{item.quantity} × {format(item.unitPrice)}</ThemedText>
+              {noteText ? <ThemedText type="small" themeColor="textSecondary">{noteText}</ThemedText> : null}
             </View>
             <ThemedText style={styles.amount}>{format(item.subtotal)}</ThemedText>
-          </View>)}
+          </View>;
+          })}
           <View onLayout={(event) => { paymentPosition.current = event.nativeEvent.layout.y; }} style={[styles.paymentSummary, { borderColor: theme.border }]}>
             <View style={styles.row}>
               <ThemedText style={styles.semibold} accessibilityRole="header">{t('detailPayment')}</ThemedText>

@@ -165,7 +165,7 @@ const completed = (): OrderAggregateResponse => ({ number: 1001, id: id(3), comp
   cancelled: false, delivery: null, deliveryStatus: "delivered", stockDeducted: true,
   itemsTotal: total, deliveryCost: zero, deliveryCharge: zero, total,
   payments: [{ id: id(6), orderId: id(3), amount: total, method: "digital_wallet", status: "confirmed", data: { confirmedAt: "2026-09-29T12:00:00.000Z", confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } }],
-  items: [{ id: id(5), variantId: id(2), productName: "Sample", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total }] });
+  items: [{ id: id(5), variantId: id(2), productName: "Sample", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] });
 
 test("a sale core already has completes with the amount first shown and leaves the queue", async () => {
   const order = completed();

@@ -40,3 +40,11 @@ test("offline logout succeeds locally and reports that remote revocation was not
   });
   expect(result).toEqual(ok({ remoteRevocation: "unconfirmed" }));
 });
+
+test("logout tells the private state cleanup whether core confirmed the revocation", async () => {
+  const seen: string[] = [];
+  const base = { invalidatePendingOperations: () => {}, clearPrivateState: (revocation: string) => { seen.push(revocation); }, clearLocalSession: async () => ok(undefined) };
+  await signOut({ ...base, revokeSession: async () => ok(undefined) });
+  await signOut({ ...base, revokeSession: async () => err({ code: "NETWORK_ERROR" as const, message: "offline" }) });
+  expect(seen).toEqual(["confirmed", "unconfirmed"]);
+});

@@ -1,7 +1,9 @@
 import express from "express";
+import { catalogSearchReadinessResponseSchema } from "@shared/contracts/catalog-search-readiness";
 import { createProductRequestSchema, productListQuerySchema, saveProductRequestSchema } from "@shared/contracts/products";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { productEditing } from "@core/src/features/products/product-editing";
+import { products } from "@core/src/features/products/composition";
 import { handleUnexpected, productIdFrom, sendInvalid, sendOperationError, zodIssues } from "@core/src/features/products/presentation/api-errors";
 import { toCreateInput, toSaveInput } from "@core/src/features/products/presentation/request-input";
 import { toProductDetailResponse, toProductIdResponse, toProductListResponse } from "@core/src/features/products/presentation/product-presenter";
@@ -22,6 +24,16 @@ productRoutes.get("/", async (request, response) => {
     const result = await productEditing.list(parsed.data, { includeImages: true });
     if (!result.success) return sendOperationError(response, result.error);
     return response.json(toProductListResponse(result.data));
+  } catch (error) {
+    return handleUnexpected(response, error);
+  }
+});
+
+productRoutes.get("/search-readiness", async (_request, response) => {
+  try {
+    const readiness = await products.catalogSearchReadiness();
+    if (!readiness.success) return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");
+    return response.json(catalogSearchReadinessResponseSchema.parse({ version: 1, state: readiness.data }));
   } catch (error) {
     return handleUnexpected(response, error);
   }

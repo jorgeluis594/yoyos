@@ -4,7 +4,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { type DispatchDate } from "@shared/dispatch-date";
 import { z } from "zod";
-import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type OrderId, type OrderItem, type OrderItemId, type PositiveInteger, type UserId } from "@core/src/features/orders/domain/order";
+import { buildOrder, type BuildOrderInput, type BuildOrderError, type CompanyId, type MentionedPrice, type OrderId, type OrderItem, type OrderItemId, type PositiveInteger, type UserId } from "@core/src/features/orders/domain/order";
 import { parsePayment, rejectPayment, voidPayment, type ConfirmedPayment, type Payment, type Rejection, type RejectedPayment, type ReportedPayment } from "@core/src/features/orders/domain/payment";
 import { parsePeruDistrictCode, peruDeliveryDistrict, type PeruDistrictCode, type PeruDistrictError } from "@shared/peru-geography";
 import type { QuotationId, DeliveryRateId, DeliveryOptionId, DeliveryAgencyId, DeliverySettingsVersion, ResolvedDeliveryRate, CourierId } from "@core/src/features/delivery-settings";
@@ -241,19 +241,75 @@ function lifecycle(order: OrderAggregate): Result<OrderLifecycle, AggregateValid
   return order.completedAt === null ? ok({ status: "active", completedAt: null }) : failure("INVALID_ORDER", "Active order has completion date");
 }
 
-function appendItems(order: OrderAggregate, variants: readonly Pick<OrderItem, "variantId" | "productName" | "variantAttributes" | "sku" | "unitPrice">[], newItemId: () => OrderItemId): Result<OrderAggregate, BuildOrderError> {
-  const items: OrderItem[] = [...order.items];
-  for (const variant of variants) {
-    const index = items.findIndex((item) => item.variantId === variant.variantId);
-    if (index >= 0) { items[index] = { ...items[index]!, quantity: (items[index]!.quantity + 1) as PositiveInteger }; continue; }
-    const { variantId, productName, variantAttributes, sku, unitPrice } = variant;
-    items.push({ id: newItemId(), variantId, productName, variantAttributes, sku, quantity: 1 as PositiveInteger, unitPrice, subtotal: unitPrice });
-  }
+type AppendedVariant = Pick<OrderItem, "variantId" | "productName" | "variantAttributes" | "sku" | "unitPrice"> & Readonly<{ quantity?: PositiveInteger; mentionedPrice?: MentionedPrice | null }>;
+
+function withItems(order: OrderAggregate, items: readonly OrderItem[]): Result<OrderAggregate, BuildOrderError> {
   const built = buildOrder({ id: order.id, companyId: order.companyId, sellerId: order.sellerId, customer: { kind: "general_public" }, createdAt: order.createdAt, items });
   if (!built.success) return built;
   const total = add(order.deliveryCharge)(built.data.total);
   if (!total.success || !validMoney(total.data, true)) return failure("INVALID_ORDER", "Total exceeds supported range");
   return ok({ ...order, items: built.data.items, itemsTotal: built.data.total, total: total.data });
+}
+
+function appendItems(order: OrderAggregate, variants: readonly AppendedVariant[], newItemId: () => OrderItemId): Result<OrderAggregate, BuildOrderError> {
+  const items: OrderItem[] = [...order.items];
+  for (const variant of variants) {
+    const quantity = variant.quantity ?? (1 as PositiveInteger);
+    const index = items.findIndex((item) => item.variantId === variant.variantId);
+    if (index >= 0) {
+      const current = items[index]!;
+      items[index] = { ...current, quantity: (current.quantity + quantity) as PositiveInteger, mentionedPrice: variant.mentionedPrice ?? current.mentionedPrice ?? null };
+      continue;
+    }
+    const { variantId, productName, variantAttributes, sku, unitPrice } = variant;
+    items.push({ id: newItemId(), variantId, productName, variantAttributes, sku, quantity, unitPrice, subtotal: unitPrice, mentionedPrice: variant.mentionedPrice ?? null });
+  }
+  return withItems(order, items);
+}
+
+function itemIndex(order: OrderAggregate, itemId: OrderItemId): Result<number, BuildOrderError> {
+  const index = order.items.findIndex((item) => item.id === itemId);
+  return index >= 0 ? ok(index) : failure("INVALID_ORDER", "Item is not in the order");
+}
+
+/** Removes an item. An order never ends without items, so the only item cannot be removed. */
+function removeItem(order: OrderAggregate, itemId: OrderItemId): Result<OrderAggregate, BuildOrderError> {
+  const index = itemIndex(order, itemId);
+  if (!index.success) return index;
+  if (order.items.length === 1) return failure("INVALID_ORDER", "An order needs at least one item");
+  return withItems(order, order.items.filter((item) => item.id !== itemId));
+}
+
+function setItemQuantity(order: OrderAggregate, itemId: OrderItemId, quantity: number): Result<OrderAggregate, BuildOrderError> {
+  const index = itemIndex(order, itemId);
+  if (!index.success) return index;
+  if (!Number.isSafeInteger(quantity) || quantity < 1) return failure("INVALID_ORDER", "Quantity must be a positive whole number");
+  return withItems(order, order.items.map((item) => item.id === itemId ? { ...item, quantity: quantity as PositiveInteger } : item));
+}
+
+/**
+ * Replaces the variant of an item, keeping its quantity and position, under a new item row. When the new variant is already in the order, the quantities add up on that item.
+ * The mentioned price is kept only when `mentionedPrice` is given; an existing item that absorbs the quantity keeps its own when none is given.
+ */
+function replaceItemVariant(order: OrderAggregate, itemId: OrderItemId, variant: Pick<OrderItem, "variantId" | "productName" | "variantAttributes" | "sku" | "unitPrice">,
+  mentionedPrice: MentionedPrice | null, newItemId: () => OrderItemId): Result<OrderAggregate, BuildOrderError> {
+  const index = itemIndex(order, itemId);
+  if (!index.success) return index;
+  const old = order.items[index.data]!;
+  const existing = order.items.find((item) => item.id !== itemId && item.variantId === variant.variantId);
+  if (existing) {
+    const merged: OrderItem = { ...existing, quantity: (existing.quantity + old.quantity) as PositiveInteger, mentionedPrice: mentionedPrice ?? existing.mentionedPrice ?? null };
+    return withItems(order, order.items.filter((item) => item.id !== itemId).map((item) => item.id === existing.id ? merged : item));
+  }
+  const { variantId, productName, variantAttributes, sku, unitPrice } = variant;
+  const replacement: OrderItem = { id: newItemId(), variantId, productName, variantAttributes, sku, quantity: old.quantity, unitPrice, subtotal: unitPrice, mentionedPrice };
+  return withItems(order, order.items.map((item) => item.id === itemId ? replacement : item));
+}
+
+function setItemMentionedPrice(order: OrderAggregate, itemId: OrderItemId, mentionedPrice: MentionedPrice | null): Result<OrderAggregate, BuildOrderError> {
+  const index = itemIndex(order, itemId);
+  if (!index.success) return index;
+  return withItems(order, order.items.map((item) => item.id === itemId ? { ...item, mentionedPrice } : item));
 }
 
 function setDelivery(order: OrderAggregate, change: SetDeliveryChange): Result<OrderAggregate, OrderDomainError> {
@@ -406,5 +462,5 @@ function cancel(order: OrderAggregate): Result<CancellationPlan, CancellationDom
     emitOrderCancelled: !order.cancelled });
 }
 
-export const orderStateMachine = { appendItems, setDelivery, canSetDelivery, registerPayment, addReportedPayment, voidConfirmedPayment, rejectReportedPayment, rejectionAwaitingNewReport, planStockDeduction, registerShipment, scheduleDispatch,
+export const orderStateMachine = { appendItems, removeItem, setItemQuantity, replaceItemVariant, setItemMentionedPrice, setDelivery, canSetDelivery, registerPayment, addReportedPayment, voidConfirmedPayment, rejectReportedPayment, rejectionAwaitingNewReport, planStockDeduction, registerShipment, scheduleDispatch,
   registerDelivery, cancel, getPaymentSummary: paymentSummary, getLifecycle: lifecycle } as const;

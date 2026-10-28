@@ -3,7 +3,7 @@
 The core backend publishes typed domain events and runs their handlers as
 durable jobs in a separate worker process. Use it for work that can happen after
 a business operation commits (restoring stock after a cancellation, indexing a
-product image, attaching message products to an order). Invariants that must
+product image, applying a chat message to an order, sending a seller notice). Invariants that must
 hold for an operation to succeed stay inside its business transaction; a later
 job never replaces them.
 
@@ -17,7 +17,7 @@ job never replaces them.
 | One queue per handler, shared by all companies | Each handler gets its own retry policy and backlog; a retry never re-runs handlers that already succeeded. |
 | `publishEvent` awaits job persistence and returns a `Result` | Persistence failures are visible to the use case instead of being lost by fire-and-forget. |
 | No outbox | Publication is separate from the business transaction; each use case decides how to report a publication failure. Rejected: building an outbox into the bus API. |
-| At-least-once delivery, no global ordering | A crash after an effect and before job completion re-runs the job, so every handler effect must be idempotent. |
+| At-least-once delivery, no global ordering; ordering per key is opt-in (`orderingKey`) | A crash after an effect and before job completion re-runs the job, so every handler effect must be idempotent. Only handlers whose effects depend on the previous job of the same key pay for ordering. |
 | The bus lives in `apps/core`, not in root `shared/` | It is backend infrastructure; mobile does not use it. |
 
 ## Concepts
@@ -59,6 +59,76 @@ reach application code.
   native `AbortSignal`; expiration does not undo external effects.
 - Completed and failed jobs are kept (`deleteAfterSeconds: 0`) for diagnosis and
   manual reprocessing. Schema growth must be watched.
+
+## Ordering, groups, deadlines and dead letter
+
+Opt-in `HandlerPolicy` fields, validated at startup (invalid values are
+rejected, never corrected). The in-memory provider ignores ordering, groups,
+expiry and retention, and calls the dead-letter handler after the last failed
+attempt.
+
+- `orderingKey(payload)`: the queue uses the pg-boss `key_strict_fifo` policy and
+  each job is sent with that `singletonKey`. Jobs of one key run one at a time in
+  publication order, and a retrying job holds back the next job of its key while
+  other keys keep running. It requires `deadLetter`.
+- `groupKey(payload)` and `groupConcurrency`: a job is sent with `group: { id }`
+  and at most `groupConcurrency` jobs of one group run at once per worker process
+  (see `localGroupConcurrency` below).
+- `retryDelayMaxSeconds`, `expireInSeconds`, `heartbeatSeconds` (at least 10 and
+  below `expireInSeconds`) and `deleteAfterSeconds` map to the pg-boss queue options.
+- `deadLetter: { id, handler, policy }`: the provider creates the dead-letter queue
+  and its worker. After the handler succeeds, the provider deletes the source job
+  (`deleteJob`, from the source name and ID the dead-letter job carries), which
+  releases its ordering key. If the deletion or the handler fails, the dead-letter
+  job fails and is retried, so the key stays blocked until the chat can be released.
+- The provider runs `superviseIntervalSeconds: 10` (supervise and monitor), so an
+  expired or heartbeat-less attempt is failed within about ten seconds.
+
+### pg-boss 12.35 checks (verified by integration tests)
+
+- A key with a job in `active`, `retry` or `failed` is blocked. A job that ends
+  `failed` is copied to the dead-letter queue and stays `failed` until deleted.
+- The dead-letter job carries the source job's name and ID (`includeMetadata`).
+- `groupConcurrency` (server side) works with `key_strict_fifo` but is checked by
+  each poller before it claims, so the concurrent pollers of one worker exceed the
+  limit. The provider therefore passes `localGroupConcurrency`: exact per worker
+  process, not shared across worker replicas. Use one worker replica, or divide
+  the limit, when a company-wide cap matters.
+- A crashed attempt is failed by `heartbeatSeconds` into `retry`; pg-boss raises
+  `retry_count` when the job is fetched again.
+
+### Queues with these policies
+
+| Queue | Event | Policy | Documented in |
+| --- | --- | --- | --- |
+| `apply-chat-message` | `message_created` | Ordering key = chat, group = company (8 per worker process, 16 slots), 8 retries from 5 s capped at 100 s, 85 s attempt deadline inside the handler, `expireInSeconds` 90, heartbeat 30 s, dead letter `apply-chat-message-dead-letter` (8 retries, 30 s fixed), 7-day retention | [message-to-order](message-to-order.md#order-of-processing-and-failures) |
+| `send-chat-message-notice` | `chat_message_processed` | No ordering key, concurrency 4, 5 retries from 15 s capped at 150 s, `expireInSeconds` 15, 7-day retention | [notifications](notifications.md#sending) |
+
+A handler that needs a deadline shorter than the job's expiry combines the job's
+`AbortSignal` with its own and passes it to its provider calls; expiry stays the
+safety net behind it.
+
+### Blocked keys
+
+`listBlockedKeys(handlerId)` returns the ordering keys held by a `failed` job
+(a missing queue counts as none). The scheduled job `report-blocked-chat-keys`
+runs every 5 minutes over the handlers with an `orderingKey` and logs
+`orders_chat_queue_blocked` (error, `handler`, `blockedKeys` count) when any key
+is blocked; with no ordered handler it logs nothing. Runbook:
+
+```sql
+SELECT id, singleton_key FROM pgboss.job WHERE name = '<handler-id>' AND state = 'failed';
+```
+
+Then `boss.retry('<handler-id>', id)` or delete the job after recording why.
+
+### Database pool
+
+Core builds Prisma on `@prisma/adapter-pg`, which ignores URL pool parameters.
+`DATABASE_POOL_MAX` is passed as `max` to `PrismaPg` (unset keeps the driver
+default of 10). The worker sets 24 in `compose.yaml`; the worker's connections
+(Prisma, pg-boss 10, publishing pool 10) plus the web server's must stay below
+PostgreSQL `max_connections`.
 
 ## Tenant isolation
 
@@ -144,7 +214,7 @@ required handlers are in the registry.
 
 - Reprocess a failed job only after fixing its cause and confirming the handler
   is idempotent: `boss.retry('<handler-id>', jobId)`. Record the reason and job ID.
-  For `add-message-products-to-order`, the event ID is the message ID, idempotency
-  comes from the `OrderMessage` primary key, a late retry may attach products to a
+  For `apply-chat-message`, the event ID is the message ID, idempotency comes from
+  the `ChatMessageOutcome` primary key, a late retry may apply the message to a
   different open order of the chat, and republishing `message_created` is not
   possible because the message is already marked as dispatched.

@@ -9,9 +9,18 @@ type PrismaState = {
   companies: AsyncLocalStorage<string>;
   transactions: AsyncLocalStorage<TransactionScope>;
 };
+/** The adapter ignores URL pool parameters, so the pool size comes from DATABASE_POOL_MAX (worker 24, web server unset = driver default 10). */
+export function prismaPoolConfig(env: Record<string, string | undefined> = process.env): { connectionString: string; max?: number } {
+  const connectionString = env.DATABASE_URL ?? "";
+  const configured = env.DATABASE_POOL_MAX;
+  if (configured === undefined || configured === "") return { connectionString };
+  if (!/^[1-9][0-9]*$/.test(configured)) throw new Error("DATABASE_POOL_MAX must be a positive integer");
+  return { connectionString, max: Number(configured) };
+}
+
 const globalPrisma = globalThis as typeof globalThis & { __yoyosPrisma?: PrismaState };
 const { base, companies, transactions } = globalPrisma.__yoyosPrisma ??= {
-  base: new PrismaClient({ adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL ?? "" }) }),
+  base: new PrismaClient({ adapter: new PrismaPg(prismaPoolConfig()) }),
   companies: new AsyncLocalStorage<string>(),
   transactions: new AsyncLocalStorage<TransactionScope>(),
 };

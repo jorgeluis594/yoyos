@@ -53,6 +53,7 @@ afterEach(async () => {
       await prisma.orderMessage.deleteMany({ where: { companyId } });
       await prisma.orderItem.deleteMany({ where: { companyId } });
       await prisma.order.deleteMany({ where: { companyId } });
+      await prisma.chatMessageOutcome.deleteMany({ where: { companyId } });
       await prisma.chatMessage.deleteMany({ where: { companyId } });
       await prisma.chat.deleteMany({ where: { companyId } });
       await prisma.orderBuyer.deleteMany({ where: { companyId } });

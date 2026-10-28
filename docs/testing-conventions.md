@@ -115,3 +115,12 @@ to also suppress pnpm's command banner. Core uses Vitest's minimal reporter;
 mobile uses Jest's summary reporter. Integration and E2E preparation and the E2E
 build print logs only if they fail. The existing `apps/core/scripts/run-tests.sh`
 handles output for both apps; package scripts select the corresponding suite.
+
+## AI Evals
+
+Evals of the model-backed message-to-order flow live in `apps/core/evals/` and run only through `pnpm --dir apps/core eval`; how to run them, the cases and the report are in its README.
+
+- They run the production code path with real models against the test database and synthetic data only, because a mocked model measures nothing and customer data must not leave the system.
+- They never run in CI or in `test:unit`, integration or e2e, because they cost money and their results vary between runs.
+- Scoring is exact match per field; a Claude judge counts only for cases that admit several answers, because an exact match is reproducible and a judge is not.
+- Paraphrases are generated once, reviewed and committed, so runs stay comparable.

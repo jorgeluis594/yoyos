@@ -25,15 +25,15 @@ test("findOrderSourceMessage returns image and text messages and hides other com
       const chat = await prisma.chat.create({ data: { contactId: contact.id } });
       const image = await prisma.image.create({ data: { storageKey: "k" } });
       const common = { ...base, chatId: chat.id };
-      const ready = await prisma.chatMessage.create({ data: { ...common, externalId: "ready", whatsappMessageId: "p1", type: "image", imageId: image.id } });
+      const ready = await prisma.chatMessage.create({ data: { ...common, externalId: "ready", whatsappMessageId: "p1", type: "image", imageId: image.id, caption: "2 en talla M" } });
       const text = await prisma.chatMessage.create({ data: { ...common, externalId: "text", whatsappMessageId: "p3", type: "text", text: "hola" } });
       return { contact, chat, image, ready, text };
     });
     await withTenantIsolation(a.id, async () => {
-      const expected = (m: { id: string }, imageId: string | null) => ({ success: true, data: {
-        id: m.id, companyId: a.id, chatId: rows.chat.id, contactId: rows.contact.id, direction: "incoming", uploadedByUserId: "uploader", imageId } });
-      expect(await findOrderSourceMessage(rows.ready.id)).toEqual(expected(rows.ready, rows.image.id));
-      expect(await findOrderSourceMessage(rows.text.id)).toEqual(expected(rows.text, null));
+      const expected = (m: { id: string }, imageId: string | null, text: string | null, caption: string | null) => ({ success: true, data: {
+        id: m.id, companyId: a.id, chatId: rows.chat.id, contactId: rows.contact.id, direction: "incoming", uploadedByUserId: "uploader", imageId, text, caption } });
+      expect(await findOrderSourceMessage(rows.ready.id)).toEqual(expected(rows.ready, rows.image.id, null, "2 en talla M"));
+      expect(await findOrderSourceMessage(rows.text.id)).toEqual(expected(rows.text, null, "hola", null));
       expect(await findOrderSourceMessage(randomUUID())).toEqual({ success: true, data: null });
     });
     await withTenantIsolation(b.id, async () => {

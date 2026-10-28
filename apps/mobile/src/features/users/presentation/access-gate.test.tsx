@@ -4,8 +4,28 @@ import { AccessProvider, useAccess } from '@/features/users/presentation/access-
 import { Pressable } from 'react-native';
 import { AccessGate } from '@/composition/access-gate';
 import { createAuthOperations } from '@/composition/create-auth-operations';
+import { notices } from '@mobile/composition/notifications';
 
 jest.mock('@mobile/composition/whatsapp-runtime', () => ({ getWhatsAppRuntime: jest.fn(() => new Promise(() => undefined)) }));
+jest.mock('@mobile/composition/notifications', () => ({
+  loadCatalogReadiness: jest.fn(async () => ({ success: true, data: 'ready' })),
+  noticeInbox: {},
+  resolveNoticeOrder: jest.fn(),
+  notices: {
+    setSession: jest.fn(), flushPending: jest.fn(async () => false), sync: jest.fn(async () => 'skipped'), permission: jest.fn(async () => 'granted'),
+    onTokenChange: jest.fn(() => () => undefined), enable: jest.fn(), promptOnConnected: jest.fn(),
+  },
+}));
+jest.mock('@mobile/features/notifications/presentation/notice-responses', () => {
+  const { Text: MockText } = jest.requireActual('react-native');
+  return {
+    NoticeResponseCapture: () => <MockText>Notice capture</MockText>,
+  };
+});
+jest.mock('@mobile/composition/notice-opener', () => {
+  const { Text: MockText } = jest.requireActual('react-native');
+  return { NoticeOpener: () => <MockText>Notice opener</MockText> };
+});
 jest.mock('@mobile/components/root-stack', () => {
   const { Text: MockText } = jest.requireActual('react-native');
   return function RootStack() { return <MockText>Private tabs</MockText>; };
@@ -34,6 +54,12 @@ test('only ready mounts private routes, and logout removes them', async () => {
   fireEvent.press(screen.getByLabelText('Test logout'));
   await screen.findByText('Bienvenido a Yoyos');
   expect(screen.queryByText('Private tabs')).toBeNull();
+});
+
+test('a pending unregister is sent while signed out', async () => {
+  render(<AccessProvider operations={{ ...operations, restoreSession: async () => ok(null) }}><AccessGate /></AccessProvider>);
+  await screen.findByText('Bienvenido a Yoyos');
+  expect(notices.flushPending).toHaveBeenCalled();
 });
 
 test('late sign-in result cannot remount private routes after logout', async () => {
@@ -92,4 +118,18 @@ test('a rejected session check retries, then a direct null response shows login'
   await screen.findByText('Bienvenido a Yoyos');
   expect(screen.getByLabelText('Correo *')).toBeTruthy();
   expect(sessionReads).toBe(2);
+});
+
+test('taps on notices are captured while signed out and opened only inside private routes', async () => {
+  render(<AccessProvider operations={{ ...operations, restoreSession: async () => ok(null) }}><AccessGate /></AccessProvider>);
+  await screen.findByText('Bienvenido a Yoyos');
+  expect(screen.getByText('Notice capture')).toBeTruthy();
+  expect(screen.queryByText('Notice opener')).toBeNull();
+});
+
+test('the notice opener is mounted with the private routes', async () => {
+  render(<AccessProvider operations={operations}><AccessGate /></AccessProvider>);
+  await screen.findByText('Private tabs');
+  expect(screen.getByText('Notice opener')).toBeTruthy();
+  expect(screen.getByText('Notice capture')).toBeTruthy();
 });

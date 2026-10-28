@@ -36,24 +36,36 @@ import { getOrderAggregate } from "@core/src/features/orders/application/read-or
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
-import { allocateOrderNumber, findProcessedMessage, findOpenChatOrderCandidate, saveAddedItems, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariants, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
-import { ensureCustomerForContact } from "@core/src/features/contacts";
+import { allocateOrderNumber, findOrderNumbers, findOpenChatOrderCandidate, findChatOrderTargetForUpdate, saveItemChanges, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
+import { findSellableVariants, findProductIdsOfVariants, findProductNoticeNames, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
+import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
-import { addMessageProductsToOrder, type AddMessageProductsDependencies, type AddMessageProductsError, type MessageProductMatch } from "@core/src/features/orders/application/add-message-products-to-order";
-import { messageOrderPolicy } from "@core/src/features/orders/application/message-order-policy";
+import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
+import { createChatToolRegistry } from "@core/src/features/orders/infrastructure/chat-tools";
+import { createChatToolActions } from "@core/src/features/orders/application/chat-message-actions";
+import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
+import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
+import { createChatMessageDeadLetterHandler, createChatMessageHandler, type ChatMessageHandlerDependencies } from "@core/src/features/orders/application/chat-message-handler";
+import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
+import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
+import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
+import { claimNotice, releaseNotice } from "@core/src/features/orders/infrastructure/chat-message-notice-repository";
+import type { ClaimedNotice } from "@core/src/features/orders/domain/seller-notice";
+import { describeChatMessageNotice as describeNotice, type NoticeLocale } from "@core/src/features/orders/application/describe-chat-message-notice";
+import { findSellerNoticeTarget } from "@core/src/features/orders/application/find-seller-notice-target";
+import { renderSellerNotice } from "@core/src/features/orders/presentation/seller-notice-texts";
+import { createAiToolsFromEnv } from "@core/src/shared/ai-tools/composition";
+import { isOpenForMessageItems } from "@core/src/features/orders/domain/message-order";
 import { products } from "@core/src/features/products/composition";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
-import type { EventHandler } from "@core/src/shared/events/application/contracts";
-import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { findAvailablePublicImage, readImageBytes, resolvePublicImages } from "@core/src/shared/images";
 import { companyPaymentSettings } from "@core/src/features/companies";
 import type { ImageId, VariantId } from "@core/src/features/products/domain/product";
 import { orderStateMachine } from "@core/src/features/orders/domain/order-state-machine";
 import type { BuyerPaymentView } from "@shared/contracts/orders";
-import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
+import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 
 async function orderTransaction<T, E extends AppError>(callback: () => Promise<Result<T, E>>, deliveryContext?: Readonly<{ orderId: string; userId: string }>): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
   try {
@@ -297,6 +309,12 @@ async function createConfiguredCatalogOrder(input: CreateCatalogOrderInput, acce
 }
 
 export const orders = {
+  // Notice capabilities for notifications. They run inside the company's tenant context.
+  claimChatMessageNotice: (messageId: ChatMessageId) => claimNotice(messageId),
+  describeChatMessageNotice: (claim: ClaimedNotice, locale: NoticeLocale) => describeNotice(claim, locale, {
+    companyId: getCompanyId, findOrderNumbers, findProductNames: findProductNoticeNames, render: renderSellerNotice }),
+  releaseChatMessageNotice: (messageId: ChatMessageId) => releaseNotice(messageId),
+  findSellerNoticeTarget: (messageId: ChatMessageId) => findSellerNoticeTarget(messageId, { findOutcome, orderExists }),
   confirmCheckoutDelivery: async (input: ConfirmCheckoutDeliveryInput, access: CheckoutAccess) => {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "confirm_checkout" });
@@ -435,10 +453,35 @@ export const orders = {
   searchProducts: searchSaleCatalog,
 };
 
-type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
-
 // Chats and contacts return plain strings; the brands belong to orders and are applied only here.
-const messageOrderDependencies: AddMessageProductsDependencies = {
+const persistenceUnavailable = (message: string) => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message });
+
+/** The open order as the models see it. Read without lock: the transaction re-reads the order under lock. */
+async function findChatOrderContext(chatId: ChatId) {
+  const candidate = await findOpenChatOrderCandidate(chatId);
+  if (!candidate.success) return candidate;
+  if (!candidate.data) return ok({ items: [] });
+  const found = await findAnyOrderAggregate(candidate.data, getCompanyId() as CompanyId, "apply_chat_message");
+  if (!found.success && found.error.code === "PERSISTENCE_UNAVAILABLE") return persistenceUnavailable(found.error.message);
+  // An invalid stored order shows no items; the locked read fails the message for good.
+  if (!found.success || !found.data || !isOpenForMessageItems(found.data, chatId)) return ok({ items: [] });
+  const productIds = await findProductIdsOfVariants(found.data.items.map((item) => item.variantId));
+  if (!productIds.success) return persistenceUnavailable(productIds.error.message);
+  return ok({ items: found.data.items.map((item, index) => ({ label: `I${index + 1}`, variantId: item.variantId, productId: productIds.data.get(item.variantId) ?? null,
+    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice })) });
+}
+
+const aiTools = createAiToolsFromEnv(process.env);
+// The products composition imports the event handlers that import this module, so `products` is only read when a message is applied.
+const chatToolRegistry = createChatToolRegistry(createChatToolActions({
+  loadSellableVariants: (productIds) => products.loadSellableVariants(productIds),
+  resolveVariant: (input, signal) => products.resolveVariant(input, signal),
+  identifyProductsInText: (lines, signal) => products.identifyProductsInText(lines, signal),
+  findTopTextCandidate: (mention) => products.findTopTextCandidate(mention),
+}));
+
+const chatMessageDependencies: ApplyChatMessageDependencies = {
+  findOutcome,
   findSourceMessage: async (id) => {
     const found = await findOrderSourceMessage(id);
     if (!found.success || !found.data) return found as Result<null, Persistence>;
@@ -446,49 +489,53 @@ const messageOrderDependencies: AddMessageProductsDependencies = {
     return ok({ ...message, companyId: message.companyId as string as CompanyId, chatId: message.chatId as ChatId,
       contactId: message.contactId as ContactId, uploadedByUserId: message.uploadedByUserId as string as UserId, imageId: message.imageId as ImageId | null });
   },
+  findChatOrderContext,
   readImage: (imageId) => readImageBytes(imageId),
-  identifyProducts: (image) => products.identifyProductsInImage(image),
-  findProcessedMessage,
+  identifyProductsInImage: (image) => products.identifyProductsInImage(image),
+  loadSellableProducts: (productIds) => products.loadSellableVariants(productIds),
+  catalogSearchReadiness: () => products.catalogSearchReadiness(),
+  interpretationEnabled: aiTools !== null,
+  interpretAndApply: createChatInterpreter(chatToolRegistry, aiTools, describeChatContext),
   transaction: scopedOrderTransaction,
+  lockContact,
   ensureCustomerForContact: async (contactId) => {
     const ensured = await ensureCustomerForContact(contactId);
-    return ensured.success ? ok({ ...ensured.data, customerId: ensured.data.customerId as CustomerId, contactId: ensured.data.contactId as ContactId }) : ensured;
+    return ensured.success ? ok({ customerId: ensured.data.customerId as CustomerId }) : ensured;
   },
-  findOpenChatOrderCandidate,
-  findOrderForUpdate: (id) => findOrderForUpdate(id, getCompanyId() as CompanyId),
-  allocateNumber: allocateOrderNumber,
-  saveNewOrder: (order, source) => savePendingOrder(order, source),
-  saveAddedItems,
-  recordProcessedMessage,
+  findChatOrderTargetForUpdate: (chatId) => findChatOrderTargetForUpdate(chatId, findProductIdsOfVariants),
+  allocateNumber: () => allocateOrderNumber(getCompanyId() as CompanyId),
+  saveNewOrder: (order, link) => savePendingOrder(order, link),
+  saveItemChanges,
+  recordOrderMessage: recordProcessedMessage,
+  recordOutcome,
   newOrderId: () => randomUUID() as OrderId,
   newItemId: () => randomUUID() as OrderItemId,
   clock: () => new Date(),
+  limits: { maxItemQuantity: 99 as PositiveInteger },
 };
 
-export { messageOrderPolicy };
-const retryableCodes: readonly AddMessageProductsError["code"][] = ["PERSISTENCE_UNAVAILABLE", "IMAGE_STORAGE_UNAVAILABLE", "QR_READER_UNAVAILABLE",
-  "EMBEDDER_UNAVAILABLE", "PRODUCT_MATCHER_UNAVAILABLE"];
+type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
-const matchFields = (match: MessageProductMatch) => match.method === "qr" ? { matchMethod: match.method, unknownCodes: match.unknownCodes }
-  : { matchMethod: match.method, confidence: match.confidence, candidates: match.candidates, topDistance: match.topDistance, chosenDistance: match.chosenDistance, chosenPhotoPosition: match.chosenPhotoPosition };
-
-/** Handler of `message_created`: logs each outcome and tells the bus which failures deserve a retry. */
-export const addMessageProductsHandler: EventHandler<AppEvents, "message_created"> = async (payload, metadata, context) => {
-  const started = performance.now();
-  const base = () => ({ companyId: payload.companyId, messageId: payload.messageId, eventId: metadata.eventId,
-    attempt: context.attempt, durationMs: Math.round(performance.now() - started) });
-  const result = await withTenantIsolation(payload.companyId, () => addMessageProductsToOrder(
-    { companyId: payload.companyId as CompanyId, messageId: payload.messageId as ChatMessageId }, messageOrderDependencies));
-  if (result.success) {
-    const outcome = result.data;
-    if (outcome.kind === "order_created" || outcome.kind === "items_added") log.info({ event: outcome.kind === "order_created" ? "orders_message_order_created" : "orders_message_order_items_added",
-      ...base(), orderId: outcome.orderId, variantCount: outcome.variantIds.length, ...matchFields(outcome.match) }, "Message products added to order");
-    else log.info({ event: "orders_message_order_skipped", ...base(), ...(outcome.kind === "already_processed" ? { orderId: outcome.orderId, reason: "already_processed" } : { reason: outcome.reason, topDistance: outcome.topDistance, chosenDistance: outcome.chosenDistance, chosenPhotoPosition: outcome.chosenPhotoPosition }) },
-      "Message skipped for orders");
-    return ok(undefined);
+/** The notice is published after the commit; a failure never raises: the order change stands and the notice is lost. */
+const publishChatMessageProcessed: PublishChatMessageProcessed = async (payload) => {
+  try {
+    return await applicationEventBus().provider.publish("chat_message_processed", payload, { eventId: payload.messageId, occurredAt: new Date().toISOString() });
+  } catch (cause) {
+    log.error({ event: "chat_message_processed_publish_failed", companyId: payload.companyId, messageId: payload.messageId, err: cause }, "chat_message_processed_publish_failed");
+    return err({ code: "EVENT_BUS_UNAVAILABLE" as const, message: "Event publication failed" });
   }
-  const retryable = retryableCodes.includes(result.error.code);
-  // A retryable failure is a warning until the last attempt: then the job stays failed.
-  log[retryable && context.attempt <= messageOrderPolicy.retries ? "warn" : "error"]({ event: "orders_message_order_failed", ...base(), code: result.error.code, retryable }, "Message order failed");
-  return err({ code: result.error.code, message: result.error.message, retryable });
 };
+
+const chatMessageHandlerDependencies: ChatMessageHandlerDependencies = {
+  withTenant: withTenantIsolation,
+  apply: (input, signal) => applyChatMessage(input, chatMessageDependencies, signal),
+  recordFailedOutcome,
+  publishNotice: publishChatMessageProcessed,
+  deadlineMs: chatMessageDeadlineMs,
+  retries: chatMessagePolicy.retries,
+};
+
+/** Handler of `message_created`. */
+export const applyChatMessageHandler = createChatMessageHandler(chatMessageHandlerDependencies);
+/** Handler of the dead-letter queue of `apply-chat-message`: releases the chat of a message that cannot be applied. */
+export const chatMessageDeadLetterHandler = createChatMessageDeadLetterHandler(chatMessageHandlerDependencies);

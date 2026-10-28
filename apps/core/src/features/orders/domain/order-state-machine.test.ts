@@ -239,6 +239,46 @@ describe("delivery and stock transitions", () => {
 
 });
 
+describe("chat order item operations", () => {
+  const item = (n: number, variant: number, quantity: number, unit: number) => ({ id: id(n) as OrderItemId, variantId: id(variant) as VariantId, productName: `Item ${variant}`,
+    variantAttributes: {}, sku: null, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity) });
+  const two = (): OrderAggregate => ({ ...order(), items: [item(3, 4, 2, 10), item(5, 6, 1, 5)], itemsTotal: money(25), total: money(25) });
+  const newItemId = () => id(90) as OrderItemId;
+
+  test("appendItems adds the given quantity and keeps the mentioned price", () => {
+    const price = { amount: money(8), units: 1 };
+    const result = orderStateMachine.appendItems(two(), [{ variantId: id(7) as VariantId, productName: "New", variantAttributes: {}, sku: null, unitPrice: money(10), quantity: 3 as PositiveInteger, mentionedPrice: price }], newItemId);
+    expect(result).toMatchObject({ success: true, data: { itemsTotal: money(55), items: [{}, {}, { quantity: 3, mentionedPrice: price }] } });
+  });
+
+  test("removeItem recalculates totals and refuses to empty the order", () => {
+    expect(orderStateMachine.removeItem(two(), id(5) as OrderItemId)).toMatchObject({ success: true, data: { itemsTotal: money(20), total: money(20) } });
+    expect(orderStateMachine.removeItem(order(), id(3) as OrderItemId)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+    expect(orderStateMachine.removeItem(two(), id(99) as OrderItemId)).toMatchObject({ success: false });
+  });
+
+  test("setItemQuantity recalculates the total and rejects non positive or fractional quantities", () => {
+    expect(orderStateMachine.setItemQuantity(two(), id(3) as OrderItemId, 5)).toMatchObject({ success: true, data: { itemsTotal: money(55), items: [{ subtotal: money(50) }, {}] } });
+    expect(orderStateMachine.setItemQuantity(two(), id(3) as OrderItemId, 0)).toMatchObject({ success: false });
+    expect(orderStateMachine.setItemQuantity(two(), id(3) as OrderItemId, 1.5)).toMatchObject({ success: false });
+  });
+
+  test("replaceItemVariant keeps position and quantity, or merges into an existing variant", () => {
+    const variant = (n: number, amount: number) => ({ variantId: id(n) as VariantId, productName: `Item ${n}`, variantAttributes: {}, sku: null, unitPrice: money(amount) });
+    expect(orderStateMachine.replaceItemVariant(two(), id(3) as OrderItemId, variant(8, 12), null, newItemId))
+      .toMatchObject({ success: true, data: { itemsTotal: money(29), items: [{ id: id(90), variantId: id(8), quantity: 2 }, { id: id(5) }] } });
+    expect(orderStateMachine.replaceItemVariant(two(), id(3) as OrderItemId, variant(6, 5), null, newItemId))
+      .toMatchObject({ success: true, data: { itemsTotal: money(15), items: [{ id: id(5), quantity: 3 }] } });
+  });
+
+  test("setItemMentionedPrice stores and clears the price without changing totals", () => {
+    const price = { amount: money(3), units: 2 };
+    const set = orderStateMachine.setItemMentionedPrice(two(), id(5) as OrderItemId, price);
+    expect(set).toMatchObject({ success: true, data: { itemsTotal: money(25), items: [{}, { mentionedPrice: price }] } });
+    if (set.success) expect(orderStateMachine.setItemMentionedPrice(set.data, id(5) as OrderItemId, null)).toMatchObject({ data: { items: [{}, { mentionedPrice: null }] } });
+  });
+});
+
 describe("appendItems", () => {
   const variant = (n: number, amount: number, currency: "PEN" | "USD" = "PEN") => ({ variantId: id(n) as VariantId, productName: `Variant ${n}`,
     variantAttributes: { Size: "M" }, sku: null, unitPrice: { amount, currency } });
@@ -248,8 +288,8 @@ describe("appendItems", () => {
     const result = orderStateMachine.appendItems(order(), [variant(5, 7)], newItemId);
     expect(result).toMatchObject({ success: true, data: { itemsTotal: money(17), total: money(17) } });
     if (!result.success) return;
-    expect(result.data.items).toEqual([order().items[0], { id: id(90), variantId: id(5), productName: "Variant 5", variantAttributes: { Size: "M" },
-      sku: null, quantity: 1, unitPrice: money(7), subtotal: money(7) }]);
+    expect(result.data.items).toEqual([{ ...order().items[0], mentionedPrice: null }, { id: id(90), variantId: id(5), productName: "Variant 5", variantAttributes: { Size: "M" },
+      sku: null, quantity: 1, unitPrice: money(7), subtotal: money(7), mentionedPrice: null }]);
   });
 
   test("appendItems increments the quantity of a variant already in the order", () => {

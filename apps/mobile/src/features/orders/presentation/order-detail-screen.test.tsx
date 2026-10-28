@@ -12,6 +12,10 @@ const mockClear = jest.fn();
 const mockPush = jest.fn();
 let mockFocus: () => void;
 let mockLoadFailed = false;
+let mockLoads = 0;
+let mockNoticeAt: string | null = null;
+let mockArrival: (destination: unknown) => void = () => undefined;
+const mockStopArrivals = jest.fn();
 const mockRegisterPayment = jest.fn();
 const mockVoidPayment = jest.fn();
 const mockRejectPayment = jest.fn();
@@ -33,12 +37,12 @@ const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, company
     method: "digital_wallet", status: "confirmed", data: { confirmedAt: "2026-09-29T12:00:00.000Z", confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } }],
   items: [{ id: "00000000-0000-4000-8000-000000000005", variantId: "00000000-0000-4000-8000-000000000002",
     productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1,
-    unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" } }] };
+    unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 12, currency: "PEN" }, mentionedPrice: null }] };
 let mockOrder = initialOrder;
-beforeEach(() => { mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockEnableCheckout.mockReset(); mockEnableCheckout.mockResolvedValue({ success: true, data: { url: linkUrl } }); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockRejectPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
+beforeEach(() => { mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockLoads = 0; mockNoticeAt = null; mockStopArrivals.mockReset(); mockEnableCheckout.mockReset(); mockEnableCheckout.mockResolvedValue({ success: true, data: { url: linkUrl } }); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockRejectPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
 
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }),
-  useLocalSearchParams: () => ({ id: mockId }),
+  useLocalSearchParams: () => ({ id: mockId, ...(mockNoticeAt === null ? {} : { noticeAt: mockNoticeAt }) }),
   useFocusEffect: (callback: () => void) => { mockFocus = callback; jest.requireActual("react").useEffect(callback, [callback]); } }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   updateOrderShipping: (...args: unknown[]) => mockUpdateShipping(...args),
@@ -47,7 +51,7 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   ship: (...args: unknown[]) => mockShip(...args),
   deliver: (...args: unknown[]) => mockDeliver(...args),
   enableOrderCheckout: (...args: unknown[]) => mockEnableCheckout(...args),
-  loadOrderAggregate: async () => mockLoadFailed ? ({ success: false, error: { code: "NETWORK_ERROR" } }) : ({ success: true, data: mockOrder }),
+  loadOrderAggregate: async () => (mockLoads++, mockLoadFailed) ? ({ success: false, error: { code: "NETWORK_ERROR" } }) : ({ success: true, data: mockOrder }),
   clearPendingOrderConfirmation: async () => ({ success: true, data: undefined }),
   registerPayment: (...args: unknown[]) => mockRegisterPayment(...args),
   voidPayment: (...args: unknown[]) => mockVoidPayment(...args),
@@ -56,6 +60,9 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: {
   status: "ready", user: { id: mockUserId }, company: { id: "00000000-0000-4000-8000-000000000001", country: mockCountry },
 } }) }));
+jest.mock("@mobile/features/notifications/presentation/notices-provider", () => ({
+  useNotices: () => ({ watchArrivals: (listener: (destination: unknown) => void) => { mockArrival = listener; return mockStopArrivals; } }),
+}));
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ notice: mockNotice, clear: mockClear }) }));
 jest.mock("@mobile/features/orders/presentation/order-day-field", () => ({ OrderDayField: ({ value, onChange }: { value: string; onChange: (day: string) => void }) => {
   const { Text } = jest.requireActual("react-native");
@@ -670,6 +677,119 @@ describe("WhatsApp orders", () => {
     await screen.findByLabelText("WhatsApp");
     expect(screen.queryByText("—")).toBeNull();
     expect(screen.queryByText("Público general")).toBeNull();
+  });
+});
+
+describe("item accessibility label", () => {
+  const withItem = (variantAttributes: Record<string, string>, sku: string | null) => {
+    mockOrder = { ...initialOrder, items: [{ ...initialOrder.items[0], variantAttributes, sku, quantity: 1, unitPrice: { amount: 25, currency: "PEN" }, subtotal: { amount: 25, currency: "PEN" }, mentionedPrice: null }] };
+  };
+
+  test("has no empty slot when the item has neither variant attributes nor SKU", async () => {
+    withItem({}, null);
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    expect(screen.getByLabelText(/^Camisa, 1 × S\/\s?25\.00, S\/\s?25\.00$/)).toBeTruthy();
+  });
+
+  test("speaks the variant and the SKU when both are present", async () => {
+    withItem({ Talla: "M" }, "CAM-M");
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    expect(screen.getByLabelText(/^Camisa, Talla: M, SKU CAM-M, 1 × /)).toBeTruthy();
+  });
+});
+
+describe("mentioned price", () => {
+  const withMentioned = (amount: number, units: number, quantity = 3) => {
+    const item = initialOrder.items[0];
+    mockOrder = { ...initialOrder, items: [{ ...item, quantity, unitPrice: { amount: 25, currency: "PEN" }, subtotal: { amount: 25 * quantity, currency: "PEN" },
+      mentionedPrice: { amount: { amount, currency: "PEN" }, units } }] };
+  };
+
+  test("shows the mentioned price note under the unit price and in the item's accessibility label", async () => {
+    withMentioned(50, 3);
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("El cliente mencionó S/ 50.00 por 3");
+    expect(screen.getByLabelText(/Camisa.*3 × S\/\s?25\.00.*El cliente mencionó S\/\s?50\.00 por 3/)).toBeTruthy();
+  });
+
+  test("says «por unidad» for one unit and translates the note to Portuguese", async () => {
+    withMentioned(20, 1, 1);
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("El cliente mencionó S/ 20.00 por unidad");
+    screen.unmount();
+    await i18n.changeLanguage("pt-BR");
+    try {
+      const portuguese = render(<OrderDetailScreen />);
+      await portuguese.findByText(/^O cliente mencionou \D*20,00 por unidade$/);
+      portuguese.unmount();
+    } finally {
+      await i18n.changeLanguage("es");
+    }
+  });
+
+  test("shows no note when the mentioned price equals the catalog price for the same units", async () => {
+    withMentioned(75, 3);
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    expect(screen.queryByText(/El cliente mencionó/)).toBeNull();
+  });
+});
+
+describe("notices arriving while the order is open", () => {
+  const notice = { v: 1, companyId: "00000000-0000-4000-8000-000000000001", messageId: "7c9e6679-7425-40de-944b-e07fc1f90ae7", target: "order" };
+  afterEach(() => { jest.useRealTimers(); });
+
+  test("reloads the focused order detail once for a burst of notices", async () => {
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    jest.useFakeTimers();
+    const loadsBefore = mockLoads;
+    act(() => { mockArrival(notice); mockArrival(notice); mockArrival(notice); });
+    act(() => { jest.advanceTimersByTime(1999); });
+    expect(mockLoads).toBe(loadsBefore);
+    await act(async () => { jest.advanceTimersByTime(1); });
+    expect(mockLoads).toBe(loadsBefore + 1);
+    await act(async () => { jest.advanceTimersByTime(5000); });
+    expect(mockLoads).toBe(loadsBefore + 1);
+  });
+
+  test("shows the refreshed order without replacing the screen by the loading state", async () => {
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    jest.useFakeTimers();
+    mockOrder = { ...initialOrder, items: [{ ...initialOrder.items[0], productName: "Gorra" }] };
+    act(() => { mockArrival(notice); });
+    await act(async () => { jest.advanceTimersByTime(2000); });
+    expect(screen.queryByText("Cargando venta")).toBeNull();
+    expect(await screen.findByText("Gorra")).toBeTruthy();
+  });
+
+  test("reloads the order when a notice is tapped while that same order is already open", async () => {
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    const loadsBefore = mockLoads;
+    mockOrder = { ...initialOrder, items: [{ ...initialOrder.items[0], productName: "Gorra" }] };
+    mockNoticeAt = "1000";
+    screen.rerender(<OrderDetailScreen />);
+    expect(await screen.findByText("Gorra")).toBeTruthy();
+    expect(mockLoads).toBe(loadsBefore + 1);
+    mockNoticeAt = "1000";
+    screen.rerender(<OrderDetailScreen />);
+    expect(mockLoads).toBe(loadsBefore + 1);
+  });
+
+  test("stops listening and cancels a pending reload when the screen loses focus", async () => {
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Camisa");
+    jest.useFakeTimers();
+    const loadsBefore = mockLoads;
+    act(() => { mockArrival(notice); });
+    screen.unmount();
+    expect(mockStopArrivals).toHaveBeenCalled();
+    await act(async () => { jest.advanceTimersByTime(5000); });
+    expect(mockLoads).toBe(loadsBefore);
   });
 });
 

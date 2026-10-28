@@ -2,9 +2,10 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { deleteConfiguredExpiredCatalogOrders } from "@core/src/features/orders/composition";
+import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { log } from "@core/src/shared/infrastructure/logger";
 import type {
-  EventBusError, JobScheduler, ScheduledJobHandler, Unsubscribe,
+  AnyEventSubscription, BlockedKeysReader, EventBusError, JobScheduler, ScheduledJobHandler, Unsubscribe,
 } from "@core/src/shared/events/application/contracts";
 
 export type ScheduledJob = Readonly<{ name: string; cron: string; tz: string; handler: ScheduledJobHandler }>;
@@ -35,9 +36,38 @@ export function deleteExpiredCatalogOrdersJob(
   };
 }
 
-export function scheduledJobs(catalogOrderTtl: number): readonly ScheduledJob[] {
-  return [{ name: "delete-expired-catalog-orders", cron: "0 4 * * *", tz: "America/Lima",
-    handler: deleteExpiredCatalogOrdersJob(catalogOrderTtl) }];
+/** Ids of the handlers whose queue holds a chat key while a job is failed (those with an `orderingKey`). */
+export function orderedHandlerIds(handlers: readonly AnyEventSubscription<AppEvents>[]): readonly string[] {
+  return handlers.filter(handler => handler.policy.orderingKey !== undefined).map(handler => handler.id);
+}
+
+/** A failed job holds its ordering key until its dead-letter handler deletes it, so a key listed here is a stuck chat. */
+export function reportBlockedChatKeysJob(reader: BlockedKeysReader, handlerIds: readonly string[]): ScheduledJobHandler {
+  return async () => {
+    for (const handlerId of handlerIds) {
+      const blocked = await reader.listBlockedKeys(handlerId);
+      if (!blocked.success) {
+        log.error({ event: "blocked_chat_keys_check_failed", handlerId, errorCode: blocked.error.code, err: blocked.error }, "Blocked chat keys check failed");
+        return err({ ...blocked.error, retryable: true });
+      }
+      if (blocked.data.length > 0) {
+        log.error({ event: "orders_chat_queue_blocked", handler: handlerId, blockedKeys: blocked.data.length }, "Chat queue blocked by a failed job");
+      }
+    }
+    return ok(undefined);
+  };
+}
+
+export function scheduledJobs(
+  catalogOrderTtl: number,
+  blockedKeys: Readonly<{ reader: BlockedKeysReader; handlerIds: readonly string[] }>,
+): readonly ScheduledJob[] {
+  return [
+    { name: "delete-expired-catalog-orders", cron: "0 4 * * *", tz: "America/Lima",
+      handler: deleteExpiredCatalogOrdersJob(catalogOrderTtl) },
+    { name: "report-blocked-chat-keys", cron: "*/5 * * * *", tz: "America/Lima",
+      handler: reportBlockedChatKeysJob(blockedKeys.reader, blockedKeys.handlerIds) },
+  ];
 }
 
 /** Worker only; the web process never schedules. Registered jobs are released when a later one fails. */

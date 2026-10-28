@@ -12,8 +12,13 @@ const config: KnipConfig = {
     "tests/e2e/server.ts",
     "src/**/type-contracts.ts",
     "src/shared/images/infrastructure/qr-fixtures/generate-fixtures.mjs",
+    // The AI evals run with their own Vitest config (scripts/run-evals.sh), which the Vitest plugin does not read.
+    "vitest.evals.config.ts",
+    "evals/global-setup.ts",
+    "evals/**/*.eval.ts",
+    "evals/scripts/*.ts",
   ],
-  project: ["app/**/*.{ts,tsx,css}", "src/**/*.{ts,tsx,mjs,css}", "scripts/**/*.ts", "tests/**/*.ts", "prisma/**/*.prisma"],
+  project: ["app/**/*.{ts,tsx,css}", "src/**/*.{ts,tsx,mjs,css}", "scripts/**/*.ts", "tests/**/*.ts", "evals/**/*.ts", "prisma/**/*.prisma"],
   compilers: { css: cssImports },
   ignoreBinaries: ["psql"],
   // Storybook resolves its builder by name from @storybook/react-vite.

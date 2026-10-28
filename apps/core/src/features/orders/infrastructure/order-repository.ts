@@ -8,15 +8,15 @@ import type { Result } from "@shared/result";
 import { isCurrency } from "@shared/money";
 import { parseDispatchDate } from "@shared/dispatch-date";
 import { getCompanyId, prisma, systemPrisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
-import { buildOrder, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
+import { buildOrder, type OrderItem, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
 import { orderSource, orderStateMachine, parseDeliverySnapshot, type DispatchScheduleChange, type FulfillmentChange, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
 import { parsePayment } from "@core/src/features/orders/domain/payment";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
-import type { VariantId } from "@core/src/features/products/domain/product";
-import type { ChatId } from "@core/src/features/orders/domain/message-order";
+import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
+import { isOpenForMessageItems, type ChatId, type OrderChatSource } from "@core/src/features/orders/domain/message-order";
+import type { ChatOrderItemChanges, ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
-import type { OrderChatSource } from "@core/src/features/orders/application/add-message-products-to-order";
 
 const aggregateInclude = { buyer: true, items: { orderBy: { id: "asc" as const } }, payments: { orderBy: { id: "asc" as const } } };
 type DbAggregate = Prisma.OrderGetPayload<{ include: typeof aggregateInclude }>;
@@ -134,7 +134,9 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
       throw new InvalidStoredOrderError("Invalid stored order attributes");
     return { id: item.id as OrderItemId, variantId: item.variantId as VariantId, productName: item.productName,
       variantAttributes: { ...attributes } as Record<string, string>, sku: item.sku, quantity: Number(item.quantity) as PositiveInteger,
-      unitPrice: { amount: item.unitPrice.toNumber(), currency: row.currency }, subtotal: { amount: item.subtotal.toNumber(), currency: row.currency } };
+      unitPrice: { amount: item.unitPrice.toNumber(), currency: row.currency }, subtotal: { amount: item.subtotal.toNumber(), currency: row.currency },
+      mentionedPrice: item.mentionedPriceAmount === null || item.mentionedPriceUnits === null ? null
+        : { amount: { amount: item.mentionedPriceAmount.toNumber(), currency: row.currency }, units: item.mentionedPriceUnits } };
   }) as [OrderAggregate["items"][number], ...OrderAggregate["items"][number][]];
   const payments: Payment[] = row.payments.map(mapPayment);
   const parsedDate = row.scheduledDispatchDate ? parseDispatchDate(row.scheduledDispatchDate.toISOString().slice(0, 10)) : null;
@@ -166,6 +168,12 @@ type PendingOrderFailure = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "ORDER_A
   | Readonly<{ code: "VARIANT_NOT_FOUND"; message: string; variantId: string }>;
 type SellerUnavailable = Readonly<{ code: "SELLER_UNAVAILABLE"; message: string }>;
 
+/** Both columns or none: the database CHECK rejects a half-set price. */
+function mentionedPriceColumns(price: OrderItem["mentionedPrice"]) {
+  return price ? { mentionedPriceAmount: new Prisma.Decimal(price.amount.amount.toString()), mentionedPriceUnits: price.units }
+    : { mentionedPriceAmount: null, mentionedPriceUnits: null };
+}
+
 /** A variant deleted between the sellable read and the item insert breaks the item's foreign key. */
 function isMissingVariantViolation(cause: unknown): boolean {
   return cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2003"
@@ -189,6 +197,7 @@ export async function savePendingOrder(order: OrderAggregate, source?: OrderChat
       delivery: Prisma.JsonNull,
       deliveryStatus: order.deliveryStatus, stockDeducted: order.stockDeducted, cancelled: order.cancelled,
       createdAt: order.createdAt, scheduledDispatchDate: order.scheduledDispatchDate && new Date(order.scheduledDispatchDate), shippedAt: order.shippedAt, deliveredAt: order.deliveredAt, completedAt: order.completedAt,
+
     } });
     // One insert per item, sorted by variant: each takes a key-share lock on its variant, and a rekeying product save locks variant rows
     // in the same order, so the two never wait on each other in a cycle. The failing insert also names the missing variant.
@@ -196,7 +205,8 @@ export async function savePendingOrder(order: OrderAggregate, source?: OrderChat
       inserting = item.variantId;
       await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, companyId: order.companyId, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
-        unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()) } });
+        unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()),
+        ...mentionedPriceColumns(item.mentionedPrice) } });
     }
     return ok<null>(null);
   } catch (cause) {
@@ -531,17 +541,6 @@ export async function allocateOrderNumber(companyId: CompanyId) {
   }
 }
 
-export async function findProcessedMessage(messageId: ChatMessageId) {
-  try {
-    const row = await prisma.orderMessage.findFirst({ where: { companyId: getCompanyId(), messageId }, select: { orderId: true } });
-    return ok(row ? row.orderId as OrderId : null);
-  } catch (cause) {
-    if (!knownFailure(cause)) throw cause;
-    log.error({ event: "unable_to_find_processed_message", err: cause }, "unable_to_find_processed_message");
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read processed message" });
-  }
-}
-
 /** Most recent order of the chat that still accepts items; mirrors `isOpenForMessageItems` and is re-checked after locking. */
 export async function findOpenChatOrderCandidate(chatId: ChatId) {
   const companyId = getCompanyId();
@@ -560,22 +559,21 @@ export async function findOpenChatOrderCandidate(chatId: ChatId) {
   }
 }
 
-export async function saveAddedItems(order: OrderAggregate, previous: OrderAggregate) {
+/** Applies the row changes of `applyChatActions` to the locked order and stores its recalculated totals. */
+export async function saveItemChanges(order: OrderAggregate, changes: ChatOrderItemChanges) {
   requireActiveTransaction(order.companyId);
   const money = (value: number) => new Prisma.Decimal(value.toString());
-  const before = new Map(previous.items.map((item) => [item.id, item]));
   try {
-    for (const item of order.items) {
-      const old = before.get(item.id);
-      if (old && old.quantity !== item.quantity) await prisma.orderItem.update({ where: { id: item.id },
-        data: { quantity: BigInt(item.quantity), subtotal: money(item.subtotal.amount) } });
-    }
+    // Removals first: a replaced variant frees its (order, variant) pair for the item that takes its place.
+    if (changes.removedItemIds.length) await prisma.orderItem.deleteMany({ where: { orderId: order.id, id: { in: [...changes.removedItemIds] } } });
+    for (const item of changes.updated) await prisma.orderItem.update({ where: { id: item.id },
+      data: { quantity: BigInt(item.quantity), subtotal: money(item.subtotal.amount), ...mentionedPriceColumns(item.mentionedPrice) } });
     // Inserts take their locks on the variants in a fixed order, so two concurrent additions cannot wait for each other.
-    const inserts = order.items.filter((item) => !before.has(item.id)).sort((a, b) => a.variantId < b.variantId ? -1 : a.variantId > b.variantId ? 1 : 0);
+    const inserts = [...changes.added].sort((a, b) => a.variantId < b.variantId ? -1 : a.variantId > b.variantId ? 1 : 0);
     for (const item of inserts) {
       await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
-        unitPrice: money(item.unitPrice.amount), subtotal: money(item.subtotal.amount) } });
+        unitPrice: money(item.unitPrice.amount), subtotal: money(item.subtotal.amount), ...mentionedPriceColumns(item.mentionedPrice) } });
     }
     const updated = await prisma.order.updateMany({ where: { id: order.id, companyId: order.companyId, cancelled: false },
       data: { itemsTotal: money(order.itemsTotal.amount), total: money(order.total.amount) } });
@@ -585,8 +583,50 @@ export async function saveAddedItems(order: OrderAggregate, previous: OrderAggre
     if (!knownFailure(cause)) throw cause;
     if (isMissingVariantViolation(cause))
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Variant is not available" });
-    log.error({ event: "unable_to_save_added_items", orderId: order.id, err: cause }, "unable_to_save_added_items");
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save added items" });
+    log.error({ event: "unable_to_save_item_changes", orderId: order.id, err: cause }, "unable_to_save_item_changes");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save item changes" });
+  }
+}
+
+type InvalidStoredData = Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
+type FindProductIds = (variantIds: readonly VariantId[]) => Promise<Result<ReadonlyMap<VariantId, ProductId>, Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>>;
+
+/**
+ * The state of the chat's order under lock: the open order with the product of every item, or why there is none.
+ * `findProductIds` is the products capability that names the product of each item's variant.
+ */
+export async function findChatOrderTargetForUpdate(chatId: ChatId, findProductIds: FindProductIds) {
+  const companyId = getCompanyId();
+  const candidate = await findOpenChatOrderCandidate(chatId);
+  if (!candidate.success) return candidate;
+  if (candidate.data) {
+    const locked = await findOrderForUpdate(candidate.data, companyId as CompanyId);
+    if (!locked.success) return locked.error.code === "PERSISTENCE_UNAVAILABLE" ? err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: locked.error.message })
+      : err<InvalidStoredData>({ code: "INVALID_STORED_DATA", message: "Invalid stored chat order" });
+    if (locked.data && isOpenForMessageItems(locked.data, chatId)) {
+      const productIds = await findProductIds(locked.data.items.map((item) => item.variantId));
+      if (!productIds.success) return productIds;
+      if (locked.data.items.some((item) => !productIds.data.has(item.variantId))) return err<InvalidStoredData>({ code: "INVALID_STORED_DATA", message: "Order item without product" });
+      return ok<ChatOrderTarget>({ kind: "open", order: locked.data, productIds: productIds.data });
+    }
+  }
+  return findLatestChatOrderState(chatId, companyId as CompanyId);
+}
+
+async function findLatestChatOrderState(chatId: ChatId, companyId: CompanyId) {
+  try {
+    const rows = await prisma.$queryRaw<Array<{ id: string; number: bigint; cancelled: boolean }>>`SELECT id, number, cancelled FROM "Order"
+      WHERE "companyId" = ${companyId}::uuid AND "chatId" = ${chatId}::uuid ORDER BY "createdAt" DESC, number DESC LIMIT 1`;
+    const [latest] = rows;
+    if (!latest) return ok<ChatOrderTarget>({ kind: "none" });
+    if (latest.cancelled) return ok<ChatOrderTarget>({ kind: "cancelled" });
+    const number = parseOrderNumber(Number(latest.number));
+    if (!number.success) return err<InvalidStoredData>({ code: "INVALID_STORED_DATA", message: "Invalid stored order number" });
+    return ok<ChatOrderTarget>({ kind: "closed", orderId: latest.id as OrderId, number: number.data });
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_find_latest_chat_order", err: cause }, "unable_to_find_latest_chat_order");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to find chat order" });
   }
 }
 
@@ -602,5 +642,18 @@ export async function recordProcessedMessage(orderId: OrderId, messageId: ChatMe
       return err({ code: "MESSAGE_ALREADY_PROCESSED" as const, message: "Message already processed" });
     log.error({ event: "unable_to_record_processed_message", orderId, err: cause }, "unable_to_record_processed_message");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to record processed message" });
+  }
+}
+
+/** The sequential numbers of the orders that exist, in one query; an order that was deleted is absent. */
+export async function findOrderNumbers(ids: readonly OrderId[]) {
+  if (ids.length === 0) return ok<ReadonlyMap<OrderId, number>>(new Map());
+  try {
+    const rows = await prisma.order.findMany({ where: { id: { in: [...ids] } }, select: { id: true, number: true } });
+    return ok<ReadonlyMap<OrderId, number>>(new Map(rows.map((row) => [row.id as OrderId, Number(row.number)])));
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_read_order_numbers", err: cause }, "unable_to_read_order_numbers");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read order numbers" });
   }
 }

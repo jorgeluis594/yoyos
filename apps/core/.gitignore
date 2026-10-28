@@ -6,6 +6,11 @@ test-results/
 /models/*/*/*.json
 /models/*/*/onnx/
 
+# AI eval results: one JSON report per run (evals/README.md)
+eval-results/
+
+# Real captures for the AI evals (evals/fixtures/images/README.md): local only, never committed
+/evals/fixtures/images-local/
 # Stryker mutation testing output (pnpm test:mutation).
 reports/
 .stryker-tmp/

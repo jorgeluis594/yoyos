@@ -1,24 +1,26 @@
 import { err } from "@shared/functional";
 import { restoreCancelledOrderStock, restoreProductStock } from "@core/src/features/products";
 import { parseMessageCreated } from "@core/src/features/chats/infrastructure/event-payloads";
-import { messageOrderPolicy } from "@core/src/features/orders/application/message-order-policy";
-import { addMessageProductsHandler } from "@core/src/features/orders/composition";
+import { applyChatMessageDeadLetterId, applyChatMessageQueueId, chatMessageDeadLetterPolicy, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
+import { orders, applyChatMessageHandler, chatMessageDeadLetterHandler } from "@core/src/features/orders/composition";
+import { sendChatMessageNoticePolicy, sendChatMessageNoticeQueueId } from "@core/src/features/notifications/application/send-chat-message-notice-policy";
+import { createSendChatMessageNoticeHandler, pushNoticeDependencies } from "@core/src/features/notifications";
 import { indexProductPhotosPolicy } from "@core/src/features/products/application/index-product-photos";
 import { indexProductPhotosHandler } from "@core/src/features/products/composition";
 import { parseProductPhotosAdded } from "@core/src/features/products/infrastructure/event-payloads";
-import { parseOrderCancelled } from "@core/src/features/orders/infrastructure/event-payloads";
+import { parseChatMessageProcessed, parseOrderCancelled } from "@core/src/features/orders/infrastructure/event-payloads";
 import { findOrderForUpdate, saveStockRestoration } from "@core/src/features/orders/infrastructure/order-repository";
 import { getCompanyId, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type {
-  AnyEventSubscription, EventBusError, EventHandler, EventName, EventSubscriber,
-  EventSubscription, HandlerPolicy, Unsubscribe,
+  AnyEventSubscription, EventBusError, EventHandler, EventName, EventPayload, EventSubscriber,
+  EventSubscription, HandlerPolicy, RetryPolicy, Unsubscribe,
 } from "@core/src/shared/events/application/contracts";
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 
-const defaultPolicy: HandlerPolicy = {
+const defaultPolicy: RetryPolicy = {
   retries: 4, retryDelaySeconds: 5, exponentialBackoff: true, concurrency: 1,
 };
 
@@ -28,7 +30,7 @@ export function defineEventHandler<Events extends object, Name extends EventName
   options: {
     id: string;
     parsePayload: (input: unknown) => ReturnType<EventSubscription<Events, Name>["parsePayload"]>;
-    policy?: Partial<HandlerPolicy>;
+    policy?: Partial<HandlerPolicy<EventPayload<Events, Name>>>;
   },
 ): EventSubscription<Events, Name> {
   return { id: options.id, name, handler, parsePayload: options.parsePayload,
@@ -50,13 +52,20 @@ export const restoreCancelledStock = defineEventHandler<AppEvents, "order_cancel
   })), { id: "restore-cancelled-order-stock", parsePayload: parseOrderCancelled });
 // The parser comes from event-payloads, not chats/index. The cycle orders/composition → chats → mobile-message-dispatch
 // → event-bus → event-handlers is safe: the handler is wrapped lazily and nothing is evaluated while modules load.
-export const addMessageProductsToOrder = defineEventHandler<AppEvents, "message_created">("message_created",
-  (payload, metadata, context) => addMessageProductsHandler(payload, metadata, context),
-  { id: "add-message-products-to-order", parsePayload: parseMessageCreated, policy: messageOrderPolicy });
+// Orders of one chat run one at a time; a message that cannot be applied is released by its dead-letter handler.
+export const applyChatMessage = defineEventHandler<AppEvents, "message_created">("message_created",
+  (payload, metadata, context) => applyChatMessageHandler(payload, metadata, context),
+  { id: applyChatMessageQueueId, parsePayload: parseMessageCreated, policy: { ...chatMessagePolicy, deadLetter: {
+    id: applyChatMessageDeadLetterId, handler: (payload, metadata, context) => chatMessageDeadLetterHandler(payload, metadata, context), policy: chatMessageDeadLetterPolicy } } });
+let sendChatMessageNoticeHandler: ReturnType<typeof createSendChatMessageNoticeHandler> | undefined;
+// The notice is secondary: no ordering key, so a provider outage never holds a chat back.
+export const sendChatMessageNotice = defineEventHandler<AppEvents, "chat_message_processed">("chat_message_processed",
+  (payload, metadata, context) => (sendChatMessageNoticeHandler ??= createSendChatMessageNoticeHandler(pushNoticeDependencies(), orders))(payload, metadata, context),
+  { id: sendChatMessageNoticeQueueId, parsePayload: parseChatMessageProcessed, policy: sendChatMessageNoticePolicy });
 export const indexProductPhotos = defineEventHandler<AppEvents, "product_photos_added">("product_photos_added",
   (payload, metadata, context) => indexProductPhotosHandler(payload, metadata, context),
   { id: "index-product-photos", parsePayload: parseProductPhotosAdded, policy: indexProductPhotosPolicy });
-export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelledStock, addMessageProductsToOrder, indexProductPhotos];
+export const eventHandlers: AnyEventSubscription<AppEvents>[] = [restoreCancelledStock, applyChatMessage, sendChatMessageNotice, indexProductPhotos];
 
 export function subscribeToEvent<Events extends object, Name extends EventName<Events>>(
   subscriber: EventSubscriber<Events>,

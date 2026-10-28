@@ -1,5 +1,6 @@
 import { parseMessageCreated } from "@core/src/features/chats/infrastructure/event-payloads";
 import { parseOrderCancelled } from "@core/src/features/orders/infrastructure/event-payloads";
+import { parseChatMessageProcessed } from "@core/src/features/orders/infrastructure/event-payloads";
 import { eventHandlers } from "@core/src/composition/event-handlers";
 import { describe, expect, it, vi } from "vitest";
 import { err, ok } from "@shared/functional";
@@ -40,14 +41,18 @@ it("registers stock restoration for the producer and worker and rejects invalid 
   expect(parseOrderCancelled({ orderId: "invalid", companyId: "invalid" })).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
 });
 
-it("registers add-message-products-to-order for message_created with concurrency 2 and 8 retries", () => {
+it("registers apply-chat-message for message_created, ordered by chat, with its dead-letter handler", () => {
   const registered = eventHandlers.filter(handler => handler.name === "message_created");
-  expect(registered.map(handler => handler.id)).toEqual(["add-message-products-to-order"]);
-  expect(registered[0].policy).toMatchObject({ concurrency: 2, retries: 8 });
+  expect(registered.map(handler => handler.id)).toEqual(["apply-chat-message"]);
+  expect(registered[0].policy).toMatchObject({ concurrency: 16, retries: 8, groupConcurrency: 8, expireInSeconds: 90, heartbeatSeconds: 30,
+    deadLetter: { id: "apply-chat-message-dead-letter", policy: { retries: 8, retryDelaySeconds: 30 } } });
+  const payload = { companyId: "company", chatId: "chat", messageId: "message" } as never;
+  expect(registered[0].policy.orderingKey?.(payload)).toBe("chat");
+  expect(registered[0].policy.groupKey?.(payload)).toBe("company");
 });
 
 it("parses its payload with parseMessageCreated", () => {
-  const registered = eventHandlers.find(handler => handler.id === "add-message-products-to-order");
+  const registered = eventHandlers.find(handler => handler.id === "apply-chat-message");
   expect(registered?.parsePayload).toBe(parseMessageCreated);
   expect(registered?.parsePayload({ companyId: "invalid", messageId: "invalid" })).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
 });
@@ -57,4 +62,18 @@ it("registers index-product-photos for product_photos_added with concurrency 1 a
   expect(registered.map(handler => handler.id)).toEqual(["index-product-photos"]);
   expect(registered[0].policy).toMatchObject({ concurrency: 1, retries: 8 });
   expect(registered[0].parsePayload({ companyId: "x", productId: "y" })).toMatchObject({ success: false, error: { code: "INVALID_EVENT" } });
+});
+
+it("registers send-chat-message-notice for chat_message_processed without ordering and bounds an Expo outage to 6 to 10 minutes", () => {
+  const registered = eventHandlers.filter(handler => handler.name === "chat_message_processed");
+  expect(registered.map(handler => handler.id)).toEqual(["send-chat-message-notice"]);
+  const policy = registered[0].policy;
+  expect(policy).toMatchObject({ concurrency: 4, retries: 5, retryDelaySeconds: 15, exponentialBackoff: true, retryDelayMaxSeconds: 150, expireInSeconds: 15, deleteAfterSeconds: 604800 });
+  expect(policy.orderingKey).toBeUndefined();
+  expect(registered[0].parsePayload).toBe(parseChatMessageProcessed);
+  // Delays double from the first one up to the cap; the last attempt can still run until its expiry.
+  const delays = Array.from({ length: policy.retries }, (_, retry) => Math.min(policy.retryDelaySeconds * 2 ** retry, policy.retryDelayMaxSeconds ?? Infinity));
+  const worstCaseSeconds = delays.reduce((total, delay) => total + delay, 0) + (policy.retries + 1) * (policy.expireInSeconds ?? 0);
+  expect(worstCaseSeconds).toBeGreaterThanOrEqual(6 * 60);
+  expect(worstCaseSeconds).toBeLessThanOrEqual(10 * 60);
 });
