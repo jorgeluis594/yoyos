@@ -67,7 +67,7 @@ function buildDecisionRequest<Context>(input: OrchestrateInput<Context>, questio
         { value: SEVERAL, description: "The message asks for two or more different actions of the list, not for several things through one action" },
       ],
     },
-    predicates: input.tools.map((tool) => ({ tool: tool.name, instructions: `Does the buyer's message ask for this action? ${tool.description}` })),
+    predicates: input.tools.map((tool) => ({ tool: tool.name, instructions: `Does the buyer's message ask for this action, alone or next to another request? ${tool.description}` })),
     choices: input.tools.flatMap((tool) => (questions.get(tool.name) ?? []).map(({ name, ...question }) => ({ id: choiceId(tool.name, name), ...question }))),
   };
 }
