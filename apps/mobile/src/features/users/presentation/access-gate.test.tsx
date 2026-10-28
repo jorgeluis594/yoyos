@@ -20,8 +20,11 @@ jest.mock('@mobile/features/notifications/presentation/notice-responses', () => 
   const { Text: MockText } = jest.requireActual('react-native');
   return {
     NoticeResponseCapture: () => <MockText>Notice capture</MockText>,
-    NoticeOpener: () => <MockText>Notice opener</MockText>,
   };
+});
+jest.mock('@mobile/composition/notice-opener', () => {
+  const { Text: MockText } = jest.requireActual('react-native');
+  return { NoticeOpener: () => <MockText>Notice opener</MockText> };
 });
 jest.mock('@mobile/components/root-stack', () => {
   const { Text: MockText } = jest.requireActual('react-native');

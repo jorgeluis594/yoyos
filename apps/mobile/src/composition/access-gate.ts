@@ -4,9 +4,10 @@ import RootStack from '@mobile/components/root-stack';
 import { AccessScreen } from '@/features/users/presentation/access-screen';
 import { WhatsAppProvider } from '@mobile/features/whatsapp/presentation/whatsapp-provider';
 import { getWhatsAppRuntime } from '@mobile/composition/whatsapp-runtime';
-import { NoticesProvider } from '@mobile/features/notifications/presentation/notices-provider';
+import { NoticesProvider } from '@mobile/features/notifications/composition';
 import { PendingUnregisterFlush } from '@mobile/features/notifications/presentation/pending-unregister-flush';
-import { NoticeOpener, NoticeResponseCapture } from '@mobile/features/notifications/presentation/notice-responses';
+import { NoticeResponseCapture } from '@mobile/features/notifications/presentation/notice-responses';
+import { NoticeOpener } from '@mobile/composition/notice-opener';
 import { loadCatalogReadiness, noticeInbox, notices, resolveNoticeOrder } from '@mobile/composition/notifications';
 import { useAccess } from '@/features/users/presentation/access-provider';
 

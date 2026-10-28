@@ -8,7 +8,7 @@ import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
-import { useNoticeArrivals } from "@mobile/features/notifications/presentation/notices-provider";
+import { useNoticeArrivals } from "@mobile/features/notifications/composition";
 import { locateNoticeMessage, type NoticeSearchProgress } from "@mobile/features/whatsapp/application/locate-notice-message";
 import { parseChatId, parseCoreMessageId, type CompanyId } from "@mobile/features/whatsapp/domain/ids";
 import type { StoredMessage } from "@mobile/features/whatsapp/domain/stored-message";

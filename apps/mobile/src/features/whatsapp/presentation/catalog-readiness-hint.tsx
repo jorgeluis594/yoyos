@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
 import { useTheme } from "@mobile/hooks/use-theme";
-import { useNotices } from "@mobile/features/notifications/presentation/notices-provider";
+import { useNotices } from "@mobile/features/notifications/composition";
 
 type Hint = "no_active_products" | "no_searchable_photos";
 

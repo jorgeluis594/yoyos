@@ -28,7 +28,7 @@ import { Button } from "@mobile/components/ui/button";
 import { Field, FieldLabel } from "@mobile/components/ui/field";
 import { Input } from "@mobile/components/ui/input";
 import { ScreenState } from "@mobile/components/ui/screen-state";
-import { useNotices } from "@mobile/features/notifications/presentation/notices-provider";
+import { useNotices } from "@mobile/features/notifications/composition";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { deliveryMethodLabel, deliveryStatusLabel, documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";

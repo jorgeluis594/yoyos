@@ -4,7 +4,8 @@ import { err, ok } from "@shared/functional";
 import { createNoticeInbox } from "@mobile/features/notifications/application/open-notice";
 import { createNoticesController } from "@mobile/features/notifications/application/notices-controller";
 import { createFakeApi, createFakeGateway, createFakeStore } from "@mobile/features/notifications/application/fakes";
-import { NoticeOpener, NoticeResponseCapture } from "@mobile/features/notifications/presentation/notice-responses";
+import { NoticeResponseCapture } from "@mobile/features/notifications/presentation/notice-responses";
+import { NoticeOpener } from "@mobile/composition/notice-opener";
 import i18n from "@mobile/i18n";
 
 const company = "6f1d5c1e-5b0b-4c53-9a53-0d6a0b3b2a11";
