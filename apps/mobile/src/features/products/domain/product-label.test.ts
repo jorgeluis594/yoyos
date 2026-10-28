@@ -4,7 +4,7 @@ import type { Product, VariantId, VariantQrCode } from "@mobile/features/product
 const firstId = "first" as VariantId;
 const secondId = "second" as VariantId;
 const product: Product = {
-  id: "product" as Product["id"], name: "Camisa", currency: "PEN", structureVersion: 1, options: [],
+  id: "product" as Product["id"], name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, options: [],
   variants: [
     { id: firstId, combination: [], sku: "CAM-S", qrCode: "first-qr" as VariantQrCode, salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false },
     { id: secondId, combination: [], qrCode: "second-qr" as VariantQrCode, salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false },

@@ -1,5 +1,5 @@
 import { act, fireEvent, render, waitFor } from '@testing-library/react-native';
-import { FlatList } from 'react-native';
+import { FlatList, StyleSheet, View } from 'react-native';
 import { ok } from '@shared/functional';
 import CatalogScreen from '@mobile/features/products/presentation/catalog-screen';
 import i18n from '@mobile/i18n';
@@ -130,4 +130,14 @@ test('a product without active variants shows Sin variantes activas instead of a
   const screen = render(<CatalogScreen />);
   await screen.findByText('Sin variantes activas');
   expect(screen.queryByText('—')).toBeNull();
+});
+
+test('the seller product list shows the dashed placeholder for a product without photos', async () => {
+  mockLoadProducts.mockResolvedValue(ok({ items: [
+    product,
+    { ...product, id: 'product-2', name: 'Casaca denim', photo: { id: 'image-1', url: 'https://cdn.example/casaca.webp' } },
+  ], total: 2 }));
+  const screen = render(<CatalogScreen />);
+  await screen.findByText('Camisa de algodón de manga larga');
+  expect(screen.UNSAFE_getAllByType(View).filter((view) => StyleSheet.flatten(view.props.style)?.borderStyle === 'dashed')).toHaveLength(1);
 });

@@ -4,7 +4,7 @@ import type { Product } from "./product";
 /** The editor draft of a saved product. Fields the editor never reads (product QR, timestamps) are left empty. */
 export function editorDraftOf(product: Product): EditorDraft {
   return draftFromProduct({
-    id: product.id, name: product.name, description: product.description ?? null, photos: product.photo ? [{ id: product.photo.id, url: product.photo.url }] : [],
+    id: product.id, name: product.name, description: product.description ?? null, photos: product.photos.map((photo) => ({ id: photo.id, url: photo.url })),
     currency: product.currency, qrCode: "", createdAt: "", updatedAt: "", structureVersion: product.structureVersion,
     options: product.options.map((option) => ({ id: option.id, name: option.name, values: option.values.map((value) => ({ id: value.id, name: value.name })) })),
     variants: product.variants.map((variant) => ({

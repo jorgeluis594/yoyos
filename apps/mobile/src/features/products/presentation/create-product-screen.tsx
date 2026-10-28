@@ -9,7 +9,7 @@ import { SafeAreaView } from "react-native-safe-area-context";
 import { ThemedView } from "@/components/themed-view";
 import { products } from "@mobile/features/products/composition";
 import { useAccess } from "@/features/users/presentation/access-provider";
-import type { ProductId, PhotoSelection } from "../domain/product";
+import type { ProductId } from "../domain/product";
 import { formEdges, ProductForm } from "./product-form";
 import type { ProductFormField, ProductFormValues } from "./product-form";
 import { baseOf, emptyProductForm, productErrors, rowErrors, uncertainCodes, validateProductForm } from "./product-form-state";
@@ -20,6 +20,8 @@ import { isOnline } from "./is-online";
 import { productPath } from "./product-routes";
 import { useProductNavigationGuard } from "./use-product-navigation-guard";
 import { useProductDraft } from "./draft-guard";
+import { messageTarget, usePhotoField } from "./use-photo-field";
+import { photoFormError, photoSaveBlocker, rejectedPhotoIndexes } from "./photo-save-errors";
 
 const emptyDraft = () => createDraft(baseOf(emptyProductForm));
 
@@ -29,19 +31,18 @@ export default function CreateProductScreen() {
   const { state } = useAccess();
   const currency = state.status === "ready" ? countryCurrencies[state.company.country] : null;
   const [values, setValues] = useState<ProductFormValues>(emptyProductForm);
-  const [photo, setPhoto] = useState<PhotoSelection>({ kind: "keep" });
   const [errors, setErrors] = useState<Partial<Record<ProductFormField, string>>>({});
   const [saving, setSaving] = useState(false);
-  const [photoBusy, setPhotoBusy] = useState(false);
   const [conflict, setConflict] = useState(false);
   const [uncertain, setUncertain] = useState(false);
   const productId = useRef<ProductId | null>(null);
   const editor = useProductEditor();
+  const photos = usePhotoField({ upload: products.uploadImage, onAction: () => setErrors((current) => ({ ...current, form: undefined })) });
   const [started, setStarted] = useState(false);
   const { discardVersion } = useProductDraft();
   const setDirty = useProductNavigationGuard(
     values.name !== emptyProductForm.name || values.description !== emptyProductForm.description || values.sku !== emptyProductForm.sku ||
-    values.salePrice !== emptyProductForm.salePrice || values.purchasePrice !== emptyProductForm.purchasePrice || values.stock !== emptyProductForm.stock || photo.kind !== "keep" || photoBusy || editor.dirty,
+    values.salePrice !== emptyProductForm.salePrice || values.purchasePrice !== emptyProductForm.purchasePrice || values.stock !== emptyProductForm.stock || photos.unsaved || editor.dirty,
   );
   const discardVersionRef = useRef(discardVersion);
   useEffect(() => {
@@ -55,11 +56,12 @@ export default function CreateProductScreen() {
     if (discardVersionRef.current === discardVersion) return;
     discardVersionRef.current = discardVersion;
     setValues(emptyProductForm);
-    setPhoto({ kind: "keep" });
+    photos.reset([]);
     setErrors({});
     setConflict(false);
     productId.current = null;
     if (currency) editor.reset(emptyDraft(), currency);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [discardVersion, editor, currency]);
 
   if (state.status !== "ready" || !currency || !started || !editor.draft) return null;
@@ -78,7 +80,10 @@ export default function CreateProductScreen() {
   const save = async () => {
     const invalid = validateProductForm(values, !hasOptions, true);
     if (Object.keys(invalid).length) { setErrors(invalid); return; }
-    if (saving || photoBusy) return;
+    if (saving) return;
+    const blocker = photoSaveBlocker(photos);
+    if (blocker) { setErrors({ form: blocker }); return; }
+    photos.reject([]);
     const next = hasOptions ? draft : { ...draft, base: baseOf(values) };
     if (hasOptions) {
       const rows = rowErrors(next);
@@ -102,7 +107,7 @@ export default function CreateProductScreen() {
       country: state.company.country,
       name: values.name,
       ...(values.description === "" ? {} : { description: values.description }),
-      photo,
+      photos: photos.toSave(),
       draft: next,
     });
     setSaving(false);
@@ -111,7 +116,10 @@ export default function CreateProductScreen() {
       editor.setErrors(mapped);
       const summary = errorSummary(mapped);
       setUncertain(uncertainCodes.includes(result.error.code));
-      setErrors(summary ? { form: summary } : uncertainCodes.includes(result.error.code) ? { form: t('productCreationUncertain') } : productErrors(result.error, hasOptions));
+      const photoError = photoFormError(result.error, rejectedPhotoIndexes(result.error));
+      photos.reject(rejectedPhotoIndexes(result.error));
+      if (photoError) photos.reveal(messageTarget);
+      setErrors(photoError ? { form: photoError } : summary ? { form: summary } : uncertainCodes.includes(result.error.code) ? { form: t('productCreationUncertain') } : productErrors(result.error, hasOptions));
       setConflict(result.error.code === "PRODUCT_ID_CONFLICT");
       return;
     }
@@ -127,12 +135,9 @@ export default function CreateProductScreen() {
       currency={currency}
       draft={draft}
       errorCount={rowErrorCount(editor.errors)}
-      photo={photo}
-      onPhotoChange={(value) => { setPhoto(value); setErrors((current) => ({ ...current, form: undefined })); }}
+      photos={photos}
       errors={errors}
       disabled={saving || conflict}
-      photoBusy={photoBusy}
-      onPhotoBusy={setPhotoBusy}
       onSave={() => void save()}
       onClose={close}
       onReviewCatalog={() => { setDirty(false); router.replace("/products"); }}
