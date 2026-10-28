@@ -18,7 +18,7 @@ const mockStartAttempt = jest.fn();
 const mockPrintProductLabel = jest.fn();
 const productId = "00000000-0000-4000-8000-000000000001";
 const product = {
-  id: productId, name: "Camisa", currency: "PEN", structureVersion: 1, options: [],
+  id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, options: [],
   variants: [{ id: "variant-1", qrCode: "qr-1", combination: [], sku: "CAM-1", salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }],
 };
 
@@ -37,7 +37,6 @@ jest.mock("@mobile/features/products/composition", () => ({
 jest.mock("@mobile/features/printing/presentation/print-provider", () => ({ usePrint: () => ({ startAttempt: mockStartAttempt }) }));
 jest.mock("@mobile/features/products/presentation/use-product-navigation-guard", () => ({ useProductNavigationGuard: (dirty: boolean) => { mockGuard(dirty); return jest.fn(); } }));
 jest.mock("@mobile/features/products/presentation/draft-guard", () => ({ useProductDraft: () => ({ discardVersion: 0 }) }));
-jest.mock("@mobile/features/products/presentation/product-photo", () => ({ ProductPhoto: () => null }));
 
 beforeEach(() => { jest.clearAllMocks(); mockOnline = true; });
 

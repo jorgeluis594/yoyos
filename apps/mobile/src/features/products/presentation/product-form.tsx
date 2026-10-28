@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 import { ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
@@ -9,11 +9,11 @@ import { Field, FieldError, FieldGroup, FieldLabel } from "@mobile/components/ui
 import { Input } from "@mobile/components/ui/input";
 import { ThemedText } from "@mobile/components/themed-text";
 import { useTheme } from "@mobile/hooks/use-theme";
-import { products } from "@mobile/features/products/composition";
-import { ProductPhoto } from "@mobile/features/products/presentation/product-photo";
+import { ProductPhotosStrip } from "@mobile/features/products/presentation/product-photos-strip";
+import type { PhotoFieldController } from "@mobile/features/products/presentation/use-photo-field";
 import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
 import { QuantityStepper } from "@mobile/features/products/presentation/quantity-stepper";
-import type { Product, PhotoSelection } from "@mobile/features/products/domain/product";
+import type { Product } from "@mobile/features/products/domain/product";
 import { VariantsCard } from "./variants-card";
 import { editorSummary } from "./product-editor-summary";
 import tokens from "../../../../../../docs/design-tokens.json";
@@ -24,7 +24,7 @@ export type ProductFormField = keyof ProductFormValues | "form";
 export { formEdges } from "./form-edges";
 
 export function ProductForm({
-  title, headerAction, values, setValue, currency, current, draft, errorCount, photo, onPhotoChange, errors, disabled, photoBusy, onPhotoBusy, onSave, onClose, onReviewCatalog, onReload, onEditOptions, onOpenVariants, saving, conflict, uncertain, changed,
+  title, headerAction, values, setValue, currency, current, draft, errorCount, photos, errors, disabled, onSave, onClose, onReviewCatalog, onReload, onEditOptions, onOpenVariants, saving, conflict, uncertain, changed,
 }: {
   title: string;
   headerAction?: ReactNode;
@@ -35,12 +35,9 @@ export function ProductForm({
   draft: EditorDraft;
   /** Rows the last rejected save marked. */
   errorCount: number;
-  photo: PhotoSelection;
-  onPhotoChange: (value: PhotoSelection) => void;
+  photos: PhotoFieldController;
   errors: Partial<Record<ProductFormField, string>>;
   disabled: boolean;
-  photoBusy: boolean;
-  onPhotoBusy: (busy: boolean) => void;
   onSave: () => void;
   onClose: () => void;
   onReviewCatalog: () => void;
@@ -54,6 +51,10 @@ export function ProductForm({
   /** The save was rejected because the product changed since it was opened. */
   changed?: boolean;
 }) {
+  const page = useRef<ScrollView>(null);
+  const revealNonce = photos.focus?.reveal ? photos.focus.nonce : null;
+  // A save that the photos block shows its message above the strip, so the form returns to its top.
+  useEffect(() => { if (revealNonce !== null) page.current?.scrollTo({ y: 0, animated: true }); }, [revealNonce]);
   const hasOptions = draft.options.length > 0;
   const summary = editorSummary(draft);
   const { t, i18n } = useTranslation();
@@ -65,20 +66,13 @@ export function ProductForm({
   const price = new Intl.NumberFormat(locale, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const card = [styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }];
   return <View style={styles.layout}>
-    <ProductTopBar title={title} onClose={onClose} closeDisabled={saving || photoBusy}>
+    <ProductTopBar title={title} onClose={onClose} closeDisabled={saving}>
       {headerAction}
-      <Button onPress={onSave} loading={saving} disabled={disabled || photoBusy}>{t('save')}</Button>
+      <Button onPress={onSave} loading={saving} disabled={disabled}>{t('save')}</Button>
     </ProductTopBar>
-    <ScrollView style={styles.scroll} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
+    <ScrollView ref={page} style={styles.scroll} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       {errors.form ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{errors.form}</ThemedText> : null}
-      <ProductPhoto
-        value={photo}
-        original={current?.photo}
-        upload={products.uploadImage}
-        disabled={disabled}
-        onChange={onPhotoChange}
-        onBusy={onPhotoBusy}
-      />
+      <ProductPhotosStrip photos={photos} disabled={disabled} />
       <FieldGroup style={card}>
         <Field required invalid={!!errors.name} disabled={disabled}>
           <FieldLabel>{t('name')}</FieldLabel><Input value={values.name} onChangeText={(value) => setValue("name", value)} maxLength={200} placeholder={t('productNamePlaceholder')} accessibilityLabel={t('name')} />
