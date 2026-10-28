@@ -122,9 +122,9 @@ async function scanMessage(imageId: ImageId, deps: AddMessageProductsDependencie
   const identified = await deps.identifyProducts(image.data);
   if (!identified.success) return identified;
   const found = identified.data;
-  if (found.kind === "not_found") return ok({ reason: skipReason(found.reason), distances: { topDistance: found.topDistance, chosenDistance: found.chosenDistance } });
+  if (found.kind === "not_found") return ok({ reason: skipReason(found.reason), distances: { topDistance: found.topDistance, chosenDistance: found.chosenDistance, chosenPhotoPosition: found.chosenPhotoPosition } });
   return ok({ variants: found.items, match: found.method === "qr" ? { method: "qr", unknownCodes: found.unknownCodes }
-    : { method: "visual", confidence: found.confidence, candidates: found.candidates, topDistance: found.topDistance, chosenDistance: found.chosenDistance } });
+    : { method: "visual", confidence: found.confidence, candidates: found.candidates, topDistance: found.topDistance, chosenDistance: found.chosenDistance, chosenPhotoPosition: found.chosenPhotoPosition } });
 }
 
 const skipReason = (reason: IdentificationMissReason): MessageOrderSkipReason => reason === "unknown_qr_codes" ? "product_not_found" : reason;

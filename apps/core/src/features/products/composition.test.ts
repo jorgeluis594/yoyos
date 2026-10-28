@@ -1,19 +1,19 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
-import { err } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
 
-const { publishEvent, indexProductImage } = vi.hoisted(() => {
+const { publishEvent, indexProductPhotos } = vi.hoisted(() => {
   process.env.IMAGE_EMBEDDER_PROVIDER = "openai";
   process.env.OPENAI_API_KEY = "key";
-  return { publishEvent: vi.fn(), indexProductImage: vi.fn() };
+  return { publishEvent: vi.fn(), indexProductPhotos: vi.fn() };
 });
 vi.mock("@core/src/composition/event-bus", () => ({ applicationEventBus: () => ({ publishEvent }) }));
 vi.mock("@core/src/shared/infrastructure/persistance", () => ({
   getCompanyId: () => "00000000-0000-4000-8000-000000000001", withTenantIsolation: (_company: string, work: () => unknown) => work() }));
-vi.mock("@core/src/features/products/application/index-product-image", async (original) => ({
-  ...await original<typeof import("@core/src/features/products/application/index-product-image")>(), indexProductImage }));
+vi.mock("@core/src/features/products/application/index-product-photos", async (original) => ({
+  ...await original<typeof import("@core/src/features/products/application/index-product-photos")>(), indexProductPhotos }));
 
-import { createVisualSearch, indexProductImageHandler, publishProductPhotosAdded } from "@core/src/features/products/composition";
+import { createVisualSearch, indexProductPhotosHandler, publishProductPhotosAdded } from "@core/src/features/products/composition";
 
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -65,12 +65,49 @@ describe("product image indexing logs", () => {
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "product_photos_added_publish_failed", companyId, productId, err: failure }), "product_photos_added_publish_failed");
   });
 
-  test("product_image_index_failed carries the use case error as err", async () => {
+  const metadata = { eventId: "event-a", occurredAt: "2026-10-17T12:00:00.000Z" };
+  const run = (attempt: number) => indexProductPhotosHandler({ companyId, productId } as never, metadata, { signal: new AbortController().signal, attempt });
+  const photo = (n: number) => `00000000-0000-4000-8000-0000000000a${n}`;
+  const failure = (n: number, code: string) => ({ imageId: photo(n), code, message: code });
+
+  test("each failed photo is logged once per attempt with its image and code", async () => {
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => {});
+    vi.spyOn(log, "error").mockImplementation(() => {});
+    indexProductPhotos.mockResolvedValueOnce(ok({ kind: "processed", indexed: [], failed: [failure(1, "EMBEDDER_UNAVAILABLE"), failure(2, "IMAGE_STORAGE_UNAVAILABLE")] }));
+    expect(await run(2)).toMatchObject({ success: false, error: { code: "EMBEDDER_UNAVAILABLE", retryable: true } });
+    expect(warn).toHaveBeenCalledTimes(2);
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ event: "product_photo_index_failed", imageId: photo(1), errorCode: "EMBEDDER_UNAVAILABLE", retryable: true, attempt: 2, eventId: "event-a" }), "product_photo_index_failed");
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ imageId: photo(2), errorCode: "IMAGE_STORAGE_UNAVAILABLE" }), "product_photo_index_failed");
+  });
+
+  test("a permanent photo failure is logged at error level only on the first attempt of a job", async () => {
     const error = vi.spyOn(log, "error").mockImplementation(() => {});
-    const failure = { code: "INVALID_EMBEDDING", message: "Wrong dimension" };
-    indexProductImage.mockResolvedValueOnce(err(failure));
-    await indexProductImageHandler({ companyId, productId } as never, { eventId: "event-a", occurredAt: "2026-10-17T12:00:00.000Z" },
-      { signal: new AbortController().signal, attempt: 1 });
-    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "product_image_index_failed", eventId: "event-a", retryable: false, err: failure }), "product_image_index_failed");
+    const debug = vi.spyOn(log, "debug").mockImplementation(() => {});
+    indexProductPhotos.mockResolvedValue(ok({ kind: "processed", indexed: [], failed: [failure(2, "INVALID_EMBEDDING")] }));
+    expect(await run(1)).toEqual(ok(undefined));
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "product_photo_index_failed", imageId: photo(2), errorCode: "INVALID_EMBEDDING", retryable: false }), "product_photo_index_failed");
+    error.mockClear();
+    indexProductPhotos.mockResolvedValue(ok({ kind: "processed", indexed: [], failed: [failure(2, "INVALID_EMBEDDING"), failure(3, "EMBEDDER_UNAVAILABLE")] }));
+    vi.spyOn(log, "warn").mockImplementation(() => {});
+    expect(await run(2)).toMatchObject({ success: false });
+    expect(error).not.toHaveBeenCalled();
+    expect(debug).toHaveBeenCalledWith(expect.objectContaining({ event: "product_photo_index_failed", imageId: photo(2) }), "product_photo_index_failed");
+    indexProductPhotos.mockReset();
+  });
+
+  test("product_photos_indexed reports the indexed photos, the failed count and the queue latency", async () => {
+    const info = vi.spyOn(log, "info").mockImplementation(() => {});
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-10-17T12:00:05.000Z"));
+    indexProductPhotos.mockResolvedValueOnce(ok({ kind: "processed", indexed: [photo(1), photo(2)], failed: [] }));
+    expect(await run(1)).toEqual(ok(undefined));
+    expect(info).toHaveBeenCalledWith(expect.objectContaining({ event: "product_photos_indexed", companyId, productId, imageIds: [photo(1), photo(2)],
+      indexedCount: 2, failedCount: 0, queueLatencyMs: 5000, durationMs: expect.any(Number) }), "product_photos_indexed");
+  });
+
+  test("a failed state read is retried and logged as an error", async () => {
+    const error = vi.spyOn(log, "error").mockImplementation(() => {});
+    indexProductPhotos.mockResolvedValueOnce(err({ code: "PERSISTENCE_UNAVAILABLE", message: "db" }));
+    expect(await run(1)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", retryable: true } });
+    expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "product_photos_index_failed", errorCode: "PERSISTENCE_UNAVAILABLE" }), "product_photos_index_failed");
   });
 });

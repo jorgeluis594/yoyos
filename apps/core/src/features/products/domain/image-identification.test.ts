@@ -7,7 +7,7 @@ import type { ImageId, ProductId, VariantId } from "@core/src/features/products/
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const confidence = (value: number) => value as MatchConfidence;
-const candidates: VisualCandidate[] = [1, 2].map((n) => ({ productId: id(n) as ProductId, imageId: id(10 + n) as ImageId, distance: n / 10 }));
+const candidates: VisualCandidate[] = [1, 2].map((n) => ({ productId: id(n) as ProductId, imageId: id(10 + n) as ImageId, position: 0, distance: n / 10 }));
 const item = (n: number): CatalogItem => ({ variantId: id(100 + n) as VariantId, productName: "Polo", variantAttributes: {}, sku: null, unitPrice: { amount: 10, currency: "PEN" } });
 
 describe("selectProductCode", () => {
