@@ -2,7 +2,8 @@ import { expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import { orchestrate, type DecisionRequest, type OrchestrateDependencies } from "@core/src/shared/ai-tools/application/orchestrate";
 import { decisionRequestText } from "@core/src/shared/ai-tools/infrastructure/decision-request-text";
-import { createChatToolRegistry, toolsFor } from "@core/src/features/orders/application/chat-message-tools";
+import { createChatToolActions, toolsFor } from "@core/src/features/orders/application/chat-message-actions";
+import { createChatToolRegistry } from "@core/src/features/orders/infrastructure/chat-tools";
 import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import type { ChatContextItem, ChatToolContext, ChatToolDependencies } from "@core/src/features/orders/application/chat-tool-types";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
@@ -16,7 +17,7 @@ const contextItem = (label: string, n: number, productName: string, variantAttri
 
 const unused = async () => { throw new Error("A tool is not resolved here"); };
 const deps: ChatToolDependencies = { loadSellableVariants: unused, resolveVariant: unused, identifyProductsInText: unused, findTopTextCandidate: unused };
-const registry = createChatToolRegistry(deps);
+const registry = createChatToolRegistry(createChatToolActions(deps));
 
 const shown = [
   { product: { productId: id(20) as ProductId, name: "Casaca", variants: [variant(21, { Talla: "S", Color: "Celeste" }), variant(22, { Talla: "M", Color: "Gris" })] },

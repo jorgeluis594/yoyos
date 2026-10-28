@@ -41,7 +41,8 @@ import { findSellableVariants, findProductIdsOfVariants, findProductNoticeNames,
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
-import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
+import { createChatToolRegistry } from "@core/src/features/orders/infrastructure/chat-tools";
+import { createChatToolActions } from "@core/src/features/orders/application/chat-message-actions";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
 import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import { createChatMessageDeadLetterHandler, createChatMessageHandler, type ChatMessageHandlerDependencies } from "@core/src/features/orders/application/chat-message-handler";
@@ -472,12 +473,12 @@ async function findChatOrderContext(chatId: ChatId) {
 
 const aiTools = createAiToolsFromEnv(process.env);
 // The products composition imports the event handlers that import this module, so `products` is only read when a message is applied.
-const chatToolRegistry = createChatToolRegistry({
+const chatToolRegistry = createChatToolRegistry(createChatToolActions({
   loadSellableVariants: (productIds) => products.loadSellableVariants(productIds),
   resolveVariant: (input, signal) => products.resolveVariant(input, signal),
   identifyProductsInText: (lines, signal) => products.identifyProductsInText(lines, signal),
   findTopTextCandidate: (mention) => products.findTopTextCandidate(mention),
-});
+}));
 
 const chatMessageDependencies: ApplyChatMessageDependencies = {
   findOutcome,

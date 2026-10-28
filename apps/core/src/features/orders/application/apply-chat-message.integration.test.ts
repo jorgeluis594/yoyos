@@ -4,7 +4,8 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { prisma, systemPrisma, withLockedForUpdate, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { applyChatMessage, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
-import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
+import { createChatToolRegistry } from "@core/src/features/orders/infrastructure/chat-tools";
+import { createChatToolActions } from "@core/src/features/orders/application/chat-message-actions";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
 import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import { allocateOrderNumber, findChatOrderTargetForUpdate, findOrderAggregate, recordProcessedMessage, saveItemChanges, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
@@ -64,10 +65,10 @@ async function message(f: Fixture, content: { codes: readonly string[] } | { tex
   return messageId;
 }
 
-const registry = createChatToolRegistry({
+const registry = createChatToolRegistry(createChatToolActions({
   loadSellableVariants: loadSellableVariants, identifyProductsInText: async () => ok([]), findTopTextCandidate: async () => ok(null),
   resolveVariant: (input, signal) => resolveVariant(input, { minConfidence: 0.8, chooseVariant: async () => ok({ variantId: null, confidence: 0 }) }, signal),
-});
+}));
 // A text is a greeting for the faked decision API.
 const ai = { text: decisionRequestText, minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9, extract: async () => ok([]),
   decide: async () => ok({ action: { choice: "no_intent", confidence: 0.95 }, predicates: {}, choices: {} }) };

@@ -19,8 +19,9 @@ import type { ImageId, ProductId } from "@core/src/features/products/domain/prod
 import { minShowsProduct, type ImageBytes, type MatchConfidence, type VariantQrCode } from "@core/src/features/products/domain/image-identification";
 import type { TextIdentification } from "@core/src/features/products/domain/text-identification";
 import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ApplyChatMessageOutcome, type ApplyChatMessageError } from "@core/src/features/orders/application/apply-chat-message";
-import { createChatToolRegistry } from "@core/src/features/orders/application/chat-message-tools";
-import { ITEM_CHOICE_MIN_CONFIDENCE } from "@core/src/features/orders/application/chat-text-tools";
+import { createChatToolRegistry } from "@core/src/features/orders/infrastructure/chat-tools";
+import { createChatToolActions } from "@core/src/features/orders/application/chat-message-actions";
+import { ITEM_CHOICE_MIN_CONFIDENCE } from "@core/src/features/orders/application/chat-text-actions";
 import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
 import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import { chatMessageDeadlineMs } from "@core/src/features/orders/application/chat-message-policy";
@@ -172,12 +173,12 @@ export function createProductionPath(env: Env) {
     },
     visual,
   };
-  const registry = createChatToolRegistry({
+  const registry = createChatToolRegistry(createChatToolActions({
     loadSellableVariants: (productIds) => loadSellableVariants(productIds),
     resolveVariant: (input, signal) => resolveVariant(input, variants, signal),
     identifyProductsInText: (lines, signal) => identifyProductsInText(lines, identification, signal),
     findTopTextCandidate: (mention) => findTopTextCandidate(mention, identification),
-  });
+  }));
   const interpretAndApply = createChatInterpreter(registry, ai, describeChatContext);
   const readiness = { visualModel: visual.model, hasActiveProducts, hasIndexedProducts };
 
