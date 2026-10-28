@@ -5,7 +5,6 @@ import { Link } from "react-router";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Badge } from "@core/app/components/ui/badge";
 import { Button } from "@core/app/components/ui/button";
-import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { Checkbox } from "@core/app/components/ui/checkbox";
 import { FieldError } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
@@ -113,7 +112,7 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
   const optionSummary = (option: EditorOption, index: number) => {
     const live = option.values.filter((value) => !value.marked);
     const kept = live.find((value) => value.id === option.valueForExistingVariants) ?? live[0];
-    return <li key={option.id} {...reorder.itemProps(option.id)} className="grid gap-2 rounded-lg border border-border p-3">
+    return <li key={option.id} {...reorder.itemProps(option.id)} className="grid gap-2 py-3 first:pt-0 last:pb-0">
       <div className="flex flex-wrap items-center gap-2">
         <ReorderHandle id={option.id} name={option.name} position={index + 1} total={draft.options.length} onMove={reorder.move} announce={reorder.announce} dragProps={reorder.handleProps(option.id)} />
         <strong className={option.marked ? "line-through" : undefined}>{option.name}</strong>
@@ -176,20 +175,19 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
   const addUncreated = (combination: Readonly<Record<string, string>>) => edit((current) => { const next = addCombination(current, combination); return next.success ? next.data : current; });
   const single = uncreated === 1 ? uncreatedCombinations(draft, { limit: 1 }).items[0] : null;
 
-  return <section aria-labelledby="variants-heading">
-    <Card>
-      <CardHeader><CardTitle id="variants-heading" className="text-base">{t("productEditor.variants")}</CardTitle></CardHeader>
-      <CardContent className="grid gap-4">
+  return <section aria-labelledby="variants-heading" className="grid gap-4">
+    <h2 id="variants-heading" className="text-base font-semibold">{t("productEditor.variants")}</h2>
+    <div className="grid gap-4">
         {!hasOptions && !editing && <div className="grid gap-2">
           <div><Button type="button" variant="outline" onClick={() => open(newOptionBuffer(crypto.randomUUID()))}>{t("productEditor.addOptions")}</Button></div>
           <p className="text-sm text-muted-foreground">{t("productEditor.addOptionsHelp")}</p>
         </div>}
-        {(hasOptions || editing) && <ul className="grid gap-3">
+        {(hasOptions || editing) && <ul className="grid divide-y divide-border">
           {draft.options.map((option, index) => editing && editing.optionId === option.id
-            ? <li key={option.id}><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={notices[option.id] ?? targets.options[option.id]} valueNotices={{ ...valueNotices, ...targets.values }}
+            ? <li key={option.id} className="py-3 first:pt-0 last:pb-0"><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={notices[option.id] ?? targets.options[option.id]} valueNotices={{ ...valueNotices, ...targets.values }}
                 onChange={setEditing} onDone={done} onDelete={() => remove(editing)} onRemoveValue={removeFromEditor} onUndoValue={(id) => edit((current) => undoRemoveValue(current, id))} /></li>
             : optionSummary(option, index))}
-          {editing?.isNew && <li><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={undefined} valueNotices={{}}
+          {editing?.isNew && <li className="py-3 first:pt-0 last:pb-0"><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={undefined} valueNotices={{}}
             onChange={setEditing} onDone={done} onDelete={() => remove(editing)} onRemoveValue={() => undefined} onUndoValue={() => undefined} /></li>}
         </ul>}
         {hasOptions && !editing && (draft.options.length >= maxOptions
@@ -247,8 +245,7 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
               {limitReached && <li>{t("productEditor.limitReached", { count: maxVariants })}</li>}</ul>}
           </div>}
         </>}
-      </CardContent>
-    </Card>
+    </div>
     {bulk && <BulkDialog kind={bulk} selected={selectedLive.length} hidden={hidden} newCount={newSelected} onApply={applyBulkPatch} onClose={() => setBulk(null)} />}
     {rowRef && (() => {
       const view = views.find((candidate) => candidate.row.ref === rowRef);
