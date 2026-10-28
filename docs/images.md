@@ -13,7 +13,7 @@ Code: `apps/core/src/shared/images/` (application, R2 adapter, record repository
 | The module lives in `apps/core/src/shared/`, not the root `shared/` | It is core code used by several core features; the root `shared/` is for code shared between applications. |
 | Delivery URLs are public (bucket custom domain) | Clients, including the anonymous public catalog, display the URL directly. Whoever has a URL can download the object, so this module must not store private documents without a new access contract. |
 | Uploads go through core, not directly to the provider | No temporary authorization or upload confirmation flow is needed. |
-| Original bytes are stored; no conversion, thumbnails or variants | No requirement for them. |
+| Original bytes are stored; no conversion, thumbnails or variants | No requirement for them. Accepted cost: a public product page with several photos downloads every original, and seller thumbnails show originals at 112 px (web) and 64 px (mobile). |
 | Feature rules (who may change a product photo, how many images) stay in each feature | The storage port receives no entity type or id. |
 | The QR reader (`infrastructure/qr-code-reader.ts`) lives in this module; what a decoded QR means stays in each feature | It is generic, products (code identification) and payment settings (wallet QR) both use it, and placing it in products would create a dependency cycle between features. |
 
@@ -42,7 +42,9 @@ Both require a session and an active company. Errors use the shared `{ code, err
 - Accepted files: one complete, static JPEG, PNG or WebP of at most 10 MB, positive dimensions, at most 8,000 px per side and 24 MP. The detected format must match the declared type; empty, truncated, corrupt, animated WebP and APNG files are rejected. The whole image is decoded before anything is stored, because a valid header does not prove a complete image.
 - A use case that associates an `imageId` with an entity verifies that the image exists and belongs to the company. Knowing an id grants nothing.
 - An upload stores the file first and then the record. If the record fails, the file is deleted as compensation; a failed compensation is logged. The provider and the database share no transaction, so an interrupted upload can leave an orphaned file.
-- Replacing an image saves the new association first. Removing an association does not delete the file. There is no public delete endpoint and no automatic cleanup of unassociated images; a future cleanup must not expire bucket objects indiscriminately, because associated images live in the same bucket.
+- `413 IMAGE_TOO_LARGE` covers weight, request size and resolution alike. Clients that need to tell weight from dimensions check the byte limit (`imageUploadLimits` in `shared/contracts/images.ts`) before uploading and read any `413` for a file they sent as dimensions; mobile re-encodes photos to fit the byte limit, so its `413` is always dimensions. Reason: the split is a client rule and the contract does not change.
+- A product may use up to 8 images as its photos ([Products · Photos](products.md#photos)); the product's reference to an image restricts deleting that image, so a future cleanup cannot delete a photo in use.
+- Replacing an image saves the new association first. Removing an association (for example removing a product photo) does not delete the file, and its public URL keeps working for whoever already has it. There is no public delete endpoint and no automatic cleanup of unassociated images; a future cleanup must not expire bucket objects indiscriminately, because associated images live in the same bucket.
 
 ## Configuration
 
