@@ -29,6 +29,7 @@ export function CatalogGallery({ name, photoUrls }: Readonly<{ name: string; pho
   const [host, setHost] = useState<HTMLDivElement | null>(null);
   const track = useRef<HTMLDivElement>(null);
   const opener = useRef<HTMLElement | null>(null);
+  const root = useRef<HTMLDivElement>(null);
   const settle = useCallback(() => setPrimarySettled(true), []);
 
   if (count === 0) return <CatalogProductImage name={name} url={null} part="catalog-product-photo" />;
@@ -42,7 +43,14 @@ export function CatalogGallery({ name, photoUrls }: Readonly<{ name: string; pho
   };
   const label = (index: number) => `Ver foto ${index + 1} de ${count}`;
 
-  return <div className="flex min-w-0 flex-col gap-3">
+  // A large photo that opened the lightbox hands focus to the large photo now shown; a thumbnail gets it back.
+  const restoreFocus = () => {
+    const target = opener.current?.closest('[data-store-part="catalog-gallery-large"]')
+      ? root.current?.querySelector<HTMLElement>('[data-store-part="catalog-gallery-large"] button:not([tabindex="-1"])') : opener.current;
+    target?.focus();
+  };
+
+  return <div ref={root} className="flex min-w-0 flex-col gap-3">
     {count === 1
       ? <div data-store-part="catalog-gallery-large">
         <button type="button" aria-label={`Ver foto de ${name}`} onClick={(event) => open(0, event.currentTarget)}
@@ -51,7 +59,6 @@ export function CatalogGallery({ name, photoUrls }: Readonly<{ name: string; pho
         </button>
       </div>
       : <div ref={track} data-store-part="catalog-gallery-track" className="flex snap-x snap-mandatory overflow-x-auto overscroll-x-contain [scrollbar-width:none]"
-        style={{ touchAction: "pan-x" }}
         onScroll={(event) => { const index = shownSlide(event.currentTarget, count); if (index !== null) setShown(index); }}>
         {photoUrls.map((url, index) => {
           const isShown = index === shown;
@@ -75,7 +82,7 @@ export function CatalogGallery({ name, photoUrls }: Readonly<{ name: string; pho
     </ul>}
     <div ref={setHost} data-store-part="catalog-lightbox-host" />
     {lightboxAt !== null && <CatalogLightbox name={name} photoUrls={photoUrls} start={lightboxAt} container={host}
-      onClose={close} onCloseAutoFocus={(event) => { event.preventDefault(); opener.current?.focus(); }} />}
+      onClose={close} onCloseAutoFocus={(event) => { event.preventDefault(); restoreFocus(); }} />}
   </div>;
 }
 
@@ -94,6 +101,7 @@ function CatalogLightbox({ name, photoUrls, start, container, onClose, onCloseAu
   // Opens on the chosen photo before the first paint.
   useLayoutEffect(() => scrollToSlide(track.current, start), [start]);
 
+  // The buttons stay enabled at the ends (`aria-disabled`): a focused button that becomes disabled drops focus to `body`, out of the focus trap and the arrow keys.
   const goTo = (index: number) => {
     const next = Math.max(0, Math.min(count - 1, index));
     setCurrent(next);
@@ -113,6 +121,7 @@ function CatalogLightbox({ name, photoUrls, start, container, onClose, onCloseAu
     if (down > closeDragDistance && down > Math.abs(event.clientX - from.x)) onClose(current);
   };
 
+  // No `Dialog.Overlay` on purpose: `Content` fills the viewport and each slide handles the scrim click; an Overlay would add Radix's scroll lock and needs its own scrim click.
   return <Dialog.Root open onOpenChange={(open) => { if (!open) onClose(current); }}>
     <Dialog.Portal container={container}>
       <Dialog.Content data-store-part="catalog-lightbox" aria-describedby={undefined} onKeyDown={onKeyDown} onCloseAutoFocus={onCloseAutoFocus}
@@ -127,10 +136,10 @@ function CatalogLightbox({ name, photoUrls, start, container, onClose, onCloseAu
         </div>
         <Dialog.Close aria-label="Cerrar" className={`${controlClass} top-4 right-4`} style={{ ...controlStyle, outlineColor: lightboxColors.focus }}><X aria-hidden="true" /></Dialog.Close>
         {count > 1 && <>
-          <button type="button" aria-label="Foto anterior" disabled={current === 0} onClick={() => goTo(current - 1)}
-            className={`${controlClass} top-1/2 left-4 -translate-y-1/2 disabled:invisible`} style={{ ...controlStyle, outlineColor: lightboxColors.focus }}><ChevronLeft aria-hidden="true" /></button>
-          <button type="button" aria-label="Foto siguiente" disabled={current === count - 1} onClick={() => goTo(current + 1)}
-            className={`${controlClass} top-1/2 right-4 -translate-y-1/2 disabled:invisible`} style={{ ...controlStyle, outlineColor: lightboxColors.focus }}><ChevronRight aria-hidden="true" /></button>
+          <button type="button" aria-label="Foto anterior" aria-disabled={current === 0} onClick={() => goTo(current - 1)}
+            className={`${controlClass} top-1/2 left-4 -translate-y-1/2`} style={{ ...controlStyle, outlineColor: lightboxColors.focus }}><ChevronLeft aria-hidden="true" /></button>
+          <button type="button" aria-label="Foto siguiente" aria-disabled={current === count - 1} onClick={() => goTo(current + 1)}
+            className={`${controlClass} top-1/2 right-4 -translate-y-1/2`} style={{ ...controlStyle, outlineColor: lightboxColors.focus }}><ChevronRight aria-hidden="true" /></button>
           <p role="status" aria-live="polite" className="absolute bottom-4 left-1/2 z-10 -translate-x-1/2 rounded-full px-3 py-1 text-sm tabular-nums"
             style={{ backgroundColor: lightboxColors.scrim, color: lightboxColors.text }}>{`${current + 1} de ${count}`}</p>
         </>}

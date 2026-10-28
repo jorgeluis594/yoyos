@@ -214,8 +214,18 @@ test("a buyer opens a product with three photos, opens the lightbox from a thumb
 
     await buyerPage.keyboard.press("ArrowRight");
     await browserExpect(lightbox.getByText("3 de 3")).toBeVisible();
-    await lightbox.getByRole("button", { name: "Foto anterior" }).click();
+    // At the last photo the next button stays focused, so the arrow keys and the focus trap keep working.
+    // Playwright's click waits out aria-disabled, so the keyboard presses it.
+    await lightbox.getByRole("button", { name: "Foto siguiente" }).focus();
+    await buyerPage.keyboard.press("Enter");
+    await browserExpect(lightbox.getByText("3 de 3")).toBeVisible();
+    await browserExpect(lightbox.getByRole("button", { name: "Foto siguiente" })).toBeFocused();
+    await buyerPage.keyboard.press("ArrowLeft");
     await browserExpect(lightbox.getByText("2 de 3")).toBeVisible();
+    await lightbox.getByRole("button", { name: "Foto anterior" }).click();
+    await browserExpect(lightbox.getByText("1 de 3")).toBeVisible();
+    await buyerPage.keyboard.press("Tab");
+    await browserExpect(lightbox.locator(":focus")).toHaveCount(1);
 
     await buyerPage.keyboard.press("Escape");
     await browserExpect(lightbox).toBeHidden();

@@ -143,6 +143,49 @@ describe("catalog gallery", () => {
     outside.remove();
   });
 
+  test("Foto siguiente and Foto anterior keep focus inside the dialog at the ends and the arrow keys keep working", async () => {
+    await mount(urls(3));
+    await click(thumbnails()[1]);
+    const next = named("Foto siguiente") as HTMLButtonElement;
+    await click(next);
+    expect(indicator()).toBe("3 de 3");
+    // At the last photo the button stays enabled and focused; a disabled button would drop focus to body.
+    expect(next.disabled).toBe(false);
+    expect(next.getAttribute("aria-disabled")).toBe("true");
+    expect(document.activeElement).toBe(next);
+    await click(next);
+    expect(indicator()).toBe("3 de 3");
+    await key(document.activeElement!, "ArrowLeft");
+    expect(indicator()).toBe("2 de 3");
+    const previous = named("Foto anterior") as HTMLButtonElement;
+    await click(previous);
+    await click(previous);
+    expect(indicator()).toBe("1 de 3");
+    expect(previous.disabled).toBe(false);
+    expect(document.activeElement).toBe(previous);
+    await key(document.activeElement!, "ArrowRight");
+    expect(indicator()).toBe("2 de 3");
+  });
+
+  test("closing a lightbox opened from the large photo returns focus to the large photo now shown", async () => {
+    await mount(urls(3));
+    await click(largeButton());
+    await key(document.activeElement!, "ArrowRight");
+    await key(document.activeElement!, "ArrowRight");
+    await key(document.activeElement!, "Escape");
+    expect(lightbox()).toBeNull();
+    expect(thumbnails().map((thumb) => thumb.getAttribute("aria-current"))).toEqual([null, null, "true"]);
+    expect(largeButton().getAttribute("aria-label")).toBe("Ver foto 3 de 3");
+    expect(document.activeElement).toBe(largeButton());
+  });
+
+  test("the page track keeps vertical scrolling over the large photo and the lightbox track pans horizontally only", async () => {
+    await mount(urls(3));
+    expect(part("catalog-gallery-track")!.style.touchAction).toBe("");
+    await click(thumbnails()[0]);
+    expect(part("catalog-lightbox-track")!.style.touchAction).toBe("pan-x");
+  });
+
   test("a click on the scrim around the photo closes the lightbox and a click on the photo does not", async () => {
     await mount(urls(3));
     await click(thumbnails()[0]);
