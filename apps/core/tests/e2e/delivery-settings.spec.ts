@@ -2,7 +2,7 @@ import { deliverySettingsSchema } from "@shared/contracts/delivery-settings";
 import { mkdir } from "node:fs/promises";
 import { browserExpect, expect, prepareVerifiedCompany, subdomainOf, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { chooseDistrict, chooseDistrictInProvince } from "@core/tests/e2e/district-combobox";
 

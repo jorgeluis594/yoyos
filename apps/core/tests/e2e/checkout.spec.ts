@@ -4,7 +4,7 @@ import { ok, err } from "@shared/functional";
 import { randomUUID } from "node:crypto";
 import type { Page } from "@playwright/test";
 import { browserExpect, expect, prepareVerifiedCompany, publishCatalog, storeUrl, subdomainOf, test } from "@core/tests/e2e/fixtures";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { deleteAgencies, insertAgency, seededCatalogId, withCatalogAdmin } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
 import { orders } from "@core/src/features/orders/composition";

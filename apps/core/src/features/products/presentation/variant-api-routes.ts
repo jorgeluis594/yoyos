@@ -2,7 +2,7 @@ import express from "express";
 import type { Request, Response } from "express";
 import { changeCombinationRequestSchema, changeVariantStatusRequestSchema, updateVariantRequestSchema } from "@shared/contracts/products";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
-import { productVariantActions } from "@core/src/composition/product-variant-actions";
+import { productVariantActions } from "@core/src/features/products/product-variant-actions";
 import { handleUnexpected, productIdFrom, sendInvalid, sendOperationError, zodIssues } from "@core/src/features/products/presentation/api-errors";
 import { toProductDetailResponse } from "@core/src/features/products/presentation/product-presenter";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";

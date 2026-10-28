@@ -31,7 +31,7 @@ test("product persistence is atomic, isolated, and constrained", async () => {
   const { productRepository } = await import("@core/src/features/products/infrastructure/repository");
   const { createProduct } = await import("@core/src/features/products/application/create");
   const { getProduct } = await import("@core/src/features/products/application/get");
-  const { productCreateDependencies, productGetDependencies } = await import("@core/src/composition/product-editing");
+  const { productCreateDependencies, productGetDependencies } = await import("@core/src/features/products/product-editing");
   await expect(productRepository.get(randomUUID() as ProductId)).resolves.toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
   const newDeps = (companyId: string) => ({ ...productCreateDependencies(companyId), findImage: async (id: ImageId) => ok(!!(await prisma.image.findUnique({ where: { id } }))), newId: randomUUID, clock: () => new Date("2026-09-24T00:00:00.000Z"), publishProductImageChanged: async () => ok(undefined) });
   const create = (companyId: string, input: CreateInput, overrides: Partial<ReturnType<typeof newDeps>> = {}) => createProduct(input, { companyId: companyId as CompanyId }, { ...newDeps(companyId), ...overrides });

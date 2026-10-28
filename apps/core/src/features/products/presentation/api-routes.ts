@@ -1,7 +1,7 @@
 import express from "express";
 import { createProductRequestSchema, productListQuerySchema, saveProductRequestSchema } from "@shared/contracts/products";
 import { apiError } from "@core/src/shared/infrastructure/api-auth-middleware";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { handleUnexpected, productIdFrom, sendInvalid, sendOperationError, zodIssues } from "@core/src/features/products/presentation/api-errors";
 import { toCreateInput, toSaveInput } from "@core/src/features/products/presentation/request-input";
 import { toProductDetailResponse, toProductIdResponse, toProductListResponse } from "@core/src/features/products/presentation/product-presenter";

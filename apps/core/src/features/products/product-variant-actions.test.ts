@@ -3,13 +3,13 @@ import { err, ok } from "@shared/functional";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 const editing = vi.hoisted(() => ({ get: vi.fn() }));
-vi.mock("@core/src/composition/product-editing", async (importOriginal) => ({
-  ...await importOriginal<typeof import("@core/src/composition/product-editing")>(),
+vi.mock("@core/src/features/products/product-editing", async (importOriginal) => ({
+  ...await importOriginal<typeof import("@core/src/features/products/product-editing")>(),
   productEditing: { get: editing.get },
 }));
 
 const { log } = await import("@core/src/shared/infrastructure/logger");
-const { withDetail } = await import("@core/src/composition/product-variant-actions");
+const { withDetail } = await import("@core/src/features/products/product-variant-actions");
 const { withTenantIsolation } = await import("@core/src/shared/infrastructure/persistance");
 
 const productId = "00000000-0000-4000-8000-000000000001" as ProductId;

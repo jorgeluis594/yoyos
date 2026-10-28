@@ -5,7 +5,7 @@ import { writeFile } from "node:fs/promises";
 import pg from "pg";
 import { vi } from "vitest";
 import { expect, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createEventBusRuntime } from "@core/src/composition/event-bus";
 import { bootstrapEventHandlers, eventHandlers } from "@core/src/composition/event-handlers";

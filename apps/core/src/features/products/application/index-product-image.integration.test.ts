@@ -24,7 +24,7 @@ vi.mock("@core/src/shared/images/application/images", async (importOriginal) => 
 
 import { createPublishEvent } from "@core/src/composition/event-bus";
 import { indexProductImage } from "@core/src/composition/event-handlers";
-import { productEditing, productSaveDependencies } from "@core/src/composition/product-editing";
+import { productEditing, productSaveDependencies } from "@core/src/features/products/product-editing";
 import { saveProduct } from "@core/src/features/products/application/save-product";
 import { productRepository } from "@core/src/features/products/infrastructure/repository";
 import { deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";

@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import pg from "pg";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { productEditing, productGetDependencies } from "@core/src/composition/product-editing";
+import { productEditing, productGetDependencies } from "@core/src/features/products/product-editing";
 import { getProduct } from "@core/src/features/products/application/get";
 import type { CreateInput } from "@core/src/features/products/application/create";
 import { findForeignOptionIds, findSkuOwners, insertProduct, productRepository } from "@core/src/features/products/infrastructure/repository";

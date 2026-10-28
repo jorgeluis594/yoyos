@@ -3,7 +3,7 @@ import type { Server } from "node:http";
 import type { Route } from "@playwright/test";
 import { afterAll, beforeAll } from "vitest";
 import { brandHostHeaders, browserExpect, expect, prepareVerifiedCompany, storeUrl, subdomainOf, test, waitForReactHydration } from "@core/tests/e2e/fixtures";
-import { productEditing } from "@core/src/composition/product-editing";
+import { productEditing } from "@core/src/features/products/product-editing";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { formatCurrency } from "@core/app/format-currency";
 import { startFakeS3 } from "@core/tests/e2e/fake-s3";

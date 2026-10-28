@@ -13,7 +13,7 @@ import { findForeignOptionIds, findSkuOwners, productRepository } from "@core/sr
 import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import { applyCombinationChange, applyVariantDeletion, lockProduct, setVariantStatus, updateVariantFields, type VariantActionContext } from "@core/src/features/products/infrastructure/variant-repository";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
-import { productEditing, productWriteTransactionOptions } from "@core/src/composition/product-editing";
+import { productEditing, productWriteTransactionOptions } from "@core/src/features/products/product-editing";
 
 const writeOptions = productWriteTransactionOptions(process.env);
 

@@ -5,7 +5,7 @@ import { productApiErrorSchema, productDetailResponseSchema, productListResponse
 import { combinationLabel } from "@shared/product-variants";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { productVariantActions } from "@core/src/composition/product-variant-actions";
+import { productVariantActions } from "@core/src/features/products/product-variant-actions";
 import { deleteSeededProducts, seedProduct, type SeededProduct } from "@core/src/features/products/infrastructure/product-seed";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 

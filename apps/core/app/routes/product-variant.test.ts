@@ -2,8 +2,8 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { afterEach, expect, test, vi } from "vitest";
 import type { ActionFunctionArgs, ClientActionFunctionArgs, LoaderFunctionArgs } from "react-router";
 import { action, clientAction, loader } from "@core/app/routes/product-variant";
-import { productEditing } from "@core/src/composition/product-editing";
-import { productVariantActions } from "@core/src/composition/product-variant-actions";
+import { productEditing } from "@core/src/features/products/product-editing";
+import { productVariantActions } from "@core/src/features/products/product-variant-actions";
 import type { Detail } from "@core/src/features/products/application/get";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
