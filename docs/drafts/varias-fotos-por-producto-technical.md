@@ -1,6 +1,6 @@
 # Multiple photos per product: technical design
 
-**Status:** design closed, pending implementation. Based on `docs/drafts/varias-fotos-por-producto.md` (part A) and on «Alcance B» and the acceptance criteria of Todoist task 6hpQq4RvPqcW98CV (part B, no product document by founder decision). Base: `jorgeluis594/varias-fotos-por-producto-con-foto-princ` at `27ade077` (main at `b2ca1163`).
+**Status:** design closed, pending implementation (architecture review gate closed in round 3, 27/10/2026; see §17 and §18). Based on `docs/drafts/varias-fotos-por-producto.md` (part A) and on «Alcance B» and the acceptance criteria of Todoist task 6hpQq4RvPqcW98CV (part B, no product document by founder decision). Base: `jorgeluis594/varias-fotos-por-producto-con-foto-princ` at `27ade077` (main at `b2ca1163`).
 
 ## 1. Technical goal
 
@@ -44,7 +44,7 @@ visual search: nearest photo per product (DISTINCT ON product) → chooser sees 
 | Part B lightbox | Full screen: the lightbox content covers the whole viewport (`100dvw × 100dvh`), the photo is scaled to fit inside it without cropping (`object-contain`), on a fixed dark scrim. A click on the scrim around the photo closes it through its own handler (the scrim is inside the dialog content, so Radix's outside-click does not apply). |
 | Part B components | Gallery and lightbox live in `apps/core/app/components/catalog-gallery.tsx`, composed from the Radix `Dialog` primitives (focus trap, Esc, labelled title) with `Dialog.Portal container` = the catalog theme host, as `app/components/ui/sheet.tsx` does. The shared `app/components/ui/dialog.tsx` does not change. Swipe uses CSS scroll snap and pointer events; no new dependency. |
 | Public page weight | Accepted for this version with mitigations: the primary loads eagerly with `fetchpriority="high"`, thumbnails use `decoding="async"` and are requested only after the primary has loaded or failed to load. These fix the order (the primary first), not the volume: thumbnails use the same original URLs as the slides, so once they are requested every original downloads. A product with 8 photos downloads 8 originals (up to 10 MB each) on a phone. Resized variants are deferred; the delivery proposes a Todoist follow-up for them (§15). |
-| Deferred | Photos per variant (Todoist 6hqMVjGfqcR7rF6V); deleting files of removed photos (future image cleanup); thumbnails or resized variants of photos (proposed follow-up, §15); drag reordering. |
+| Deferred | Photos per variant (Todoist 6hqMVjGfqcR7rF6V); deleting files of removed photos (future image cleanup); thumbnails or resized variants of photos; every deferred item with a risk is listed in §15 «Deferred risks»; drag reordering. |
 
 ## 3. Verified current state
 
@@ -171,7 +171,7 @@ Flow: load the state (a failed read is the only error); `null` → `product_not_
 
 The handler in `products/composition.ts` decides with the existing `retryableIndexCodes` (`PERSISTENCE_UNAVAILABLE`, `IMAGE_STORAGE_UNAVAILABLE`, `EMBEDDER_UNAVAILABLE`):
 - No failure: success.
-- Only permanent failures (`INVALID_EMBEDDING`, `IMAGE_NOT_FOUND`): each logged as `product_photo_index_failed` at error level; the job succeeds, so the other photos are already indexed and nothing is retried.
+- Only permanent failures (`INVALID_EMBEDDING`, `IMAGE_NOT_FOUND`): each logged as `product_photo_index_failed` (error level on the job's first attempt, debug on later retries of the same job, §13); the job succeeds, so the other photos are already indexed and nothing is retried.
 - At least one retryable failure: the job returns a retryable error and is retried (up to 8 times); the retry skips every photo indexed meanwhile and tries the failed ones again, including permanent ones (bounded cost: at most 8 photos per retry).
 
 A photo that always fails permanently stays without embedding; `products:index-images` republishes its product on every run and the job tries it once more without blocking the others (accepted: one embed attempt per bad photo per manual run). A photo removed while the job runs still gets its embedding saved (harmless: search joins current photos only). Photo bytes are read with the images module's `readImageBytes(imageId)`; the state query does not return storage keys, because storage keys are internal to the images module (one primary-key lookup per photo, at most 8).
@@ -424,7 +424,7 @@ Save with a photo change:
 6. `reload` in the same transaction; commit; publish `product_photos_added` if needed.
 
 - Two saves on one product run one after the other under the row lock; a save without `photoIds` never touches the rows written by the other.
-- The photo replacement is `findImages` plus two statements under a lock already held for milliseconds; the statement-count test of products (2 vs 100 variants) gains a case comparing a save that changes the list to 1 photo with one that changes it to 8 photos: both issue the same number of statements.
+- The photo replacement is `findImages` plus two statements under a lock already held for milliseconds; the statement-count test of products (2 vs 100 variants) gains a case comparing a save that changes the list to 1 photo with one that changes it to 8 photos, both from a product without photos and both adding only new ids (same shape, so both run `findImages`): both issue the same number of statements.
 - A repeated create keeps returning `409 PRODUCT_ID_CONFLICT`; photo rows are inserted only by the winning create.
 - Indexing jobs read outside the editing transaction and write only `ImageEmbedding` with `ON CONFLICT DO NOTHING`.
 
@@ -474,7 +474,7 @@ Save with a photo change:
 
 | File | Change |
 | --- | --- |
-| `app/components/catalog-gallery.tsx` (new) | `CatalogGallery { name, photoUrls }` with at least one photo. Two or more: large photo track (CSS scroll snap; swipe on touch changes the large photo), thumbnails below in saved order, primary included (buttons «Ver foto 2 de 5», `aria-current` on the photo shown large). Exactly one: today's single large photo (same element, size and shape as `CatalogProductImage` with `catalog-product-photo`), no track, no thumbnail row. Clicking or tapping the large photo or any thumbnail opens `CatalogLightbox` on that photo |
+| `app/components/catalog-gallery.tsx` (new) | `CatalogGallery { name, photoUrls }` with at least one photo. Two or more: large photo track (CSS scroll snap; swipe on touch changes the large photo), thumbnails below in saved order, primary included (buttons «Ver foto 2 de 5», `aria-current` on the photo shown large). Exactly one: today's single large photo (same element, size and shape as `CatalogProductImage` with `catalog-product-photo`), no track, no thumbnail row. The large photo is wrapped in a `button` with an accessible name («Ver foto 1 de 3», or «Ver foto de {name}» with one photo); the image keeps today's element and size inside it, so the keyboard and screen readers can open the lightbox and focus can return to it. Clicking, tapping or activating with Enter or Space the large photo or any thumbnail opens `CatalogLightbox` on that photo |
 | same file | `CatalogLightbox`: composed from the Radix `Dialog` primitives (`Root`, `Portal container` = the catalog theme host, `Content`, `Title`), as `app/components/ui/sheet.tsx` does; the shared `dialog.tsx` does not change. Full screen: `Content` covers `100dvw × 100dvh` with the photo fitted inside (`object-contain`, never cropped). Visually hidden title «Fotos de {name}»; photo track; **Foto anterior** / **Foto siguiente** buttons (hidden with one photo); «2 de 5» indicator in a polite live region (hidden with one photo); **Cerrar** button. ArrowLeft / ArrowRight change photo; Swiping the lightbox track horizontally on touch moves to the previous or next photo (native scroll snap). Esc (Radix), **Cerrar**, a click on the scrim around the photo (own handler on the scrim element: `Content` fills the viewport, so Radix's outside-click never fires) and swipe down (pointer vertical drag over 80 px, initial value) close. Gesture mechanics: the track has `touch-action: pan-x`, so the browser keeps horizontal panning for scroll snap and hands vertical moves to the pointer handlers; the content has `overscroll-behavior: contain`, so a vertical drag never starts pull-to-refresh or scrolls the page behind; `pointercancel` resets the drag without closing. With one photo the track has no horizontal pan and only swipe down applies. Focus is trapped (Radix) and returns to the photo or thumbnail that opened it |
 | `app/routes/catalog-product.tsx` | Renders `CatalogGallery` instead of the single image when `photoUrls` is not empty (one photo looks as today, §2 «Part B interaction»); today's neutral block when empty |
 | `app/components/catalog-sections.tsx` | `CatalogProductImage` gains the `catalog-gallery-thumbnail` and `catalog-lightbox-photo` parts if needed |
@@ -493,7 +493,7 @@ Loading: the primary photo loads eagerly with `fetchpriority="high"`; thumbnails
 | `product_photos_added_publish_failed` | error | `products/composition.ts` | `["companyId", "productId", "errorCode"]` |
 | `product_photos_indexed` | info | photos index handler, when at least one photo was indexed | `["companyId", "productId", "imageIds", "indexedCount", "failedCount", "model", "durationMs", "queueLatencyMs"]` |
 | `product_photos_index_skipped` | debug | photos index handler | `["companyId", "productId", "reason"]` |
-| `product_photo_index_failed` | warn for a retryable failure until the last attempt; error for a permanent failure or the last attempt | photos index handler, once per failed photo | `["companyId", "productId", "imageId", "eventId", "errorCode", "retryable", "attempt"]` |
+| `product_photo_index_failed` | retryable failure: warn until the last attempt, then error. Permanent failure: error on the first attempt of the job; on later retries of the same job (caused by another photo's retryable failure) debug, so one bad photo yields one error line per job, not one per attempt | photos index handler, once per failed photo and attempt | `["companyId", "productId", "imageId", "eventId", "errorCode", "retryable", "attempt"]` |
 | `orders_message_order_*` visual outcomes | info | `orders/composition.ts` (existing) | existing + `["chosenPhotoPosition"]` |
 | `product_list_images_unavailable` | error | existing | existing; also covers catalog product photos |
 
@@ -527,7 +527,8 @@ T2:
 - `test("a permanent failure on the second photo still indexes the later photos and the job succeeds")`
 - `test("a retryable failure on one photo still tries the later photos and the job asks for a retry")`
 - `test("a retried job tries only the photos still without embedding")`
-- `test("each failed photo is logged once with its image and code")`
+- `test("each failed photo is logged once per attempt with its image and code")`
+- `test("a permanent photo failure is logged at error level only on the first attempt of a job")`
 - `test("skips a product without photos")`
 - `test("visual search offers each product once with its closest photo")`
 - `test("logs the position of the photo that identified the product")`
@@ -565,7 +566,7 @@ T0:
 - `test("PUT /api/products/:id with a repeated photo answers 422 DUPLICATE_PHOTO with its index")`
 - `test("POST /api/products with nine photos answers 422 TOO_MANY_PHOTOS and creates nothing")`
 - `test("two saves with different photo lists leave the last one")`
-- `test("a save that sets 8 photos uses the same number of statements as one that sets 1")`
+- `test("a save that sets 8 photos uses the same number of statements as one that sets 1")` (both cases start from a product without photos and add only new ids, so both run `findImages`)
 - `test("a lock timeout during the photo lookup is reported once by the save transaction")`
 - `test("after a save that moves C first, catalog cards, cart lines and the checkout of an open order show C")`
 - `test("product list, catalog cards and checkout thumbnails show no photo for a product without photos")`
@@ -620,7 +621,8 @@ T3:
 T5:
 - `test("with two or more photos the gallery shows the primary large and every photo, primary included, as a thumbnail in saved order")`
 - `test("clicking a thumbnail opens the full-screen lightbox on that photo")`
-- `test("clicking the large photo opens the lightbox on it")`
+- `test("clicking the large photo, or pressing Enter on it, opens the lightbox on it")`
+- `test("scrolling the page track to the third photo moves aria-current to its thumbnail and the large photo opens the lightbox on it")`
 - `test("the lightbox content covers the whole viewport and fits the photo without cropping")`
 - `test("the lightbox moves with arrow keys and buttons and announces 2 de 5")`
 - `test("the lightbox traps focus, closes with Esc and with Cerrar, and returns focus to the opener")`
@@ -681,13 +683,24 @@ T5:
 
 ## 15. Limits and checks during implementation
 
-- **Public product page weight (deferred risk, follow-up proposed):** original bytes are served; a buyer opening a product with 8 photos can download 8 originals of up to 10 MB each on mobile data, where today the page loads one. The mitigations of §12.5 (eager primary, deferred thumbnails, lazy hidden slides) reduce but do not remove it. The same applies to the seller web field (8 originals shown at 112 px) and the mobile strip (64 px). Resized variants are not built in this version; the delivery proposes a Todoist task for them.
-- **Exact search size and ANN:** a company now has up to 8 embeddings per current product (plus embeddings of removed photos, which the query does not scan); the documented threshold (about 10,000 embeddings per company) is reached at about 1,250 products with 8 photos. Adding an ANN (HNSW) index later is not a drop-in: it only serves `ORDER BY distance LIMIT k` over `ImageEmbedding`, not `DISTINCT ON` product, so it needs an over-fetch (about k × 8 nearest photos, then one per product) and a filter to current photos.
-- **Indexing queue:** `concurrency: 1` is shared by every company; a product with 8 photos holds the slot for up to 8 reads and embeds. Accepted by the product draft; measured with `queueLatencyMs`. A manual `products:index-images` run after many permanent failures puts those products back in the queue ahead of fresh jobs from other companies, so `queueLatencyMs` rises during the run; run it off-peak in production.
-- **Server memory on parallel uploads:** each upload decodes the whole image (up to 24 MP); the client cap of 2 photo jobs bounds one seller. No server-side slot is added; checked in the manual parallel-upload check.
+### Deferred risks
+
+Every item left out of this version that can cost buyers, sellers or operations, in one place. Each one is accepted for this version; the coordinator decides which get a Todoist task.
+
+| Risk | What happens | Mitigation in this version | Follow-up |
+| --- | --- | --- | --- |
+| Public product page weight | Original bytes are served: a buyer opening a product with 8 photos downloads 8 originals of up to 10 MB each on mobile data, where today the page loads one. Same for the seller web field (8 originals at 112 px) and the mobile strip (64 px) | §12.5 loading order: eager primary with `fetchpriority="high"`, thumbnails after the primary loads or fails, lazy hidden slides. It orders the downloads; it does not reduce them | Proposed Todoist task: resized photo variants |
+| Exact visual search at scale | Up to 8 embeddings per current product; each customer image computes the distance to every current photo (8× today) and sorts for `DISTINCT ON`. The documented threshold (about 10,000 embeddings per company) is reached at about 1,250 products with 8 photos | None needed at current catalog sizes | Read the existing visual-search duration log against the company's product and photo count once sellers load several photos, so the threshold is checked with data. An ANN (HNSW) index is not a drop-in: it only serves `ORDER BY distance LIMIT k` over `ImageEmbedding`, not `DISTINCT ON` product, so it needs an over-fetch (about k × 8 nearest photos, then one per product) and a filter to current photos |
+| Shared indexing queue | `concurrency: 1` is shared by every company; a product with 8 photos holds the slot for up to 8 reads and embeds, delaying other companies. A manual `products:index-images` run after many permanent failures puts those products back ahead of fresh jobs | Measured with `queueLatencyMs`; run the reindex off-peak in production | None proposed |
+| Permanently failing photos | A photo that always fails (`INVALID_EMBEDDING`, `IMAGE_NOT_FOUND`) never identifies its product; every reindex run tries it once more (one embed attempt per bad photo per run, paid with the OpenAI embedder) | Logged once per job at error level; the other photos are indexed | None proposed |
+| Removed photo files | Files of removed photos stay in R2 with a working public URL; their embeddings stay | `ProductPhoto` → `Image` is RESTRICT, so a future cleanup cannot delete a photo in use | Future image cleanup (out of scope by product decision) |
+| Server memory on parallel uploads | Each upload decodes the whole image (up to 24 MP) in the web process; many sellers uploading at once add up | Client cap of 2 photo jobs per seller | Checked in the manual parallel-upload check; no server slot added |
+| Photos per variant | The gallery cannot show the chosen color first | None | Todoist 6hqMVjGfqcR7rF6V (exists) |
+
+### Checks during implementation
+
 - **Radix Dialog inside the theme host:** verify that the portal container keeps the theme's CSS variables and fonts, as the cart sheet does.
 - **`expo-image-picker` options:** verify `selectionLimit` and `orderedSelection` behavior on the installed version and on Android galleries that ignore the cap.
-- **Removed photo files:** stay in R2 and keep their public URL; any computed embedding stays. A future image cleanup must check `ProductPhoto` (RESTRICT) and other references.
 - **Permanent docs:** on merge, the drafts are promoted into `docs/products.md`, `docs/images.md`, `docs/public-catalog.md`, `docs/checkout.md` and `docs/image-product-search.md` following the Documentation skill. `docs/products.md` records the discard rule as `hasUnsavedPhotos` defines it (a changed list, an upload in progress or a failed photo), not the narrower product-draft sentence that ties it to the touched list only.
 
 ## 16. Implementation plan
@@ -712,6 +725,7 @@ File ownership: only T0 edits `shared/contracts/products.ts`, `shared/product-va
 ### T0. Core: ordered photos, migration and seller API
 
 **Scope:** `ProductPhoto` schema and migration with carry-over in the order of §7.2; domain `ProductPhotos` and parser; create, save and detail with `photoIds` / `photos` and photo issues (§5.1-5.3, §8); `findImages` over `imageRepository.findMany`, which gains the transaction rethrow; every reader switched to position 0 or the list (§5.4) with the join placement of §5.4, including `CatalogProduct.photoUrls`, `findVariantPhotos`, `findSellableVariants.primaryImageId`, cart composition, seed; embedding queries switched to join `ProductPhoto` at position 0 so search keeps today's behavior; event renamed to `product_photos_added` with the existing single-image handler reading the primary; `shared/contracts/products.ts`, `productPhotoLimits`, `shared/product-variants.ts`, `shared/product-photos.ts` with `PhotosToSave` only; `app/locales.ts` field label, `page-patterns.stories.tsx`, `mobile-product-printing.spec.ts` fixtures; minimal client adaptation so everything compiles and keeps today's single-photo UI: web routes and mobile adapter send `[id]`, `[]` or omit `photoIds`, and read `photos[0]`; `catalog-product.tsx` reads `photoUrls[0]`. Logs of §13 for create and save.
+**Existing tests T0 updates** (they build products with `imageId` or assert `product_image_changed`): `create.test.ts`, `save-product.test.ts`, `list.test.ts`, `repository.integration.test.ts`, `api-routes.integration.test.ts`, `save-product.integration.test.ts`, `list.integration.test.ts`, `variant-photo-repository.integration.test.ts`, `image-embeddings.integration.test.ts` (primary join), `event-payloads.test.ts`, `order-repository.integration.test.ts`, `add-message-products-to-order*.test.ts`, `continue-to-checkout.integration.test.ts`, `src/composition/event-handlers*.test.ts`, `scripts/index-product-images.test.ts`, `shared/contracts/products.test.mjs`, web `product-detail.test.ts`, `product-new.test.ts`, `product-form.test.tsx`, `variant-detail.test.tsx`, `catalog-page.test.tsx`, `catalog-sections.test.tsx`, mobile `product-api.test.ts`, `product-operations.test.ts`, and E2E `products-create.spec.ts:115`, `mobile-product-printing.spec.ts`. T2 then owns the renamed `index-product-photos*.test.ts` files.
 **Out of scope:** indexing more than the primary (T2), the rest of the field model (T1), new form UIs (T3, T4), gallery (T5), a table-specific isolation test.
 **Acceptance criteria:**
 1. After migrating a database with product P (image I) and product Q (no image), P has one photo I at position 0, Q has none, `Product.imageId` no longer exists, the copied row count equals the products with image, and P keeps being found by visual search through I's existing embedding.
@@ -719,7 +733,7 @@ File ownership: only T0 edits `shared/contracts/products.ts`, `shared/product-va
 3. `PUT` without `photoIds` after another save stored `[A, B, C]` leaves `[A, B, C]` and applies the price change.
 4. `POST` with 9 photos answers `422` with `TOO_MANY_PHOTOS` and `maximum: 8`; `PUT` with `[A, A]` answers `DUPLICATE_PHOTO` at index 1; a photo of another company answers `PHOTO_NOT_FOUND` at its index; nothing is written.
 5. A photo change does not raise `structureVersion`; adding a photo publishes `product_photos_added` once after commit; removing publishes nothing.
-6. A save that sets 8 photos issues the same number of statements as one that sets 1; a lock timeout during `findImages` is reported once as the save's `503`.
+6. Starting from a product without photos, a save that sets 8 new photos issues the same number of statements as one that sets 1 new photo; a lock timeout during `findImages` is reported once as the save's `503`.
 7. A product without photos shows the neutral block with its initial in the catalog card, the cart and the checkout.
 8. The existing web and mobile single-photo flows and `products-photo.spec.ts` keep passing.
 **Tests:** T0 titles of §14 (core unit, core integration, web component).
@@ -775,7 +789,7 @@ File ownership: only T0 edits `shared/contracts/products.ts`, `shared/product-va
 **Scope:** `catalog-gallery.tsx` composed from Radix `Dialog` primitives and its use in `catalog-product.tsx` (§12.5); the one-photo page as today; thumbnail and large-photo click opening the full-screen lightbox on that photo, keyboard, buttons, swipe, scrim click and swipe-down close, «2 de 5», focus trap and return, one-photo and no-photo cases, five themes, no photo filter, contrast of scrim and controls, loading order; E2E in `public-catalog.spec.ts`.
 **Out of scope:** catalog grid card (no carousel), cart, checkout, seller screens, pinch zoom, resized photo variants, `app/components/ui/dialog.tsx`.
 **Acceptance criteria:**
-1. A product with 3 photos shows the primary large and 3 thumbnails in saved order; clicking or tapping the second thumbnail opens the lightbox on it with «2 de 3»; clicking the large photo opens it on the photo shown large.
+1. A product with 3 photos shows the primary large and 3 thumbnails in saved order; clicking or tapping the second thumbnail opens the lightbox on it with «2 de 3»; clicking the large photo, or focusing it and pressing Enter, opens it on the photo shown large; after swiping the page track to the third photo, its thumbnail carries `aria-current` and the large photo opens the lightbox on it.
 2. The lightbox fills the whole viewport, with the photo fitted inside it without cropping, on a phone and on a desktop.
 3. ArrowRight shows «3 de 3»; **Foto anterior** returns to «2 de 3»; Esc, **Cerrar**, a click on the scrim around the photo and a swipe down close it and focus returns to the opener; a click on the photo itself does not close it; Tab never leaves the open lightbox.
 4. A product with one photo (every product right after the migration) looks as today: the same single large photo, with no thumbnail row and no swipe; clicking or tapping it opens the full-screen lightbox without arrows or indicator, and Esc, **Cerrar**, the scrim and a swipe down close it.
@@ -823,7 +837,7 @@ Every acceptance criterion of `docs/drafts/varias-fotos-por-producto.md` and of 
 | 29 Web focus at the limit | T3 | «filling the last place replaces Agregar fotos with the limit text and moves focus to it» |
 | 30 Product page receives 3 photos, shows the primary | T0 | «the catalog product page data lists every photo in saved order»; «the catalog product page shows the primary of a product with three photos» |
 | 31 Portuguese texts | T3, T4 | «shows the Portuguese texts and singular counts» (web, mobile) |
-| B: 3 photos on the page; click any opens the lightbox on it with previous, next, close | T5 | «the gallery shows the primary large…»; «clicking a thumbnail opens the full-screen lightbox on that photo»; «clicking the large photo opens the lightbox on it»; «the lightbox moves with arrow keys and buttons…»; buyer E2E |
+| B: 3 photos on the page; click any opens the lightbox on it with previous, next, close | T5 | «the gallery shows the primary large…»; «clicking a thumbnail opens the full-screen lightbox on that photo»; «clicking the large photo, or pressing Enter on it, opens the lightbox on it»; «scrolling the page track to the third photo moves aria-current…»; «the lightbox moves with arrow keys and buttons…»; buyer E2E |
 | B: previous and next by swiping in the lightbox on touch | T5 | «the lightbox track pans horizontally only and a cancelled pointer drag does not close it»; manual phone check |
 | B: full screen; close with X, Esc, click outside, swipe down | T5 | «the lightbox content covers the whole viewport…»; «the lightbox traps focus, closes with Esc and with Cerrar…»; «a click on the scrim around the photo closes…»; «a pointer drag down over the threshold closes…»; manual phone check |
 | B: accessible lightbox, contrast in 5 themes, no photo filter | T5 | «the lightbox traps focus…»; «lightbox scrim and controls meet the catalog contrast floor»; «the gallery and lightbox apply no photo filter…» |
@@ -835,7 +849,7 @@ Every acceptance criterion of `docs/drafts/varias-fotos-por-producto.md` and of 
 
 ## 17. Questions decided by the review gate
 
-These answers come from the architecture review gate of the implement-task skill (rounds 1 and 2, 27/10/2026), not from the founder, and are kept here so the founder can confirm them in the final pull request.
+These answers come from the architecture review gate of the implement-task skill (rounds 1 and 2, confirmed without change in round 3, 27/10/2026), not from the founder, and are kept here so the founder can confirm them in the final pull request.
 
 1. **What does a click on a gallery thumbnail do, and how large is the lightbox?**
    - Answer: clicking or tapping any photo of the product page, the large one or a thumbnail, opens the lightbox on that photo, and the lightbox is full screen (covers the viewport, photo fitted without cropping).
@@ -857,3 +871,12 @@ These answers come from the architecture review gate of the implement-task skill
    - Decided by: the design reviewer (round 2, blocker 1 and suggestion 5).
    - Reason: the large photo changes when swiped, so the row must show which photo is large. The founder's criteria say «Productos con una sola foto o sin foto se ven como hoy» and «Con una sola foto el lightbox abre sin navegación», and every product has at most one photo right after the migration.
    - Discarded: a row with only the other photos («miniaturas de las demás» read literally), which leaves the primary without a thumbnail once the buyer has swiped away from it; a single-thumbnail row for one photo.
+
+## 18. Review gate
+
+| Round | Design reviewer | Performance reviewer | Outcome |
+| --- | --- | --- | --- |
+| 1 (`0d49fcf5`) | Rejected (4 blockers: head-of-line indexing, discard prompt ignoring uploads and failed photos, unmapped acceptance criteria, part B thumbnail click and full screen) | Approved with 8 suggestions | Per-photo indexing outcomes, `hasUnsavedPhotos`, acceptance criteria coverage table, lightbox from any photo and full screen; questions 1-3 decided; every suggestion applied except the storage-key shortcut (declined: storage keys are internal to the images module) |
+| 2 (`fcb7a412`) | Rejected (1 blocker: product page with one photo undefined) | Approved with 4 suggestions | One photo looks as today and opens the lightbox without navigation; question 4 decided; gesture mechanics, loading on primary error, parser bound, index justification, position-0 selection, reindex note |
+| 3 (`164f7d19`) | Approved with 5 suggestions | Approved with 2 suggestions | Large photo as a focusable button, `aria-current` swipe test, T0 list of existing tests, permanent-failure log level, same-shape statement-count cases, visual-search duration as a deferred risk; design closed |
+
