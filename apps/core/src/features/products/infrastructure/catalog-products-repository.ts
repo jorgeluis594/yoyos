@@ -13,7 +13,7 @@ const variantSchema = z.object({ id: z.string().transform((value) => value as Va
   salePrice: z.number().nonnegative(), stock: z.number().int().nonnegative() });
 const storedSchema = z.object({
   id: z.string().transform((value) => value as ProductId), name: z.string(), description: z.string().nullable(),
-  imageId: z.string().transform((value) => value as ImageId).nullable(), currency: z.enum(currencies),
+  photoIds: z.array(z.string().transform((value) => value as ImageId)), currency: z.enum(currencies),
   options: z.array(z.object({ name: z.string(), values: z.array(z.string()) })),
   variants: z.tuple([variantSchema], variantSchema),
 });
@@ -25,12 +25,15 @@ const cardSchema = z.object({
 type CardRow = Readonly<{ id: string; name: string; imageId: string | null; currency: string; minPrice: Prisma.Decimal; maxPrice: Prisma.Decimal; soldOut: boolean }>;
 
 const sellable = { status: "active", variants: { some: { status: "active" } } } as const;
-const include = { variants: { where: { status: "active" }, include: { stock: true }, orderBy: { id: "asc" } } } as const;
+const include = {
+  variants: { where: { status: "active" }, include: { stock: true }, orderBy: { id: "asc" } },
+  photos: { orderBy: { position: "asc" }, select: { imageId: true } },
+} as const;
 type Row = Prisma.ProductGetPayload<{ include: typeof include }>;
 type Option = Prisma.ProductOptionGetPayload<{ include: { values: true } }>;
 
 function parseRow(row: Row, attributes: VariantAttributes, options: readonly Option[]): StoredCatalogProduct | null {
-  const parsed = storedSchema.safeParse({ ...row, options: options.map(({ name, values }) => ({ name, values: values.map((value) => value.name) })), variants: row.variants.map((variant) => ({ id: variant.id, attributes: attributes.get(variant.id) ?? {},
+  const parsed = storedSchema.safeParse({ ...row, photoIds: row.photos.map((photo) => photo.imageId), options: options.map(({ name, values }) => ({ name, values: values.map((value) => value.name) })), variants: row.variants.map((variant) => ({ id: variant.id, attributes: attributes.get(variant.id) ?? {},
     salePrice: variant.salePrice.toNumber(), stock: variant.stock && variant.stock.quantity <= BigInt(Number.MAX_SAFE_INTEGER) ? Number(variant.stock.quantity) : null })) });
   return parsed.success ? parsed.data : null;
 }
@@ -51,14 +54,15 @@ export const catalogProductRepository: CatalogProductRepository = {
     let rows: CardRow[];
     try {
       // The page is cut first, with a semi-join on the active variants, so the aggregates below run for one page of products
-      // and not for every product of the company. They are SQL aggregates, so the cost does not grow with the variants per product.
-      rows = await prisma.$queryRaw<CardRow[]>(Prisma.sql`SELECT p.id, p.name, p."imageId", p.currency,
+      // and not for every product of the company; the primary photo joins the same page, not the whole catalog. They are SQL aggregates, so the cost does not grow with the variants per product.
+      rows = await prisma.$queryRaw<CardRow[]>(Prisma.sql`SELECT p.id, p.name, pp."imageId", p.currency,
           a."minPrice", a."maxPrice", COALESCE(a."inStock", false) = false AS "soldOut"
-        FROM (SELECT p.id, p.name, p."imageId", p.currency, p."companyId", p."createdAt" FROM "Product" p
+        FROM (SELECT p.id, p.name, p.currency, p."companyId", p."createdAt" FROM "Product" p
           WHERE p."companyId" = ${companyId}::uuid AND p.status = 'active' AND p.currency = ${currency}
             AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active')
             ${pattern === null ? Prisma.empty : Prisma.sql`AND unaccent(lower(p.name)) LIKE unaccent(lower(${pattern}))`}
           ORDER BY p."createdAt" DESC, p.id ASC LIMIT ${limit + 1} OFFSET ${offset}) p
+        LEFT JOIN "ProductPhoto" pp ON pp."companyId" = p."companyId" AND pp."productId" = p.id AND pp.position = 0
         CROSS JOIN LATERAL (SELECT min(v."salePrice") AS "minPrice", max(v."salePrice") AS "maxPrice", bool_or(s.quantity > 0) AS "inStock"
           FROM "ProductVariant" v LEFT JOIN "ProductStock" s ON s."companyId" = v."companyId" AND s."variantId" = v.id
           WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active') a

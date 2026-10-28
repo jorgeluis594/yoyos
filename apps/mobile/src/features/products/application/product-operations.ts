@@ -1,5 +1,6 @@
 import { countryCurrencies, type Country } from "@shared/country";
 import { buildCreateProductBody, buildSaveProductBody, type EditorDraft } from "@shared/product-variants";
+import type { PhotosToSave } from "@shared/product-photos";
 import type { Product, ProductId, PhotoSelection } from "../domain/product";
 import type { createProductApi } from "../infrastructure/product-api";
 
@@ -21,8 +22,9 @@ export type SaveProductCommand = Readonly<{
   draft: EditorDraft;
 }>;
 
-const imageIdOf = (photo: PhotoSelection, current?: Product["photo"]) =>
-  photo.kind === "set" ? photo.imageId : photo.kind === "remove" ? null : current?.id ?? null;
+/** The single-photo editor sends the whole list only when the seller picked or removed the photo; otherwise photos stay untouched. */
+const photosToSave = (photo: PhotoSelection): PhotosToSave =>
+  photo.kind === "set" ? { kind: "set", photoIds: [photo.imageId] } : photo.kind === "remove" ? { kind: "set", photoIds: [] } : { kind: "untouched" };
 
 export function createProductOperations(api: ProductApi) {
   return {
@@ -30,12 +32,12 @@ export function createProductOperations(api: ProductApi) {
     loadProduct: api.get,
     uploadImage: api.uploadImage,
     createProduct: (command: CreateProductCommand) => api.create(buildCreateProductBody(command.draft, {
-      id: command.id, name: command.name, description: command.description ?? null, imageId: imageIdOf(command.photo),
+      id: command.id, name: command.name, description: command.description ?? null, photos: photosToSave(command.photo),
       currency: countryCurrencies[command.country],
     })),
     saveProduct: (command: SaveProductCommand) => api.save(command.current.id, buildSaveProductBody(command.draft, {
       structureVersion: command.current.structureVersion, name: command.name, description: command.description,
-      imageId: imageIdOf(command.photo, command.current.photo),
+      photos: photosToSave(command.photo),
     })),
   };
 }

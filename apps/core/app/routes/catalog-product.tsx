@@ -82,7 +82,7 @@ function FoundProduct({ companyId, storeName, appearance, product }: Readonly<{ 
   const add = () => {
     if (!variant) return;
     const result = addToCart(cart, { variantId: variant.id, productId: product.id, quantity: shown, price: variant.price,
-      productName: product.name, attributes: { ...variant.attributes }, imageUrl: product.imageUrl }, variant.maxQuantity);
+      productName: product.name, attributes: { ...variant.attributes }, imageUrl: product.photoUrls[0] ?? null }, variant.maxQuantity);
     if (result.kind === "line_limit") { notify(`Tu carrito ya tiene ${maxCartLines} productos distintos`); return; }
     if (result.kind === "at_limit") { notify("Ya tienes el máximo disponible en tu carrito"); return; }
     updateCart(result.cart);
@@ -93,7 +93,7 @@ function FoundProduct({ companyId, storeName, appearance, product }: Readonly<{ 
   return <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButton companyId={companyId} />}>
     <BackToCatalog />
     <article className="grid gap-6 md:grid-cols-2 md:gap-10">
-      <CatalogProductImage name={product.name} url={product.imageUrl} part="catalog-product-photo" />
+      <CatalogProductImage name={product.name} url={product.photoUrls[0] ?? null} part="catalog-product-photo" />
       <div className="flex flex-col gap-5">
         <div className="flex flex-col gap-1">
           <h1 className="text-2xl font-semibold text-balance" style={headingFont}>{product.name}</h1>

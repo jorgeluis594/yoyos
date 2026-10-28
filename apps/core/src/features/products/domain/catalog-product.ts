@@ -8,19 +8,20 @@ export type CatalogProduct = Readonly<{
   id: ProductId;
   name: string;
   description: string | null;
-  imageUrl: string | null;
+  /** Every photo in saved order, primary first; photos whose URL cannot be resolved are left out. */
+  photoUrls: readonly string[];
   price: Readonly<{ kind: "single" | "from"; amount: Money }>;
   soldOut: boolean;
   attributes: readonly CatalogAttribute[];
   variants: readonly CatalogVariant[];
 }>;
 /** List card: the list never sends variants, so no stock-derived quantity reaches it. */
-export type CatalogCard = Pick<CatalogProduct, "id" | "name" | "imageUrl" | "price" | "soldOut">;
+export type CatalogCard = Pick<CatalogProduct, "id" | "name" | "price" | "soldOut"> & Readonly<{ imageUrl: string | null }>;
 
 export type StoredCatalogOption = Readonly<{ name: string; values: readonly string[] }>;
 export type StoredCatalogVariant = Readonly<{ id: VariantId; attributes: Readonly<Record<string, string>>; salePrice: number; stock: number }>;
 export type StoredCatalogProduct = Readonly<{
-  id: ProductId; name: string; description: string | null; imageId: ImageId | null; currency: Currency;
+  id: ProductId; name: string; description: string | null; photoIds: readonly ImageId[]; currency: Currency;
   /** Options in saved order with their values in saved order, including values no active variant uses. */
   options: readonly StoredCatalogOption[];
   /** Active variants only. */
@@ -33,7 +34,7 @@ export type StoredCatalogCard = Readonly<{
 
 export const maxCartQuantity = 99;
 
-export function toCatalogProduct(product: StoredCatalogProduct, imageUrl: string | null): CatalogProduct {
+export function toCatalogProduct(product: StoredCatalogProduct, photoUrls: readonly string[]): CatalogProduct {
   const { currency } = product;
   const amounts = product.variants.map((variant) => variant.salePrice);
   const lowest = Math.min(...amounts);
@@ -43,7 +44,7 @@ export function toCatalogProduct(product: StoredCatalogProduct, imageUrl: string
     .map(({ name, values }) => ({ name, values: values.filter((value) => product.variants.some((variant) => variant.attributes[name] === value)) }))
     .filter(({ values }) => values.length > 0);
   return {
-    id: product.id, name: product.name, description: product.description, imageUrl,
+    id: product.id, name: product.name, description: product.description, photoUrls,
     price: { kind: amounts.every((amount) => amount === lowest) ? "single" : "from", amount: { amount: lowest, currency } },
     soldOut: variants.every((variant) => variant.maxQuantity === 0),
     attributes,

@@ -150,7 +150,7 @@ function productDetail(dto: ReturnType<typeof productDetailResponseSchema.parse>
     name: dto.product.name,
     ...(dto.product.description === null ? {} : { description: dto.product.description }),
     currency: dto.product.currency,
-    ...(dto.image === null ? {} : { photo: { id: dto.image.id as ImageId, url: dto.image.url } }),
+    ...(dto.product.photos[0] === undefined ? {} : { photo: { id: dto.product.photos[0].id as ImageId, url: dto.product.photos[0].url } }),
     structureVersion: dto.product.structureVersion,
     options: dto.product.options.map((option) => ({ id: option.id as OptionId, name: option.name, values: option.values.map((value) => ({ id: value.id as OptionValueId, name: value.name })) })),
     variants: dto.product.variants.map((variant) => ({

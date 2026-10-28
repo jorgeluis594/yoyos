@@ -16,13 +16,13 @@ export type FormErrors = Readonly<{ form?: string; changed?: string; inDoubt?: s
 
 /** One rejected part of an editor save, with the text to show next to its option, value or row. */
 export type FeedbackIssue = Readonly<{
-  scope: "product" | "option" | "value" | "variant" | "newVariant";
+  scope: "product" | "option" | "value" | "variant" | "newVariant" | "photo";
   field: string; reason: string; message: string;
   optionId?: string; valueId?: string; variantId?: string; index?: number;
 }>;
 export type SaveFeedback = Readonly<{ errors: FormErrors; issues: readonly FeedbackIssue[] }>;
 
-const labelled = ["id", "name", "description", "sku", "salePrice", "purchasePrice", "initialStock", "currency", "imageId", "variants"] as const;
+const labelled = ["id", "name", "description", "sku", "salePrice", "purchasePrice", "initialStock", "currency", "photoIds", "variants"] as const;
 type Labelled = (typeof labelled)[number];
 const isLabelled = (field: string): field is Labelled => labelled.some((candidate) => candidate === field);
 
@@ -37,7 +37,7 @@ function message(issue: ValidationIssue, language: Language): string {
   const generic = () => t("productErrors.invalidValue");
   const names = isLabelled(issue.field) ? { label: t(`productErrors.label.${issue.field}`), subject: t(`productErrors.subject.${issue.field}`), field: issue.field } : null;
   switch (issue.reason) {
-    case "REQUIRED": return !names ? generic() : names.field === "variants" ? t("productErrors.requiredVariant") : t(["description", "currency", "imageId"].includes(names.field) ? "productErrors.requiredFeminine" : "productErrors.requiredMasculine", { subject: names.subject });
+    case "REQUIRED": return !names ? generic() : names.field === "variants" ? t("productErrors.requiredVariant") : t(["description", "currency", "photoIds"].includes(names.field) ? "productErrors.requiredFeminine" : "productErrors.requiredMasculine", { subject: names.subject });
     case "TOO_LONG": return names ? t("productErrors.tooLong", { subject: names.subject, maxLength: issue.maxLength }) : generic();
     case "INVALID_CURRENCY": return t("productErrors.invalidCurrency");
     case "INVALID_PRICE": return names ? t("productErrors.invalidPrice", { label: names.label, minimum: issue.minimum, maximum: issue.maximum }) : generic();

@@ -62,7 +62,7 @@ test("catalog filters by total stock, sorts by name and keeps image references",
   const when = new Date("2026-01-01T00:00:00.000Z");
   const add = async (name: string, stocks: number[], createdAt: Date, imageId?: string) => {
     const id = randomUUID();
-    await seedProduct({ id, name, imageId, createdAt, updatedAt: createdAt, variants: stocks.map((quantity, index) => ({
+    await seedProduct({ id, name, photoIds: imageId ? [imageId] : [], createdAt, updatedAt: createdAt, variants: stocks.map((quantity, index) => ({
       attributes: stocks.length > 1 ? { Variante: String(index) } as Record<string, string> : {}, salePrice: 10, stock: quantity })) });
     return id;
   };

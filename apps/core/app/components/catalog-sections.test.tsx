@@ -44,6 +44,13 @@ describe("CatalogProductCard", () => {
   });
 });
 
+test("the catalog card keeps the neutral block with the initial when a product has no photos", () => {
+  const card: CatalogCard = { id: "00000000-0000-4000-8000-000000000002" as ProductId, name: "Casaca negra", imageUrl: null, price: { kind: "single", amount: { amount: 45, currency: "PEN" } }, soldOut: false };
+  const html = renderToStaticMarkup(<CatalogProductCard item={card} />);
+  expect(html).not.toContain("<img");
+  expect(html).toMatch(/data-store-part="catalog-card-photo"[^>]*>C</);
+});
+
 describe("StoreNotFound", () => {
   test("shows the store's own «No encontramos esta página» with its name, a way back to /, and no index", () => {
     const html = renderToStaticMarkup(<MemoryRouter><StoreNotFound storeName="Fantasio" appearance={{ logoUrl: "https://cdn.example/logo.png", theme: "boutique" }} /></MemoryRouter>);

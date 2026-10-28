@@ -1,7 +1,7 @@
 import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import { isDuplicateCombination, isDuplicateOptionId, isDuplicateProductId, isDuplicateSku, isForeignKeyOfOrders } from "@core/src/features/products/infrastructure/prisma-errors";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, type ProductStock as DbStock, type ProductOption as DbOption, type ProductOptionValue as DbValue, type ProductVariantOptionValue as DbLink } from "@prisma/client";
+import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, type ProductStock as DbStock, type ProductPhoto as DbPhoto, type ProductOption as DbOption, type ProductOptionValue as DbValue, type ProductVariantOptionValue as DbLink } from "@prisma/client";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -11,6 +11,7 @@ import type { ProductSummary } from "@core/src/features/products/application/lis
 import type { CreateError } from "@core/src/features/products/application/create";
 import type { SaveProductError } from "@core/src/features/products/application/save-product";
 import type { Criteria, ProductReadError, ProductRepository } from "@core/src/features/products/application/repository";
+import { parseProductPhotos } from "@core/src/features/products/domain/photos";
 import type { ImageId, OptionId, OptionText, OptionValueId, Product, ProductId, ProductOption, ProductOptionValue, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
 import { combinationKey, sortVariants, type ProductStructureChange } from "@core/src/features/products/domain/product-structure";
 
@@ -20,6 +21,7 @@ type Rows = Readonly<{
   links: DbLink[];
   options: DbOption[];
   values: DbValue[];
+  photos: DbPhoto[];
 }>;
 
 class InvalidStoredProductError extends Error {
@@ -39,7 +41,8 @@ async function loadRows(ids: readonly string[]): Promise<Rows> {
   const links = variants.length ? await prisma.productVariantOptionValue.findMany({ where: { variantId: { in: variants.map((variant) => variant.id) } } }) : [];
   const options = await prisma.productOption.findMany({ where: { productId: { in: [...ids] } }, orderBy: { position: "asc" } });
   const values = options.length ? await prisma.productOptionValue.findMany({ where: { optionId: { in: options.map((option) => option.id) } }, orderBy: { position: "asc" } }) : [];
-  return { products, variants, links, options, values };
+  const photos = await prisma.productPhoto.findMany({ where: { productId: { in: [...ids] } }, orderBy: { position: "asc" } });
+  return { products, variants, links, options, values, photos };
 }
 
 function groupBy<T>(items: readonly T[], key: (item: T) => string): Map<string, T[]> {
@@ -53,10 +56,11 @@ function mapProducts(rows: Rows): Product[] {
   const optionsOf = groupBy(rows.options, (option) => option.productId);
   const valuesOf = groupBy(rows.values, (value) => value.optionId);
   const linksOf = groupBy(rows.links, (link) => link.variantId);
-  return rows.products.map((row) => mapProduct(row, variantsOf.get(row.id) ?? [], optionsOf.get(row.id) ?? [], valuesOf, linksOf));
+  const photosOf = groupBy(rows.photos, (photo) => photo.productId);
+  return rows.products.map((row) => mapProduct(row, variantsOf.get(row.id) ?? [], optionsOf.get(row.id) ?? [], valuesOf, linksOf, photosOf.get(row.id) ?? []));
 }
 
-function mapProduct(row: DbProduct, variantRows: (DbVariant & { stock: DbStock | null })[], optionRows: DbOption[], valuesOf: Map<string, DbValue[]>, linksOf: Map<string, DbLink[]>): Product {
+function mapProduct(row: DbProduct, variantRows: (DbVariant & { stock: DbStock | null })[], optionRows: DbOption[], valuesOf: Map<string, DbValue[]>, linksOf: Map<string, DbLink[]>, photoRows: DbPhoto[]): Product {
   const invalid = (stage: string, reason: string) => new InvalidStoredProductError(row.id, stage, reason);
   if (!isCurrency(row.currency)) throw invalid("product", "currency");
   const currency = row.currency;
@@ -94,10 +98,12 @@ function mapProduct(row: DbProduct, variantRows: (DbVariant & { stock: DbStock |
     };
   });
   if (!options.length && (variants.length !== 1 || variants[0].status !== "active")) throw invalid("product", "product_without_options");
+  const photos = parseProductPhotos(photoRows.map((photo) => photo.imageId as ImageId));
+  if (!photos.success || photoRows.some((photo, position) => photo.position !== position)) throw invalid("photos", "photo_list");
   const product: Product = {
     id: row.id as ProductId, name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
-    ...(row.imageId === null ? {} : { imageId: row.imageId as ImageId }),
+    photoIds: photos.data,
     currency, qrCode: row.qrCode, status: row.status as "active",
     createdAt: new Date(row.createdAt), updatedAt: new Date(row.updatedAt), structureVersion: row.structureVersion, options,
     variants: variants as unknown as Product["variants"],
@@ -126,7 +132,7 @@ async function readProducts(ids: readonly string[], inTransaction = false): Prom
 const unavailable = (message: string) => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message });
 
 /**
- * Bulk insert of the whole aggregate: at most six statements, whatever the number of variants.
+ * Bulk insert of the whole aggregate: at most seven statements, whatever the number of variants.
  * Call it inside the editing transaction; a returned error makes that transaction roll back.
  */
 export async function insertProduct(product: Product): Promise<Result<ProductId, CreateError>> {
@@ -134,7 +140,7 @@ export async function insertProduct(product: Product): Promise<Result<ProductId,
   const decimal = (amount: number) => new Prisma.Decimal(amount.toString());
   try {
     await prisma.product.create({ data: {
-      id: product.id, name: product.name, description: product.description, imageId: product.imageId, currency: product.currency,
+      id: product.id, name: product.name, description: product.description, currency: product.currency,
       qrCode: product.qrCode, status: product.status, createdAt: product.createdAt, updatedAt: product.updatedAt, structureVersion: product.structureVersion,
     } });
     if (product.options.length) {
@@ -142,6 +148,7 @@ export async function insertProduct(product: Product): Promise<Result<ProductId,
       await prisma.productOptionValue.createMany({ data: product.options.flatMap((option) => option.values.map((value, position) => ({
         id: value.id, optionId: option.id, productId: product.id, name: value.name, position }))) });
     }
+    if (product.photoIds.length) await prisma.productPhoto.createMany({ data: product.photoIds.map((imageId, position) => ({ productId: product.id, imageId, position })) });
     await prisma.productVariant.createMany({ data: product.variants.map((variant) => ({
       id: variant.id, productId: variant.productId, combinationKey: combinationKey(variant.combination), sku: variant.sku,
       salePrice: decimal(variant.salePrice.amount), purchasePrice: variant.purchasePrice === undefined ? null : decimal(variant.purchasePrice.amount),
@@ -278,10 +285,15 @@ export async function applyStructureChange(change: ProductStructureChange): Prom
       const links = change.insertVariants.flatMap((variant) => Object.entries(variant.combination).map(([optionId, valueId]) => ({ productId, variantId: variant.id, optionId, valueId })));
       if (links.length) await prisma.productVariantOptionValue.createMany({ data: links });
     }
+    // Two statements whatever the number of photos; positions are contiguous by construction. Call it under the product row lock.
+    if (change.photos) {
+      await prisma.$executeRaw(Prisma.sql`DELETE FROM "ProductPhoto" WHERE "companyId" = ${companyId}::uuid AND "productId" = ${productId}::uuid`);
+      if (change.photos.length) await prisma.$executeRaw(Prisma.sql`INSERT INTO "ProductPhoto" ("companyId", "productId", "imageId", "position")
+        SELECT ${companyId}::uuid, ${productId}::uuid, t."imageId", (t.ord - 1)::int FROM unnest(${[...change.photos]}::uuid[]) WITH ORDINALITY AS t("imageId", ord)`);
+    }
     if (Object.keys(change.product).length) await prisma.product.update({ where: { id: productId }, data: {
       ...change.product.name === undefined ? {} : { name: change.product.name },
       ...change.product.description === undefined ? {} : { description: change.product.description },
-      ...change.product.imageId === undefined ? {} : { imageId: change.product.imageId },
       ...change.product.updatedAt === undefined ? {} : { updatedAt: change.product.updatedAt },
       ...change.product.structureVersion === undefined ? {} : { structureVersion: change.product.structureVersion },
     } });
@@ -329,7 +341,7 @@ type SummaryRow = Readonly<{ id: string; name: string; imageId: string | null; c
 
 /** One grouped query for the page: prices, stock and SKU cover active variants only, and no aggregate is loaded. */
 function summarySql(ids: readonly string[]): Prisma.Sql {
-  return Prisma.sql`SELECT p.id::text AS id, p.name, p."imageId"::text AS "imageId", p.currency,
+  return Prisma.sql`SELECT p.id::text AS id, p.name, pp."imageId"::text AS "imageId", p.currency,
       count(v.id)::int AS "variantCount",
       (count(v.id) FILTER (WHERE v.status = 'active'))::int AS "activeVariantCount",
       (min(v."salePrice") FILTER (WHERE v.status = 'active'))::text AS "minPrice",
@@ -339,8 +351,9 @@ function summarySql(ids: readonly string[]): Prisma.Sql {
     FROM "Product" p
     JOIN "ProductVariant" v ON v."productId" = p.id AND v."companyId" = p."companyId"
     LEFT JOIN "ProductStock" s ON s."variantId" = v.id AND s."companyId" = v."companyId"
+    LEFT JOIN "ProductPhoto" pp ON pp."companyId" = p."companyId" AND pp."productId" = p.id AND pp.position = 0
     WHERE p."companyId" = ${getCompanyId()}::uuid AND p.id = ANY(${[...ids]}::uuid[])
-    GROUP BY p.id`;
+    GROUP BY p.id, pp."imageId"`;
 }
 
 function toSummary(row: SummaryRow): ProductSummary {

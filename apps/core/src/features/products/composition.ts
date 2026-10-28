@@ -6,7 +6,7 @@ import type { EventHandler } from "@core/src/shared/events/application/contracts
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { getCompanyId, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { getImage, getImages, readImageBytes } from "@core/src/shared/images/application/images";
+import { getImages, readImageBytes } from "@core/src/shared/images/application/images";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
@@ -36,14 +36,6 @@ const imageStorage = createR2ImageStorage({
   publicBaseUrl: process.env.R2_PUBLIC_BASE_URL ?? "",
 });
 
-export async function resolveImage(imageId: ImageId) {
-  const result = await getImage(imageId, imageStorage, imageRepository);
-  if (!result.success) {
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: result.error.message });
-  }
-  return { success: true as const, data: result.data ? { id: result.data.id as typeof imageId, url: result.data.url } : null };
-}
-
 async function resolveListImages(imageIds: readonly ImageId[]) {
   return map(await getImages(imageIds, imageStorage, imageRepository), ({ images, failures }) => ({
     images: images.map((image) => ({ id: image.id as ImageId, url: image.url })),
@@ -62,14 +54,15 @@ function reportListImageFailures(failures: readonly ListImageFailure[]) {
 
 export const listImages: ListImageDependencies = { resolve: resolveListImages, report: reportListImageFailures };
 
-export async function findImage(imageId: ImageId) {
-  return map(await imageRepository.find(imageId), (image) => image !== null);
+/** The ids of these images that exist for the company (RLS), in one query. */
+export async function findImages(imageIds: readonly ImageId[]) {
+  return map(await imageRepository.findMany(imageIds), (images) => new Set(images.map((image) => image.id as ImageId)) as ReadonlySet<ImageId>);
 }
 
-export async function publishProductImageChanged(productId: ProductId) {
+export async function publishProductPhotosAdded(productId: ProductId) {
   const companyId = getCompanyId() as CompanyId;
-  const published = await applicationEventBus().publishEvent("product_image_changed", { companyId, productId });
-  if (!published.success) log.error({ event: "product_image_changed_publish_failed", companyId, productId, errorCode: published.error.code, err: published.error }, "product_image_changed_publish_failed");
+  const published = await applicationEventBus().publishEvent("product_photos_added", { companyId, productId });
+  if (!published.success) log.error({ event: "product_photos_added_publish_failed", companyId, productId, errorCode: published.error.code, err: published.error }, "product_photos_added_publish_failed");
   return published;
 }
 
@@ -130,7 +123,7 @@ const identificationDependencies = {
 const retryableIndexCodes: readonly IndexProductImageError["code"][] = ["PERSISTENCE_UNAVAILABLE", "IMAGE_STORAGE_UNAVAILABLE", "EMBEDDER_UNAVAILABLE"];
 
 /** Handler of `product_image_changed`: logs each outcome and tells the bus which failures deserve a retry. */
-export const indexProductImageHandler: EventHandler<AppEvents, "product_image_changed"> = async (payload, metadata, context) => {
+export const indexProductImageHandler: EventHandler<AppEvents, "product_photos_added"> = async (payload, metadata, context) => {
   const started = performance.now();
   const base = { companyId: payload.companyId, productId: payload.productId };
   if (!imageEmbedder) {

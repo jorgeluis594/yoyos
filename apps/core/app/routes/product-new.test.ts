@@ -7,7 +7,7 @@ import type { ProductId } from "@core/src/features/products/domain/product";
 
 const context = { get: () => ({ company: { id: "00000000-0000-4000-8000-000000000001", country: "PE" } }) } as unknown as ActionFunctionArgs["context"];
 const valid = {
-  id: "00000000-0000-4000-8000-000000000001", name: "Cuaderno", description: null, imageId: null, currency: "PEN", options: [],
+  id: "00000000-0000-4000-8000-000000000001", name: "Cuaderno", description: null, photoIds: [], currency: "PEN", options: [],
   variants: [{ values: [], sku: null, salePrice: 12.5, purchasePrice: null, initialStock: 0 }],
 };
 

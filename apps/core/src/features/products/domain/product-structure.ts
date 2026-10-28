@@ -1,7 +1,8 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { ProductValidationReason, ValidationError, ValidationIssue } from "@core/src/features/products/domain/errors";
-import type { ImageId, OptionId, OptionText, OptionValueId, Product, ProductId, ProductOption, ProductOptionValue, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
+import type { ImageId, ProductPhotos, OptionId, OptionText, OptionValueId, Product, ProductId, ProductOption, ProductOptionValue, ProductVariant, VariantId } from "@core/src/features/products/domain/product";
+import { parseProductPhotos, samePhotos } from "@core/src/features/products/domain/photos";
 import { createProductSchema, toValidationIssues } from "@core/src/features/products/domain/validation";
 
 /** The domain owns the limits; shared/contracts/products.ts repeats them for the editors and a test keeps both equal. */
@@ -152,7 +153,8 @@ export type SaveRequest = Readonly<{
   structureVersion: number;
   name: string;
   description: string | null;
-  imageId: ImageId | null;
+  /** Omitted = photos untouched; present = the whole new ordered list. */
+  photoIds?: readonly ImageId[];
   options: readonly RawOption[];
   variants: readonly SaveVariantInput[];
   newVariants: readonly SaveNewVariantInput[];
@@ -177,11 +179,14 @@ export type ProductStructureChange = Readonly<{
   }>[];
   deleteVariantIds: readonly VariantId[];
   /** Empty when nothing changed; otherwise the changed fields, `updatedAt` and, for a structural change, the next `structureVersion`. */
-  product: Readonly<{ name?: string; description?: string | null; imageId?: ImageId | null; updatedAt?: Date; structureVersion?: number }>;
+  product: Readonly<{ name?: string; description?: string | null; updatedAt?: Date; structureVersion?: number }>;
+  /** The whole new photo list, only when it differs from the stored one in ids or order. A photo change never raises `structureVersion`. */
+  photos?: ProductPhotos;
 }>;
 
 export function isEmptyChange(change: ProductStructureChange): boolean {
-  return !Object.keys(change.product).length && Object.entries(change).every(([key, list]) => key === "productId" || key === "product" || !(list as readonly unknown[]).length);
+  return !Object.keys(change.product).length && change.photos === undefined
+    && Object.entries(change).every(([key, list]) => key === "productId" || key === "product" || key === "photos" || !(list as readonly unknown[]).length);
 }
 
 const duplicates = <T>(items: readonly T[]): ReadonlySet<T> => new Set(items.filter((item, index) => items.indexOf(item) !== index));
@@ -270,6 +275,7 @@ export function planProductSave(current: Product, input: SaveRequest, ordered: R
   const remaining = current.variants.filter((variant) => !deleted.has(variant.id));
   const listed = input.variants.filter((variant, index) => known.has(variant.id) && !deleted.has(variant.id) && input.variants.findIndex((other) => other.id === variant.id) === index);
   const fields = fieldRules(current, input, listed);
+  const photos = input.photoIds === undefined ? undefined : parseProductPhotos(input.photoIds);
 
   const savedOptionIds = new Set<string>(current.options.map((option) => option.id));
   const savedRows = remaining.map((variant) => ({ values: input.options.flatMap((option) => {
@@ -285,10 +291,10 @@ export function planProductSave(current: Product, input: SaveRequest, ordered: R
     return issue.reason === "DUPLICATE_COMBINATION" ? [{ scope: "variant", variantId: remaining[issue.index].id, field: "values", reason: issue.reason, message: issue.message }] : [];
   });
 
-  const issues = [...fields.issues, ...variantIssues(current, input, ordered, remaining.length + input.newVariants.length),
+  const issues = [...fields.issues, ...photos?.success === false ? photos.error.issues : [], ...variantIssues(current, input, ordered, remaining.length + input.newVariants.length),
     ...optionIssues(current, input, remaining), ...structural];
   if (issues.length || !structure.value || !fields.data) return err({ code: "VALIDATION_ERROR", message: "Invalid product", issues: issues as unknown as ValidationError["issues"] });
-  return ok(buildChange(current, input, { options: structure.value.options, combinations: structure.value.combinations, remaining, listed, data: fields.data }, ids));
+  return ok(buildChange(current, input, { options: structure.value.options, combinations: structure.value.combinations, remaining, listed, data: fields.data }, ids, photos?.success ? photos.data : undefined));
 }
 
 type Built = Readonly<{
@@ -299,7 +305,7 @@ type Built = Readonly<{
   data: NonNullable<ReturnType<typeof fieldRules>["data"]>;
 }>;
 
-function buildChange(current: Product, input: SaveRequest, built: Built, ids: Readonly<{ newId: () => string; now: Date }>): ProductStructureChange {
+function buildChange(current: Product, input: SaveRequest, built: Built, ids: Readonly<{ newId: () => string; now: Date }>, photos: ProductPhotos | undefined): ProductStructureChange {
   const { options, remaining, listed, data } = built;
   const savedOptions = new Map(current.options.map((option, position) => [option.id as string, { option, position }] as const));
   const savedValues = new Map(current.options.flatMap((option) => option.values.map((value, position) => [value.id as string, { value, position }] as const)));
@@ -347,18 +353,19 @@ function buildChange(current: Product, input: SaveRequest, built: Built, ids: Re
   });
 
   const deleteVariantIds = input.deletedVariantIds.filter((id, index) => current.variants.some((variant) => variant.id === id) && input.deletedVariantIds.indexOf(id) === index);
-  const productFields: { name?: string; description?: string | null; imageId?: ImageId | null } = {};
+  const productFields: { name?: string; description?: string | null } = {};
   if (data.name !== current.name) productFields.name = data.name;
   if ((data.description ?? null) !== (current.description ?? null)) productFields.description = data.description ?? null;
-  if (input.imageId !== (current.imageId ?? null)) productFields.imageId = input.imageId;
+  const photosChanged = photos !== undefined && !samePhotos(photos, current.photoIds);
 
   const structureChanged = [insertOptions, insertValues, renameOrMoveOptions, renameOrMoveValues, insertLinks, deleteOptions, deleteValueIds, rekeyVariants, insertVariants, deleteVariantIds]
     .some((list) => list.length > 0);
-  const changed = structureChanged || variantFieldChanges.length > 0 || Object.keys(productFields).length > 0;
+  const changed = structureChanged || variantFieldChanges.length > 0 || Object.keys(productFields).length > 0 || photosChanged;
   return {
     productId: current.id, insertOptions, insertValues, renameOrMoveOptions, renameOrMoveValues, insertLinks,
     deleteLinksOfOptionIds: remaining.length ? deleteOptions.map((option) => option.id) : [],
     deleteValueIds, deleteOptionIds: deleteOptions.map((option) => option.id), rekeyVariants, variantFieldChanges, insertVariants, deleteVariantIds,
     product: changed ? { ...productFields, updatedAt: ids.now, ...(structureChanged ? { structureVersion: current.structureVersion + 1 } : {}) } : {},
+    ...photosChanged ? { photos } : {},
   };
 }

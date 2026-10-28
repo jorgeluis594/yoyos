@@ -45,13 +45,13 @@ test("a product created with an image is indexed by the worker, reindexed on ima
   const stored = () => withTenantIsolation(companyId, async () => await
     prisma.$queryRaw<Array<{ imageId: string; model: string }>>`SELECT "imageId", model FROM "ImageEmbedding" ORDER BY "createdAt"`);
   // The editor's save, sent exactly as loaded with one field changed.
-  const edit = (productId: ProductId, change: Readonly<{ name?: string; imageId?: ImageId }>) => withTenantIsolation(companyId, async () => {
+  const edit = (productId: ProductId, change: Readonly<{ name?: string; photoIds?: ImageId[] }>) => withTenantIsolation(companyId, async () => {
     const loaded = await productRepository.get(productId);
     if (!loaded.success || !loaded.data) throw new Error("product not found");
     const product = loaded.data;
     // The detail read resolves image URLs, which needs storage; the reload only has to answer.
-    const deps = { ...productSaveDependencies(companyId, productId), reload: async () => ok({ product, orderedVariantIds: new Set<VariantId>() }) };
-    return await saveProduct({ productId, structureVersion: product.structureVersion, name: product.name, description: product.description ?? null, imageId: product.imageId ?? null,
+    const deps = { ...productSaveDependencies(companyId, productId), reload: async () => ok({ product, orderedVariantIds: new Set<VariantId>(), photos: [] }) };
+    return await saveProduct({ productId, structureVersion: product.structureVersion, name: product.name, description: product.description ?? null, photoIds: [...product.photoIds],
       options: [], variants: product.variants.map((variant) => ({ id: variant.id, sku: variant.sku ?? null, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null })),
       newVariants: [], deletedVariantIds: [], ...change }, { companyId: companyId as CompanyId }, deps);
   });
@@ -66,7 +66,7 @@ test("a product created with an image is indexed by the worker, reindexed on ima
       for (const id of [first, second]) await prisma.image.create({ data: { id, storageKey: `images/${id}` } });
     });
     embeddings.push("unavailable", [1, 0, 0]);
-    const created = await withTenantIsolation(companyId, () => productEditing.create({ name: "Shirt", currency: "PEN", imageId: first, options: [], variants: [{ values: [], salePrice: 10 }] }));
+    const created = await withTenantIsolation(companyId, () => productEditing.create({ name: "Shirt", currency: "PEN", photoIds: [first], options: [], variants: [{ values: [], salePrice: 10 }] }));
     expect(created.success).toBe(true);
     const productId = (created.success ? created.data : "") as ProductId;
     await vi.waitFor(async () => expect(await jobs(productId)).toMatchObject([{ state: "completed", retry_count: 1 }]), { timeout: 20_000, interval: 100 });
@@ -75,7 +75,7 @@ test("a product created with an image is indexed by the worker, reindexed on ima
     expect((await edit(productId, { name: "Shirt v2" })).success).toBe(true);
     expect(await jobs(productId)).toHaveLength(1);
 
-    expect((await edit(productId, { imageId: second })).success).toBe(true);
+    expect((await edit(productId, { photoIds: [second] })).success).toBe(true);
     await vi.waitFor(async () => expect((await jobs(productId)).map(({ state }) => state)).toEqual(["completed", "completed"]), { timeout: 20_000, interval: 100 });
     // The old image keeps its cached embedding; search only joins the product's current image.
     expect(await stored()).toEqual([first, second].map((imageId) => ({ imageId, model: "local/fake" })));

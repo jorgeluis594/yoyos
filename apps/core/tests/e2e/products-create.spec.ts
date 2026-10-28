@@ -112,7 +112,7 @@ test("create products from the private form, validate input, and reload detail",
     const prepared = await withTenantIsolation(tenantId, async () => {
       const image = await prisma.image.create({ data: { companyId: tenantId, storageKey: "prepared-product.jpg" } });
       return seedProduct({
-        name: "Camisa con tallas", imageId: image.id,
+        name: "Camisa con tallas", photoIds: [image.id],
         variants: [
           { attributes: { Talla: "M" }, sku: "CAM-M", salePrice: 20, stock: 2 },
           { attributes: { Talla: "L" }, sku: "CAM-L", salePrice: 25, stock: 3 },

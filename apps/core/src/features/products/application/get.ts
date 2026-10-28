@@ -1,17 +1,18 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { ImageId, Product, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import type { ListImages } from "@core/src/features/products/application/list";
 import type { ProductReadError, ProductRepository } from "@core/src/features/products/application/repository";
 
 /** `orderedVariantIds` holds the variants that any order references, confirmed or not. */
-export type Detail = Readonly<{ product: Product; orderedVariantIds: ReadonlySet<VariantId>; image?: Readonly<{ id: ImageId; url: string }> }>;
+export type Detail = Readonly<{ product: Product; orderedVariantIds: ReadonlySet<VariantId>; photos: readonly Readonly<{ id: ImageId; url: string }>[] }>;
 export type DetailError = Readonly<{ code: "IMAGE_NOT_FOUND"; message: string }> | ProductReadError;
 export type GetDependencies = Readonly<{
   repository: Pick<ProductRepository, "get">;
   findOrderedVariantIds: (ids: readonly VariantId[]) => Promise<Result<ReadonlySet<VariantId>, ProductReadError>>;
   /** Runs both reads against one database snapshot, so a concurrent save cannot show up between them. */
   snapshot: <T>(read: () => Promise<T>) => Promise<T>;
-  resolveImage: (imageId: ImageId) => Promise<Result<{ id: ImageId; url: string } | null, ProductReadError>>;
+  resolveImages: (ids: readonly ImageId[]) => Promise<Result<ListImages, ProductReadError>>;
 }>;
 
 async function readWithOrders(id: ProductId, deps: GetDependencies): Promise<Result<Readonly<{ product: Product; orderedVariantIds: ReadonlySet<VariantId> }> | null, ProductReadError>> {
@@ -28,9 +29,12 @@ export async function getProduct(id: ProductId, deps: GetDependencies): Promise<
   if (!result.success) return result;
   if (!result.data) return ok(null);
   const { product, orderedVariantIds } = result.data;
-  if (!product.imageId) return ok({ product, orderedVariantIds });
-  const image = await deps.resolveImage(product.imageId);
-  if (!image.success) return image;
-  if (!image.data) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
-  return ok({ product, orderedVariantIds, image: image.data });
+  if (!product.photoIds.length) return ok({ product, orderedVariantIds, photos: [] });
+  const resolved = await deps.resolveImages(product.photoIds);
+  if (!resolved.success) return resolved;
+  // The seller never sees a silently hidden photo: a later save would send a list without it.
+  const urls = new Map(resolved.data.images.map((image) => [image.id, image.url] as const));
+  const photos = product.photoIds.flatMap((id) => { const url = urls.get(id); return url === undefined ? [] : [{ id, url }]; });
+  if (resolved.data.failures.length || photos.length !== product.photoIds.length) return err({ code: "IMAGE_NOT_FOUND", message: "Image is unavailable" });
+  return ok({ product, orderedVariantIds, photos });
 }

@@ -20,13 +20,13 @@ function toCatalogItem(row: SellableRow, attributes: VariantAttributes): Catalog
     unitPrice: { amount: row.salePrice.toNumber(), currency: row.product.currency } };
 }
 
-type SellableVariant = CatalogItem & Readonly<{ productId: string; imageId: string | null; available: number }>;
+type SellableVariant = CatalogItem & Readonly<{ productId: string; primaryImageId: string | null; available: number }>;
 
 /** Active variants of active products with their current stock, read without lock: nothing is reserved. */
 export async function findSellableVariants(ids: readonly string[]) {
   try {
     const { rows, attributes } = await withinReadSnapshot(async () => {
-      const rows = await prisma.productVariant.findMany({ where: { id: { in: [...ids] }, status: "active", product: { status: "active" } }, include: { product: true, stock: true } });
+      const rows = await prisma.productVariant.findMany({ where: { id: { in: [...ids] }, status: "active", product: { status: "active" } }, include: { product: { include: { photos: { where: { position: 0 }, select: { imageId: true } } } }, stock: true } });
       return { rows, attributes: await loadAttributesOfVariants(rows.map((row) => row.id)) };
     });
     const items: SellableVariant[] = [];
@@ -37,7 +37,7 @@ export async function findSellableVariants(ids: readonly string[]) {
         log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant");
         return err({ code: "INVALID_STORED_DATA" as const, message: "Unable to read catalog" });
       }
-      items.push({ ...item, productId: row.productId, imageId: row.product.imageId, available: stock > 99n ? 99 : Number(stock) });
+      items.push({ ...item, productId: row.productId, primaryImageId: row.product.photos[0]?.imageId ?? null, available: stock > 99n ? 99 : Number(stock) });
     }
     return ok<readonly SellableVariant[]>(items);
   } catch (cause) {

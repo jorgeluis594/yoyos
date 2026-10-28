@@ -332,7 +332,8 @@ test("deleteVariant and changeVariantCombination issue the same statement count 
     const many = await run(large, kind);
     expect(few.result.success && many.result.success, `${kind} ${JSON.stringify([few.result, many.result])}`).toBe(true);
     expect(many.statements.length, many.statements.join("\n---\n")).toBe(few.statements.length);
-    expect(many.statements.length).toBeLessThanOrEqual(20);
+    // The ceiling counts the photo list that each of the two aggregate reads (lock and reload) loads in its own statement.
+    expect(many.statements.length).toBeLessThanOrEqual(22);
   }
 });
 

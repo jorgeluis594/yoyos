@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import pg from "pg";
+import { Prisma } from "@prisma/client";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { ok } from "@shared/functional";
 import { prisma, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -47,6 +48,7 @@ afterAll(async () => {
     await prisma.orderItem.deleteMany();
     await prisma.order.deleteMany();
     await deleteSeededProducts();
+    await prisma.image.deleteMany();
     await prisma.company.deleteMany({ where: { id } });
   });
   (pg.Client.prototype as unknown as { query: unknown }).query = originalQuery;
@@ -70,7 +72,7 @@ async function load(productId: string): Promise<Product> {
 /** The form exactly as loaded, ready to edit. */
 function formOf(product: Product): SaveProductInput {
   return {
-    productId: product.id, structureVersion: product.structureVersion, name: product.name, description: product.description ?? null, imageId: product.imageId ?? null,
+    productId: product.id, structureVersion: product.structureVersion, name: product.name, description: product.description ?? null,
     options: product.options.map((option) => ({ id: option.id, name: option.name, values: option.values.map((value) => ({ id: value.id, name: value.name })) })),
     variants: product.variants.map((variant) => ({ id: variant.id, sku: variant.sku ?? null, salePrice: variant.salePrice.amount, purchasePrice: variant.purchasePrice?.amount ?? null })),
     newVariants: [], deletedVariantIds: [],
@@ -119,7 +121,7 @@ test("save issues the same statement count for two and for one hundred variants,
       const { result, statements, elapsedMs } = await countedStatements(() => productEditing.save(heavySave(product)));
       if (!result.success) throw new Error(JSON.stringify(result.error));
       counts.push(statements.length);
-      expect(statements.length, statements.join("\n")).toBeLessThanOrEqual(35);
+      expect(statements.length, statements.join("\n")).toBeLessThanOrEqual(37);
       expect(elapsedMs).toBeLessThan(10_000);
       const saved = await load(seeded.productId);
       expect(saved).toMatchObject({ name: "Polo renombrado", structureVersion: 2 });
@@ -299,3 +301,40 @@ test("a lock timeout in a variant action is logged once as lock_conflict with th
     errorLog.mockRestore();
   }
 }, 30_000);
+
+test("a save that sets 8 photos uses the same number of statements as one that sets 1", async () => {
+  const counts: number[] = [];
+  for (const photoCount of [1, 8]) {
+    await asCompany(companyA, async () => {
+      const images = Array.from({ length: photoCount }, () => randomUUID());
+      for (const id of images) await prisma.image.create({ data: { id, storageKey: `images/${id}` } });
+      const seeded = await seedProduct({ name: "Fotos", variants: [{ salePrice: 10 }] });
+      const product = await load(seeded.productId);
+      // The images module needs storage to resolve URLs; the reload only has to read the aggregate.
+      const deps = { ...productSaveDependencies(companyA, seeded.productId), reload: async () => ok({ product: await load(seeded.productId), orderedVariantIds: new Set<VariantId>(), photos: [] }) };
+      const { result, statements } = await countedStatements(() => saveProduct({ ...formOf(product), photoIds: images as never }, { companyId: companyA as CompanyId }, deps));
+      if (!result.success) throw new Error(JSON.stringify(result.error));
+      counts.push(statements.length);
+      expect((await load(seeded.productId)).photoIds).toEqual(images);
+    });
+  }
+  expect(counts[0]).toBe(counts[1]);
+});
+
+test("a lock timeout during the photo lookup is reported once by the save transaction", async () => {
+  const seeded = await asCompany(companyA, () => seedProduct({ name: "Foto bloqueada", variants: [{ salePrice: 10 }] }));
+  const product = await asCompany(companyA, () => load(seeded.productId));
+  const errorLog = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const timeout = new Prisma.PrismaClientKnownRequestError("canceling statement due to lock timeout 55P03", { code: "P2010", clientVersion: "7.10.0" });
+  try {
+    const deps = { ...productSaveDependencies(companyA, seeded.productId), findImages: async () => { throw timeout; } };
+    const result = await asCompany(companyA, () => saveProduct({ ...formOf(product), photoIds: [randomUUID() as never] }, { companyId: companyA as CompanyId }, deps));
+    expect(result).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    const failures = errorLog.mock.calls.map(([entry]) => entry as Record<string, unknown>).filter((entry) => entry.event === "product_save_failed");
+    expect(failures).toHaveLength(1);
+    expect(failures[0]).toMatchObject({ stage: "lock_conflict", errorCode: "PERSISTENCE_UNAVAILABLE", productId: seeded.productId });
+  } finally {
+    errorLog.mockRestore();
+  }
+  expect((await asCompany(companyA, () => load(seeded.productId))).photoIds).toEqual([]);
+});
