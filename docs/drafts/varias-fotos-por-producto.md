@@ -1,6 +1,6 @@
 # Multiple photos per product: product definition
 
-**Status:** draft with open questions. Today a product has at most one optional photo ([Products](../products.md) «There is one photo per product», [Images](../images.md)); the web form (`product-form.tsx`) and the mobile form (`product-photo.tsx`) upload, replace or remove that single photo. This draft covers part A of Todoist task 6hpQq4RvPqcW98CV (several photos per product, primary photo, migration, where the primary is shown, visual search over every photo). On merge it is promoted into [Products](../products.md), [Images](../images.md), [Public catalog](../public-catalog.md) and [Image product search](../image-product-search.md). Product decisions approved by the founder on 27/10/2026. Technical design: `docs/drafts/varias-fotos-por-producto-technical.md`.
+**Status:** definition ready to implement. Today a product has at most one optional photo ([Products](../products.md) «There is one photo per product», [Images](../images.md)); the web form (`product-form.tsx`) and the mobile form (`product-photo.tsx`) upload, replace or remove that single photo. This draft covers part A of Todoist task 6hpQq4RvPqcW98CV (several photos per product, primary photo, migration, where the primary is shown, visual search over every photo). On merge it is promoted into [Products](../products.md), [Images](../images.md), [Public catalog](../public-catalog.md) and [Image product search](../image-product-search.md). Product decisions approved by the founder on 27/10/2026; review gate round 1 on 27/10/2026. Technical design: `docs/drafts/varias-fotos-por-producto-technical.md`.
 
 ## Problem and situation
 
@@ -23,12 +23,13 @@ Hypothesis: if it works, sellers upload more than one photo for most products of
 
 ## First-version scope
 
-- Web and mobile, on create and on edit: add photos up to 8 per product, remove any photo, and **Hacer principal** on any photo other than the first.
+- Web and mobile, on create and on edit: add photos up to 8 per product, remove any photo (with **Deshacer** until saving), and **Hacer principal** on any photo other than the primary.
 - The photos keep the order in which they were added. The first is the primary. **Hacer principal** is the only way to change a photo's position.
-- Every place that shows a product photo today shows the primary: public catalog grid, public product page (until part B adds the gallery), catalog cart, checkout thumbnails and the mobile seller product list.
+- Every place that shows a product photo today shows the primary (list in [Screens](#screens)).
 - Visual search compares a customer image with every photo of each product.
 - Existing products keep their photo as their only and primary photo, without seller action.
-- Same file rules as today: JPEG, PNG or WebP, up to 10 MB each, the limits of [Images](../images.md).
+- Same file rules as today: JPEG, PNG or WebP, up to 10 MB, up to 8,000 px per side and 24 MP, the limits of [Images](../images.md).
+- New texts ship in Spanish and Portuguese, like every current text of both apps ([Texts](#texts)).
 
 Related scope in the same task, without a document (part B, UI only): gallery and lightbox in the public catalog product page. Its acceptance criteria are those of the Todoist task (3 photos shown on the product page; click opens the lightbox on that photo with previous, next and close; accessible lightbox; 5 themes; one photo or no photo look as today). Meeting point: the public product page receives every photo of the product in its saved order, primary first; part A shows only the first of them and part B only adds the gallery over that same list.
 
@@ -43,83 +44,135 @@ Related scope in the same task, without a document (part B, UI only): gallery an
 - Improving the upload component: Todoist 6hpQpwMxPvgVJFq3 (P4). This task extends the current component.
 - Mockups: none; current styles and components are reused.
 - Detecting the same photo uploaded twice: it is accepted as two photos; the seller removes the repeated one.
+- Product photos on seller order screens: none shows one today and none gains one (see [Where the primary is shown](#where-the-primary-is-shown)).
 
 ## Flow
 
 Create a product with three photos (web):
 
 1. Seller opens Productos → **Nuevo producto**. The «Fotos» field shows **Agregar fotos** and «Hasta 8 fotos. La primera es la principal.».
-2. She selects three files in the file picker. Each appears as a thumbnail with a progress indicator, in the order the picker returned them, and uploads on its own.
-3. When the three finish, the first thumbnail carries «Principal» and the counter reads «3 de 8 fotos».
-4. She hovers or focuses the third thumbnail and presses **Hacer principal**: it moves to the first place, the other two keep their relative order (photo 1 becomes second, photo 2 third).
+2. She selects three files in the file picker. Each appears at once as a thumbnail in the order the picker returned them, marked «Subiendo…», and uploads on its own. The hint gives way to the counter «3 de 8 fotos».
+3. When the three finish, the first thumbnail carries «Principal».
+4. She presses **Hacer principal** under the third thumbnail: it moves to the first place, the other two keep their relative order (photo 1 becomes second, photo 2 third). Focus stays on the moved thumbnail and the screen reader announces «Foto 1 de 3, ahora es la principal.».
 5. She fills the rest and presses **Guardar producto**. The product opens with the three photos in that order; the primary shows in the catalog grid and the cart.
 
 Mobile:
 
-1. The photo strip shows **Agregar fotos** with «Cámara o galería».
-2. **Elegir de galería** opens the gallery with multiple selection, limited to the free places («Puedes elegir hasta 5»). **Tomar foto** adds one photo per shot; after each shot the strip offers **Agregar fotos** again.
-3. Tapping a thumbnail opens a sheet with **Hacer principal** (absent on the first), **Quitar foto** and **Cancelar**.
-4. **Guardar** saves everything together, as today.
+1. The photo strip shows the **Agregar fotos** tile («Cámara o galería») at its left.
+2. Tapping it opens the sheet «Fotos» with «Puedes agregar 8 fotos más.», **Elegir de galería**, **Tomar foto** and **Cancelar**.
+3. **Elegir de galería** opens the gallery with multiple selection, capped by the picker itself at the free places. **Tomar foto** adds one photo per shot.
+4. Thumbnails appear to the right of the tile, in order, uploading. Tapping one opens a sheet «Foto 2 de 5» with **Hacer principal** (absent on the primary), **Quitar foto** and **Cancelar**.
+5. **Guardar** saves everything together, as today.
 
 Alternative paths:
 
-- Selection over the free places: the first ones up to 8 are added, the rest are left out with «Se agregaron 2 fotos. Un producto puede tener hasta 8.».
-- One photo of a batch fails: the others stay; the failed one is not added and a message names how many failed, with the remedy.
-- Removing the primary: the second photo becomes the primary at once, without asking.
+- Selection over the free places (web): the first ones up to 8 are added; at selection time, before any upload result, the field says «Elegiste 4 fotos y quedan 2 lugares. Se agregan las 2 primeras.».
+- One photo of a batch fails: it stays in its place as a failed thumbnail with its reason, and **Reintentar** when retrying can work. The others continue.
+- An upload takes longer than 2 minutes, or the seller presses **Cancelar subida**: see [When something fails](#when-something-fails).
+- Removing a photo: it stays in its place marked «Se quitará» or «Se eliminará» with **Deshacer** until saving. Removing the primary makes the next kept photo the primary at once, without asking.
 - Leaving with added, removed or reordered photos asks «¿Descartar cambios?», as any change of the form.
 
 ## Screens
 
-**Fotos field (web create and product page):**
-- Label «Fotos», hint «Hasta 8 fotos. La primera es la principal.» and **Agregar fotos**, which opens the file picker with multiple selection and the accepted formats.
-- Thumbnails in a row that wraps, in saved order. The first carries the text «Principal» (text, not only color). Each thumbnail has **Hacer principal** (except the first) and **Quitar foto**, both reachable by keyboard and with accessible names that include the position («Hacer principal la foto 3 de 5», «Quitar la foto 3 de 5»).
-- Counter «3 de 8 fotos». At 8 photos **Agregar fotos** is replaced by «Llegaste al máximo de 8 fotos.».
-- No photo yet: only **Agregar fotos** and the hint; the product is valid without photos.
-- Uploading: the thumbnail shows «Subiendo…» and cannot be made primary or removed until it finishes; **Guardar producto** / **Guardar cambios** is disabled while any upload runs, as today with one photo.
-- Per-photo error under the field, with the existing texts: «La imagen supera el tamaño máximo de 10 MB.», «El archivo debe ser una imagen JPG, PNG o WebP.», «No se pudo subir la imagen. Inténtalo de nuevo.». In a batch with failures: «No se pudieron subir 2 fotos. Elígelas de nuevo.» (plus the reason when all share it).
-- Removing and **Hacer principal** are pending until the product is saved and count as form changes for «¿Descartar cambios?».
+### Thumbnail
 
-**Photo strip (mobile create and product page):**
-- The current compact strip becomes a horizontal row of thumbnails followed by the **Agregar fotos** tile («Cámara o galería»); at 8 the tile is replaced by «Llegaste al máximo de 8 fotos.».
-- The first thumbnail carries «Principal». Tapping a thumbnail opens the native sheet titled «Foto 2 de 5» with **Hacer principal**, **Quitar foto** and **Cancelar**; screen readers get the same actions on the thumbnail.
-- Counter «3 de 8 fotos» under the strip.
-- Uploading: spinner on the thumbnail; **Guardar** disabled while any upload runs.
-- Errors keep today's native alerts («No se pudo subir la foto», «Tus datos siguen intactos. Revisa la conexión e inténtalo otra vez.»; «No se pudo preparar la foto»; «La foto supera el tamaño permitido. Elige una imagen más pequeña.»), once per batch with the count when several fail («No se pudieron subir 2 fotos»).
-- A denied camera permission keeps the form and leaves the gallery available, as today.
-- **Conservar foto actual** disappears: an unsaved removal is undone with the form's discard, as any other change. Assumption: no seller relies on undoing one removal alone; with several photos a per-photo undo would need its own marks.
+The same unit on both platforms. Each thumbnail is one of these states:
 
-**Where the primary is shown (no new screen):** public catalog grid card, public product page photo (until part B), catalog cart thumbnail, checkout product thumbnail, mobile seller product list thumbnail. Each keeps its current size, shape, theme and neutral block with the initial when the product has no photo. Seller order screens show no product photo today and this feature adds none.
+| State | What it shows | Actions | Accessible name |
+| --- | --- | --- | --- |
+| Uploading | The photo dimmed with a spinner and «Subiendo…» | **Cancelar subida** | «Foto 4 de 5, subiendo» |
+| Kept, primary | The photo with «Principal» on a solid surface | **Quitar foto** | «Foto 1 de 5, principal» |
+| Kept | The photo | **Hacer principal**, **Quitar foto** | «Foto 3 de 5» |
+| Marked for removal | The photo dimmed with «Se quitará» (photo added in this session) or «Se eliminará» (photo already saved), as text | **Deshacer** | «Foto 3 de 5, se eliminará al guardar» |
+| Failed | The photo when the device can show it (otherwise a neutral block), web adds the file name under it; the reason as text | **Reintentar** (only when retrying can work) and **Quitar** | «Foto 4 de 5, no se subió: pesa más de 10 MB» |
+
+- «Principal», «Se quitará», «Se eliminará», «Subiendo…» and the failure reason sit on a solid surface (a caption or badge with the field's colors), never as bare text over the photo, so they read on any photo.
+- Positions («3 de 5») count every thumbnail in the field, whatever its state, in visual order.
+- A marked photo cannot be made primary. Only **Deshacer** returns it to normal, in its place.
+- The primary is the first thumbnail that is kept (not uploading, not failed, not marked). If the first photo is marked, «Principal» moves at once to the next kept photo; **Deshacer** returns it to the first place and makes it primary again. While the first photo is still uploading, no thumbnail shows «Principal» yet.
+
+### Fotos field (web create and product page)
+
+- Label «Fotos». Without photos it shows **Agregar fotos** and the hint «Hasta 8 fotos. La primera es la principal.». With at least one thumbnail the hint gives way to the counter «3 de 8 fotos», or «5 de 8 fotos · 1 se quitará» when there are marks.
+- **Agregar fotos** opens the file picker with multiple selection and the accepted formats. It stays available while uploads run. Every thumbnail (uploading, failed or marked) takes a place until it leaves or the product is saved; at 8 places **Agregar fotos** is replaced by «Llegaste al máximo de 8 fotos.».
+- Thumbnails 112 px square in a row that wraps, in saved order. The actions sit always visible in a bar under each thumbnail, as icon buttons of at least 32 px with a tooltip and the accessible names «Hacer principal la foto 3 de 5», «Quitar la foto 3 de 5», «Deshacer quitar la foto 3 de 5», «Cancelar la subida de la foto 4 de 5», «Reintentar la foto 4 de 5». They are never shown only on hover, so touch browsers reach them.
+- One uploading text: today's field-level «Subiendo imagen…» disappears; each thumbnail says «Subiendo…».
+- **Guardar producto** / **Guardar cambios** is enabled while uploads run but does not save until they finish: pressing it says «Espera a que terminen de subir las fotos.» next to the field. With failed thumbnails it says «Reintenta o quita las fotos que no se subieron.» and moves focus to the first failed thumbnail.
+- Removing, **Deshacer** and **Hacer principal** are pending until the product is saved and count as form changes for «¿Descartar cambios?».
+
+Focus and announcements (one polite live region for the field):
+
+| Action | Focus goes to | Announcement |
+| --- | --- | --- |
+| **Hacer principal** | The **Quitar foto** button of the moved thumbnail, now first | «Foto 1 de 5, ahora es la principal.» |
+| **Quitar foto** | **Deshacer** of the same thumbnail, which stays in its place | «Foto 3 de 5 se eliminará al guardar.»; when it was the primary, adds «La foto 2 ahora es la principal.» |
+| **Deshacer** | **Quitar foto** of the same thumbnail | «Foto 3 de 5 se conservará.»; when it becomes primary again, adds «Ahora es la principal.» |
+| **Cancelar subida** or **Quitar** on a failed thumbnail | The first action of the next thumbnail, or of the previous one if it was the last, or **Agregar fotos** if none is left | «Foto quitada. Quedan 4 fotos.» |
+| Upload finished or failed | Focus does not move | Failures only: «La foto 4 no se subió: pesa más de 10 MB.» |
+| Selection added | Focus does not move | «Se agregaron 3 fotos.» (or the over-limit notice) |
+
+### Photo strip (mobile create and product page)
+
+- The compact strip keeps its height. The **Agregar fotos** tile («Cámara o galería») stays fixed at the left; the thumbnails, 64 px, scroll horizontally to its right, so adding is always visible. At 8 places the tile reads «Llegaste al máximo de 8 fotos.» and is disabled.
+- The counter «3 de 8 fotos» (or «5 de 8 fotos · 1 se quitará») sits under the strip once there is a thumbnail.
+- The source sheet «Fotos» says «Puedes agregar 5 fotos más.». The gallery itself caps the selection at those places; Yoyos shows no text inside the picker.
+- Tapping a thumbnail opens the native sheet titled «Foto 2 de 5» with the thumbnail's actions from the table above (**Hacer principal**, **Quitar foto**; **Deshacer**; **Cancelar subida**; **Reintentar**, **Quitar**) and **Cancelar**. The thumbnail is a button with the accessible name of the table and the hint «Abre las acciones de la foto»; screen readers also get the actions directly on the thumbnail.
+- After an action, accessibility focus returns to the thumbnail that was acted on (in its new place after **Hacer principal**), or to the next one when it left, and the same announcements as web are spoken.
+- Failures show on their thumbnail with the reason, not as alerts. The only native alert kept is the camera permission: a denied permission keeps the form and leaves the gallery available, as today.
+- **Conservar foto actual** disappears: **Deshacer** on the marked photo replaces it.
+- **Guardar** follows the web rule: during uploads «Espera a que terminen de subir las fotos.»; with failed thumbnails «Reintenta o quita las fotos que no se subieron.».
+
+### Where the primary is shown
+
+No new screen. The primary replaces today's single photo, with each surface's current size, shape, theme and placeholder:
+
+- Public catalog grid card (no carousel) and public product page photo (until part B adds the gallery).
+- Catalog cart thumbnail and checkout product thumbnail.
+- «Apariencia de la tienda» preview, which renders real products as catalog cards.
+- Mobile seller product list thumbnail. It keeps its dashed placeholder with the photo icon when there is no photo.
+
+The public catalog, cart and checkout keep the neutral block with the product initial when there is no photo. The task's «pedidos» is met by the order checkout, the only order surface that shows product photos: no seller order screen (web or mobile) shows a product photo today and none gains one.
 
 ## Rules
 
 | Aspect | Behavior |
 | --- | --- |
-| Limit | Up to 8 photos per product, on create and on edit, on web and mobile. Core rejects a save with more than 8 from any client. |
-| Files | Each photo follows the current image rules: JPEG, PNG or WebP, up to 10 MB, up to 8,000 px per side and 24 MP. Mobile keeps re-encoding to JPEG before upload. |
-| Order | Photos keep the order in which they were added to the form: the picker's order inside one selection, then the order of later selections. Not the order in which uploads finish. Example: she selects «frente.jpg», «espalda.jpg», «puesto.jpg»; if «puesto.jpg» finishes first it is still third. |
-| Primary | The first photo. No separate mark is stored. A product with photos always has a primary; a product without photos has none and shows the neutral block as today. |
-| Hacer principal | Moves that photo to the first place; the others keep their relative order. Example: [A, B, C, D], **Hacer principal** on C → [C, A, B, D]. It is the only way to change positions. |
-| Removing | Any photo can be removed. Removing the primary makes the next photo the primary, without asking. Removing the last photo leaves the product without photo. Removing does not delete the stored file, as today. |
+| Limit | Up to 8 photos per product, on create and on edit, on web and mobile. In the form, every thumbnail takes a place until it leaves or the product is saved: uploading, failed and marked ones included. Core rejects a save with more than 8 from any client. |
+| Files | Each photo follows the current image rules: JPEG, PNG or WebP, up to 10 MB, up to 8,000 px per side and 24 MP. Mobile keeps re-encoding to JPEG before upload. The seller sees which rule failed: weight, dimensions or format are different texts. |
+| Order | Photos keep the order in which they were added to the form: the picker's order inside one selection, then the order of later selections. Not the order in which uploads finish: a thumbnail takes its place when chosen. Example: she selects «frente.jpg», «espalda.jpg», «puesto.jpg»; if «puesto.jpg» finishes first it is still third. A failed photo keeps its place, so **Reintentar** keeps the intended order. |
+| Primary | The first kept photo. No separate mark is stored. A product with photos always has a primary; a product without photos has none and shows each surface's placeholder as today. |
+| Hacer principal | Moves that photo to the first place; the others keep their relative order. Example: [A, B, C, D], **Hacer principal** on C → [C, A, B, D]. It is the only way to change positions. Not available on uploading, failed or marked photos. |
+| Removing | Any photo can be removed. It stays visible in its place, marked «Se quitará» (added in this session) or «Se eliminará» (already saved), with **Deshacer** until saving, the same pattern as values, options and combinations in [Products](../products.md). On save, marked photos leave the product and the rest close up in order. Removing the primary makes the next kept photo the primary, without asking. Removing every photo leaves the product without photo. Removing does not delete the stored file, as today. |
+| Uploading and failed photos | Never saved. Saving waits until no thumbnail is uploading or failed. **Cancelar subida** and **Quitar** on a failed photo take it out of the field at once, without a mark, because it was never part of the product. |
+| Unanswered upload | An upload that has not finished after 2 minutes (initial value, adjustable) becomes a failed thumbnail «No se pudo subir. Revisa la conexión.» with **Reintentar**. The seller can also drop it earlier with **Cancelar subida**. A late answer for a cancelled or expired upload changes nothing on screen. |
 | Saving | Photos, their order and removals are saved with the rest of the form, all or nothing, with **Guardar producto** / **Guardar cambios** (web) or **Guardar** (mobile). Nothing about photos is saved before. |
 | Duplicates | The same file uploaded twice counts as two photos. |
 | Current, not copied | Cart, checkout and every other view show the current primary. Orders do not copy photos: changing the primary changes the thumbnail of open checkout links, as today with the single photo. |
 | Public catalog | The grid card, the cart and the checkout show only the primary, never a carousel. The full set of photos, in saved order, is offered only on the public product page (part B). The photo filter rule of themes is unchanged. |
-| Visual search | Every photo of a product is indexed when the product is saved with it. A customer image matching any photo of a product identifies that product, and a product counts once even if several of its photos match. The other rules are unchanged: active product, exactly one active variant, minimum confidence. A removed photo stops identifying the product as soon as the save without it completes. Which photos the vision model receives per candidate is to be resolved in implementation. |
+| Visual search, indexing | Every photo of a product is indexed when the product is saved with it. This is the reading of the founder's «un embedding por foto al subirla»: a photo uploaded but never saved to a product, or discarded with the form, never identifies anything. Indexing runs one photo at a time after the save, so a product becomes recognizable by its new photos after a delay, not at once. Assumption: a few seconds per photo, so a load of 13 products with 4 photos each is fully recognizable within a few minutes; the technical design measures it. |
+| Visual search, matching | A customer image matching any photo of a product identifies that product, and a product counts once even if several of its photos match. For each candidate, the vision model sees at least that product's photo closest to the customer image, so a customer photo of the dog wearing it is compared with «puesto», not with «frente». Cost bound: one product photo per candidate, as today (up to 5 candidates plus the customer image per message). The other rules are unchanged: active product, exactly one active variant, minimum confidence. |
+| Removed photos in search | A removed photo stops identifying the product as soon as the save without it completes. |
 | Migration | Each existing product's photo becomes its only and primary photo; products without photo stay without. No seller action, no notice. Its current search indexing keeps working. |
-| Parity | Web and mobile apply the same limit, order, primary rule and texts; core is the source of truth. |
-| Concurrency | Photo changes are part of the product save and follow [Products concurrency](../products.md#concurrency); photo-only edits do not change the structure version. Assumption: like prices, they are last-write-wins between two devices. |
+| Parity | Web and mobile apply the same limit, order, primary rule, marks and texts; core is the source of truth. |
+| Concurrency | Photo changes are part of the product save and follow [Products concurrency](../products.md#concurrency); photo-only edits do not change the structure version, so they are last-write-wins between two devices, like prices. |
 
 ## When something fails
 
 | Situation | What the seller sees | What she can do |
 | --- | --- | --- |
-| Photo uploaded | Thumbnail in its place, counter updated | Continue; it is saved only with the product |
-| Photo rejected (size, format, dimensions) | That photo is not added; message with the reason (texts above); the rest of the form and the other photos stay | Choose another file |
-| Selection over the limit | The photos up to 8 are added; «Se agregaron 2 fotos. Un producto puede tener hasta 8.» | Remove a photo to make room |
-| Upload not sent (no connection) | That photo is not added; «No se pudo subir la imagen. Inténtalo de nuevo.» (web) or the native alert (mobile); other photos stay | Choose it again |
-| Upload with no response | Treated as not uploaded: the photo is not added. An uploaded but unused file is harmless (it is not associated with any product) | Choose it again; it never duplicates a photo in the product |
+| Photo uploaded | Thumbnail in its place; «Principal» when it is the first kept photo | Continue; it is saved only with the product |
+| Over the free places (web) | At selection time, before any upload: «Elegiste 4 fotos y quedan 2 lugares. Se agregan las 2 primeras.» next to the field. It speaks of what was added to the field, not of uploads; their outcome shows on each thumbnail afterwards. It stays until the next selection or save. Mobile pickers cap the selection, so the notice appears there only if a platform picker does not | Remove or mark photos to make room |
+| Photo rejected for weight | Failed thumbnail «Pesa más de 10 MB.», with **Quitar** | Choose a lighter file |
+| Photo rejected for dimensions | Failed thumbnail «Supera 8000 px por lado o 24 MP.», with **Quitar**. Telling weight from dimensions is to be resolved in implementation | Choose a smaller image |
+| Photo rejected for format or corrupt file | Failed thumbnail «No es una imagen JPG, PNG o WebP válida.», with **Quitar** | Choose another file |
+| Photo could not be prepared (mobile) | Failed thumbnail «No se pudo preparar la foto.», with **Quitar** | Choose another photo |
+| Upload not sent, storage unavailable, or no answer after 2 minutes | Failed thumbnail «No se pudo subir. Revisa la conexión.», with **Reintentar** and **Quitar** | **Reintentar** uploads it again in the same place. A retry never adds a second copy of that photo to the product; an orphaned file from an earlier attempt is harmless |
+| Retry of a photo the device can no longer read | The thumbnail keeps failing with «Ya no encontramos esta foto. Quítala y elígela de nuevo.», with **Quitar** only | Choose it again; it goes to the end |
+| Several failures with different reasons | Each failed thumbnail shows its own reason | Act on each one |
+| **Guardar** with uploads running | «Espera a que terminen de subir las fotos.»; nothing is sent | Wait, or cancel the stuck upload |
+| **Guardar** with failed thumbnails | «Reintenta o quita las fotos que no se subieron.»; focus on the first failed thumbnail; nothing is sent | **Reintentar** or **Quitar** |
 | Save rejected for more than 8 photos (another client) | «Un producto puede tener hasta 8 fotos. Quita alguna y guarda de nuevo.» with the form intact | Remove photos and save |
-| Save rejected because a photo no longer exists or belongs to another business | «No pudimos usar una de las fotos. Quítala o súbela de nuevo.» with the form intact | Remove or re-upload |
+| Save rejected because a photo no longer exists or belongs to another business | That thumbnail shows «No pudimos usar esta foto. Quítala o súbela de nuevo.» with the form intact. If core cannot say which photo (to be resolved in implementation), the same text names the field instead: «No pudimos usar una de las fotos. Quítala o súbela de nuevo.» | Remove or re-upload |
 | Save not sent or in doubt | Today's product save behavior, unchanged | Today's remedy (**Recargar producto**, retry) |
 | Indexing a photo fails after the save | Nothing; the product is saved. The photo is recovered by the existing reindex command | None; the product is identified by its other indexed photos meanwhile |
 | Leaving mid-upload | «¿Descartar cambios?»; discarding drops the uploads in progress | **Seguir editando** keeps them |
@@ -127,6 +180,7 @@ Alternative paths:
 ## Information that is kept
 
 - Per product: its photos and their order. The first is the primary.
+- Marks, failed and uploading thumbnails live only in the open form; they are not kept as a draft.
 - Orders keep copying name, combination, SKU and price only; photos are presentation and are always shown current.
 - Removed photos: the file stays stored, as today; it no longer belongs to the product nor identifies it in visual search.
 - Existing products: their photo becomes photo 1 of 1.
@@ -134,9 +188,39 @@ Alternative paths:
 
 ## Vocabulary
 
-- Photo: «foto». The interface keeps «foto», not «imagen», except in the existing web error texts.
-- Primary photo: «Principal». The photo in the first place, shown wherever a single photo of the product is shown.
+- Photo: «foto». The new texts say «foto», not «imagen».
+- Primary photo: «Principal». The first kept photo, shown wherever a single photo of the product is shown.
 - **Hacer principal**: the action that moves a photo to the first place.
+- «Se quitará» / «Se eliminará»: the existing marks of the product form; for photos, «Se quitará» is a photo added in this session and «Se eliminará» a photo already saved. Both are undone with **Deshacer** until saving.
+
+## Texts
+
+Spanish and Portuguese. Marks and **Deshacer** reuse the existing keys of the product form.
+
+| Use | Spanish | Portuguese |
+| --- | --- | --- |
+| Field label, mobile sheet title | «Fotos» | «Fotos» |
+| Add button and mobile tile | **Agregar fotos** | **Adicionar fotos** |
+| Hint without photos | «Hasta 8 fotos. La primera es la principal.» | «Até 8 fotos. A primeira é a principal.» |
+| Counter | «3 de 8 fotos» · «5 de 8 fotos · 1 se quitará» | «3 de 8 fotos» · «5 de 8 fotos · 1 será removida» |
+| Limit | «Llegaste al máximo de 8 fotos.» | «Você chegou ao máximo de 8 fotos.» |
+| Mobile sheet message | «Puedes agregar 5 fotos más.» | «Você pode adicionar mais 5 fotos.» |
+| Over the free places | «Elegiste 4 fotos y quedan 2 lugares. Se agregan las 2 primeras.» | «Você escolheu 4 fotos e restam 2 lugares. As 2 primeiras foram adicionadas.» |
+| Primary label | «Principal» | «Principal» |
+| Actions | **Hacer principal**, **Quitar foto**, **Cancelar subida**, **Reintentar**, **Quitar** | **Tornar principal**, **Remover foto**, **Cancelar envio**, **Tentar novamente**, **Remover** |
+| Uploading | «Subiendo…» | «Enviando…» |
+| Weight | «Pesa más de 10 MB.» | «Tem mais de 10 MB.» |
+| Dimensions | «Supera 8000 px por lado o 24 MP.» | «Passa de 8000 px por lado ou 24 MP.» |
+| Format | «No es una imagen JPG, PNG o WebP válida.» | «Não é uma imagem JPG, PNG ou WebP válida.» |
+| Prepare (mobile) | «No se pudo preparar la foto.» | «Não foi possível preparar a foto.» |
+| Connection or no answer | «No se pudo subir. Revisa la conexión.» | «Não foi possível enviar. Verifique a conexão.» |
+| File gone | «Ya no encontramos esta foto. Quítala y elígela de nuevo.» | «Não encontramos mais esta foto. Remova e escolha de novo.» |
+| Save while uploading | «Espera a que terminen de subir las fotos.» | «Aguarde o envio das fotos terminar.» |
+| Save with failures | «Reintenta o quita las fotos que no se subieron.» | «Tente novamente ou remova as fotos que não foram enviadas.» |
+| Over 8 on save | «Un producto puede tener hasta 8 fotos. Quita alguna y guarda de nuevo.» | «Um produto pode ter até 8 fotos. Remova alguma e salve de novo.» |
+| Unusable photo on save | «No pudimos usar esta foto. Quítala o súbela de nuevo.» | «Não foi possível usar esta foto. Remova ou envie de novo.» |
+| Mobile thumbnail hint | «Abre las acciones de la foto» | «Abre as ações da foto» |
+| Announcements | «Foto 1 de 5, ahora es la principal.» · «Foto 3 de 5 se eliminará al guardar.» · «La foto 2 ahora es la principal.» · «Foto 3 de 5 se conservará.» · «Foto quitada. Quedan 4 fotos.» · «Se agregaron 3 fotos.» | «Foto 1 de 5, agora é a principal.» · «Foto 3 de 5 será excluída ao salvar.» · «A foto 2 agora é a principal.» · «Foto 3 de 5 será mantida.» · «Foto removida. Restam 4 fotos.» · «3 fotos adicionadas.» |
 
 ## Closed decisions
 
@@ -148,54 +232,62 @@ Alternative paths:
 | The primary is the first photo, without a separate mark; **Hacer principal** moves it first and is the only way to change positions; a product with photos always has a primary | Founder decision, 27/10/2026 |
 | Removing the primary promotes the next photo automatically, without asking | Founder decision, 27/10/2026 |
 | Each existing product's photo becomes its only and primary photo automatically | Founder decision, 27/10/2026 |
-| Catalog grid, cart, checkout and orders show only the primary, no carousel in the card; the gallery goes only on the public product page | Founder decision, 27/10/2026 |
-| Visual search indexes every photo of the product, one embedding per photo | Founder decision, 27/10/2026 |
+| Catalog grid, cart, checkout and orders show only the primary, no carousel in the card; the gallery goes only on the public product page | Founder decision, 27/10/2026. «Orders» is met by the order checkout; no order screen gains a photo |
+| Visual search indexes every photo of the product, one embedding per photo | Founder decision, 27/10/2026. «Al subirla» is read as when the product is saved with it |
 | Buyer mobile gallery: large swipeable photo with thumbnails below; full-screen lightbox closed with X or swiping down; no pinch zoom | Founder decision, 27/10/2026 (part B) |
 | No mockups; current styles and components | Founder decision, 27/10/2026 |
 | The upload component improvement (6hpQpwMxPvgVJFq3) does not block; this task extends the current component | Founder decision, 27/10/2026 |
+| The first kept thumbnail shows «Principal» as text on a solid surface, part of its accessible name | Review gate round 1, 27/10/2026; it shows what is stored, it stores nothing |
+| Removing a photo marks it with **Deshacer** until saving | Same pattern as every other removal of the product form; a mistaken removal must not cost the other edits |
 
 ## Acceptance criteria
 
-1. On web, the seller creates «Polo perro rayas» selecting «frente.jpg», «espalda.jpg» and «puesto.jpg» at once: after saving, the product shows the three in that order, «frente.jpg» carries «Principal», and the catalog grid and the cart show «frente.jpg».
+1. On web, the seller creates «Polo perro rayas» selecting «frente.jpg», «espalda.jpg» and «puesto.jpg» at once: after saving, the product shows the three in that order, «frente.jpg» carries «Principal», and the catalog grid, the cart and the «Apariencia de la tienda» preview show «frente.jpg».
 2. On mobile, the seller creates a product choosing 3 photos from the gallery and taking 1 with the camera: the product is saved with 4 photos in that order and the first gallery photo is the primary in the seller's product list.
-3. A product with photos [A, B, C]: **Hacer principal** on C and save → [C, A, B]; the catalog grid, the cart and an open checkout link of an order with that product show C.
-4. A product with [A, B, C]: removing A and saving leaves [B, C] with B as primary, without a confirmation dialog.
-5. A product with 6 photos: the seller selects 4 more files → 2 are added, «Se agregaron 2 fotos. Un producto puede tener hasta 8.» is shown, the counter reads «8 de 8 fotos» and **Agregar fotos** is replaced by «Llegaste al máximo de 8 fotos.».
-6. A save sent with 9 photos by any client is rejected; nothing changes in the product and the form keeps its data.
-7. The seller selects 3 photos and the second is a 12 MB file: the first and third are added in that order; «La imagen supera el tamaño máximo de 10 MB.» is shown; name, description and prices stay as typed.
-8. The connection drops while the third of 3 photos uploads: the first two stay, the third is not added, the error offers choosing it again, and **Guardar producto** is enabled once no upload is running.
-9. With an upload in progress, **Guardar producto** (web) and **Guardar** (mobile) are disabled.
-10. The seller adds a photo and presses **Cancelar**: «¿Descartar cambios?» appears; **Descartar** leaves the product as it was saved.
-11. A product created before the change with one photo opens with that photo as «1 de 8 fotos» and «Principal», and the catalog grid keeps showing it, with no seller action.
-12. A product created before the change without photo keeps showing the neutral block with its initial in the catalog, the cart and the checkout.
-13. A product with one active variant and photos [frente, puesto]: a buyer sends by WhatsApp a photo of the dog wearing it, similar to «puesto» → the product is added to the chat's order.
-14. The seller removes «puesto» and saves; a new customer image similar only to «puesto» no longer identifies the product.
-15. On web, every thumbnail action is reachable by keyboard and the screen reader announces «Hacer principal la foto 3 de 5» and «Quitar la foto 3 de 5»; «Principal» is text, not only color.
-16. On the public product page, a product with 3 photos shows the primary as today's photo until part B adds the gallery; the page receives the three in saved order.
+3. A product with photos [A, B, C]: **Hacer principal** on C and save → [C, A, B]; the catalog grid, the cart and an open checkout link of an order with that product show C. No seller order screen shows a product photo.
+4. A product with [A, B, C]: **Quitar foto** on A marks it «Se eliminará» in its place, «Principal» moves to B at once, without a confirmation dialog; saving leaves [B, C] with B as primary.
+5. A product with [A, B, C]: **Quitar foto** on A, then **Deshacer**: A is first again and carries «Principal»; saving changes nothing. Name and prices edited before stay as typed.
+6. A product with 6 photos on web: the seller selects 4 more files → only the first 2 appear as thumbnails, «Elegiste 4 fotos y quedan 2 lugares. Se agregan las 2 primeras.» is shown before any upload finishes, the counter reads «8 de 8 fotos» and **Agregar fotos** is replaced by «Llegaste al máximo de 8 fotos.».
+7. A product with 7 saved photos: marking one «Se eliminará» does not free a place until saving; after saving, the counter reads «6 de 8 fotos» and **Agregar fotos** is back.
+8. A save sent with 9 photos by any client is rejected; nothing changes in the product and the form keeps its data.
+9. The seller selects «frente.jpg», «grande.jpg» (12 MB) and «puesto.jpg»: «grande.jpg» stays second as a failed thumbnail with its file name and «Pesa más de 10 MB.»; the others upload; name, description and prices stay as typed. **Guardar producto** says «Reintenta o quita las fotos que no se subieron.» and focuses that thumbnail; after **Quitar** it saves [frente, puesto].
+10. A 6 MB, 48 MP photo is rejected with «Supera 8000 px por lado o 24 MP.», not with the 10 MB text.
+11. The connection drops while the second of 3 photos uploads: it becomes a failed thumbnail «No se pudo subir. Revisa la conexión.» in second place; **Reintentar** with connection uploads it and the order stays [1, 2, 3].
+12. An upload with no answer for 2 minutes becomes a failed thumbnail with **Reintentar**; before that, **Cancelar subida** removes it at once and **Guardar** saves the other photos.
+13. While an upload runs, **Agregar fotos** stays available, and **Guardar producto** (web) or **Guardar** (mobile) says «Espera a que terminen de subir las fotos.» and sends nothing.
+14. The seller adds a photo and presses **Cancelar**: «¿Descartar cambios?» appears; **Descartar** leaves the product as it was saved.
+15. A product created before the change with one photo opens with that photo as «1 de 8 fotos» and «Principal», and the catalog grid keeps showing it, with no seller action.
+16. A product created before the change without photo keeps showing the neutral block with its initial in the catalog, the cart and the checkout, and the dashed placeholder in the mobile seller list.
+17. A product with one active variant and photos [frente, puesto]: a few minutes after saving, a buyer sends by WhatsApp a photo of the dog wearing it, similar to «puesto» → the product is added to the chat's order.
+18. The seller removes «puesto» and saves; a new customer image similar only to «puesto» no longer identifies the product.
+19. On web with only the keyboard, on a product with [A, B, C, D, E]: Tab to **Hacer principal** of C, press it → focus is on **Quitar foto** of C, now first, and «Foto 1 de 5, ahora es la principal.» is announced; press **Quitar foto** → focus is on its **Deshacer** and «Foto 1 de 5 se eliminará al guardar. La foto 2 ahora es la principal.» is announced; Tab reaches the next thumbnail's actions and **Guardar cambios**, and saving leaves [A, B, D, E]. No action is reachable only by hover.
+20. With a screen reader on mobile, each thumbnail is announced with its position and state («Foto 1 de 5, principal», «Foto 4 de 5, subiendo») and the hint «Abre las acciones de la foto»; after **Hacer principal** in the sheet, focus returns to that thumbnail in its new place.
+21. On the public product page, a product with 3 photos shows the primary as today's photo until part B adds the gallery; the page receives the three in saved order.
+22. In Portuguese, the field, the marks, the failures and the announcements show the texts of [Texts](#texts).
 
-## Open items and questions
+## Questions decided by the review gate
 
-```
-Questions (answer with the option number):
+1. **Does the first thumbnail in the seller's form show the text «Principal»?** Answer: (1) show «Principal» on the first kept thumbnail, with no other control, as text on a solid surface and part of the thumbnail's accessible name. Decided by both reviewers of review gate round 1 (UX/UI and product) and taken by the coordinator, 27/10/2026. Reason: the seller sees which photo the catalog uses without remembering a rule, **Hacer principal** needs a visible counterpart, and screen-reader users need the same information; the founder's «sin marca aparte» governs what is stored, and a label stores nothing. Discarded: (2) no label, with the hint «La primera es la principal.» as the only cue, which leaves screen readers without the primary.
 
-1. Does the first thumbnail in the seller's form show the text «Principal»?
-   The closed decision says the primary is the first photo "sin marca aparte"; this asks only about the visible label in the form, not about the stored model.
-   (1) Show «Principal» on the first thumbnail, with no other control. Recommended: the seller sees which photo the catalog will use without knowing the rule, and «Hacer principal» needs a visible counterpart.
-   (2) No label; the hint «La primera es la principal.» is the only cue. Less UI; the seller must remember the rule, and screen readers lose which photo is primary.
+## Decided unless objected
 
-Decided unless objected:
-- Rejection of photos beyond the 8th: the photos up to 8 are added and «Se agregaron 2 fotos. Un producto puede tener hasta 8.» is shown; at 8 **Agregar fotos** is replaced by «Llegaste al máximo de 8 fotos.» (same pattern as the 3-option limit). A save with more than 8 from any client: «Un producto puede tener hasta 8 fotos. Quita alguna y guarda de nuevo.».
-- Multi-select: web file picker and mobile gallery allow selecting several photos at once, limited to the free places; the camera adds one photo per shot.
-- Order inside a selection is the picker's order, not the order in which uploads finish.
-- An upload failing mid-batch does not stop the others: successful photos stay in their order, failed ones are not added and one message names how many failed; the seller chooses them again. No automatic retry.
-- An upload with no response counts as not uploaded; re-choosing never duplicates a photo in the product.
-- Removing a photo and **Hacer principal** have no confirmation and are pending until the product is saved; leaving with them asks «¿Descartar cambios?». Mobile drops **Conservar foto actual**.
-- **Hacer principal** and **Quitar foto** are per thumbnail on web; on mobile, tapping a thumbnail opens a sheet «Foto 2 de 5» with **Hacer principal**, **Quitar foto**, **Cancelar**.
-- Counter «3 de 8 fotos» and hint «Hasta 8 fotos. La primera es la principal.» on both platforms.
-- A removed photo stops identifying the product in visual search once the save completes; its file and any computed index data stay stored but are ignored, as with a replaced photo today.
+- Over the free places on web: the first photos up to 8 are added and «Elegiste 4 fotos y quedan 2 lugares. Se agregan las 2 primeras.» is shown at selection time, before upload results; at 8 places **Agregar fotos** is replaced by «Llegaste al máximo de 8 fotos.». On mobile the picker caps the selection and the sheet says «Puedes agregar 5 fotos más.».
+- Every thumbnail (uploading, failed, marked) takes a place and counts in the counter until it leaves or the product is saved; **Agregar fotos** stays available during uploads.
+- Multi-select on the web file picker and the mobile gallery; the camera adds one photo per shot.
+- Order inside a selection is the picker's order; a thumbnail takes its place when chosen, not when its upload finishes.
+- A failed photo stays in its place with its own reason (weight, dimensions, format, preparation, connection) and **Reintentar** when retrying can work, so the order is kept; web adds the file name. No automatic retry and no batch alerts.
+- An upload unanswered after 2 minutes (initial value, adjustable) becomes failed; **Cancelar subida** drops it earlier.
+- **Guardar** does not save while uploads run or failed thumbnails remain, and says why.
+- Removal follows the form's pattern: «Se quitará» / «Se eliminará» with **Deshacer** until saving; a marked first photo passes «Principal» to the next kept one at once. **Hacer principal** and removing have no confirmation. Mobile drops **Conservar foto actual**.
+- Web thumbnails 112 px with always-visible 32 px icon actions and tooltips; mobile 64 px thumbnails scrolling to the right of a fixed **Agregar fotos** tile, each opening a sheet «Foto 2 de 5».
+- Focus and announcements after each action as in the table of [Screens](#fotos-field-web-create-and-product-page); mobile returns focus to the acted-on thumbnail.
+- The hint shows only without photos; the counter replaces it. One uploading text, «Subiendo…», on the thumbnail.
+- A save rejected for an unusable photo marks that thumbnail when core can identify it; otherwise the field.
+- The vision chooser sees, per candidate, the product photo closest to the customer image; one photo per candidate, as today.
+- Indexing on save, one photo at a time; a product becomes recognizable by new photos within minutes, not instantly.
+- A removed photo stops identifying the product once the save completes; its file and any computed index data stay stored but are ignored, as with a replaced photo today.
 - A product counts once among visual search candidates even if several of its photos match.
-- Each photo is indexed when the product is saved with it; an indexing failure does not fail the save and is recovered by the existing reindex command.
 - The same file uploaded twice counts as two photos; no duplicate detection.
-- Seller order screens keep showing no product photo; this feature adds none.
+- Seller order screens keep showing no product photo; the task's «pedidos» is the order checkout.
 - Photo-only edits are last-write-wins between two devices, like prices.
-```
+- New texts in Spanish and Portuguese.
