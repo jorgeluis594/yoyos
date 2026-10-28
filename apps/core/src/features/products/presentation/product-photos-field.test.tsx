@@ -448,3 +448,29 @@ test("shows the Portuguese texts and singular counts", async () => {
   expect(field()).toContain("Você escolheu 9 fotos e restam 7 lugares. As 7 primeiras foram adicionadas.");
   expect(field()).toContain("Você chegou ao máximo de 8 fotos.");
 });
+
+test("focus on Cancelar subida moves to the thumbnail's first action when its upload finishes, fails or times out", async () => {
+  vi.useFakeTimers();
+  mount();
+  select(file("a.png"), file("b.png"), file("c.png"));
+  const focusCancel = (position: number) => act(() => button(`Cancelar la subida de la foto ${position} de 3`)!.focus());
+  focusCancel(1);
+  await answer(0, done(0));
+  expect(document.activeElement).toBe(button("Quitar la foto 1 de 3"));
+  focusCancel(2);
+  await answer(1, rejected("INTERNAL_ERROR", 500));
+  expect(document.activeElement).toBe(button("Reintentar la foto 2 de 3"));
+  // Reintentar focuses Cancelar subida; the retried upload then times out.
+  click(button("Reintentar la foto 2 de 3"));
+  expect(document.activeElement).toBe(button("Cancelar la subida de la foto 2 de 3"));
+  await act(async () => { vi.advanceTimersByTime(121_000); });
+  expect(document.activeElement).toBe(button("Reintentar la foto 2 de 3"));
+});
+
+test("an upload that settles leaves focus alone when it is elsewhere", async () => {
+  mount();
+  select(file("a.png"), file("b.png"));
+  act(() => button("Cancelar la subida de la foto 2 de 2")!.focus());
+  await answer(0, done(0));
+  expect(document.activeElement).toBe(button("Cancelar la subida de la foto 2 de 2"));
+});

@@ -62,6 +62,10 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
   // The announcement reads «no se subió: pesa más de 10 MB.»: lowercase, and the template adds the final period.
   const reasonText = (failure: PhotoFailure) => lowerFirst(failureText((key) => translate.current(key), failure)).replace(/\.$/, "");
 
+  // An upload that settles removes the buttons of its thumbnail; focus that was on them moves to the thumbnail's first action instead of falling to the page.
+  const holdsFocus = (key: string) => typeof document !== "undefined" && Boolean(document.activeElement?.closest(`[data-photo="${key}"]`));
+  const keepFocus = (key: string) => { if (holdsFocus(key)) setFocus({ kind: "action", key, action: "first" }); };
+
   const release = useCallback((key: string) => {
     const attempt = attempts.current.get(key);
     if (attempt) { clearTimeout(attempt.timer); attempt.controller.abort(); attempts.current.delete(key); }
@@ -75,6 +79,7 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
     if (attempts.current.get(key) !== attempt) return;
     clearTimeout(attempt.timer);
     attempts.current.delete(key);
+    keepFocus(key);
     if ("imageId" in outcome) commit(finishUpload(fieldRef.current, key, outcome));
     else {
       const reason = uploadFailure(outcome);
@@ -103,6 +108,7 @@ export function useProductPhotos(saved: readonly SavedPhoto[]) {
       timer: setTimeout(() => {
         if (attempts.current.get(key) !== attempt) return;
         attempts.current.delete(key);
+        keepFocus(key);
         controller.abort();
         const reason = { failure: "connection", retryable: true } as const;
         commit(failUpload(fieldRef.current, key, reason));
