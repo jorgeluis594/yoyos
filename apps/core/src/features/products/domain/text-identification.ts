@@ -1,7 +1,6 @@
 import type { Money } from "@shared/money";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
-import { valueWordOf } from "@core/src/features/products/domain/variant-words";
 
 /** Identity of a product named in a message; prices and stock stay out of it. */
 export type ProductRef = Readonly<{ productId: ProductId; name: string }>;
@@ -59,21 +58,14 @@ function namedValuesOf(variants: readonly CatalogItem[], attribute: string, spok
   return named.filter((value) => !named.some((other) => other !== value && containsWords(other, value)));
 }
 
-/** The words with each plural, feminine or diminutive form of a value word written as that value word («rojas» → «rojo»). */
-function canonicalWords(variants: readonly CatalogItem[], words: readonly string[]): string {
-  const valueWords = new Set(attributeNamesOf(variants).flatMap((attribute) => valuesOf(variants, attribute).flatMap(tokensOf)));
-  return tokensOf(words.join(" ")).map((token) => fillerWords.has(token) ? token : valueWordOf(token, valueWords) ?? token).join(" ");
-}
-
 /**
- * The variant the words point at when they name only some attribute values (a plural, feminine or diminutive form names its value):
- * the named values override, the other attributes
+ * The variant the words point at when they name only some attribute values: the named values override, the other attributes
  * keep the value of `base` (the variant being changed or the one a QR selected) and an attribute with a single sellable value
  * is filled in. `undecided` (the model decides) when the words name nothing, name two values of one attribute, hold any word that is
  * neither a named value, an attribute name nor a filler, or leave an attribute open; `not_sellable` when the combination does not exist.
  */
 export function variantByNamedValues(variants: readonly CatalogItem[], words: readonly string[], base: CatalogItem | null): VariantByNamedValues {
-  const spoken = canonicalWords(variants, words);
+  const spoken = words.map(normalize).join(" ");
   const attributes = attributeNamesOf(variants).map((attribute) => ({ attribute, values: valuesOf(variants, attribute), named: namedValuesOf(variants, attribute, spoken) }));
   const understood = new Set([...attributes.flatMap(({ named }) => named.flatMap(tokensOf)), ...attributes.flatMap(({ attribute }) => tokensOf(attribute)), ...fillerWords]);
   const anyNamed = attributes.some(({ named }) => named.length > 0);
