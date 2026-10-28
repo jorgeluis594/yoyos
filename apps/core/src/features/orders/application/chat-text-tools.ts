@@ -276,7 +276,7 @@ export function createChatTextTools(deps: ChatToolDependencies): readonly ChatTo
     }),
     defineTool({
       name: "change_item_variant",
-      description: "The text gives a size or color for an item of the open order, without naming a product the order does not have: it asks to change the item to that variant "
+      description: "The text gives a size or color for an item already in the open order (a product the order does not have is an add, not this item): it asks to change the item to that variant "
         + "(«pásalo a talla 40», «mejor la casaca en celeste»), or only names the variant, even in one word («en XS», «la prefiero en XS», «celeste»). "
         + "Give the variant words as written and the price only if stated.",
       args: { kind: "extracted", questions: (context) => [...itemQuestions(context, "Which item of the open order does the variant refer to?"), changeRequestQuestion] },
