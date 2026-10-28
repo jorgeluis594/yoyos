@@ -33,11 +33,11 @@ The price hint does not depend on the chat having an open order, so «el polo de
 
 `resolveVariant` is the only variant authority, for photos and texts. The interpretation model returns variant words, never a variant ID.
 
-- A QR-selected variant with no words → that variant. With words, the matching variant of the same product.
+- A QR-selected variant with no words → that variant.
 - One sellable variant and no words → that variant.
 - Several sellable variants and no words → `missing`, with the attribute names of the product's variants in their stored attribute order (the notice says «qué talla o color»).
-- Words that exactly match one sellable variant, ignoring case and accents → that variant, with no model call.
-- Otherwise a Decision choice over the sellable variant labels plus `none`: at or above 0.8 → that variant; anything else → `not_available`.
+- With words, always the variant chooser: one Decision choice over the sellable variants (their attribute values, as catalog data) plus `none`, given the words and, when there is one, the base variant (the item being changed or the QR-selected variant). Its instructions state the rule only: a value may come inflected, misspelled, abbreviated or in another language, and the attributes the words do not name keep the base's values. A sellable variant chosen at or above 0.8 → that variant; anything else → `not_available`.
+- No code matches the words against values or word lists (founder decision, T18): the product serves Spanish and Portuguese buyers and any catalog, so understanding the words is the model's job, and code only checks its answer against the catalog.
 
 A visual product with no sellable variant is reported as not identified. Reason for one authority: product images and names identify a product, so the variant always comes from the buyer's words.
 

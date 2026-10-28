@@ -20,7 +20,7 @@ import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { CatalogItem, MatchConfidence } from "@core/src/features/products/domain/image-identification";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
-import type { ProductRef, ProductWithSellableVariants, TextCandidate, TextIdentification, VariantChoice } from "@core/src/features/products/domain/text-identification";
+import type { ProductRef, ProductWithSellableVariants, TextCandidate, TextIdentification, VariantChoice, VariantChoiceInput } from "@core/src/features/products/domain/text-identification";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 
@@ -83,6 +83,21 @@ type Options = Readonly<{
 const answer = (choice: string, confidence = 0.95): DecisionAnswers => ({ action: { choice, confidence }, predicates: {}, choices: {} });
 const emptyContext: readonly ChatContextItem[] = [];
 
+/**
+ * A fake variant chooser: none for a word that is no sellable value; else the variant whose every value is one of the words, or kept from
+ * the base when no word names another value of that attribute, or is the attribute's only sellable value. The real chooser is a model.
+ */
+function valuesChooser({ words, variants, base }: VariantChoiceInput): VariantChoice {
+  const spoken = words.join(" ").toLowerCase().split(/\s+/);
+  const valuesOf = (attribute: string) => new Set(variants.map(({ variantAttributes }) => variantAttributes[attribute]));
+  const named = (value: string | undefined) => value !== undefined && spoken.includes(value.toLowerCase());
+  const known = new Set(["talla", "color", "en", "a", ...variants.flatMap(({ variantAttributes }) => Object.values(variantAttributes).map((value) => value.toLowerCase()))]);
+  if (!spoken.every((word) => known.has(word))) return { variantId: null, confidence: 0.9 };
+  const fits = variants.filter(({ variantAttributes }) => Object.entries(variantAttributes).every(([attribute, value]) => named(value) || valuesOf(attribute).size === 1
+    || (base?.variantAttributes[attribute] === value && ![...valuesOf(attribute)].some(named))));
+  return fits.length === 1 ? { variantId: fits[0]!.variantId, confidence: 0.95 } : { variantId: null, confidence: 0.9 };
+}
+
 type Store = { orders: Map<string, OrderAggregate>; customers: Set<string>; messages: Map<string, string>; outcomes: Map<string, ChatMessageOutcomes> };
 
 /** In-memory ports; `transaction` restores the state when its work fails, like a rollback. */
@@ -111,7 +126,7 @@ function harness(options: Options = {}) {
     loadSellableVariants: async (ids) => { loadedVariants.push([...ids]); return ok((options.catalog ?? catalog).filter((product) => ids.includes(product.productId))); },
     resolveVariant: (input, signal) => resolveVariant(input, { minConfidence: 0.8, chooseVariant: async (choice) => {
       variantChoices.push(choice.words.slice());
-      return ok(options.variantChoice ?? { variantId: null, confidence: 0 });
+      return ok(options.variantChoice ?? valuesChooser(choice));
     } }, signal),
     identifyProductsInText: async (lines, signal) => {
       if (options.textLookup) return identifyProductsInText(lines, options.textLookup, signal);
@@ -232,7 +247,7 @@ describe("applyChatMessage: photos", () => {
       extraction: () => [{ tool: "add_shown_product_with_details", args: { variantWords: ["talla", "L"], quantity: null, perEach: false, mentionedPrice: null } }] });
     await h.run();
     expect(quantityOf(h.store, negroL.variantId)).toBe(1);
-    expect(h.variantChoices).toEqual([]);
+    expect(h.variantChoices).toEqual([["talla", "L"]]);
   });
 
   test("int-single-color-product: a text add names only the size when the color has a single sellable value", async () => {
@@ -242,7 +257,7 @@ describe("applyChatMessage: photos", () => {
       decision: () => answer("add_products"), extraction: () => [{ tool: "add_products", args: { lines: [{ productMention: "polo", variantWords: ["talla", "L"], quantity: null, mentionedPrice: null }] } }] });
     await h.run();
     expect(quantityOf(h.store, beigeL.variantId)).toBe(1);
-    expect(h.variantChoices).toEqual([]);
+    expect(h.variantChoices).toEqual([["talla", "L"]]);
   });
 
   test("adds one item per variant when two QR labels of a product are sent with a caption that names a variant", async () => {
@@ -783,7 +798,7 @@ describe("applyChatMessage: text tools", () => {
       decision: () => decided("change_item_variant", itemChoice("change_item_variant", "I1")),
       extraction: () => [{ tool: "change_item_variant", args: { variantWords: ["talla", "L"], mentionedPrice: null } }] });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "variant_changed", fromVariantId: negroM.variantId, toVariantId: negroL.variantId }] });
-    expect(h.variantChoices).toEqual([]);
+    expect(h.variantChoices).toEqual([["talla", "L"]]);
   });
 
   test("reports a variant that is not available and keeps the item when the new variant does not exist", async () => {
@@ -899,6 +914,7 @@ describe("applyChatMessage: text tools", () => {
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "unnamed_add" }], noticeDue: true });
     expect(h.extractions).toHaveLength(0);
   });
+
   test("reports a variant without a product and an add without a name as problems for the seller", async () => {
     const variantOnly = harness({ message: textMessage("en talla L"), decision: () => decided("report_variant_without_product") });
     expect(await succeeded(variantOnly.run())).toMatchObject({ outcomes: [{ kind: "variant_only" }], noticeDue: true });

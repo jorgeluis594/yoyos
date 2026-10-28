@@ -84,15 +84,22 @@ export function createOpenAITextProductChooser(config: OpenAITextChooserConfig) 
 
 const describeVariant = ({ variantAttributes }: CatalogItem) => Object.entries(variantAttributes).map(([name, value]) => `${name}: ${value}`).join(", ") || "single variant";
 
-/** Chooses among the sellable variants of one product from the customer's words. */
+/**
+ * Chooses among the sellable variants of one product from the customer's words. The variants and the base variant are catalog data;
+ * the instructions state the general rule and quote no buyer wording.
+ */
 export function createOpenAIVariantChooser(config: OpenAITextChooserConfig) {
   return async (input: VariantChoiceInput, signal: AbortSignal): Promise<Result<VariantChoice, ProductMatcherError>> => {
     const labels = input.variants.map((_, index) => labelFor(index));
     const asked = await askChoice(config, {
       event: "product_variant_match", labels, descriptions: input.variants.map(describeVariant),
-      instructions: "Decide which variant the customer asks for. The words may be a plural, feminine or diminutive form of a value (celestes is Celeste, grisecito is Gris, ele is L). "
-        + `Answer with the option label, or "${NONE}" if no option is clearly the variant asked for.`,
-      text: [`Customer words: ${input.words.join(" ")}`, "Variants:", ...input.variants.map((variant, index) => `${labels[index]}: ${describeVariant(variant)}`)].join("\n"),
+      instructions: "Decide which variant the customer asks for. The customer words name attribute values: a value may come inflected (plural, gender, diminutive), "
+        + "misspelled, abbreviated or in another language such as Portuguese, and may be surrounded by words that ask for nothing. "
+        + (input.base ? "The base variant is the one the customer starts from: every attribute the words do not name keeps the base variant's value. " : "")
+        + `Answer with the option label, or "${NONE}" if no option has every value the customer asks for${input.base ? " together with the kept values" : ""}, `
+        + "or if the words fit several options.",
+      text: [`Customer words: ${input.words.join(" ")}`, ...(input.base ? [`Base variant: ${describeVariant(input.base)}`] : []), "Variants:",
+        ...input.variants.map((variant, index) => `${labels[index]}: ${describeVariant(variant)}`)].join("\n"),
     }, signal);
     if (!asked.success) return asked;
     const chosen = asked.data.label === null ? undefined : input.variants[labels.indexOf(asked.data.label)];
