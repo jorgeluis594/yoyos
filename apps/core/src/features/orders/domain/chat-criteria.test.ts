@@ -122,7 +122,7 @@ describe("criteria 8–17: reading rules", () => {
   test("17. a product outside the ones given, an item not in the order and a quantity that would reach 100", () => {
     const chat = createChat({ items: [["polo", M_NEGRO, 98]] });
     const unknown: ReaderAction = { kind: "add", product: { kind: "ref", ref: "P99" }, attributes: [], quantity: null, price: null };
-    expect(chat.say(say(unknown)).outcomes).toEqual([{ kind: "invalid_action", reason: "unknown_reference" }]);
+    expect(chat.say(say(unknown)).outcomes).toEqual([{ kind: "invalid_action", orderId: chat.order?.id, reason: "unknown_reference" }]);
     expect(chat.say(say({ kind: "remove", item: ref(9), amount: "all" })).kinds).toEqual(["unclear_item"]);
     expect(chat.say(say(add({ product: "polo", attributes: M_NEGRO, quantity: 2 }))).kinds).toEqual(["quantity_above_limit"]);
   });

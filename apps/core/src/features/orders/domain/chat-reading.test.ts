@@ -82,13 +82,13 @@ describe("checkReaderAnswer: adds and variants", () => {
   test("reports a generic invalid action for a product reference it was not given", () => {
     const chat = createChat();
     const unknown: ReaderAction = { kind: "add", product: { kind: "ref", ref: "P99" }, attributes: [], quantity: null, price: null };
-    expect(chat.say(say(unknown)).outcomes).toEqual([{ kind: "invalid_action", reason: "unknown_reference" }]);
-    expect(chat.say(say(reader.decline(4))).outcomes).toEqual([{ kind: "invalid_action", reason: "unknown_reference" }]);
+    expect(chat.say(say(unknown)).outcomes).toEqual([{ kind: "invalid_action", orderId: null, reason: "unknown_reference" }]);
+    expect(chat.say(say(reader.decline(4))).outcomes).toEqual([{ kind: "invalid_action", orderId: null, reason: "unknown_reference" }]);
   });
 
   test.each([1.5, -1, 0])("reports a generic invalid action for the add quantity %s", (quantity) => {
     const chat = createChat();
-    expect(chat.say(say(add({ product: "snapback", quantity }))).outcomes).toEqual([{ kind: "invalid_action", reason: "quantity_not_whole" }]);
+    expect(chat.say(say(add({ product: "snapback", quantity }))).outcomes).toEqual([{ kind: "invalid_action", orderId: null, reason: "quantity_not_whole" }]);
     expect(chat.items()).toEqual([]);
   });
 
@@ -141,8 +141,8 @@ describe("checkReaderAnswer: items", () => {
 
   test("reports a negative or fractional set quantity as invalid", () => {
     const chat = withGorraAndPolo();
-    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "set", quantity: -2 })).outcomes).toEqual([{ kind: "invalid_action", reason: "quantity_not_whole" }]);
-    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "increase", quantity: 1.5 })).outcomes).toEqual([{ kind: "invalid_action", reason: "quantity_not_whole" }]);
+    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "set", quantity: -2 })).outcomes).toEqual([{ kind: "invalid_action", orderId: chat.order?.id, reason: "quantity_not_whole" }]);
+    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "increase", quantity: 1.5 })).outcomes).toEqual([{ kind: "invalid_action", orderId: chat.order?.id, reason: "quantity_not_whole" }]);
   });
 });
 
@@ -154,7 +154,7 @@ describe("checkReaderAnswer: the answer as a whole", () => {
     const [first, ...rest] = tenAdds(10);
     const said = chat.say({ kind: "actions", actions: [first!, ...rest], moreActions: true });
     expect(chat.items()).toEqual(["Medias deportivas pack x3 · ×10"]);
-    expect(said.outcomes.at(-1)).toEqual({ kind: "invalid_action", reason: "too_many_actions" });
+    expect(said.outcomes.at(-1)).toEqual({ kind: "invalid_action", orderId: null, reason: "too_many_actions" });
   });
 
   test("applies the first ten of thirty parsed actions and reports too many actions", () => {
@@ -167,12 +167,22 @@ describe("checkReaderAnswer: the answer as a whole", () => {
 
   test("reports reader doubt for a text and changes nothing", () => {
     const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]] });
-    expect(chat.say({ kind: "doubt" }).outcomes).toEqual([{ kind: "reader_doubt" }]);
+    expect(chat.say({ kind: "doubt" }).outcomes).toEqual([{ kind: "reader_doubt", orderId: chat.order?.id }]);
     expect(chat.items()).toEqual(["Gorra trucker · Negro · ×1"]);
   });
 
+  test("carries the open order's id in reader doubt, request not allowed and invalid action, and null without an order", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]] });
+    const orderId = chat.order?.id;
+    expect(orderId).toBeDefined();
+    expect(chat.say({ kind: "doubt" }).outcomes).toEqual([{ kind: "reader_doubt", orderId }]);
+    expect(chat.say(say({ kind: "not_allowed" })).outcomes).toEqual([{ kind: "request_not_allowed", orderId }]);
+    expect(chat.say(say({ kind: "malformed" })).outcomes).toEqual([{ kind: "invalid_action", orderId, reason: "unknown_reference" }]);
+    expect(createChat().say({ kind: "doubt" }).outcomes).toEqual([{ kind: "reader_doubt", orderId: null }]);
+  });
+
   test("reports request not allowed for a cancel request", () => {
-    expect(createChat().say(say({ kind: "not_allowed" })).outcomes).toEqual([{ kind: "request_not_allowed" }]);
+    expect(createChat().say(say({ kind: "not_allowed" })).outcomes).toEqual([{ kind: "request_not_allowed", orderId: null }]);
   });
 
   test("reports a generic invalid action for a malformed action and applies the others", () => {
@@ -207,8 +217,8 @@ describe("checkReaderAnswer: photos", () => {
     const chat = createChat();
     const said = chat.say(say(add({ product: "gorra", attributes: { Color: "Negro" } }), add({ product: "polo", attributes: { Talla: "M" } })), { shown: [["gorra", { Color: "Negro" }]] });
     expect(said.outcomes.map((outcome) => outcome.kind)).toEqual(["added", "invalid_action"]);
-    expect(said.outcomes[1]).toEqual({ kind: "invalid_action", reason: "not_the_shown_product" });
-    expect(chat.say(say(noProduct("not_in_catalog")), { shown: [["gorra", { Color: "Negro" }]] }).outcomes).toEqual([{ kind: "invalid_action", reason: "not_the_shown_product" }]);
+    expect(said.outcomes[1]).toEqual({ kind: "invalid_action", orderId: null, reason: "not_the_shown_product" });
+    expect(chat.say(say(noProduct("not_in_catalog")), { shown: [["gorra", { Color: "Negro" }]] }).outcomes).toEqual([{ kind: "invalid_action", orderId: chat.order?.id, reason: "not_the_shown_product" }]);
   });
 
   test("turns every change in a non-product photo caption into one image-with-request report", () => {

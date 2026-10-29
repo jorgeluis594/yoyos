@@ -157,7 +157,7 @@ export function advancePending(set: ChatPendings, request: AdvanceRequest, env: 
   const resolution = resolveVariant(product, pending.known, request.values);
   const stated = request.price ? pendingPriceOf(request.price, covered, product) : null;
   const price = stated ?? pending.price;
-  if (resolution.kind === "resolved") return completePending(set, pending, request, resolution.item, covered, partial, price, stated !== null, env);
+  if (resolution.kind === "resolved") return completePending(set, pending, request, resolution.item, covered, partial, price, env);
   const subject: PendingSubject = { kind: "variant", productId: request.productId };
   const changed: ChatPending = { ...pending, subject, known: resolution.known, quantity: covered as PositiveInteger, price, lastChangedAt: env.now };
   const notOffered: ChatMessageOutcome[] = resolution.kind === "not_offered" ? [{ kind: "variant_not_available", productId: request.productId, identification: request.identification }] : [];
@@ -171,17 +171,17 @@ export function advancePending(set: ChatPendings, request: AdvanceRequest, env: 
 
 /** The covered units become one item. A lot price goes whole on that item and leaves every pending of its request. */
 function completePending(set: ChatPendings, pending: ChatPending, request: AdvanceRequest, item: CatalogItem, covered: number, partial: boolean,
-  price: PendingPrice | null, statedNow: boolean, env: TransitionEnv): PendingStep {
+  price: PendingPrice | null, env: TransitionEnv): PendingStep {
   if (covered + env.existingQuantity(item.variantId) > env.maxItemQuantity) {
     return stepOf(set, [{ kind: "quantity_above_limit", productId: request.productId, identification: request.identification }]);
   }
   const mentioned = price ? mentionedPriceOf({ amount: String(price.amount.amount), currency: "not_named", per: price.per }, price.forQuantity, item.unitPrice) : null;
-  const lotFromPending = !statedNow && mentioned !== null && mentioned.units > 1;
+  const lotReading = mentioned !== null && mentioned.units > 1;
   const add: PendingAdd = { item, quantity: covered as PositiveInteger, mentionedPrice: mentioned, identification: request.identification };
   const others = set.pendings.filter((candidate) => candidate.id !== pending.id)
-    .map((candidate) => (lotFromPending && candidate.requestId === pending.requestId ? { ...candidate, price: null } : candidate));
+    .map((candidate) => (lotReading && candidate.requestId === pending.requestId ? { ...candidate, price: null } : candidate));
   if (!partial) return stepOf({ ...set, pendings: others }, [{ kind: "pending_completed", pendingId: pending.id }], [add]);
-  const remainder: ChatPending = { ...pending, quantity: (pending.quantity - covered) as PositiveInteger, lastChangedAt: env.now, price: lotFromPending ? null : pending.price };
+  const remainder: ChatPending = { ...pending, quantity: (pending.quantity - covered) as PositiveInteger, lastChangedAt: env.now, price: lotReading ? null : pending.price };
   return stepOf({ ...set, pendings: set.pendings.map((candidate) => (candidate.id === pending.id ? remainder : others.find((other) => other.id === candidate.id) ?? candidate)) },
     [{ kind: "pending_updated", pendingId: pending.id }], [add]);
 }

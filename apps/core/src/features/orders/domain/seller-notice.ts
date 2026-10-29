@@ -22,6 +22,11 @@ type ProblemNotice =
   | Readonly<{ kind: "unclear_item"; orderId: OrderId | null; namedItem: boolean; namedProductId: ProductId | null }>
   | Readonly<{ kind: "unnamed_add" | "variant_only" | "image_with_request" | "no_open_order" | "failed" }>
   | Readonly<{ kind: "order_closed"; orderId: OrderId }>
+  | Readonly<{ kind: "not_applied"; orderId: OrderId | null }>
+  | Readonly<{ kind: "caption_not_applied"; productId: ProductId; orderId: OrderId | null }>
+  | Readonly<{ kind: "product_not_available"; productId: ProductId | null }>
+  /** `unnamed` counts the pendings the product list cannot name (doubtful product); a deleted product is counted by the texts. */
+  | Readonly<{ kind: "variant_for_several_pendings"; productIds: readonly ProductId[]; unnamed: number }>
   /** `productIds` are up to three distinct identified products; the other `problemCount - productIds.length` problems are counted. */
   | Readonly<{ kind: "several_problems"; problemCount: number; productIds: readonly ProductId[] }>;
 
@@ -29,10 +34,15 @@ type ProblemNotice =
 export type SellerNotice =
   | (ProblemNotice & NewOrderNote)
   | Readonly<{ kind: "only_item_kept" | "ready"; orderId: OrderId }>
+  | Readonly<{ kind: "ready_with_pendings"; orderId: OrderId | null; productIds: readonly ProductId[]; unnamed: number }>
   | Readonly<{ kind: "new_order"; orderId: OrderId; previousOrderId: OrderId }>;
 
 /** A claimed notice: who registered the message, the chat that groups it and the notice the outcomes call for. */
 export type ClaimedNotice = Readonly<{ messageId: ChatMessageId; chatId: string; sessionId: string; notice: SellerNotice }>;
+
+// The tuple and the union must list the same kinds: a kind added to one and not the other fails to compile.
+type SameKinds = [SellerNotice["kind"]] extends [SellerNoticeKind] ? ([SellerNoticeKind] extends [SellerNotice["kind"]] ? true : never) : never;
+export const sellerNoticeKindsMatch: SameKinds = true;
 
 export type SellerNoticeTarget = Readonly<{ kind: "message" }> | Readonly<{ kind: "order"; orderId: OrderId }>;
 
@@ -47,6 +57,10 @@ function problemOf(outcome: ChatMessageOutcome): ProblemNotice | null {
     case "unnamed_add": case "variant_only": case "image_with_request": case "no_open_order": return { kind: outcome.kind };
     case "order_closed": return { kind: "order_closed", orderId: outcome.orderId };
     case "failed": return { kind: "failed" };
+    case "reader_doubt": case "request_not_allowed": case "invalid_action": return { kind: "not_applied", orderId: outcome.orderId };
+    case "caption_not_applied": return { kind: "caption_not_applied", productId: outcome.productId, orderId: outcome.orderId };
+    case "product_not_available": return { kind: "product_not_available", productId: outcome.productId };
+    case "variant_for_several_pendings": return { kind: "variant_for_several_pendings", productIds: [...new Set(outcome.productIds)], unnamed: outcome.unnamed };
     default: return null;
   }
 }
@@ -56,11 +70,12 @@ function orderOutcome<K extends "ready" | "only_item_kept">(outcomes: ChatMessag
 }
 
 function namedProductOf(problem: ProblemNotice): ProductId | null {
-  if (problem.kind === "variant_missing" || problem.kind === "variant_not_available" || problem.kind === "quantity_above_limit") return problem.productId;
+  if (problem.kind === "variant_missing" || problem.kind === "variant_not_available" || problem.kind === "quantity_above_limit" || problem.kind === "caption_not_applied") return problem.productId;
+  if (problem.kind === "product_not_available") return problem.productId;
   return problem.kind === "unclear_item" ? problem.namedProductId : null;
 }
 
-/** Chooses the single notice of a message, or null when the seller needs none. `no_intent`, `ambiguous_intent` and silent misses never notify. */
+/** Chooses the single notice of a message, or null when the seller needs none. `no_intent`, `ambiguous_intent`, `pending_*` and silent misses never notify. */
 export function chooseSellerNotice(outcomes: ChatMessageOutcomes): SellerNotice | null {
   const problems = outcomes.flatMap((outcome) => problemOf(outcome) ?? []);
   const created = outcomes.find((outcome): outcome is Extract<ChatMessageOutcome, { kind: "new_order_after_closed" }> => outcome.kind === "new_order_after_closed");
@@ -69,6 +84,8 @@ export function chooseSellerNotice(outcomes: ChatMessageOutcomes): SellerNotice 
     return { kind: "several_problems", problemCount: problems.length, productIds, newOrderId: created?.orderId ?? null };
   }
   if (problems.length === 1) return { ...problems[0]!, newOrderId: created?.orderId ?? null };
+  const pendingReady = outcomes.find((outcome): outcome is Extract<ChatMessageOutcome, { kind: "ready_with_pendings" }> => outcome.kind === "ready_with_pendings");
+  if (pendingReady) return { kind: "ready_with_pendings", orderId: pendingReady.orderId, productIds: [...new Set(pendingReady.productIds)], unnamed: pendingReady.unnamed };
   const kept = orderOutcome(outcomes, "only_item_kept");
   if (kept) return { kind: "only_item_kept", orderId: kept.orderId };
   const ready = orderOutcome(outcomes, "ready");
@@ -91,7 +108,7 @@ export function noticeReferences(notice: SellerNotice): Readonly<{ orderIds: rea
   if ("orderId" in notice && notice.orderId) orderIds.push(notice.orderId);
   if ("previousOrderId" in notice) orderIds.push(notice.previousOrderId);
   if ("newOrderId" in notice && notice.newOrderId) orderIds.push(notice.newOrderId);
-  if ("productId" in notice) productIds.push(notice.productId);
+  if ("productId" in notice && notice.productId) productIds.push(notice.productId);
   if ("productIds" in notice) productIds.push(...notice.productIds);
   return { orderIds: [...new Set(orderIds)], productIds: [...new Set(productIds)] };
 }

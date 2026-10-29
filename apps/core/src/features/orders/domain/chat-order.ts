@@ -133,10 +133,11 @@ function applyAction(state: State, action: ResolvedChatAction, ids: ChatOrderIds
   }
 }
 
-/** An unclear item reported by a tool carries the order it was read against, when the chat has an open one. */
+/** A report that points at the chat order (unclear item, doubt, a request not allowed, an invalid action) carries the order it was read against, when the chat has an open one. */
 function report(state: State, outcome: ReportOutcome): Step {
   const open = state.original.kind === "open" ? state.original.order.id : null;
-  state.outcomes.push(outcome.kind === "unclear_item" && outcome.orderId === null ? { ...outcome, orderId: open } : outcome);
+  const carriesOrder = outcome.kind === "unclear_item" || outcome.kind === "reader_doubt" || outcome.kind === "request_not_allowed" || outcome.kind === "invalid_action";
+  state.outcomes.push(carriesOrder && outcome.orderId === null ? { ...outcome, orderId: open } : outcome);
   return done;
 }
 

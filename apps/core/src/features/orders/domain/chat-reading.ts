@@ -61,7 +61,7 @@ export type ReaderAction =
   | Readonly<{ kind: "variant_only" }>
   | Readonly<{ kind: "variant_for_pendings"; pendings: readonly [ReadingRef, ReadingRef, ...ReadingRef[]] }>
   | Readonly<{ kind: "not_allowed" }>
-  /** An incomplete or inconsistent action of the reader's answer; the rest of the message still applies. */
+  /** An action the reader returned incomplete or inconsistent for its kind; the check reports it as `invalid_action` (`unknown_reference`) and the rest of the answer still applies. */
   | Readonly<{ kind: "malformed" }>;
 
 export type ReaderAnswer =
@@ -110,8 +110,9 @@ type AddedProduct =
   | Readonly<{ kind: "doubt"; products: readonly [ReadingProduct, ReadingProduct, ...ReadingProduct[]] }>
   | Readonly<{ kind: "other"; reader: Extract<ReaderProduct, { kind: "not_in_catalog" | "unnamed" }> | { kind: "unknown" } }>;
 
+/** The reading knows no order: `applyChatActions` fills `orderId` of these reports from the open target. */
 const report = (outcome: ReportOutcome): ResolvedChatAction => ({ kind: "report", outcome });
-const invalid = (reason: Extract<ChatMessageOutcome, { kind: "invalid_action" }>["reason"]): ResolvedChatAction => report({ kind: "invalid_action", reason });
+const invalid = (reason: Extract<ChatMessageOutcome, { kind: "invalid_action" }>["reason"]): ResolvedChatAction => report({ kind: "invalid_action", orderId: null, reason });
 const textIdentification = (productId: ProductId): ProductIdentification => ({ method: "text", productId, confidence: null });
 const identificationOf = (product: ReadingProduct): ProductIdentification => product.identification ?? textIdentification(product.productId);
 const changeKinds: ReadonlySet<ReaderAction["kind"]> = new Set(["add", "complete_pending", "remove", "change_quantity", "change_variant", "set_price"]);
@@ -125,7 +126,7 @@ const wholeQuantity = (quantity: number | null): boolean => quantity === null ||
  */
 export function checkReaderAnswer(answer: ReaderAnswer, context: ChatReadingContext, options: Readonly<{ captionDoubt: boolean }>): readonly [ResolvedChatAction, ...ResolvedChatAction[]] {
   if (answer.kind === "no_intent") return [report({ kind: "no_intent" })];
-  if (answer.kind === "doubt") return context.kind === "photo_product" ? checkReaderAnswer(fixedShownAnswer(context), context, { captionDoubt: true }) : [report({ kind: "reader_doubt" })];
+  if (answer.kind === "doubt") return context.kind === "photo_product" ? checkReaderAnswer(fixedShownAnswer(context), context, { captionDoubt: true }) : [report({ kind: "reader_doubt", orderId: null })];
   const world: World = { context, products: new Map(context.products.map((product) => [product.ref, product])), byProductId: new Map(context.products.map((product) => [product.productId, product])),
     items: new Map(context.items.map((item) => [item.ref, item])), pendings: new Map(context.pendings.map((entry) => [entry.ref, entry.pending])) };
   const actions = answer.actions.slice(0, maxReaderActions);
@@ -198,7 +199,7 @@ function matchPendings(product: ReadingProduct, choices: readonly AttributeChoic
 
 function resolveAction(action: ReaderAction, target: PendingTarget, shared: boolean, world: World): readonly ResolvedChatAction[] {
   switch (action.kind) {
-    case "not_allowed": return [report({ kind: "request_not_allowed" })];
+    case "not_allowed": return [report({ kind: "request_not_allowed", orderId: null })];
     case "malformed": return [invalid("unknown_reference")];
     case "ready": return [{ kind: "ready" }];
     case "variant_only": return [report({ kind: "variant_only" })];

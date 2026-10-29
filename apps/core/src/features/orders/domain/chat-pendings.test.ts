@@ -375,6 +375,14 @@ describe("pending transitions", () => {
     expect(chat.pendings.pendings.map((pending) => pending.price)).toEqual([null]);
   });
 
+  test("clears the request's remainder when the completing message states the lot price", () => {
+    const old = { amount: { amount: 50, currency: "PEN" as const }, per: "unit" as const, forQuantity: 2 as never };
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 3, price: old })] });
+    chat.say(say(complete(1, M_NEGRO, 2, null, { amount: "70", currency: "not_named", per: "lot" })));
+    expect(chat.order?.items[0]).toMatchObject({ quantity: 2, mentionedPrice: { units: 2 } });
+    expect(chat.pendings.pendings.map((pending) => pending.price)).toEqual([null]);
+  });
+
   test("keeps the lot price of another request of the same product from the same message", () => {
     const price = { amount: { amount: 70, currency: "PEN" as const }, per: "not_explicit" as const, forQuantity: 2 as never };
     const chat = createChat({ pendings: [pendingOf("polo", { n: 1, quantity: 2, price }), pendingOf("polo", { n: 2, quantity: 2, price, known: { Color: "Blanco" } })] });
