@@ -239,7 +239,7 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       if (!catalog.success) return catalog;
       if (request.payments?.some(payment => payment.amount.currency !== saved.shownTotal.currency))
         return err({ code: "CURRENCY_MISMATCH", message: "Saved payment currency differs" });
-      let draft: OrderDraft = { ...emptyOrderDraft(), id: saved.id,
+      let draft: OrderDraft = { ...emptyOrderDraft(), id: saved.id, customer: request.customer,
         payments: request.payments?.map(payment => ({ ...payment, amount: String(payment.amount.amount) })),
         deliverImmediately: request.deliverImmediately, scheduledDispatchDate: request.scheduledDispatchDate };
       const unavailableVariantIds: string[] = [];
