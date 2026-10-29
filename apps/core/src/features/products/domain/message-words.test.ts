@@ -22,7 +22,7 @@ describe("searchedWords", () => {
 describe("searchedWordCap", () => {
   const cap = (products: number) => searchedWordCap(products, defaultTextMatchLimits);
 
-  test("searches 30 words at 500 products, 8 at 5,000 and 3 above 13,333", () => {
-    expect([cap(0), cap(1), cap(500), cap(2_000), cap(5_000), cap(10_000), cap(13_333), cap(13_334), cap(30_000)]).toEqual([30, 30, 30, 20, 8, 4, 3, 3, 3]);
+  test("searches 30 words at 500 products, 12 at 2,000, 5 at 5,000 and 3 above 8,333", () => {
+    expect([cap(0), cap(1), cap(500), cap(2_000), cap(5_000), cap(8_333), cap(8_334), cap(10_000), cap(30_000)]).toEqual([30, 30, 30, 12, 5, 3, 3, 3, 3]);
   });
 });

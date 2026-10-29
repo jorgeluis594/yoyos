@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { writeFileSync } from "node:fs";
 import { Prisma } from "@prisma/client";
+import { Client } from "pg";
 import { afterAll, beforeAll, expect, test } from "vitest";
 import { prisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
@@ -179,11 +180,18 @@ test("applies the word cap of the company's catalog size to the statement", asyn
   const company = await freshCompany();
   await withTenantIsolation(company, () => insertProductNames(["Polo rojo", "Polo azul"]));
   const message = "quiero comprar polo rojo azul verde negro blanco";
-  expect((await candidates(company, message, { pairBudget: 40_000 })).wordsSearched).toBe(searchedWords(message).length);
+  expect((await candidates(company, message, { pairBudget: 25_000 })).wordsSearched).toBe(searchedWords(message).length);
   expect((await candidates(company, message, { pairBudget: 8, minWords: 1 })).wordsSearched).toBe(4);
   expect((await candidates(company, message, { pairBudget: 2, minWords: 3 })).wordsSearched).toBe(3);
   await dropCompany(company);
 });
+
+/** Production tables are analyzed by autovacuum; a freshly bulk-loaded benchmark table is analyzed by hand, as the table owner. */
+async function analyzeProducts() {
+  const admin = new Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });
+  await admin.connect();
+  try { await admin.query('ANALYZE "Product", "ProductVariant"'); } finally { await admin.end(); }
+}
 
 const bench = process.env.CANDIDATES_BENCH;
 const target = "Polera con capucha oversize negra edición limitada";
@@ -199,38 +207,44 @@ const benchMessages: Record<string, string> = {
 
 test.runIf(bench)("keeps p95 under 150 ms and the named product in the top eight for natural messages up to 10,000 products as core_app with forced RLS", async () => {
   const out = process.env.CANDIDATES_BENCH_OUT ?? "candidates-bench.jsonl";
+  const benchLimits = { ...limits, pairBudget: Number(process.env.CANDIDATES_BENCH_BUDGET) || limits.pairBudget, minWords: Number(process.env.CANDIDATES_BENCH_MIN_WORDS) || limits.minWords };
+  const misses: string[] = [];
   let crowded: string | null = null;
-  for (const others of ["none", "20,000"]) for (const products of [500, 5_000, 10_000]) for (const shape of ["mixed", "shared"] as const) {
+  for (const others of ["none", "20,000"]) for (const products of (process.env.CANDIDATES_BENCH_SIZES ?? "500,5000,10000").split(",").map(Number)) for (const shape of ["mixed", "shared"] as const) {
     if (others === "20,000" && !crowded) {
       crowded = await freshCompany();
       await withTenantIsolation(crowded, () => insertProductNames(catalogNames(20_000)));
+      await analyzeProducts();
     }
     const owner = await freshCompany();
     await withTenantIsolation(owner, () => insertProductNames([target, ...catalogNames(products - 1, shape)]));
+    await analyzeProducts();
     for (const [message, text] of Object.entries(benchMessages)) {
       const times: number[] = [];
       let last: Awaited<ReturnType<typeof candidates>> | null = null;
       for (let run = 0; run < 50; run += 1) {
         const started = performance.now();
-        last = await candidates(owner, text);
+        last = await candidates(owner, text, benchLimits);
         times.push(performance.now() - started);
       }
       times.sort((left, right) => left - right);
       const plan = await withTenantIsolation(owner, () => withinTransaction(async () => {
         await prisma.$queryRaw`SELECT set_config('jit', 'off', true)`;
         const words = searchedWords(text).slice(0, last!.wordsSearched);
-        return { success: true as const, data: await prisma.$queryRaw<Record<string, string>[]>(Prisma.sql`EXPLAIN (ANALYZE, BUFFERS) ${coverageQuery(owner, words, limits)}`) };
+        return { success: true as const, data: await prisma.$queryRaw<Record<string, string>[]>(Prisma.sql`EXPLAIN (ANALYZE, BUFFERS) ${coverageQuery(owner, words, benchLimits)}`) };
       }));
       const names = await namesOf(owner, last!.productIds);
       const kept = searchedWords(text).slice(0, last!.wordsSearched);
-      const targetWordsKept = ["polera", "capucha", "oversize"].every((word) => kept.includes(word));
+      const targetWordsKept = ["polera", "capucha", "oversize"].filter((word) => searchedWords(text).includes(word)).every((word) => kept.includes(word));
       const cell = { products, shape, others, message, p50: Math.round(times[24]!), p95: Math.round(times[47]!), wordsSearched: last!.wordsSearched, matchCount: last!.matchCount,
         targetRank: names.indexOf(target) + 1, targetWordsKept, plan: plan.data.map((row) => row["QUERY PLAN"]) };
       writeFileSync(out, `${JSON.stringify(cell)}\n`, { flag: "a" });
-      expect(cell.p95, JSON.stringify({ ...cell, plan: undefined })).toBeLessThan(150);
-      if (targetWordsKept) expect(cell.targetRank, JSON.stringify({ ...cell, plan: undefined })).toBeGreaterThan(0);
+      const summary = JSON.stringify({ ...cell, plan: undefined });
+      if (cell.p95 >= 150) misses.push(`latency ${summary}`);
+      if (targetWordsKept && cell.targetRank === 0) misses.push(`recall ${summary}`);
     }
     await dropCompany(owner);
   }
   if (crowded) await dropCompany(crowded);
+  expect(misses).toEqual([]);
 }, 3_600_000);
