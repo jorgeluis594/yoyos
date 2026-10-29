@@ -2,7 +2,8 @@ import { z } from "zod";
 import { currencies, type Money } from "@shared/money";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-message-outcome";
-import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
+import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order-target";
+import { messageOpenIntervals, type MessageOpenInterval } from "@core/src/features/orders/domain/message-order";
 import type { OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { ProductId } from "@core/src/features/products/domain/product";
@@ -71,3 +72,47 @@ export const chatPendingsSchema: z.ZodType<ChatPendings> = z.strictObject({
   pendings: z.array(pendingSchema).max(maxChatPendings),
   readyRemembered: z.boolean(),
 });
+
+/**
+ * Decides each pending on its own, from the chat's order target and the orders that opened since its last change.
+ * An attached pending lives while its order stays the open target and no payment was created after it joined.
+ * An orderless pending joins the first interval that opens strictly after its last change, within its `ttlMs`, and otherwise expires.
+ */
+export function pendingLife(pendings: ChatPendings, facts: PendingLifeFacts, now: Date, ttlMs: number): PendingLife {
+  const intervals = openIntervalsByOrder(facts);
+  const alive: ChatPending[] = [];
+  const ended: Array<PendingLife["ended"][number]> = [];
+  for (const pending of pendings.pendings) {
+    const order = pending.order ?? joinedOrder(pending, intervals, ttlMs);
+    if (!order && now.getTime() >= pending.lastChangedAt.getTime() + ttlMs) ended.push({ id: pending.id, reason: "expired" });
+    else if (!order) alive.push(pending);
+    else if (attachedAlive(order, facts.target, intervals)) alive.push({ ...pending, order });
+    else ended.push({ id: pending.id, reason: "order_closed" });
+  }
+  return { alive, ended };
+}
+
+type OrderIntervals = ReadonlyMap<OrderId, readonly MessageOpenInterval[]>;
+
+function openIntervalsByOrder(facts: PendingLifeFacts): OrderIntervals {
+  const orders = new Map<OrderId, OrderAggregate>(facts.openedSince.map((order) => [order.id, order]));
+  if (facts.target.kind === "open") orders.set(facts.target.order.id, facts.target.order);
+  return new Map([...orders].map(([orderId, order]) => [orderId, order.chatId ? messageOpenIntervals(order, order.chatId) : []]));
+}
+
+/** The order an orderless pending joined by derivation: the earliest interval to start after its last change, if within its lifetime. */
+function joinedOrder(pending: ChatPending, intervals: OrderIntervals, ttlMs: number): ChatPending["order"] {
+  let joined: ChatPending["order"] = null;
+  for (const [orderId, spans] of intervals) {
+    for (const span of spans) {
+      if (span.from.getTime() <= pending.lastChangedAt.getTime()) continue;
+      if (!joined || span.from.getTime() < joined.attachedAt.getTime()) joined = { orderId, attachedAt: span.from };
+    }
+  }
+  return joined && joined.attachedAt.getTime() <= pending.lastChangedAt.getTime() + ttlMs ? joined : null;
+}
+
+function attachedAlive(order: NonNullable<ChatPending["order"]>, target: ChatOrderTarget, intervals: OrderIntervals): boolean {
+  if (target.kind !== "open" || target.order.id !== order.orderId) return false;
+  return (intervals.get(order.orderId) ?? []).some((span) => span.until === null && span.from.getTime() <= order.attachedAt.getTime());
+}

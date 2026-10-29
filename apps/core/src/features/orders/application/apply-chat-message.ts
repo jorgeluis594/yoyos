@@ -1,7 +1,9 @@
+import { randomUUID } from "node:crypto";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { AiError } from "@core/src/shared/ai-tools/application/ai-error";
 import { applyChatActions, needsNewChatOrder, type ChatOrderTarget, type ChatOrderItemChanges, type ChatOrderLimits, type ReportOutcome, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
+import type { ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatMessageFailureCode, ChatMessageOutcomes, StoredChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
 import { chooseSellerNotice, isNoticeDue } from "@core/src/features/orders/domain/seller-notice";
 import type { ChatId, OrderChatSource } from "@core/src/features/orders/domain/message-order";
@@ -100,6 +102,9 @@ type Input = Readonly<{ companyId: CompanyId; messageId: ChatMessageId }>;
 type RunError = PersistenceError | InvalidStoredData | ContactNotFound | SellerUnavailable | MessageAlreadyProcessed | OrderDomainError;
 type Run = (actions: readonly ResolvedChatAction[]) => Promise<Result<AppliedChatMessage, RunError>>;
 type Stage = Result<Interpreted<AppliedChatMessage>, StageError>;
+
+/** Until the pendings are wired into this use case, no message has any. */
+const noPendings: ChatPendings = { pendings: [], readyRemembered: false };
 
 /** Placeholder of `NewChatOrderSeed.number` when `needsNewChatOrder` says no order is created. */
 const unusedNumber = 0 as OrderNumber;
@@ -228,12 +233,12 @@ async function applyInTransaction(message: ChatSourceMessage, actions: readonly 
   if (again.data) return err({ code: "MESSAGE_ALREADY_PROCESSED", message: "Message already processed" });
   const target = await deps.findChatOrderTargetForUpdate(message.chatId);
   if (!target.success) return target;
-  const customer = needsNewChatOrder(target.data, actions, deps.limits) ? await deps.ensureCustomerForContact(message.contactId) : null;
+  const customer = needsNewChatOrder(target.data, noPendings, actions, deps.limits) ? await deps.ensureCustomerForContact(message.contactId) : null;
   if (customer && !customer.success) return customer;
   const number = customer ? await deps.allocateNumber() : ok(unusedNumber);
   if (!number.success) return number;
-  const applied = applyChatActions(target.data, actions, { newOrderId: deps.newOrderId, newItemId: deps.newItemId }, deps.clock(), deps.limits,
-    { number: number.data, companyId: message.companyId, sellerId: message.uploadedByUserId, chatId: message.chatId, contactId: message.contactId });
+  const applied = applyChatActions(target.data, noPendings, actions, { newOrderId: deps.newOrderId, newItemId: deps.newItemId, newPendingId: () => randomUUID() as ChatPendingId }, deps.clock(), deps.limits,
+    { number: number.data, companyId: message.companyId, sellerId: message.uploadedByUserId, chatId: message.chatId, contactId: message.contactId, messageId: message.id });
   if (!applied.success) return applied;
   const { createdOrder, changes, outcomes } = applied.data;
   const changedOrder = target.data.kind === "open" && hasChanges(changes) && applied.data.target.kind === "open" ? applied.data.target.order : null;

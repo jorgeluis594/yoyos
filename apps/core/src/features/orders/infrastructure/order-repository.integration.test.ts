@@ -1760,8 +1760,8 @@ test("saves removed items, changed quantities and mentioned prices and recalcula
         { kind: "add", item: other, quantity: 3 as PositiveInteger, mentionedPrice: { amount: { amount: 12.5, currency: "PEN" }, units: 3 }, identification },
         { kind: "set_quantity", target: { kind: "variant", variantId: f.variantIds[0] as VariantId }, quantity: 4 },
       ];
-      const applied = applyChatActions(target.data, actions, { newOrderId: () => randomUUID() as OrderId, newItemId: () => randomUUID() as never }, new Date(), { maxItemQuantity: 99 as PositiveInteger },
-        { number: 1 as OrderNumber, companyId: f.companyId as CompanyId, sellerId: f.sellerId as UserId, chatId: chat.chatId, contactId: f.contactId as ContactId });
+      const applied = applyChatActions(target.data, noPendings, actions, { newOrderId: () => randomUUID() as OrderId, newItemId: () => randomUUID() as never, newPendingId: () => randomUUID() as never }, new Date(), { maxItemQuantity: 99 as PositiveInteger },
+        { number: 1 as OrderNumber, companyId: f.companyId as CompanyId, sellerId: f.sellerId as UserId, chatId: chat.chatId, contactId: f.contactId as ContactId, messageId: randomUUID() as never });
       if (!applied.success || applied.data.target.kind !== "open") throw new Error("Expected applied actions");
       expect(await withinTransaction(() => saveItemChanges(applied.data.target.kind === "open" ? applied.data.target.order : order, applied.data.changes))).toEqual(ok(null));
       const stored = await findOrderAggregate(order.id, f.companyId as CompanyId);
@@ -1769,10 +1769,10 @@ test("saves removed items, changed quantities and mentioned prices and recalcula
       expect(stored.data).toMatchObject({ itemsTotal: { amount: 55 }, total: { amount: 55 } });
       expect(stored.data.items.map((item) => [item.variantId, item.quantity, item.subtotal.amount, item.mentionedPrice?.amount.amount ?? null, item.mentionedPrice?.units ?? null]).sort())
         .toEqual([[f.variantIds[0], 4, 40, null, null], [f.variantIds[1], 3, 15, 12.5, 3]].sort());
-      const removal = applyChatActions(applied.data.target, [{ kind: "remove", target: { kind: "variant", variantId: f.variantIds[0] as VariantId }, amount: "all" },
+      const removal = applyChatActions(applied.data.target, noPendings, [{ kind: "remove", target: { kind: "variant", variantId: f.variantIds[0] as VariantId }, amount: "all" },
         { kind: "set_mentioned_price", target: { kind: "variant", variantId: f.variantIds[1] as VariantId }, price: null }],
-      { newOrderId: () => randomUUID() as OrderId, newItemId: () => randomUUID() as never }, new Date(), { maxItemQuantity: 99 as PositiveInteger },
-      { number: 1 as OrderNumber, companyId: f.companyId as CompanyId, sellerId: f.sellerId as UserId, chatId: chat.chatId, contactId: f.contactId as ContactId });
+      { newOrderId: () => randomUUID() as OrderId, newItemId: () => randomUUID() as never, newPendingId: () => randomUUID() as never }, new Date(), { maxItemQuantity: 99 as PositiveInteger },
+      { number: 1 as OrderNumber, companyId: f.companyId as CompanyId, sellerId: f.sellerId as UserId, chatId: chat.chatId, contactId: f.contactId as ContactId, messageId: randomUUID() as never });
       if (!removal.success || removal.data.target.kind !== "open") throw new Error("Expected removal");
       expect(await withinTransaction(() => saveItemChanges(removal.data.target.kind === "open" ? removal.data.target.order : order, removal.data.changes))).toEqual(ok(null));
       const after = await findOrderAggregate(order.id, f.companyId as CompanyId);
@@ -1820,6 +1820,7 @@ test("a mentioned price with only an amount or only units is rejected by the dat
 });
 
 const findProductIds = findProductIdsOfVariants;
+const noPendings = { pendings: [], readyRemembered: false } as const;
 
 test("findChatOrderTargetForUpdate fills the product of every item of the open order", async () => {
   const f = await fixture();
