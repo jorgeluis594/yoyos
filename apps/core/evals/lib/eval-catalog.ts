@@ -8,16 +8,22 @@ import { seedProduct } from "@core/src/features/products/infrastructure/product-
 import type { ImageEmbedder } from "@core/src/features/products/composition";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
 import type { ImageBytes } from "@core/src/features/products/domain/image-identification";
-import { catalog, evalId, variantIdOf } from "@core/evals/fixtures/catalog";
+import { catalogOf, evalId, productIdOf, registerCatalog, variantIdOf, type CatalogScope, type EvalCatalog } from "@core/evals/fixtures/catalog";
 import { catalogPhotoOf, imagesDirOf, readImageManifest } from "@core/evals/fixtures/image-manifest";
 
 /**
- * The eval company lives in the test database with fixed ids and is recreated at the start of each suite, so every run sees the same
- * catalog. Image bytes are read from the fixture files instead of R2: storage is the only faked port.
+ * The eval companies live in the test database with fixed ids and are recreated at the start of each suite, so every run sees the same
+ * catalog. The committed catalog goes into `evalCompanyId`; a private catalog (`EVAL_PRIVATE_DIR`) into `privateCompanyId`, with its
+ * own ids. Image bytes are read from the fixture files instead of R2: storage is the only faked port.
  */
 
 export const evalCompanyId = evalId("company");
 export const evalSellerId = evalId("seller");
+export const privateCompanyId = evalId("company:private");
+export const privateSellerId = evalId("seller:private");
+
+export const scopeOfCompany = (companyId: string): CatalogScope => companyId === privateCompanyId ? "private" : "eval";
+export const sellerOfCompany = (companyId: string) => companyId === privateCompanyId ? privateSellerId : evalSellerId;
 
 const coreDir = resolve(import.meta.dirname, "../..");
 
@@ -51,22 +57,23 @@ export async function readRegisteredImage(imageId: ImageId) {
 const companyTables = ["chatMessageOutcome", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer",
   "productStock", "productVariant", "productOption", "product", "image"] as const;
 
-async function deleteEvalCompany() {
-  await withTenantIsolation(evalCompanyId, async () => {
+async function deleteEvalCompany(companyId: string) {
+  await withTenantIsolation(companyId, async () => {
     for (const table of companyTables) await (prisma[table] as unknown as { deleteMany(): Promise<unknown> }).deleteMany();
-    await systemPrisma.user.deleteMany({ where: { companyId: evalCompanyId } });
-    await prisma.company.deleteMany({ where: { id: evalCompanyId } });
+    await systemPrisma.user.deleteMany({ where: { companyId } });
+    await prisma.company.deleteMany({ where: { id: companyId } });
   });
 }
 
 /**
- * The photo of each product that has one (`photo` in catalog.ts), from the manifest's `catalog/` entries. Without a manifest the
- * products are seeded without photos, which only the passes that read no product photo accept.
+ * The photo of each product that has one (`photo` in the catalog), from the manifest's `catalog/` entries. Without a manifest the
+ * products are seeded without photos, which only the passes that read no product photo accept. Only the committed catalog has photos.
  */
-function catalogPhotos(required: boolean): ReadonlyMap<string, string> {
-  const manifest = readImageManifest(imagesDirOf(process.env));
+function catalogPhotos(catalog: EvalCatalog, scope: CatalogScope, required: boolean): ReadonlyMap<string, string> {
   const photos = new Map<string, string>();
-  for (const product of catalog.filter(({ photo }) => photo)) {
+  if (scope !== "eval") return photos;
+  const manifest = readImageManifest(imagesDirOf(process.env));
+  for (const product of catalog.products.filter(({ photo }) => photo)) {
     const entry = manifest ? catalogPhotoOf(manifest, product.key) : null;
     if (entry) photos.set(product.key, entry.file);
     else if (required) throw new Error(`No catalog photo of ${product.key} in the photo manifest (evals/fixtures/images/README.md)`);
@@ -74,16 +81,22 @@ function catalogPhotos(required: boolean): ReadonlyMap<string, string> {
   return photos;
 }
 
-/** Recreates the eval company and catalog, and indexes every product photo with the configured embedder (null skips indexing). */
-export async function seedEvalCatalog(embedder: ImageEmbedder | null): Promise<void> {
-  const photos = catalogPhotos(embedder !== null);
-  await deleteEvalCompany();
+/**
+ * Recreates an eval company and seeds `catalog` into it, indexing every product photo with the configured embedder (null skips
+ * indexing). The catalog is registered for the id lookups.
+ */
+export async function seedEvalCatalog(catalog: EvalCatalog, companyId: string, embedder: ImageEmbedder | null): Promise<void> {
+  const scope = scopeOfCompany(companyId);
+  const sellerId = sellerOfCompany(companyId);
+  registerCatalog(scope, catalog);
+  const photos = catalogPhotos(catalog, scope, embedder !== null);
+  await deleteEvalCompany(companyId);
   const now = new Date();
-  await withTenantIsolation(evalCompanyId, async () => {
-    await prisma.company.create({ data: { id: evalCompanyId, name: "Moda Yoyis (evals)", country: "PE" } });
-    await systemPrisma.user.create({ data: { id: evalSellerId, name: "Vendedora", email: `${evalSellerId}@evals.yoyos.test`, companyId: evalCompanyId } });
-    for (const product of catalog) {
-      const productId = evalId(`product:${product.key}`);
+  await withTenantIsolation(companyId, async () => {
+    await prisma.company.create({ data: { id: companyId, name: scope === "eval" ? "Moda Yoyis (evals)" : "Tienda privada (evals)", country: "PE" } });
+    await systemPrisma.user.create({ data: { id: sellerId, name: "Vendedora", email: `${sellerId}@evals.yoyos.test`, companyId } });
+    for (const product of catalog.products) {
+      const productId = productIdOf(product.key, scope);
       const photo = photos.get(product.key);
       const imageId = photo ? evalId(`image:${product.key}`) : null;
       if (imageId && photo) {
@@ -91,14 +104,15 @@ export async function seedEvalCatalog(embedder: ImageEmbedder | null): Promise<v
         registerImageFile(imageId, photo);
       }
       await seedProduct({ id: productId, name: product.name, qrCode: productId, photoIds: imageId ? [imageId] : [], createdAt: now, updatedAt: now, variants: product.variants.map((variant) => {
-        const variantId = variantIdOf(product.key, variant.attributes);
-        return { id: variantId, attributes: variant.attributes, sku: `EVAL-${variantId.slice(0, 8)}`, salePrice: variant.price, qrCode: variantId };
+        const variantId = variantIdOf(product.key, variant.attributes, scope);
+        return { id: variantId, attributes: variant.attributes, sku: `EVAL-${variantId.slice(0, 8)}`, salePrice: variant.price, qrCode: variantId,
+          status: product.active && variant.active ? "active" as const : "inactive" as const };
       }) });
     }
   });
   if (!embedder) return;
-  for (const product of catalog.filter(({ key }) => photos.has(key))) {
-    const indexed = await withTenantIsolation(evalCompanyId, () => indexProductPhotos({ productId: evalId(`product:${product.key}`) as ProductId }, {
+  for (const product of catalogOf(scope).products.filter(({ key }) => photos.has(key))) {
+    const indexed = await withTenantIsolation(companyId, () => indexProductPhotos({ productId: productIdOf(product.key, scope) as ProductId }, {
       findPhotoIndexState, saveEmbedding, embedImage: embedder.embedImage, model: embedder.model, readImage: readRegisteredImage,
     }));
     if (!indexed.success || indexed.data.kind !== "processed" || indexed.data.failed.length) throw new Error(`Indexing ${product.key} failed: ${JSON.stringify(indexed)}`);
