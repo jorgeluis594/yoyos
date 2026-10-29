@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
-import { orderStateMachine, type OrderAggregate, type OrderDomainError, type Payment, type PaymentMethod } from "@core/src/features/orders/domain/order-state-machine";
+import { orderStateMachine, type OrderAggregate, type OrderDomainError, type StockDeductionPlan, type Payment, type PaymentMethod } from "@core/src/features/orders/domain/order-state-machine";
 import { confirmPayment } from "@core/src/features/orders/domain/payment";
 import type { PaymentError } from "@core/src/features/orders/domain/payment";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
@@ -9,7 +9,7 @@ import type { CompanyId, OrderId, PaymentId, PositiveInteger } from "@core/src/f
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 export type RegisterPaymentInput = Readonly<{ orderId: OrderId; paymentId: PaymentId; source?: "manual" | "buyer_report";
-  amount: Money; method: PaymentMethod; deductStockIfPartial: boolean }>;
+  amount: Money; method: PaymentMethod; deductStockIfPartial: boolean; deferStockDeduction?: boolean }>;
 export type StockOutcome = Readonly<{ kind: "deducted" | "not_requested" }>;
 export type RegisterPaymentOutput = Readonly<{ order: OrderAggregate; stock: StockOutcome }>;
 export type RegisterPaymentError = OrderDomainError | PaymentError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE" | "PAYMENT_CONFLICT"; message: string; variantId?: string }>;
@@ -39,7 +39,8 @@ export async function registerPayment(input: RegisterPaymentInput, context: Orde
     if (!next.success) return next;
     if (existing?.status === "confirmed") return ok({ order: found.data,
       stock: { kind: found.data.stockDeducted ? "deducted" : "not_requested" } });
-    const plan = orderStateMachine.planStockDeduction(next.data, input.deductStockIfPartial, now);
+    const plan = input.deferStockDeduction ? ok<StockDeductionPlan>({ kind: "none", reason: "not_requested", nextOrder: next.data })
+      : orderStateMachine.planStockDeduction(next.data, input.deductStockIfPartial, now);
     if (!plan.success) return plan;
     const saved = existing?.status === "reported"
       ? await deps.updatePayment(payment, context.companyId, "reported") : await deps.savePayment(payment, context.companyId);

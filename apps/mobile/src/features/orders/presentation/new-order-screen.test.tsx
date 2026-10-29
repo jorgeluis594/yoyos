@@ -1,3 +1,4 @@
+import { SymbolView } from "expo-symbols";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import NewOrderScreen from "@mobile/features/orders/presentation/new-order-screen";
@@ -21,6 +22,7 @@ let mockCountry = "PE";
 let mockNextId = 3;
 let mockDiscardVersion = 0;
 let mockOffline = false;
+let mockStock = 3;
 const mockSetDirty = jest.fn((value: boolean) => { mockDirty = value; });
 const mockDispatch = jest.fn();
 const mockUsePreventRemove = jest.fn();
@@ -38,7 +40,7 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   loadPendingOrderReview: (...args: unknown[]) => mockLoadReview(...args),
   reviewPendingOrder: (...args: unknown[]) => mockReviewOrder(...args),
   searchOrderCatalog: async () => ({ success: true, data: [{ id: mockId(4), name: "Camisa", currency: "PEN",
-    variants: [{ id: mockId(2), attributes: { Talla: "M" }, sku: "CAM-M", price: 10, stock: 3 }] }] }),
+    variants: [{ id: mockId(2), attributes: { Talla: "M" }, sku: "CAM-M", price: 10, stock: mockStock }] }] }),
   completeOrder: (...args: unknown[]) => mockCompleteOrder(...args),
 } }));
 jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: {
@@ -162,7 +164,171 @@ test("delivered status explains missing payment and allows saving once covered",
 });
 beforeEach(() => { jest.clearAllMocks(); mockQuotation.mockReset(); mockSettingsGet.mockReset();
   mockQuotation.mockResolvedValue(ok(quotation));
-  mockSettingsGet.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] })); mockNextId = 3; mockCountry = "PE"; mockDirty = false; mockDiscardVersion = 0; mockOffline = false; mockPending = ok([]); });
+  mockSettingsGet.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] })); mockNextId = 3; mockCountry = "PE"; mockDirty = false; mockDiscardVersion = 0; mockOffline = false; mockPending = ok([]); mockStock = 3; });
+
+async function reviewWithQuantity(stock: number, quantity: number) {
+  mockStock = stock;
+  const screen = render(<NewOrderScreen />);
+  await screen.findByText("Camisa");
+  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
+  for (let count = 1; count < quantity; count++) fireEvent.press(screen.getByRole("button", { name: "+" }));
+  return screen;
+}
+const stockWarning = /disponibles?\. Puedes guardar el pedido/;
+
+test("line warning says how many units are available and what happens, only above the shown stock", async () => {
+  const screen = await reviewWithQuantity(0, 4);
+  expect(screen.getByText("Solo hay 0 disponibles. Puedes guardar el pedido, pero no cobrarlo completo ni despacharlo hasta reponer stock.")).toBeTruthy();
+  screen.unmount();
+  const single = await reviewWithQuantity(1, 2);
+  expect(single.getByText(/^Solo hay 1 disponible\. Puedes guardar/)).toBeTruthy();
+  single.unmount();
+  const within = await reviewWithQuantity(3, 3);
+  expect(within.queryByText(stockWarning)).toBeNull();
+});
+
+test("line warning renders as a note with the warning icon", async () => {
+  const screen = await reviewWithQuantity(0, 4);
+  expect(screen.getByText(stockWarning)).toBeTruthy();
+  expect(screen.UNSAFE_getAllByType(SymbolView).some(node => node.props.name?.android === "warning")).toBe(true);
+});
+
+test("line warning is in Portuguese with the available count", async () => {
+  try {
+    const screen = await reviewWithQuantity(2, 3);
+    await act(async () => { await i18n.changeLanguage("pt-BR"); });
+    expect(screen.getByText("Só há 2 disponíveis. Você pode salvar o pedido, mas não cobrá-lo por completo nem despachá-lo até repor o estoque.")).toBeTruthy();
+  } finally { await i18n.changeLanguage("es"); }
+});
+
+const dialogDescription = "Camisa: pediste 4, hay 3.\n\nSe guardará con sus pagos y el stock quedará pendiente de descontar hasta reponer el stock.";
+
+test("payment that covers the total with quantity above stock warns early and keeps Save enabled", async () => {
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
+  expect(screen.getByText(/Con este pago se descuenta stock/)).toHaveProp("accessibilityRole", "alert");
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
+  expect(screen.queryByText(/Con este pago se descuenta stock/)).toBeNull();
+});
+
+async function payFully(quantity: number) {
+  mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
+  const screen = await reviewWithQuantity(3, quantity);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("radio", { name: "Pagado" }));
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  return screen;
+}
+
+test("Pagado with quantity above stock asks on Save, and saving as pending sends the payment with deferred stock", async () => {
+  const screen = await payFully(4);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  expect(mockCompleteOrder).not.toHaveBeenCalled();
+  expect(mockShowConfirmation).toHaveBeenCalledWith(expect.objectContaining({ title: "No hay stock suficiente", description: dialogDescription,
+    confirmLabel: "Guardar como pendiente", cancelLabel: "Volver" }));
+  mockShowConfirmation.mock.lastCall?.[0].onConfirm();
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
+  const sent = mockCompleteOrder.mock.calls[0][0];
+  expect(sent.payments).toEqual([expect.objectContaining({ amount: "40.00" })]);
+  expect(sent.deferStockDeduction).toBe(true);
+  expect(mockCompleteOrder.mock.calls[0][1]).toBe(mockId(1));
+});
+
+test("saving as pending keeps an advance that covers the total and defers stock", async () => {
+  mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  expect(mockShowConfirmation.mock.lastCall?.[0].description).toBe(dialogDescription);
+  mockShowConfirmation.mock.lastCall?.[0].onConfirm();
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
+  expect(mockCompleteOrder.mock.calls[0][0]).toMatchObject({ payments: [expect.objectContaining({ amount: "40" })], deferStockDeduction: true });
+});
+
+test("saving as pending keeps a partial advance with its stock deduction option", async () => {
+  mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
+  fireEvent(screen.getByLabelText("Descontar stock con abono parcial"), "valueChange", true);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  expect(mockShowConfirmation.mock.lastCall?.[0].description).toBe(dialogDescription);
+  mockShowConfirmation.mock.lastCall?.[0].onConfirm();
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
+  expect(mockCompleteOrder.mock.calls[0][0]).toMatchObject({ payments: [expect.objectContaining({ amount: "10", deductStockIfPartial: true })], deferStockDeduction: true });
+});
+
+test("Volver on the stock dialog sends nothing", async () => {
+  const screen = await payFully(4);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  mockShowConfirmation.mock.lastCall?.[0].onCancel?.();
+  expect(mockCompleteOrder).not.toHaveBeenCalled();
+});
+
+test("Pagado with quantity within stock sends directly without a dialog", async () => {
+  const screen = await payFully(3);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
+  expect(mockShowConfirmation).not.toHaveBeenCalledWith(expect.objectContaining({ title: "No hay stock suficiente" }));
+});
+
+test("Pagado sheet with quantity above stock shows the alert, and lowering the quantity removes it", async () => {
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("radio", { name: "Pagado" }));
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  expect(screen.getByText(/Con este pago se descuenta stock/)).toHaveProp("accessibilityRole", "alert");
+  fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
+  fireEvent.press(screen.getByRole("button", { name: "−" }));
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.queryByText(/Con este pago se descuenta stock/)).toBeNull();
+});
+
+test("delivered with payment and quantity above stock shows a single stock alert", async () => {
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
+  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  expect(screen.getAllByRole("alert").filter(node => /stock/.test(String(node.props.children)))).toHaveLength(1);
+  expect(screen.getByText(/repón el stock para guardarlo como entregado/)).toBeTruthy();
+  expect(screen.queryByText(/deja el pago como pendiente/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+  expect(mockShowConfirmation).not.toHaveBeenCalled();
+});
+
+test("delivered without payment still reports the stock need and blocks saving", async () => {
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  expect(screen.getByText(/repón el stock para guardarlo como entregado/)).toHaveProp("accessibilityRole", "alert");
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+});
+
+test("pending order with quantity above stock still saves and is sent", async () => {
+  mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({
+    items: [expect.objectContaining({ quantity: 4 })] }), mockId(1)));
+});
+
+test("stock warning texts exist in Spanish and Portuguese", () => {
+  for (const language of ["es", "pt-BR"]) {
+    for (const key of ["creationStockWarning", "paymentNeedsStock", "stockShortTitle", "stockShortItem", "stockShortAdvice", "saveAsPending", "stockShortBack"]) {
+      expect(i18n.getFixedT(language)(key, { count: 0 })).not.toBe(key);
+    }
+  }
+});
 
 test("Chile seller selects a variant, reviews the amount, and opens the completed sale", async () => {
   mockCountry = "CL";
