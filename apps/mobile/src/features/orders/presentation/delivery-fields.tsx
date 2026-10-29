@@ -13,7 +13,7 @@ import type { DeliveryQuotation } from "@mobile/features/delivery-settings";
 import type { OrderDeliveryFormValues } from "@mobile/features/orders/presentation/order-delivery-form";
 import { Button } from "@mobile/components/ui/button";
 import { PhoneField } from "@mobile/features/orders/presentation/phone-field";
-import { internationalPhonePattern } from "@shared/phone";
+import { internationalPhonePattern, savedPhoneForForm } from "@shared/phone";
 import { agencyOption, documentTypeLabel, orderLanguage, rateLabel } from "@mobile/features/orders/presentation/order-labels";
 
 export function deliveryDraftFromOrder(order: Pick<OrderAggregateResponse, "buyer" | "delivery" | "deliveryCharge">, settings: DeliverySettingsResponse): OrderDeliveryFormValues {
@@ -44,7 +44,7 @@ export function DeliveryFields({ value, onChange, settings, busy, language, rate
   const point = settings.store.pickupPoint;
   return <>
         <Field disabled={busy}><FieldLabel>{t("orderDeliveryMethod")}</FieldLabel><OptionSelector testID="delivery-method" value={enabled ? method : null}
-          onValueChange={next => { if (next === "store" || next === "home" || next === "agency") onChange({ ...value, method: next, rateId: "", agencyId: "", price: null }); }} options={[
+          onValueChange={next => { if (next === "store" || next === "home" || next === "agency") onChange({ ...value, method: next, phone: next === "store" ? phone : savedPhoneForForm(phone), rateId: "", agencyId: "", price: null }); }} options={[
             ...(settings.store.enabled ? [{ value: "store", label: t("pickupStoreTitle") }] : []),
             ...(settings.home.enabled ? [{ value: "home", label: t("homeDeliveryTitle") }] : []),
             ...(settings.agency.enabled ? [{ value: "agency", label: t("agencyDeliveryTitle") }] : []),
