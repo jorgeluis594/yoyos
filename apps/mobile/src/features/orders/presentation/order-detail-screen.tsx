@@ -302,7 +302,7 @@ export default function OrderDetailScreen() {
   const openEditor = (value: NonNullable<typeof editor>) => { if (cancellationLock.current || writeBusy || order.cancelled) return; setPaymentError(""); setRejection(null); setEditor(value); };
   const closeEditor = () => { if (!savingPayment) { setEditor(null); setRejection(null); setPaymentError(""); } };
   // The one main action is the next valid transition; when it is blocked the button stays disabled and says why.
-  const nextOperation = order.deliveryStatus === "pending" ? "ship" : order.deliveryStatus === "shipped" ? "deliver" : null;
+  const nextOperation = order.deliveryStatus === "pending" ? (order.delivery?.method === "store" ? "deliver" : "ship") : order.deliveryStatus === "shipped" ? "deliver" : null;
   const nextBlock = nextOperation ? fulfillmentBlock(order, nextOperation) : null;
   const nextReason = nextBlock === "PAYMENT_REQUIRED" || nextBlock === "STOCK_NOT_DEDUCTED" ? nextBlock : null;
   const cardStyle = { backgroundColor: theme.backgroundElement, borderColor: theme.border };

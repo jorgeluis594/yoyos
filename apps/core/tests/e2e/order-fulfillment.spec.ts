@@ -117,21 +117,28 @@ test("mobile fulfillment refreshes details and history through the real API", as
       if (!product.success) throw new Error("Product setup failed");
       return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
     });
+    expect((await page.request.put(`${coreOrigin}/api/delivery-settings`, { data: { expectedVersion: 0, agency: { enabled: false },
+      home: { enabled: false }, store: { enabled: true, pickupPoint: { name: "Store", address: "Lima", instructions: null } } } })).ok()).toBe(true);
     await page.setViewportSize({ width: 390, height: 844 });
     for (const shipFirst of [true, false]) {
       const orderId = crypto.randomUUID();
       const created = await page.request.post(`${coreOrigin}/api/orders`, { data: { id: orderId, items: [{ variantId, quantity: 1 }] } });
       expect(created.status()).toBe(201);
       const pending = await created.json();
+      // Pickup orders are delivered straight from pending; the others ship first.
+      if (!shipFirst) expect((await page.request.put(`${coreOrigin}/api/orders/${orderId}/delivery`, { data: {
+        delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" },
+      } })).ok()).toBe(true);
       await page.goto(`${mobile.origin}/orders`, { timeout: 90000 });
       await browserExpect(page.getByText(new RegExp(`#${pending.number} ·`))).toBeVisible({ timeout: 90000 });
       await page.getByText(new RegExp(`#${pending.number} ·`)).click();
       await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
-      await browserExpect(page.getByRole("button", { name: "Marcar como despachado", exact: true })).toBeDisabled();
+      const primary = page.getByRole("button", { name: shipFirst ? "Marcar como despachado" : "Marcar como entregado", exact: true });
+      await browserExpect(primary).toBeDisabled();
       await browserExpect(page.getByText("Se requiere el pago completo antes de enviar o entregar.").first()).toBeVisible();
       await page.getByRole("button", { name: "Registrar pago", exact: true }).click();
       await page.getByRole("button", { name: /^Registrar .*\d/ }).click();
-      await browserExpect(page.getByRole("button", { name: "Marcar como despachado", exact: true })).toBeEnabled();
+      await browserExpect(primary).toBeEnabled();
       const before = await (await page.request.get(`${coreOrigin}/api/orders/${orderId}/aggregate`)).json();
       expect(before.payments).toHaveLength(1);
       const stockBefore = await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity);
@@ -148,14 +155,8 @@ test("mobile fulfillment refreshes details and history through the real API", as
         await browserExpect(row).toContainText("Despachado");
         await row.click();
       }
-      if (shipFirst) {
-        await page.getByRole("button", { name: "Marcar como entregado", exact: true }).click();
-        await browserExpect(page.getByText("Pedido marcado como entregado.", { exact: true })).toBeVisible();
-      } else {
-        // The mobile screen only offers the next transition; direct delivery goes through the API and the open screen must pick it up.
-        expect((await page.request.post(`${coreOrigin}/api/orders/${orderId}/deliver`)).ok()).toBe(true);
-        await page.reload();
-      }
+      await page.getByRole("button", { name: "Marcar como entregado", exact: true }).click();
+      await browserExpect(page.getByText("Pedido marcado como entregado.", { exact: true })).toBeVisible();
       await browserExpect(page.getByText("Venta completada", { exact: true })).toBeVisible();
       const after = await (await page.request.get(`${coreOrigin}/api/orders/${orderId}/aggregate`)).json();
       expect(after.payments).toEqual(before.payments);
@@ -173,6 +174,7 @@ test("mobile fulfillment refreshes details and history through the real API", as
     if (companyId) await withTenantIsolation(companyId, async () => {
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
+      await prisma.companyDeliverySettings.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } }); await prisma.company.delete({ where: { id: companyId } });
     });
   }
