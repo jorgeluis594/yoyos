@@ -1,6 +1,8 @@
 import { describe, expect, test } from "vitest";
 import { applyChatActions, needsNewChatOrder, type ChatOrderCatalogItem, type ChatOrderTarget, type ItemTarget, type NewChatOrderSeed, type ReportOutcome, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
 import { buildPendingOrder, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
+import type { ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
+import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, ContactId, MentionedPrice, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
@@ -10,9 +12,11 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const at = new Date("2026-10-22T12:00:00Z");
 const limits = { maxItemQuantity: 99 as PositiveInteger };
-const seed: NewChatOrderSeed = { number: 1024 as OrderNumber, companyId: id(2) as CompanyId, sellerId: "seller" as UserId, chatId: id(50) as ChatId, contactId: id(60) as ContactId };
+const seed: NewChatOrderSeed = { number: 1024 as OrderNumber, companyId: id(2) as CompanyId, sellerId: "seller" as UserId, chatId: id(50) as ChatId, contactId: id(60) as ContactId, messageId: id(70) as ChatMessageId };
 let counter = 200;
-const ids = { newOrderId: () => id(900) as OrderId, newItemId: () => id(counter++) as OrderItemId };
+let pendingCounter = 300;
+const ids = { newOrderId: () => id(900) as OrderId, newItemId: () => id(counter++) as OrderItemId, newPendingId: () => id(pendingCounter++) as ChatPendingId };
+const noPendings: ChatPendings = { pendings: [], readyRemembered: false };
 
 type Item = ChatOrderCatalogItem;
 const poloM: Item = { variantId: id(11) as VariantId, productName: "Polo", variantAttributes: { Talla: "M" }, sku: null, unitPrice: money(35) };
@@ -37,7 +41,7 @@ const add = (item: Item, quantity = 1, mentionedPrice: MentionedPrice | null = n
 const named = (item: Item): ItemTarget => ({ kind: "variant", variantId: item.variantId });
 const unnamed: ItemTarget = { kind: "unnamed" };
 const run = (target: ChatOrderTarget, ...actions: ResolvedChatAction[]) => {
-  const result = applyChatActions(target, actions, ids, at, limits, seed);
+  const result = applyChatActions(target, noPendings, actions, ids, at, limits, seed);
   if (!result.success) throw new Error(result.error.message);
   return result.data;
 };
@@ -84,7 +88,7 @@ describe("applyChatActions", () => {
     expect(kinds(result)).toEqual(["new_order_after_closed", "added", "added"]);
     expect(result.outcomes[0]).toEqual({ kind: "new_order_after_closed", orderId: id(900), previousOrderId: id(1) });
     expect(result.target).toMatchObject({ kind: "open", order: { id: id(900) } });
-    expect(needsNewChatOrder(closed, [add(gorra)], limits)).toBe(true);
+    expect(needsNewChatOrder(closed, noPendings, [add(gorra)], limits)).toBe(true);
   });
 
   test("creates a new order without a closed-order outcome after the latest order was cancelled", () => {
@@ -93,9 +97,9 @@ describe("applyChatActions", () => {
       expect(kinds(result)).toEqual(["added"]);
       expect(lines(result.createdOrder)).toEqual([["Gorra", 1]]);
     }
-    expect(needsNewChatOrder({ kind: "none" }, [{ kind: "remove", target: unnamed, amount: "all" }], limits)).toBe(false);
-    expect(needsNewChatOrder({ kind: "none" }, [add(poloM, 1000)], limits)).toBe(false);
-    expect(needsNewChatOrder(open([gorra, 1]), [add(poloM)], limits)).toBe(false);
+    expect(needsNewChatOrder({ kind: "none" }, noPendings, [{ kind: "remove", target: unnamed, amount: "all" }], limits)).toBe(false);
+    expect(needsNewChatOrder({ kind: "none" }, noPendings, [add(poloM, 1000)], limits)).toBe(false);
+    expect(needsNewChatOrder(open([gorra, 1]), noPendings, [add(poloM)], limits)).toBe(false);
   });
 
   test("removes a named item and keeps the others", () => {
@@ -269,7 +273,7 @@ describe("applyChatActions", () => {
   });
 
   test("rejects an empty list of actions and an invalid new order seed", () => {
-    expect(applyChatActions(open([gorra, 1]), [], ids, at, limits, seed)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
-    expect(applyChatActions({ kind: "none" }, [add(gorra)], ids, at, limits, { ...seed, number: 0 as OrderNumber })).toMatchObject({ success: false });
+    expect(applyChatActions(open([gorra, 1]), noPendings, [], ids, at, limits, seed)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+    expect(applyChatActions({ kind: "none" }, noPendings, [add(gorra)], ids, at, limits, { ...seed, number: 0 as OrderNumber })).toMatchObject({ success: false });
   });
 });
