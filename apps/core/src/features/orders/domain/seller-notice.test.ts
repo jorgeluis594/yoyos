@@ -130,6 +130,13 @@ describe("chooseSellerNotice with the single reader", () => {
     ] satisfies SellerNotice[]) expect(sellerNoticeTarget(notice)).toEqual({ kind: "message" });
   });
 
+  test("drops a repeated product so two pendings of one product are named once", () => {
+    expect(chooseSellerNotice(outcomes({ kind: "ready_with_pendings", orderId: order(1), productIds: [product(1), product(2), product(1)], unnamed: 1 })))
+      .toEqual({ kind: "ready_with_pendings", orderId: order(1), productIds: [product(1), product(2)], unnamed: 1 });
+    expect(chooseSellerNotice(outcomes({ kind: "variant_for_several_pendings", productIds: [product(1), product(1)], unnamed: 0 })))
+      .toEqual({ kind: "variant_for_several_pendings", productIds: [product(1)], unnamed: 0, newOrderId: null });
+  });
+
   test("carries each product once and the order of the new notices for the names", () => {
     expect(noticeReferences({ kind: "ready_with_pendings", orderId: order(1), productIds: [product(1), product(2)], unnamed: 1 }))
       .toEqual({ orderIds: [order(1)], productIds: [product(1), product(2)] });

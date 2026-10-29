@@ -460,6 +460,8 @@ Priority:
 4. `ready`.
 5. `new_order`.
 
+`chooseSellerNotice` drops a repeated product id from `ready_with_pendings` and `variant_for_several_pendings` (keeping first appearance, `unnamed` unchanged), so the notice carries distinct ids and the second pending of a product is not counted in «y N más».
+
 `pending_*` outcomes, including `pending_split`, are silent. `noticeReferences` carries `productIds` for names, deduplicated: two pendings of one product name it once («Polo básico»), never «Polo básico y Polo básico»; a doubtful or deleted pending is counted in `unnamed`. All new kinds open the chat on the message. The texts are the ones in the product draft (`es`, `pt-BR`).
 
 | Layer | Types and authority |

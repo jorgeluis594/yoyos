@@ -60,7 +60,7 @@ function problemOf(outcome: ChatMessageOutcome): ProblemNotice | null {
     case "reader_doubt": case "request_not_allowed": case "invalid_action": return { kind: "not_applied", orderId: outcome.orderId };
     case "caption_not_applied": return { kind: "caption_not_applied", productId: outcome.productId, orderId: outcome.orderId };
     case "product_not_available": return { kind: "product_not_available", productId: outcome.productId };
-    case "variant_for_several_pendings": return { kind: "variant_for_several_pendings", productIds: outcome.productIds, unnamed: outcome.unnamed };
+    case "variant_for_several_pendings": return { kind: "variant_for_several_pendings", productIds: [...new Set(outcome.productIds)], unnamed: outcome.unnamed };
     default: return null;
   }
 }
@@ -85,7 +85,7 @@ export function chooseSellerNotice(outcomes: ChatMessageOutcomes): SellerNotice 
   }
   if (problems.length === 1) return { ...problems[0]!, newOrderId: created?.orderId ?? null };
   const pendingReady = outcomes.find((outcome): outcome is Extract<ChatMessageOutcome, { kind: "ready_with_pendings" }> => outcome.kind === "ready_with_pendings");
-  if (pendingReady) return { kind: "ready_with_pendings", orderId: pendingReady.orderId, productIds: pendingReady.productIds, unnamed: pendingReady.unnamed };
+  if (pendingReady) return { kind: "ready_with_pendings", orderId: pendingReady.orderId, productIds: [...new Set(pendingReady.productIds)], unnamed: pendingReady.unnamed };
   const kept = orderOutcome(outcomes, "only_item_kept");
   if (kept) return { kind: "only_item_kept", orderId: kept.orderId };
   const ready = orderOutcome(outcomes, "ready");
