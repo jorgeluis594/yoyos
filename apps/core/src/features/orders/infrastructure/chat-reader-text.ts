@@ -37,7 +37,7 @@ Quantities and prices
 - Never compute totals or divide a price.
 
 Rules
-- Use only what the message says and what the context lists. Do not decide from habit what the buyer probably wants.
+- Use only what the message says and what the context lists. Do not guess what the buyer probably wants.
 - A caption may complete a pending of a product other than the photo's: use complete_pending for it.
 - When one message names a product twice with different values, give two actions.
 - Messages in Spanish and Portuguese are both normal.`;

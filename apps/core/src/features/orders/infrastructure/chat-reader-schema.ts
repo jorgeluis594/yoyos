@@ -14,7 +14,7 @@ const productSchema = z.strictObject({
   refs: z.array(z.string()).nullable().describe("Only for kind one_of: at least two product references."),
 });
 const itemSchema = z.strictObject({
-  kind: z.enum(["ref", "unnamed", "not_in_order"]).describe("ref: one listed order item. unnamed: the buyer does not say which item. not_in_order: the item is not in the order."),
+  kind: z.enum(["ref", "unnamed", "not_in_order"]).describe("ref: one listed order item. unnamed: the buyer does not say which item (new attribute values with no item named are variant_only). not_in_order: the item is not in the order."),
   ref: z.string().nullable().describe(`Only for kind ref. ${ref}`),
 });
 const attributeSchema = z.strictObject({
