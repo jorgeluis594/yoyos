@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { walletProviderFitsMethod, walletProviderSchema, type WalletProvider } from "@shared/wallet-providers";
 import { getPeruDistrict } from "@shared/peru-geography";
 import { currencies } from "@shared/money";
 import { add, multiply, type Money } from "@shared/money";
@@ -17,7 +18,7 @@ export type OrderDraftItem = Readonly<{
   quantity: number;
 }>;
 
-export type DraftPayment = Readonly<{ paymentId: string; amount: string; method: "digital_wallet" | "bank_transfer"; deductStockIfPartial: boolean }>;
+export type DraftPayment = Readonly<{ paymentId: string; amount: string; method: "digital_wallet" | "bank_transfer"; walletProvider?: WalletProvider; deductStockIfPartial: boolean }>;
 export type DraftCustomer = NewOrderCustomer;
 type DraftOptions = Readonly<{ customer?: DraftCustomer; payments?: readonly DraftPayment[]; ratedDelivery?: RatedDeliveryAssignment; deliverImmediately?: boolean; deferStockDeduction?: boolean; scheduledDispatchDate?: string }>;
 const identity = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("absent") }),
@@ -38,7 +39,8 @@ export type RatedDeliveryAssignment = z.infer<typeof ratedDeliveryAssignmentSche
 const submissionSchema = z.strictObject({ id: z.uuid(), customer: newOrderCustomerSchema.optional(),
   items: z.array(z.strictObject({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
   payments: z.array(z.strictObject({ paymentId: z.uuid(), amount: z.strictObject({ amount: z.number().finite().positive().refine(value => /^\d+(?:\.\d{1,2})?$/.test(String(value))), currency: z.enum(currencies) }),
-    method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
+    method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(), deductStockIfPartial: z.boolean() })
+    .refine(walletProviderFitsMethod)).optional(),
   delivery: ratedDeliveryAssignmentSchema.optional(),
   deliverImmediately: z.boolean().optional(),
   deferStockDeduction: z.boolean().optional(),
