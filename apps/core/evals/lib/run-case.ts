@@ -143,7 +143,7 @@ export function runMessageCase(context: RunCaseContext, testCase: MessageCase, r
  */
 export async function runConversationCase(context: RunCaseContext, testCase: ConversationCase, repeat: number): Promise<readonly CaseRecord[]> {
   const messages = testCase.steps.filter(isMessageStep);
-  const { results, error } = await context.path.applyConversation(testCase.steps, context.scope);
+  const { results, error } = await context.path.applyConversation(testCase.steps, context.scope, testCase);
   const records: CaseRecord[] = [];
   for (const [index, step] of messages.entries()) {
     const number = index + 1;

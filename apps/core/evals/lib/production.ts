@@ -29,15 +29,15 @@ import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
-import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
-import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
+import type { ChatPending, ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
+import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import { metered, type ModelCall } from "@core/evals/lib/model-meter";
-import { describeVariantId, productById, productIdOf, variantIdOf, type CatalogScope, type ProductKey } from "@core/evals/fixtures/catalog";
-import type { EventStep, MessageInput, MessageStep, OrderLine } from "@core/evals/cases/schema";
+import { catalogOf, describeVariantId, findVariant, productById, productIdOf, variantIdOf, type CatalogScope, type ProductKey } from "@core/evals/fixtures/catalog";
+import type { EventStep, MessageInput, MessageStep, OrderLine, PendingSeed } from "@core/evals/cases/schema";
 import { evalCompanyId, privateCompanyId, readRegisteredImage, registerImageFile, scopeOfCompany, sellerOfCompany } from "@core/evals/lib/eval-catalog";
 import { SimulatedClock, runConversationSteps, type StepResult } from "@core/evals/lib/conversation";
 
@@ -127,9 +127,13 @@ export function createProductionPath(env: Env) {
     /** Applies one message through apply-chat-message, seeding the open order first; `photos` says how the photo is identified. */
     applyMessage: (input: MessageInput, photos: "fixed" | "real", scope: CatalogScope = "eval") => applyMessage(input, photos, wiring, companyOf(scope)),
     /** Applies a conversation: one chat, its messages and events in order on one simulated clock. */
-    applyConversation: (steps: readonly ConversationStepInput[], scope: CatalogScope = "eval") => applyConversation(steps, wiring, companyOf(scope)),
+    applyConversation: (steps: readonly ConversationStepInput[], scope: CatalogScope = "eval", start: ChatStart = noStart) => applyConversation(steps, wiring, companyOf(scope), start),
   };
 }
+
+/** The state a chat starts in (cases/schema.ts `startState`): applied before the first message or step. */
+export type ChatStart = Readonly<{ order: readonly OrderLine[]; pendings: readonly PendingSeed[]; orderState?: "closed" }>;
+const noStart: ChatStart = { order: [], pendings: [] };
 
 type ConversationStepInput = Parameters<typeof runConversationSteps>[0][number];
 
@@ -140,9 +144,12 @@ type Wiring = Readonly<{
   limits: ApplyChatMessageDependencies["limits"];
 }>;
 
+/** What seeding a start needs of the wiring: label photos pass through `applyChatMessage` with no reader, so no model is called. */
+type SeedWiring = Pick<Wiring, "readChatMessage" | "readiness" | "limits">;
+
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
-function dependencies(wiring: Wiring, identify: ApplyChatMessageDependencies["identifyProductsInImage"], company: EvalCompany, clock: () => Date): ApplyChatMessageDependencies {
+function dependencies(wiring: SeedWiring, identify: ApplyChatMessageDependencies["identifyProductsInImage"], company: EvalCompany, clock: () => Date): ApplyChatMessageDependencies {
   // The private company has no indexed photos: its catalog counts as searchable once it has active products.
   const readiness = company.scope === "private" ? { ...wiring.readiness, hasIndexedProducts: async () => ok(true) } : wiring.readiness;
   return {
@@ -213,7 +220,8 @@ async function newMessage(chat: Chat, content: Readonly<{ text?: string; caption
 
 /** A product label photo identified by its QR code, as the cascade reports it. */
 async function labelIdentification(product: ProductKey, variant: Readonly<Record<string, string>>, company: EvalCompany): Promise<ImageIdentification> {
-  const code = variantIdOf(product, variant, company.scope);
+  // The variant's own attribute order makes its id, whatever order the case wrote.
+  const code = variantIdOf(product, findVariant(product, variant, company.scope).attributes, company.scope);
   const found = await inTenant(company, () => findSellableVariantsByQrCodes([code]));
   if (!found.success || !found.data.length) throw new Error(`Seeded variant ${code} is missing`);
   return { kind: "found", method: "qr", items: found.data.map((item) => ({ ...item, productId: item.productId as ProductId })), unknownCodes: [] };
@@ -221,8 +229,33 @@ async function labelIdentification(product: ProductKey, variant: Readonly<Record
 
 const fixed = (identification: ImageIdentification): ApplyChatMessageDependencies["identifyProductsInImage"] => async () => ok(identification);
 
+/** Writes the status of every variant of a product, or of the one with `attributes`, as the deactivate-product use case does. */
+async function setProductStatus(product: ProductKey, attributes: Readonly<Record<string, string>> | null, status: "active" | "inactive", company: EvalCompany): Promise<void> {
+  const variants = productById(productIdOf(product, company.scope))?.variants ?? [];
+  for (const variant of variants.filter((candidate) => attributes === null || candidate === findVariant(product, attributes, company.scope))) {
+    const variantId = variantIdOf(product, variant.attributes, company.scope) as VariantId;
+    const changed = await inTenant(company, () => setVariantStatus(variantId, status, { productId: productIdOf(product, company.scope) as ProductId, variantId, action: "change_status", started: performance.now() }));
+    if (!changed.success) throw new Error(`Setting ${product} ${status} failed: ${changed.error.code}`);
+  }
+}
+
+/** Reactivating is company-wide and transient; it is safe because evals run one case at a time (`maxWorkers: 1`, `fileParallelism: false`).
+ * The lines whose product or variant the catalog marks inactive: the order is seeded while they are active, then they go back to inactive. */
+const inactiveLines = (lines: readonly OrderLine[], company: EvalCompany) => lines.filter((line) =>
+  !catalogOf(company.scope).products.find(({ key }) => key === line.product)?.active || !findVariant(line.product, line.variant, company.scope).active);
+
 /** Seeds the open order with label photos (QR, no caption): the deterministic path, no model call. */
-async function seedOrder(chat: Chat, lines: readonly OrderLine[], wiring: Wiring, company: EvalCompany): Promise<void> {
+async function seedOrder(chat: Chat, lines: readonly OrderLine[], wiring: SeedWiring, company: EvalCompany): Promise<void> {
+  const inactive = inactiveLines(lines, company);
+  for (const line of inactive) await setProductStatus(line.product, line.variant, "active", company);
+  try {
+    await addOrderLines(chat, lines, wiring, company);
+  } finally {
+    for (const line of inactive) await setProductStatus(line.product, line.variant, "inactive", company);
+  }
+}
+
+async function addOrderLines(chat: Chat, lines: readonly OrderLine[], wiring: SeedWiring, company: EvalCompany): Promise<void> {
   for (const line of lines) {
     const identified = await labelIdentification(line.product, line.variant, company);
     for (let unit = 0; unit < line.quantity; unit += 1) {
@@ -232,6 +265,37 @@ async function seedOrder(chat: Chat, lines: readonly OrderLine[], wiring: Wiring
       if (!applied.success || applied.data.kind !== "applied" || applied.data.outcomes[0].kind !== "added") throw new Error(`Seeding ${line.product} failed: ${JSON.stringify(applied)}`);
     }
   }
+}
+
+/** Saves the pendings through the repository, attached to the chat's order when it has one (a pending created while the order was open). */
+async function seedPendings(chat: Chat, pendings: readonly PendingSeed[], company: EvalCompany): Promise<void> {
+  if (!pendings.length) return;
+  const order = await orderOfChat(chat.chatId, company);
+  const now = new Date();
+  const productId = (product: ProductKey) => productIdOf(product, company.scope) as ProductId;
+  const seeded = pendings.map((pending): ChatPending => {
+    const id = randomUUID() as ChatPendingId;
+    return {
+      id,
+      subject: "product" in pending ? { kind: "variant", productId: productId(pending.product) }
+        : { kind: "product", candidates: pending.candidates.map(productId) as [ProductId, ProductId, ...ProductId[]] },
+      known: pending.known, quantity: pending.quantity as PositiveInteger, price: null,
+      order: order ? { orderId: order.id as OrderId, attachedAt: now } : null,
+      lastChangedAt: now, sourceMessageId: randomUUID() as ChatMessageId, requestId: id,
+    };
+  });
+  const saved = await inTenant(company, () => withinTransaction(() => saveChatPendings(chat.chatId as ChatId, { pendings: seeded, readyRemembered: false })));
+  if (!saved.success) throw new Error(`Seeding the pendings failed: ${saved.error.code}`);
+}
+
+/**
+ * Seeds the chat's start: the order lines, then the pendings, then the closing. `closed` is the order paid in full by hand, the same
+ * path as the `confirm_payment` event without a report, so the chat's target is a closed order. Returns the payment it made.
+ */
+async function seedStart(chat: Chat, start: ChatStart, wiring: SeedWiring, company: EvalCompany, clock: () => Date = () => new Date()): Promise<PaymentState> {
+  await seedOrder(chat, start.order, wiring, company);
+  await seedPendings(chat, start.pendings, company);
+  return start.orderState === "closed" ? applyEvent({ event: "confirm_payment" }, chat, company, clock, null) : null;
 }
 
 export type AppliedLine = Readonly<{ product: ProductKey | null; variant: Readonly<Record<string, string>>; quantity: number; unitPrice: number;
@@ -287,7 +351,7 @@ async function applyStored(messageId: ChatMessageId, chatId: string, identify: A
 
 async function applyMessage(input: MessageInput, photos: "fixed" | "real", wiring: Wiring, company: EvalCompany): Promise<AppliedMessage> {
   const chat = await newChat(company);
-  await seedOrder(chat, input.order, wiring, company);
+  await seedStart(chat, input, wiring, company);
   if (photos === "fixed" && input.photo && "file" in input.photo) throw new Error("The interpretation pass identifies photos by hand");
   const identify = input.photo ? await photoIdentification(input.photo, wiring, company) : fixed({ kind: "not_product" });
   const messageId = await newMessage(chat, input.photo
@@ -307,10 +371,10 @@ export type AppliedConversation = Readonly<{ results: readonly StepResult<Conver
  * `clock` of `applyChatMessage` and of the payment, cancellation and product use cases all read it. Photos are identified by the
  * case (`shows`), as in the interpretation pass; earlier messages are applied for real, not seeded.
  */
-async function applyConversation(steps: readonly ConversationStepInput[], wiring: Wiring, company: EvalCompany): Promise<AppliedConversation> {
+async function applyConversation(steps: readonly ConversationStepInput[], wiring: Wiring, company: EvalCompany, start: ChatStart): Promise<AppliedConversation> {
   const chat = await newChat(company);
-  let payment: PaymentState = null;
-  let previousOrder: readonly AppliedLine[] = [];
+  let payment: PaymentState = await seedStart(chat, start, wiring, company);
+  let previousOrder: readonly AppliedLine[] = await chatOrderLines(chat.chatId, company) ?? [];
   const driver = {
     message: async (step: MessageStep, _number: number, clock: SimulatedClock): Promise<ConversationMessage> => {
       const { input } = step;
@@ -362,12 +426,7 @@ async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clo
   const access = { companyId: company.companyId as CompanyId, userId: company.sellerId as UserId };
   const transaction = <T, E extends { code: string; message: string }>(_companyId: string, work: () => Promise<Result<T, E>>) => withinTransaction(work);
   if (step.event === "deactivate_product") {
-    const product = productById(productIdOf(step.product, company.scope));
-    for (const variant of product?.variants ?? []) {
-      const variantId = variantIdOf(step.product, variant.attributes, company.scope) as VariantId;
-      const changed = await inTenant(company, () => setVariantStatus(variantId, "inactive", { productId: productIdOf(step.product, company.scope) as ProductId, variantId, action: "change_status", started: performance.now() }));
-      if (!changed.success) throw new Error(`Deactivating ${step.product} failed: ${changed.error.code}`);
-    }
+    await setProductStatus(step.product, null, "inactive", company);
     return payment;
   }
   if (step.event === "advance_days") return payment;
@@ -415,4 +474,20 @@ async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clo
       return null;
     }
   }
+}
+
+/**
+ * Creates a chat in the eval company of `scope` and seeds its start with no model call (the reader is never reached), for the tests of the
+ * seeding itself: what the reader would see is then read from the repositories.
+ */
+export async function seedChatStart(start: ChatStart, scope: CatalogScope = "eval"): Promise<Readonly<{ chatId: string; company: EvalCompany }>> {
+  const company = companyOf(scope);
+  const wiring: SeedWiring = {
+    readChatMessage: async () => { throw new Error("Seeding a start calls no model"); },
+    readiness: { visualModel: "none" as never, hasActiveProducts, hasIndexedProducts },
+    limits: readChatMessageLimits({}),
+  };
+  const chat = await newChat(company);
+  await seedStart(chat, start, wiring, company);
+  return { chatId: chat.chatId, company };
 }
