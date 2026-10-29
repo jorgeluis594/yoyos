@@ -61,6 +61,9 @@ type CheckoutLinkState =
   | Readonly<{ kind: "subdomain_required" }>
   | Readonly<{ kind: "error" }>;
 
+/** Shipping needs one confirmed payment while delivering needs the full amount, so the reason differs. */
+const fulfillmentKey = (operation: "ship" | "deliver" | null, code: string) => operation === "ship" && code === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : code;
+
 export default function OrderDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
@@ -188,7 +191,7 @@ export default function OrderDetailScreen() {
     try {
       const result = await orders[operation](order.id);
       if (result.success) { setOrder(result.data); setFulfillmentMessage(t(`orderFulfillment.${operation}Saved`)); }
-      else setFulfillmentError(t(`orderFulfillment.${result.error.code}`, { defaultValue: t("orderFulfillment.saveError") }));
+      else setFulfillmentError(t(`orderFulfillment.${fulfillmentKey(operation, result.error.code)}`, { defaultValue: t("orderFulfillment.saveError") }));
     } catch { setFulfillmentError(t("orderFulfillment.saveError")); }
     finally { setFulfilling(null); }
   }
@@ -446,7 +449,7 @@ export default function OrderDetailScreen() {
           {!order.cancelled ? <View style={styles.section}>
             {order.shippedAt ? <ThemedText type="small" themeColor="textSecondary">{t('shippedOn', { date: date(order.shippedAt, locale) })}</ThemedText> : null}
             {nextOperation && (!nextBlock || nextReason) ? <Button disabled={writeBusy || !!nextBlock} loading={fulfilling === nextOperation} onPress={() => void fulfill(nextOperation)}>{t(`orderFulfillment.${nextOperation}`)}</Button> : null}
-            {nextReason ? <ThemedText type="small" themeColor="textSecondary" style={styles.center}>{t(`orderFulfillment.${nextReason}`)}</ThemedText> : null}
+            {nextReason ? <ThemedText type="small" themeColor="textSecondary" style={styles.center}>{t(`orderFulfillment.${fulfillmentKey(nextOperation, nextReason)}`)}</ThemedText> : null}
             {fulfillmentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{fulfillmentError}</ThemedText> : null}
             {fulfillmentMessage ? <ThemedText accessibilityRole="alert">{fulfillmentMessage}</ThemedText> : null}
           </View> : null}

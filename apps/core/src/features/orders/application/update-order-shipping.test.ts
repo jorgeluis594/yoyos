@@ -39,6 +39,7 @@ function setup(order: OrderAggregate, failFulfillment = false) {
     findOrderForUpdate: async () => ok(stored),
     saveDispatchSchedule: async (_id, _company, change) => { stored = { ...stored, ...change }; return ok(null); },
     saveFulfillment: async (_id, _company, change) => failFulfillment ? err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) : (stored = { ...stored, ...change }, ok(null)),
+    deductProductStock: async () => ok(null), saveStockDeduction: async () => ok(null),
     clock: () => now,
   };
   return { deps, stored: () => stored, committed: () => committed };

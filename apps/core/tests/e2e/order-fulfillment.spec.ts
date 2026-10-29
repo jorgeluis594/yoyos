@@ -27,7 +27,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       await page.goto(`/es-PE/orders/${orderId}`);
       await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
       await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
-      await browserExpect(page.getByText("Se requiere el pago completo antes de enviar o entregar.").first()).toBeVisible();
+      await browserExpect(page.getByText("Se requiere al menos un pago para despachar.").first()).toBeVisible();
       for (const operation of ["ship", "deliver"] as const) {
         const blocked = await page.request.post(`/api/orders/${orderId}/${operation}`);
         expect(blocked.status()).toBe(409);
@@ -46,7 +46,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
         // A concurrent payment void must be rejected by the authoritative operation.
         expect((await page.request.post(`/api/orders/${orderId}/payments/${paid.payments[0].id}/void`)).ok()).toBe(true);
         await page.getByRole("button", { name: "Marcar enviado", exact: true }).click();
-        await browserExpect(page.getByRole("alert")).toContainText("Se requiere el pago completo");
+        await browserExpect(page.getByRole("alert")).toContainText("Se requiere al menos un pago");
         expect((await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).deliveryStatus).toBe("pending");
         await pay();
         await page.reload();
@@ -135,7 +135,7 @@ test("mobile fulfillment refreshes details and history through the real API", as
       await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
       const primary = page.getByRole("button", { name: shipFirst ? "Marcar como despachado" : "Marcar como entregado", exact: true });
       await browserExpect(primary).toBeDisabled();
-      await browserExpect(page.getByText("Se requiere el pago completo antes de enviar o entregar.").first()).toBeVisible();
+      await browserExpect(page.getByText(shipFirst ? "Se requiere al menos un pago para despachar." : "Se requiere el pago completo antes de entregar.").first()).toBeVisible();
       await page.getByRole("button", { name: "Registrar pago", exact: true }).click();
       await page.getByRole("button", { name: /^Registrar .*\d/ }).click();
       await browserExpect(primary).toBeEnabled();
