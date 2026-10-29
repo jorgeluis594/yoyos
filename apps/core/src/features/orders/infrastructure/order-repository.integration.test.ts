@@ -13,7 +13,7 @@ import { ok, err } from "@shared/functional";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildPendingOrder, orderStateMachine, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findChatOrderTargetForUpdate, recordProcessedMessage, saveItemChanges, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
+import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, recordProcessedMessage, saveItemChanges, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
 import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
@@ -1850,6 +1850,61 @@ test("findChatOrderTargetForUpdate says why the chat has no open order", async (
       await withinTransaction(() => savePendingOrder(second, chat.source));
       await prisma.order.update({ where: { id: second.id }, data: { stockDeducted: true, stockDeductedAt: new Date(), deliveryStatus: "shipped" } });
       expect(await withinTransaction(() => findChatOrderTargetForUpdate(chat.chatId, findProductIds))).toEqual(ok({ kind: "closed", orderId: second.id, number: second.number }));
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("reads the chat order target without locking it", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const order = chatOrder(f);
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await findChatOrderTarget(chat.chatId, findProductIds)).toEqual(ok({ kind: "none" }));
+      await withinTransaction(() => savePendingOrder(order, chat.source));
+      const target = await findChatOrderTarget(chat.chatId, findProductIds);
+      expect(target).toMatchObject({ success: true, data: { kind: "open", order: { id: order.id } } });
+      if (target.success && target.data.kind === "open") expect([...target.data.productIds]).toEqual([[f.variantIds[0], f.productId]]);
+      // The locked read needs an open transaction; the unlocked one does not.
+      await expect(findChatOrderTargetForUpdate(chat.chatId, findProductIds)).rejects.toThrow();
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+async function voidedPayment(orderId: string, voidedAt: Date) {
+  await prisma.payment.create({ data: { id: randomUUID(), orderId, status: "voided", amount: new Prisma.Decimal("1"), currency: "PEN", method: "digital_wallet",
+    data: { confirmedAt: new Date(voidedAt.getTime() - 60_000).toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" }, voidedAt: voidedAt.toISOString(), voidedBy: "x" } } });
+}
+
+test("returns the chat orders created or voided after a time with their payments", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const since = new Date("2026-10-10T00:00:00Z");
+    const before = chatOrder(f, { createdAt: new Date("2026-10-01T00:00:00Z") });
+    const voidedLater = chatOrder(f, { createdAt: new Date("2026-10-02T00:00:00Z") });
+    const created = chatOrder(f, { createdAt: new Date("2026-10-12T00:00:00Z") });
+    await withTenantIsolation(f.companyId, async () => {
+      for (const order of [before, voidedLater, created]) await withinTransaction(() => savePendingOrder(order, chat.source));
+      await voidedPayment(voidedLater.id, new Date("2026-10-11T00:00:00Z"));
+      const found = await findChatOrdersOpenedSince(chat.chatId, since);
+      expect(found.success && found.data.map((order) => order.id)).toEqual([voidedLater.id, created.id]);
+      if (found.success) expect(found.data[0]!.payments).toMatchObject([{ status: "voided" }]);
+      expect(await findChatOrdersOpenedSince(chat.chatId, new Date("2026-11-01T00:00:00Z"))).toEqual(ok([]));
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("returns the earliest twenty orders opened after a time when more exist", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const day = (n: number) => new Date(Date.UTC(2026, 9, 1 + n));
+    const all = Array.from({ length: 22 }, (_, n) => chatOrder(f, { createdAt: day(n) }));
+    await withTenantIsolation(f.companyId, async () => {
+      for (const order of all) await withinTransaction(() => savePendingOrder(order, chat.source));
+      const found = await findChatOrdersOpenedSince(chat.chatId, new Date("2026-09-30T00:00:00Z"));
+      expect(found.success && found.data.map((order) => order.id)).toEqual(all.slice(0, 20).map((order) => order.id));
     });
   } finally { await chatCleanup(f); await f.cleanup(); }
 });
