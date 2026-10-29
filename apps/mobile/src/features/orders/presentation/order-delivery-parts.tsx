@@ -29,12 +29,10 @@ export function DeliveryBadge({ status, language }: { status: DeliveryStatus; la
 
 /** Aligned row: icon tile, small label above the current value, chevron. */
 export function DeliveryRow({ symbol, label, value, onPress, disabled = false, expanded, muted = false }: {
-  symbol: Symbol; label: string; value: string; onPress: () => void; disabled?: boolean; expanded?: boolean; muted?: boolean;
+  symbol: Symbol; label: string; value: string; onPress?: () => void; disabled?: boolean; expanded?: boolean; muted?: boolean;
 }) {
   const theme = useTheme();
-  return <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${value}`} accessibilityState={{ disabled, ...(expanded === undefined ? {} : { expanded }) }}
-    disabled={disabled} onPress={onPress}
-    style={({ pressed }) => [styles.row, { backgroundColor: pressed ? theme.backgroundSelected : "transparent", opacity: disabled ? 0.5 : 1 }]}>
+  const content = <>
     <View style={[styles.tile, { backgroundColor: theme.secondary }]}>
       <SymbolView name={symbol as never} size={20} tintColor={theme.text} />
     </View>
@@ -42,7 +40,14 @@ export function DeliveryRow({ symbol, label, value, onPress, disabled = false, e
       <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>{label}</ThemedText>
       <ThemedText themeColor={muted ? "textSecondary" : "text"} style={styles.value} numberOfLines={2}>{value}</ThemedText>
     </View>
-    <SymbolView name={expanded ? { ios: "chevron.down", android: "expand_more" } : { ios: "chevron.right", android: "chevron_right" }} size={20} tintColor={theme.textSecondary} />
+    {onPress ? <SymbolView name={expanded ? { ios: "chevron.down", android: "expand_more" } : { ios: "chevron.right", android: "chevron_right" }} size={20} tintColor={theme.textSecondary} /> : null}
+  </>;
+  // A row that does nothing is plain information: no chevron, normal contrast.
+  if (!onPress) return <View accessible accessibilityLabel={`${label}: ${value}`} style={styles.row}>{content}</View>;
+  return <Pressable accessibilityRole="button" accessibilityLabel={`${label}: ${value}`} accessibilityState={{ disabled, ...(expanded === undefined ? {} : { expanded }) }}
+    disabled={disabled} onPress={onPress}
+    style={({ pressed }) => [styles.row, { backgroundColor: pressed ? theme.backgroundSelected : "transparent", opacity: disabled ? 0.5 : 1 }]}>
+    {content}
   </Pressable>;
 }
 

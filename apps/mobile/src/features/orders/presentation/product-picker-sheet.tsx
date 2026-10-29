@@ -34,7 +34,7 @@ export function ProductPickerSheet({ visible, search, loading, catalog, selected
   const theme = useTheme();
   return <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
     <KeyboardAvoidingView style={styles.flex} behavior={Platform.OS === "ios" ? "padding" : "height"}>
-      <Pressable style={styles.scrim} accessibilityRole="button" accessibilityLabel={t('detailClose')} onPress={onClose} />
+      <Pressable style={styles.scrim} accessible={false} importantForAccessibility="no" accessibilityElementsHidden onPress={onClose} />
       <SafeAreaView edges={["bottom"]} style={[styles.sheet, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
         <View style={[styles.grab, { backgroundColor: theme.input }]} />
         <View style={styles.header}>
