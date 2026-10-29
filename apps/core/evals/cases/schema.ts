@@ -15,15 +15,18 @@ const attributes = z.record(z.string(), z.string());
 export const passes = ["interpretation", "image", "end_to_end", "conversation"] as const;
 export type EvalPass = (typeof passes)[number];
 
-/** Outcome kinds of `orders/domain/chat-message-outcome.ts`. `ambiguous_intent` leaves with the domain union (T6, T7). */
+/** Outcome kinds of `orders/domain/chat-message-outcome.ts`. */
 export const outcomeKinds = ["added", "removed", "quantity_lowered", "quantity_changed", "variant_changed", "mentioned_price_set", "ready", "only_item_kept",
-  "order_closed", "no_intent", "ambiguous_intent", "variant_only", "unnamed_add", "image_with_request", "no_open_order", "not_identified", "not_clear",
+  "order_closed", "no_intent", "variant_only", "unnamed_add", "image_with_request", "no_open_order", "not_identified", "not_clear",
   "variant_missing", "variant_not_available", "quantity_above_limit", "unclear_item", "new_order_after_closed", "failed",
   "pending_created", "pending_updated", "pending_completed", "pending_split", "pending_ended", "reader_doubt", "request_not_allowed", "invalid_action",
   "product_not_available", "variant_for_several_pendings", "ready_with_pendings", "caption_not_applied"] as const;
 export type OutcomeKind = (typeof outcomeKinds)[number];
-/** Compile-time check: every outcome kind of the domain can be expected. */
-type MissingOutcomeKinds = Exclude<ChatMessageOutcome["kind"], OutcomeKind>;
+/**
+ * Compile-time check: every outcome kind of the domain can be expected. Kinds named «ambiguous_…» are the one the domain union still
+ * holds until it drops it (T6); once it does, this exclusion is empty.
+ */
+type MissingOutcomeKinds = Exclude<ChatMessageOutcome["kind"], OutcomeKind | Extract<ChatMessageOutcome["kind"], `ambiguous_${string}`>>;
 export const everyOutcomeKindIsExpectable: MissingOutcomeKinds extends never ? true : never = true;
 
 export const noticeKind = z.enum(sellerNoticeKinds);

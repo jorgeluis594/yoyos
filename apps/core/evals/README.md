@@ -96,6 +96,13 @@ eval-results/<run>.json`, which writes `<run>.dev.json` and leaves the run as it
 `cases/holdout-v1.ts` is the first holdout, used once to judge T16: it is now an ordinary table, split like the others; its
 `probe` rows target risks beyond the design and are reported under `tag:probe`.
 
+## Pinned misses
+
+`cases/pinned-misses.ts` lists the 28 suite misses of the Todoist task (19 in dev, 9 in test) and `casesOf` tags them `pinned-miss`
+(paraphrases by their own id). `txt-gorra-two-candidates` and `txt-polera-two-candidates` are **not applicable**: they were text-identification
+cases of the text pass, which no longer exists, so they have no message, order or notice and carry no case. Cases relabeled from the
+rules sheet cite their rule in the `ambiguous` note or in a comment above the case.
+
 ## Conversation cases
 
 A conversation case is `{ id, pass: "conversation", kind, tags, steps }` with 2 to 4 message steps and any number of event steps.
@@ -104,6 +111,11 @@ a caption, with no seeded order, because the earlier messages of the conversatio
 message is scored against the order they left. `expected` is `{ notice, order?, outcomes? }`; `notice` is the kind of the one notice
 the message sends (`chooseSellerNotice(outcomes)?.kind`) or `null` when the message must be silent. `expectsRepeatNotice: true`
 marks a step the rules sheet expects to repeat the notice of an earlier step for the same product.
+
+`cases/conversations.ts` is written from the rules sheet by someone who does not tune. Its `kind` is the family: `photo-then-size`,
+`text-then-size`, `partial-completion`, `replacement`, `decline`, `two-pendings`, `doubtful-then-choice`, `caption-completes-pending`,
+`caption-repeat-notice`, `pending-after-payment`, `orderless-pending-after-payment`, `ready-with-pending`, `pending-expiry` and
+`product-unavailable`; each required family has a conversation in dev and one in test (`cases/conversations.test.ts`).
 
 Event steps act on the chat's latest order through the production use cases, at the conversation's simulated time:
 `advance_days` (moves the clock; nothing else happens), `cancel_order`, `report_payment`, `confirm_payment`, `void_payment` and
@@ -124,8 +136,8 @@ not restore stock. A conversation's split is the hash of its id. Each message le
 ## Scoring
 
 Notice kind, outcomes (as a multiset), product, variant, quantity and mentioned price are exact matches; every message also checks
-that unit prices are the catalog prices. A case passes when it matches one acceptable expectation. `ambiguous_intent` no longer
-satisfies `no_intent`. Claude judges only message cases with several acceptable expectations or marked `ambiguous`, with a `{pass, score,
+that unit prices are the catalog prices. A case passes when it matches one acceptable expectation. A doubt is always a notice, so no
+outcome stands in for `no_intent` when the reader is unsure. Claude judges only message cases with several acceptable expectations or marked `ambiguous`, with a `{pass, score,
 reason}` verdict; for an `ambiguous` case the judge's pass also counts. Price integrity can never be overruled by the judge.
 Besides pass or fail, each message is counted for the acceptance gate of the product draft:
 
@@ -198,6 +210,6 @@ true) and `variants` (non-empty list). A variant has `attributes` (an object who
   absent means unchanged) and `outcomes` (a list of outcome kinds, as a multiset). A message case needs `notice` or `outcomes`; a
   conversation step always has `notice`.
 - Seller notice kinds: `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `unnamed_add`, `variant_only`, `image_with_request`, `no_open_order`, `failed`, `order_closed`, `several_problems`, `only_item_kept`, `ready`, `new_order`, `not_applied`, `caption_not_applied`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`.
-- Outcome kinds: `added`, `removed`, `quantity_lowered`, `quantity_changed`, `variant_changed`, `mentioned_price_set`, `ready`, `only_item_kept`, `order_closed`, `no_intent`, `ambiguous_intent`, `variant_only`, `unnamed_add`, `image_with_request`, `no_open_order`, `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `new_order_after_closed`, `failed`, `pending_created`, `pending_updated`, `pending_completed`, `pending_split`, `pending_ended`, `reader_doubt`, `request_not_allowed`, `invalid_action`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`, `caption_not_applied`.
+- Outcome kinds: `added`, `removed`, `quantity_lowered`, `quantity_changed`, `variant_changed`, `mentioned_price_set`, `ready`, `only_item_kept`, `order_closed`, `no_intent`, `variant_only`, `unnamed_add`, `image_with_request`, `no_open_order`, `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `new_order_after_closed`, `failed`, `pending_created`, `pending_updated`, `pending_completed`, `pending_split`, `pending_ended`, `reader_doubt`, `request_not_allowed`, `invalid_action`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`, `caption_not_applied`.
 
 Every product named by a case must exist in `catalog.json`. A file inside the repository, or reached through a link into it, is refused.

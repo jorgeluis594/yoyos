@@ -4,6 +4,7 @@ import { holdoutV1Cases } from "@core/evals/cases/holdout-v1";
 import { endToEndCaseIds, endToEndCasesFrom } from "@core/evals/cases/end-to-end";
 import { imageCasesFrom } from "@core/evals/cases/identification";
 import { conversationCases } from "@core/evals/cases/conversations";
+import { withPinnedMisses } from "@core/evals/cases/pinned-misses";
 import { paraphrases } from "@core/evals/cases/paraphrases";
 import { splitOfCase, type EvalSplit } from "@core/evals/cases/split";
 import { readPhotoManifest, type ImageManifest } from "@core/evals/fixtures/image-manifest";
@@ -35,7 +36,7 @@ export function withParaphrases(cases: readonly EvalCaseInput[], rewrites: reado
 export function casesOf(manifest: ImageManifest | null): readonly EvalCase[] {
   const cases = baseCasesOf(manifest);
   const dropped = new Set(endToEndCaseIds().filter((id) => !cases.some((testCase) => testCase.id === id)));
-  return parseCases(withParaphrases(cases, paraphrases.filter((rewrite) => !dropped.has(rewrite.of))));
+  return parseCases(withPinnedMisses(withParaphrases(cases, paraphrases.filter((rewrite) => !dropped.has(rewrite.of)))));
 }
 
 export const allCases: readonly EvalCase[] = casesOf(imageManifest);
