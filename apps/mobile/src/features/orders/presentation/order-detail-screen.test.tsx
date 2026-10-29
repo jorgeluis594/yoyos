@@ -124,7 +124,7 @@ test("seller confirms a reported partial amount from the mobile order", async ()
   fireEvent.press(screen.getAllByRole("button", { name: "Confirmar pago" })[0]);
   await waitFor(() => expect(mockRegisterPayment).toHaveBeenCalledWith(mockId, {
     paymentId: reportId, source: "buyer_report", amount: { amount: 4.5, currency: "PEN" },
-    method: "digital_wallet", deductStockIfPartial: false,
+    method: "digital_wallet", walletProvider: "yape", deductStockIfPartial: false,
   }));
   expect(screen.getByText("No hay stock suficiente para confirmar el pago.")).toBeTruthy();
 });

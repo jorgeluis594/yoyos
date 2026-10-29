@@ -5,7 +5,7 @@ import { peruWalletProviders } from "@shared/wallet-providers/peru";
 export type WalletProviderCatalog<Id extends string> = Readonly<{ ids: readonly [Id, ...Id[]]; labels: Readonly<Record<Id, string>> }>;
 
 /** The one place where the country's wallets are chosen. */
-const catalog = peruWalletProviders;
+const catalog: WalletProviderCatalog<(typeof peruWalletProviders.ids)[number]> = peruWalletProviders;
 
 export type WalletProvider = (typeof catalog.ids)[number];
 export const walletProviders: readonly WalletProvider[] = catalog.ids;
