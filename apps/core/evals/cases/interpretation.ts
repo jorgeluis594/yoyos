@@ -3,7 +3,7 @@ import { after, kept, line, L_NEGRO, M_NEGRO } from "@core/evals/cases/builders"
 
 /**
  * Interpretation pass: texts and photo captions against an open order. A photo here is identified by hand (`shows`), so only
- * interpretation and the text and variant choosers run. Seeded from docs/message-to-order.md (rules «Context» to «Price»).
+ * the reader (and its candidate search) runs. Seeded from docs/message-to-order.md (rules «Context» to «Price»).
  */
 
 const polo = line("polo-basico", M_NEGRO);

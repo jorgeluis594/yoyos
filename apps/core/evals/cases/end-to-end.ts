@@ -3,7 +3,7 @@ import { pickPhoto, type ImageManifest, type PhotoPick } from "@core/evals/fixtu
 import { after, kept, line, L_NEGRO, M_NEGRO } from "@core/evals/cases/builders";
 
 /**
- * End-to-end pass: real photos through the identification cascade, interpretation and the order transaction (apply-chat-message).
+ * End-to-end pass: real photos through the identification cascade, reader and the order transaction (apply-chat-message).
  * Photos are picked from the manifest by what they show; a case whose photo the manifest lacks is left out of the run.
  */
 

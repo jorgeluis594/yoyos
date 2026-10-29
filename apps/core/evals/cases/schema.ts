@@ -6,7 +6,7 @@ import type { ChatMessageOutcome } from "@core/src/features/orders/domain/chat-m
 
 /**
  * Eval cases are plain data validated here. `criterion` is the scope item agreed with the founder:
- * 1 interpretation, 2 non-product photos, 4 argument extraction, 5 visual identification. Conversations have none.
+ * 1 reading, 2 non-product photos, 4 argument extraction, 5 visual identification. Conversations have none.
  */
 
 /** A product key of the loaded catalog; `parseCases` checks it against the catalog the cases run on. */
@@ -76,7 +76,7 @@ const mentionedPrice = z.strictObject({ amount: z.number().positive(), units: z.
 export const finalLine = orderLine.extend({ mentionedPrice: mentionedPrice.nullable().default(null) });
 export type FinalLine = z.output<typeof finalLine>;
 
-/** A photo the interpretation pass identifies by hand (`shows`), so only the models of interpretation run; `label` is a printed QR label. */
+/** A photo the interpretation pass identifies by hand (`shows`), so only the reader runs; `label` is a printed QR label. */
 const shownPhoto = z.strictObject({ shows: productKey, label: attributes.optional() });
 const notProductPhoto = z.strictObject({ shows: z.literal("not_product") });
 /** A photo file the end-to-end pass reads with the real identification cascade; relative to the photo folder (images/README.md) or to `apps/core`. */
