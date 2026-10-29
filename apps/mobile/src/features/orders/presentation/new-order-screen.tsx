@@ -34,7 +34,7 @@ import { ScreenState } from "@mobile/components/ui/screen-state";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { addDraftItem, changeDraftQuantity, emptyOrderDraft, exceedsShownStock, paymentsDeductStock, prepareOrder, removeDraftItem, type RatedDeliveryAssignment,
-  type OrderDraft } from "@mobile/features/orders/domain/order-draft";
+  paymentsWithoutStockDeduction, type OrderDraft } from "@mobile/features/orders/domain/order-draft";
 import type { ConfirmOrderOutcome, ConfirmOrderError } from "@mobile/features/orders/application/order-operations";
 import { useOrderDraft } from "@mobile/features/orders/presentation/order-draft-guard";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
@@ -229,19 +229,21 @@ function CompanyOrderScreen() {
     } finally { saving.current = false; setSending(false); }
   };
   const send = (toSend: typeof saveDraft) => performSave(reviewingOrder ? () => orders.reviewPendingOrder(companyId, toSend) : () => orders.completeOrder(toSend, companyId));
+  const pendingPayments = () => paymentsWithoutStockDeduction(draft.payments ?? [], paidPaymentId, orderTotal);
   const savePending = () => {
-    let payments = (draft.payments ?? []).filter(payment => payment.paymentId !== paidPaymentId).map(payment => ({ ...payment, deductStockIfPartial: false }));
-    while (payments.length && paymentsDeductStock(payments, orderTotal)) payments = payments.slice(0, -1);
+    const { kept } = pendingPayments();
     setPaidPaymentId(null);
-    setDraft(current => ({ ...current, payments }));
-    return send({ ...saveDraft, payments });
+    setDraft(current => ({ ...current, payments: kept }));
+    return send({ ...saveDraft, payments: kept });
   };
   const complete = () => {
     if (!deliveryReady || !prepared.success || unavailableVariants.length) return;
     if (!paymentNeedsStock) return send(saveDraft);
     const lines = draft.items.filter(item => item.quantity > item.shownStock)
       .map(item => t('stockShortItem', { name: item.productName, quantity: item.quantity, stock: item.shownStock }));
-    showConfirmation({ title: t('stockShortTitle'), description: `${lines.join("\n")}\n\n${t('stockShortAdvice')}`,
+    const { removedAdvanceAmount } = pendingPayments();
+    const removal = removedAdvanceAmount > 0 ? `\n\n${t('stockShortRemovesAdvance', { amount: money(removedAdvanceAmount, currency, locale) })}` : "";
+    showConfirmation({ title: t('stockShortTitle'), description: `${lines.join("\n")}\n\n${t('stockShortAdvice')}${removal}`,
       confirmLabel: t('saveAsPending'), cancelLabel: t('stockShortBack'), onConfirm: () => void savePending() });
   };
   const startNewSale = () => {
@@ -373,7 +375,7 @@ function CompanyOrderScreen() {
               currency={currency} busy={sending} newId={() => Crypto.randomUUID()} format={amount => money(amount, currency, locale)}
               total={orderTotal ? orderTotal.amount : null} balance={orderTotal ? money(orderTotal.amount, orderTotal.currency, locale) : null}
               onPaymentsChange={update => setDraft(current => ({ ...current, payments: update(current.payments ?? []) }))} />
-            {paymentNeedsStock ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('paymentNeedsStock')}</ThemedText> : null}
+            {paymentNeedsStock ? <ThemedText accessibilityRole="alert" style={{ color: theme.warning }}>{t('paymentNeedsStock')}</ThemedText> : null}
             <View style={[styles.card, card]}>
             <ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
             <Field disabled={sending}><FieldLabel>{t('deliveryStatus')}</FieldLabel><OptionSelector testID="delivery-status" value={draft.deliverImmediately ? "delivered" : "pending"}

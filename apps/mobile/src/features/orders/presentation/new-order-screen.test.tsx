@@ -209,10 +209,10 @@ test("payment that covers the total with quantity above stock warns early and ke
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
-  expect(screen.getByText(/Con este pago el pedido descuenta stock/)).toHaveProp("accessibilityRole", "alert");
+  expect(screen.getByText(/Con este pago se descuenta stock/)).toHaveProp("accessibilityRole", "alert");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
   fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
-  expect(screen.queryByText(/Con este pago el pedido descuenta stock/)).toBeNull();
+  expect(screen.queryByText(/Con este pago se descuenta stock/)).toBeNull();
 });
 
 async function payFully(quantity: number) {
@@ -237,16 +237,31 @@ test("Pagado with quantity above stock asks on Save, and saving as pending sends
   expect(mockCompleteOrder.mock.calls[0][1]).toBe(mockId(1));
 });
 
-test("saving as pending keeps advance payments but clears their stock deduction", async () => {
+test("saving as pending drops an advance that covers the total and the dialog says how much is removed", async () => {
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  expect(mockShowConfirmation.mock.lastCall?.[0].description).toBe(`${dialogDescription}\n\nSe quitará el adelanto de S/\u00a040.00; regístralo cuando repongas stock.`);
   mockShowConfirmation.mock.lastCall?.[0].onConfirm();
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
-  expect((mockCompleteOrder.mock.calls[0][0].payments ?? []).some((payment: { deductStockIfPartial: boolean }) => payment.deductStockIfPartial)).toBe(false);
+  expect(mockCompleteOrder.mock.calls[0][0].payments ?? []).toEqual([]);
+});
+
+test("saving as pending keeps a partial advance with its stock deduction cleared and does not mention removal", async () => {
+  mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
+  fireEvent(screen.getByLabelText("Descontar stock con abono parcial"), "valueChange", true);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  expect(mockShowConfirmation.mock.lastCall?.[0].description).toBe(dialogDescription);
+  mockShowConfirmation.mock.lastCall?.[0].onConfirm();
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
+  expect(mockCompleteOrder.mock.calls[0][0].payments).toEqual([expect.objectContaining({ amount: "10", deductStockIfPartial: false })]);
 });
 
 test("Volver on the stock dialog sends nothing", async () => {
@@ -268,11 +283,11 @@ test("Pagado sheet with quantity above stock shows the alert, and lowering the q
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   fireEvent.press(screen.getByRole("radio", { name: "Pagado" }));
   fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
-  expect(screen.getByText(/Con este pago el pedido descuenta stock/)).toHaveProp("accessibilityRole", "alert");
+  expect(screen.getByText(/Con este pago se descuenta stock/)).toHaveProp("accessibilityRole", "alert");
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   fireEvent.press(screen.getByRole("button", { name: "−" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  expect(screen.queryByText(/Con este pago el pedido descuenta stock/)).toBeNull();
+  expect(screen.queryByText(/Con este pago se descuenta stock/)).toBeNull();
 });
 
 test("delivered with payment and quantity above stock shows a single stock alert", async () => {

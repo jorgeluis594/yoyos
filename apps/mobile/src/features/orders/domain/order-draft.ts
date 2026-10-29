@@ -126,3 +126,18 @@ export function paymentsDeductStock(payments: readonly DraftPayment[], total: Mo
 }
 
 export const exceedsShownStock = (items: readonly OrderDraftItem[]) => items.some(item => item.quantity > item.shownStock);
+
+/**
+ * Payments to send so the order saves as pending without deducting stock: drops the covering «Pagado» payment,
+ * clears `deductStockIfPartial` and then drops advances, last first, while the rest still covers the total.
+ * `removedAdvanceAmount` is the sum of those advances (not «Pagado»), which the seller has to register again.
+ */
+export function paymentsWithoutStockDeduction(payments: readonly DraftPayment[], paidPaymentId: string | null, total: Money | null): Readonly<{ kept: readonly DraftPayment[]; removedAdvanceAmount: number }> {
+  let kept = payments.filter(payment => payment.paymentId !== paidPaymentId).map(payment => ({ ...payment, deductStockIfPartial: false }));
+  let removedCents = 0;
+  while (kept.length && paymentsDeductStock(kept, total)) {
+    removedCents += cents(Number(normalizeDecimalInput(kept[kept.length - 1].amount)) || 0);
+    kept = kept.slice(0, -1);
+  }
+  return { kept, removedAdvanceAmount: removedCents / 100 };
+}
