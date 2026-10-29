@@ -1,7 +1,7 @@
 # AI evals
 
 Evals measure how well orders from chat messages end right (order and seller notice) with the real models
-(docs/message-to-order.md, docs/image-product-search.md, docs/drafts/pedidos-por-mensaje-un-solo-modelo-con-c.md). They use
+(docs/message-to-order.md, docs/image-product-search.md). They use
 [vitest-evals](https://github.com/getsentry/vitest-evals) on top of Vitest and run fully local: each run writes one JSON report
 to `apps/core/eval-results/` (gitignored) and nothing is sent to an eval service.
 
