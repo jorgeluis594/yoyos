@@ -148,8 +148,8 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
     buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone } : null,
     ...(row.chatId ? { chatId: row.chatId as ChatId } : {}),
     checkoutEnabledAt: row.checkoutEnabledAt, checkoutConfirmedAt: row.checkoutConfirmedAt,
-    createdAt: row.createdAt, scheduledDispatchDate, shippedAt: row.shippedAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
-    delivery: delivery === null ? null : delivery.data, deliveryStatus: row.deliveryStatus, stockDeducted: row.stockDeducted,
+    createdAt: row.createdAt, scheduledDispatchDate, shippedAt: row.shippedAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, cancelledAt: row.cancelledAt, items, payments,
+    delivery: delivery === null ? null : delivery.data, deliveryStatus: row.deliveryStatus, stockDeducted: row.stockDeducted, stockDeductedAt: row.stockDeductedAt,
     itemsTotal: { amount: row.itemsTotal.toNumber(), currency: row.currency },
     deliveryCost: { amount: row.deliveryCost.toNumber(), currency: row.currency },
     deliveryCharge: { amount: row.deliveryCharge.toNumber(), currency: row.currency },
@@ -195,7 +195,7 @@ export async function savePendingOrder(order: OrderAggregate, source?: OrderChat
       deliveryCost: new Prisma.Decimal(order.deliveryCost.amount.toString()),
       deliveryCharge: new Prisma.Decimal(order.deliveryCharge.amount.toString()),
       delivery: Prisma.JsonNull,
-      deliveryStatus: order.deliveryStatus, stockDeducted: order.stockDeducted, cancelled: order.cancelled,
+      deliveryStatus: order.deliveryStatus, stockDeducted: order.stockDeducted, stockDeductedAt: order.stockDeductedAt, cancelled: order.cancelled, cancelledAt: order.cancelledAt,
       createdAt: order.createdAt, scheduledDispatchDate: order.scheduledDispatchDate && new Date(order.scheduledDispatchDate), shippedAt: order.shippedAt, deliveredAt: order.deliveredAt, completedAt: order.completedAt,
 
     } });
@@ -307,11 +307,13 @@ export async function findOrderForUpdate(id: OrderId, companyId: CompanyId, oper
   }
 }
 
-export async function saveStockDeduction(id: OrderId, companyId: CompanyId, operation?: string) {
+/** The deduction time is written once: a time already stored (the first deduction) is never moved. */
+export async function saveStockDeduction(id: OrderId, companyId: CompanyId, stockDeductedAt: Date, operation?: string) {
   requireActiveTransaction(companyId);
   try {
-    const updated = await prisma.order.updateMany({ where: { id, companyId, stockDeducted: false }, data: { stockDeducted: true } });
-    if (updated.count !== 1) throw new Error("Locked order was not available for stock deduction");
+    const updated = await prisma.$executeRaw`UPDATE "Order" SET "stockDeducted" = true, "stockDeductedAt" = COALESCE("stockDeductedAt", ${stockDeductedAt}::timestamptz)
+      WHERE id = ${id}::uuid AND "companyId" = ${companyId}::uuid AND "stockDeducted" = false`;
+    if (updated !== 1) throw new Error("Locked order was not available for stock deduction");
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
@@ -393,11 +395,11 @@ export async function saveFulfillment(id: OrderId, companyId: CompanyId, change:
   }
 }
 
-export async function saveCancellation(id: OrderId, companyId: CompanyId) {
+export async function saveCancellation(id: OrderId, companyId: CompanyId, cancelledAt: Date) {
   requireActiveTransaction(companyId);
   try {
     const updated = await prisma.order.updateMany({ where: { id, companyId, deliveryStatus: "pending", cancelled: false, completedAt: null },
-      data: { cancelled: true } });
+      data: { cancelled: true, cancelledAt } });
     if (updated.count !== 1) throw new Error("Locked order was not available for cancellation");
     return ok<null>(null);
   } catch (cause) {

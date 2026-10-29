@@ -28,7 +28,7 @@ function readyOrder(): OrderAggregate {
   if (!payment.success) throw new Error("Invalid test payment");
   const paid = orderStateMachine.registerPayment(order, payment.data);
   if (!paid.success) throw new Error("Invalid test payment");
-  return { ...paid.data, stockDeducted: true };
+  return { ...paid.data, stockDeducted: true, stockDeductedAt: new Date("2026-10-01T00:00:00Z") };
 }
 
 function setup(order: OrderAggregate, failFulfillment = false) {
@@ -51,7 +51,7 @@ test("reschedules and clears the date while pending", async () => {
 });
 
 test("rejects scheduling a cancelled order", async () => {
-  const f = setup({ ...pendingOrder(), cancelled: true });
+  const f = setup({ ...pendingOrder(), cancelled: true, cancelledAt: new Date("2026-10-01T00:00:00Z") });
   expect(await updateOrderShipping({ orderId, scheduledDispatchDate: date("2026-10-15") }, context, f.deps)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
 });
 

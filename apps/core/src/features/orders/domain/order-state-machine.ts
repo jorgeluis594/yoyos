@@ -54,11 +54,15 @@ export type OrderAggregate = Readonly<{
   deliveredAt: Date | null;
   completedAt: Date | null;
   cancelled: boolean;
+  /** Set once when the order is cancelled and never cleared: `cancelled` is true exactly when it is set. */
+  cancelledAt: Date | null;
   items: readonly [OrderItem, ...OrderItem[]];
   payments: readonly Payment[];
   delivery: DeliverySnapshot | null;
   deliveryStatus: DeliveryStatus;
   stockDeducted: boolean;
+  /** Time of the first stock deduction, kept when a cancelled order's stock is restored: `stockDeducted` implies it, not the converse. */
+  stockDeductedAt: Date | null;
   itemsTotal: Money;
   deliveryCost: Money;
   deliveryCharge: Money;
@@ -75,7 +79,7 @@ export type SetDeliveryChange = Readonly<{ resolved: ResolvedDelivery }>;
 export type StockDeductionPlan =
   | Readonly<{ kind: "none"; reason: "already_deducted" | "not_requested"; nextOrder: OrderAggregate }>
   | Readonly<{ kind: "deduct"; nextOrder: OrderAggregate }>;
-export type CancelledOrder = OrderAggregate & Readonly<{ cancelled: true; deliveryStatus: "pending"; deliveredAt: null; completedAt: null }>;
+export type CancelledOrder = OrderAggregate & Readonly<{ cancelled: true; cancelledAt: Date; deliveryStatus: "pending"; deliveredAt: null; completedAt: null }>;
 export type AggregateValidationError = Readonly<{ code: "INVALID_ORDER" | "INVALID_PAYMENT" | "CURRENCY_MISMATCH"; message: string }>;
 export type CancellationDomainError = AggregateValidationError | Readonly<{ code: "INVALID_TRANSITION"; message: string }>;
 export type CancellationPlan = Readonly<{ nextOrder: CancelledOrder; emitOrderCancelled: boolean }>;
@@ -107,8 +111,8 @@ function newPendingOrder(input: BuildOrderInput & Pick<BuildPendingOrderInput, "
   return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
     buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
     fromCatalog, checkoutEnabledAt: new Date(input.createdAt), checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
-    createdAt: new Date(input.createdAt), scheduledDispatchDate: input.scheduledDispatchDate ?? null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false,
-    payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
+    createdAt: new Date(input.createdAt), scheduledDispatchDate: input.scheduledDispatchDate ?? null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false, cancelledAt: null,
+    payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false, stockDeductedAt: null,
     itemsTotal: snapshot.total, deliveryCost: zero, deliveryCharge: zero });
 }
 
@@ -232,7 +236,10 @@ function lifecycle(order: OrderAggregate): Result<OrderLifecycle, AggregateValid
     (order.completedAt !== null && !validDate(order.completedAt)) ||
     (order.deliveryStatus !== "pending" && order.deliveryStatus !== "shipped" && order.deliveryStatus !== "delivered") ||
     ((order.deliveryStatus === "delivered") !== (order.deliveredAt !== null)) ||
-    ((order.deliveryStatus === "shipped" || order.deliveryStatus === "delivered") && !order.stockDeducted)) return failure("INVALID_ORDER", "Invalid order state");
+    ((order.deliveryStatus === "shipped" || order.deliveryStatus === "delivered") && !order.stockDeducted) ||
+    order.cancelled !== (order.cancelledAt !== null) || (order.cancelledAt !== null && !validDate(order.cancelledAt)) ||
+    (order.stockDeducted && (order.stockDeductedAt === null || !validDate(order.stockDeductedAt))) ||
+    (order.stockDeductedAt !== null && !validDate(order.stockDeductedAt))) return failure("INVALID_ORDER", "Invalid order state");
   if (order.cancelled) return order.completedAt === null ? ok({ status: "cancelled", completedAt: null }) : failure("INVALID_ORDER", "Cancelled order has completion date");
   if (order.deliveryStatus === "delivered") {
     if (summary.data.status === "paid") return order.completedAt ? ok({ status: "completed", completedAt: order.completedAt }) : failure("INVALID_ORDER", "Covered delivery lacks completion date");
@@ -408,16 +415,17 @@ function rejectionAwaitingNewReport(order: OrderAggregate): RejectedPayment | nu
   return latest?.status === "rejected" ? latest : null;
 }
 
-function planStockDeduction(order: OrderAggregate, requestedIfPartial: boolean): Result<StockDeductionPlan, OrderDomainError> {
+function planStockDeduction(order: OrderAggregate, requestedIfPartial: boolean, now: Date): Result<StockDeductionPlan, OrderDomainError> {
   const state = lifecycle(order);
   if (!state.success) return state;
   if (state.data.status === "cancelled") return failure("ORDER_CANCELLED", "Order is cancelled");
+  if (!validDate(now)) return failure("INVALID_TRANSITION", "Invalid stock deduction date");
   if (order.stockDeducted) return ok({ kind: "none", reason: "already_deducted", nextOrder: order });
   const summary = paymentSummary(order);
   if (!summary.success) return summary;
   if (summary.data.paidAmount.amount === 0 || (summary.data.status === "pending" && !requestedIfPartial))
     return ok({ kind: "none", reason: "not_requested", nextOrder: order });
-  return ok({ kind: "deduct", nextOrder: { ...order, stockDeducted: true } });
+  return ok({ kind: "deduct", nextOrder: { ...order, stockDeducted: true, stockDeductedAt: new Date(now) } });
 }
 
 function requireFulfillment(order: OrderAggregate): Result<null, OrderDomainError> {
@@ -453,12 +461,13 @@ function registerDelivery(order: OrderAggregate, completedAt: Date): Result<Orde
     : failure("INVALID_TRANSITION", "Delivery is already completed");
 }
 
-function cancel(order: OrderAggregate): Result<CancellationPlan, CancellationDomainError> {
+function cancel(order: OrderAggregate, now: Date): Result<CancellationPlan, CancellationDomainError> {
   const state = lifecycle(order);
   if (!state.success) return state;
   if (order.deliveryStatus !== "pending") return failure("INVALID_TRANSITION", "Dispatched order cannot be cancelled here");
   if (order.deliveredAt !== null || order.completedAt !== null) return failure("INVALID_ORDER", "Invalid cancellation dates");
-  return ok({ nextOrder: { ...order, cancelled: true, deliveryStatus: "pending", deliveredAt: null, completedAt: null },
+  if (!validDate(now)) return failure("INVALID_TRANSITION", "Invalid cancellation date");
+  return ok({ nextOrder: { ...order, cancelled: true, cancelledAt: order.cancelledAt ?? new Date(now), deliveryStatus: "pending", deliveredAt: null, completedAt: null },
     emitOrderCancelled: !order.cancelled });
 }
 

@@ -133,7 +133,7 @@ export async function confirmCheckoutDelivery(input: ConfirmCheckoutDeliveryInpu
     }
     const total = checkExpectedTotal(input.expectedTotal, next.total);
     if (!total.success) return total;
-    const savedDelivery = await persistDeliveryChange(order, next, deps);
+    const savedDelivery = await persistDeliveryChange(order, next, now, deps);
     if (!savedDelivery.success) return savedDelivery;
     const snapshot = { ...buyer.data, contactId: order.buyer?.contactId ?? null };
     const savedBuyer = await deps.saveBuyer(access, snapshot);

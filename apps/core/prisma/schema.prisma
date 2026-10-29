@@ -124,6 +124,7 @@ model Company {
   customers Customer[]
   orderMessages OrderMessage[]
   chatMessageOutcomes ChatMessageOutcome[]
+  chatPendings ChatPendings[]
   orderBuyers OrderBuyer[]
   orderItems OrderItem[]
   payments Payment[]
@@ -519,6 +520,7 @@ model Chat {
   createdAt DateTime @default(now())
   messages  ChatMessage[]
   orders    Order[]
+  pendings  ChatPendings?
 
   @@unique([companyId, id])
   @@unique([companyId, contactId])
@@ -572,6 +574,8 @@ model Order {
   deliveryStatus String @default("pending")
   stockDeducted Boolean @default(false)
   cancelled Boolean @default(false)
+  cancelledAt DateTime? @db.Timestamptz(3)
+  stockDeductedAt DateTime? @db.Timestamptz(3)
   createdAt DateTime
   scheduledDispatchDate DateTime? @db.Date
   shippedAt DateTime?
@@ -639,6 +643,18 @@ model ChatMessageOutcome {
   createdAt    DateTime    @default(now()) @db.Timestamptz(3)
 
   @@id([companyId, messageId])
+}
+
+model ChatPendings {
+  companyId       String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company         Company  @relation(fields: [companyId], references: [id])
+  chatId          String   @db.Uuid
+  chat            Chat     @relation(fields: [companyId, chatId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
+  pendings        Json
+  readyRemembered Boolean  @default(false)
+  updatedAt       DateTime @db.Timestamptz(3)
+
+  @@id([companyId, chatId])
 }
 
 model OrderMessage {

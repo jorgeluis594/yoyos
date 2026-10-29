@@ -68,7 +68,7 @@ test("without a subdomain the loader points to Apariencia de la tienda's publica
 });
 
 test("a cancelled order gets no link and no lookup", async () => {
-  vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(aggregate({ cancelled: true })));
+  vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(aggregate({ cancelled: true, cancelledAt: new Date("2026-10-01T00:00:00Z") })));
   const checkoutUrl = vi.spyOn(orders, "checkoutUrl");
   expect(await loader(loaderArgs())).toMatchObject({ link: { kind: "unavailable" } });
   expect(checkoutUrl).not.toHaveBeenCalled();
@@ -184,7 +184,7 @@ test("order detail offers «Imprimir rótulo» for any order, cancelled included
     finally { router.dispose(); }
   };
   expect(render(built.data)).toContain("Imprimir rótulo</button>");
-  expect(render({ ...built.data, cancelled: true })).toContain("Imprimir rótulo");
+  expect(render({ ...built.data, cancelled: true, cancelledAt: new Date("2026-10-01T00:00:00Z") })).toContain("Imprimir rótulo");
 });
 
 test("loader resolves receipt urls for rejected payments with one image lookup", async () => {

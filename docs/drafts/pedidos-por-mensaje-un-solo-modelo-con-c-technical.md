@@ -934,7 +934,7 @@ File ownership per wave, with no overlap between siblings:
 
 | Wave | Task | Owns |
 | --- | --- | --- |
-| 0 | T0 | the type files, `orders/domain/order-state-machine.ts`, every write path of the two order times (§3 «Order closing times»: `saveCancellation`, `saveStockDeduction`, `savePendingOrder`, `saveStockRestoration` and their use cases `cancel-order.ts`, `deduct-stock.ts`, `register-payment.ts`, `set-delivery.ts`, `checkout.ts`, `register-immediate-sale.ts`, `products/application/restore-cancelled-order-stock.ts`), `orders/composition.ts` (clock wiring for `deduct-stock.ts` and `cancel-order.ts` only), the order repository mapping, `prisma/**`, `chat-pending-repository.ts` |
+| 0 | T0 | the type files, `orders/domain/order-state-machine.ts`, every write path of the two order times (§3 «Order closing times»: `saveCancellation`, `saveStockDeduction`, `savePendingOrder`, `saveStockRestoration` and their use cases `cancel-order.ts`, `deduct-stock.ts`, `register-payment.ts`, `set-delivery.ts`, `checkout.ts`, `register-immediate-sale.ts`, `products/application/restore-cancelled-order-stock.ts`), `orders/composition.ts` (clock wiring for `deduct-stock.ts`, `cancel-order.ts` and `set-delivery.ts` only), the order repository mapping, `prisma/**`, `chat-pending-repository.ts` |
 | 1 | T1 | `products/**` except `products/domain/reading-product.ts` (T0) |
 | 1 | T2 | `orders/domain/chat-order.ts`, `chat-pendings.ts` (functions), `chat-reading.ts` (functions), `message-order.ts`, `mentioned-price.ts` and their tests |
 | 1 | T3 | `orders/domain/seller-notice.ts` (union data fields and choice), `presentation/seller-notice-texts.ts`, `application/describe-chat-message-notice.ts` and their tests |

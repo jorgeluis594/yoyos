@@ -381,11 +381,11 @@ test("cancelling before dispatch retains deducted stock for deferred restoration
       expect(before.success).toBe(true);
       const cancellations = await Promise.all([orders.cancel(orderId, context), orders.cancel(orderId, context)]);
       for (const result of cancellations) expect(result).toMatchObject({ success: true,
-        data: { cancelled: true, stockDeducted: true, payments: [{ amount: { amount: 0.2 } }] } });
+        data: { cancelled: true, cancelledAt: expect.any(Date), stockDeducted: true, stockDeductedAt: expect.any(Date), payments: [{ amount: { amount: 0.2 } }] } });
       if (before.success && before.data) {
         expect(await findOrderAggregate(orderId, context.companyId)).toMatchObject({ data: { payments: before.data.payments } });
       }
-      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true } });
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true, cancelledAt: expect.any(Date) } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
       expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
       expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
@@ -1164,7 +1164,7 @@ test("confirmation observes total changes and cancellation committed by a concur
         locked.resolve();
         await release.promise;
         await prisma.order.update({ where: { id: access.orderId }, data: change === "total" ? { total: 1, deliveryCost: 0.9, deliveryCharge: 0.9,
-          delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Av. Lima 123", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: f.sellerId } } } : { cancelled: true } });
+          delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Av. Lima 123", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: f.sellerId } } } : { cancelled: true, cancelledAt: new Date() } });
         return ok(null);
       }));
       await locked.promise;
@@ -1222,7 +1222,7 @@ test("confirmation committed first survives a concurrent total update or cancell
       const mutation = withTenantIsolation(f.companyId, () => withinTransaction(async () => {
         const found = await findOrderForUpdate(access.orderId, access.companyId);
         if (!found.success) return found;
-        await prisma.order.update({ where: { id: access.orderId }, data: change === "cancel" ? { cancelled: true } : {
+        await prisma.order.update({ where: { id: access.orderId }, data: change === "cancel" ? { cancelled: true, cancelledAt: new Date() } : {
           total: 1, deliveryCost: 0.9, deliveryCharge: 0.9,
           delivery: { method: "home", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, destination: { address: "Av. Lima 123", country: "PE", districtCode: "150101", district: "Lima", province: "Lima", department: "Lima", instructions: null }, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 }, recordedBy: { kind: "seller", userId: f.sellerId } },
         } });
@@ -1314,7 +1314,7 @@ test("filters mixed orders before pagination with literal buyer search and indep
       const completed = await immediateSale({ id: randomUUID(), 
         items: [{ variantId: f.variantIds[0], quantity: 1 }] }, f);
       expect(completed.success).toBe(true);
-      await prisma.order.update({ where: { id: ids[0] }, data: { cancelled: true } });
+      await prisma.order.update({ where: { id: ids[0] }, data: { cancelled: true, cancelledAt: new Date() } });
       const criteria = { page: 1, customer: { kind: "all" as const } };
       const unpaid = await orders.listAggregates({ ...criteria, view: "unpaid" }, context);
       expect(unpaid).toMatchObject({ success: true, data: { total: 21 } });
@@ -1717,11 +1717,11 @@ test("findOpenChatOrderCandidate ignores manual orders, other chats and orders t
   try {
     const chat = await chatFixture(f);
     const states: Record<string, (order: ReturnType<typeof chatOrder>) => Promise<unknown>> = {
-      cancelled: (order) => prisma.order.update({ where: { id: order.id }, data: { cancelled: true } }),
+      cancelled: (order) => prisma.order.update({ where: { id: order.id }, data: { cancelled: true, cancelledAt: new Date() } }),
       completed: (order) => prisma.order.update({ where: { id: order.id }, data: { completedAt: new Date() } }),
       checkoutConfirmed: (order) => prisma.order.update({ where: { id: order.id }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date() } }),
-      stockDeducted: (order) => prisma.order.update({ where: { id: order.id }, data: { stockDeducted: true } }),
-      shipped: (order) => prisma.order.update({ where: { id: order.id }, data: { stockDeducted: true, deliveryStatus: "shipped" } }),
+      stockDeducted: (order) => prisma.order.update({ where: { id: order.id }, data: { stockDeducted: true, stockDeductedAt: new Date() } }),
+      shipped: (order) => prisma.order.update({ where: { id: order.id }, data: { stockDeducted: true, stockDeductedAt: new Date(), deliveryStatus: "shipped" } }),
       confirmedPayment: (order) => prisma.payment.create({ data: { id: randomUUID(), orderId: order.id, status: "confirmed", amount: new Prisma.Decimal("1"), currency: "PEN",
         method: "digital_wallet", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } }),
       reportedPayment: (order) => prisma.payment.create({ data: { id: randomUUID(), orderId: order.id, status: "reported", currency: "PEN",
@@ -1843,11 +1843,11 @@ test("findChatOrderTargetForUpdate says why the chat has no open order", async (
       expect(await withinTransaction(() => findChatOrderTargetForUpdate(chat.chatId, findProductIds))).toEqual(ok({ kind: "none" }));
       const first = chatOrder(f, { createdAt: new Date("2026-10-01T00:00:00Z") });
       await withinTransaction(() => savePendingOrder(first, chat.source));
-      await prisma.order.update({ where: { id: first.id }, data: { cancelled: true } });
+      await prisma.order.update({ where: { id: first.id }, data: { cancelled: true, cancelledAt: new Date() } });
       expect(await withinTransaction(() => findChatOrderTargetForUpdate(chat.chatId, findProductIds))).toEqual(ok({ kind: "cancelled" }));
       const second = chatOrder(f, { createdAt: new Date("2026-10-02T00:00:00Z") });
       await withinTransaction(() => savePendingOrder(second, chat.source));
-      await prisma.order.update({ where: { id: second.id }, data: { stockDeducted: true, deliveryStatus: "shipped" } });
+      await prisma.order.update({ where: { id: second.id }, data: { stockDeducted: true, stockDeductedAt: new Date(), deliveryStatus: "shipped" } });
       expect(await withinTransaction(() => findChatOrderTargetForUpdate(chat.chatId, findProductIds))).toEqual(ok({ kind: "closed", orderId: second.id, number: second.number }));
     });
   } finally { await chatCleanup(f); await f.cleanup(); }
@@ -2045,6 +2045,59 @@ test("an existing order with an inactive variant is paid with stock deduction an
       expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true, stockDeducted: true } });
       expect(await restoreCancelledStock.handler({ orderId, companyId: f.companyId } as never, {} as never, {} as never)).toMatchObject({ success: true });
       expect(await stock()).toBe(3n);
+    });
+  } finally { await f.cleanup(); }
+});
+
+async function paidOrderWithDeductedStock(f: Awaited<ReturnType<typeof fixture>>) {
+  const orderId = randomUUID() as OrderId;
+  const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
+  expect(await orders.create({ id: orderId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
+  expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
+    .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+  return { orderId, context };
+}
+
+test("saves and reads the cancellation and stock deduction times", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const { orderId, context } = await paidOrderWithDeductedStock(f);
+      const stored = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+      expect(stored.stockDeductedAt).toBeInstanceOf(Date);
+      expect(stored.cancelledAt).toBeNull();
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true });
+      const cancelled = await prisma.order.findUniqueOrThrow({ where: { id: orderId } });
+      expect(cancelled.cancelledAt).toBeInstanceOf(Date);
+      expect(await findOrderAggregate(orderId, context.companyId)).toMatchObject({ success: true,
+        data: { cancelled: true, cancelledAt: cancelled.cancelledAt, stockDeducted: true, stockDeductedAt: stored.stockDeductedAt } });
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("a cancelled order whose stock was restored still parses and keeps its deduction time", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const { orderId, context } = await paidOrderWithDeductedStock(f);
+      const deductedAt = (await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeductedAt;
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true });
+      expect(await restoreCancelledStock.handler({ orderId, companyId: f.companyId } as never, {} as never, {} as never)).toMatchObject({ success: true });
+      expect(await findOrderAggregate(orderId, context.companyId)).toMatchObject({ success: true,
+        data: { cancelled: true, stockDeducted: false, stockDeductedAt: deductedAt } });
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeductedAt).toEqual(deductedAt);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("a second stock deduction call keeps the first deduction time", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const { orderId, context } = await paidOrderWithDeductedStock(f);
+      const first = (await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeductedAt;
+      expect(await orders.deductStock(orderId, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
+      expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeductedAt).toEqual(first);
     });
   } finally { await f.cleanup(); }
 });

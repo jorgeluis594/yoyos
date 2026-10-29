@@ -10,7 +10,8 @@ export type DeductStockDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, DeductStockError>>) => Promise<Result<T, DeductStockError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, DeductStockError>>;
   deductProductStock: (variantId: VariantId, quantity: PositiveInteger) => Promise<Result<null, DeductStockError>>;
-  saveStockDeduction: (id: OrderId, companyId: CompanyId) => Promise<Result<null, DeductStockError>>;
+  saveStockDeduction: (id: OrderId, companyId: CompanyId, stockDeductedAt: Date) => Promise<Result<null, DeductStockError>>;
+  clock: () => Date;
 }>;
 
 export async function deductStock(id: OrderId, context: OrderAccess, deps: DeductStockDependencies): Promise<Result<OrderAggregate, DeductStockError>> {
@@ -18,14 +19,15 @@ export async function deductStock(id: OrderId, context: OrderAccess, deps: Deduc
     const found = await deps.findOrderForUpdate(id, context.companyId);
     if (!found.success) return found;
     if (!found.data) return err({ code: "ORDER_NOT_FOUND", message: "Order is not available" });
-    const plan = orderStateMachine.planStockDeduction(found.data, true);
+    const now = deps.clock();
+    const plan = orderStateMachine.planStockDeduction(found.data, true, now);
     if (!plan.success) return plan;
     if (plan.data.kind === "none") return ok(plan.data.nextOrder);
     for (const item of [...found.data.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
       const deducted = await deps.deductProductStock(item.variantId, item.quantity);
       if (!deducted.success) return deducted;
     }
-    const saved = await deps.saveStockDeduction(id, context.companyId);
+    const saved = await deps.saveStockDeduction(id, context.companyId, now);
     return saved.success ? ok(plan.data.nextOrder) : saved;
   });
 }

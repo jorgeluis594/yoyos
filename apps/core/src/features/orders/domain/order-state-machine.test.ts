@@ -8,10 +8,12 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const createdAt = new Date("2026-09-29T12:00:00Z");
 const paymentAt = new Date("2026-09-30T12:00:00Z");
+const stockAt = new Date("2026-09-30T13:00:00Z");
+const cancelAt = new Date("2026-09-30T14:00:00Z");
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const order = (): OrderAggregate => ({
   number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
-  buyer: null, fromCatalog: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false,
+  buyer: null, fromCatalog: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false, cancelledAt: null, stockDeductedAt: null,
   items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null,
     quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
@@ -34,7 +36,7 @@ describe("pending order construction", () => {
         sku: null, quantity: 3, unitPrice: money(0.1) }] };
     const built = buildPendingOrder(input);
     expect(built).toMatchObject({ success: true, data: { id: id(1), createdAt, deliveredAt: null, completedAt: null, cancelled: false,
-      payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
+      payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false, cancelledAt: null, stockDeductedAt: null,
       itemsTotal: money(0.3), deliveryCost: money(0), deliveryCharge: money(0), total: money(0.3),
       items: [{ subtotal: money(0.3), variantAttributes: { Size: "M" } }] } });
     if (!built.success) return;
@@ -111,7 +113,7 @@ describe("order payment and lifecycle", () => {
   });
 
   test("preserves an existing completion date when another payment is recorded", () => {
-    const completed = { ...order(), payments: [payment(5, 10)], stockDeducted: true,
+    const completed = { ...order(), payments: [payment(5, 10)], stockDeducted: true, stockDeductedAt: createdAt,
       deliveryStatus: "delivered" as const, deliveredAt: createdAt, completedAt: createdAt };
     expect(orderStateMachine.registerPayment(completed, payment(6, 1))).toMatchObject({ success: true,
       data: { completedAt: createdAt, payments: [{ id: id(5) }, { id: id(6) }] } });
@@ -159,15 +161,15 @@ describe("delivery and stock transitions", () => {
   test("deducts only when requested for partial payment, automatically when covered, and only once", () => {
     const partial = orderStateMachine.registerPayment(order(), payment(5, 4));
     if (!partial.success) throw new Error("Expected payment");
-    expect(orderStateMachine.planStockDeduction(partial.data, false)).toMatchObject({ success: true, data: { kind: "none", reason: "not_requested" } });
-    const requested = orderStateMachine.planStockDeduction(partial.data, true);
+    expect(orderStateMachine.planStockDeduction(partial.data, false, stockAt)).toMatchObject({ success: true, data: { kind: "none", reason: "not_requested" } });
+    const requested = orderStateMachine.planStockDeduction(partial.data, true, stockAt);
     expect(requested).toMatchObject({ success: true, data: { kind: "deduct", nextOrder: { stockDeducted: true } } });
     if (!requested.success) return;
     expect(partial.data.stockDeducted).toBe(false);
-    expect(orderStateMachine.planStockDeduction(requested.data.nextOrder, true)).toMatchObject({ success: true, data: { kind: "none", reason: "already_deducted" } });
+    expect(orderStateMachine.planStockDeduction(requested.data.nextOrder, true, stockAt)).toMatchObject({ success: true, data: { kind: "none", reason: "already_deducted" } });
     const covered = orderStateMachine.registerPayment(partial.data, payment(6, 6));
     if (!covered.success) throw new Error("Expected payment");
-    expect(orderStateMachine.planStockDeduction(covered.data, false)).toMatchObject({ success: true, data: { kind: "deduct" } });
+    expect(orderStateMachine.planStockDeduction(covered.data, false, stockAt)).toMatchObject({ success: true, data: { kind: "deduct" } });
   });
 
   test("requires payment and stock, then ships and completes at the supplied time", () => {
@@ -175,7 +177,7 @@ describe("delivery and stock transitions", () => {
     const paid = orderStateMachine.registerPayment(order(), payment(5, 10));
     if (!paid.success) throw new Error("Expected payment");
     expect(orderStateMachine.registerDelivery(paid.data, paymentAt)).toMatchObject({ success: false, error: { code: "STOCK_NOT_DEDUCTED" } });
-    const deducted = orderStateMachine.planStockDeduction(paid.data, false);
+    const deducted = orderStateMachine.planStockDeduction(paid.data, false, stockAt);
     if (!deducted.success) throw new Error("Expected deduction plan");
     const shipped = orderStateMachine.registerShipment(deducted.data.nextOrder, new Date("2026-10-14T15:00:00Z"));
     expect(shipped).toMatchObject({ success: true, data: { deliveryStatus: "shipped", shippedAt: new Date("2026-10-14T15:00:00Z"), completedAt: null } });
@@ -196,7 +198,7 @@ describe("delivery and stock transitions", () => {
   test("completes an immediate handover directly from pending delivery without logistics data", () => {
     const paid = orderStateMachine.registerPayment(order(), payment(5, 10));
     if (!paid.success) throw new Error("Expected payment");
-    const deducted = orderStateMachine.planStockDeduction(paid.data, false);
+    const deducted = orderStateMachine.planStockDeduction(paid.data, false, stockAt);
     if (!deducted.success) throw new Error("Expected deduction plan");
     expect(orderStateMachine.registerDelivery(deducted.data.nextOrder, paymentAt)).toMatchObject({ success: true, data: {
       delivery: null, deliveryStatus: "delivered", completedAt: paymentAt, payments: paid.data.payments } });
@@ -205,36 +207,36 @@ describe("delivery and stock transitions", () => {
   test("cancels before dispatch, requests one restoration and preserves payments", () => {
     const paid = orderStateMachine.registerPayment(order(), payment(5, 10));
     if (!paid.success) throw new Error("Expected payment");
-    const deducted = orderStateMachine.planStockDeduction(paid.data, false);
+    const deducted = orderStateMachine.planStockDeduction(paid.data, false, stockAt);
     if (!deducted.success) throw new Error("Expected deduction plan");
-    const cancelled = orderStateMachine.cancel(deducted.data.nextOrder);
+    const cancelled = orderStateMachine.cancel(deducted.data.nextOrder, cancelAt);
     expect(cancelled).toMatchObject({ success: true, data: { emitOrderCancelled: true, nextOrder: { cancelled: true, stockDeducted: true } } });
     if (!cancelled.success) return;
     expect(cancelled.data.nextOrder.payments).toEqual(paid.data.payments);
     expect(orderStateMachine.getLifecycle(cancelled.data.nextOrder)).toEqual({ success: true, data: { status: "cancelled", completedAt: null } });
-    expect(orderStateMachine.cancel(cancelled.data.nextOrder)).toMatchObject({ success: true, data: { emitOrderCancelled: false } });
+    expect(orderStateMachine.cancel(cancelled.data.nextOrder, new Date(cancelAt.getTime() + 1000))).toMatchObject({ success: true, data: { emitOrderCancelled: false } });
     expect(orderStateMachine.registerPayment(cancelled.data.nextOrder, payment(6, 1))).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
-    expect(orderStateMachine.planStockDeduction(cancelled.data.nextOrder, true)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
+    expect(orderStateMachine.planStockDeduction(cancelled.data.nextOrder, true, stockAt)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
     const shipped = orderStateMachine.registerShipment(deducted.data.nextOrder, new Date("2026-10-14T15:00:00Z"));
     if (!shipped.success) throw new Error("Expected shipment");
-    expect(orderStateMachine.cancel(shipped.data)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
+    expect(orderStateMachine.cancel(shipped.data, cancelAt)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
   });
   test.each([0, 3, 10])("cancellation preserves payment amount %s and all order values", amount => {
     const base = order();
     const paid = amount ? orderStateMachine.registerPayment(base, payment(5, amount)) : { success: true as const, data: base };
     if (!paid.success) throw new Error("Expected payment");
     for (const stockDeducted of [false, true]) {
-      const before = { ...paid.data, stockDeducted };
-      expect(orderStateMachine.cancel(before)).toEqual({ success: true, data: {
-        nextOrder: { ...before, cancelled: true }, emitOrderCancelled: true,
+      const before = { ...paid.data, stockDeducted, stockDeductedAt: stockDeducted ? stockAt : null };
+      expect(orderStateMachine.cancel(before, cancelAt)).toEqual({ success: true, data: {
+        nextOrder: { ...before, cancelled: true, cancelledAt: cancelAt }, emitOrderCancelled: true,
       } });
     }
   });
   test("cancellation propagates aggregate and payment validation errors", () => {
-    expect(orderStateMachine.cancel({ ...order(), total: money(-1) })).toMatchObject({ error: { code: "INVALID_ORDER" } });
-    expect(orderStateMachine.cancel({ ...order(), payments: [{ ...payment(5, 1), amount: money(-1) }] })).toMatchObject({ error: { code: "INVALID_PAYMENT" } });
-    expect(orderStateMachine.cancel({ ...order(), payments: [{ ...payment(5, 1), amount: { amount: 1, currency: "USD" } }] })).toMatchObject({ error: { code: "CURRENCY_MISMATCH" } });
-    expect(orderStateMachine.cancel({ ...order(), cancelled: true, deliveryStatus: "shipped", stockDeducted: true })).toMatchObject({ error: { code: "INVALID_TRANSITION" } });
+    expect(orderStateMachine.cancel({ ...order(), total: money(-1) }, cancelAt)).toMatchObject({ error: { code: "INVALID_ORDER" } });
+    expect(orderStateMachine.cancel({ ...order(), payments: [{ ...payment(5, 1), amount: money(-1) }] }, cancelAt)).toMatchObject({ error: { code: "INVALID_PAYMENT" } });
+    expect(orderStateMachine.cancel({ ...order(), payments: [{ ...payment(5, 1), amount: { amount: 1, currency: "USD" } }] }, cancelAt)).toMatchObject({ error: { code: "CURRENCY_MISMATCH" } });
+    expect(orderStateMachine.cancel({ ...order(), cancelled: true, cancelledAt: cancelAt, deliveryStatus: "shipped", stockDeducted: true, stockDeductedAt: stockAt }, cancelAt)).toMatchObject({ error: { code: "INVALID_TRANSITION" } });
   });
 
 });
@@ -348,7 +350,7 @@ describe("payment rejection", () => {
   });
 
   test("refuses to reject a report in a cancelled order", () => {
-    expect(orderStateMachine.rejectReportedPayment({ ...withPayments(reported(6)), cancelled: true }, id(6) as PaymentId, rejection))
+    expect(orderStateMachine.rejectReportedPayment({ ...withPayments(reported(6)), cancelled: true, cancelledAt: cancelAt }, id(6) as PaymentId, rejection))
       .toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
     expect(orderStateMachine.rejectReportedPayment(withPayments(payment(5, 4)), id(5) as PaymentId, rejection))
       .toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
@@ -376,5 +378,46 @@ describe("payment rejection", () => {
     expect(orderStateMachine.registerPayment(withPayments(rejectedOf(6)), payment(6, 4))).toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
     expect(orderStateMachine.voidConfirmedPayment(withPayments(rejectedOf(6)), id(6), "seller" as UserId, paymentAt))
       .toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
+  });
+});
+
+describe("order terminal times", () => {
+  const paidOrder = () => {
+    const paid = orderStateMachine.registerPayment(order(), payment(5, 10));
+    if (!paid.success) throw new Error("Expected payment");
+    return paid.data;
+  };
+
+  test("stores the time of the first stock deduction", () => {
+    const plan = orderStateMachine.planStockDeduction(paidOrder(), false, stockAt);
+    expect(plan).toMatchObject({ success: true, data: { kind: "deduct", nextOrder: { stockDeducted: true, stockDeductedAt: stockAt } } });
+  });
+
+  test("keeps the first deduction time when the stock is already deducted", () => {
+    const plan = orderStateMachine.planStockDeduction({ ...paidOrder(), stockDeducted: true, stockDeductedAt: stockAt }, true, new Date("2026-10-05T00:00:00Z"));
+    expect(plan).toMatchObject({ success: true, data: { kind: "none", reason: "already_deducted", nextOrder: { stockDeductedAt: stockAt } } });
+  });
+
+  test("stores the cancellation time and keeps it when cancelling again", () => {
+    const first = orderStateMachine.cancel(order(), cancelAt);
+    expect(first).toMatchObject({ success: true, data: { emitOrderCancelled: true, nextOrder: { cancelled: true, cancelledAt: cancelAt } } });
+    if (!first.success) return;
+    expect(orderStateMachine.cancel(first.data.nextOrder, new Date("2026-10-05T00:00:00Z")))
+      .toMatchObject({ success: true, data: { emitOrderCancelled: false, nextOrder: { cancelledAt: cancelAt } } });
+  });
+
+  test.each([
+    ["a cancelled order without a cancellation time", { cancelled: true, cancelledAt: null }],
+    ["a cancellation time on an order that is not cancelled", { cancelled: false, cancelledAt: cancelAt }],
+    ["deducted stock without a deduction time", { stockDeducted: true, stockDeductedAt: null }],
+    ["an invalid cancellation time", { cancelled: true, cancelledAt: new Date("invalid") }],
+    ["an invalid deduction time", { stockDeducted: true, stockDeductedAt: new Date("invalid") }],
+  ])("rejects %s", (_title, change) => {
+    expect(orderStateMachine.getLifecycle({ ...order(), ...change })).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+  });
+
+  test("accepts a cancelled order whose stock was restored and keeps its deduction time", () => {
+    const restored = { ...order(), cancelled: true, cancelledAt: cancelAt, stockDeducted: false, stockDeductedAt: stockAt };
+    expect(orderStateMachine.getLifecycle(restored)).toEqual({ success: true, data: { status: "cancelled", completedAt: null } });
   });
 });
