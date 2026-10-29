@@ -3,7 +3,7 @@ import { useTranslation } from "react-i18next";
 import { ThemedText } from "@mobile/components/themed-text";
 import { useTheme } from "@mobile/hooks/use-theme";
 
-export function OrderDayField({ label, value, onChange }: { label: string; value: string; onChange: (day: string) => void }) {
+export function OrderDayField({ label, value, onChange }: { label: string; value: string; onChange: (day: string) => void; row?: boolean }) {
   const theme = useTheme();
   const { t } = useTranslation();
   return <View style={{ gap: 4 }}><ThemedText type="small">{label}</ThemedText>

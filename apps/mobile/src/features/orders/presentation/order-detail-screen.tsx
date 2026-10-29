@@ -31,7 +31,10 @@ import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useNotices } from "@mobile/features/notifications/composition";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
-import { deliveryMethodLabel, deliveryStatusLabel, documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
+import { documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
+import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentBadgeStatus } from "@mobile/features/orders/presentation/order-payment-parts";
+import { DeliveryBadge, DeliveryRow, deliveryRowSymbols, useShippingSummary } from "@mobile/features/orders/presentation/order-delivery-parts";
+import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-print-review";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { useCopyLink } from "@mobile/features/catalog/presentation/use-copy-link";
 import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
@@ -61,6 +64,7 @@ export default function OrderDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { t, i18n } = useTranslation();
+  const shippingSummary = useShippingSummary();
   const locale = i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE';
   const { id, noticeAt } = useLocalSearchParams<{ id: string; noticeAt?: string }>();
   const { state } = useAccess();
@@ -82,8 +86,6 @@ export default function OrderDetailScreen() {
   const loaded = useRef(false);
   const scroll = useRef<ScrollView>(null);
   const paymentPosition = useRef(0);
-  const summaryPosition = useRef(0);
-  const [paymentsOpen, setPaymentsOpen] = useState(false);
   const [deliveryOpen, setDeliveryOpen] = useState(false);
   const [internalOpen, setInternalOpen] = useState(false);
   const [editor, setEditor] = useState<"manual" | { paymentId: string; receiptImageId: string } | null>(null);
@@ -146,7 +148,7 @@ export default function OrderDetailScreen() {
     const result = await orders.registerPayment(order.id, { paymentId, source, amount: { amount, currency: order.total.currency },
       method, deductStockIfPartial });
     if (result.success) {
-      setOrder(result.data.order); setEditor(null); setPaymentsOpen(true);
+      setOrder(result.data.order); setEditor(null);
       if (source === "manual") manualPaymentId.current = null;
     }
     else {
@@ -163,7 +165,7 @@ export default function OrderDetailScreen() {
     if (trimmed.length > 200) { setPaymentError(t("rejectReasonTooLong")); return; }
     setSavingPayment(paymentId); setPaymentError("");
     const outcome = await orders.rejectPayment(order.id, paymentId, trimmed || null);
-    if (outcome.kind === "rejected") { setOrder(outcome.order); setEditor(null); setRejection(null); setPaymentsOpen(true); }
+    if (outcome.kind === "rejected") { setOrder(outcome.order); setEditor(null); setRejection(null); }
     else {
       setPaymentError(t(outcome.kind === "already_reviewed" ? "paymentAlreadyReviewed" : outcome.kind === "order_cancelled" ? "rejectCancelled"
         : outcome.kind === "unknown" ? "paymentUnknownResult" : "paymentSaveError"));
@@ -283,20 +285,26 @@ export default function OrderDetailScreen() {
   const changed = original && (original.currency !== order.total.currency || original.amount !== order.total.amount);
   const language = orderLanguage(state.company.country, i18n.language);
   const title = orderStatusLabel(order.status, language);
-  const delivery = deliveryStatusLabel(order.deliveryStatus, language);
   const format = (value: { amount: number; currency: string }) => money(value.amount, value.currency, locale);
   const reports = order.payments.filter((payment) => payment.status === "reported");
+  const hasPaid = order.paidAmount.amount > 0;
+  // A confirmed payment is an advance when the running total after it (oldest first, in whole cents) still leaves a balance.
+  const advanceIds = new Set<string>();
+  order.payments.flatMap(payment => payment.status === "confirmed" && payment.amount ? [{ id: payment.id, at: payment.data.confirmedAt, cents: Math.round(payment.amount.amount * 100) }] : [])
+    .sort((a, b) => a.at.localeCompare(b.at))
+    .reduce((running, payment) => { const next = running + payment.cents; if (next < Math.round(order.total.amount * 100)) advanceIds.add(payment.id); return next; }, 0);
   const canEditDelivery = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
   const checkoutState = order.cancelled ? t("checkoutCancelled") : order.checkoutConfirmedAt ? t("checkoutConfirmed") : order.status === "active" ? t("checkoutPending") : null;
   const openPayments = () => {
-    setPaymentsOpen(true);
-    scroll.current?.scrollTo({ y: summaryPosition.current + paymentPosition.current, animated: false });
+    scroll.current?.scrollTo({ y: paymentPosition.current, animated: false });
   };
+  const review = editor && editor !== "manual" ? editor : null;
   const openEditor = (value: NonNullable<typeof editor>) => { if (cancellationLock.current || writeBusy || order.cancelled) return; setPaymentError(""); setRejection(null); setEditor(value); };
   const closeEditor = () => { if (!savingPayment) { setEditor(null); setRejection(null); setPaymentError(""); } };
-  const fulfillmentActions = (["ship", "deliver"] as const).filter(operation => !fulfillmentBlock(order, operation));
-  const deliveryBlock = fulfillmentBlock(order, "deliver");
-  const fulfillmentReason = deliveryBlock === "PAYMENT_REQUIRED" || deliveryBlock === "STOCK_NOT_DEDUCTED" ? deliveryBlock : null;
+  // The one main action is the next valid transition; when it is blocked the button stays disabled and says why.
+  const nextOperation = order.deliveryStatus === "pending" ? "ship" : order.deliveryStatus === "shipped" ? "deliver" : null;
+  const nextBlock = nextOperation ? fulfillmentBlock(order, nextOperation) : null;
+  const nextReason = nextBlock === "PAYMENT_REQUIRED" || nextBlock === "STOCK_NOT_DEDUCTED" ? nextBlock : null;
   const cardStyle = { backgroundColor: theme.backgroundElement, borderColor: theme.border };
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <View style={styles.container}>
@@ -338,7 +346,7 @@ export default function OrderDetailScreen() {
           {difference?.success ? <ThemedText>{t('amountDifference', { amount: money(difference.data.amount, order.total.currency, locale) })}</ThemedText> : null}
           <ThemedText type="small">{t('adjustCharge')}</ThemedText>
         </View> : null}
-        <View onLayout={(event) => { summaryPosition.current = event.nativeEvent.layout.y; }} style={[styles.card, cardStyle]}>
+        <View style={[styles.card, cardStyle]}>
           <ThemedText type="subtitle" accessibilityRole="header">{t('detailProducts', { count: order.items.reduce((sum, item) => sum + item.quantity, 0) })}</ThemedText>
           {order.items.map((item, index) => {
             const note = mentionedPriceNote(item);
@@ -356,65 +364,58 @@ export default function OrderDetailScreen() {
             <ThemedText style={styles.amount}>{format(item.subtotal)}</ThemedText>
           </View>;
           })}
-          <View onLayout={(event) => { paymentPosition.current = event.nativeEvent.layout.y; }} style={[styles.paymentSummary, { borderColor: theme.border }]}>
-            <View style={styles.row}>
-              <ThemedText style={styles.semibold} accessibilityRole="header">{t('detailPayment')}</ThemedText>
-              <ThemedText type="small" style={{ color: order.paymentStatus === "paid" ? theme.success : theme.warning }}>
-                {t(order.paymentStatus === "paid" ? 'paymentCovered' : 'detailPaymentPending')}
-              </ThemedText>
-            </View>
+          <View style={[styles.paymentSummary, { borderColor: theme.border }]}>
             <MoneyRow label={t('detailSubtotal')} value={format(order.itemsTotal)} />
             <MoneyRow label={t('detailShippingCharge')} value={format(order.deliveryCharge)} />
-            <View style={[styles.divider, { borderColor: theme.border }]} />
-            <MoneyRow label={t('detailTotal')} value={format(order.total)} strong />
-            <View style={[styles.divider, { borderColor: theme.border }]} />
-            <View style={styles.balances}>
-              <View style={styles.balance}>
-                <ThemedText type="small" themeColor="textSecondary">{t('detailReceived')}</ThemedText>
-                <ThemedText style={styles.semibold}>{format(order.paidAmount)}</ThemedText>
-              </View>
-              <View style={styles.balance}>
-                <ThemedText type="small" themeColor="textSecondary">{t('detailBalance')}</ThemedText>
-                <ThemedText style={styles.semibold}>{format(order.balanceDue)}</ThemedText>
-              </View>
-            </View>
-            {reports.length > 0 && !order.cancelled ? <ThemedText type="small" style={{ color: theme.warning }}>{t('paymentToReview')}</ThemedText> : null}
-            {order.overpaidAmount.amount > 0 ? <ThemedText type="small" style={{ color: theme.warning }}>{t('overpaid', { amount: format(order.overpaidAmount) })}</ThemedText> : null}
-            {!order.cancelled && order.balanceDue.amount > 0 ? <Button disabled={writeBusy} onPress={() => openEditor("manual")}>{t('detailRegisterPayment')}</Button> : null}
-            {paymentError && !editor ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
-            {order.payments.length > 0 ? <>
-              <Disclosure label={t('detailViewPayments')} open={paymentsOpen} onPress={() => setPaymentsOpen(!paymentsOpen)} />
-              {paymentsOpen ? order.payments.map((payment) => {
-                const receiptImageId = payment.status === "reported" ? payment.data.receiptImageId
-                  : payment.status === "rejected" ? payment.data.report.receiptImageId
-                  : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
-                return <View key={payment.id} style={[styles.payment, { borderColor: theme.border }]}>
-                  <ThemedText style={styles.semibold}>{payment.status === "reported" ? t('paymentReported')
-                    : payment.status === "voided" ? t('paymentVoided') : payment.status === "rejected" ? t('paymentRejected') : t('detailPaymentConfirmed')}</ThemedText>
-                  {payment.amount ? <MoneyRow label={t(payment.method === "digital_wallet" ? 'wallet' : 'bankTransfer')} value={format(payment.amount)} /> : null}
-                  <ThemedText type="small" themeColor="textSecondary">{date(payment.status === "reported" ? payment.data.reportedAt : payment.status === "rejected" ? payment.data.rejectedAt : payment.data.confirmedAt, locale)}</ThemedText>
-                  {payment.status === "rejected" && payment.data.reason ? <ThemedText type="small">{payment.data.reason}</ThemedText> : null}
-                  {receiptImageId ? <Button variant="ghost" onPress={() => void viewReceipt(receiptImageId)}>{t('viewReceipt')}</Button> : null}
-                  {payment.status === "reported" && !order.cancelled ? <Button variant="secondary" disabled={writeBusy} onPress={() => openEditor({ paymentId: payment.id, receiptImageId: payment.data.receiptImageId })}>{t('detailReviewPayment')}</Button> : null}
-                  {payment.status === "confirmed" && !order.cancelled ? <Button variant="ghost" disabled={writeBusy} onPress={() => void voidPayment(payment.id)}>{t('voidPayment')}</Button> : null}
-                </View>;
-              }) : null}
-            </> : null}
           </View>
+        </View>
+        <View onLayout={(event) => { paymentPosition.current = event.nativeEvent.layout.y; }} style={[styles.card, styles.section, cardStyle]}>
+          <View style={styles.row}>
+            <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('payments')}</ThemedText>
+            <PaymentBadge status={paymentBadgeStatus(order.paidAmount.amount, order.balanceDue.amount)} />
+          </View>
+          <PaymentSummary total={format(order.total)} paid={format(order.paidAmount)} balance={format(order.balanceDue)} showPaid={hasPaid} />
+          {reports.length > 0 && !order.cancelled ? <ThemedText type="small" style={{ color: theme.warning }}>{t('paymentToReview')}</ThemedText> : null}
+          {order.overpaidAmount.amount > 0 ? <ThemedText type="small" style={{ color: theme.warning }}>{t('overpaid', { amount: format(order.overpaidAmount) })}</ThemedText> : null}
+          {order.payments.map((payment) => {
+            const receiptImageId = payment.status === "reported" ? payment.data.receiptImageId
+              : payment.status === "rejected" ? payment.data.report.receiptImageId
+              : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
+            const tag = payment.status === "reported" ? t('paymentTagReported') : payment.status === "voided" ? t('paymentTagVoided')
+              : payment.status === "rejected" ? t('paymentTagRejected') : advanceIds.has(payment.id) ? t('advancePayment') : t('detailPaymentConfirmed');
+            const method = t(payment.method === "digital_wallet" ? 'wallet' : 'bankTransfer');
+            const when = date(payment.status === "reported" ? payment.data.reportedAt : payment.status === "rejected" ? payment.data.rejectedAt : payment.data.confirmedAt, locale);
+            const amount = payment.amount ? format(payment.amount) : "—";
+            return <View key={payment.id}>
+              <PaymentRow method={method} amount={amount} tag={tag} meta={when}
+                accessibilityLabel={[method, amount, tag, when, receiptImageId ? t('viewReceipt') : null].filter(Boolean).join(", ")}
+                onPress={receiptImageId ? () => void viewReceipt(receiptImageId) : undefined} />
+              {payment.status === "rejected" && payment.data.reason ? <ThemedText type="small">{payment.data.reason}</ThemedText> : null}
+              {payment.status === "reported" && !order.cancelled ? <Button variant="secondary" disabled={writeBusy} onPress={() => openEditor({ paymentId: payment.id, receiptImageId: payment.data.receiptImageId })}>{t('detailReviewPayment')}</Button> : null}
+              {payment.status === "confirmed" && !order.cancelled ? <Button variant="ghost" disabled={writeBusy} onPress={() => void voidPayment(payment.id)}>{t('voidPayment')}</Button> : null}
+            </View>;
+          })}
+          {paymentError && !editor ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
+          {!order.cancelled && order.balanceDue.amount > 0 ? <Button disabled={writeBusy} onPress={() => openEditor("manual")}>{hasPaid ? t('collectBalance', { amount: format(order.balanceDue) }) : t('detailRegisterPayment')}</Button> : null}
         </View>
         {order.delivery || !order.cancelled ? <View style={[styles.card, styles.section, cardStyle]}>
           <View style={styles.row}>
-            <ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
-            {!order.cancelled ? <ThemedText type="small" themeColor="textSecondary">{delivery}</ThemedText> : null}
+            <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('delivery')}</ThemedText>
+            {!order.cancelled ? <DeliveryBadge status={order.deliveryStatus} language={language} /> : null}
           </View>
-          <View style={styles.deliverySummary}>
-            <View style={styles.deliveryIdentity}>
-            {order.delivery ? <Disclosure label={deliveryMethodLabel(order.delivery.method, language)} open={deliveryOpen} onPress={() => setDeliveryOpen(!deliveryOpen)}
-              description={`${order.delivery.method === "agency" ? `${order.delivery.courier.name} · ${order.delivery.agency.name}` : order.delivery.method === "store" ? order.delivery.pickupPoint.name : order.delivery.destination.district} · ${order.delivery.recipient.name}`} />
-              : canEditDelivery ? <ThemedText themeColor="textSecondary">{t('orderDeliveryUndefined')}</ThemedText> : null}
-            </View>
-            {canEditDelivery ? <Button disabled={writeBusy} variant="ghost" onPress={() => router.push({ pathname: "/orders/delivery", params: { id: order.id } })}>{t(order.delivery ? 'editOrderDeliveryData' : 'assignOrderDeliveryData')}</Button> : null}
-          </View>
+          {!order.cancelled ? <>
+            {canEditDelivery ? <OrderDayField row label={t('rowDispatch')} value={order.scheduledDispatchDate ?? ""} onChange={day => void reschedule(day)} />
+              : <DeliveryRow symbol={deliveryRowSymbols.dispatch} label={t('rowDispatch')} value={order.scheduledDispatchDate ?? t('noScheduledDispatch')} muted={!order.scheduledDispatchDate} />}
+            <View style={[styles.divider, { borderColor: theme.border }]} />
+          </> : null}
+          {order.delivery ? <DeliveryRow symbol={deliveryRowSymbols.shipping} label={t('rowShipping')} expanded={deliveryOpen} onPress={() => setDeliveryOpen(!deliveryOpen)}
+            value={shippingSummary(order.delivery.method === "store" ? { method: "store" } : order.delivery.method === "agency"
+              ? { method: "agency", district: order.delivery.agency.location.district, province: order.delivery.agency.location.province }
+              : { method: "home", district: order.delivery.destination.district })} />
+            : canEditDelivery ? <ThemedText themeColor="textSecondary">{t('orderDeliveryUndefined')}</ThemedText> : null}
+          {!order.cancelled && Platform.OS === "android" && order.delivery && order.delivery.method !== "store"
+            ? <><View style={[styles.divider, { borderColor: theme.border }]} /><LabelRow id={order.id} number={order.number} /></> : null}
+          {canEditDelivery ? <Button disabled={writeBusy} variant="ghost" onPress={() => router.push({ pathname: "/orders/delivery", params: { id: order.id } })}>{t(order.delivery ? 'editOrderDeliveryData' : 'assignOrderDeliveryData')}</Button> : null}
           {canEditDelivery && order.paymentStatus === "pending" ? <ThemedText type="small" themeColor="textSecondary">{t('manualDeliveryWithoutPayment')}</ThemedText> : null}
           {order.delivery ? <>
             {deliveryOpen ? <View style={styles.section}>
@@ -442,16 +443,9 @@ export default function OrderDetailScreen() {
             </View> : null}
           </> : null}
           {!order.cancelled ? <View style={styles.section}>
-            {canEditDelivery ? <OrderDayField label={t('scheduledDispatch')} value={order.scheduledDispatchDate ?? ""} onChange={day => void reschedule(day)} />
-              : <ThemedText type="small" themeColor="textSecondary">{t('scheduledDispatch')}: {order.scheduledDispatchDate ?? t('noScheduledDispatch')}</ThemedText>}
             {order.shippedAt ? <ThemedText type="small" themeColor="textSecondary">{t('shippedOn', { date: date(order.shippedAt, locale) })}</ThemedText> : null}
-            {fulfillmentActions.length > 0 ? <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}>
-              {fulfillmentActions.map(operation => <OrderAction key={operation} label={t(`orderFulfillment.${operation}`)}
-                loading={fulfilling === operation} disabled={writeBusy} onPress={() => void fulfill(operation)} />)}
-            </View> : null}
-            {fulfillmentReason ? <View style={[styles.fulfillmentNotice, { borderColor: theme.border }]}>
-              <ThemedText type="small" themeColor="textSecondary">{t(`orderFulfillment.${fulfillmentReason}`)}</ThemedText>
-            </View> : null}
+            {nextOperation && (!nextBlock || nextReason) ? <Button disabled={writeBusy || !!nextBlock} loading={fulfilling === nextOperation} onPress={() => void fulfill(nextOperation)}>{t(`orderFulfillment.${nextOperation}`)}</Button> : null}
+            {nextReason ? <ThemedText type="small" themeColor="textSecondary" style={styles.center}>{t(`orderFulfillment.${nextReason}`)}</ThemedText> : null}
             {fulfillmentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{fulfillmentError}</ThemedText> : null}
             {fulfillmentMessage ? <ThemedText accessibilityRole="alert">{fulfillmentMessage}</ThemedText> : null}
           </View> : null}
@@ -495,47 +489,46 @@ export default function OrderDetailScreen() {
           <Button variant="ghost" disabled={writeBusy} loading={cancellation.kind === "submitting"} onPress={confirmCancellation}>{t("orderCancellation.cancel")}</Button> : null}
       </ScrollView>
     </View>
-    <Modal visible={editor !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeEditor}>
+    <Modal visible={review !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeEditor}>
       <SafeAreaView style={[styles.page, { backgroundColor: theme.background }]}>
         <KeyboardAvoidingView style={styles.page} behavior={Platform.OS === "ios" ? "padding" : "height"}>
           <View style={styles.modalHeader}>
-            <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t(editor === "manual" ? 'detailRegisterPayment' : 'detailReviewPayment')}</ThemedText>
+            <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('detailReviewPayment')}</ThemedText>
             <Button variant="ghost" disabled={writeBusy} onPress={closeEditor}>{t('detailClose')}</Button>
           </View>
           <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.content}>
             <ThemedText>{t('balanceDue', { amount: format(order.balanceDue) })}</ThemedText>
-            {editor && editor !== "manual" ? <Button variant="secondary" onPress={() => void viewReceipt(editor.receiptImageId)}>{t('viewReceipt')}</Button> : null}
-            {editor && rejection && editor !== "manual" ? <RejectionForm busy={writeBusy} reason={rejection.reason}
+            {review ? <Button variant="secondary" onPress={() => void viewReceipt(review.receiptImageId)}>{t('viewReceipt')}</Button> : null}
+            {review && rejection ? <RejectionForm busy={writeBusy} reason={rejection.reason}
               onChange={reason => setRejection({ reason })} onBack={() => { setRejection(null); setPaymentError(""); }}
-              onConfirm={() => void rejectReport(editor.paymentId, rejection.reason)} /> : null}
-            {editor && !rejection ? <PaymentEditor key={editor === "manual" ? "manual" : editor.paymentId} order={order} busy={writeBusy} onConfirm={(amount, method, deduct) => {
-              if (editor === "manual") {
-                manualPaymentId.current ??= Crypto.randomUUID();
-                void confirmPayment(manualPaymentId.current, "manual", amount, method, deduct);
-              } else void confirmPayment(editor.paymentId, "buyer_report", amount, method, deduct);
-            }} /> : null}
-            {editor && editor !== "manual" && !rejection ? <Button variant="secondary" disabled={writeBusy} onPress={() => { setPaymentError(""); setRejection({ reason: "" }); }}>{t('rejectPayment')}</Button> : null}
+              onConfirm={() => void rejectReport(review.paymentId, rejection.reason)} /> : null}
+            {review && !rejection ? <PaymentEditor key={review.paymentId} order={order} busy={writeBusy}
+              onConfirm={(amount, method, deduct) => void confirmPayment(review.paymentId, "buyer_report", amount, method, deduct)} /> : null}
+            {review && !rejection ? <Button variant="secondary" disabled={writeBusy} onPress={() => { setPaymentError(""); setRejection({ reason: "" }); }}>{t('rejectPayment')}</Button> : null}
             {paymentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{paymentError}</ThemedText> : null}
           </ScrollView>
         </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
+    <PaymentRegisterSheet visible={editor === "manual"} balance={order.balanceDue.amount} currency={order.total.currency}
+      format={amount => format({ amount, currency: order.total.currency })} busy={writeBusy} error={editor === "manual" ? paymentError : ""}
+      stockOffer={amount => {
+        const offered = offersPartialStockDeduction(order, amount !== null ? { amount, currency: order.total.currency } : null);
+        return { offered, reason: offered || amount === null ? null : order.stockDeducted ? t('stockAlreadyDeducted') : t('stockWithFullPayment') };
+      }}
+      onClose={closeEditor}
+      onSubmit={({ amount, method, deductStockIfPartial }) => {
+        manualPaymentId.current ??= Crypto.randomUUID();
+        void confirmPayment(manualPaymentId.current, "manual", amount, method, deductStockIfPartial);
+      }} />
   </SafeAreaView></ThemedView>;
 }
 
-function OrderAction({ label, onPress, disabled = false, loading = false }: {
-  label: string; onPress: () => void; disabled?: boolean; loading?: boolean;
-}) {
-  const theme = useTheme();
-  const [focused, setFocused] = useState(false);
-  const blocked = disabled || loading;
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: blocked, busy: loading }}
-    disabled={blocked} onPress={onPress} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-    style={({ pressed }) => [styles.action, { backgroundColor: pressed ? theme.backgroundSelected : 'transparent',
-      borderColor: focused ? theme.ring : 'transparent', opacity: blocked ? 0.5 : 1 }]}>
-    <ThemedText style={styles.flex}>{label}</ThemedText>
-    {loading ? <ActivityIndicator color={theme.text} /> : <SymbolView name={{ ios: "chevron.right", android: "chevron_right" }} size={20} tintColor={theme.textSecondary} />}
-  </Pressable>;
+function LabelRow({ id, number }: { id: string; number: number }) {
+  const { t } = useTranslation();
+  const { open, active, show } = useDispatchPrint();
+  // Like the order list: while a batch is in progress, open it instead of replacing it.
+  return <DeliveryRow symbol={deliveryRowSymbols.label} label={t('rowLabel')} value={active ? t('dispatchViewBatch') : t('rowLabelPrint')} onPress={() => active ? show() : open([{ id, number }])} />;
 }
 
 function StatusBadge({ label, tone }: { label: string; tone: "neutral" | "success" | "warning" }) {
@@ -572,12 +565,7 @@ const styles = StyleSheet.create({
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 6 },
   card: { padding: 16, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   paymentSummary: { gap: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
-  balances: { flexDirection: "row", flexWrap: "wrap", gap: 16, paddingVertical: 4 },
-  balance: { flexGrow: 1, flexBasis: 120, gap: 4 },
-  fulfillmentNotice: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
-  deliverySummary: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
-  deliveryIdentity: { flexGrow: 1, flexShrink: 1, flexBasis: 150 },
-  action: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 12, paddingVertical: 10, paddingHorizontal: 4, borderRadius: 6, borderWidth: 2 },
+  center: { textAlign: "center" },
   linkLoading: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 12 },
   receiptNotice: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   section: { gap: 10 },
@@ -588,7 +576,6 @@ const styles = StyleSheet.create({
   moneyLabel: { flexGrow: 1, flexShrink: 1, flexBasis: 150 }, moneyValue: { textAlign: "right", fontVariant: ["tabular-nums"] },
   divider: { borderTopWidth: StyleSheet.hairlineWidth, marginVertical: 2 },
   disclosure: { flexDirection: "row", alignItems: "center", gap: 12, minHeight: 48, paddingVertical: 4, borderRadius: 6 },
-  payment: { gap: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
   modalHeader: { flexDirection: "row", alignItems: "center", gap: 12, padding: 16 },
   item: { gap: 4, paddingVertical: 12 },
 });
