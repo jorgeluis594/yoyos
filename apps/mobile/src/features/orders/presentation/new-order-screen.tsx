@@ -2,14 +2,13 @@ import { OrderItemsCard } from "@mobile/features/orders/presentation/order-items
 import { ProductPickerSheet } from "@mobile/features/orders/presentation/product-picker-sheet";
 import { OrderPaymentCard } from "@mobile/features/orders/presentation/order-payment-card";
 import { usePendingOrders } from "@mobile/features/orders/presentation/pending-order-sync-provider";
-import { OptionSelector } from "@mobile/components/ui/option-selector";
-import { Field, FieldLabel } from "@mobile/components/ui/field";
 import { DeliveryFields, deliveryDraftFromOrder } from "@mobile/features/orders/presentation/delivery-fields";
 import { deliverySettings } from "@mobile/features/delivery-settings";
 import type { DeliveryQuotation } from "@mobile/features/delivery-settings";
 import { orderDeliveryFormSchema, type OrderDeliveryFormValues } from "@mobile/features/orders/presentation/order-delivery-form";
 import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
-import { orderLanguage } from "@mobile/features/orders/presentation/order-labels";
+import { deliveryStatusLabel, orderLanguage } from "@mobile/features/orders/presentation/order-labels";
+import { DeliveryBadge, DeliveryRow, OptionSheet, deliveryRowSymbols, useShippingSummary } from "@mobile/features/orders/presentation/order-delivery-parts";
 import type { Result } from "@shared/result";
 import { add, subtract, type Money, type MoneyError } from "@shared/money";
 import { andThen, ok } from "@shared/functional";
@@ -73,6 +72,8 @@ function CompanyOrderScreen() {
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selected, setSelected] = useState<Catalog[number] | null>(null);
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [shippingCollapsed, setShippingCollapsed] = useState(false);
   const { pending, refresh: refreshPending, trigger: syncPending } = usePendingOrders();
   const [reviewingOrder, setReviewingOrder] = useState(false);
   const [unavailableVariants, setUnavailableVariants] = useState<readonly string[]>([]);
@@ -129,6 +130,10 @@ function CompanyOrderScreen() {
   ) : null;
   const currency = productTotal.success ? productTotal.data.shownTotal.currency : "";
   const orderTotal = reviewedTotal?.success ? reviewedTotal.data : productTotal.success ? productTotal.data.shownTotal : null;
+  const language = orderLanguage(state.status === "ready" ? state.company.country : "PE", i18n.language);
+  const deliveryState = draft.deliverImmediately ? "delivered" : "pending";
+  const shippingSummary = useShippingSummary();
+  const shippingChoice = !initialDelivery?.method ? null : initialDelivery.method === "store" ? { method: "store" as const } : { method: initialDelivery.method, districtCode: initialDelivery.districtCode };
   const card = { backgroundColor: theme.backgroundElement, borderColor: theme.border };
   const stockShort = exceedsShownStock(draft.items);
   const paymentNeedsStock = stockShort && !draft.deliverImmediately
@@ -353,28 +358,38 @@ function CompanyOrderScreen() {
               onPaymentsChange={update => setDraft(current => ({ ...current, payments: update(current.payments ?? []) }))} />
             {paymentNeedsStock ? <ThemedText accessibilityRole="alert" style={{ color: theme.warning }}>{t('paymentNeedsStock')}</ThemedText> : null}
             <View style={[styles.card, card]}>
-            <ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
-            <Field disabled={sending}><FieldLabel>{t('deliveryStatus')}</FieldLabel><OptionSelector testID="delivery-status" value={draft.deliverImmediately ? "delivered" : "pending"}
-              options={[{ value: "pending", label: t('deliveryPending') }, { value: "delivered", label: t('deliveryDelivered') }]}
-              onValueChange={value => setDraft(current => ({ ...current, deliverImmediately: value === "delivered" }))} /></Field>
-            <OrderDayField label={t('scheduledDispatch')} value={draft.scheduledDispatchDate ?? ""}
+            <View style={styles.cardHeader}>
+              <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('delivery')}</ThemedText>
+              <DeliveryBadge status={deliveryState} language={language} />
+            </View>
+            <DeliveryRow symbol={deliveryRowSymbols.status} label={t('rowDeliveryStatus')} value={deliveryStatusLabel(deliveryState, language)} disabled={sending} onPress={() => setStatusOpen(true)} />
+            <View style={[styles.divider, { borderColor: theme.border }]} />
+            <OrderDayField row label={t('rowDispatch')} value={draft.scheduledDispatchDate ?? ""}
               onChange={day => setDraft(current => ({ ...current, scheduledDispatchDate: day || undefined }))} />
+            <View style={[styles.divider, { borderColor: theme.border }]} />
             {settings && (initialDelivery || settings.home.enabled || settings.store.enabled || settings.agency.enabled) ? <>
-              <Button variant="ghost" disabled={sending} onPress={() => {
-                if (initialDelivery) { setInitialDelivery(null); setQuoteAttempt(value => value + 1); }
-                else showDeliveryFields();
-              }}>{t(initialDelivery ? 'removeShippingDetails' : 'shippingDetails')}</Button>
-              {initialDelivery ? <DeliveryFields value={initialDelivery} onChange={next => {
-                if (next.method !== initialDelivery.method || next.districtCode !== initialDelivery.districtCode) setQuoteAttempt(value => value + 1);
-                setInitialDelivery(next);
-              }} settings={settings} busy={sending} language={orderLanguage(state.company.country, i18n.language)}
-                rates={rates} quoting={quoting} quoteError={quoteError} onRetry={retryQuotation} /> : null}
+              <DeliveryRow symbol={deliveryRowSymbols.shipping} label={t('rowShipping')} value={shippingSummary(shippingChoice)}
+                muted={!initialDelivery} disabled={sending} expanded={initialDelivery ? !shippingCollapsed : undefined} onPress={() => {
+                  if (!initialDelivery) { setShippingCollapsed(false); showDeliveryFields(); }
+                  else setShippingCollapsed(value => !value);
+                }} />
+              {initialDelivery && !shippingCollapsed ? <>
+                <DeliveryFields value={initialDelivery} onChange={next => {
+                  if (next.method !== initialDelivery.method || next.districtCode !== initialDelivery.districtCode) setQuoteAttempt(value => value + 1);
+                  setInitialDelivery(next);
+                }} settings={settings} busy={sending} language={language}
+                  rates={rates} quoting={quoting} quoteError={quoteError} onRetry={retryQuotation} />
+                <Button variant="ghost" disabled={sending} onPress={() => { setInitialDelivery(null); setShippingCollapsed(false); setQuoteAttempt(value => value + 1); }}>{t('removeShippingDetails')}</Button>
+              </> : null}
             </> : <ThemedText themeColor="textSecondary">{t(settings ? 'orderDeliveryDisabled' : 'loadOrderDeliveryError')}</ThemedText>}
             {draft.deliverImmediately && balance?.success && balance.data.amount > 0
               ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('deliveryNeedsPayment')}</ThemedText> : null}
             {draft.deliverImmediately && stockShort
               ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('deliveryNeedsStock')}</ThemedText> : null}
             </View>
+            <OptionSheet visible={statusOpen} title={t('rowDeliveryStatus')} value={deliveryState} onClose={() => setStatusOpen(false)}
+              options={(["pending", "delivered"] as const).map(value => ({ value, label: deliveryStatusLabel(value, language) }))}
+              onSelect={value => setDraft(current => ({ ...current, deliverImmediately: value === "delivered" }))} />
             <View style={[styles.card, card]}>
             <ThemedText type="subtitle" accessibilityRole="header">{t('creationSummary')}</ThemedText>
             {productTotal.success ? <View style={styles.amountRow}><ThemedText>{t('estimatedProductsLabel')}</ThemedText><ThemedText style={styles.amount}>{money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale)}</ThemedText></View> : null}
@@ -407,7 +422,7 @@ function CompanyOrderScreen() {
 }
 
 const styles = StyleSheet.create({ page: { flex: 1 }, content: { gap: 16, padding: 16, paddingBottom: 24, maxWidth: 640, width: "100%", alignSelf: "center" },
-  heading: { gap: 4 },
+  heading: { gap: 4 }, cardHeader: { flexDirection: "row", alignItems: "center", gap: 8 }, flex: { flex: 1 }, divider: { borderTopWidth: 1 },
   card: { borderWidth: 1, borderRadius: 8, padding: 16, gap: 12 },
   amountRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
   amount: { fontVariant: ["tabular-nums"], textAlign: "right", flexShrink: 1 }, section: { gap: 12 }, item: { gap: 8, paddingVertical: 12 }, row: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, error: { padding: 12 },

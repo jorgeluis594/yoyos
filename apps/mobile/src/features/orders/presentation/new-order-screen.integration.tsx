@@ -127,6 +127,10 @@ function advance(screen: ReturnType<typeof render>, amount: string) {
   fireEvent.changeText(screen.getByLabelText(/Monto/), amount);
   fireEvent.press(screen.getByRole("button", { name: /^Registrar .*\d/ }));
 }
+function markDelivered(screen: ReturnType<typeof render>) {
+  fireEvent.press(screen.getByRole("button", { name: /^Estado de entrega/ }));
+  fireEvent.press(screen.getByRole("radio", { name: "Entregado" }));
+}
 async function review() {
   const screen = render(<NewOrderScreen />);
   fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
@@ -151,7 +155,7 @@ test("mobile interface creates a pending order without payments or stock changes
 test("mobile interface creates an immediate sale with payment, stock deduction and delivery", async () => {
   const screen = await review();
   advance(screen, "10");
-  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  markDelivered(screen);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
   const id = mockReplace.mock.calls[0][0].split("/").at(-1);
@@ -188,7 +192,7 @@ test("mobile queues a sale after a lost response and the sync confirms it after 
 
 async function ratedReview(method: "home" | "agency" = "home", rateIndex = 0) {
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent(screen.getByTestId("delivery-method"), "valueChange", method === "home" ? 1 : 2);
   const district = getPeruDistrict("150122")!;
   fireEvent(screen.getByTestId("delivery-department"), "valueChange", peruDepartments.findIndex(value => value.code === district.departmentCode));

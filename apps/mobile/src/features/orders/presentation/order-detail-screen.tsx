@@ -31,8 +31,10 @@ import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useNotices } from "@mobile/features/notifications/composition";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
-import { deliveryMethodLabel, deliveryStatusLabel, documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
+import { documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
 import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentBadgeStatus } from "@mobile/features/orders/presentation/order-payment-parts";
+import { DeliveryBadge, DeliveryRow, deliveryRowSymbols, useShippingSummary } from "@mobile/features/orders/presentation/order-delivery-parts";
+import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-print-review";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { useCopyLink } from "@mobile/features/catalog/presentation/use-copy-link";
 import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
@@ -62,6 +64,7 @@ export default function OrderDetailScreen() {
   const router = useRouter();
   const theme = useTheme();
   const { t, i18n } = useTranslation();
+  const shippingSummary = useShippingSummary();
   const locale = i18n.language === 'pt-BR' ? 'pt-BR' : 'es-PE';
   const { id, noticeAt } = useLocalSearchParams<{ id: string; noticeAt?: string }>();
   const { state } = useAccess();
@@ -282,7 +285,6 @@ export default function OrderDetailScreen() {
   const changed = original && (original.currency !== order.total.currency || original.amount !== order.total.amount);
   const language = orderLanguage(state.company.country, i18n.language);
   const title = orderStatusLabel(order.status, language);
-  const delivery = deliveryStatusLabel(order.deliveryStatus, language);
   const format = (value: { amount: number; currency: string }) => money(value.amount, value.currency, locale);
   const reports = order.payments.filter((payment) => payment.status === "reported");
   const hasPaid = order.paidAmount.amount > 0;
@@ -293,9 +295,10 @@ export default function OrderDetailScreen() {
   };
   const openEditor = (value: NonNullable<typeof editor>) => { if (cancellationLock.current || writeBusy || order.cancelled) return; setPaymentError(""); setRejection(null); setEditor(value); };
   const closeEditor = () => { if (!savingPayment) { setEditor(null); setRejection(null); setPaymentError(""); } };
-  const fulfillmentActions = (["ship", "deliver"] as const).filter(operation => !fulfillmentBlock(order, operation));
-  const deliveryBlock = fulfillmentBlock(order, "deliver");
-  const fulfillmentReason = deliveryBlock === "PAYMENT_REQUIRED" || deliveryBlock === "STOCK_NOT_DEDUCTED" ? deliveryBlock : null;
+  // The one main action is the next valid transition; when it is blocked the button stays disabled and says why.
+  const nextOperation = order.deliveryStatus === "pending" ? "ship" : order.deliveryStatus === "shipped" ? "deliver" : null;
+  const nextBlock = nextOperation ? fulfillmentBlock(order, nextOperation) : null;
+  const nextReason = nextBlock === "PAYMENT_REQUIRED" || nextBlock === "STOCK_NOT_DEDUCTED" ? nextBlock : null;
   const cardStyle = { backgroundColor: theme.backgroundElement, borderColor: theme.border };
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <View style={styles.container}>
@@ -391,15 +394,23 @@ export default function OrderDetailScreen() {
         </View>
         {order.delivery || !order.cancelled ? <View style={[styles.card, styles.section, cardStyle]}>
           <View style={styles.row}>
-            <ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
-            {!order.cancelled ? <ThemedText type="small" themeColor="textSecondary">{delivery}</ThemedText> : null}
+            <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('delivery')}</ThemedText>
+            {!order.cancelled ? <DeliveryBadge status={order.deliveryStatus} language={language} /> : null}
           </View>
+          {!order.cancelled ? <>
+            {canEditDelivery ? <OrderDayField row label={t('rowDispatch')} value={order.scheduledDispatchDate ?? ""} onChange={day => void reschedule(day)} />
+              : <DeliveryRow symbol={deliveryRowSymbols.dispatch} label={t('rowDispatch')} value={order.scheduledDispatchDate ?? t('noScheduledDispatch')} muted={!order.scheduledDispatchDate} disabled onPress={() => undefined} />}
+            <View style={[styles.divider, { borderColor: theme.border }]} />
+          </> : null}
+          {order.delivery ? <DeliveryRow symbol={deliveryRowSymbols.shipping} label={t('rowShipping')} expanded={deliveryOpen} onPress={() => setDeliveryOpen(!deliveryOpen)}
+            value={shippingSummary(order.delivery.method === "store" ? { method: "store" } : order.delivery.method === "agency"
+              ? { method: "agency", district: order.delivery.agency.location.district, province: order.delivery.agency.location.province }
+              : { method: "home", district: order.delivery.destination.district })} />
+            : canEditDelivery ? <ThemedText themeColor="textSecondary">{t('orderDeliveryUndefined')}</ThemedText> : null}
+          {!order.cancelled && Platform.OS === "android" && order.delivery && order.delivery.method !== "store"
+            ? <><View style={[styles.divider, { borderColor: theme.border }]} /><LabelRow id={order.id} number={order.number} /></> : null}
           <View style={styles.deliverySummary}>
-            <View style={styles.deliveryIdentity}>
-            {order.delivery ? <Disclosure label={deliveryMethodLabel(order.delivery.method, language)} open={deliveryOpen} onPress={() => setDeliveryOpen(!deliveryOpen)}
-              description={`${order.delivery.method === "agency" ? `${order.delivery.courier.name} · ${order.delivery.agency.name}` : order.delivery.method === "store" ? order.delivery.pickupPoint.name : order.delivery.destination.district} · ${order.delivery.recipient.name}`} />
-              : canEditDelivery ? <ThemedText themeColor="textSecondary">{t('orderDeliveryUndefined')}</ThemedText> : null}
-            </View>
+            <View style={styles.deliveryIdentity} />
             {canEditDelivery ? <Button disabled={writeBusy} variant="ghost" onPress={() => router.push({ pathname: "/orders/delivery", params: { id: order.id } })}>{t(order.delivery ? 'editOrderDeliveryData' : 'assignOrderDeliveryData')}</Button> : null}
           </View>
           {canEditDelivery && order.paymentStatus === "pending" ? <ThemedText type="small" themeColor="textSecondary">{t('manualDeliveryWithoutPayment')}</ThemedText> : null}
@@ -429,16 +440,9 @@ export default function OrderDetailScreen() {
             </View> : null}
           </> : null}
           {!order.cancelled ? <View style={styles.section}>
-            {canEditDelivery ? <OrderDayField label={t('scheduledDispatch')} value={order.scheduledDispatchDate ?? ""} onChange={day => void reschedule(day)} />
-              : <ThemedText type="small" themeColor="textSecondary">{t('scheduledDispatch')}: {order.scheduledDispatchDate ?? t('noScheduledDispatch')}</ThemedText>}
             {order.shippedAt ? <ThemedText type="small" themeColor="textSecondary">{t('shippedOn', { date: date(order.shippedAt, locale) })}</ThemedText> : null}
-            {fulfillmentActions.length > 0 ? <View style={{ borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.border }}>
-              {fulfillmentActions.map(operation => <OrderAction key={operation} label={t(`orderFulfillment.${operation}`)}
-                loading={fulfilling === operation} disabled={writeBusy} onPress={() => void fulfill(operation)} />)}
-            </View> : null}
-            {fulfillmentReason ? <View style={[styles.fulfillmentNotice, { borderColor: theme.border }]}>
-              <ThemedText type="small" themeColor="textSecondary">{t(`orderFulfillment.${fulfillmentReason}`)}</ThemedText>
-            </View> : null}
+            {nextOperation && (!nextBlock || nextReason) ? <Button disabled={writeBusy || !!nextBlock} loading={fulfilling === nextOperation} onPress={() => void fulfill(nextOperation)}>{t(`orderFulfillment.${nextOperation}`)}</Button> : null}
+            {nextReason ? <ThemedText type="small" themeColor="textSecondary" style={styles.center}>{t(`orderFulfillment.${nextReason}`)}</ThemedText> : null}
             {fulfillmentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{fulfillmentError}</ThemedText> : null}
             {fulfillmentMessage ? <ThemedText accessibilityRole="alert">{fulfillmentMessage}</ThemedText> : null}
           </View> : null}
@@ -521,19 +525,10 @@ export default function OrderDetailScreen() {
   </SafeAreaView></ThemedView>;
 }
 
-function OrderAction({ label, onPress, disabled = false, loading = false }: {
-  label: string; onPress: () => void; disabled?: boolean; loading?: boolean;
-}) {
-  const theme = useTheme();
-  const [focused, setFocused] = useState(false);
-  const blocked = disabled || loading;
-  return <Pressable accessibilityRole="button" accessibilityLabel={label} accessibilityState={{ disabled: blocked, busy: loading }}
-    disabled={blocked} onPress={onPress} onFocus={() => setFocused(true)} onBlur={() => setFocused(false)}
-    style={({ pressed }) => [styles.action, { backgroundColor: pressed ? theme.backgroundSelected : 'transparent',
-      borderColor: focused ? theme.ring : 'transparent', opacity: blocked ? 0.5 : 1 }]}>
-    <ThemedText style={styles.flex}>{label}</ThemedText>
-    {loading ? <ActivityIndicator color={theme.text} /> : <SymbolView name={{ ios: "chevron.right", android: "chevron_right" }} size={20} tintColor={theme.textSecondary} />}
-  </Pressable>;
+function LabelRow({ id, number }: { id: string; number: number }) {
+  const { t } = useTranslation();
+  const { open } = useDispatchPrint();
+  return <DeliveryRow symbol={deliveryRowSymbols.label} label={t('rowLabel')} value={t('rowLabelPrint')} onPress={() => open([{ id, number }])} />;
 }
 
 function StatusBadge({ label, tone }: { label: string; tone: "neutral" | "success" | "warning" }) {
@@ -572,6 +567,7 @@ const styles = StyleSheet.create({
   paymentSummary: { gap: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
   balances: { flexDirection: "row", flexWrap: "wrap", gap: 16, paddingVertical: 4 },
   balance: { flexGrow: 1, flexBasis: 120, gap: 4 },
+  center: { textAlign: "center" },
   fulfillmentNotice: { borderTopWidth: StyleSheet.hairlineWidth, paddingTop: 10 },
   deliverySummary: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", gap: 8 },
   deliveryIdentity: { flexGrow: 1, flexShrink: 1, flexBasis: 150 },

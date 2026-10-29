@@ -63,6 +63,7 @@ jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAcc
 jest.mock("@mobile/features/notifications/presentation/notices-provider", () => ({
   useNotices: () => ({ watchArrivals: (listener: (destination: unknown) => void) => { mockArrival = listener; return mockStopArrivals; } }),
 }));
+jest.mock("@mobile/features/orders/presentation/dispatch-print-review", () => ({ useDispatchPrint: () => ({ open: jest.fn(), active: false, show: jest.fn() }) }));
 jest.mock("@mobile/features/orders/presentation/order-result", () => ({ useOrderResult: () => ({ notice: mockNotice, clear: mockClear }) }));
 jest.mock("@mobile/features/orders/presentation/order-day-field", () => ({ OrderDayField: ({ value, onChange }: { value: string; onChange: (day: string) => void }) => {
   const { Text } = jest.requireActual("react-native");
@@ -230,8 +231,8 @@ test('order detail translates amounts and labels to Portuguese', async () => {
   mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending", deliveryCost: { amount: 3, currency: "PEN" },
     delivery: { method: "store", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, pickupPoint: { name: "Historic store", address: "Historic address", instructions: "Historic instructions" }, settingsVersion: 1, recordedBy: { kind: "seller", userId: "second-seller" } } };
   const screen = render(<OrderDetailScreen />);
-  await screen.findByRole("button", { name: "Tienda" });
-  fireEvent.press(screen.getByRole("button", { name: "Tienda" }));
+  await screen.findByRole("button", { name: /^Envío: / });
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.press(screen.getByRole("button", { name: "Detalles internos" }));
   expect(screen.getByText("Historic instructions")).toBeTruthy();
   expect(screen.getByText(/Registrada por vendedor: second-seller/)).toBeTruthy();
@@ -261,8 +262,8 @@ test("home details show historical address, district, instructions and seller al
   mockOrder = { ...initialOrder, status: "active", completedAt: null, deliveryStatus: "pending", deliveryCost: { amount: 3, currency: "PEN" },
     delivery: { method: "home", recipient: { name: "Recipient", phone: "555", identity: { kind: "absent" } }, destination: { address: "Historic destination", country: "PE" as const, districtCode: "150101", province: "Lima", department: "Lima", district: "Historic district", instructions: "Historic instructions" }, pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 }, recordedBy: { kind: "seller", userId: "second-seller" } } };
   const screen = render(<OrderDetailScreen />);
-  await screen.findByRole("button", { name: "Domicilio" });
-  fireEvent.press(screen.getByRole("button", { name: "Domicilio" }));
+  await screen.findByRole("button", { name: /^Envío: / });
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.press(screen.getByRole("button", { name: "Detalles internos" }));
   expect(screen.getByText("Historic district")).toBeTruthy();
   expect(screen.getByText("Historic instructions")).toBeTruthy();
@@ -372,14 +373,14 @@ test("returning to the screen asks for the link again so a new subdomain shows",
 });
 
 
-test.each([null, "store"] as const)("seller delivers directly from pending with %s delivery and keeps payments", async method => {
-  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null,
+test.each([null, "store"] as const)("seller delivers a shipped order with %s delivery and keeps payments", async method => {
+  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "shipped", deliveredAt: null, completedAt: null,
     delivery: method === "store" ? { method, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
       pickupPoint: { name: "Tienda", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } } : null };
   mockDeliver.mockResolvedValue({ success: true, data: { ...mockOrder, status: "completed", deliveryStatus: "delivered", completedAt: initialOrder.completedAt, deliveredAt: initialOrder.deliveredAt } });
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Orden activa");
-  fireEvent.press(screen.getByRole("button", { name: "Marcar entregado" }));
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como entregado" }));
   await screen.findByText("Pedido marcado como entregado.");
   expect(screen.getByText("Venta completada")).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Detalles internos" }));
@@ -397,12 +398,12 @@ test("seller ships then delivers and sees an updated state after each operation"
   mockDeliver.mockResolvedValue({ success: true, data: initialOrder });
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Orden activa");
-  fireEvent.press(screen.getByRole("button", { name: "Marcar enviado" }));
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como despachado" }));
   await screen.findByText("Pedido marcado como enviado.");
   expect(screen.getByLabelText("Pagado")).toBeTruthy();
   expect(screen.getByText("Despachado")).toBeTruthy();
-  expect(screen.queryByRole("button", { name: "Marcar enviado" })).toBeNull();
-  fireEvent.press(screen.getByRole("button", { name: "Marcar entregado" }));
+  expect(screen.queryByRole("button", { name: "Marcar como despachado" })).toBeNull();
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como entregado" }));
   await screen.findByText("Pedido marcado como entregado.");
   expect(screen.getByText("Venta completada")).toBeTruthy();
   expect(mockShip).toHaveBeenCalledWith(mockId);
@@ -420,8 +421,8 @@ test.each([
   const screen = render(<OrderDetailScreen />);
   if (state.cancelled) {
     await screen.findByText(/Pedido cancelado. Los pagos se conservan/);
-    expect(screen.queryByRole("button", { name: "Marcar enviado" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Marcar entregado" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Marcar como despachado" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Marcar como entregado" })).toBeNull();
     return;
   }
   if (state.deliveryStatus === "delivered") {
@@ -444,16 +445,16 @@ test("fulfillment errors remain visible and requests can be retried without chan
   mockShip.mockImplementationOnce(() => new Promise(result => { resolve = result; }));
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Orden activa");
-  fireEvent.press(screen.getByRole("button", { name: "Marcar enviado" }));
-  expect(screen.getByRole("button", { name: "Marcar entregado" })).toBeDisabled();
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como despachado" }));
+  expect(screen.getByRole("button", { name: "Marcar como despachado" })).toBeDisabled();
   await act(async () => resolve({ success: false, error: { code: "PAYMENT_REQUIRED" } }));
   await screen.findByText("Se requiere el pago completo antes de enviar o entregar.");
   expect(screen.getByText("Orden activa")).toBeTruthy();
   mockShip.mockRejectedValueOnce(new Error("Network failure"));
-  fireEvent.press(screen.getByRole("button", { name: "Marcar enviado" }));
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como despachado" }));
   await screen.findByText("No se pudo actualizar el pedido. Inténtalo de nuevo.");
   mockShip.mockResolvedValue({ success: true, data: { ...mockOrder, deliveryStatus: "shipped" } });
-  fireEvent.press(screen.getByRole("button", { name: "Marcar enviado" }));
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como despachado" }));
   await screen.findByText("Pedido marcado como enviado.");
   expect(mockRegisterPayment).not.toHaveBeenCalled();
   expect(mockVoidPayment).not.toHaveBeenCalled();
@@ -517,7 +518,7 @@ test("confirmation survives detail refresh failure and keeps recorded payments v
   expect(screen.getByText(/Pedido cancelado. Los pagos se conservan/)).toBeTruthy();
   expect(screen.queryByText("Entrega pendiente")).toBeNull();
   expect(screen.queryByRole("button", { name: "Cancelar pedido" })).toBeNull();
-  expect(screen.queryByRole("button", { name: "Marcar enviado" })).toBeNull();
+  expect(screen.queryByRole("button", { name: "Marcar como despachado" })).toBeNull();
   expect(screen.getAllByText(/Adelanto|confirmado/i).length).toBeGreaterThan(0);
   expect(screen.queryByRole("button", { name: "Anular pago" })).toBeNull();
   expect(mockCancel).toHaveBeenCalledTimes(1);
@@ -537,7 +538,7 @@ test.each(["NETWORK_ERROR", "RATE_LIMITED"])("%s uncertainty blocks writes and m
   await screen.findByText("Orden activa");
   acceptCancellation(screen);
   await screen.findByText(/No pudimos confirmar si se canceló/);
-  for (const name of ["Cancelar pedido", "Anular pago", "Marcar enviado", "Asignar datos"]) {
+  for (const name of ["Cancelar pedido", "Anular pago", "Marcar como despachado", "Asignar datos"]) {
     expect(screen.getByRole("button", { name })).toBeDisabled();
     fireEvent.press(screen.getByRole("button", { name }));
   }
@@ -562,7 +563,7 @@ test("repeated acceptance writes once and a response from the previous session i
   const accept = alert.mock.calls[0][2]?.[1]?.onPress;
   act(() => { accept?.(); accept?.(); });
   expect(mockCancel).toHaveBeenCalledTimes(1);
-  expect(screen.getByRole("button", { name: "Marcar enviado" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Marcar como despachado" })).toBeDisabled();
   mockUserId = "another-seller";
   screen.rerender(<OrderDetailScreen />);
   await screen.findByText("Orden activa");

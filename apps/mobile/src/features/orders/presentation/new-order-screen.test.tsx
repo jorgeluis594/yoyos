@@ -103,6 +103,10 @@ function payFull(screen: ReturnType<typeof render>) {
   openPayment(screen);
   fireEvent.press(screen.getByRole("button", { name: /^Registrar .*\d/ }));
 }
+function markDelivered(screen: ReturnType<typeof render>) {
+  fireEvent.press(screen.getByRole("button", { name: /^Estado de entrega/ }));
+  fireEvent.press(screen.getByRole("radio", { name: "Entregado" }));
+}
 async function review() {
   const screen = render(<NewOrderScreen />);
   fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
@@ -140,8 +144,8 @@ test("scheduled dispatch date is sent when chosen and omitted otherwise", async 
   withoutDay.unmount();
   mockCompleteOrder.mockClear();
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: /^Despacho programado/ }));
-  fireEvent(screen.getByTestId("order-despacho programado-picker"), "valueChange", {}, new Date(2026, 9, 20, 12));
+  fireEvent.press(screen.getByRole("button", { name: /^Despacho: / }));
+  fireEvent(screen.getByTestId("order-despacho-picker"), "valueChange", {}, new Date(2026, 9, 20, 12));
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
   expect(mockCompleteOrder.mock.calls[0][0]).toEqual(expect.objectContaining({ scheduledDispatchDate: "2026-10-20" }));
@@ -155,21 +159,21 @@ test("products stay read-only on the form and returning preserves entered data",
   expect(screen.getByText("Talla: M")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Quitar" })).toBeNull();
   advance(screen, "10");
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
-  expect(screen.getByTestId("delivery-status")).toHaveProp("accessibilityLabel", "Estado: Pendiente");
-  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
+  expect(screen.getByRole("button", { name: "Estado de entrega: Entrega pendiente" })).toBeTruthy();
+  markDelivered(screen);
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Calle 1");
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   expect(screen.getByRole("button", { name: "+" })).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   expect(screen.getByRole("button", { name: /^Quitar pago/ })).toBeTruthy();
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Calle 1");
-  expect(screen.getByTestId("delivery-status")).toHaveProp("accessibilityLabel", "Estado: Entregado");
+  expect(screen.getByRole("button", { name: "Estado de entrega: Entregado" })).toBeTruthy();
 });
 
 test("delivered status explains missing payment and allows saving once covered", async () => {
   const screen = await review();
-  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  markDelivered(screen);
   expect(screen.getByText(/Completa el pago/)).toHaveProp("accessibilityRole", "alert");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   advance(screen, "10");
@@ -305,7 +309,7 @@ test("delivered with payment and quantity above stock shows a single stock alert
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   advance(screen, "40");
-  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  markDelivered(screen);
   expect(screen.getAllByRole("alert").filter(node => /stock/.test(String(node.props.children)))).toHaveLength(1);
   expect(screen.getByText(/repón el stock para guardarlo como entregado/)).toBeTruthy();
   expect(screen.queryByText(/deja el pago como pendiente/)).toBeNull();
@@ -316,7 +320,7 @@ test("delivered with payment and quantity above stock shows a single stock alert
 test("delivered without payment still reports the stock need and blocks saving", async () => {
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  markDelivered(screen);
   expect(screen.getByText(/repón el stock para guardarlo como entregado/)).toHaveProp("accessibilityRole", "alert");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
 });
@@ -444,14 +448,14 @@ test("one save retains editable payments and delivery on rejection and prevents 
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   advance(screen, "5");
   advance(screen, "13");
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Av. Lima 123");
   selectDistrict(screen);
   await screen.findByTestId("delivery-rate");
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
-  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  markDelivered(screen);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
@@ -492,7 +496,7 @@ test("decimal comma in an initial payment updates the summary and allows saving"
 test("new order selects one overlapping home rate and reviews the full charge without manual pricing", async () => {
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 22, currency: "PEN" }, order: { id: mockId(3) } }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   selectDistrict(screen);
   await screen.findByTestId("delivery-rate");
@@ -522,7 +526,7 @@ test("new order selects one overlapping home rate and reviews the full charge wi
 test("price conflict preserves creation fields and requires explicit selection of refreshed rates", async () => {
   mockCompleteOrder.mockResolvedValue(err({ code: "TOTAL_CHANGED", message: "Private", currentPrice: { amount: 10, currency: "PEN" } }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Preserved street");
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
@@ -551,7 +555,7 @@ test("agency creation uses an explicit zero rate and requires identity without o
   mockSettingsGet.mockResolvedValue(ok(allMethods));
   mockCompleteOrder.mockResolvedValue(err({ code: "INVALID_ORDER", message: "Rejected" }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent(screen.getByTestId("delivery-method"), "valueChange", 2);
   selectDistrict(screen);
   await screen.findByTestId("delivery-rate");
@@ -577,7 +581,7 @@ test("quotation failure and empty coverage block creation while pickup remains e
   mockQuotation.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "Offline" })).mockResolvedValue(ok({ ...quotation, rates: [] }));
   mockCompleteOrder.mockResolvedValue(err({ code: "INVALID_ORDER", message: "Rejected" }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
   fireEvent(screen.getByTestId("delivery-method"), "valueChange", 1);
@@ -604,7 +608,7 @@ test("late destination quotations cannot restore another district or a shipping 
   let finish: ((result: ReturnType<typeof ok<typeof quotation>>) => void) | undefined;
   mockQuotation.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockResolvedValue(ok({ ...quotation, districtCode: "040110", rates: [secondRate] }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
   fireEvent(screen.getByTestId("delivery-method"), "valueChange", 1);
@@ -624,7 +628,7 @@ test("late destination quotations cannot restore another district or a shipping 
 
 test("reselecting the same district generates new options and cannot revive an earlier selection", async () => {
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Street");
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
@@ -648,7 +652,7 @@ test("reselecting the same district generates new options and cannot revive an e
 test("disabled delivery after a rejection preserves the form and can be explicitly removed", async () => {
   mockCompleteOrder.mockResolvedValue(err({ code: "DELIVERY_METHOD_DISABLED", message: "Disabled" }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Preserved street");
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
