@@ -11,6 +11,8 @@ import { getPeruDistrict } from "@shared/peru-geography";
 import type { DeliveryQuotation } from "@mobile/features/delivery-settings";
 import type { OrderDeliveryFormValues } from "@mobile/features/orders/presentation/order-delivery-form";
 import { Button } from "@mobile/components/ui/button";
+import { PhoneField } from "@mobile/features/orders/presentation/phone-field";
+import { internationalPhonePattern } from "@shared/phone";
 import { agencyOption, documentTypeLabel, orderLanguage, rateLabel } from "@mobile/features/orders/presentation/order-labels";
 
 export function deliveryDraftFromOrder(order: Pick<OrderAggregateResponse, "buyer" | "delivery" | "deliveryCharge">, settings: DeliverySettingsResponse): OrderDeliveryFormValues {
@@ -22,6 +24,10 @@ export function deliveryDraftFromOrder(order: Pick<OrderAggregateResponse, "buye
     method: order.delivery?.method ?? (settings.store.enabled ? "store" : settings.home.enabled ? "home" : settings.agency.enabled ? "agency" : "store"),
     address: destination?.address ?? "", districtCode: order.delivery && "pricing" in order.delivery ? order.delivery.destination.districtCode : "", instructions: destination?.instructions ?? "" };
 }
+
+/** Home and agency shipments need an international recipient phone; store pickup keeps its free-form recipient. */
+export const recipientPhoneInvalid = (value: Pick<OrderDeliveryFormValues, "method" | "phone">) =>
+  (value.method === "home" || value.method === "agency") && !!value.phone && !internationalPhonePattern.test(value.phone);
 
 export function DeliveryFields({ value, onChange, settings, busy, language, rates, quoting, quoteError, onRetry }: {
   value: OrderDeliveryFormValues; onChange: (value: OrderDeliveryFormValues) => void;
@@ -65,8 +71,9 @@ export function DeliveryFields({ value, onChange, settings, busy, language, rate
           </Field> : null}
           {districtCode && !quoting ? <Button variant="secondary" disabled={busy} onPress={onRetry}>{t("orderQuotationRetry")}</Button> : null}
         </View> : null}
-        <FieldGroup><Field required disabled={busy}><FieldLabel>{t("deliveryRecipientName")}</FieldLabel><Input value={name} onChangeText={next => onChange({ ...value, name: next })} accessibilityLabel={t("deliveryRecipientName")} /></Field>
-          <Field required disabled={busy}><FieldLabel>{t("deliveryRecipientPhone")}</FieldLabel><Input value={phone} onChangeText={next => onChange({ ...value, phone: next })} keyboardType="phone-pad" accessibilityLabel={t("deliveryRecipientPhone")} /></Field>
+        <FieldGroup><Field required disabled={busy}><FieldLabel>{t("deliveryRecipientName")}</FieldLabel><Input value={name} onChangeText={next => onChange({ ...value, name: next })} autoCapitalize="words" maxLength={120} accessibilityLabel={t("deliveryRecipientName")} /></Field>
+          <PhoneField testID="delivery-recipient-phone" label={t("deliveryRecipientPhone")} value={phone} required disabled={busy} invalid={recipientPhoneInvalid(value)}
+            onChange={next => onChange({ ...value, phone: next })} />
           <Field required={method === "agency"} disabled={busy}><FieldLabel>{t("deliveryDocumentType")}</FieldLabel><OptionSelector testID="delivery-document-type" value={method === "agency" && documentType === "absent" ? null : documentType} onValueChange={next => onChange({ ...value, documentType: (next ?? "absent") as OrderDeliveryFormValues["documentType"] })}
             options={[...(method === "agency" ? [] : [{ value: "absent", label: t("deliveryNoDocument") }]), ...(["national_id", "passport", "foreign_id"] as const).map(value => ({ value, label: documentTypeLabel(value, language) }))]} /></Field>
           {documentType !== "absent" ? <Field required disabled={busy}><FieldLabel>{t("deliveryDocument")}</FieldLabel><Input value={document} onChangeText={next => onChange({ ...value, document: next })} accessibilityLabel={t("deliveryDocument")} /></Field> : null}</FieldGroup>
