@@ -89,8 +89,27 @@ function selectDistrict(screen: ReturnType<typeof render>, code = "150122") {
   fireEvent.changeText(screen.getByLabelText("Buscar distrito"), code);
   fireEvent(screen.getByTestId("delivery-district"), "valueChange", 0);
 }
+function openPayment(screen: ReturnType<typeof render>) {
+  fireEvent.press(screen.getByRole("button", { name: /^(Registrar pago|Cobrar saldo)/ }));
+}
+function advance(screen: ReturnType<typeof render>, amount: string, deductStock = false) {
+  openPayment(screen);
+  fireEvent.press(screen.getByRole("radio", { name: /Otro monto/ }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), amount);
+  if (deductStock) fireEvent(screen.getByLabelText("Descontar stock ahora"), "valueChange", true);
+  fireEvent.press(screen.getByRole("button", { name: /^Registrar .*\d/ }));
+}
+function payFull(screen: ReturnType<typeof render>) {
+  openPayment(screen);
+  fireEvent.press(screen.getByRole("button", { name: /^Registrar .*\d/ }));
+}
+function markDelivered(screen: ReturnType<typeof render>) {
+  fireEvent.press(screen.getByRole("button", { name: /^Estado de entrega/ }));
+  fireEvent.press(screen.getByRole("radio", { name: "Entregado" }));
+}
 async function review() {
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -103,10 +122,9 @@ test("review preserves payment and shows one save action", async () => {
     order: { id: mockId(3) } }));
   const screen = await review();
   expect(screen.getByText("Productos (referencial)")).toBeTruthy();
-  expect(screen.getByRole("radio", { name: "Pendiente" })).toHaveProp("accessibilityState", expect.objectContaining({ checked: true }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
-  expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "5");
+  expect(screen.getByLabelText("Pendiente")).toBeTruthy();
+  advance(screen, "5");
+  expect(screen.getByLabelText("Pago parcial")).toBeTruthy();
   expect(screen.getAllByRole("button", { name: "Guardar pedido" })).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
@@ -126,8 +144,8 @@ test("scheduled dispatch date is sent when chosen and omitted otherwise", async 
   withoutDay.unmount();
   mockCompleteOrder.mockClear();
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: /^Despacho programado/ }));
-  fireEvent(screen.getByTestId("order-despacho programado-picker"), "valueChange", {}, new Date(2026, 9, 20, 12));
+  fireEvent.press(screen.getByRole("button", { name: /^Despacho: / }));
+  fireEvent(screen.getByTestId("order-despacho-picker"), "valueChange", {}, new Date(2026, 9, 20, 12));
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
   expect(mockCompleteOrder.mock.calls[0][0]).toEqual(expect.objectContaining({ scheduledDispatchDate: "2026-10-20" }));
@@ -136,29 +154,29 @@ test("scheduled dispatch date is sent when chosen and omitted otherwise", async 
 test("products stay read-only on the form and returning preserves entered data", async () => {
   const screen = await review();
   expect(screen.queryByRole("button", { name: "+" })).toBeNull();
+  expect(screen.getByRole("button", { name: /^Artículos, 1 producto/ })).toHaveProp("accessibilityState", expect.objectContaining({ expanded: false }));
+  fireEvent.press(screen.getByRole("button", { name: /^Artículos/ }));
   expect(screen.getByText("Talla: M")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Quitar" })).toBeNull();
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
-  expect(screen.getByTestId("delivery-status")).toHaveProp("accessibilityLabel", "Estado: Pendiente");
-  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  advance(screen, "10");
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
+  expect(screen.getByRole("button", { name: "Estado de entrega: Entrega pendiente" })).toBeTruthy();
+  markDelivered(screen);
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Calle 1");
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   expect(screen.getByRole("button", { name: "+" })).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "10");
+  expect(screen.getByRole("button", { name: /^Quitar pago/ })).toBeTruthy();
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Calle 1");
-  expect(screen.getByTestId("delivery-status")).toHaveProp("accessibilityLabel", "Estado: Entregado");
+  expect(screen.getByRole("button", { name: "Estado de entrega: Entregado" })).toBeTruthy();
 });
 
 test("delivered status explains missing payment and allows saving once covered", async () => {
   const screen = await review();
-  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  markDelivered(screen);
   expect(screen.getByText(/Completa el pago/)).toHaveProp("accessibilityRole", "alert");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
+  advance(screen, "10");
   expect(screen.queryByText(/Completa el pago/)).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
 });
@@ -169,6 +187,7 @@ beforeEach(() => { jest.clearAllMocks(); mockQuotation.mockReset(); mockSettings
 async function reviewWithQuantity(stock: number, quantity: number) {
   mockStock = stock;
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -207,11 +226,11 @@ const dialogDescription = "Camisa: pediste 4, hay 3.\n\nSe guardará con sus pag
 test("payment that covers the total with quantity above stock warns early and keeps Save enabled", async () => {
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
+  advance(screen, "40");
   expect(screen.getByText(/Con este pago se descuenta stock/)).toHaveProp("accessibilityRole", "alert");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
+  fireEvent.press(screen.getByRole("button", { name: /^Quitar pago/ }));
+  advance(screen, "5");
   expect(screen.queryByText(/Con este pago se descuenta stock/)).toBeNull();
 });
 
@@ -219,8 +238,7 @@ async function payFully(quantity: number) {
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
   const screen = await reviewWithQuantity(3, quantity);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("radio", { name: "Pagado" }));
-  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  payFull(screen);
   return screen;
 }
 
@@ -242,8 +260,7 @@ test("saving as pending keeps an advance that covers the total and defers stock"
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
+  advance(screen, "40");
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   expect(mockShowConfirmation.mock.lastCall?.[0].description).toBe(dialogDescription);
   mockShowConfirmation.mock.lastCall?.[0].onConfirm();
@@ -255,9 +272,7 @@ test("saving as pending keeps a partial advance with its stock deduction option"
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
-  fireEvent(screen.getByLabelText("Descontar stock con abono parcial"), "valueChange", true);
+  advance(screen, "10", true);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   expect(mockShowConfirmation.mock.lastCall?.[0].description).toBe(dialogDescription);
   mockShowConfirmation.mock.lastCall?.[0].onConfirm();
@@ -282,8 +297,7 @@ test("Pagado with quantity within stock sends directly without a dialog", async 
 test("Pagado sheet with quantity above stock shows the alert, and lowering the quantity removes it", async () => {
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("radio", { name: "Pagado" }));
-  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  payFull(screen);
   expect(screen.getByText(/Con este pago se descuenta stock/)).toHaveProp("accessibilityRole", "alert");
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   fireEvent.press(screen.getByRole("button", { name: "−" }));
@@ -294,9 +308,8 @@ test("Pagado sheet with quantity above stock shows the alert, and lowering the q
 test("delivered with payment and quantity above stock shows a single stock alert", async () => {
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
-  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  advance(screen, "40");
+  markDelivered(screen);
   expect(screen.getAllByRole("alert").filter(node => /stock/.test(String(node.props.children)))).toHaveLength(1);
   expect(screen.getByText(/repón el stock para guardarlo como entregado/)).toBeTruthy();
   expect(screen.queryByText(/deja el pago como pendiente/)).toBeNull();
@@ -307,7 +320,7 @@ test("delivered with payment and quantity above stock shows a single stock alert
 test("delivered without payment still reports the stock need and blocks saving", async () => {
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  markDelivered(screen);
   expect(screen.getByText(/repón el stock para guardarlo como entregado/)).toHaveProp("accessibilityRole", "alert");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
 });
@@ -335,6 +348,7 @@ test("Chile seller selects a variant, reviews the amount, and opens the complete
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 10, currency: "PEN" },
     order: { id: mockId(3), total: 12 } }));
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -348,6 +362,7 @@ test("Chile seller selects a variant, reviews the amount, and opens the complete
 
 test("leaving with items asks to discard and reopening starts with an empty cart", async () => {
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -363,12 +378,14 @@ test("leaving with items asks to discard and reopening starts with an empty cart
   screen.unmount();
   mockDirty = false;
   const reopened = render(<NewOrderScreen />);
+  fireEvent.press(reopened.getByRole("button", { name: "Agregar productos" }));
   await reopened.findByText("Camisa");
   expect(reopened.getByRole("button", { name: "Continuar" })).toBeDisabled();
 });
 
 test("tab discard rearms draft protection for a new selection on the mounted screen", async () => {
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -380,7 +397,8 @@ test("tab discard rearms draft protection for a new selection on the mounted scr
   expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
   expect(mockDirty).toBe(false);
 
-  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
+  fireEvent.press(await screen.findByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   expect(mockDirty).toBe(true);
   screen.rerender(<NewOrderScreen />);
@@ -393,6 +411,7 @@ test("tab discard rearms draft protection for a new selection on the mounted scr
 test("offline selection remains editable without a confirm action", async () => {
   mockOffline = true;
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -406,6 +425,7 @@ test('new sale translates selection and review actions to Portuguese', async () 
   await i18n.changeLanguage('pt-BR');
   try {
     const screen = render(<NewOrderScreen />);
+    fireEvent.press(screen.getByRole("button", { name: "Adicionar produtos" }));
     await screen.findByText('Camisa');
     fireEvent.press(screen.getByRole('button', { name: /Camisa/ }));
     fireEvent.press(screen.getByRole('button', { name: 'Adicionar' }));
@@ -421,22 +441,21 @@ test('new sale translates selection and review actions to Portuguese', async () 
 test("one save retains editable payments and delivery on rejection and prevents double taps", async () => {
   mockCompleteOrder.mockResolvedValue(err({ code: "DELIVERY_UNAVAILABLE", message: "Unavailable" }));
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getAllByLabelText(/Monto/)[1], "13");
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  advance(screen, "5");
+  advance(screen, "13");
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Av. Lima 123");
   selectDistrict(screen);
   await screen.findByTestId("delivery-rate");
   fireEvent(screen.getByTestId("delivery-rate"), "valueChange", 0);
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
-  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  markDelivered(screen);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
@@ -446,7 +465,7 @@ test("one save retains editable payments and delivery on rejection and prevents 
     ratedDelivery: { expectedPrice: firstRate.price, delivery: { method: "home", rateId: firstRate.id,
       destination: { address: "Av. Lima 123", districtCode: "150122" }, recipient: { name: "Ana", phone: "999001" } } }, deliverImmediately: true });
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Av. Lima 123");
-  expect(screen.getAllByLabelText(/Monto/)[1]).toHaveProp("value", "13");
+  expect(screen.getAllByRole("button", { name: /^Quitar pago/ })).toHaveLength(2);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(2));
   expect(mockCompleteOrder.mock.calls[1][0]).toEqual(mockCompleteOrder.mock.calls[0][0]);
@@ -455,17 +474,18 @@ test("one save retains editable payments and delivery on rejection and prevents 
 test("decimal comma in an initial payment updates the summary and allows saving", async () => {
   mockCompleteOrder.mockResolvedValue(err({ code: "INVALID_ORDER", message: "Rejected" }));
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "5,50");
-  expect(screen.getByText(/5[.,]50/)).toBeTruthy();
+  openPayment(screen);
+  fireEvent.press(screen.getByRole("radio", { name: /Otro monto/ }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "1e309");
-  expect(screen.queryByText(/5[.,]50/)).toBeNull();
-  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+  expect(screen.getAllByRole("button", { name: /^Registrar/ }).at(-1)).toBeDisabled();
   fireEvent.changeText(screen.getByLabelText(/Monto/), "5,50");
+  fireEvent.press(screen.getByRole("button", { name: /^Registrar .*\d/ }));
+  expect(screen.getAllByText(/5[.,]50/).length).toBeGreaterThan(0);
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({
@@ -476,7 +496,7 @@ test("decimal comma in an initial payment updates the summary and allows saving"
 test("new order selects one overlapping home rate and reviews the full charge without manual pricing", async () => {
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 22, currency: "PEN" }, order: { id: mockId(3) } }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   selectDistrict(screen);
   await screen.findByTestId("delivery-rate");
@@ -506,7 +526,7 @@ test("new order selects one overlapping home rate and reviews the full charge wi
 test("price conflict preserves creation fields and requires explicit selection of refreshed rates", async () => {
   mockCompleteOrder.mockResolvedValue(err({ code: "TOTAL_CHANGED", message: "Private", currentPrice: { amount: 10, currency: "PEN" } }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Preserved street");
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
@@ -535,7 +555,7 @@ test("agency creation uses an explicit zero rate and requires identity without o
   mockSettingsGet.mockResolvedValue(ok(allMethods));
   mockCompleteOrder.mockResolvedValue(err({ code: "INVALID_ORDER", message: "Rejected" }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent(screen.getByTestId("delivery-method"), "valueChange", 2);
   selectDistrict(screen);
   await screen.findByTestId("delivery-rate");
@@ -561,7 +581,7 @@ test("quotation failure and empty coverage block creation while pickup remains e
   mockQuotation.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "Offline" })).mockResolvedValue(ok({ ...quotation, rates: [] }));
   mockCompleteOrder.mockResolvedValue(err({ code: "INVALID_ORDER", message: "Rejected" }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
   fireEvent(screen.getByTestId("delivery-method"), "valueChange", 1);
@@ -588,7 +608,7 @@ test("late destination quotations cannot restore another district or a shipping 
   let finish: ((result: ReturnType<typeof ok<typeof quotation>>) => void) | undefined;
   mockQuotation.mockImplementationOnce(() => new Promise(resolve => { finish = resolve; })).mockResolvedValue(ok({ ...quotation, districtCode: "040110", rates: [secondRate] }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
   fireEvent(screen.getByTestId("delivery-method"), "valueChange", 1);
@@ -608,7 +628,7 @@ test("late destination quotations cannot restore another district or a shipping 
 
 test("reselecting the same district generates new options and cannot revive an earlier selection", async () => {
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Street");
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
@@ -632,7 +652,7 @@ test("reselecting the same district generates new options and cannot revive an e
 test("disabled delivery after a rejection preserves the form and can be explicitly removed", async () => {
   mockCompleteOrder.mockResolvedValue(err({ code: "DELIVERY_METHOD_DISABLED", message: "Disabled" }));
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
+  fireEvent.press(screen.getByRole("button", { name: /^Envío: / }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Preserved street");
   fireEvent.changeText(screen.getByLabelText(/Nombre del destinatario/), "Ana");
   fireEvent.changeText(screen.getByLabelText(/Teléfono del destinatario/), "999001");
@@ -656,6 +676,7 @@ test("an unreadable saved sale can be discarded without blocking a new sale", as
   mockDiscardPending.mockResolvedValue(ok(undefined));
   const screen = render(<NewOrderScreen />);
   await screen.findByText("No se pudo leer una venta guardada en el teléfono");
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: "Descartar venta ilegible" }));
   await waitFor(() => expect(mockDiscardPending).toHaveBeenCalledWith(mockId(1)));
@@ -674,7 +695,8 @@ test("a sale core cannot confirm yet waits on the phone and the page starts a ne
   expect(mockSyncPending).toHaveBeenCalled();
   expect(mockRefreshPending).toHaveBeenCalled();
   expect(mockReplace).not.toHaveBeenCalled();
-  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
+  fireEvent.press(await screen.findByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   expect(screen.queryByText(/Se enviará sola/)).toBeNull();
 });
@@ -732,14 +754,15 @@ test("a seller corrects a refused sale's missing references and payments; a repe
   fireEvent.press(screen.getByRole("button", { name: "Quitar producto no disponible 1" }));
   fireEvent.press(screen.getByRole("button", { name: "−" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "5.50");
+  fireEvent.press(screen.getByRole("button", { name: /^Quitar pago/ }));
+  advance(screen, "5.50");
   expect(screen.getByRole("button", { name: "Guardar otra vez" })).toBeEnabled();
   mockReviewOrder.mockResolvedValueOnce(err({ code: "INSUFFICIENT_STOCK", message: "No stock", issues: [{ field: "items", reason: "STOCK", variantId: mockId(2) }] }));
   await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" })); });
-  expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "5.50");
+  expect(screen.getByRole("button", { name: /^Quitar pago/ })).toBeTruthy();
   expect(mockReviewOrder).toHaveBeenLastCalledWith(mockId(1), expect.objectContaining({ id: pending.id,
     items: [expect.objectContaining({ variantId: mockId(2), quantity: 1 })],
-    payments: [expect.objectContaining({ paymentId: mockId(8), amount: "5.50" })] }));
+    payments: [expect.objectContaining({ amount: "5.50" })] }));
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   expect(screen.getByText("Revisa esta variante.")).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));

@@ -58,6 +58,7 @@ test("a sale rejected with VARIANT_NOT_FOUND marks 'L / Azul ya no está disponi
 test("a sale refused when it is saved marks the item that was deactivated while it was being built", async () => {
   mockCompleteOrder.mockResolvedValue(err({ code: "VARIANT_NOT_FOUND", message: "Variant not found", issues: [{ field: "items", reason: "VARIANT_NOT_FOUND", variantId: mockId(2) }] }));
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Polo");
   fireEvent.press(screen.getByRole("button", { name: /Polo/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
