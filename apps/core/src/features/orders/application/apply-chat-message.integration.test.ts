@@ -1,30 +1,33 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "vitest";
+import { afterEach, expect, test } from "vitest";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { prisma, systemPrisma, withLockedForUpdate, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { applyChatMessage, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
-import { createChatToolRegistry } from "@core/src/features/orders/infrastructure/chat-tools";
-import { createChatToolActions } from "@core/src/features/orders/application/chat-message-actions";
-import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
-import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
-import { allocateOrderNumber, findChatOrderTargetForUpdate, findOrderAggregate, recordProcessedMessage, saveItemChanges, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
+import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, findOrderAggregate, recordProcessedMessage, saveItemChanges, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
+import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
+import type { ChatReadingContext, ReaderAction, ReaderAnswer } from "@core/src/features/orders/domain/chat-reading";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts/infrastructure/contact-repository";
 import { findProductIdsOfVariants, findSellableVariantsByQrCodes } from "@core/src/features/products";
-import { loadSellableVariants } from "@core/src/features/products/infrastructure/order-stock";
+import { products } from "@core/src/features/products/composition";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 import { identifyProductsInImage } from "@core/src/features/products/application/identify-products-in-image";
-import { resolveVariant } from "@core/src/features/products/application/resolve-variant";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
 import type { VariantQrCode } from "@core/src/features/products/domain/image-identification";
-import { decisionRequestText } from "@core/src/shared/ai-tools/infrastructure/decision-request-text";
 
 type Fixture = Awaited<ReturnType<typeof fixture>>;
+
+/** The simulated time of the use cases; a test moves it between messages. */
+let simulated: Date | null = null;
+const clockNow = () => simulated ?? new Date();
+const setNow = (iso: string) => { simulated = new Date(iso); };
+afterEach(() => { simulated = null; });
 
 async function fixture() {
   const companyId = randomUUID();
@@ -43,7 +46,7 @@ async function fixture() {
   });
   return { companyId, sellerId, contactId, chatId, productId, variantIds, async cleanup() {
     await withTenantIsolation(companyId, async () => {
-      for (const table of ["chatMessageOutcome", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productStock", "productVariant", "productOption", "product", "image"] as const)
+      for (const table of ["chatPendings", "chatMessageOutcome", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productStock", "productVariant", "productOption", "product", "image"] as const)
         await (prisma[table] as unknown as { deleteMany(): Promise<unknown> }).deleteMany();
       await systemPrisma.user.deleteMany({ where: { companyId } });
       await prisma.company.delete({ where: { id: companyId } });
@@ -65,14 +68,6 @@ async function message(f: Fixture, content: { codes: readonly string[] } | { tex
   return messageId;
 }
 
-const registry = createChatToolRegistry(createChatToolActions({
-  loadSellableVariants: loadSellableVariants, identifyProductsInText: async () => ok([]), findTopTextCandidate: async () => ok(null),
-  resolveVariant: (input, signal) => resolveVariant(input, { minConfidence: 0.8, chooseVariant: async () => ok({ variantId: null, confidence: 0 }) }, signal),
-}));
-// A text is a greeting for the faked decision API.
-const ai = { text: decisionRequestText, minActionConfidence: 0.6, minToolPredicate: 0.5, minReportPredicate: 0.9, extract: async () => ok([]),
-  decide: async () => ok({ action: { choice: "no_intent", confidence: 0.95 }, predicates: {}, choices: {} }) };
-
 function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = {}): ApplyChatMessageDependencies {
   const companyId = f.companyId as CompanyId;
   return {
@@ -82,15 +77,19 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
       return ok(row && { id: row.id as ChatMessageId, companyId, chatId: row.chatId as ChatId, contactId: row.chat.contactId as ContactId, direction: row.direction,
         uploadedByUserId: row.uploadedByUserId as UserId, imageId: row.imageId as ImageId | null, text: row.text, caption: row.caption } satisfies ChatSourceMessage);
     },
-    findChatOrderContext: async () => ok({ items: [] }),
+    findChatOrderTarget: (chatId) => findChatOrderTarget(chatId, findProductIdsOfVariants),
+    findChatOrdersOpenedSince,
+    findChatPendings,
+    findChatPendingsForUpdate,
+    saveChatPendings,
     readImage: async (imageId) => ok({ bytes: new TextEncoder().encode(imageId), contentType: "image/jpeg" }),
     identifyProductsInImage: (image) => identifyProductsInImage(image, { visual: null,
       readQrCodes: async ({ bytes }) => ok(photos.get(new TextDecoder().decode(bytes)) ?? []),
       findVariantsByCodes: async (codes) => { const found = await findSellableVariantsByQrCodes(codes); return found.success ? ok(found.data.map((item) => ({ ...item, qrCode: item.qrCode as VariantQrCode, productId: item.productId as ProductId }))) : found; } }),
-    loadSellableProducts: loadSellableVariants,
+    findProductsForReading: (productIds) => products.findProductsForReading(productIds),
+    findMessageCandidates: (text) => products.findMessageCandidates(text),
     catalogSearchReadiness: async () => ok("no_searchable_photos"),
-    interpretationEnabled: true,
-    interpretAndApply: createChatInterpreter(registry, ai, describeChatContext),
+    readChatMessage: async () => ok({ answer: { kind: "no_intent" } as ReaderAnswer, usage: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0 } }),
     transaction: (_company, work) => withinTransaction(work),
     lockContact,
     ensureCustomerForContact: async (contactId) => { const ensured = await ensureCustomerForContact(contactId); return ensured.success ? ok({ customerId: ensured.data.customerId as CustomerId }) : ensured; },
@@ -102,8 +101,9 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
     recordOutcome,
     newOrderId: () => randomUUID() as OrderId,
     newItemId: () => randomUUID() as OrderItemId,
-    clock: () => new Date(),
-    limits: { maxItemQuantity: 99 as PositiveInteger },
+    newPendingId: () => randomUUID() as ChatPendingId,
+    clock: () => clockNow(),
+    limits: { maxItemQuantity: 99 as PositiveInteger, pendingTtlMs: 7 * 86_400_000, maxReaderProducts: 24, maxReaderItems: 40, maxReaderTextChars: 2000 },
     ...over,
   };
 }
@@ -311,5 +311,371 @@ test("a variant deleted between the scan and the item insert fails as a retryabl
     } });
     expect(result).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
     expect(await inTenant(f, () => prisma.order.count())).toBe(0);
+  } finally { await f.cleanup(); }
+});
+
+// ---- Pendings: the reader is faked with fixed answers; everything else is real. ----
+
+type Reader = (context: ChatReadingContext) => ReaderAnswer;
+const zeroUsage = { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0 };
+const asReader = (reader: Reader): ApplyChatMessageDependencies["readChatMessage"] => async (context) => ok({ answer: reader(context), usage: zeroUsage });
+const actions = (...list: ReaderAction[]): ReaderAnswer => ({ kind: "actions", actions: list as [ReaderAction, ...ReaderAction[]], moreActions: false });
+const refOf = (context: ChatReadingContext, productId: string) => context.products.find((product) => product.productId === productId)!.ref;
+const choices = (values: Record<string, string>) => Object.entries(values).map(([name, value]) => ({ name, value }));
+const addProduct = (productId: string, values: Record<string, string> = {}, quantity: number | null = null): Reader => (context) =>
+  actions({ kind: "add", product: { kind: "ref", ref: refOf(context, productId) }, attributes: choices(values), quantity, price: null });
+const completeFirst = (values: Record<string, string>, quantity: number | null = null): Reader => (context) =>
+  actions({ kind: "complete_pending", pending: context.pendings[0]!.ref, product: null, attributes: choices(values), quantity, price: null });
+const noIntent: Reader = () => ({ kind: "no_intent" });
+
+type Catalog = Awaited<ReturnType<typeof seedCatalog>>;
+
+/** A polo with Talla (M, L) and Color (Negro, Blanco), and a cap with a single variant. */
+async function seedCatalog(f: Fixture) {
+  const polo = await inTenant(f, () => seedProduct({ name: "Polo básico", variants: ["M", "L"].flatMap((Talla) => ["Negro", "Blanco"].map((Color) => ({ attributes: { Talla, Color }, salePrice: 40 }))) }));
+  const gorra = await inTenant(f, () => seedProduct({ name: "Gorra", variants: [{ salePrice: 25 }] }));
+  return { polo, gorra };
+}
+const variantOf = (catalog: Catalog["polo"], talla: string, color: string) => catalog.variantIds[["M/Negro", "M/Blanco", "L/Negro", "L/Blanco"].indexOf(`${talla}/${color}`)]!;
+
+/** Applies a text through the real use case at the simulated time with the reader given. */
+async function say(f: Fixture, text: string, reader: Reader, over: Partial<ApplyChatMessageDependencies> = {}) {
+  const messageId = await message(f, { text });
+  const result = await apply(f, messageId, { readChatMessage: asReader(reader), findMessageCandidates: async () => ok({ productIds: [], matchCount: 0, durationMs: 0, timedOut: false }), ...over });
+  if (!result.success) throw new Error(`${result.error.code}: ${result.error.message}`);
+  return { messageId, applied: result.data };
+}
+/** A photo identified as the product (visual match) without a QR label. */
+async function showProduct(f: Fixture, productId: string, reader: Reader = noIntent, caption: string | null = null) {
+  const messageId = await message(f, { codes: [] });
+  if (caption) await inTenant(f, () => prisma.chatMessage.update({ where: { id: messageId }, data: { caption } }));
+  const result = await apply(f, messageId, { readChatMessage: asReader(reader),
+    identifyProductsInImage: async () => ok({ kind: "found", method: "visual", productId: productId as ProductId, confidence: 0.95 as never, candidates: 1, topDistance: 0 }) });
+  if (!result.success) throw new Error(`${result.error.code}: ${result.error.message}`);
+  return { messageId, applied: result.data };
+}
+const outcomeKindsOf = (done: Awaited<ReturnType<typeof say>>) => done.applied.kind === "applied" ? done.applied.outcomes.map(({ kind }) => kind) : [done.applied.kind];
+const noticeDue = (done: Awaited<ReturnType<typeof say>>) => done.applied.kind === "applied" && done.applied.noticeDue;
+const storedPendings = (f: Fixture) => inTenant(f, () => prisma.chatPendings.findUnique({ where: { companyId_chatId: { companyId: f.companyId, chatId: f.chatId } } }));
+const pendingCount = async (f: Fixture) => { const row = await storedPendings(f); return row ? (row.pendings as unknown[]).length : 0; };
+const itemsOf = async (f: Fixture) => (await chatOrders(f)).map((order) => order.items.map((item) => item.variantId).sort());
+const addPayment = (f: Fixture, orderId: string, status: "confirmed" | "reported", paidAt: string) => inTenant(f, async () => {
+  const id = randomUUID();
+  await prisma.payment.create({ data: status === "confirmed"
+    ? { id, orderId, status, amount: new Prisma.Decimal("10"), currency: "PEN", method: "digital_wallet", data: { confirmedAt: paidAt, confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } }
+    : { id, orderId, status, amount: null, currency: "PEN", method: null, data: { receiptImageId: randomUUID(), reportedAt: paidAt } } });
+  return id;
+});
+/** Voids a payment; one that was only reported becomes a confirmed-from-report payment voided at the same time, as the use cases store it. */
+const voidPayment = (f: Fixture, paymentId: string, voidedAt: string) => inTenant(f, async () => {
+  const payment = await prisma.payment.findFirstOrThrow({ where: { id: paymentId } });
+  const data = payment.data as { reportedAt?: string; receiptImageId?: string };
+  const confirmation = payment.status === "reported"
+    ? { confirmedAt: voidedAt, confirmedBy: { kind: "legacy" }, evidence: { kind: "buyer_report", report: { receiptImageId: data.receiptImageId, reportedAt: data.reportedAt } } }
+    : payment.data;
+  await prisma.payment.update({ where: { id: paymentId }, data: { status: "voided", amount: new Prisma.Decimal("10"), method: "digital_wallet", data: { ...(confirmation as object), voidedAt, voidedBy: "x" } } });
+});
+
+test("photo without size, then «en talla M», then «negro» creates the order with one item and one notice", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    const first = await showProduct(f, catalog.polo.productId);
+    expect(outcomeKindsOf(first)).toEqual(["pending_created", "variant_missing"]);
+    setNow("2026-10-01T10:05:00Z");
+    const second = await say(f, "en talla M", completeFirst({ Talla: "M" }));
+    setNow("2026-10-01T10:06:00Z");
+    const third = await say(f, "negro", completeFirst({ Color: "Negro" }));
+    expect([first, second, third].map(noticeDue)).toEqual([true, false, false]);
+    expect(await itemsOf(f)).toEqual([[variantOf(catalog.polo, "M", "Negro")]]);
+    expect(outcomeKindsOf(third)).toContain("pending_completed");
+    expect(await pendingCount(f)).toBe(0);
+    expect(await storedPendings(f)).toBeNull();
+  } finally { await f.cleanup(); }
+});
+
+test("a pending of an order closed by a reported payment ends and never reaches a new order, also after the payment is voided", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    const [order] = await chatOrders(f);
+    setNow("2026-10-01T10:05:00Z");
+    await showProduct(f, catalog.polo.productId);
+    expect(await pendingCount(f)).toBe(1);
+    const paymentId = await addPayment(f, order!.id, "reported", "2026-10-01T10:10:00.000Z");
+    setNow("2026-10-01T10:20:00Z");
+    const late = await say(f, "en talla M", () => ({ kind: "actions", actions: [{ kind: "variant_only" }], moreActions: false }));
+    expect(outcomeKindsOf(late)).toEqual(["pending_ended", "variant_only"]);
+    expect(await pendingCount(f)).toBe(0);
+    await voidPayment(f, paymentId, "2026-10-01T10:30:00.000Z");
+    setNow("2026-10-01T10:40:00Z");
+    expect(outcomeKindsOf(await say(f, "en talla M", () => ({ kind: "actions", actions: [{ kind: "variant_only" }], moreActions: false })))).toEqual(["variant_only"]);
+    expect(await chatOrders(f)).toHaveLength(1);
+  } finally { await f.cleanup(); }
+});
+
+test("a pending voided out of its order never reaches the order that reopens, even before any message", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    const [order] = await chatOrders(f);
+    setNow("2026-10-01T10:05:00Z");
+    await showProduct(f, catalog.polo.productId);
+    const paymentId = await addPayment(f, order!.id, "reported", "2026-10-01T10:10:00.000Z");
+    await voidPayment(f, paymentId, "2026-10-01T10:30:00.000Z");
+    setNow("2026-10-01T10:40:00Z");
+    const done = await say(f, "negro M", (context) => context.pendings.length ? completeFirst({ Talla: "M", Color: "Negro" })(context) : { kind: "actions", actions: [{ kind: "variant_only" }], moreActions: false });
+    expect(outcomeKindsOf(done)).toEqual(["pending_ended", "variant_only"]);
+    expect(await itemsOf(f)).toEqual([[f.variantIds[0]!]]);
+  } finally { await f.cleanup(); }
+});
+
+test("an orderless pending joins the order another message creates and ends when that order closes", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    await say(f, "un polo", addProduct(catalog.polo.productId), { findMessageCandidates: async () => ok({ productIds: [catalog.polo.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) });
+    expect(await pendingCount(f)).toBe(1);
+    setNow("2026-10-01T10:05:00Z");
+    await say(f, "y una gorra", addProduct(catalog.gorra.productId), { findMessageCandidates: async () => ok({ productIds: [catalog.gorra.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) });
+    const [order] = await chatOrders(f);
+    expect(order!.items.map((item) => item.variantId)).toEqual(catalog.gorra.variantIds);
+    expect((await storedPendings(f))!.pendings).toMatchObject([{ order: { orderId: order!.id, attachedAt: "2026-10-01T10:05:00.000Z" } }]);
+    await addPayment(f, order!.id, "reported", "2026-10-01T10:10:00.000Z");
+    setNow("2026-10-01T10:20:00Z");
+    const late = await say(f, "en M", () => ({ kind: "actions", actions: [{ kind: "variant_only" }], moreActions: false }));
+    expect(outcomeKindsOf(late)).toEqual(["pending_ended", "variant_only"]);
+    expect(await chatOrders(f)).toHaveLength(1);
+  } finally { await f.cleanup(); }
+});
+
+test("a pending without order expires after eight days and a partial completion on day six restarts the count", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    const withPolo = { findMessageCandidates: async () => ok({ productIds: [catalog.polo.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) };
+    setNow("2026-10-01T10:00:00Z");
+    await say(f, "dos polos", addProduct(catalog.polo.productId, {}, 2), withPolo);
+    setNow("2026-10-07T10:00:00Z");
+    const partial = await say(f, "uno en M", completeFirst({ Talla: "M" }, 1));
+    expect(outcomeKindsOf(partial)).toContain("pending_split");
+    setNow("2026-10-09T10:00:00Z");
+    expect(outcomeKindsOf(await say(f, "hola", noIntent))).toEqual(["no_intent"]);
+    expect(await pendingCount(f)).toBe(2);
+    setNow("2026-10-15T10:00:00Z");
+    expect(outcomeKindsOf(await say(f, "hola", noIntent))).toEqual(["pending_ended", "pending_ended", "no_intent"]);
+    expect(await pendingCount(f)).toBe(0);
+  } finally { await f.cleanup(); }
+});
+
+/** An order paid by `parts` confirmed payments on day 1, with a polo pending drafted on day 2. */
+async function paidOrderWithPolo(f: Fixture, catalog: Catalog, parts: number) {
+  setNow("2026-10-01T10:00:00Z");
+  await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+  const [order] = await chatOrders(f);
+  const payments: string[] = [];
+  for (let part = 0; part < parts; part += 1) payments.push(await addPayment(f, order!.id, "confirmed", `2026-10-01T11:0${part}:00.000Z`));
+  setNow("2026-10-02T10:00:00Z");
+  await showProduct(f, catalog.polo.productId);
+  expect(await pendingCount(f)).toBe(1);
+  return { order: order!, payments };
+}
+
+test("a pending without order joins an order reopened by a voided payment", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    const { order, payments } = await paidOrderWithPolo(f, catalog, 1);
+    await voidPayment(f, payments[0]!, "2026-10-03T10:00:00.000Z");
+    setNow("2026-10-04T10:00:00Z");
+    const done = await say(f, "negro M", completeFirst({ Talla: "M", Color: "Negro" }));
+    expect(outcomeKindsOf(done)).toContain("pending_completed");
+    expect(await chatOrders(f)).toHaveLength(1);
+    expect((await itemsOf(f))[0]).toContain(variantOf(catalog.polo, "M", "Negro"));
+    expect(done.applied.kind === "applied" && done.applied.orderId).toBe(order.id);
+  } finally { await f.cleanup(); }
+});
+
+test("a pending joins an order paid in two parts only when its second payment is voided, and completes into it nine days later", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    const { order, payments } = await paidOrderWithPolo(f, catalog, 2);
+    await voidPayment(f, payments[0]!, "2026-10-03T10:00:00.000Z");
+    await voidPayment(f, payments[1]!, "2026-10-04T10:00:00.000Z");
+    setNow("2026-10-11T10:00:00Z");
+    const done = await say(f, "negro M", completeFirst({ Talla: "M", Color: "Negro" }));
+    expect(outcomeKindsOf(done)).toContain("pending_completed");
+    expect(await chatOrders(f)).toHaveLength(1);
+    expect(done.applied.kind === "applied" && done.applied.orderId).toBe(order.id);
+  } finally { await f.cleanup(); }
+});
+
+test("a pending stays without order when a void leaves another payment confirmed, and goes into a new order", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    const { order, payments } = await paidOrderWithPolo(f, catalog, 2);
+    await voidPayment(f, payments[0]!, "2026-10-03T10:00:00.000Z");
+    setNow("2026-10-05T10:00:00Z");
+    const done = await say(f, "negro M", completeFirst({ Talla: "M", Color: "Negro" }));
+    expect(outcomeKindsOf(done)).toContain("pending_completed");
+    const orders = await chatOrders(f);
+    expect(orders).toHaveLength(2);
+    expect(orders[0]!.id).toBe(order.id);
+    expect(orders[1]!.items.map((item) => item.variantId)).toEqual([variantOf(catalog.polo, "M", "Negro")]);
+  } finally { await f.cleanup(); }
+});
+
+test("two orderless pendings follow the two different orders reopened after each and end with them", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    const withPolo = { findMessageCandidates: async () => ok({ productIds: [catalog.polo.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) };
+    setNow("2026-10-01T10:00:00Z");
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    const [first] = await chatOrders(f);
+    const paidFirst = await addPayment(f, first!.id, "confirmed", "2026-10-01T10:30:00.000Z");
+    setNow("2026-10-01T11:00:00Z");
+    await apply(f, await message(f, { codes: [f.variantIds[1]!] }));
+    const [, second] = await chatOrders(f);
+    const paidSecond = await addPayment(f, second!.id, "confirmed", "2026-10-01T11:30:00.000Z");
+    setNow("2026-10-02T10:00:00Z");
+    await say(f, "un polo", addProduct(catalog.polo.productId), withPolo);
+    await voidPayment(f, paidFirst, "2026-10-03T10:00:00.000Z");
+    await addPayment(f, first!.id, "reported", "2026-10-03T10:30:00.000Z");
+    setNow("2026-10-03T12:00:00Z");
+    const secondPending = await showProduct(f, catalog.polo.productId);
+    expect(outcomeKindsOf(secondPending)).toEqual(["pending_ended", "pending_created", "variant_missing"]); // the first one joined the reopened first order and its payment ended it
+    await voidPayment(f, paidSecond, "2026-10-04T10:00:00.000Z");
+    await addPayment(f, second!.id, "reported", "2026-10-04T10:30:00.000Z");
+    setNow("2026-10-05T10:00:00Z");
+    const late = await say(f, "en M", (context) => (context.pendings.length ? completeFirst({ Talla: "M" })(context) : { kind: "actions", actions: [{ kind: "variant_only" }], moreActions: false }));
+    expect(outcomeKindsOf(late)).toEqual(["pending_ended", "variant_only"]);
+    expect(await pendingCount(f)).toBe(0);
+  } finally { await f.cleanup(); }
+});
+
+test("«y el polo básico rojo x2» on a ×1 polo pending reports variant not available and a later «negro» adds two", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    await showProduct(f, catalog.polo.productId);
+    setNow("2026-10-01T10:05:00Z");
+    const red = await say(f, "y el polo básico rojo x2", addProduct(catalog.polo.productId, { Color: "Rojo" }, 2));
+    expect(outcomeKindsOf(red)).toContain("variant_not_available");
+    expect((await storedPendings(f))!.pendings).toMatchObject([{ quantity: 2 }]);
+    setNow("2026-10-01T10:10:00Z");
+    const black = await say(f, "negro", completeFirst({ Color: "Negro", Talla: "M" }));
+    expect(outcomeKindsOf(black)).toContain("pending_completed");
+    const [order] = await chatOrders(f);
+    expect(order!.items.map((item) => [item.variantId, Number(item.quantity)])).toEqual([[variantOf(catalog.polo, "M", "Negro"), 2]]);
+  } finally { await f.cleanup(); }
+});
+
+test("a gorra photo whose caption names the pending polo adds both items with no notice", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    await showProduct(f, catalog.polo.productId);
+    setNow("2026-10-01T10:05:00Z");
+    const done = await showProduct(f, catalog.gorra.productId, (context) => actions(
+      { kind: "add", product: { kind: "ref", ref: refOf(context, catalog.gorra.productId) }, attributes: [], quantity: null, price: null },
+      { kind: "add", product: { kind: "ref", ref: refOf(context, catalog.polo.productId) }, attributes: choices({ Talla: "M", Color: "Negro" }), quantity: null, price: null }), "y el polo negro M");
+    expect(noticeDue(done)).toBe(false);
+    expect(await itemsOf(f)).toEqual([[catalog.gorra.variantIds[0]!, variantOf(catalog.polo, "M", "Negro")].sort()]);
+    expect(await pendingCount(f)).toBe(0);
+  } finally { await f.cleanup(); }
+});
+
+test("ready with a pending, then completion sends ready", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    setNow("2026-10-01T10:05:00Z");
+    await showProduct(f, catalog.polo.productId);
+    setNow("2026-10-01T10:10:00Z");
+    const ready = await say(f, "listo", () => actions({ kind: "ready" }));
+    expect(outcomeKindsOf(ready)).toEqual(["ready_with_pendings"]);
+    expect(noticeDue(ready)).toBe(true);
+    setNow("2026-10-01T10:15:00Z");
+    const completed = await say(f, "negro M", completeFirst({ Talla: "M", Color: "Negro" }));
+    expect(outcomeKindsOf(completed)).toEqual(expect.arrayContaining(["pending_completed", "ready"]));
+    expect(noticeDue(completed)).toBe(true);
+  } finally { await f.cleanup(); }
+});
+
+test("the same completing message delivered twice adds one item", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    await showProduct(f, catalog.polo.productId);
+    setNow("2026-10-01T10:05:00Z");
+    const first = await say(f, "negro M", completeFirst({ Talla: "M", Color: "Negro" }));
+    const again = await apply(f, first.messageId, { readChatMessage: asReader(completeFirst({ Talla: "M", Color: "Negro" })) });
+    expect(again).toMatchObject({ success: true, data: { kind: "already_processed" } });
+    const [order] = await chatOrders(f);
+    expect(order!.items.map((item) => Number(item.quantity))).toEqual([1]);
+  } finally { await f.cleanup(); }
+});
+
+test("a deactivated product's pending ends with product not available", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    await showProduct(f, catalog.polo.productId);
+    await inTenant(f, () => prisma.productVariant.updateMany({ where: { productId: catalog.polo.productId }, data: { status: "inactive" } }));
+    setNow("2026-10-01T10:05:00Z");
+    const done = await say(f, "negro M", completeFirst({ Talla: "M", Color: "Negro" }));
+    expect(outcomeKindsOf(done)).toEqual(["pending_ended", "product_not_available"]);
+    expect(noticeDue(done)).toBe(true);
+    expect(await chatOrders(f)).toHaveLength(0);
+    expect(await pendingCount(f)).toBe(0);
+  } finally { await f.cleanup(); }
+});
+
+test("eleven pendings end the first silently", async () => {
+  const f = await fixture();
+  try {
+    const seeded = await Promise.all(Array.from({ length: 11 }, (_, n) => inTenant(f, () => seedProduct({ name: `Producto ${n}`, variants: [{ attributes: { Talla: "M" }, salePrice: 10 }, { attributes: { Talla: "L" }, salePrice: 10 }] }))));
+    let last: Awaited<ReturnType<typeof say>> | null = null;
+    for (const [n, product] of seeded.entries()) {
+      setNow(`2026-10-01T10:${String(n).padStart(2, "0")}:00Z`);
+      last = await say(f, `quiero producto ${n}`, addProduct(product.productId), { findMessageCandidates: async () => ok({ productIds: [product.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) });
+    }
+    expect(await pendingCount(f)).toBe(10);
+    expect(outcomeKindsOf(last!)).toEqual(["pending_created", "variant_missing", "pending_ended"]);
+    const ids = ((await storedPendings(f))!.pendings as Array<{ subject: { productId: string } }>).map((pending) => pending.subject.productId);
+    expect(ids).not.toContain(seeded[0]!.productId);
+    expect(ids).toContain(seeded[10]!.productId);
+  } finally { await f.cleanup(); }
+});
+
+test("two concurrent runs of one message write one item and one outcome", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    await showProduct(f, catalog.polo.productId);
+    setNow("2026-10-01T10:05:00Z");
+    const messageId = await message(f, { text: "negro M" });
+    const over = { readChatMessage: asReader(completeFirst({ Talla: "M", Color: "Negro" })) };
+    const results = await Promise.all([apply(f, messageId, over), apply(f, messageId, over)]);
+    expect(results.map(kind).sort()).toEqual(["already_processed", "applied"]);
+    const [order] = await chatOrders(f);
+    expect(order!.items.map((item) => Number(item.quantity))).toEqual([1]);
+    expect(await inTenant(f, () => prisma.chatMessageOutcome.count({ where: { messageId } }))).toBe(1);
   } finally { await f.cleanup(); }
 });
