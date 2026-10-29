@@ -9,6 +9,7 @@ const mockReviewOrder = jest.fn();
 const mockCompleteOrder = jest.fn();
 let mockPending: unknown = ok([]);
 
+jest.mock("@mobile/features/orders/presentation/dispatch-print-review", () => ({ useDispatchPrint: () => ({ open: jest.fn(), active: false, show: jest.fn() }) }));
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), replace: jest.fn() }), useNavigation: () => ({ dispatch: jest.fn() }) }));
 jest.mock("expo-router/react-navigation", () => ({ usePreventRemove: jest.fn() }));
 jest.mock("expo-crypto", () => ({ randomUUID: () => mockId(3) }));

@@ -28,6 +28,7 @@ const mockDispatch = jest.fn();
 const mockUsePreventRemove = jest.fn();
 const mockShowConfirmation = jest.fn();
 const mockShow = jest.fn();
+jest.mock("@mobile/features/orders/presentation/dispatch-print-review", () => ({ useDispatchPrint: () => ({ open: jest.fn(), active: false, show: jest.fn() }) }));
 jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), replace: mockReplace }),
   useNavigation: () => ({ dispatch: mockDispatch }) }));
 jest.mock("expo-router/react-navigation", () => ({ usePreventRemove: (...args: unknown[]) => mockUsePreventRemove(...args) }));
