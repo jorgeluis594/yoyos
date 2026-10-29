@@ -202,7 +202,7 @@ test("line warning is in Portuguese with the available count", async () => {
   } finally { await i18n.changeLanguage("es"); }
 });
 
-const dialogDescription = "Camisa: pediste 4, hay 3.\n\nSe guardará con sus pagos y el stock quedará pendiente de descontar hasta reponerlo.";
+const dialogDescription = "Camisa: pediste 4, hay 3.\n\nSe guardará con sus pagos y el stock quedará pendiente de descontar hasta reponer el stock.";
 
 test("payment that covers the total with quantity above stock warns early and keeps Save enabled", async () => {
   const screen = await reviewWithQuantity(3, 4);
