@@ -1,7 +1,7 @@
 {
   "model": "gpt-6-luna",
   "settings": {
-    "reasoningEffort": "minimal",
+    "reasoningEffort": "none",
     "maxOutputTokens": 2000,
     "schemaName": "chat_reader_answer"
   },
