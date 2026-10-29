@@ -1,65 +1,124 @@
 import { describe, expect, test } from "vitest";
 import type { CaseRecord } from "@core/evals/lib/case-record";
+import { messageRecord } from "@core/evals/lib/record-fixture";
 import type { ModelCall } from "@core/evals/lib/model-meter";
 import { buildReport, calibrate, formatSummary, percentile } from "@core/evals/lib/report";
 
 const call = (over: Partial<ModelCall> = {}): ModelCall =>
-  ({ provider: "openai", role: "system", endpoint: "/v1/decisions", model: "gpt-6-luna", inputTokens: 1000, outputTokens: 100, durationMs: 300, status: 200, ...over });
+  ({ provider: "openai", role: "system", endpoint: "/v1/responses", model: "gpt-6-luna", inputTokens: 1000, outputTokens: 100, durationMs: 300, status: 200, ...over });
 
 function record(over: Partial<CaseRecord> = {}): CaseRecord {
-  return {
-    caseId: "int-a", baseId: "int-a", pass: "interpretation", criterion: 1, kind: "trap", tags: [], repeat: 0, passed: true, exactPassed: true,
-    fields: { tool: true, outcome: true }, expectationIndex: 0, judge: null, noticeError: null, expectedTool: "add_products", input: "text «x»",
-    expected: [], actual: {}, signature: "add_products|added|", certainties: [], trace: { decisions: [], extracted: [], textChoices: [] }, latencyMs: 1000,
-    retries: 0, calls: [call()], error: null, ...over,
-  };
+  return messageRecord({ passed: true, exactPassed: true, fields: { notice: true, outcome: true }, signature: "added", latencyMs: 1000, calls: [call()], ...over });
 }
 
 const meta = { runId: "run", startedAt: "2026-10-23T00:00:00.000Z", finishedAt: "2026-10-23T00:10:00.000Z", settings: {} };
 
 describe("buildReport", () => {
-  test("accuracy counts only the first run of each case, by pass, criterion, kind, expected tool and tag", () => {
+  test("accuracy counts only the first run of each case, by pass, criterion, kind and tag", () => {
     const report = buildReport([
       record({ caseId: "int-a" }),
-      record({ caseId: "int-b", passed: false, kind: "greeting", expectedTool: "no_intent", tags: ["injection"] }),
+      record({ caseId: "int-b", passed: false, kind: "greeting", tags: ["injection"] }),
       record({ caseId: "int-b", passed: true, repeat: 1, tags: ["injection"] }),
-      record({ caseId: "txt-a", pass: "text", criterion: 3, expectedTool: "-" }),
+      record({ caseId: "img-a", pass: "image", criterion: 5 }),
     ], meta);
 
     expect(report.overall).toEqual({ total: 3, passed: 2, accuracy: 0.667 });
-    expect(report.byPass).toEqual({ interpretation: { total: 2, passed: 1, accuracy: 0.5 }, text: { total: 1, passed: 1, accuracy: 1 } });
+    expect(report.byPass).toEqual({ image: { total: 1, passed: 1, accuracy: 1 }, interpretation: { total: 2, passed: 1, accuracy: 0.5 } });
     expect(report.byCriterion["criterion 1"]).toEqual({ total: 2, passed: 1, accuracy: 0.5 });
     expect(report.byKind.greeting).toEqual({ total: 1, passed: 0, accuracy: 0 });
-    expect(report.byExpectedTool).toEqual({ add_products: { total: 1, passed: 1, accuracy: 1 }, no_intent: { total: 1, passed: 0, accuracy: 0 } });
     expect(report.byTag.injection).toEqual({ total: 1, passed: 0, accuracy: 0 });
     expect(report.failures.map(({ caseId }) => caseId)).toEqual(["int-b"]);
   });
 
   test("field accuracy ignores unscored fields", () => {
-    const report = buildReport([record({ fields: { tool: null, outcome: true } }), record({ caseId: "int-b", fields: { tool: false, outcome: true } })], meta);
+    const report = buildReport([record({ fields: { notice: null, outcome: true } }), record({ caseId: "int-b", fields: { notice: false, outcome: true } })], meta);
 
-    expect(report.fields).toEqual({ outcome: { total: 2, passed: 2, accuracy: 1 }, tool: { total: 1, passed: 0, accuracy: 0 } });
+    expect(report.fields).toEqual({ notice: { total: 1, passed: 0, accuracy: 0 }, outcome: { total: 2, passed: 2, accuracy: 1 } });
   });
 
-  test("lists false notices, silent errors, wrong silent changes and silent drops", () => {
+  test("the gate counts right messages, ignored actions, wrong silent changes and extra notices, whole and per family", () => {
     const report = buildReport([
-      record({ caseId: "a", passed: false, noticeError: "false_notice" }),
-      record({ caseId: "b", passed: false, noticeError: "silent_error" }),
-      record({ caseId: "c", passed: false, noticeError: "wrong_change" }),
-      record({ caseId: "d", passed: false, noticeError: "missed_notice" }),
-      record({ caseId: "e", passed: false, noticeError: "dropped_request" }),
+      record({ caseId: "a", kind: "remove", expectedSilent: true }),
+      record({ caseId: "b", kind: "remove", passed: false, ignoredActions: 2, expectedSilent: true }),
+      record({ caseId: "c", kind: "ready", passed: false, wrongSilentChange: true }),
+      record({ caseId: "d", kind: "ready", passed: false, extraNotice: true, expectedSilent: true }),
+      record({ caseId: "e", kind: "ready", passed: false, ignoredActions: 1, expectedSilent: false, repeat: 1 }),
+      record({ caseId: "img", pass: "image", criterion: 5 }),
     ], meta);
 
-    expect(report.notices).toEqual({ falseNotices: ["a"], silentErrors: ["b"], wrongChanges: ["c"], missedNotices: ["d"], droppedRequests: ["e"], wrongNotices: [] });
-    expect(formatSummary(report, "run.json")).toContain("1 missed notices (no notice where one was due), 1 dropped requests");
+    expect(report.gate.whole).toEqual({ scored: 4, right: 1, rightPercent: 25, ignoredActions: 2, twoNoticeConversations: 0, wrongSilentChanges: 1,
+      expectedSilent: 3, extraNotices: 1, extraNoticePercent: 33.3 });
+    expect(report.gate.byFamily.remove).toMatchObject({ scored: 2, right: 1, rightPercent: 50, ignoredActions: 2, extraNotices: 0 });
+    expect(report.gate.byFamily.ready).toMatchObject({ scored: 2, right: 0, wrongSilentChanges: 1, extraNotices: 1, extraNoticePercent: 100 });
+  });
+
+  test("reports extra notices as a share of the messages expected silent", () => {
+    const report = buildReport([
+      ...Array.from({ length: 9 }, (_, index) => record({ caseId: `s${index}`, expectedSilent: true })),
+      record({ caseId: "x", expectedSilent: true, passed: false, extraNotice: true }),
+      record({ caseId: "loud", expectedSilent: false }),
+    ], meta);
+
+    expect(report.gate.whole).toMatchObject({ expectedSilent: 10, extraNotices: 1, extraNoticePercent: 10 });
+    expect(formatSummary(report, "run.json")).toContain("extra notices 1 of 10 messages expected silent (10.0%)");
+  });
+
+  test("counts conversations with two notices for one product unless a step expects the repeat", () => {
+    const step = (conversationId: string, number: number, noticeProducts: string[], over: Partial<CaseRecord> = {}) =>
+      record({ caseId: `${conversationId}#${number}`, baseId: conversationId, pass: "conversation", criterion: 0, kind: "photo-size", conversationId, step: number, noticeProducts, ...over });
+    const report = buildReport([
+      step("c1", 1, ["gorra"]), step("c1", 2, ["gorra"]),
+      step("c2", 1, ["gorra"]), step("c2", 2, ["gorra"], { expectsRepeatNotice: true }),
+      step("c3", 1, ["gorra"]), step("c3", 2, ["polo"]),
+    ], meta);
+
+    expect(report.gate.whole.twoNoticeConversations).toBe(1);
+    expect(report.gate.byFamily["photo-size"]!.twoNoticeConversations).toBe(1);
+    expect(report.byCriterion).toEqual({});
+  });
+
+  test("scores the first repetition and reports flips apart", () => {
+    const report = buildReport([
+      record({ caseId: "a", tags: ["consistency"], signature: "x" }),
+      record({ caseId: "a", tags: ["consistency"], repeat: 1, signature: "y", passed: false, ignoredActions: 3 }),
+      record({ caseId: "b", tags: ["pinned-miss"], ignoredActions: 0 }),
+      record({ caseId: "b", tags: ["pinned-miss"], repeat: 1, ignoredActions: 1, passed: false, signature: "z" }),
+    ], meta);
+
+    expect(report.gate.whole).toMatchObject({ scored: 2, right: 2, ignoredActions: 0 });
+    expect(report.consistency.flipped).toEqual([{ caseId: "a", signatures: ["x", "y"] }, { caseId: "b", signatures: ["added", "z"] }]);
+    expect(report.pinnedMiss).toEqual([{ caseId: "b", repeats: [{ repeat: 0, ignoredActions: 0 }, { repeat: 1, ignoredActions: 1 }], ignoredInAnyRepeat: true }]);
+  });
+
+  test("cost per scored message counts cached and reasoning tokens, and latency p95 is per message", () => {
+    const priced = call({ inputTokens: 10_000, outputTokens: 1000, cachedTokens: 4000, reasoningTokens: 200, durationMs: 800 });
+    const report = buildReport([
+      record({ caseId: "a", calls: [priced], latencyMs: 900 }),
+      record({ caseId: "b", calls: [priced, priced], latencyMs: 1700 }),
+      record({ caseId: "c", repeat: 1, calls: [priced] }),
+    ], meta);
+
+    expect(report.cost).toEqual({ perScoredMessageUsd: 0.00225, targetUsd: 0.003, overTarget: false, inputTokens: 30_000, outputTokens: 3000, cachedTokens: 12_000, reasoningTokens: 600 });
+    expect(report.latencyMs.messages).toEqual({ p95Ms: 1700, p95ModelMs: 1600 });
+  });
+
+  test("counts model calls per message kind against what the design allows", () => {
+    const kinds = (kind: CaseRecord["messageKind"], calls: number, caseId: string) => record({ caseId, messageKind: kind, calls: Array.from({ length: calls }, () => call()) });
+    const report = buildReport([kinds("text", 1, "a"), kinds("text", 2, "b"), kinds("photo", 0, "c"), kinds("photo_caption", 2, "d")], meta);
+
+    expect(report.readerCalls).toEqual({
+      text: { messages: 2, maxCalls: 2, meanCalls: 1.5, allowed: 1, withinDesign: false },
+      photo: { messages: 1, maxCalls: 0, meanCalls: 0, allowed: 1, withinDesign: true },
+      photo_caption: { messages: 1, maxCalls: 2, meanCalls: 2, allowed: 2, withinDesign: true },
+    });
   });
 
   test("known limitations are listed apart and left out of every score", () => {
-    const report = buildReport([record(), record({ caseId: "txt-calcetines", pass: "text", passed: false, tags: ["known-limitation"], signature: "not_found" })], meta);
+    const report = buildReport([record(), record({ caseId: "int-calcetines", passed: false, tags: ["known-limitation"], signature: "not_found" })], meta);
 
     expect(report.overall).toEqual({ total: 1, passed: 1, accuracy: 1 });
-    expect(report.byPass.text).toBeUndefined();
-    expect(report.knownLimitations).toEqual([{ caseId: "txt-calcetines", passed: false, signature: "not_found" }]);
+    expect(report.byPass.interpretation).toEqual({ total: 1, passed: 1, accuracy: 1 });
+    expect(report.knownLimitations).toEqual([{ caseId: "int-calcetines", passed: false, signature: "not_found" }]);
     expect(report.failures).toEqual([]);
   });
 
@@ -67,42 +126,16 @@ describe("buildReport", () => {
     expect(buildReport([record({ retries: 2 }), record({ caseId: "b" })], meta).retries).toEqual({ messages: 1, attempts: 2 });
   });
 
-  test("a consistency case flips when its runs leave different results", () => {
+  test("calibration grades the visual model's own pick at its production gate, not what the gate decided", () => {
     const report = buildReport([
-      record({ caseId: "a", tags: ["consistency"], signature: "x" }), record({ caseId: "a", tags: ["consistency"], repeat: 1, signature: "y" }),
-      record({ caseId: "b", tags: ["consistency"], signature: "z" }), record({ caseId: "b", tags: ["consistency"], repeat: 1, signature: "z" }),
-    ], meta);
-
-    expect(report.consistency).toEqual({ cases: 2, repeats: 2, flipped: [{ caseId: "a", signatures: ["x", "y"] }] });
-  });
-
-  test("calibration grades the model's own pick at each production gate, not what the gate decided", () => {
-    const add = [{ tools: ["add_products"], outcomes: ["added"], order: [{ product: "polo-basico", variant: { Talla: "M", Color: "Negro" }, quantity: 2, mentionedPrice: null }] }];
-    const report = buildReport([
-      // Under the gate the Decision still chose the right tool: a right pick rejected, though the case fails on tool.
-      record({ caseId: "a", passed: false, fields: { tool: false }, expected: add, certainties: [{ source: "action", confidence: 0.5, gate: 0.6, pick: "add_products" }] }),
-      record({ caseId: "b", passed: false, expected: add, certainties: [{ source: "action", confidence: 0.4, gate: 0.6, pick: "no_intent" }] }),
-      // Above the gate a right text pick stays right when the case fails later, on quantity.
-      record({ caseId: "c", passed: false, fields: { tool: true, quantity: false }, expected: add,
-        certainties: [{ source: "action", confidence: 0.9, gate: 0.6, pick: "add_products" }, { source: "text", confidence: 1, gate: 0.8, pick: "polo-basico" },
-          { source: "variant", confidence: 0.9, gate: 0.8, pick: "M Negro" }] }),
       record({ caseId: "d", pass: "image", expected: [{ kind: "found", product: "polo-rayas" }], certainties: [{ source: "visual", confidence: 0.7, gate: 0.8, pick: "polo-rayas" }] }),
       record({ caseId: "e", pass: "image", expected: [{ kind: "not_product" }], certainties: [{ source: "visual", confidence: 0.83, gate: 0.8, pick: "chompa-tejida" }] }),
       // Older records kept no visual pick: ungraded.
       record({ caseId: "f", pass: "image", expected: [{ kind: "found", product: "polo-rayas" }], certainties: [{ source: "visual", confidence: 0.77, gate: 0.8 }] }),
     ], meta);
 
-    expect(report.calibration.interpretation!.action!.atGate).toEqual({ gate: 0.6, acceptedCorrect: 1, acceptedWrong: 0, rejectedCorrect: 1, rejectedWrong: 1, unverified: 0 });
-    expect(report.calibration.interpretation!.text!.atGate).toMatchObject({ acceptedCorrect: 1, acceptedWrong: 0 });
-    expect(report.calibration.interpretation!.variant!.atGate).toMatchObject({ acceptedCorrect: 1 });
     expect(report.calibration.image!.visual!.atGate).toEqual({ gate: 0.8, acceptedCorrect: 0, acceptedWrong: 1, rejectedCorrect: 1, rejectedWrong: 0, unverified: 1 });
-    expect(report.gates).toEqual({ action: 0.6, text: 0.8, variant: 0.8, visual: 0.8 });
-  });
-
-  test("item choices are shown as buckets only, ungraded", () => {
-    const report = buildReport([record({ certainties: [{ source: "item", confidence: 0.7, gate: 0.8, detail: "remove_item:item=I1" }] })], meta);
-
-    expect(report.calibration.interpretation!.item!.atGate).toMatchObject({ acceptedCorrect: 0, rejectedWrong: 0, unverified: 1 });
+    expect(report.gates).toEqual({ visual: 0.8 });
   });
 
   test("the end-to-end pass is also split into photo and text messages", () => {
@@ -153,9 +186,9 @@ describe("buildReport", () => {
   });
 
   test("latency percentiles per pass and overall", () => {
-    const report = buildReport([record({ latencyMs: 100 }), record({ caseId: "b", latencyMs: 300 }), record({ caseId: "c", pass: "text", latencyMs: 50 })], meta);
+    const report = buildReport([record({ latencyMs: 100 }), record({ caseId: "b", latencyMs: 300 }), record({ caseId: "c", pass: "image", latencyMs: 50 })], meta);
 
-    expect(report.latencyMs).toEqual({ all: { p50: 100, p95: 300 }, interpretation: { p50: 100, p95: 300 }, text: { p50: 50, p95: 50 } });
+    expect(report.latencyMs).toMatchObject({ all: { p50: 100, p95: 300 }, interpretation: { p50: 100, p95: 300 }, image: { p50: 50, p95: 50 } });
   });
 
   test("the summary names the report path and the model calls", () => {
