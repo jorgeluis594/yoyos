@@ -14,7 +14,7 @@ const productSchema = z.strictObject({
   refs: z.array(z.string()).nullable().describe("Only for kind one_of: at least two product references."),
 });
 const itemSchema = z.strictObject({
-  kind: z.enum(["ref", "unnamed", "not_in_order"]).describe("ref: one listed order item. unnamed: the buyer does not say which item. not_in_order: the item is not in the order."),
+  kind: z.enum(["ref", "unnamed", "not_in_order"]).describe("ref: one listed order item. unnamed: the buyer does not say which item (a change of the only item without naming it). not_in_order: the item is not in the order."),
   ref: z.string().nullable().describe(`Only for kind ref. ${ref}`),
 });
 const attributeSchema = z.strictObject({
@@ -23,7 +23,7 @@ const attributeSchema = z.strictObject({
 });
 const priceSchema = z.strictObject({
   amount: z.string().describe("The price the buyer states, as written, digits only."),
-  currency: z.enum(["not_named", ...currencies, "other"]).describe("not_named when the buyer gives no currency."),
+  currency: z.enum(["not_named", ...currencies, "other"]).describe("soles or S/ is PEN, dólares or US$ is USD; other for an unlisted currency; not_named when none is named."),
   per: z.enum(["unit", "lot", "not_explicit"]).describe("unit: each. lot: for the whole quantity. not_explicit: the buyer does not say."),
 });
 const attributes = z.array(attributeSchema).nullable().describe("The attribute values the buyer chose, or null.");

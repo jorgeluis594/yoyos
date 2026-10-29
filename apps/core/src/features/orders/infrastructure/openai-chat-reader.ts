@@ -12,9 +12,9 @@ export type OpenAiChatReaderConfig = Readonly<{ client: OpenAI; model: string; t
 
 /**
  * Pinned request settings; the pinned model-text file records them. The bound is the answer (10 actions of about 100 tokens, 2000) plus the
- * reasoning tokens measured at the pinned effort, which count against it. Not yet measured against the live model: see the task report.
+ * reasoning tokens measured at the pinned effort, which count against it. Measured on the live model: gpt-6-luna rejects "minimal" with HTTP 400; "none" works with 0 reasoning tokens.
  */
-export const readerRequestSettings = { reasoningEffort: "minimal" as ReasoningEffort, maxOutputTokens: 2000, schemaName: "chat_reader_answer" } as const;
+export const readerRequestSettings = { reasoningEffort: "none" as ReasoningEffort, maxOutputTokens: 2000, schemaName: "chat_reader_answer" } as const;
 
 const invalid = (message: string): ReaderError => ({ code: "INVALID_AI_RESPONSE", message });
 
