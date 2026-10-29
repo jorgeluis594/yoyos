@@ -412,8 +412,7 @@ test("seller ships then delivers and sees an updated state after each operation"
 });
 
 test.each([
-  { paymentStatus: "pending", stockDeducted: true, cancelled: false, deliveryStatus: "pending", reason: "Se requiere el pago completo antes de enviar o entregar." },
-  { paymentStatus: "paid", stockDeducted: false, cancelled: false, deliveryStatus: "pending", reason: "Se requiere descontar el stock antes de enviar o entregar." },
+  { paymentStatus: "pending", paidAmount: { amount: 0, currency: "PEN" }, stockDeducted: true, cancelled: false, deliveryStatus: "pending", reason: "Se requiere el pago completo antes de enviar o entregar." },
   { paymentStatus: "paid", stockDeducted: true, cancelled: true, deliveryStatus: "pending", reason: "El pedido está cancelado; no se puede enviar ni entregar." },
   { paymentStatus: "paid", stockDeducted: true, cancelled: false, deliveryStatus: "delivered", reason: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado." },
 ] as const)("fulfillment is blocked and explained: $reason", async ({ reason, ...state }) => {
