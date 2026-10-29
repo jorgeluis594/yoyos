@@ -8,7 +8,7 @@ import { messageRecord } from "@core/evals/lib/record-fixture";
 const record: CaseRecord = messageRecord({
   caseId: "int-remove-only-item~p1", baseId: "int-remove-only-item", kind: "remove", tags: ["paraphrase"], fields: { notice: true, outcome: false }, latencyMs: 500,
   input: "text «sacalo nomas»", expected: [{ notice: "ready", outcomes: ["ready"] }],
-  actual: { outcomes: ["ambiguous_intent"], notice: null, noticeProducts: [], order: [] }, signature: "ambiguous_intent|",
+  actual: { outcomes: ["no_intent"], notice: null, noticeProducts: [], order: [] }, signature: "no_intent|",
   previousOrder: [], calls: [{ provider: "openai", role: "system", endpoint: "/v1/responses", model: "gpt-6-luna", inputTokens: 1000, outputTokens: 10, durationMs: 400, status: 200 }],
 });
 
@@ -29,7 +29,7 @@ test("a rebuild rescores messages under the current rules and keeps the classifi
 
 test("a rebuild follows a changed expectation and keeps a judge rescue", () => {
   const meta = { runId: "run", startedAt: "", finishedAt: "", settings: {} };
-  const relabeled = { ...record, expected: [{ notice: null, outcomes: ["ambiguous_intent"] }] };
+  const relabeled = { ...record, expected: [{ notice: null, outcomes: ["no_intent"] }] };
   const rescued = { ...record, caseId: "r", passed: true, exactPassed: false };
 
   const { records } = rebuildResult({ report: buildReport([relabeled, rescued], meta), records: [relabeled, rescued] });

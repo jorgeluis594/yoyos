@@ -26,11 +26,11 @@ const promptFiles = [
   "src/features/products/infrastructure/product-matching/product-chooser.ts",
 ];
 
-/** The buyer's words of every eval case, paraphrases included. */
+/** The buyer's words of every eval case, paraphrases and the messages of conversations included. */
 const evalInputs = [...new Set(allCases.flatMap((testCase) => {
-  if (testCase.pass === "text") return [testCase.input.mention];
   if (testCase.pass === "image") return [];
-  return [testCase.input.text, testCase.input.caption].filter((text): text is string => text !== undefined);
+  const inputs = testCase.pass === "conversation" ? testCase.steps.flatMap((step) => "input" in step ? [step.input] : []) : [testCase.input];
+  return inputs.flatMap((input) => [input.text, input.caption]).filter((text): text is string => text !== undefined);
 }))];
 
 describe("prompt overlap check", () => {

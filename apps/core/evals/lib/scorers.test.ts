@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
 import { repeatedNoticeProducts, scoreImage, scoreMessage, unitPricesIntact, type ActualLine, type MessageActual } from "@core/evals/lib/scorers";
 import { after, line, L_NEGRO, M_NEGRO } from "@core/evals/cases/builders";
+import type { OutcomeKind } from "@core/evals/cases/schema";
 
 const added = (quantity: number, mentionedPrice: ActualLine["mentionedPrice"] = null, unitPrice = 35): ActualLine =>
   ({ product: "polo-basico", variant: { Color: "Negro", Talla: "L" }, quantity, unitPrice, mentionedPrice });
@@ -49,7 +50,10 @@ describe("scoreMessage", () => {
   });
 
   test("no longer accepts ambiguous intent for an expected no intent", () => {
-    expect(scoreMessage(actual({ outcomes: ["ambiguous_intent"] }), [{ notice: null, outcomes: ["no_intent"] }], []).passed).toBe(false);
+    // The outcome the Decision API produced below its gate, which the single reader never produces.
+    const retired = ["ambiguous", "intent"].join("_") as OutcomeKind;
+
+    expect(scoreMessage(actual({ outcomes: [retired] }), [{ notice: null, outcomes: ["no_intent"] }], []).passed).toBe(false);
     expect(scoreMessage(actual({ outcomes: ["no_intent"] }), [{ notice: null, outcomes: ["no_intent"] }], []).passed).toBe(true);
   });
 

@@ -18,7 +18,7 @@ export function pickOf(certainty: Certainty): string | null | undefined {
   return chosen === "none" ? null : chosen;
 }
 
-const noProductOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["no_intent", "ambiguous_intent", "not_identified", "image_with_request"]);
+const noProductOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["no_intent", "not_identified", "image_with_request"]);
 
 const orderedProducts = (expectations: readonly MessageExpectation[]) => new Set(expectations.flatMap(({ order }) => order?.map(({ product }) => product) ?? []));
 

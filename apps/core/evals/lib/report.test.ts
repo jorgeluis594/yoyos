@@ -99,7 +99,7 @@ describe("buildReport", () => {
     ], meta);
 
     expect(report.cost).toEqual({ perScoredMessageUsd: 0.00225, targetUsd: 0.003, overTarget: false, inputTokens: 30_000, outputTokens: 3000, cachedTokens: 12_000, reasoningTokens: 600 });
-    expect(report.latencyMs.messages).toEqual({ p95Ms: 1700, p95ModelMs: 1600 });
+    expect(report.messageLatency).toEqual({ p95Ms: 1700, p95ModelMs: 1600 });
   });
 
   test("counts model calls per message kind against what the design allows", () => {

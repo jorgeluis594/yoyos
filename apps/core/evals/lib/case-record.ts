@@ -66,9 +66,9 @@ export async function appendRecord(runId: string, record: CaseRecord): Promise<v
   await appendFile(join(dir, "records.jsonl"), `${JSON.stringify(record)}\n`);
 }
 
-export async function readRecords(runId: string): Promise<readonly CaseRecord[]> {
+export async function readRecords(runId: string, root: string = resultsDirOf()): Promise<readonly CaseRecord[]> {
   try {
-    const text = await readFile(join(runDir(runId), "records.jsonl"), "utf8");
+    const text = await readFile(join(runDir(runId, root), "records.jsonl"), "utf8");
     return text.split("\n").filter(Boolean).map((line) => JSON.parse(line) as CaseRecord);
   } catch (cause) {
     if ((cause as NodeJS.ErrnoException).code === "ENOENT") return [];

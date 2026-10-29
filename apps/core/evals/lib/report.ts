@@ -52,7 +52,9 @@ export type EvalReport = Readonly<{
   gates: Readonly<Record<string, number>>;
   consistency: Readonly<{ cases: number; repeats: number; flipped: readonly Readonly<{ caseId: string; signatures: readonly string[] }>[] }>;
   injection: Readonly<{ total: number; allowed: number; priceChanged: readonly string[] }>;
-  latencyMs: Readonly<Record<string, Readonly<{ p50: number; p95: number }>>> & Readonly<{ messages: Readonly<{ p95Ms: number; p95ModelMs: number }> }>;
+  latencyMs: Readonly<Record<string, Readonly<{ p50: number; p95: number }>>>;
+  /** p95 over the messages of the message passes: the scored step's latency, and the time of its model calls added up. */
+  messageLatency: Readonly<{ p95Ms: number; p95ModelMs: number }>;
   usage: Readonly<{
     systemCalls: number;
     claudeCalls: number;
@@ -314,11 +316,9 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
     consistency: { cases: repeated.size, repeats: Math.max(0, ...[...repeated.values()].map((runs) => runs.length)), flipped },
     injection: { total: injection.length, allowed: injection.filter(({ passed }) => passed).length,
       priceChanged: injection.filter(({ fields }) => fields.unitPrice === false).map(({ caseId }) => caseId) },
-    latencyMs: {
-      ...Object.fromEntries([...latencyGroups.entries()].map(([name, values]) => [name, { p50: percentile(values, 0.5), p95: percentile(values, 0.95) }])),
-      messages: { p95Ms: percentile(messageRecords.map(({ latencyMs }) => latencyMs), 0.95),
-        p95ModelMs: percentile(messageRecords.map(({ calls }) => calls.filter(isSystemModelCall).reduce((sum, call) => sum + call.durationMs, 0)), 0.95) },
-    },
+    latencyMs: Object.fromEntries([...latencyGroups.entries()].map(([name, values]) => [name, { p50: percentile(values, 0.5), p95: percentile(values, 0.95) }])),
+    messageLatency: { p95Ms: percentile(messageRecords.map(({ latencyMs }) => latencyMs), 0.95),
+      p95ModelMs: percentile(messageRecords.map(({ calls }) => calls.filter(isSystemModelCall).reduce((sum, call) => sum + call.durationMs, 0)), 0.95) },
     usage: {
       systemCalls: systemCalls.length,
       claudeCalls: allCalls.filter(({ provider }) => provider === "anthropic").length,
@@ -357,7 +357,7 @@ export function formatGateSummary(report: EvalReport): string {
     ...Object.entries(report.gate.byFamily).flatMap(([family, lines]) => gateText(`family ${family}`, lines)),
     `Cost per scored message: ${cost.perScoredMessageUsd === null ? "unknown price" : `$${cost.perScoredMessageUsd.toFixed(5)}`} against $${cost.targetUsd.toFixed(3)}${cost.overTarget ? " (over the target)" : ""}; `
       + `${cost.inputTokens} in (${cost.cachedTokens} cached) / ${cost.outputTokens} out (${cost.reasoningTokens} reasoning) tokens`,
-    `Latency per message: p95 ${report.latencyMs.messages.p95Ms} ms, p95 model time ${report.latencyMs.messages.p95ModelMs} ms`,
+    `Latency per message: p95 ${report.messageLatency.p95Ms} ms, p95 model time ${report.messageLatency.p95ModelMs} ms`,
     ...Object.entries(readerCalls).map(([kind, line]) => `Model calls per ${kind} message: mean ${line.meanCalls}, max ${line.maxCalls}, design allows ${line.allowed}${line.withinDesign ? "" : " (over)"}`),
     `Consistency: ${report.consistency.flipped.length} of ${report.consistency.cases} repeated cases flipped over ${report.consistency.repeats} runs`,
   ].join("\n");
@@ -389,7 +389,7 @@ export function formatSummary(report: EvalReport, path: string): string {
     `Known limitations (not scored): ${report.knownLimitations.length ? report.knownLimitations.map(({ caseId, passed }) => `${caseId} ${passed ? "passed" : "failed"}`).join(", ") : "none"}`,
     `Injection: ${report.injection.allowed}/${report.injection.total} allowed outcomes, ${report.injection.priceChanged.length} price changes`,
     `Judge: ${report.judge.passed}/${report.judge.judged} passed, ${report.judge.rescued.length} rescued, ${report.judge.disagreed.length} disagree with exact match`,
-    `Latency of the scored model step (setup excluded; ${report.retries.attempts} retried attempts in ${report.retries.messages} messages): ${Object.entries(report.latencyMs).filter(([name]) => name !== "messages").map(([name, { p50, p95 }]) => `${name} p50 ${p50} ms / p95 ${p95} ms`).join("; ")}`,
+    `Latency of the scored model step (setup excluded; ${report.retries.attempts} retried attempts in ${report.retries.messages} messages): ${Object.entries(report.latencyMs).map(([name, { p50, p95 }]) => `${name} p50 ${p50} ms / p95 ${p95} ms`).join("; ")}`,
     `Model calls: ${report.usage.systemCalls} by the system under test, ${report.usage.claudeCalls} to Claude`,
     ...Object.entries(report.usage.byModel).map(([model, usage]) => `  ${model.padEnd(24)} ${usage.calls} calls, ${usage.inputTokens} in / ${usage.outputTokens} out tokens, ${cost(usage.costUsd)}`),
     `Estimated cost: $${report.usage.totalCostUsd.toFixed(4)} (system $${report.usage.systemCostPerMessageUsd.toFixed(5)} per message)${report.usage.unpricedModels.length ? `; no price for ${report.usage.unpricedModels.join(", ")}` : ""}`,

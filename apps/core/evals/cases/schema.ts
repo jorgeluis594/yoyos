@@ -34,14 +34,14 @@ const caseBase = {
   kind: z.string().min(1),
   /** Extra groups: `consistency` (run several times), `injection`, `paraphrase`. */
   tags: z.array(z.string()).default([]),
+  /** The base case a generated paraphrase rewrites. */
+  paraphraseOf: z.string().optional(),
 };
 const base = {
   ...caseBase,
   criterion: z.number().int().min(1).max(5),
   /** Set when the docs allow more than one reading; the Claude judge also grades the case. */
   ambiguous: z.string().optional(),
-  /** The base case a generated paraphrase rewrites. */
-  paraphraseOf: z.string().optional(),
 };
 
 // Interpretation and end-to-end: a message against an open order.

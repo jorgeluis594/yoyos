@@ -20,7 +20,7 @@ export function endToEndCasesFrom(manifest: ImageManifest | null): readonly Eval
     const entry = manifest ? pickPhoto(manifest, pick) : null;
     return entry ? { file: entry.file } : missingPhoto;
   };
-  return endToEndTable(photo).filter((testCase) => testCase.pass === "text" || testCase.pass === "image" || testCase.input.photo !== missingPhoto);
+  return endToEndTable(photo).filter((testCase) => testCase.pass === "image" || testCase.pass === "conversation" || testCase.input.photo !== missingPhoto);
 }
 
 /** Every end-to-end case id, with or without its photo. */

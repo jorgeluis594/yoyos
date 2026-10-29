@@ -1,11 +1,9 @@
 import { describe, expect, test } from "vitest";
-import type { CaseRecord } from "@core/evals/lib/case-record";
 import { gradePick, pickOf } from "@core/evals/lib/picks";
 import { messageRecord } from "@core/evals/lib/record-fixture";
 
 const record = messageRecord;
 
-const line = (product: string, variant: Record<string, string>) => ({ product, variant, quantity: 1, mentionedPrice: null });
 
 describe("gradePick", () => {
   test("visual picks are right only for the expected product; a selfie's pick is wrong", () => {
