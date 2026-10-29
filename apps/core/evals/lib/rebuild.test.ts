@@ -3,30 +3,39 @@ import type { CaseRecord } from "@core/evals/lib/case-record";
 import { splitOf } from "@core/evals/cases/split";
 import { rebuildResult, splitResult } from "@core/evals/lib/rebuild";
 import { buildReport } from "@core/evals/lib/report";
+import { messageRecord } from "@core/evals/lib/record-fixture";
 
-const record: CaseRecord = {
-  caseId: "int-remove-only-item~p1", baseId: "int-remove-only-item", pass: "interpretation", criterion: 1, kind: "remove", tags: ["paraphrase"], repeat: 0,
-  passed: false, exactPassed: false, fields: { tool: false, outcome: false }, expectationIndex: 0, judge: null, noticeError: null, expectedTool: "remove_item",
-  input: "text «sacalo nomas»", expected: [{ tools: ["remove_item"], outcomes: ["only_item_kept"] }], actual: { tools: [], outcomes: ["ambiguous_intent"], order: [] },
-  signature: "|ambiguous_intent|", certainties: [{ source: "action", confidence: 0.5, gate: 0.6, detail: "remove_item" }],
-  trace: { decisions: [], extracted: [], textChoices: [] }, latencyMs: 500, retries: 0, error: null,
-  calls: [{ provider: "openai", role: "system", endpoint: "/v1/decisions", model: "gpt-6-luna", inputTokens: 1000, outputTokens: 10, durationMs: 400, status: 200 }],
-};
+const record: CaseRecord = messageRecord({
+  caseId: "int-remove-only-item~p1", baseId: "int-remove-only-item", kind: "remove", tags: ["paraphrase"], fields: { notice: true, outcome: false }, latencyMs: 500,
+  input: "text «sacalo nomas»", expected: [{ notice: "ready", outcomes: ["ready"] }],
+  actual: { outcomes: ["no_intent"], notice: null, noticeProducts: [], order: [] }, signature: "no_intent|",
+  previousOrder: [], calls: [{ provider: "openai", role: "system", endpoint: "/v1/responses", model: "gpt-6-luna", inputTokens: 1000, outputTokens: 10, durationMs: 400, status: 200 }],
+});
 
-test("a rebuild rescores notices and calibration from the records and keeps the classifier's groups and usage", () => {
+test("rebuilds a saved report under the new scoring", () => {
   const meta = { runId: "run", startedAt: "2026-10-24T00:00:00.000Z", finishedAt: "2026-10-24T00:10:00.000Z", settings: { claudeModel: "claude-sonnet-5-5" } };
   const classifier = { provider: "anthropic" as const, role: "classifier" as const, endpoint: "/v1/messages", model: "claude-sonnet-5-5", inputTokens: 2000, outputTokens: 300, durationMs: 1, status: 200 };
-  const groups = [{ cause: "low action", explanation: "x", caseIds: [record.caseId] }];
+  const groups = [{ cause: "lost notice", explanation: "x", caseIds: [record.caseId] }];
   const old = buildReport([record], meta, [classifier], groups);
 
   const { report, records, extraCalls } = rebuildResult({ report: old, records: [record] });
 
-  expect(records[0]!.noticeError).toBe("missed_notice");
-  expect(report.notices.missedNotices).toEqual([record.caseId]);
-  expect(report.calibration.interpretation!.action!.atGate).toMatchObject({ rejectedCorrect: 1 });
+  expect(records[0]).toMatchObject({ exactPassed: false, passed: false, ignoredActions: 1, extraNotice: false, fields: { notice: false, outcome: false, unitPrice: true } });
+  expect(report.gate.whole).toMatchObject({ scored: 1, right: 0, ignoredActions: 1 });
   expect(report.errorGroups).toEqual(groups);
   expect(report.usage.byRole.classifier).toEqual(old.usage.byRole.classifier);
   expect(extraCalls).toHaveLength(1);
+});
+
+test("a rebuild follows a changed expectation and keeps a judge rescue", () => {
+  const meta = { runId: "run", startedAt: "", finishedAt: "", settings: {} };
+  const relabeled = { ...record, expected: [{ notice: null, outcomes: ["no_intent"] }] };
+  const rescued = { ...record, caseId: "r", passed: true, exactPassed: false };
+
+  const { records } = rebuildResult({ report: buildReport([relabeled, rescued], meta), records: [relabeled, rescued] });
+
+  expect(records[0]).toMatchObject({ passed: true, exactPassed: true, ignoredActions: 0 });
+  expect(records[1]).toMatchObject({ passed: true, exactPassed: false });
 });
 
 test("an old image record that met the visual gate gets its found product as the pick; one under the gate stays ungraded", () => {
@@ -52,7 +61,7 @@ test("a case that is now a known limitation leaves the score on rebuild", () => 
 
 test("a split's part of a run keeps its records and their error groups, without the classifier's cost", () => {
   const meta = { runId: "run", startedAt: "", finishedAt: "", settings: {} };
-  const other = ["int-greeting", "int-thanks", "int-ready", "txt-chompa", "hold-plin"].find((id) => splitOf(id) !== splitOf(record.baseId))!;
+  const other = ["int-greeting", "int-thanks", "int-ready", "hold-v1-a", "hold-plin"].find((id) => splitOf(id) !== splitOf(record.baseId))!;
   const second: CaseRecord = { ...record, caseId: other, baseId: other };
   const classifier = { provider: "anthropic" as const, role: "classifier" as const, endpoint: "/v1/messages", model: "claude-sonnet-5-5", inputTokens: 2000, outputTokens: 300, durationMs: 1, status: 200 };
   const groups = [{ cause: "low action", explanation: "x", caseIds: [record.caseId, other] }, { cause: "other", explanation: "y", caseIds: [other] }];

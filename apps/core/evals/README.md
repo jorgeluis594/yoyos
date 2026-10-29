@@ -1,7 +1,7 @@
 # AI evals
 
-Evals measure how well orders from chat messages pick the tool, product, variant, quantity and mentioned price with the real
-models (docs/message-to-order.md, docs/ai-tools.md, docs/image-product-search.md). They use
+Evals measure how well orders from chat messages end right (order and seller notice) with the real models
+(docs/message-to-order.md, docs/image-product-search.md, docs/drafts/pedidos-por-mensaje-un-solo-modelo-con-c.md). They use
 [vitest-evals](https://github.com/getsentry/vitest-evals) on top of Vitest and run fully local: each run writes one JSON report
 to `apps/core/eval-results/` (gitignored) and nothing is sent to an eval service.
 
@@ -22,12 +22,14 @@ and only `smoke.eval.ts` runs. It refuses to run when `CI` is set, and it is not
 
 | Variable | Use |
 | --- | --- |
-| `OPENAI_API_KEY` | The system under test: interpretation, text and variant choosers, vision chooser. Plus the `AI_*`, `PRODUCT_MATCH*`, `TEXT_MATCH_*` and `*_MIN_CONFIDENCE` settings the app reads. |
+| `OPENAI_API_KEY` | The system under test: the message reading and the vision chooser. Plus the `AI_*`, `PRODUCT_MATCH*`, `TEXT_MATCH_*` and `*_MIN_CONFIDENCE` settings the app reads. |
 | `CLAUDE_API_KEY` | Claude as judge and error classifier (and paraphrase generator, offline). Passed explicitly to the client; never logged. |
 | `EVAL_CLAUDE_MODEL` | Claude model, default `claude-sonnet-5-5`. |
 | `EVAL_MAX_CASES` | Hard cap of cases per run, taken round-robin over the passes; unset runs all. |
 | `EVAL_CASES` | Comma-separated case ids; a base id also selects its paraphrases. |
-| `EVAL_REPEATS` | Runs of each `consistency` case (default 3; 1 turns the check off). |
+| `EVAL_REPEATS` | Runs of each repeated case (default 3; 1 turns the repeats off). |
+| `EVAL_REPEAT_TAGS` | Comma-separated tags whose cases are repeated (default `consistency`; `consistency,pinned-miss` also repeats the pinned misses). The first run is the one every gate counts; flips are reported apart. |
+| `EVAL_PRIVATE_DIR` | Absolute path of a folder outside the repository with a private `catalog.json` and `cases.json` (see «Private files format»). Set it in the shell. |
 | `EVAL_SKIP_PARAPHRASES` | `1` runs base cases only. |
 | `EVAL_SPLIT` | `dev`, `test` or `all` (default): the split of the cases to run (see «Dev and test splits»). |
 | `EVAL_IMAGES_DIR` | Photo folder with its `manifest.json`, relative to `apps/core` (default `evals/fixtures/images`). |
@@ -53,10 +55,10 @@ suite skips with a message and the end-to-end suite runs only its text cases.
 
 | Suite | Pass | Production path |
 | --- | --- | --- |
-| `interpretation.eval.ts` | Tool choice and arguments (criteria 1, 4) | `applyChatMessage` with the real interpreter, text identification and variant resolution. The photo's identification is given by the case (visual match 0.95, QR label or «not a product») so only interpretation is measured. |
-| `identification-text.eval.ts` | Text identification (criterion 3) | `identifyProductsInText` with the real SQL candidates and chooser. |
+| `interpretation.eval.ts` | Interpretation and arguments (criteria 1, 4) | `applyChatMessage` with the real interpreter, text identification and variant resolution. The photo's identification is given by the case (visual match 0.95, QR label or «not a product») so only interpretation is measured. |
 | `identification-image.eval.ts` | Non-product photos and visual identification (criteria 2, 5) | `identifyProductsInImage`: real QR reader, local embedding search and vision chooser. |
 | `end-to-end.eval.ts` | The whole message | `applyChatMessage` with the real photo cascade, interpretation and order transaction. |
+| `conversation.eval.ts` | Conversations | One chat with 2 to 4 messages applied in order, with events between them, on a simulated clock. |
 
 Faked: image storage (fixture files instead of R2). Nothing publishes events, so no notice reaches WhatsApp or push. An open
 order is seeded by sending QR label photos through `applyChatMessage` (deterministic, no model call). Retryable failures are
@@ -70,19 +72,19 @@ identified (`no_match`) or not a product (`not_product`), with its `scenario` as
 uploads: they are indexed and never used as queries, since they would match their own embedding; the first photo of each answer and the first worn photo are tagged `consistency`. End-to-end cases pick
 their photo from the manifest by product, folder and a hint (`photo({ folder: "customer", productKey: "polo-basico", hint: "worn" })`)
 and are left out when no photo matches. A case has an id, pass, criterion
-(1 interpretation, 2 non-product photos, 3 text identification, 4 arguments, 5 visual identification), kind, tags, the
-input (text, or photo plus caption, and the open order) and one or more acceptable expectations. Tags: `consistency` (run
-`EVAL_REPEATS` times; the report lists cases whose result flipped), `injection` (prompt injection attempts), `paraphrase`, and
+(1 interpretation, 2 non-product photos, 4 arguments, 5 visual identification), kind, tags, the
+input (text, or photo plus caption, and the open order) and one or more acceptable expectations. Tags: `consistency` and `pinned-miss` (run
+`EVAL_REPEATS` times when `EVAL_REPEAT_TAGS` names them; the report lists cases whose result flipped), `injection` (prompt injection attempts), `paraphrase`, and
 `known-limitation` (beyond the documented design, such as a synonym that shares no letters with the product name: reported apart
 and left out of every score).
 
 To add a case, append it to the table of its pass and run `pnpm --dir apps/core test:unit` (the case tables are parsed there).
-State only what must happen: an omitted `order` means the open order stays as it was; an omitted `tools` leaves the tool
-unscored. Mark a case `ambiguous` with the reason when a reasonable reader could accept another answer.
+State only what must happen: an omitted `order` means the open order stays as it was; an omitted `outcomes` or `notice` leaves
+that field unscored (conversation steps always state the notice; `null` means silent). Mark a case `ambiguous` with the reason when a reasonable reader could accept another answer.
 
 `cases/paraphrases.ts` holds Peruvian-chat rewrites of the message cases, generated once by
 `pnpm exec tsx evals/scripts/generate-paraphrases.ts` with Claude, reviewed by hand and committed. Evals never regenerate them,
-so runs stay comparable. Prompt injection cases are not paraphrased.
+so runs stay comparable. Conversations are not paraphrased. Prompt injection cases are not paraphrased.
 
 ## Dev and test splits
 
@@ -94,42 +96,108 @@ eval-results/<run>.json`, which writes `<run>.dev.json` and leaves the run as it
 `cases/holdout-v1.ts` is the first holdout, used once to judge T16: it is now an ordinary table, split like the others; its
 `probe` rows target risks beyond the design and are reported under `tag:probe`.
 
+## Conversation cases
+
+A conversation case is `{ id, pass: "conversation", kind, tags, steps }` with 2 to 4 message steps and any number of event steps.
+A message step is `{ input, expected, expectsRepeatNotice? }`: `input` is a text, or a photo identified by the case (`shows`) plus
+a caption, with no seeded order, because the earlier messages of the conversation are the order: they are applied for real and each
+message is scored against the order they left. `expected` is `{ notice, order?, outcomes? }`; `notice` is the kind of the one notice
+the message sends (`chooseSellerNotice(outcomes)?.kind`) or `null` when the message must be silent. `expectsRepeatNotice: true`
+marks a step the rules sheet expects to repeat the notice of an earlier step for the same product.
+
+Event steps act on the chat's latest order through the production use cases, at the conversation's simulated time:
+`advance_days` (moves the clock; nothing else happens), `cancel_order`, `report_payment`, `confirm_payment`, `void_payment` and
+`deactivate_product` (deactivates every variant of a catalog product, photos or no attributes included).
+
+- `report_payment` is the buyer's flow. A report requires a confirmed checkout, so it saves the buyer's data and confirms the checkout
+  first. A confirmed checkout closes the order for messages for good, so use it for cases where the order must stay closed.
+- `confirm_payment` confirms the payment the last `report_payment` made. With no report it registers a payment the seller received by
+  hand, which needs no checkout. `confirm_payment` with `partial: true` registers half the order total: the order is not paid and no
+  stock is deducted, which is what lets a later `void_payment` **reopen the order** for messages (product criterion 41: a message,
+  `confirm_payment` partial, `void_payment`, `advance_days`, a message). A full payment, or any stock deduction, closes it for good.
+- `void_payment` voids the confirmed payment. After a `report_payment` alone it confirms that payment first, at the same instant,
+  then voids it (a reported payment cannot be voided directly).
+
+Every step happens a minute after the previous one, so messages keep their order. Nothing publishes events, so a cancellation does
+not restore stock. A conversation's split is the hash of its id. Each message leaves one record, `<conversation id>#<number>`, with the conversation id.
+
 ## Scoring
 
-Tool (as a set), outcomes (as a multiset), product, variant, quantity and mentioned price are exact matches against the final
-order; every message also checks that unit prices are the catalog prices. A case passes when it matches one acceptable
-expectation. `ambiguous_intent` satisfies an expectation of `no_intent`, tool included: both change nothing and send no notice. Claude judges only cases with several acceptable expectations or marked `ambiguous`, with a `{pass, score,
+Notice kind, outcomes (as a multiset), product, variant, quantity and mentioned price are exact matches; every message also checks
+that unit prices are the catalog prices. A case passes when it matches one acceptable expectation. `ambiguous_intent` no longer
+satisfies `no_intent`. Claude judges only message cases with several acceptable expectations or marked `ambiguous`, with a `{pass, score,
 reason}` verdict; for an `ambiguous` case the judge's pass also counts. Price integrity can never be overruled by the judge.
+Besides pass or fail, each message is counted for the acceptance gate of the product draft:
+
+- **Ignored action**: something the buyer asked for (a change, «listo» or a pending) that produced neither its effect nor any notice
+  for the message, counted per action. A removal applied with «listo» lost and no notice is one. With outcomes stated, each asked
+  outcome the message lacks counts; without, each expected order line the order lacks, and an expected notice that never came.
+- **Wrong silent change**: the order is wrong and the message sent no notice.
+- **Extra notice**: a notice on a message expected silent (`notice: null`); the gate is its share of the silent messages.
+- **Two notices for one product**: in a conversation, the same product named by the notices of two messages, unless the later one has
+  `expectsRepeatNotice`.
 
 ## Report
 
-`eval-results/<run>.json` holds `report` and every case `record` (input, expected, actual, fields, judge verdict, observed
-certainties with their gates, the `trace` of what the models decided, latency, retries, model calls). The trace keeps the Decision
-answers (chosen action, the three highest tool predicates as runner-ups, item and amount choices), the arguments the extraction
-model returned (mentions, variant words, quantity, price) and each text choice. The report has:
+`eval-results/<run>.json` holds `report` and every case `record` (input, expected, actual, fields, judge verdict, the visual-search
+certainties with their gate, the counts above, latency, retries, model calls with cached and reasoning tokens). The report has:
 
-- accuracy overall and per pass, criterion, kind, expected tool, tag, and per scored field; known limitations listed apart;
-- how failed messages misled the seller: false notices (a problem notice where a change was expected), wrong notices (another
-  problem notice than the expected one), silent errors (a change without the expected notice), missed notices (a problem, «ready»,
-  «only item kept» or new-order notice was due and none was sent, even beside a right change), wrong silent changes, and dropped
-  requests (a change was expected; nothing changed and no notice);
-- the end-to-end pass split into photo and text messages;
-- calibration per pass and certainty source at the production gate of that source (`gates`: action `MESSAGE_ACTION_MIN_CONFIDENCE`,
-  text and variant and visual `PRODUCT_MATCH_MIN_CONFIDENCE`, item `ITEM_CHOICE_MIN_CONFIDENCE`). Each certainty records the model's
-  own `pick` and is graded by it (`lib/picks.ts`), not by the outcome, which below a gate the gate itself decides: the Decision's
-  action is right when it is the expected tool (`several` for several tools; a `change_item_variant` pick the interpreter ran as
-  `report_variant_without_product`, because the buyer did not explicitly ask for the change, counts as that report); a text, visual or variant pick when an acceptable final
-  order (or the text or image expectation) has that product or variant; a «none» pick when the case expects nothing identified
-  or no product. A pick on a photo the case declines is ungraded: no order says which product it showed. Item choices and picks a case cannot grade are counted as
-  ungraded. «none» answers of the text, variant and vision choosers are their own sources (`text_none`, `variant_none`,
-  `visual_none`). `shows_product` is the vision chooser's probability that the photo shows a product, at its 0.5 gate, with pick
-  `product` or `not_product`; it is graded in the image pass only (a message expectation does not say whether its photo is a product);
-- consistency flips, prompt injection outcomes, judge rescues and disagreements;
-- p50/p95 latency of the scored model step only (no chat creation, order seeding or retried attempts; retries are counted apart),
-  model calls, tokens and estimated cost per model and role;
-- Claude's grouping of the failed cases by cause, from the records and certainties: hypotheses, not verified causes.
+- **The gate**, over the first run of each scored message, whole and per family (`kind`): right count and percentage, ignored actions,
+  conversations with two notices for one product, wrong silent changes, extra notices as a share of the messages expected silent.
+  Repeated runs (see `EVAL_REPEAT_TAGS`) never count toward it; cases whose repeats gave another result are listed as flips apart;
+- the cost per scored message against the US$0.003 target (a reported target, not a gate) with input, cached, output and reasoning
+  tokens, the p95 latency per message, and the model calls per message kind (text, photo, photo with caption) against what the
+  design allows (the reader and the vision chooser are not told apart);
+- a `pinned-miss` section: for each case tagged `pinned-miss`, the ignored actions of each repetition;
+- accuracy overall and per pass, criterion, kind, tag and scored field; the end-to-end pass split into photo and text messages;
+  known limitations listed apart;
+- calibration of the visual search at its production gate (`visual`, `visual_none`, `shows_product`), graded by the model's own pick
+  (`lib/picks.ts`). Reading a message has no certainty gate, so there is nothing else to calibrate;
+- prompt injection outcomes, judge rescues and disagreements;
+- p50/p95 latency of the scored model step only (no chat creation or retried attempts; retries are counted apart), model calls,
+  tokens and estimated cost per model and role;
+- Claude's grouping of the failed cases by cause, from the records: hypotheses, not verified causes.
 
 `pnpm --dir apps/core eval:report eval-results/<run>.json [...]` rebuilds a saved run's report from its records with no model call
-(`lib/rebuild.ts`): notices are rescored under the current rules, the calibration regraded and current `known-limitation` tags applied; Claude's error groups and cost are
-kept. The first rebuild keeps the original file as `<run>.orig.json`. Records from before visual picks were kept get one only when
-the photo was found above the gate; the others stay ungraded.
+(`lib/rebuild.ts`): messages are rescored under the current rules, the visual calibration regraded and current `known-limitation`
+tags applied; Claude's error groups and cost are kept. The first rebuild keeps the original file as `<run>.orig.json`.
+
+## Private runs
+
+With `EVAL_PRIVATE_DIR` set, only the private cases of each pass run, against a second eval company seeded with the private catalog
+(its ids are separate from the committed company's). Its catalog counts as searchable once it has active products. Records, the
+judge's and the classifier's output and the report go under `<dir>/runs/` and nowhere else. The test names are «case N», the
+vitest-evals report carries scores only, and stdout prints the aggregate gate lines (whole run and per family), cost and latency:
+no case id, case text, product or judge reason. Photo cases and photo files are not available in a private run.
+
+## Private files format
+
+This section is the only part of the README meant for whoever writes private files. It lists field names, types and allowed
+values; the files are validated with the same schemas as the committed tables.
+
+`catalog.json` is an object with one field, `products`: a non-empty list of products. A product has
+`key` (string of lowercase letters, digits and hyphens, unique in the file), `name` (non-empty string), `active` (boolean, default
+true) and `variants` (non-empty list). A variant has `attributes` (an object whose names and values are strings; it may be empty),
+`price` (positive number, in soles) and `active` (boolean, default true). Inactive products and variants exist but cannot be sold.
+
+`cases.json` is a list of cases with unique `id`s (lowercase letters, digits and hyphens). Every case has `id`, `pass`, `kind`
+(non-empty string naming the family the gate reports) and `tags` (list of strings, default empty). `pass` is `interpretation`,
+`end_to_end` or `conversation`.
+
+- A message case (`interpretation`, `end_to_end`) has `criterion` (integer 1 to 5), `input` and `expected` (a non-empty list of
+  acceptable expectations), and optionally `ambiguous` (a string). `input` has either `text` or `photo`, plus `caption` only with a
+  photo, and `order`, the open order before the message (a list of order lines, default empty). A `photo` is `{ shows }` with a product
+  `key` of the catalog or `not_product`, plus optional `label` (an attributes object: the photo is a printed label of that variant).
+- A conversation has `steps`: a list with 2 to 4 message steps and any number of event steps. A message step has `input` (as above, with
+  no `order`), `expected` and optionally `expectsRepeatNotice` (only `true`). An event step has `event`, one of `advance_days` (with
+  `days`, integer 1 to 60), `cancel_order`, `report_payment`, `confirm_payment` (optionally with `partial`, only `true`), `void_payment` and `deactivate_product` (with
+  `product`, a product `key`).
+- An order line has `product` (a product `key`), `variant` (an attributes object that matches one variant), and `quantity` (integer
+  1 to 99). An expected order line adds `mentionedPrice`: `null`, or `{ amount, units }` (positive number, integer of at least 1).
+- An expectation has `notice` (a seller notice kind or `null` for silent), and optionally `order` (the open order after the message;
+  absent means unchanged) and `outcomes` (a list of outcome kinds, as a multiset). A message case needs `notice` or `outcomes`; a
+  conversation step always has `notice`.
+- Seller notice kinds: `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `unnamed_add`, `variant_only`, `image_with_request`, `no_open_order`, `failed`, `order_closed`, `several_problems`, `only_item_kept`, `ready`, `new_order`, `not_applied`, `caption_not_applied`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`.
+- Outcome kinds: `added`, `removed`, `quantity_lowered`, `quantity_changed`, `variant_changed`, `mentioned_price_set`, `ready`, `only_item_kept`, `order_closed`, `no_intent`, `ambiguous_intent`, `variant_only`, `unnamed_add`, `image_with_request`, `no_open_order`, `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `new_order_after_closed`, `failed`, `pending_created`, `pending_updated`, `pending_completed`, `pending_split`, `pending_ended`, `reader_doubt`, `request_not_allowed`, `invalid_action`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`, `caption_not_applied`.
+
+Every product named by a case must exist in `catalog.json`. A file inside the repository, or reached through a link into it, is refused.

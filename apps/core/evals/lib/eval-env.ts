@@ -9,8 +9,15 @@ const evalEnvSchema = z.object({
   EVAL_MAX_CASES: z.coerce.number().int().positive().optional(),
   /** Comma-separated case ids (base ids also select their paraphrases); unset runs every case. */
   EVAL_CASES: z.string().optional(),
-  /** How many times each `consistency` case runs; 1 turns the consistency check off. */
+  /** How many times each repeated case runs; 1 turns the repeats off. */
   EVAL_REPEATS: z.coerce.number().int().min(1).max(5).default(3),
+  /** Comma-separated tags: the cases with any of them run `EVAL_REPEATS` times (the first repetition is the one scored). */
+  EVAL_REPEAT_TAGS: z.string().default("consistency").transform((tags) => tags.split(",").map((tag) => tag.trim()).filter(Boolean)),
+  /**
+   * Absolute path of a folder outside the repository with `catalog.json` and `cases.json` (evals/README.md «Private files format»).
+   * When set, only those cases run, against the private company, and every record, judge and classifier output stays in `<dir>/runs/`.
+   */
+  EVAL_PRIVATE_DIR: z.string().optional(),
   /** Skips the generated paraphrases, for a cheaper run on the base cases only. */
   EVAL_SKIP_PARAPHRASES: z.enum(["0", "1"]).default("0"),
   /** Runs only the dev split (tuning) or the frozen test split (cases/split.ts); `all` runs both. */

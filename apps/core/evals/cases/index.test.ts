@@ -25,14 +25,14 @@ describe("eval cases", () => {
     const base = baseCases.find(({ id }) => id === "int-add-named")!;
     const [, paraphrase] = withParaphrases([base], [{ of: base.id, text: "pásame un polito L negro" }]);
 
-    expect(paraphrase).toMatchObject({ id: `${base.id}~p1`, paraphraseOf: base.id, expected: base.expected, input: { text: "pásame un polito L negro" } });
+    expect(paraphrase).toMatchObject({ id: `${base.id}~p1`, paraphraseOf: base.id, expected: (base as { expected: unknown }).expected, input: { text: "pásame un polito L negro" } });
     expect(paraphrase!.tags).toContain("paraphrase");
   });
 
   test("no paraphrase repeats its base wording", () => {
-    const copies = allCases.filter((testCase) => testCase.paraphraseOf && testCase.pass !== "text" && testCase.pass !== "image").filter((testCase) => {
+    const copies = allCases.filter((testCase) => testCase.paraphraseOf && testCase.pass !== "image" && testCase.pass !== "conversation").filter((testCase) => {
       const base = allCases.find(({ id }) => id === testCase.paraphraseOf);
-      return base?.pass === testCase.pass && "text" in base.input && JSON.stringify(base.input) === JSON.stringify(testCase.input);
+      return base?.pass === testCase.pass && "input" in base && "text" in base.input && JSON.stringify(base.input) === JSON.stringify((testCase as { input: unknown }).input);
     });
 
     expect(copies.map(({ id }) => id)).toEqual([]);
@@ -46,7 +46,7 @@ describe("eval cases", () => {
     const selected = selectCases(casesOf(manifest), { maxCases: 8 });
 
     expect(selected).toHaveLength(8);
-    expect(new Set(selected.map(({ pass }) => pass))).toEqual(new Set(["interpretation", "text", "image", "end_to_end"]));
+    expect(new Set(selected.map(({ pass }) => pass))).toEqual(new Set(["interpretation", "image", "end_to_end"]));
   });
 
   test("ids select a case with its paraphrases, which can be skipped", () => {
@@ -62,10 +62,10 @@ describe("eval cases", () => {
 
     expect(images.find(({ id }) => id === "img-customer-polo-basico-blanco-worn")).toMatchObject({ criterion: 5, kind: "second-color-worn", expected: [{ kind: "found", product: "polo-basico" }, { kind: "not_found" }] });
     expect(images.find(({ id }) => id === "img-customer-polo-oversize-repost")).toMatchObject({ kind: "repost-screenshot", expected: [{ kind: "found", product: "polo-oversize" }] });
-    expect(images.find(({ id }) => id === "img-negative-polo-cuello-v-rojo")?.expected).toEqual([{ kind: "not_found" }]);
+    expect((images.find(({ id }) => id === "img-negative-polo-cuello-v-rojo") as { expected?: unknown } | undefined)?.expected).toEqual([{ kind: "not_found" }]);
     expect(images.find(({ id }) => id === "img-non-product-yape-screenshot")).toMatchObject({ criterion: 2, expected: [{ kind: "not_product" }] });
-    expect(images.some(({ input }) => "file" in input && input.file.startsWith("catalog/"))).toBe(false);
-    expect(images.find(({ id }) => id === "img-label-polo-basico-negro-m")?.expected).toEqual([{ kind: "found", product: "polo-basico", color: "Negro" }]);
+    expect(images.some((testCase) => testCase.pass === "image" && testCase.input.file.startsWith("catalog/"))).toBe(false);
+    expect((images.find(({ id }) => id === "img-label-polo-basico-negro-m") as { expected?: unknown } | undefined)?.expected).toEqual([{ kind: "found", product: "polo-basico", color: "Negro" }]);
     expect(images.filter(({ tags }) => tags.includes("consistency")).map(({ id }) => id).sort()).toEqual(["img-customer-polo-basico-worn",
       "img-label-polo-basico-negro-m", "img-negative-polo-cuello-v-rojo", "img-non-product-yape-screenshot"]);
   });
