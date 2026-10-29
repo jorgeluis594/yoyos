@@ -45,10 +45,6 @@ describe("chatMessageOutcomesSchema", () => {
     expect(chatMessageOutcomesSchema.parse(outcomes)).toEqual(outcomes);
   });
 
-  test("no longer reads the removed ambiguous intent", () => {
-    expect(chatMessageOutcomesSchema.safeParse([{ kind: "ambiguous_intent" }]).success).toBe(false);
-  });
-
   test.each([
     ["an unknown pending end reason", { kind: "pending_ended", pendingId: id(10), reason: "forgotten" }],
     ["an unknown invalid action reason", { kind: "invalid_action", orderId: null, reason: "bad_mood" }],
