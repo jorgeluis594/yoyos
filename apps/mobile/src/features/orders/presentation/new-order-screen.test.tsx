@@ -91,6 +91,7 @@ function selectDistrict(screen: ReturnType<typeof render>, code = "150122") {
 }
 async function review() {
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -136,6 +137,8 @@ test("scheduled dispatch date is sent when chosen and omitted otherwise", async 
 test("products stay read-only on the form and returning preserves entered data", async () => {
   const screen = await review();
   expect(screen.queryByRole("button", { name: "+" })).toBeNull();
+  expect(screen.getByRole("button", { name: /^Artículos, 1 producto/ })).toHaveProp("accessibilityState", expect.objectContaining({ expanded: false }));
+  fireEvent.press(screen.getByRole("button", { name: /^Artículos/ }));
   expect(screen.getByText("Talla: M")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Quitar" })).toBeNull();
   fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
@@ -169,6 +172,7 @@ beforeEach(() => { jest.clearAllMocks(); mockQuotation.mockReset(); mockSettings
 async function reviewWithQuantity(stock: number, quantity: number) {
   mockStock = stock;
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -335,6 +339,7 @@ test("Chile seller selects a variant, reviews the amount, and opens the complete
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 10, currency: "PEN" },
     order: { id: mockId(3), total: 12 } }));
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -348,6 +353,7 @@ test("Chile seller selects a variant, reviews the amount, and opens the complete
 
 test("leaving with items asks to discard and reopening starts with an empty cart", async () => {
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -363,12 +369,14 @@ test("leaving with items asks to discard and reopening starts with an empty cart
   screen.unmount();
   mockDirty = false;
   const reopened = render(<NewOrderScreen />);
+  fireEvent.press(reopened.getByRole("button", { name: "Agregar productos" }));
   await reopened.findByText("Camisa");
   expect(reopened.getByRole("button", { name: "Continuar" })).toBeDisabled();
 });
 
 test("tab discard rearms draft protection for a new selection on the mounted screen", async () => {
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -380,7 +388,8 @@ test("tab discard rearms draft protection for a new selection on the mounted scr
   expect(screen.getByRole("button", { name: "Continuar" })).toBeDisabled();
   expect(mockDirty).toBe(false);
 
-  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
+  fireEvent.press(await screen.findByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   expect(mockDirty).toBe(true);
   screen.rerender(<NewOrderScreen />);
@@ -393,6 +402,7 @@ test("tab discard rearms draft protection for a new selection on the mounted scr
 test("offline selection remains editable without a confirm action", async () => {
   mockOffline = true;
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -406,6 +416,7 @@ test('new sale translates selection and review actions to Portuguese', async () 
   await i18n.changeLanguage('pt-BR');
   try {
     const screen = render(<NewOrderScreen />);
+    fireEvent.press(screen.getByRole("button", { name: "Adicionar produtos" }));
     await screen.findByText('Camisa');
     fireEvent.press(screen.getByRole('button', { name: /Camisa/ }));
     fireEvent.press(screen.getByRole('button', { name: 'Adicionar' }));
@@ -421,6 +432,7 @@ test('new sale translates selection and review actions to Portuguese', async () 
 test("one save retains editable payments and delivery on rejection and prevents double taps", async () => {
   mockCompleteOrder.mockResolvedValue(err({ code: "DELIVERY_UNAVAILABLE", message: "Unavailable" }));
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -455,6 +467,7 @@ test("one save retains editable payments and delivery on rejection and prevents 
 test("decimal comma in an initial payment updates the summary and allows saving", async () => {
   mockCompleteOrder.mockResolvedValue(err({ code: "INVALID_ORDER", message: "Rejected" }));
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
@@ -656,6 +669,7 @@ test("an unreadable saved sale can be discarded without blocking a new sale", as
   mockDiscardPending.mockResolvedValue(ok(undefined));
   const screen = render(<NewOrderScreen />);
   await screen.findByText("No se pudo leer una venta guardada en el teléfono");
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Camisa");
   fireEvent.press(screen.getByRole("button", { name: "Descartar venta ilegible" }));
   await waitFor(() => expect(mockDiscardPending).toHaveBeenCalledWith(mockId(1)));
@@ -674,7 +688,8 @@ test("a sale core cannot confirm yet waits on the phone and the page starts a ne
   expect(mockSyncPending).toHaveBeenCalled();
   expect(mockRefreshPending).toHaveBeenCalled();
   expect(mockReplace).not.toHaveBeenCalled();
-  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
+  fireEvent.press(await screen.findByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   expect(screen.queryByText(/Se enviará sola/)).toBeNull();
 });

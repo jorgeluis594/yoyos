@@ -1,4 +1,5 @@
 import { OrderItemsCard } from "@mobile/features/orders/presentation/order-items-card";
+import { ProductPickerSheet } from "@mobile/features/orders/presentation/product-picker-sheet";
 import { OrderPaymentCard } from "@mobile/features/orders/presentation/order-payment-card";
 import { usePendingOrders } from "@mobile/features/orders/presentation/pending-order-sync-provider";
 import { OptionSelector } from "@mobile/components/ui/option-selector";
@@ -27,10 +28,7 @@ import { orders } from "@mobile/features/orders/composition";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
-import { Input } from "@mobile/components/ui/input";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
-import { ListRow } from "@mobile/components/ui/list-row";
-import { ScreenState } from "@mobile/components/ui/screen-state";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { addDraftItem, changeDraftQuantity, emptyOrderDraft, exceedsShownStock, paymentsDeductStock, prepareOrder, removeDraftItem, type RatedDeliveryAssignment,
@@ -75,6 +73,7 @@ function CompanyOrderScreen() {
   const [catalog, setCatalog] = useState<Catalog>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selected, setSelected] = useState<Catalog[number] | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
   const { pending, refresh: refreshPending, trigger: syncPending } = usePendingOrders();
   const [reviewingOrder, setReviewingOrder] = useState(false);
   const [unavailableVariants, setUnavailableVariants] = useState<readonly string[]>([]);
@@ -178,7 +177,7 @@ function CompanyOrderScreen() {
   });
 
   useEffect(() => {
-    if (!companyId || stage !== "products") return;
+    if (!companyId || !pickerOpen) return;
     let active = true;
     const timer = setTimeout(() => { void orders.searchOrderCatalog(search.trim()).then((result) => {
       if (!active) return;
@@ -187,7 +186,7 @@ function CompanyOrderScreen() {
       else setError(translations.t('searchProductsError'));
     }); }, 250);
     return () => { active = false; clearTimeout(timer); };
-  }, [companyId, search, stage]);
+  }, [companyId, search, pickerOpen]);
 
   const openCompleted = (outcome: Extract<ConfirmOrderOutcome, { kind: "completed" }>) => {
     leaveAllowed.current = true;
@@ -274,7 +273,7 @@ function CompanyOrderScreen() {
     const result = addDraftItem(draft, { variantId: variant.id, productName: product.name, variantAttributes: variant.attributes,
       sku: variant.sku, shownUnitPrice: { amount: variant.price, currency: product.currency }, shownStock: variant.stock, quantity: 1 },
       () => Crypto.randomUUID());
-    if (result.success) { setDraft(result.data); setSelected(null); setError(""); setQueuedNotice(false); }
+    if (result.success) { setDraft(result.data); setSelected(null); setPickerOpen(false); setError(""); setQueuedNotice(false); }
     else setError(variant.stock === 0 ? t('outOfStock') : t('variantAlreadyAdded'));
   };
   const changeQuantity = (variantId: string, quantity: number) => {
@@ -327,20 +326,8 @@ function CompanyOrderScreen() {
             <ThemedText style={styles.amount}>{money(sale.shownTotal.amount, sale.shownTotal.currency, locale)}</ThemedText></View>
           <Button variant="secondary" loading={checking} disabled={sending || draft.kind === "items"} onPress={() => void reviewSavedOrder(sale.id)}>{t('reviewRejectedSale')}</Button>
         </View>) : null}
-      {stage === "products" ? <View style={styles.section}>
-            <Input value={search} onChangeText={(value) => { setCatalogLoading(true); setSearch(value); }} accessibilityLabel={t('searchProductsByName')} placeholder={t('searchProductsByName')} />
-            {catalogLoading ? <ScreenState status="loading" title={t('searchingProducts')} /> : selected ? <View style={styles.section}>
-              <Button variant="ghost" onPress={() => setSelected(null)}>{t('backToProducts')}</Button>
-              <ThemedText type="subtitle">{selected.name}</ThemedText>
-              {selected.variants.map((variant) => <View key={variant.id} style={styles.item}>
-                <ThemedText type="smallBold">{Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || variant.sku || t('variant')}</ThemedText>
-                <ThemedText>{money(variant.price, selected.currency, locale)} · {t('stockCount', { count: variant.stock })}</ThemedText>
-                <Button variant="secondary" disabled={draft.items.some((item) => item.variantId === variant.id)} onPress={() => addVariant(selected, variant)}>{t('add')}</Button>
-              </View>)}
-            </View> : catalog.length ? catalog.map((product) => <ListRow key={product.id} title={product.name}
-              description={t('variantCount', { count: product.variants.length })} onPress={() => setSelected(product)} />)
-              : <ScreenState status={search ? "no-results" : "empty"} title={search ? t('noProductsFound') : t('noProductsAvailable')} />}
-            <ThemedText type="subtitle" accessibilityRole="header" style={[styles.sectionHeading, { borderColor: theme.border }]}>{t('items')}</ThemedText>
+      {stage === "products" ? <View style={[styles.card, card]}>
+            <ThemedText type="subtitle" accessibilityRole="header">{t('items')}</ThemedText>
             {unavailableVariants.map((variantId, index) => <View key={variantId} style={styles.item}>
               <ThemedText accessibilityRole="alert">{unavailableLabels[variantId] ? t('itemNoLongerAvailable', { name: unavailableLabels[variantId] }) : t('savedProductUnavailable', { number: index + 1 })}</ThemedText>
               <Button variant="ghost" onPress={() => setUnavailableVariants(current => current.filter(id => id !== variantId))}>{t('removeUnavailableProduct', { number: index + 1 })}</Button>
@@ -357,11 +344,10 @@ function CompanyOrderScreen() {
                 <Button variant="secondary" onPress={() => changeQuantity(item.variantId, item.quantity + 1)}>+</Button>
                 <Button variant="ghost" onPress={() => setDraft(removeDraftItem(draft, item.variantId))}>{t('remove')}</Button></View>
             </View>)}
-            {productTotal.success ? <View style={styles.amountRow}><ThemedText>{t('estimatedProductsLabel')}</ThemedText><ThemedText style={styles.amount}>{money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale)}</ThemedText></View> : null}
-            <Button disabled={draft.kind === "empty" || !!unavailableVariants.length} onPress={() => { setStage("review"); setError(""); scroll.current?.scrollTo({ y: 0, animated: false }); }}>{t('continueOrder')}</Button>
+            <Button variant="secondary" onPress={() => { setSelected(null); setCatalogLoading(true); setPickerOpen(true); }}>{t('addProducts')}</Button>
           </View> : <View style={styles.section}>
             <OrderItemsCard items={draft.items} total={productTotal.success ? money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale) : null}
-              format={(amount, currency) => money(amount, currency, locale)} onEdit={backToProducts} />
+              format={(amount, currency) => money(amount, currency, locale)} onEdit={backToProducts} collapsible />
             {unavailableVariants.length ? <ThemedText accessibilityRole="alert">{t('savedProductsNeedReview')}</ThemedText> : null}
             <OrderPaymentCard payments={draft.payments ?? []} paidPaymentId={paidPaymentId} onPaidChange={setPaidPaymentId}
               currency={currency} busy={sending} newId={() => Crypto.randomUUID()} format={amount => money(amount, currency, locale)}
@@ -403,15 +389,30 @@ function CompanyOrderScreen() {
             {offline ? <ThemedText type="small" accessibilityRole="alert">{t('offlineEditing')}</ThemedText> : null}
             </View>
           </View>}
-      {error ? <ThemedText accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.error, { color: theme.error }]}>{error}</ThemedText> : null}
+      {error && !pickerOpen ? <ThemedText accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.error, { color: theme.error }]}>{error}</ThemedText> : null}
     </ScrollView>
+    {stage === "products" ? <View style={[styles.footer, { backgroundColor: theme.background, borderColor: theme.border }]}>
+      <View style={styles.footerTotal}>
+        <ThemedText type="small" themeColor="textSecondary">{t('estimatedProductsLabel')}</ThemedText>
+        <ThemedText style={styles.amount}>{productTotal.success ? money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale) : "—"}</ThemedText>
+      </View>
+      <View style={styles.footerAction}>
+        <Button disabled={draft.kind === "empty" || !!unavailableVariants.length} onPress={() => { setStage("review"); setError(""); scroll.current?.scrollTo({ y: 0, animated: false }); }}>{t('continueOrder')}</Button>
+      </View>
+    </View> : null}
+    <ProductPickerSheet visible={pickerOpen} search={search} loading={catalogLoading} catalog={catalog} selected={selected}
+      addedVariantIds={draft.items.map(item => item.variantId)} error={error} format={(amount, currency) => money(amount, currency, locale)}
+      onSearchChange={value => { setCatalogLoading(true); setSearch(value); }} onSelect={setSelected} onAdd={addVariant}
+      onClose={() => { setPickerOpen(false); setSelected(null); setError(""); }} />
     </View></KeyboardAvoidingView>
   </SafeAreaView></ThemedView>;
 }
 
 const styles = StyleSheet.create({ page: { flex: 1 }, content: { gap: 16, padding: 16, paddingBottom: 24, maxWidth: 640, width: "100%", alignSelf: "center" },
-  heading: { gap: 4 }, sectionHeading: { borderTopWidth: 1, paddingTop: 16, marginTop: 4 },
+  heading: { gap: 4 },
   card: { borderWidth: 1, borderRadius: 8, padding: 16, gap: 12 },
   amountRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
   amount: { fontVariant: ["tabular-nums"], textAlign: "right", flexShrink: 1 }, section: { gap: 12 }, item: { gap: 8, paddingVertical: 12 }, row: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, error: { padding: 12 },
+  footer: { flexDirection: "row", alignItems: "center", gap: 16, padding: 16, borderTopWidth: 1 },
+  footerTotal: { flex: 1 }, footerAction: { flex: 1 },
   note: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 8 }, noteText: { flex: 1 } });

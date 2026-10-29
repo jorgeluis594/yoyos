@@ -120,6 +120,7 @@ afterEach(() => { rmSync(directory, { recursive: true, force: true }); });
 
 async function review() {
   const screen = render(<NewOrderScreen />);
+  fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
   await screen.findByText("Journey product");
   fireEvent.press(screen.getByRole("button", { name: /Journey product/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
