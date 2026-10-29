@@ -464,7 +464,7 @@ test("one save retains editable payments and delivery on rejection and prevents 
   expect(mockCompleteOrder.mock.calls[0][0]).toMatchObject({ id: mockId(3), payments: [
     { paymentId: mockId(4), amount: "5" }, { paymentId: mockId(5), amount: "13" }],
     ratedDelivery: { expectedPrice: firstRate.price, delivery: { method: "home", rateId: firstRate.id,
-      destination: { address: "Av. Lima 123", districtCode: "150122" }, recipient: { name: "Ana", phone: "999001" } } }, deliverImmediately: true });
+      destination: { address: "Av. Lima 123", districtCode: "150122" }, recipient: { name: "Ana", phone: "+51999001" } } }, deliverImmediately: true });
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Av. Lima 123");
   expect(screen.getAllByRole("button", { name: /^Quitar pago/ })).toHaveLength(2);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
@@ -519,7 +519,7 @@ test("new order selects one overlapping home rate and reviews the full charge wi
   await waitFor(() => expect(mockReplace).toHaveBeenCalled());
   expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({ ratedDelivery: {
     expectedPrice: secondRate.price, delivery: { method: "home", rateId: secondRate.id,
-      recipient: { name: "Recipient", phone: "999001", identity: { kind: "absent" } },
+      recipient: { name: "Recipient", phone: "+51999001", identity: { kind: "absent" } },
       destination: { districtCode: "150122", address: "Calle nueva", instructions: null } },
   } }), mockId(1));
 });
@@ -572,7 +572,7 @@ test("agency creation uses an explicit zero rate and requires identity without o
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({ ratedDelivery: {
     expectedPrice: freeAgency.price, delivery: { method: "agency", rateId: freeAgency.id, districtCode: "150122", agencyId: branch.id,
-      recipient: { name: "Ana", phone: "999001", identity: { kind: "document", documentType: "national_id", document: "00123456" } },
+      recipient: { name: "Ana", phone: "+51999001", identity: { kind: "document", documentType: "national_id", document: "00123456" } },
     },
   } }), mockId(1)));
 });
@@ -599,7 +599,7 @@ test("quotation failure and empty coverage block creation while pickup remains e
   expect(screen.getAllByText(/S\/\s0\.00/).length).toBeGreaterThan(0);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({ ratedDelivery: {
-    expectedPrice: { amount: 0, currency: "PEN" }, delivery: { method: "store", recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } } },
+    expectedPrice: { amount: 0, currency: "PEN" }, delivery: { method: "store", recipient: { name: "Ana", phone: "+51999001", identity: { kind: "absent" } } },
   } }), mockId(1)));
   expect(mockQuotation).toHaveBeenCalledTimes(2);
 });

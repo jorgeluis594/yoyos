@@ -3,11 +3,12 @@ import { ProductPickerSheet } from "@mobile/features/orders/presentation/product
 import { OrderCustomerCard } from "@mobile/features/orders/presentation/order-customer-card";
 import { OrderPaymentCard } from "@mobile/features/orders/presentation/order-payment-card";
 import { usePendingOrders } from "@mobile/features/orders/presentation/pending-order-sync-provider";
-import { DeliveryFields, deliveryDraftFromOrder } from "@mobile/features/orders/presentation/delivery-fields";
+import { DeliveryFields, deliveryDraftFromOrder, recipientPhoneInvalid } from "@mobile/features/orders/presentation/delivery-fields";
 import { deliverySettings } from "@mobile/features/delivery-settings";
 import type { DeliveryQuotation } from "@mobile/features/delivery-settings";
 import { orderDeliveryFormSchema, type OrderDeliveryFormValues } from "@mobile/features/orders/presentation/order-delivery-form";
 import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
+import { savedPhoneForForm } from "@shared/phone";
 import { deliveryStatusLabel, orderLanguage } from "@mobile/features/orders/presentation/order-labels";
 import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-print-review";
 import { DeliveryBadge, DeliveryRow, OptionSheet, deliveryRowSymbols, useShippingSummary } from "@mobile/features/orders/presentation/order-delivery-parts";
@@ -113,7 +114,7 @@ function CompanyOrderScreen() {
     price: selectedRate?.price ?? null,
   }) : null;
   const agencyChosen = selectedRate?.method === "agency" && selectedRate.agencies.some(agency => agency.id === initialDelivery?.agencyId);
-  const ratedDelivery = deliveryEnabled && !quoting && deliverySelection?.success && (method === "store" || (selectedRate && (method !== "agency" || agencyChosen))) ? deliverySelection.data : undefined;
+  const ratedDelivery = deliveryEnabled && !quoting && deliverySelection?.success && !(initialDelivery && recipientPhoneInvalid(initialDelivery)) && (method === "store" || (selectedRate && (method !== "agency" || agencyChosen))) ? deliverySelection.data : undefined;
   // Only the explicit ship action sends shipImmediately; a draft restored from a refused sale never carries it.
   const saveDraft = { ...draft, ratedDelivery, shipImmediately: undefined };
   const prepared = prepareOrder(saveDraft);
@@ -266,7 +267,7 @@ function CompanyOrderScreen() {
   };
   const restoreDelivery = (selection: RatedDeliveryAssignment["delivery"], currency: Money["currency"]) => {
     const recipient = selection.recipient;
-    setInitialDelivery({ method: selection.method, name: recipient.name, phone: recipient.phone,
+    setInitialDelivery({ method: selection.method, name: recipient.name, phone: selection.method === "store" ? recipient.phone : savedPhoneForForm(recipient.phone),
       documentType: recipient.identity.kind === "document" ? recipient.identity.documentType : "absent",
       document: recipient.identity.kind === "document" ? recipient.identity.document : "",
       address: selection.method === "home" ? selection.destination.address : "",
@@ -316,11 +317,13 @@ function CompanyOrderScreen() {
   };
 
   // The recipient follows the customer until the seller edits it; an edited recipient is kept and the customer never changes.
+  // Removing the customer keeps the recipient as it is (screen state only).
   const changeCustomer = (customer: OrderDraft["customer"]) => {
     const previous = draft.customer;
     setDraft(current => ({ ...current, customer }));
+    if (!customer) return;
     setInitialDelivery(current => current && (!current.name && !current.phone || current.name === (previous?.name ?? "") && current.phone === (previous?.phone ?? ""))
-      ? { ...current, name: customer?.name ?? "", phone: customer?.phone ?? "" } : current);
+      ? { ...current, name: customer.name, phone: customer.phone } : current);
   };
   const rejected = pending?.success ? pending.data.filter(sale => sale.rejection) : [];
   const discardUnreadable = () => { void orders.discardPendingOrderConfirmation(companyId).then((result) => {

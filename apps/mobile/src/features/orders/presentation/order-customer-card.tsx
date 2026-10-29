@@ -2,13 +2,13 @@ import { useState } from "react";
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
-import { defaultPhoneCountry, internationalPhonePattern, joinPhone, phoneCountries, splitPhone } from "@shared/phone";
+import { internationalPhonePattern } from "@shared/phone";
 import type { DraftCustomer } from "@mobile/features/orders/domain/order-draft";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
 import { Field, FieldError, FieldGroup, FieldLabel } from "@mobile/components/ui/field";
 import { Input } from "@mobile/components/ui/input";
-import { OptionSelector } from "@mobile/components/ui/option-selector";
+import { PhoneField } from "@mobile/features/orders/presentation/phone-field";
 import { DeliveryRow } from "@mobile/features/orders/presentation/order-delivery-parts";
 import { useTheme } from "@mobile/hooks/use-theme";
 import tokens from "../../../../../../docs/design-tokens.json";
@@ -31,12 +31,9 @@ export function OrderCustomerCard({ customer, busy, onChange }: Props) {
 function CustomerSheet({ customer, onClose, onSave }: Readonly<{ customer: DraftCustomer | undefined; onClose: () => void; onSave: (customer: DraftCustomer | undefined) => void }>) {
   const { t } = useTranslation();
   const theme = useTheme();
-  const saved = customer ? splitPhone(customer.phone) : null;
   const [name, setName] = useState(customer?.name ?? "");
-  const [country, setCountry] = useState(saved?.country ?? defaultPhoneCountry);
-  const [national, setNational] = useState(saved?.national ?? "");
+  const [phone, setPhone] = useState(customer?.phone ?? "");
   const [submitted, setSubmitted] = useState(false);
-  const phone = joinPhone(country, national);
   const nameError = submitted && !name.trim();
   const phoneError = submitted && !internationalPhonePattern.test(phone);
   const save = () => {
@@ -58,12 +55,7 @@ function CustomerSheet({ customer, onClose, onSave }: Readonly<{ customer: Draft
             <Field required invalid={nameError}><FieldLabel>{t('customerName')}</FieldLabel>
               <Input value={name} onChangeText={setName} invalid={nameError} autoCapitalize="words" maxLength={120} accessibilityLabel={t('customerName')} />
               {nameError ? <FieldError>{t('customerNameRequired')}</FieldError> : null}</Field>
-            <Field><FieldLabel>{t('customerCountry')}</FieldLabel>
-              <OptionSelector testID="customer-phone-country" value={country} onValueChange={next => setCountry(next ?? defaultPhoneCountry)}
-                options={phoneCountries.map(entry => ({ value: entry.iso, label: `${entry.iso} +${entry.dial}` }))} /></Field>
-            <Field required invalid={phoneError}><FieldLabel>{t('customerPhone')}</FieldLabel>
-              <Input value={national} onChangeText={setNational} invalid={phoneError} keyboardType="phone-pad" accessibilityLabel={t('customerPhone')} />
-              {phoneError ? <FieldError>{t('customerPhoneInvalid')}</FieldError> : null}</Field>
+            <PhoneField testID="customer-phone" label={t('customerPhone')} value={phone} required invalid={phoneError} onChange={setPhone} />
           </FieldGroup>
           <Button onPress={save}>{t('saveCustomer')}</Button>
           {customer ? <Button variant="ghost" onPress={() => onSave(undefined)}>{t('removeCustomer')}</Button> : null}
