@@ -31,7 +31,7 @@ async function prepareOrders(page: Page, email: string) {
       const id = randomUUID();
       const number = 2001 + index;
       const delivery = kind === "none" ? undefined : kind === "pickup" ? store() : home();
-      await prisma.order.create({ data: { id, number: BigInt(number), sellerId: seller.id, currency: "PEN", total: 10, itemsTotal: 10, cancelled, delivery: delivery as object | undefined,
+      await prisma.order.create({ data: { id, number: BigInt(number), sellerId: seller.id, currency: "PEN", total: 10, itemsTotal: 10, cancelled, cancelledAt: cancelled ? new Date(Date.UTC(2026, 9, 20, 16, 0)) : null, delivery: delivery as object | undefined,
         createdAt: new Date(Date.UTC(2026, 9, 20, 15, 0) - index * 60_000) } });
       await prisma.orderItem.create({ data: { orderId: id, variantId, productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1n, unitPrice: 10, subtotal: 10 } });
       created[name] = { id, number };
