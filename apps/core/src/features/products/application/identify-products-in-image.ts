@@ -41,7 +41,7 @@ type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: str
 
 /** `detail` is a second view of `query`: the photo cut out of a post or chat screenshot, or the brightened copy of a dim photo. */
 export type ChooserDetail = Readonly<{ kind: "post_photo" | "brightened"; image: ImageBytes }>;
-export type ChooseProduct = (input: Readonly<{ query: ImageBytes; detail?: ChooserDetail; candidates: readonly Readonly<{ productId: ProductId; image: ImageBytes }>[] }>) =>
+export type ChooseProduct = (input: Readonly<{ query: ImageBytes; detail?: ChooserDetail; candidates: readonly Readonly<{ productId: ProductId; image: ImageBytes }>[] }>, signal?: AbortSignal) =>
   Promise<Result<VisualChoice, Readonly<{ code: "PRODUCT_MATCHER_UNAVAILABLE" | "INVALID_MATCHER_RESPONSE"; message: string }>>>;
 
 export type VisualSearch = Readonly<{
@@ -70,13 +70,13 @@ type Identified = Result<ImageIdentification, IdentifyProductsError>;
 const notFound = (reason: IdentificationMissReason, distances?: VisualDistances): Identified => ok({ kind: "not_found", reason, ...distances });
 
 /** Cascade: printed QR first; visual search only when the image carries no QR code at all. */
-export async function identifyProductsInImage(image: ImageBytes, deps: IdentifyProductsDependencies): Promise<Identified> {
+export async function identifyProductsInImage(image: ImageBytes, deps: IdentifyProductsDependencies, signal?: AbortSignal): Promise<Identified> {
   const decoded = await deps.readQrCodes(image);
   // Una imagen ilegible se omite: reintentar no cambia el resultado.
   if (!decoded.success) return decoded.error.code === "QR_READER_UNAVAILABLE" ? err({ code: decoded.error.code, message: decoded.error.message }) : notFound("unreadable_image");
   const selection = selectProductCode(decoded.data);
   if (selection.kind === "skip" && selection.reason === "unrecognized_qr_code") return ok({ kind: "not_product" }); // Yape/Plin, URLs; visual is not attempted
-  if (selection.kind === "skip") return deps.visual ? searchVisually(image, deps.visual) : notFound("visual_search_disabled");
+  if (selection.kind === "skip") return deps.visual ? searchVisually(image, deps.visual, signal) : notFound("visual_search_disabled");
   const variants = await deps.findVariantsByCodes(selection.codes);
   if (!variants.success) return variants;
   if (!variants.data.length) return notFound("unknown_qr_codes");
@@ -84,7 +84,7 @@ export async function identifyProductsInImage(image: ImageBytes, deps: IdentifyP
   return ok({ kind: "found", method: "qr", items: variants.data, unknownCodes: selection.codes.filter((code) => !known.has(code)) });
 }
 
-async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<Identified> {
+async function searchVisually(image: ImageBytes, visual: VisualSearch, signal?: AbortSignal): Promise<Identified> {
   // Cheap check first: without indexed products, embedding the customer image is a wasted provider call.
   const indexed = await visual.hasIndexedProducts(visual.model);
   if (!indexed.success) return indexed;
@@ -104,7 +104,7 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch): Promise<
   // An image deleted after indexing only drops that candidate.
   const available = read.flatMap(({ candidate, image }) => image.success ? [{ candidate, image: image.data }] : []);
   if (!available.length) return notFound("no_indexed_products");
-  const choice = await visual.chooseProduct({ query: image, ...(detail && { detail }), candidates: available.map(({ candidate, image }) => ({ productId: candidate.productId, image })) });
+  const choice = await visual.chooseProduct({ query: image, ...(detail && { detail }), candidates: available.map(({ candidate, image }) => ({ productId: candidate.productId, image })) }, signal);
   if (!choice.success) return choice;
   const match = acceptVisualMatch(choice.data, available.map(({ candidate }) => candidate), visual.minConfidence);
   const chosenId = choice.data.kind === "product" ? choice.data.productId : null;

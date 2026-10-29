@@ -75,7 +75,7 @@ function namedProductOf(problem: ProblemNotice): ProductId | null {
   return problem.kind === "unclear_item" ? problem.namedProductId : null;
 }
 
-/** Chooses the single notice of a message, or null when the seller needs none. `no_intent`, `ambiguous_intent`, `pending_*` and silent misses never notify. */
+/** Chooses the single notice of a message, or null when the seller needs none. `no_intent`, `pending_*` and silent misses never notify. */
 export function chooseSellerNotice(outcomes: ChatMessageOutcomes): SellerNotice | null {
   const problems = outcomes.flatMap((outcome) => problemOf(outcome) ?? []);
   const created = outcomes.find((outcome): outcome is Extract<ChatMessageOutcome, { kind: "new_order_after_closed" }> => outcome.kind === "new_order_after_closed");

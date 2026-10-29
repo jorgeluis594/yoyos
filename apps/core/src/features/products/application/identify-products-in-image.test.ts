@@ -13,7 +13,7 @@ const candidate = (productId: ProductId, n: number): VisualCandidate => ({ produ
 
 function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNREADABLE_IMAGE" | "QR_READER_UNAVAILABLE"; qrVariants?: (CatalogItem & { productId: ProductId; qrCode: VariantQrCode })[]; visual?: Partial<VisualSearch> | null }> = {}) {
   const calls: string[] = [];
-  const asked: { products: ProductId[]; embedded?: ImageBytes; query?: ImageBytes; detail?: Readonly<{ kind: string; image: ImageBytes }> } = { products: [] };
+  const asked: { products: ProductId[]; signal?: AbortSignal; embedded?: ImageBytes; query?: ImageBytes; detail?: Readonly<{ kind: string; image: ImageBytes }> } = { products: [] };
   const called = <T>(name: string, value: T): T => { calls.push(name); return value; };
   const visual: VisualSearch = {
     model: "openai/test" as EmbeddingModel, candidates: 5, minConfidence: 0.8 as MatchConfidence,
@@ -23,7 +23,7 @@ function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNR
     cropPostPhoto: async () => null,
     findNearestProductImages: async () => called("findNearestProductImages", ok([candidate(productP, 1), candidate(productQ, 2)])),
     readImage: async () => called("readImage", ok(image)),
-    chooseProduct: async (input) => { Object.assign(asked, { products: input.candidates.map(({ productId }) => productId), query: input.query, detail: input.detail }); return called("chooseProduct", ok({ kind: "product", productId: productP, confidence: 0.9 as MatchConfidence, showsProduct: 0.95 })); },
+    chooseProduct: async (input, signal) => { Object.assign(asked, { signal, products: input.candidates.map(({ productId }) => productId), query: input.query, detail: input.detail }); return called("chooseProduct", ok({ kind: "product", productId: productP, confidence: 0.9 as MatchConfidence, showsProduct: 0.95 })); },
     ...options.visual,
   };
   const deps: IdentifyProductsDependencies = {
@@ -31,7 +31,7 @@ function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNR
     findVariantsByCodes: async (codes) => called("findVariantsByCodes", ok((options.qrVariants ?? []).filter((variant) => codes.includes(variant.qrCode)))),
     visual: options.visual === null ? null : visual,
   };
-  return { calls, asked, run: () => identifyProductsInImage(image, deps) };
+  return { calls, asked, run: (signal?: AbortSignal) => identifyProductsInImage(image, deps, signal) };
 }
 
 const qrVariant = (n: number) => ({ ...item(n), productId: id(300 + n) as ProductId, qrCode: id(200 + n) as VariantQrCode });
@@ -59,6 +59,13 @@ describe("identifyProductsInImage", () => {
     const h = harness();
     expect(await h.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
     expect(h.calls).toEqual(["readQrCodes", "hasIndexedProducts", "embedImage", "findNearestProductImages", "readImage", "readImage", "chooseProduct"]);
+  });
+
+  test("passes the attempt's signal to the visual chooser", async () => {
+    const h = harness();
+    const signal = new AbortController().signal;
+    await h.run(signal);
+    expect(h.asked.signal).toBe(signal);
   });
 
   test("returns not product without calling visual search when the image only has non-product QR codes", async () => {

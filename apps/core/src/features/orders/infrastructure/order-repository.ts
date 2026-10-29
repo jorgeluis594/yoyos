@@ -597,22 +597,63 @@ type FindProductIds = (variantIds: readonly VariantId[]) => Promise<Result<Reado
  * The state of the chat's order under lock: the open order with the product of every item, or why there is none.
  * `findProductIds` is the products capability that names the product of each item's variant.
  */
-export async function findChatOrderTargetForUpdate(chatId: ChatId, findProductIds: FindProductIds) {
+export function findChatOrderTargetForUpdate(chatId: ChatId, findProductIds: FindProductIds) {
+  return readChatOrderTarget(chatId, findProductIds, true);
+}
+
+/** The same target without locks: what the reader sees. The transaction reads it again under lock. */
+export function findChatOrderTarget(chatId: ChatId, findProductIds: FindProductIds) {
+  return readChatOrderTarget(chatId, findProductIds, false);
+}
+
+async function readChatOrderTarget(chatId: ChatId, findProductIds: FindProductIds, lock: boolean) {
   const companyId = getCompanyId();
   const candidate = await findOpenChatOrderCandidate(chatId);
   if (!candidate.success) return candidate;
   if (candidate.data) {
-    const locked = await findOrderForUpdate(candidate.data, companyId as CompanyId);
-    if (!locked.success) return locked.error.code === "PERSISTENCE_UNAVAILABLE" ? err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: locked.error.message })
+    const found = lock ? await findOrderForUpdate(candidate.data, companyId as CompanyId) : await findOrderAggregate(candidate.data, companyId as CompanyId, "apply_chat_message");
+    if (!found.success) return found.error.code === "PERSISTENCE_UNAVAILABLE" ? err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: found.error.message })
       : err<InvalidStoredData>({ code: "INVALID_STORED_DATA", message: "Invalid stored chat order" });
-    if (locked.data && isOpenForMessageItems(locked.data, chatId)) {
-      const productIds = await findProductIds(locked.data.items.map((item) => item.variantId));
+    if (found.data && isOpenForMessageItems(found.data, chatId)) {
+      const productIds = await findProductIds(found.data.items.map((item) => item.variantId));
       if (!productIds.success) return productIds;
-      if (locked.data.items.some((item) => !productIds.data.has(item.variantId))) return err<InvalidStoredData>({ code: "INVALID_STORED_DATA", message: "Order item without product" });
-      return ok<ChatOrderTarget>({ kind: "open", order: locked.data, productIds: productIds.data });
+      if (found.data.items.some((item) => !productIds.data.has(item.variantId))) return err<InvalidStoredData>({ code: "INVALID_STORED_DATA", message: "Order item without product" });
+      return ok<ChatOrderTarget>({ kind: "open", order: found.data, productIds: productIds.data });
     }
   }
   return findLatestChatOrderState(chatId, companyId as CompanyId);
+}
+
+/** At most this many orders come back from `findChatOrdersOpenedSince`: the earliest ones, which are the ones a pending joins. */
+const maxOrdersOpenedSince = 20;
+
+/**
+ * The aggregates of the chat's orders that may have opened for messages after `since`: created after it, or with a payment voided after it.
+ * The earliest `maxOrdersOpenedSince` by that time come back, ordered by it, because a pending joins the earliest interval that starts after its last change.
+ */
+export async function findChatOrdersOpenedSince(chatId: ChatId, since: Date) {
+  const companyId = getCompanyId();
+  try {
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>`SELECT o.id FROM "Order" o
+      CROSS JOIN LATERAL (SELECT LEAST(
+        CASE WHEN o."createdAt" > ${since} THEN o."createdAt" END,
+        (SELECT min((p.data->>'voidedAt')::timestamptz) FROM "Payment" p
+          WHERE p."companyId" = o."companyId" AND p."orderId" = o.id AND p.status = 'voided' AND (p.data->>'voidedAt')::timestamptz > ${since})
+      ) AS "openedAt") opened
+      WHERE o."companyId" = ${companyId}::uuid AND o."chatId" = ${chatId}::uuid AND opened."openedAt" IS NOT NULL
+      ORDER BY opened."openedAt", o.id LIMIT ${maxOrdersOpenedSince + 1}`;
+    if (rows.length > maxOrdersOpenedSince) log.warn({ event: "chat_orders_opened_since_capped", companyId, chatId, count: rows.length - 1 }, "chat_orders_opened_since_capped");
+    const ids = rows.slice(0, maxOrdersOpenedSince).map(({ id }) => id as OrderId);
+    if (!ids.length) return ok<readonly OrderAggregate[]>([]);
+    const found = await prisma.order.findMany({ where: { companyId, id: { in: ids } }, include: aggregateInclude });
+    const byId = new Map(found.map((row) => [row.id, row]));
+    return ok<readonly OrderAggregate[]>(ids.flatMap((id) => { const row = byId.get(id); return row ? [mapAggregate(row, "apply_chat_message")] : []; }));
+  } catch (cause) {
+    if (cause instanceof InvalidStoredOrderError) return err<InvalidStoredData>({ code: "INVALID_STORED_DATA", message: "Invalid stored chat order" });
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_find_chat_orders_opened_since", companyId, chatId, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_find_chat_orders_opened_since");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to find chat orders opened since" });
+  }
 }
 
 async function findLatestChatOrderState(chatId: ChatId, companyId: CompanyId) {

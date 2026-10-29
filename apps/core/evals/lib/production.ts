@@ -1,18 +1,15 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { err, ok } from "@shared/functional";
+import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { prisma, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
-import { createAiToolsFromEnv } from "@core/src/shared/ai-tools/composition";
-import { createTextMatching, createVisualSearch, type ImageEmbedder } from "@core/src/features/products/composition";
+import { createVisualSearch, products, type ImageEmbedder } from "@core/src/features/products/composition";
 import { identifyProductsInImage, type IdentifyProductsDependencies, type ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
-import { identifyProductsInText, findTopTextCandidate } from "@core/src/features/products/application/identify-product-in-text";
-import { resolveVariant } from "@core/src/features/products/application/resolve-variant";
 import { catalogSearchReadiness } from "@core/src/features/products/application/catalog-search-readiness";
 import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
 import { hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
 import { readQrCodes } from "@core/src/shared/images/infrastructure/qr-code-reader";
-import { findSellableVariantsByQrCodes, loadSellableVariants } from "@core/src/features/products/infrastructure/order-stock";
+import { findSellableVariantsByQrCodes } from "@core/src/features/products/infrastructure/order-stock";
 import { findProductIdsOfVariants } from "@core/src/features/products";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { setVariantStatus } from "@core/src/features/products/infrastructure/variant-repository";
@@ -25,15 +22,15 @@ import type { ImageId as PaymentImageId } from "@core/src/features/orders/domain
 import { deductProductStock } from "@core/src/features/products";
 import { minShowsProduct, type ImageBytes, type MatchConfidence, type VariantQrCode } from "@core/src/features/products/domain/image-identification";
 import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ApplyChatMessageOutcome, type ApplyChatMessageError } from "@core/src/features/orders/application/apply-chat-message";
-import { createChatToolRegistry } from "@core/src/features/orders/infrastructure/chat-tools";
-import { createChatToolActions } from "@core/src/features/orders/application/chat-message-actions";
-import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
-import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import { chatMessageDeadlineMs } from "@core/src/features/orders/application/chat-message-policy";
-import { allocateOrderNumber, findChatOrderTargetForUpdate, findOpenChatOrderCandidate, findOrderAggregate, findOrderForUpdate, recordProcessedMessage, saveCancellation, saveCompletion, saveItemChanges, savePayment, savePendingOrder, saveStockDeduction, updatePayment } from "@core/src/features/orders/infrastructure/order-repository";
+import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, findOrderAggregate, findOrderForUpdate, recordProcessedMessage, saveCancellation, saveCompletion, saveItemChanges, savePayment, savePendingOrder, saveStockDeduction, updatePayment } from "@core/src/features/orders/infrastructure/order-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
-import { isOpenForMessageItems, type ChatId } from "@core/src/features/orders/domain/message-order";
-import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { ChatId } from "@core/src/features/orders/domain/message-order";
+import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
+import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
+import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
+import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
@@ -95,14 +92,11 @@ export type ProductionPath = ReturnType<typeof createProductionPath>;
 
 /** Builds the real clients from the env once per suite; throws when the providers are not configured. */
 export function createProductionPath(env: Env) {
-  const aiTools = createAiToolsFromEnv(env);
-  const textMatching = createTextMatching(env);
+  const readChatMessage = createChatReaderFromEnv(env);
   const visualSetup = createVisualSearch(env);
-  if (!aiTools || !textMatching || !visualSetup.visual || !visualSetup.embedder) throw new Error("The production path needs OPENAI_API_KEY");
-  const identification = textMatching.identification;
-  const variants = textMatching.variants;
-  const visual = { ...visualSetup.visual, readImage: readRegisteredImage, chooseProduct: async (input: Parameters<NonNullable<typeof visualSetup.visual>["chooseProduct"]>[0]) => {
-    const choice = await visualSetup.visual!.chooseProduct(input);
+  if (!readChatMessage || !visualSetup.visual || !visualSetup.embedder) throw new Error("The production path needs OPENAI_API_KEY");
+  const visual = { ...visualSetup.visual, readImage: readRegisteredImage, chooseProduct: async (input: Parameters<NonNullable<typeof visualSetup.visual>["chooseProduct"]>[0], signal?: AbortSignal) => {
+    const choice = await visualSetup.visual!.chooseProduct(input, signal);
     // Every answer is recorded: the product or «none» (gated at the match confidence) and whether the photo shows a product (at 0.5).
     if (choice.success) {
       const product = choice.data.kind === "product" ? productById(choice.data.productId)?.key ?? choice.data.productId : null;
@@ -121,15 +115,9 @@ export function createProductionPath(env: Env) {
     },
     visual,
   };
-  const registry = createChatToolRegistry(createChatToolActions({
-    loadSellableVariants: (productIds) => loadSellableVariants(productIds),
-    resolveVariant: (input, signal) => resolveVariant(input, variants, signal),
-    identifyProductsInText: (lines, signal) => identifyProductsInText(lines, identification, signal),
-    findTopTextCandidate: (mention) => findTopTextCandidate(mention, identification),
-  }));
-  const interpretAndApply = createChatInterpreter(registry, aiTools, describeChatContext);
   const readiness = { visualModel: visual.model, hasActiveProducts, hasIndexedProducts };
-  const wiring: Wiring = { interpretAndApply, readiness, imageIdentification };
+  const limits = readChatMessageLimits(env);
+  const wiring: Wiring = { readChatMessage, readiness, imageIdentification, limits };
 
   return {
     /** The production gate of the visual search. */
@@ -146,26 +134,13 @@ export function createProductionPath(env: Env) {
 type ConversationStepInput = Parameters<typeof runConversationSteps>[0][number];
 
 type Wiring = Readonly<{
-  interpretAndApply: ApplyChatMessageDependencies["interpretAndApply"];
+  readChatMessage: NonNullable<ApplyChatMessageDependencies["readChatMessage"]>;
   readiness: Parameters<typeof catalogSearchReadiness>[0];
   imageIdentification: IdentifyProductsDependencies;
+  limits: ApplyChatMessageDependencies["limits"];
 }>;
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
-
-/** Copy of the composition's open-order reader (not exported there): the order as the models see it. */
-async function findChatOrderContext(chatId: ChatId, company: EvalCompany) {
-  const candidate = await findOpenChatOrderCandidate(chatId);
-  if (!candidate.success) return candidate;
-  if (!candidate.data) return ok({ items: [] });
-  const found = await findOrderAggregate(candidate.data, company.companyId as CompanyId, "apply_chat_message");
-  if (!found.success && found.error.code === "PERSISTENCE_UNAVAILABLE") return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: found.error.message });
-  if (!found.success || !found.data || !isOpenForMessageItems(found.data, chatId)) return ok({ items: [] });
-  const productIds = await findProductIdsOfVariants(found.data.items.map((item) => item.variantId));
-  if (!productIds.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: productIds.error.message });
-  return ok({ items: found.data.items.map((item, index) => ({ label: `I${index + 1}`, variantId: item.variantId, productId: productIds.data.get(item.variantId) ?? null,
-    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice })) });
-}
 
 function dependencies(wiring: Wiring, identify: ApplyChatMessageDependencies["identifyProductsInImage"], company: EvalCompany, clock: () => Date): ApplyChatMessageDependencies {
   // The private company has no indexed photos: its catalog counts as searchable once it has active products.
@@ -179,13 +154,17 @@ function dependencies(wiring: Wiring, identify: ApplyChatMessageDependencies["id
       return ok({ ...message, companyId: message.companyId as string as CompanyId, chatId: message.chatId as ChatId,
         contactId: message.contactId as ContactId, uploadedByUserId: message.uploadedByUserId as string as UserId, imageId: message.imageId as ImageId | null });
     },
-    findChatOrderContext: (chatId) => findChatOrderContext(chatId, company),
+    findChatOrderTarget: (chatId) => findChatOrderTarget(chatId, findProductIdsOfVariants),
+    findChatOrdersOpenedSince,
+    findChatPendings,
+    findChatPendingsForUpdate,
+    saveChatPendings,
     readImage: (imageId) => readRegisteredImage(imageId),
     identifyProductsInImage: identify,
-    loadSellableProducts: (productIds) => loadSellableVariants(productIds),
+    findProductsForReading: (productIds) => products.findProductsForReading(productIds),
+    findMessageCandidates: (text) => products.findMessageCandidates(text),
     catalogSearchReadiness: () => catalogSearchReadiness(readiness),
-    interpretationEnabled: true,
-    interpretAndApply: wiring.interpretAndApply,
+    readChatMessage: wiring.readChatMessage,
     transaction: (_companyId, work) => withinTransaction(work),
     lockContact,
     ensureCustomerForContact: async (contactId) => {
@@ -200,8 +179,9 @@ function dependencies(wiring: Wiring, identify: ApplyChatMessageDependencies["id
     recordOutcome,
     newOrderId: () => randomUUID() as OrderId,
     newItemId: () => randomUUID() as OrderItemId,
+    newPendingId: () => randomUUID() as ChatPendingId,
     clock,
-    limits: { maxItemQuantity: 99 as PositiveInteger },
+    limits: wiring.limits,
   };
 }
 
@@ -280,7 +260,7 @@ async function chatOrderLines(chatId: string, company: EvalCompany): Promise<rea
 
 /** How the photo of a case is identified: by hand in the interpretation pass, by the real cascade end to end. */
 async function photoIdentification(photo: NonNullable<MessageInput["photo"]>, wiring: Wiring, company: EvalCompany): Promise<ApplyChatMessageDependencies["identifyProductsInImage"]> {
-  if ("file" in photo) return (image) => identifyProductsInImage(image, wiring.imageIdentification);
+  if ("file" in photo) return (image, signal) => identifyProductsInImage(image, wiring.imageIdentification, signal);
   if (photo.shows === "not_product") return fixed({ kind: "not_product" });
   if ("label" in photo && photo.label) return fixed(await labelIdentification(photo.shows, photo.label, company));
   return fixed({ kind: "found", method: "visual", productId: productIdOf(photo.shows, company.scope) as ProductId, confidence: 0.95 as MatchConfidence, candidates: 1, topDistance: 0 });

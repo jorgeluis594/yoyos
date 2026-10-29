@@ -40,8 +40,8 @@ describe("chatMessageOutcomesSchema", () => {
     expect(chatMessageOutcomesSchema.parse(outcomes)).toEqual(outcomes);
   });
 
-  test("still reads the outcomes stored before pendings, including ambiguous_intent until it is removed", () => {
-    const outcomes = [{ kind: "ambiguous_intent" }, { kind: "no_intent" }, { kind: "ready", orderId: id(4) }];
+  test("still reads the outcomes stored before pendings", () => {
+    const outcomes = [{ kind: "no_intent" }, { kind: "ready", orderId: id(4) }];
     expect(chatMessageOutcomesSchema.parse(outcomes)).toEqual(outcomes);
   });
 

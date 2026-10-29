@@ -16,7 +16,7 @@ export type ChatMessageOutcome =
   | Readonly<{ kind: "variant_changed"; fromVariantId: VariantId; toVariantId: VariantId; namedItem: boolean }>
   | Readonly<{ kind: "mentioned_price_set"; variantId: VariantId }>
   | Readonly<{ kind: "ready" | "only_item_kept" | "order_closed"; orderId: OrderId }>
-  | Readonly<{ kind: "no_intent" | "ambiguous_intent" | "variant_only" | "unnamed_add" | "image_with_request" | "no_open_order" }>
+  | Readonly<{ kind: "no_intent" | "variant_only" | "unnamed_add" | "image_with_request" | "no_open_order" }>
   | Readonly<{ kind: "not_identified"; source: "photo" | "text"; identification: ProductIdentification | null; silent: boolean }>
   | Readonly<{ kind: "not_clear"; productIds: readonly ProductId[]; silent: boolean }>
   | Readonly<{ kind: "variant_missing" | "variant_not_available" | "quantity_above_limit"; productId: ProductId; identification: ProductIdentification | null }>
@@ -56,7 +56,7 @@ const outcomeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("variant_changed"), fromVariantId: variantId, toVariantId: variantId, namedItem: z.boolean() }),
   z.strictObject({ kind: z.literal("mentioned_price_set"), variantId }),
   z.strictObject({ kind: z.enum(["ready", "only_item_kept", "order_closed"]), orderId }),
-  z.strictObject({ kind: z.enum(["no_intent", "ambiguous_intent", "variant_only", "unnamed_add", "image_with_request", "no_open_order"]) }),
+  z.strictObject({ kind: z.enum(["no_intent", "variant_only", "unnamed_add", "image_with_request", "no_open_order"]) }),
   z.strictObject({ kind: z.literal("not_identified"), source: z.enum(["photo", "text"]), identification: identification.nullable(), silent: z.boolean() }),
   z.strictObject({ kind: z.literal("not_clear"), productIds: z.array(productId), silent: z.boolean() }),
   z.strictObject({ kind: z.enum(["variant_missing", "variant_not_available", "quantity_above_limit"]), productId, identification: identification.nullable() }),
