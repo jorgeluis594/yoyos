@@ -72,7 +72,7 @@ const es = {
   },
   orderFulfillment: {
     ship: "Marcar enviado", deliver: "Marcar entregado", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregado.",
-    PAYMENT_REQUIRED: "Se requiere el pago completo antes de enviar o entregar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de enviar o entregar.", INSUFFICIENT_STOCK: "No hay stock suficiente para despachar este pedido.",
+    PAYMENT_REQUIRED: "Se requiere el pago completo antes de entregar.", SHIP_PAYMENT_REQUIRED: "Se requiere al menos un pago para despachar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de entregar.", INSUFFICIENT_STOCK: "No hay stock suficiente para despachar este pedido.",
     ORDER_CANCELLED: "El pedido está cancelado; no se puede enviar ni entregar.", INVALID_TRANSITION: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado.",
     saveError: "No se pudo actualizar el pedido. Inténtalo de nuevo.",
   },
@@ -373,7 +373,7 @@ const pt = {
   },
   orderFulfillment: {
     ship: "Marcar como enviado", deliver: "Marcar como entregue", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregue.",
-    PAYMENT_REQUIRED: "É necessário o pagamento completo antes de enviar ou entregar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de enviar ou entregar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para despachar este pedido.",
+    PAYMENT_REQUIRED: "É necessário o pagamento completo antes de entregar.", SHIP_PAYMENT_REQUIRED: "É necessário pelo menos um pagamento para despachar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de entregar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para despachar este pedido.",
     ORDER_CANCELLED: "O pedido está cancelado; não pode ser enviado nem entregue.", INVALID_TRANSITION: "Só é possível enviar pedidos pendentes e entregar pedidos pendentes ou enviados.",
     saveError: "Não foi possível atualizar o pedido. Tente novamente.",
   },

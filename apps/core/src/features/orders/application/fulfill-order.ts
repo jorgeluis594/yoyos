@@ -10,7 +10,7 @@ export type FulfillOrderDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, FulfillOrderError>>) => Promise<Result<T, FulfillOrderError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, FulfillOrderError>>;
   saveFulfillment: (id: OrderId, companyId: CompanyId, change: FulfillmentChange) => Promise<Result<null, FulfillOrderError>>;
-  deductProductStock: (variantId: VariantId, quantity: PositiveInteger) => Promise<Result<null, FulfillOrderError>>;
+  deductProductStock: (variantId: VariantId, quantity: PositiveInteger, orderId: OrderId) => Promise<Result<null, FulfillOrderError>>;
   saveStockDeduction: (id: OrderId, companyId: CompanyId) => Promise<Result<null, FulfillOrderError>>;
   clock: () => Date;
 }>;
@@ -21,7 +21,7 @@ export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: Fu
   if (!plan.success) return plan;
   if (plan.data.kind === "deduct") {
     for (const item of [...order.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
-      const deducted = await deps.deductProductStock(item.variantId, item.quantity);
+      const deducted = await deps.deductProductStock(item.variantId, item.quantity, order.id);
       if (!deducted.success) return deducted;
     }
     const saved = await deps.saveStockDeduction(order.id, order.companyId);

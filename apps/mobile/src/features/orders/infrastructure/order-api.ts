@@ -16,7 +16,7 @@ import type { TransportError } from "@mobile/shared/application/transport-error"
 import type { OrderRequestError } from "@mobile/features/orders/application/order-operations";
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
-type Operation = "fulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "shipping" | "sender" | "reject";
+type Operation = "fulfillment" | "deliverFulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "shipping" | "sender" | "reject";
 
 const statusByCode: Record<OrderApiError["code"], number> = {
   INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413,
@@ -56,6 +56,8 @@ const errorSchemas = {
     "DELIVERY_METHOD_DISABLED", "DELIVERY_UNAVAILABLE", "INSUFFICIENT_STOCK",
     "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE",
     "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
+  // Only shipping deducts stock, so only it can answer INSUFFICIENT_STOCK.
+  deliverFulfillment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_TRANSITION", "PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "ORDER_CANCELLED", "CURRENCY_MISMATCH"]),
   fulfillment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_TRANSITION", "PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "INSUFFICIENT_STOCK", "ORDER_CANCELLED", "CURRENCY_MISMATCH"]),
   shipping: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_TRANSITION", "PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "INSUFFICIENT_STOCK", "ORDER_CANCELLED",
     "CURRENCY_MISMATCH", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
@@ -122,7 +124,7 @@ function cancellationProjection(order: OrderAggregateResponse): Result<Cancellat
 export function createOrderApi(request: Request) {
   const fulfill = async (orderId: string, operation: "ship" | "deliver"): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
     if (!z.uuid().safeParse(orderId).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
-    const result = response(await request(`/api/orders/${orderId}/${operation}`, { method: "POST" }), orderAggregateSchema, "fulfillment");
+    const result = response(await request(`/api/orders/${orderId}/${operation}`, { method: "POST" }), orderAggregateSchema, operation === "ship" ? "fulfillment" : "deliverFulfillment");
     return result.success && (result.data.id !== orderId || result.data.deliveryStatus !== (operation === "ship" ? "shipped" : "delivered"))
       ? err({ code: "INVALID_RESPONSE", message: "Unexpected order fulfillment" }) : result;
   };

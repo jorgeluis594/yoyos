@@ -412,7 +412,8 @@ test("seller ships then delivers and sees an updated state after each operation"
 });
 
 test.each([
-  { paymentStatus: "pending", paidAmount: { amount: 0, currency: "PEN" }, stockDeducted: true, cancelled: false, deliveryStatus: "pending", reason: "Se requiere el pago completo antes de enviar o entregar." },
+  { paymentStatus: "pending", paidAmount: { amount: 0, currency: "PEN" }, stockDeducted: true, cancelled: false, deliveryStatus: "pending", reason: "Se requiere al menos un pago para despachar." },
+  { paymentStatus: "paid", stockDeducted: false, cancelled: false, deliveryStatus: "pending", delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } }, reason: "Se requiere descontar el stock antes de entregar." },
   { paymentStatus: "paid", stockDeducted: true, cancelled: true, deliveryStatus: "pending", reason: "El pedido está cancelado; no se puede enviar ni entregar." },
   { paymentStatus: "paid", stockDeducted: true, cancelled: false, deliveryStatus: "delivered", reason: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado." },
 ] as const)("fulfillment is blocked and explained: $reason", async ({ reason, ...state }) => {
@@ -447,7 +448,7 @@ test("fulfillment errors remain visible and requests can be retried without chan
   fireEvent.press(screen.getByRole("button", { name: "Marcar como despachado" }));
   expect(screen.getByRole("button", { name: "Marcar como despachado" })).toBeDisabled();
   await act(async () => resolve({ success: false, error: { code: "PAYMENT_REQUIRED" } }));
-  await screen.findByText("Se requiere el pago completo antes de enviar o entregar.");
+  await screen.findByText("Se requiere al menos un pago para despachar.");
   expect(screen.getByText("Orden activa")).toBeTruthy();
   mockShip.mockRejectedValueOnce(new Error("Network failure"));
   fireEvent.press(screen.getByRole("button", { name: "Marcar como despachado" }));

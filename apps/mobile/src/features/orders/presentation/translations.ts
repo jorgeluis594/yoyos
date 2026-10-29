@@ -13,7 +13,7 @@ export const translations = {
     orderDeliveryRateUnavailable: "La tarifa ya no está disponible. Selecciona una opción vigente.",
   orderFulfillment: {
     ship: "Marcar como despachado", deliver: "Marcar como entregado", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregado.",
-    PAYMENT_REQUIRED: "Se requiere el pago completo antes de enviar o entregar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de enviar o entregar.", INSUFFICIENT_STOCK: "No hay stock suficiente para despachar este pedido.",
+    PAYMENT_REQUIRED: "Se requiere el pago completo antes de entregar.", SHIP_PAYMENT_REQUIRED: "Se requiere al menos un pago para despachar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de entregar.", INSUFFICIENT_STOCK: "No hay stock suficiente para despachar este pedido.",
     ORDER_CANCELLED: "El pedido está cancelado; no se puede enviar ni entregar.", INVALID_TRANSITION: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado.",
     saveError: "No se pudo actualizar el pedido. Inténtalo de nuevo.",
   },
@@ -235,9 +235,9 @@ export const translations = {
     orderDeliveryAmount: "Entrega: {{amount}}", orderDeliveryPriceChanged: "A tarifa mudou. Revise as novas opções e confirme novamente.",
     orderDeliveryRateUnavailable: "A tarifa não está mais disponível. Selecione uma opção atual.",
   orderFulfillment: {
-    ship: "Marcar como enviado", deliver: "Marcar como entregue", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregue.",
-    PAYMENT_REQUIRED: "É necessário o pagamento completo antes de enviar ou entregar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de enviar ou entregar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para despachar este pedido.",
-    ORDER_CANCELLED: "O pedido está cancelado; não pode ser enviado nem entregue.", INVALID_TRANSITION: "Só é possível enviar pedidos pendentes e entregar pedidos pendentes ou enviados.",
+    ship: "Marcar como despachado", deliver: "Marcar como entregue", shipSaved: "Pedido marcado como despachado.", deliverSaved: "Pedido marcado como entregue.",
+    PAYMENT_REQUIRED: "É necessário o pagamento completo antes de entregar.", SHIP_PAYMENT_REQUIRED: "É necessário pelo menos um pagamento para despachar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de entregar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para despachar este pedido.",
+    ORDER_CANCELLED: "O pedido está cancelado; não pode ser despachado nem entregue.", INVALID_TRANSITION: "Só é possível despachar pedidos pendentes e entregar pedidos pendentes ou despachados.",
     saveError: "Não foi possível atualizar o pedido. Tente novamente.",
   },
 
@@ -262,8 +262,8 @@ export const translations = {
     balanceAfterAdvance: "Saldo após o adiantamento: {{amount}}", registerAmount: "Registrar {{amount}}", balanceLabel: "Saldo", removePayment: "Remover pagamento",
     deductStockNow: "Descontar estoque agora", stockAlreadyDeducted: "Indisponível: o estoque já foi descontado.", stockWithFullPayment: "Indisponível: um pagamento que cobre o saldo desconta o estoque automaticamente.",
     shipOrder: "Marcar como despachado", shipNeedsShipping: "Para despachar, adicione um envio a domicílio ou por agência com todos os dados.", shipExcludesDelivered: "Para despachar, deixe o estado da entrega como Pendente.",
-    shipNeedsStock: "Para despachar falta estoque de {{items}}.", shipItemShort: "{{name}} (você pediu {{quantity}}, há {{stock}})", shipNeedsPayment: "Para despachar, registre pelo menos um pagamento.",
-    labelQueued: "A venda ficou na fila sem confirmação. Você poderá imprimir a etiqueta quando for salva.",
+    shipNeedsStock: "Falta estoque de {{items}} para despachar.", shipItemShort: "{{name}} (você pediu {{quantity}}, há {{stock}})", shipNeedsPayment: "Para despachar, registre pelo menos um pagamento.",
+    labelQueued: "A venda ficou na fila sem confirmação. Você poderá imprimir a etiqueta quando a venda for salva.",
     methodShort: "Método", amountShort: "Valor",
     deliveryNeedsPayment: "Complete o pagamento para salvar o pedido como entregue.", deliveryNeedsStock: "Reduza a quantidade ou reponha o estoque para salvá-lo como entregue.", totalLabel: "Total",
     immediateRequirements: "Para marcar entregue, os pagamentos devem cobrir o total e deve haver estoque suficiente.",
