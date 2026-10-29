@@ -74,6 +74,7 @@ describe("starting state", () => {
     expect(pending({ product: "gorra-snapback", known: { Color: "Azul" } })).toThrow("not part of one incomplete variant");
     expect(pending({ candidates: ["polo-basico", "polo-premium"], known: { Color: "Negro" } })).not.toThrow();
     expect(pending({ candidates: ["polo-basico", "polo-basico"] })).toThrow("same candidate twice");
-    expect(pending({ candidates: ["polo-basico", "polo-premium"], known: { Talla: "XXL" } })).toThrow("no candidate has");
+    expect(pending({ candidates: ["polo-basico", "polo-premium"], known: { Talla: "XXL" } })).toThrow("a candidate lacks");
+    expect(pending({ candidates: ["polo-basico", "gorra-trucker"], known: { Talla: "M" } })).toThrow("a candidate lacks");
   });
 });

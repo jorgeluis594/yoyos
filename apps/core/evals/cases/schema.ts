@@ -210,7 +210,7 @@ export function productsOf(testCase: EvalCase): readonly string[] {
 /**
  * Checks the seeded start against the catalog (products are checked apart): an order line's variant is exactly one variant of its
  * product, a product pending's `known` is part of a variant that still lacks some attribute, a doubtful pending's candidates differ and
- * each `known` pair exists on one of them.
+ * each `known` pair exists on every one of them (production keeps only what all candidates offer).
  */
 function assertKnownStart(loaded: EvalCatalog, testCase: EvalCase): void {
   const { order, pendings } = startOf(testCase);
@@ -224,7 +224,7 @@ function assertKnownStart(loaded: EvalCatalog, testCase: EvalCase): void {
     }
     if (new Set(pending.candidates).size !== pending.candidates.length) throw new Error("A doubtful pending names the same candidate twice");
     for (const [name, value] of Object.entries(pending.known)) {
-      if (!pending.candidates.some((candidate) => isPartOfAVariant(loaded, candidate, { [name]: value }, false))) throw new Error("A doubtful pending has known values no candidate has");
+      if (!pending.candidates.every((candidate) => isPartOfAVariant(loaded, candidate, { [name]: value }, false))) throw new Error("A doubtful pending has known values a candidate lacks");
     }
   }
 }

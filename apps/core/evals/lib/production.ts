@@ -239,7 +239,8 @@ async function setProductStatus(product: ProductKey, attributes: Readonly<Record
   }
 }
 
-/** The lines whose product or variant the catalog marks inactive: the order is seeded while they are active, then they go back to inactive. */
+/** Reactivating is company-wide and transient; it is safe because evals run one case at a time (`maxWorkers: 1`, `fileParallelism: false`).
+ * The lines whose product or variant the catalog marks inactive: the order is seeded while they are active, then they go back to inactive. */
 const inactiveLines = (lines: readonly OrderLine[], company: EvalCompany) => lines.filter((line) =>
   !catalogOf(company.scope).products.find(({ key }) => key === line.product)?.active || !findVariant(line.product, line.variant, company.scope).active);
 

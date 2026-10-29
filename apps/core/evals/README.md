@@ -214,19 +214,19 @@ true) and `variants` (non-empty list). A variant has `attributes` (an object who
   any attribute order; `{}` for a product whose variant has no attributes), and `quantity` (integer 1 to 99). A seeded order line
   may name an inactive product or variant of `catalog.json`: the line is seeded as if it were active and then the product or variant
   is inactive again, so the chat starts with an order holding an item that is no longer sold. A catalog variant that is `active`
-  but whose product is `active: false` counts as inactive too.
+  but whose product is `active: false` counts as inactive too. An expected order line adds `mentionedPrice`: `null`, or `{ amount, units }` (positive number, integer of at least 1).
 - A pending (an item of `pendings`, at most 10) is one of two shapes, with no other field. A product pending is `{ product, known,
   quantity }`: a product the buyer named without its full variant; `product` is a product `key`, `known` an attributes object with
   the values the buyer already gave (default `{}`; every name and value must belong to one variant of the product, and that variant
   must have at least one attribute that `known` leaves out, which is what is still missing) and `quantity` an integer 1 to 99
   (default 1). A doubtful pending is `{ candidates, known, quantity }`: `candidates` is a list of 2 to 4 different product `key`s the
-  buyer's words could mean; `known` (default `{}`) must have each of its pairs on at least one candidate; `quantity` as above.
+  buyer's words could mean; `known` (default `{}`) holds only values that every candidate has (each pair must exist on every candidate, as the reader keeps only what all candidates offer); `quantity` as above.
   Pendings are seeded through the chat's pendings repository, attached to the seeded order when there is one (as if created while it
   was open) and not attached when there is none.
 - `orderState` is only `"closed"` (absent means the order is open). It needs a non-empty `order`. The seeded order is then paid in
   full by hand, the same path as the `confirm_payment` event without a previous `report_payment`, so the chat's last order exists
   but is closed for messages (a pending attached to it ends as «order closed» at the next message). A cancelled order cannot be
-  seeded as a start; use the `cancel_order` event after a first message. An expected order line adds `mentionedPrice`: `null`, or `{ amount, units }` (positive number, integer of at least 1).
+  seeded as a start; use the `cancel_order` event after a first message. After a closed start, an expected `order` that is absent means unchanged: the run compares with the chat's latest order, the closed one, when the message opens no new order.
 - An expectation has `notice` (a seller notice kind or `null` for silent), and optionally `order` (the open order after the message;
   absent means unchanged) and `outcomes` (a list of outcome kinds, as a multiset). A message case needs `notice` or `outcomes`; a
   conversation step always has `notice`.
