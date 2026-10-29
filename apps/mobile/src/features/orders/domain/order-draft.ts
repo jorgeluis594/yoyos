@@ -109,3 +109,21 @@ export function removeDraftItem(draft: OrderDraft, variantId: string): OrderDraf
   return first ? { ...draft, items: [first, ...rest] } : { ...draft, kind: "empty", items: [] };
 }
 
+
+const cents = (value: number) => Math.round(value * 100);
+
+/** Whether these payments would deduct stock once the order is created: they cover the total, or one opts into partial deduction. */
+export function paymentsDeductStock(payments: readonly DraftPayment[], total: Money | null): boolean {
+  if (!total) return false;
+  let paid = 0;
+  let optsIn = false;
+  for (const payment of payments) {
+    const amount = Number(normalizeDecimalInput(payment.amount));
+    if (!Number.isFinite(amount) || amount <= 0) continue;
+    paid += cents(amount);
+    optsIn ||= payment.deductStockIfPartial;
+  }
+  return optsIn || (paid > 0 && paid >= cents(total.amount));
+}
+
+export const exceedsShownStock = (items: readonly OrderDraftItem[]) => items.some(item => item.quantity > item.shownStock);

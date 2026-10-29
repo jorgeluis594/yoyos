@@ -1,4 +1,4 @@
-import { addDraftItem, changeDraftQuantity, emptyOrderDraft, prepareOrder, removeDraftItem } from "@mobile/features/orders/domain/order-draft";
+import { addDraftItem, changeDraftQuantity, emptyOrderDraft, exceedsShownStock, paymentsDeductStock, prepareOrder, removeDraftItem } from "@mobile/features/orders/domain/order-draft";
 import type { Currency } from "@shared/money";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -108,4 +108,30 @@ test("prepareOrder sends a valid scheduled dispatch date and omits it when absen
   const plain = prepareOrder(added.data);
   expect(plain.success && "scheduledDispatchDate" in plain.data.request).toBe(false);
   expect(prepareOrder({ ...added.data, scheduledDispatchDate: "2026-02-30" }).success).toBe(false);
+});
+
+describe("stock at creation", () => {
+  const payment = (amount: string, deductStockIfPartial = false) => ({ paymentId: id(5), amount, method: "bank_transfer" as const, deductStockIfPartial });
+  const total = { amount: 10, currency: "PEN" as const };
+
+  test("payments deduct stock when they cover the total or any opts into partial deduction", () => {
+    expect(paymentsDeductStock([payment("10")], total)).toBe(true);
+    expect(paymentsDeductStock([payment("4.5"), { ...payment("5.5"), paymentId: id(6) }], total)).toBe(true);
+    expect(paymentsDeductStock([payment("4,5", true)], total)).toBe(true);
+    expect(paymentsDeductStock([payment("9.99")], total)).toBe(false);
+  });
+
+  test("no payments and invalid amounts do not deduct stock", () => {
+    expect(paymentsDeductStock([], total)).toBe(false);
+    expect(paymentsDeductStock([payment("")], total)).toBe(false);
+    expect(paymentsDeductStock([payment("abc", true)], total)).toBe(false);
+    expect(paymentsDeductStock([payment("-10")], total)).toBe(false);
+    expect(paymentsDeductStock([payment("10")], null)).toBe(false);
+  });
+
+  test("a quantity above the shown stock is detected", () => {
+    expect(exceedsShownStock([{ ...item(1, 1, "PEN", 3), quantity: 3 }])).toBe(false);
+    expect(exceedsShownStock([{ ...item(1, 1, "PEN", 3), quantity: 4 }])).toBe(true);
+    expect(exceedsShownStock([{ ...item(1, 1, "PEN", 0), quantity: 1 }])).toBe(true);
+  });
 });
