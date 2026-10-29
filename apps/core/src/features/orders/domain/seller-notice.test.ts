@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest";
-import { chooseSellerNotice, isNoticeDue, sellerNoticeTarget } from "@core/src/features/orders/domain/seller-notice";
+import { describe, expect, expectTypeOf, test } from "vitest";
+import { chooseSellerNotice, isNoticeDue, sellerNoticeKinds, sellerNoticeTarget, type SellerNotice, type SellerNoticeKind } from "@core/src/features/orders/domain/seller-notice";
 import type { ChatMessageOutcome, ChatMessageOutcomes } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { OrderId } from "@core/src/features/orders/domain/order";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -73,5 +73,13 @@ describe("isNoticeDue", () => {
     expect(isNoticeDue(failed, null)).toBe(true);
     expect(isNoticeDue(failed, new Date())).toBe(false);
     expect(isNoticeDue([{ kind: "no_intent" }], null)).toBe(false);
+  });
+});
+
+describe("sellerNoticeKinds", () => {
+  test("lists each kind once and covers every kind the notice union already has", () => {
+    expect(new Set(sellerNoticeKinds).size).toBe(sellerNoticeKinds.length);
+    expect(sellerNoticeKinds).toEqual(expect.arrayContaining(["several_problems", "new_order", "not_applied", "ready_with_pendings"]));
+    expectTypeOf<SellerNotice["kind"]>().toExtend<SellerNoticeKind>();
   });
 });

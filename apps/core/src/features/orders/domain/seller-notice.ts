@@ -3,6 +3,17 @@ import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-messa
 import type { ProductId } from "@core/src/features/products/domain/product";
 import type { ChatMessageOutcome, ChatMessageOutcomes } from "@core/src/features/orders/domain/chat-message-outcome";
 
+/**
+ * Every kind a seller notice has, including the ones whose data fields arrive with the single reader (`not_applied`, `caption_not_applied`,
+ * `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`). Evals name the expected notice with these kinds.
+ */
+export const sellerNoticeKinds = [
+  "not_identified", "not_clear", "variant_missing", "variant_not_available", "quantity_above_limit", "unclear_item", "unnamed_add", "variant_only",
+  "image_with_request", "no_open_order", "failed", "order_closed", "several_problems", "only_item_kept", "ready", "new_order",
+  "not_applied", "caption_not_applied", "product_not_available", "variant_for_several_pendings", "ready_with_pendings",
+] as const;
+export type SellerNoticeKind = (typeof sellerNoticeKinds)[number];
+
 type NewOrderNote = Readonly<{ newOrderId: OrderId | null }>;
 type ProblemNotice =
   | Readonly<{ kind: "not_identified"; source: "photo" | "text" }>
