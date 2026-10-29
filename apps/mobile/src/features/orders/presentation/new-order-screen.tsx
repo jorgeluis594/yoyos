@@ -338,6 +338,7 @@ function CompanyOrderScreen() {
             <ThemedText style={styles.amount}>{money(sale.shownTotal.amount, sale.shownTotal.currency, locale)}</ThemedText></View>
           <Button variant="secondary" loading={checking} disabled={sending || draft.kind === "items"} onPress={() => void reviewSavedOrder(sale.id)}>{t('reviewRejectedSale')}</Button>
         </View>) : null}
+      <OrderCustomerCard customer={draft.customer} busy={sending} onChange={changeCustomer} />
       {stage === "products" ? <View style={[styles.card, card]}>
             <ThemedText type="subtitle" accessibilityRole="header">{t('items')}</ThemedText>
             {unavailableVariants.map((variantId, index) => <View key={variantId} style={styles.item}>
@@ -358,11 +359,10 @@ function CompanyOrderScreen() {
             </View>)}
             <Button variant="secondary" onPress={() => { setSelected(null); setCatalogLoading(true); setPickerOpen(true); }}>{t('addProducts')}</Button>
           </View> : null}
-      {stage === "products" ? <OrderCustomerCard customer={draft.customer} busy={sending} onChange={changeCustomer} /> : <View style={styles.section}>
+      {stage === "products" ? null : <View style={styles.section}>
             <OrderItemsCard items={draft.items} total={productTotal.success ? money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale) : null}
               format={(amount, currency) => money(amount, currency, locale)} onEdit={backToProducts} collapsible />
             {unavailableVariants.length ? <ThemedText accessibilityRole="alert">{t('savedProductsNeedReview')}</ThemedText> : null}
-            <OrderCustomerCard customer={draft.customer} busy={sending} onChange={changeCustomer} />
             <OrderPaymentCard payments={draft.payments ?? []} currency={currency} busy={sending} newId={() => Crypto.randomUUID()} format={amount => money(amount, currency, locale)}
               total={orderTotal ? orderTotal.amount : null} totalConfirmed={!!reviewedTotal?.success}
               onPaymentsChange={update => setDraft(current => ({ ...current, payments: update(current.payments ?? []) }))} />

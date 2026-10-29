@@ -4,12 +4,12 @@ import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { buildPendingOrder, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
-import { internationalPhonePattern } from "@shared/phone";
+import { newOrderCustomerSchema, type NewOrderCustomer } from "@shared/contracts/orders";
 import { parseDispatchDate, type DispatchDate } from "@shared/dispatch-date";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem } from "@core/src/features/orders/application/order-snapshots";
 
-export type CreateOrderInput = Readonly<{ id: OrderId; scheduledDispatchDate?: DispatchDate; customer?: Readonly<{ name: string; phone: string }>;
+export type CreateOrderInput = Readonly<{ id: OrderId; scheduledDispatchDate?: DispatchDate; customer?: NewOrderCustomer;
   items: readonly [Readonly<{ variantId: VariantId; quantity: PositiveInteger }>, ...Readonly<{ variantId: VariantId; quantity: PositiveInteger }> []] }>;
 export type OrderAccess = Readonly<{ companyId: CompanyId; userId: UserId }>;
 export type CreateOrderError = Readonly<{ code: "INVALID_ORDER" | "CURRENCY_MISMATCH" | "ORDER_ALREADY_EXISTS" | "VARIANT_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE";
@@ -26,7 +26,7 @@ export type CreateOrderDependencies = Readonly<{
   clock: () => Date;
 }>;
 
-const selection = z.strictObject({ id: z.uuid(), customer: z.strictObject({ name: z.string().trim().min(1), phone: z.string().regex(internationalPhonePattern) }).optional(), scheduledDispatchDate: z.string().refine((value) => parseDispatchDate(value).success).optional(), items: z.array(z.strictObject({
+const selection = z.strictObject({ id: z.uuid(), customer: newOrderCustomerSchema.optional(), scheduledDispatchDate: z.string().refine((value) => parseDispatchDate(value).success).optional(), items: z.array(z.strictObject({
   variantId: z.uuid(), quantity: z.number().int().positive().safe(),
 })).min(1) });
 const access = z.strictObject({ companyId: z.uuid(), userId: z.string().min(1) });

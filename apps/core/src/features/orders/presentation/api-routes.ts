@@ -2,7 +2,7 @@ import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import express, { type Request, type Response } from "express";
 import { z } from "zod";
-import { cancelOrderResponseSchema, createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, registerPaymentResponseSchema, registerPaymentSchema, rejectPaymentSchema, updateOrderShippingSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
+import { cancelOrderResponseSchema, createOrderSchema, setRatedOrderDeliverySchema, orderApiErrorSchema, orderSelectionSchema, type NewOrderCustomer, listOrderAggregatesSchema, listOrdersSchema, orderCatalogSchema, registerPaymentResponseSchema, registerPaymentSchema, rejectPaymentSchema, updateOrderShippingSchema, type OrderSelectionRequest } from "@shared/contracts/orders";
 import { parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
@@ -79,7 +79,7 @@ const orderContext = (response: Response<unknown, PrivateLocals>): OrderAccess =
   companyId: response.locals.auth.company.id as CompanyId, userId: response.locals.auth.user.id as UserId,
 });
 const orderId = (value: string | undefined) => z.uuid().safeParse(value);
-function toCreateOrderInput(value: OrderSelectionRequest & Readonly<{ scheduledDispatchDate?: string; customer?: { name: string; phone: string } }>): CreateOrderInput {
+function toCreateOrderInput(value: OrderSelectionRequest & Readonly<{ scheduledDispatchDate?: string; customer?: NewOrderCustomer }>): CreateOrderInput {
   const [first, ...rest] = value.items;
   if (!first) throw new Error("Validated order has no items");
   const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });
