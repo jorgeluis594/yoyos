@@ -79,7 +79,10 @@ type SheetProps = {
   currency: string;
   format: (amount: number) => string;
   busy: boolean;
+  /** Failure of the operation (stock, save, unknown result), shown as an alert. */
   error: string;
+  /** Validation of the typed amount, shown on the field. */
+  amountError?: string;
   /** Whether "deduct stock now" applies to the typed amount, and why not when it does not. */
   stockOffer: (amount: number | null) => StockOffer;
   onClose: () => void;
@@ -107,7 +110,7 @@ export function PaymentRegisterSheet({ visible, onClose, ...body }: SheetProps) 
   </Modal>;
 }
 
-function SheetBody({ balance, currency, format, busy, error, stockOffer, onSubmit }: Omit<SheetProps, "visible" | "onClose">) {
+function SheetBody({ balance, currency, format, busy, error, amountError = "", stockOffer, onSubmit }: Omit<SheetProps, "visible" | "onClose">) {
   const { t } = useTranslation();
   const theme = useTheme();
   const [mode, setMode] = useState<"full" | "other">("full");
@@ -132,12 +135,12 @@ function SheetBody({ balance, currency, format, busy, error, stockOffer, onSubmi
           <ThemedText style={styles.flex}>{t('otherAmount')}</ThemedText>
         </Pressable>
         {mode === "other" ? <>
-          <Field required invalid={!!error} disabled={busy}><FieldLabel>{t('amountShort')} ({currency})</FieldLabel>
+          <Field required invalid={!!amountError} disabled={busy}><FieldLabel>{t('amountShort')} ({currency})</FieldLabel>
             <Input value={other} keyboardType="decimal-pad" accessibilityLabel={`${t('amountShort')} (${currency})`} onChangeText={setOther} />
-            {error ? <FieldError>{error}</FieldError> : null}
+            {amountError ? <FieldError>{amountError}</FieldError> : null}
           </Field>
-          {amount !== null && amount > 0 && amount < balance - 0.005
-            ? <ThemedText type="small" themeColor="textSecondary">{t('balanceAfterAdvance', { amount: format(balance - amount) })}</ThemedText> : null}
+          {amount !== null && amount > 0 && Math.round(amount * 100) < Math.round(balance * 100)
+            ? <ThemedText type="small" themeColor="textSecondary">{t('balanceAfterAdvance', { amount: format((Math.round(balance * 100) - Math.round(amount * 100)) / 100) })}</ThemedText> : null}
         </> : null}
       </View>
     </View>
@@ -159,7 +162,7 @@ function SheetBody({ balance, currency, format, busy, error, stockOffer, onSubmi
       <ThemedText style={styles.flex}>{t('deductStockNow')}</ThemedText>
       <Switch disabled={busy} value={deduct} onValueChange={setDeduct} accessibilityLabel={t('deductStockNow')} />
     </View> : mode === "other" && offer.reason ? <ThemedText type="small" themeColor="textSecondary">{offer.reason}</ThemedText> : null}
-    {mode === "full" && error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{error}</ThemedText> : null}
+    {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{error}</ThemedText> : null}
     <Button disabled={busy || (mode === "other" && !(amount !== null && amount > 0))} loading={busy}
       onPress={() => onSubmit({ amount: mode === "full" ? balance.toFixed(2) : other, method, deductStockIfPartial: offer.offered && deduct })}>
       {t('registerAmount', { amount: label })}

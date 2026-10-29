@@ -23,7 +23,8 @@ type Props = {
 };
 
 const validAmount = (value: string) => /^\d+(?:\.\d{1,2})?$/.test(value) && Number(value) > 0;
-const amountOf = (payment: DraftPayment) => validAmount(payment.amount) ? Number(payment.amount) : 0;
+const cents = (amount: number) => Math.round(amount * 100);
+const amountCents = (payment: DraftPayment) => validAmount(payment.amount) ? cents(Number(payment.amount)) : 0;
 
 /** Payments of a sale being built: status at a glance, amounts, the entered payments and one action to register more. */
 export function OrderPaymentCard({ payments, total, totalConfirmed, currency, busy, format, onPaymentsChange, newId }: Props) {
@@ -31,8 +32,18 @@ export function OrderPaymentCard({ payments, total, totalConfirmed, currency, bu
   const theme = useTheme();
   const [sheet, setSheet] = useState(false);
   const [invalid, setInvalid] = useState(false);
-  const paid = payments.reduce((sum, payment) => sum + amountOf(payment), 0);
-  const balance = total === null ? 0 : Math.max(0, total - paid);
+  // Whole cents, so sums such as 10.10 + 20.20 settle a 30.30 order exactly.
+  const paidCents = payments.reduce((sum, payment) => sum + amountCents(payment), 0);
+  const totalCents = total === null ? 0 : cents(total);
+  const paid = paidCents / 100;
+  const balance = Math.max(0, totalCents - paidCents) / 100;
+  // A payment is an advance when the cumulative amount after it still leaves a balance.
+  const advanceIds = new Set<string>();
+  payments.reduce((running, payment) => {
+    const next = running + amountCents(payment);
+    if (next < totalCents) advanceIds.add(payment.paymentId);
+    return next;
+  }, 0);
   const status = paymentBadgeStatus(paid, balance);
   const methodLabel = (method: PaymentMethod) => t(method === "digital_wallet" ? 'wallet' : 'bankTransfer');
   const open = () => { setInvalid(false); setSheet(true); };
@@ -43,9 +54,9 @@ export function OrderPaymentCard({ payments, total, totalConfirmed, currency, bu
       <PaymentBadge status={status} />
     </View>
     {total !== null && totalConfirmed ? <PaymentSummary total={format(total)} paid={format(paid)} balance={format(balance)} showPaid={payments.length > 0} /> : null}
-    {total !== null && paid - total > 0.005 ? <ThemedText type="small" style={{ color: theme.warning }}>{t('overpaid', { amount: format(paid - total) })}</ThemedText> : null}
+    {total !== null && paidCents > totalCents ? <ThemedText type="small" style={{ color: theme.warning }}>{t('overpaid', { amount: format((paidCents - totalCents) / 100) })}</ThemedText> : null}
     {payments.map(payment => <PaymentRow key={payment.paymentId} method={methodLabel(payment.method)} amount={validAmount(payment.amount) ? format(Number(payment.amount)) : payment.amount}
-      tag={total !== null && amountOf(payment) < total - 0.005 ? t('advancePayment') : undefined}
+      tag={advanceIds.has(payment.paymentId) ? t('advancePayment') : undefined}
       trailing={<Pressable accessibilityRole="button" accessibilityLabel={`${t('removePayment')} ${validAmount(payment.amount) ? format(Number(payment.amount)) : payment.amount}`} disabled={busy}
         onPress={() => onPaymentsChange(current => current.filter(row => row.paymentId !== payment.paymentId))} style={styles.remove}>
         <SymbolView name={{ ios: "xmark", android: "close" }} size={18} tintColor={theme.textSecondary} />
@@ -54,8 +65,8 @@ export function OrderPaymentCard({ payments, total, totalConfirmed, currency, bu
     {payments.length === 0 ? <ThemedText type="small" themeColor="textSecondary">{t('noInitialPayments')}</ThemedText> : null}
 
     <PaymentRegisterSheet visible={sheet} balance={balance} currency={currency} format={format} busy={busy}
-      error={invalid ? t('invalidPaymentAmount') : ""}
-      stockOffer={amount => amount === null || amount < balance - 0.005 ? { offered: true, reason: null }
+      error="" amountError={invalid ? t('invalidPaymentAmount') : ""}
+      stockOffer={amount => amount === null || cents(amount) < cents(balance) ? { offered: true, reason: null }
         : { offered: false, reason: t('stockWithFullPayment') }}
       onClose={() => setSheet(false)}
       onSubmit={({ amount, method, deductStockIfPartial }) => {
