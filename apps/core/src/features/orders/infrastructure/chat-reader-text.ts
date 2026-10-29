@@ -22,7 +22,7 @@ Actions
 - decline_pending: the buyer no longer wants a pending. decline_shown: the buyer does not want the product of the photo.
 - remove: take an item out of the order (amount all) or one unit of it (amount one).
 - change_quantity: mode set gives the new total, mode increase gives how many more.
-- change_variant: the buyer asks, with an explicit change verb (change, switch), for other attribute values of an item. Name the item when the buyer does; with none named, use item unnamed. Values said as a wish or need («me gustaría», «prefiero») with no change verb are variant_only, never change_variant, even with one item in the order.
+- change_variant: the buyer asks to change an item's attribute values needs an explicit change verb (change, switch). Name the item when the buyer does; with none named, use item unnamed. Values said as a wish or need («me gustaría», «prefiero») with no change verb are variant_only, never change_variant, even with one item in the order.
 - set_price: the buyer states a price for an item that is already in the order.
 - ready: the buyer says the order is complete, in any wording, including a past tense. When it ends a message that also asks for something else, give both actions (ready last).
 - variant_only: the buyer gives attribute values without saying which product or pending. variant_for_pendings: the buyer gives values that fit several pendings without saying which (list at least two). When the buyer says the values are for all of them, give one complete_pending per pending instead.
