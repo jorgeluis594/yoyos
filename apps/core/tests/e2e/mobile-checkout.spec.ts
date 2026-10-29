@@ -48,7 +48,7 @@ test("mobile seller copies checkout and sees the anonymous buyer confirmation in
     await page.reload();
     await browserExpect(page.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Ana", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Saldo pendiente", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Registrar pago", exact: true })).toBeVisible();
     const pending = randomUUID();
     const cancelled = randomUUID();
     for (const other of [pending, cancelled]) {
