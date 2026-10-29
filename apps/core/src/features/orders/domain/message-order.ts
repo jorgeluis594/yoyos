@@ -1,4 +1,3 @@
-import type { ConfirmationData } from "@core/src/features/orders/domain/payment";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 
@@ -60,4 +59,5 @@ function paymentEvents(order: OrderAggregate): readonly PaymentEvent[] {
   return events.sort((left, right) => left.at.getTime() - right.at.getTime() || right.change - left.change);
 }
 
+type ConfirmationData = Extract<OrderAggregate["payments"][number], { status: "confirmed" }>["data"];
 const existsFrom = (data: ConfirmationData): Date => (data.evidence.kind === "buyer_report" ? data.evidence.report.reportedAt : data.confirmedAt);

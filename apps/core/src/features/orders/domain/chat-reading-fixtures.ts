@@ -1,10 +1,11 @@
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
 import { applyChatActions, type ChatOrderLimits, type ChatOrderTarget, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
+import { pendingLife } from "@core/src/features/orders/domain/chat-pendings";
 import { checkReaderAnswer, type ChatReadingContext, type ReaderAction, type ReaderAnswer, type ReadingItem, type ReadingProduct } from "@core/src/features/orders/domain/chat-reading";
 import type { ChatPending, ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
-import type { ChatId } from "@core/src/features/orders/domain/message-order";
+import { isOpenForMessageItems, type ChatId } from "@core/src/features/orders/domain/message-order";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import { buildPendingOrder, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { AttributeChoice } from "@core/src/features/orders/domain/pending-transitions";
@@ -49,6 +50,8 @@ export const variantOf = (key: ProductKey, attributes: Readonly<Record<string, s
   return found;
 };
 
+/** Days a pending without an order lasts. */
+export const pendingTtlMs = 7 * 24 * 3600_000;
 export const limits: ChatOrderLimits = { maxItemQuantity: 99 as PositiveInteger };
 export const t0 = new Date("2026-10-28T12:00:00Z");
 export const chatId = id(50) as ChatId;
@@ -74,24 +77,28 @@ export const reader = {
 };
 export const stated = (amount: string, per: StatedPrice["per"] = "not_explicit"): StatedPrice => ({ amount, currency: "not_named", per });
 
-export type Reading = Readonly<{ kind?: ChatReadingContext["kind"]; shown?: readonly (readonly [ProductKey, Readonly<Record<string, string>>?])[]; captionDoubt?: boolean; after?: number }>;
+export type Reading = Readonly<{ kind?: ChatReadingContext["kind"]; shown?: readonly (readonly [ProductKey, Readonly<Record<string, string>>?])[]; captionDoubt?: boolean; after?: number;
+  /** The pendings the transaction finds under the lock, when they differ from the ones the reader saw. */
+  underLock?: ChatPendings }>;
 export type Said = Readonly<{ outcomes: readonly ChatMessageOutcome[]; kinds: readonly ChatMessageOutcome["kind"][]; actions: readonly ResolvedChatAction[] }>;
 export type Chat = ReturnType<typeof createChat>;
 
-export type ChatStart = Readonly<{ items?: readonly (readonly [ProductKey, Readonly<Record<string, string>>, number])[]; pendings?: readonly ChatPending[]; readyRemembered?: boolean; unsellable?: readonly ProductKey[]; deleted?: readonly ProductKey[]; order?: OrderAggregate | null }>;
+export type ChatStart = Readonly<{ items?: readonly (readonly [ProductKey, Readonly<Record<string, string>>, number])[]; pendings?: readonly ChatPending[]; readyRemembered?: boolean; unsellable?: readonly ProductKey[]; deleted?: readonly ProductKey[]; orders?: readonly OrderAggregate[] }>;
 
 /** A chat that reads fixed reader answers through the real check and the real order transitions. */
 export function createChat(start: ChatStart = {}) {
   let now = t0;
   let counter = 500;
   let pendings: ChatPendings = { pendings: start.pendings ?? [], readyRemembered: start.readyRemembered ?? false };
-  let order: OrderAggregate | null = start.order !== undefined ? start.order : start.items?.length ? orderOf(start.items) : null;
+  /** Every order of the chat, oldest first; the last one is the chat's latest. */
+  let orders: OrderAggregate[] = start.orders ? [...start.orders] : start.items?.length ? [orderOf(start.items)] : [];
   const unsellable = new Set(start.unsellable ?? []);
   const deleted = new Set(start.deleted ?? []);
   const ids = { newOrderId: () => id(900) as OrderId, newItemId: () => id(counter++) as OrderItemId, newPendingId: () => id(counter++) as ChatPendingId };
   const productByVariant = new Map<VariantId, ProductId>(productKeys.flatMap((key) => catalog[key].variants.map((variant): [VariantId, ProductId] => [variant.variantId, productId(key)])));
 
-  const readingItems = (): readonly ReadingItem[] => (order?.items ?? []).map((item, index) => ({ ref: `I${index + 1}`, variantId: item.variantId, productId: productByVariant.get(item.variantId) ?? null,
+  const latest = (): OrderAggregate | null => orders.at(-1) ?? null;
+  const readingItems = (): readonly ReadingItem[] => (latest()?.items ?? []).map((item, index) => ({ ref: `I${index + 1}`, variantId: item.variantId, productId: productByVariant.get(item.variantId) ?? null,
     productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice }));
 
   const productsFor = (reading: Reading): readonly ReadingProduct[] => productKeys.filter((key) => !deleted.has(key)).map((key) => {
@@ -102,12 +109,20 @@ export function createChat(start: ChatStart = {}) {
     return { ...product, shown: true, shownVariantId: variant?.variantId ?? null, identification: { method: "qr", productId: product.productId, confidence: null } };
   });
 
-  const target = (): ChatOrderTarget => (order ? { kind: "open", order, productIds: productByVariant } : { kind: "none" });
+  const target = (): ChatOrderTarget => {
+    const last = latest();
+    if (!last) return { kind: "none" };
+    if (isOpenForMessageItems(last, chatId)) return { kind: "open", order: last, productIds: productByVariant };
+    return last.cancelled ? { kind: "cancelled" } : { kind: "closed", orderId: last.id, number: last.number };
+  };
 
   return {
     ref: (key: ProductKey) => catalog[key].ref,
     get pendings() { return pendings; },
-    get order() { return order; },
+    get order() { return latest(); },
+    get orders() { return orders; },
+    /** Changes the chat's latest order, the way a payment, a cancellation or a void would. */
+    mutate(change: (order: OrderAggregate) => OrderAggregate) { orders = orders.map((order, index) => (index === orders.length - 1 ? change(order) : order)); },
     get now() { return now; },
     advance(ms: number) { now = new Date(now.getTime() + ms); },
     context(reading: Reading = {}): ChatReadingContext {
@@ -116,15 +131,20 @@ export function createChat(start: ChatStart = {}) {
     },
     say(answer: ReaderAnswer, reading: Reading = {}): Said {
       if (reading.after) now = new Date(now.getTime() + reading.after);
+      const life = pendingLife(pendings, { target: target(), openedSince: orders }, now, pendingTtlMs);
+      pendings = { ...pendings, pendings: life.alive };
+      const ended: ChatMessageOutcome[] = life.ended.map((entry) => ({ kind: "pending_ended", pendingId: entry.id, reason: entry.reason }));
       const actions = checkReaderAnswer(answer, this.context(reading), { captionDoubt: reading.captionDoubt ?? false });
-      const applied = applyChatActions(target(), pendings, actions, ids, now, limits, { ...seed, messageId: id(counter++) as ChatMessageId });
+      const applied = applyChatActions(target(), reading.underLock ?? pendings, actions, ids, now, limits, { ...seed, messageId: id(counter++) as ChatMessageId });
       if (!applied.success) throw new Error(applied.error.message);
-      order = applied.data.createdOrder ?? (applied.data.target.kind === "open" ? applied.data.target.order : null);
+      if (applied.data.createdOrder) orders = [...orders, applied.data.createdOrder];
+      else if (applied.data.target.kind === "open") orders = orders.map((order) => (order.id === (applied.data.target as { order: OrderAggregate }).order.id ? (applied.data.target as { order: OrderAggregate }).order : order));
       pendings = applied.data.pendings;
-      return { outcomes: applied.data.outcomes, kinds: applied.data.outcomes.map((outcome) => outcome.kind), actions };
+      const outcomes = [...ended, ...applied.data.outcomes];
+      return { outcomes, kinds: outcomes.map((outcome) => outcome.kind), actions };
     },
     /** `Polo básico · M · Negro · ×1`, the way the order shows an item. */
-    items: () => (order?.items ?? []).map((item) => [item.productName, ...Object.values(item.variantAttributes), `×${item.quantity}`].join(" · ")),
+    items: () => (latest()?.items ?? []).map((item) => [item.productName, ...Object.values(item.variantAttributes), `×${item.quantity}`].join(" · ")),
     /** `Polo básico ×2 {Talla: M}` for each pending, in order. */
     pendingLines: () => pendings.pendings.map((pending) => {
       const name = pending.subject.kind === "variant" ? catalog[productKeys.find((key) => productId(key) === (pending.subject as { productId: ProductId }).productId)!].name : "producto dudoso";
@@ -141,7 +161,7 @@ export function createChat(start: ChatStart = {}) {
 }
 
 /** A stored pending, the way an earlier message left it. */
-export function pendingOf(key: ProductKey, fields: Partial<Pick<ChatPending, "known" | "quantity" | "price" | "lastChangedAt" | "order">> & Readonly<{ n?: number }> = {}): ChatPending {
+export function pendingOf(key: ProductKey, fields: Partial<Pick<ChatPending, "known" | "price" | "lastChangedAt" | "order">> & Readonly<{ n?: number; quantity?: number }> = {}): ChatPending {
   const n = fields.n ?? 1;
   return { id: id(300 + n) as ChatPendingId, subject: { kind: "variant", productId: productId(key) }, known: fields.known ?? {}, quantity: (fields.quantity ?? 1) as PositiveInteger, price: fields.price ?? null,
     order: fields.order ?? null, lastChangedAt: fields.lastChangedAt ?? t0, sourceMessageId: id(80 + n) as ChatMessageId, requestId: id(300 + n) as ChatPendingId };

@@ -1,4 +1,6 @@
 import { describe, expect, test } from "vitest";
+import { fixedShownAnswer } from "@core/src/features/orders/domain/chat-reading";
+import { createChat, doubtfulPendingOf, pendingOf, productId as productIdOf, reader, t0 as scenarioStart } from "@core/src/features/orders/domain/chat-reading-fixtures";
 import { chatPendingsSchema, pendingLife, type ChatPending, type ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order-target";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
@@ -170,3 +172,290 @@ describe("pendingLife", () => {
     expect(summary(life([pending(1, after(day))], none, [order], after(5 * day)))).toEqual({ alive: [], ended: [[1, "order_closed"]] });
   });
 });
+
+const { add, complete, say } = reader;
+const M_NEGRO = { Talla: "M", Color: "Negro" } as const;
+const requestOf = (pending: ChatPending | undefined) => pending?.requestId;
+
+describe("pending transitions", () => {
+  test("attaches every orderless pending to the order a message creates", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { n: 1 }), pendingOf("oversize", { n: 2 })] });
+    chat.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } })));
+    expect(chat.pendings.pendings.map((pending) => pending.order)).toEqual(Array(2).fill({ orderId: chat.order?.id, attachedAt: chat.now }));
+  });
+
+  test("advances the pending of a later add of the same product, keeping values the new message does not restate", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { known: { Talla: "M" } })] });
+    expect(chat.say(say(add({ product: "polo", quantity: 2 }))).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendingLines()).toEqual(['Polo básico ×2 {"Talla":"M"}']);
+  });
+
+  test("makes the pending ×2 silently for «y el polo básico x2» with values still missing", () => {
+    const chat = createChat();
+    expect(chat.say(say(add({ product: "polo" }))).kinds).toEqual(["pending_created", "variant_missing"]);
+    expect(chat.say(say(add({ product: "polo", quantity: 2 }))).kinds).toEqual(["pending_updated"]);
+    expect(chat.say(say(complete(1, M_NEGRO))).kinds).toEqual(["pending_completed", "added"]);
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×2"]);
+  });
+
+  test("reports variant not available and keeps ×2 for «y el polo básico rojo x2» on a ×1 pending", () => {
+    const chat = createChat({ pendings: [pendingOf("polo")] });
+    expect(chat.say(say(add({ product: "polo", quantity: 2, attributes: { Color: "Rojo" } }))).kinds).toEqual(["pending_updated", "variant_not_available"]);
+    expect(chat.pendingLines()).toEqual(['Polo básico ×2 {}']);
+    chat.say(say(complete(1, { Talla: "M", Color: "Blanco" })));
+    expect(chat.items()).toEqual(["Polo básico · M · Blanco · ×2"]);
+  });
+
+  test("resolves a doubtful pending when a message names one of its candidates", () => {
+    const chat = createChat({ pendings: [doubtfulPendingOf(["polo", "gorra"])] });
+    chat.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } })));
+    expect(chat.items()).toEqual(["Gorra trucker · Rojo · ×1"]);
+    expect(chat.pendings.pendings).toEqual([]);
+  });
+
+  test("turns a doubtful pending resolved to a product without its variant into a variant pending silently", () => {
+    const chat = createChat({ pendings: [doubtfulPendingOf(["polo", "oversize"])] });
+    expect(chat.say(say(add({ product: "polo" }))).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendings.pendings[0]?.subject).toEqual({ kind: "variant", productId: productIdOf("polo") });
+  });
+
+  test("completes a pending into two items and ends it", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })] });
+    const said = chat.say(say(complete(1, M_NEGRO, 1), complete(1, { Talla: "L", Color: "Blanco" }, 1)));
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1", "Polo básico · L · Blanco · ×1"]);
+    expect(chat.pendings.pendings).toEqual([]);
+    expect(said.kinds.filter((kind) => kind === "pending_completed")).toHaveLength(1);
+  });
+
+  test("completes two pendings from one message", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { n: 1 }), pendingOf("polera", { n: 2 })] });
+    chat.say(say(complete(1, M_NEGRO), complete(2, { Talla: "M" })));
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1", "Polera con capucha · M · ×1"]);
+    expect(chat.pendings.pendings).toEqual([]);
+  });
+
+  test("leaves the unassigned units as a pending without a notice", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })] });
+    chat.advance(1000);
+    const said = chat.say(say(complete(1, M_NEGRO, 1)));
+    expect(said.kinds).toEqual(["pending_updated", "added"]);
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1"]);
+    expect(chat.pendingLines()).toEqual(['Polo básico ×1 {}']);
+    expect(chat.pendings.pendings[0]?.lastChangedAt).toEqual(chat.now);
+  });
+
+  test("uses the message quantity when it assigns more units than the pending had", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })] });
+    chat.say(say(complete(1, M_NEGRO, 3)));
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×3"]);
+    expect(chat.pendings.pendings).toEqual([]);
+  });
+
+  test("splits «uno en M» on a ×2 pending with Talla and Color missing into ×1 {M} and a ×1 remainder with the earlier values, silently", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })] });
+    const said = chat.say(say(complete(1, { Talla: "M" }, 1)));
+    expect(said.kinds).toEqual(["pending_split"]);
+    expect(chat.pendingLines()).toEqual(['Polo básico ×1 {}', 'Polo básico ×1 {"Talla":"M"}']);
+    expect(chat.items()).toEqual([]);
+    expect(requestOf(chat.pendings.pendings[1])).toBe(requestOf(chat.pendings.pendings[0]));
+  });
+
+  test.each([
+    ["two completions", () => say(complete(1, { Talla: "M" }, 1), complete(1, { Talla: "L" }, 1))],
+    ["two adds of the pending's product", () => say(add({ product: "polo", attributes: { Talla: "M" } }), add({ product: "polo", attributes: { Talla: "L" } }))],
+  ])("turns «uno en M y otro en L» on a ×2 pending with Color missing into two ×1 pendings, silently (%s)", (_title, answer) => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })] });
+    const said = chat.say(answer());
+    expect(said.kinds).toEqual(["pending_split", "pending_updated"]);
+    expect(chat.pendingLines()).toEqual(['Polo básico ×1 {"Talla":"L"}', 'Polo básico ×1 {"Talla":"M"}']);
+    expect(chat.items()).toEqual([]);
+  });
+
+  test("adds one M/Negro and keeps ×1 {Negro} for «uno en M» on a ×2 pending with Color known, and a later «el otro en L» adds L/Negro", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2, known: { Color: "Negro" } })] });
+    chat.say(say(complete(1, { Talla: "M" }, 1)));
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1"]);
+    expect(chat.pendingLines()).toEqual(['Polo básico ×1 {"Color":"Negro"}']);
+    chat.say(say(complete(1, { Talla: "L" })));
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1", "Polo básico · L · Negro · ×1"]);
+    expect(chat.pendings.pendings).toEqual([]);
+  });
+
+  test("answers a remainder with one value by merging it with the remainder's own values only", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })] });
+    chat.say(say(complete(1, { Talla: "M" }, 1)));
+    chat.say(say(complete(1, { Color: "Negro" })));
+    expect(chat.pendingLines()).toEqual(['Polo básico ×1 {"Color":"Negro"}', 'Polo básico ×1 {"Talla":"M"}']);
+  });
+
+  test("reports variant not available and changes nothing for a partial assignment naming a value that does not exist", () => {
+    const pendings = [pendingOf("polo", { quantity: 2 })];
+    const chat = createChat({ pendings });
+    expect(chat.say(say(complete(1, { Color: "Rojo" }, 1))).kinds).toEqual(["variant_not_available"]);
+    expect(chat.pendings.pendings).toEqual(pendings);
+  });
+
+  test("reads «x2» in an add of the pending's product as the new total and in a completion as the units assigned", () => {
+    const total = createChat({ pendings: [pendingOf("polo", { quantity: 3 })] });
+    total.say(say(add({ product: "polo", quantity: 2 })));
+    expect(total.pendingLines()).toEqual(['Polo básico ×2 {}']);
+    const assigned = createChat({ pendings: [pendingOf("polo", { quantity: 3 })] });
+    assigned.say(say(complete(1, { Talla: "M" }, 2)));
+    expect(assigned.pendingLines()).toEqual(['Polo básico ×1 {}', 'Polo básico ×2 {"Talla":"M"}']);
+  });
+
+  test("reports above-99 and leaves the pending as it was for «y el polo básico x150»", () => {
+    const pendings = [pendingOf("polo")];
+    const chat = createChat({ pendings });
+    expect(chat.say(say(add({ product: "polo", quantity: 150 }))).kinds).toEqual(["quantity_above_limit"]);
+    expect(chat.pendings.pendings).toEqual(pendings);
+  });
+
+  test("assigns one unit each for two adds of the pending's product in one answer with values still missing", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })] });
+    chat.say(say(add({ product: "polo", attributes: { Talla: "M" } }), add({ product: "polo", attributes: { Talla: "L" } })));
+    expect(chat.pendings.pendings.map((pending) => pending.quantity)).toEqual([1, 1]);
+  });
+
+  test("adds two items and completes the pending for two adds of the pending's product that each resolve a variant", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })] });
+    chat.say(say(add({ product: "polo", attributes: M_NEGRO }), add({ product: "polo", attributes: { Talla: "L", Color: "Blanco" } })));
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1", "Polo básico · L · Blanco · ×1"]);
+    expect(chat.pendings.pendings).toEqual([]);
+  });
+
+  test("checks an action whose pending an earlier action of the same message completed as if there were no pending", () => {
+    const chat = createChat({ pendings: [pendingOf("polo")] });
+    chat.say(say(complete(1, M_NEGRO), add({ product: "polo", attributes: { Talla: "L", Color: "Blanco" } }), add({ product: "polo", attributes: { Talla: "L" } })));
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1", "Polo básico · L · Blanco · ×1"]);
+    expect(chat.pendingLines()).toEqual(['Polo básico ×1 {"Talla":"L"}']);
+  });
+
+  test("reports variant only when the pending the reader completed ended under the lock", () => {
+    const chat = createChat({ pendings: [pendingOf("polo")] });
+    const said = chat.say(say(complete(1, { Talla: "M" })), { underLock: { pendings: [], readyRemembered: false } });
+    expect(said.outcomes).toEqual([{ kind: "variant_only" }]);
+    expect(chat.items()).toEqual([]);
+  });
+
+  test("keeps ×2 when a photo of the pending product arrives without a caption", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })] });
+    const photo = { shown: [["polo"]] } as const;
+    expect(chat.say(fixedShownAnswerOf(chat, photo), photo).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendingLines()).toEqual(['Polo básico ×2 {}']);
+  });
+
+  test("adds ×2 when a photo's QR completes a ×2 pending", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })] });
+    const photo = { shown: [["polo", M_NEGRO]] } as const;
+    chat.say(fixedShownAnswerOf(chat, photo), photo);
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×2"]);
+  });
+
+  test("keeps ×2 when a doubted caption's photo advances a ×2 pending", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })] });
+    chat.say({ kind: "doubt" }, { shown: [["polo"]] });
+    expect(chat.pendingLines()).toEqual(['Polo básico ×2 {}']);
+  });
+
+  test("judges a lot price stated for two with two when only one unit is completed, and shows it whole on that item", () => {
+    const price = { amount: { amount: 70, currency: "PEN" as const }, per: "not_explicit" as const, forQuantity: 2 as never };
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2, price })] });
+    chat.say(say(complete(1, M_NEGRO, 1)));
+    expect(chat.order?.items[0]?.mentionedPrice).toEqual({ amount: { amount: 70, currency: "PEN" }, units: 2 });
+  });
+
+  test("clears the lot price of the split parts and of the remainder once one item carries it", () => {
+    const price = { amount: { amount: 70, currency: "PEN" as const }, per: "not_explicit" as const, forQuantity: 2 as never };
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2, price })] });
+    chat.say(say(complete(1, { Talla: "M" }, 1)));
+    expect(chat.pendings.pendings.map((pending) => pending.price)).toEqual([price, price]);
+    chat.say(say(complete(2, { Color: "Negro" })));
+    expect(chat.order?.items[0]?.mentionedPrice?.units).toBe(2);
+    expect(chat.pendings.pendings.map((pending) => pending.price)).toEqual([null]);
+  });
+
+  test("keeps the lot price of another request of the same product from the same message", () => {
+    const price = { amount: { amount: 70, currency: "PEN" as const }, per: "not_explicit" as const, forQuantity: 2 as never };
+    const chat = createChat({ pendings: [pendingOf("polo", { n: 1, quantity: 2, price }), pendingOf("polo", { n: 2, quantity: 2, price, known: { Color: "Blanco" } })] });
+    chat.say(say(complete(1, M_NEGRO, 1)));
+    expect(chat.pendings.pendings.map((pending) => pending.price)).toEqual([null, price]);
+  });
+
+  test("applies a per-unit price to every item made from the request", () => {
+    const price = { amount: { amount: 40, currency: "PEN" as const }, per: "unit" as const, forQuantity: 2 as never };
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2, price })] });
+    chat.say(say(complete(1, M_NEGRO, 1), complete(1, { Talla: "L", Color: "Blanco" })));
+    expect(chat.order?.items.map((item) => item.mentionedPrice?.units)).toEqual([1, 1]);
+  });
+
+  test("replaces the most recently changed of two pendings of one product when the add fits neither", () => {
+    const older = pendingOf("polo", { n: 1, known: { Talla: "M" }, lastChangedAt: scenarioStart });
+    const newer = pendingOf("polo", { n: 2, known: { Color: "Negro" }, lastChangedAt: new Date(scenarioStart.getTime() + 1000) });
+    const chat = createChat({ pendings: [older, newer] });
+    chat.advance(5000);
+    chat.say(say(add({ product: "polo", attributes: { Talla: "L", Color: "Blanco" } })));
+    expect(chat.items()).toEqual(["Polo básico · L · Blanco · ×1"]);
+    expect(chat.pendings.pendings.map((pending) => pending.id)).toEqual([older.id]);
+  });
+
+  test("advances the only pending of a product whose known values fit the message when the product has two", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { n: 1, known: { Talla: "M" } }), pendingOf("polo", { n: 2, known: { Talla: "L" } })] });
+    chat.say(say(add({ product: "polo", attributes: { Talla: "L", Color: "Negro" } })));
+    expect(chat.items()).toEqual(["Polo básico · L · Negro · ×1"]);
+    expect(chat.pendingLines()).toEqual(['Polo básico ×1 {"Talla":"M"}']);
+  });
+
+  test("reports a variant for several pendings when two pendings of one product fit the message", () => {
+    const pendings = [pendingOf("polo", { n: 1, known: { Talla: "M" } }), pendingOf("polo", { n: 2 })];
+    const chat = createChat({ pendings });
+    expect(chat.say(say(add({ product: "polo", attributes: { Color: "Negro" } }))).kinds).toEqual(["variant_for_several_pendings"]);
+    expect(chat.pendings.pendings).toEqual(pendings);
+  });
+
+  test("completing by naming the product in full adds one item and ends the pending", () => {
+    const chat = createChat({ pendings: [pendingOf("polo")] });
+    chat.say(say(add({ product: "polo", attributes: M_NEGRO })));
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1"]);
+    expect(chat.pendings.pendings).toEqual([]);
+  });
+
+  test("ends a pending whose product was deleted with product not available without a name when a message addresses it", () => {
+    const chat = createChat({ pendings: [pendingOf("polo")], deleted: ["polo"] });
+    const said = chat.say(say(complete(1, { Talla: "M" })));
+    expect(said.outcomes).toEqual([{ kind: "pending_ended", pendingId: pendingOf("polo").id, reason: "product_not_available" }, { kind: "product_not_available", productId: null }]);
+    expect(chat.pendings.pendings).toEqual([]);
+  });
+
+  test("ends a pending whose product is no longer sellable and reports product not available", () => {
+    const chat = createChat({ pendings: [pendingOf("polo")], unsellable: ["polo"] });
+    expect(chat.say(say(complete(1, M_NEGRO))).outcomes).toEqual([{ kind: "pending_ended", pendingId: pendingOf("polo").id, reason: "product_not_available" },
+      { kind: "product_not_available", productId: productIdOf("polo") }]);
+    expect(chat.items()).toEqual([]);
+  });
+
+  test("keeps the pending when only the chosen variant is not sellable", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { known: { Talla: "M" } })] });
+    expect(chat.say(say(complete(1, { Color: "Rojo" }))).kinds).toEqual(["pending_updated", "variant_not_available"]);
+    expect(chat.pendingLines()).toEqual(['Polo básico ×1 {"Talla":"M"}']);
+  });
+
+  test("keeps the remembered ready when a partial completion splits a pending", () => {
+    const chat = createChat({ pendings: [pendingOf("polo", { quantity: 2 })], readyRemembered: true });
+    expect(chat.say(say(complete(1, { Talla: "M" }, 1))).kinds).toEqual(["pending_split"]);
+    expect(chat.pendings.readyRemembered).toBe(true);
+  });
+
+  test("ends the least recently changed pending silently when an eleventh is created", () => {
+    const pendings = Array.from({ length: 10 }, (_unused, index) => pendingOf("polo", { n: index + 1, lastChangedAt: new Date(scenarioStart.getTime() - (index === 3 ? 9000 : index) * 1000) }));
+    const chat = createChat({ pendings });
+    const said = chat.say(say(add({ product: "gorra" })));
+    expect(said.outcomes).toContainEqual({ kind: "pending_ended", pendingId: pendings[3]!.id, reason: "limit" });
+    expect(chat.pendings.pendings).toHaveLength(10);
+    expect(chat.pendings.pendings.some((pending) => pending.id === pendings[3]!.id)).toBe(false);
+  });
+});
+
+function fixedShownAnswerOf(chat: ReturnType<typeof createChat>, reading: Parameters<ReturnType<typeof createChat>["context"]>[0]) {
+  return fixedShownAnswer(chat.context(reading));
+}

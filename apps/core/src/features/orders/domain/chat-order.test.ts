@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { createChat, doubtfulPendingOf, pendingOf, reader, productId as scenarioProductId } from "@core/src/features/orders/domain/chat-reading-fixtures";
 import { applyChatActions, needsNewChatOrder, type ChatOrderCatalogItem, type ChatOrderTarget, type ItemTarget, type NewChatOrderSeed, type ReportOutcome, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
 import { buildPendingOrder, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
@@ -275,5 +276,107 @@ describe("applyChatActions", () => {
   test("rejects an empty list of actions and an invalid new order seed", () => {
     expect(applyChatActions(open([gorra, 1]), noPendings, [], ids, at, limits, seed)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
     expect(applyChatActions({ kind: "none" }, noPendings, [add(gorra)], ids, at, limits, { ...seed, number: 0 as OrderNumber })).toMatchObject({ success: false });
+  });
+});
+
+describe("applyChatActions with chat pendings", () => {
+  const { add, complete, say } = reader;
+  const ref = (n: number): string => `I${n}`;
+  const withPolo = () => createChat({ items: [["polo", { Talla: "M", Color: "Negro" }, 2]] });
+
+  test("increases the item quantity by the stated units for «uno más» and sets it for «que sean»", () => {
+    const chat = withPolo();
+    chat.say(say({ kind: "change_quantity", item: { kind: "ref", ref: ref(1) }, mode: "increase", quantity: 1 }));
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×3"]);
+    chat.say(say({ kind: "change_quantity", item: { kind: "unnamed" }, mode: "set", quantity: 5 }));
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×5"]);
+  });
+
+  test("reports quantity above limit when «uno más» would pass 99", () => {
+    const chat = createChat({ items: [["polo", { Talla: "M", Color: "Negro" }, 99]] });
+    expect(chat.say(say({ kind: "change_quantity", item: { kind: "unnamed" }, mode: "increase", quantity: 1 })).kinds).toEqual(["quantity_above_limit"]);
+  });
+
+  test("creates the chat order when a pending completes without an open order", () => {
+    const pendings = { pendings: [pendingOf("polo")], readyRemembered: false };
+    const chat = createChat({ pendings: pendings.pendings });
+    const actions = chat.say(say(complete(1, { Talla: "M", Color: "Negro" }))).actions;
+    expect(chat.order).not.toBeNull();
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1"]);
+    expect(needsNewChatOrder({ kind: "none" }, pendings, actions, limits)).toBe(true);
+    expect(needsNewChatOrder({ kind: "none" }, pendings, [{ kind: "decline_pending", pendingId: pendings.pendings[0]!.id }], limits)).toBe(false);
+  });
+
+  test("adds a completed pending to the chat's open order", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo")] });
+    chat.say(say(complete(1, { Talla: "M", Color: "Negro" })));
+    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×1", "Polo básico · M · Negro · ×1"]);
+  });
+
+  test("remembers ready when ready leaves a pending and reports ready with pendings", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo"), doubtfulPendingOf(["gorra", "polera"], 2)] });
+    const said = chat.say(say(reader.ready));
+    expect(said.outcomes).toEqual([{ kind: "ready_with_pendings", orderId: chat.order?.id, productIds: [scenarioProductId("polo")], unnamed: 1 }]);
+    expect(chat.pendings.readyRemembered).toBe(true);
+  });
+
+  test("reports ready when a later message completes the last pending after a remembered ready", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo")], readyRemembered: true });
+    expect(chat.say(say(complete(1, { Talla: "M", Color: "Negro" }))).kinds).toEqual(["pending_completed", "added", "ready"]);
+    expect(chat.pendings.readyRemembered).toBe(false);
+  });
+
+  test("reports ready for «quita la gorra y listo»", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1], ["polo", { Talla: "M", Color: "Negro" }, 1]] });
+    expect(chat.say(say({ kind: "remove", item: { kind: "ref", ref: ref(1) }, amount: "all" }, reader.ready)).kinds).toEqual(["removed", "ready"]);
+  });
+
+  test("reports variant missing and remembers ready for a photo captioned «eso nomás, listo» whose product has variants", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]] });
+    const photo = { shown: [["polo"]] } as const;
+    expect(chat.say(say(add({ product: "polo" }), reader.ready), photo).kinds).toEqual(["pending_created", "variant_missing", "ready_with_pendings"]);
+    expect(chat.pendings.readyRemembered).toBe(true);
+    expect(chat.say(say(complete(1, { Talla: "M", Color: "Negro" }))).kinds).toEqual(["pending_completed", "added", "ready"]);
+  });
+
+  test("reports ready when the buyer declines the last pending with items left after a remembered ready", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo")], readyRemembered: true });
+    expect(chat.say(say(reader.decline(1))).kinds).toEqual(["pending_ended", "ready"]);
+  });
+
+  test("sends nothing when the buyer declines the last pending with no items after a remembered ready", () => {
+    const chat = createChat({ pendings: [pendingOf("polo")], readyRemembered: true });
+    expect(chat.say(say(reader.decline(1))).kinds).toEqual(["pending_ended"]);
+    expect(chat.pendings).toEqual({ pendings: [], readyRemembered: false });
+  });
+
+  test("drops the remembered ready when a later message adds a new item", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo")], readyRemembered: true });
+    expect(chat.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } }))).kinds).toEqual(["added"]);
+    expect(chat.pendings.readyRemembered).toBe(false);
+    expect(chat.say(say(complete(1, { Talla: "M", Color: "Negro" }))).kinds).toEqual(["pending_completed", "added"]);
+  });
+
+  test("keeps the remembered ready when a later message completes a pending that is not the last", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo", { n: 1 }), pendingOf("polera", { n: 2 })], readyRemembered: true });
+    expect(chat.say(say(complete(1, { Talla: "M", Color: "Negro" }))).kinds).toEqual(["pending_completed", "added"]);
+    expect(chat.pendings.readyRemembered).toBe(true);
+  });
+
+  test("reports no intent for ready with no items and no pending", () => {
+    expect(createChat().say(say(reader.ready)).kinds).toEqual(["no_intent"]);
+  });
+
+  test("applies the passing actions of a message when one fails a check", () => {
+    const chat = createChat();
+    const said = chat.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } }), { kind: "remove", item: { kind: "ref", ref: "I9" }, amount: "all" }));
+    expect(said.kinds).toEqual(["added", "no_open_order"]);
+    expect(chat.items()).toEqual(["Gorra trucker · Rojo · ×1"]);
+  });
+
+  test("resolves item actions against the order as it was before the message", () => {
+    const chat = createChat();
+    chat.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } }), { kind: "remove", item: { kind: "unnamed" }, amount: "all" }));
+    expect(chat.items()).toEqual(["Gorra trucker · Rojo · ×1"]);
   });
 });
