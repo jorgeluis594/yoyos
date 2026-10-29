@@ -21,6 +21,7 @@ let mockCountry = "PE";
 let mockNextId = 3;
 let mockDiscardVersion = 0;
 let mockOffline = false;
+let mockStock = 3;
 const mockSetDirty = jest.fn((value: boolean) => { mockDirty = value; });
 const mockDispatch = jest.fn();
 const mockUsePreventRemove = jest.fn();
@@ -38,7 +39,7 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   loadPendingOrderReview: (...args: unknown[]) => mockLoadReview(...args),
   reviewPendingOrder: (...args: unknown[]) => mockReviewOrder(...args),
   searchOrderCatalog: async () => ({ success: true, data: [{ id: mockId(4), name: "Camisa", currency: "PEN",
-    variants: [{ id: mockId(2), attributes: { Talla: "M" }, sku: "CAM-M", price: 10, stock: 3 }] }] }),
+    variants: [{ id: mockId(2), attributes: { Talla: "M" }, sku: "CAM-M", price: 10, stock: mockStock }] }] }),
   completeOrder: (...args: unknown[]) => mockCompleteOrder(...args),
 } }));
 jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: {
@@ -162,7 +163,85 @@ test("delivered status explains missing payment and allows saving once covered",
 });
 beforeEach(() => { jest.clearAllMocks(); mockQuotation.mockReset(); mockSettingsGet.mockReset();
   mockQuotation.mockResolvedValue(ok(quotation));
-  mockSettingsGet.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] })); mockNextId = 3; mockCountry = "PE"; mockDirty = false; mockDiscardVersion = 0; mockOffline = false; mockPending = ok([]); });
+  mockSettingsGet.mockResolvedValue(ok({ version: 1, home: { enabled: true }, store: { enabled: false, pickupPoint: null }, agency: { enabled: false }, couriers: [] })); mockNextId = 3; mockCountry = "PE"; mockDirty = false; mockDiscardVersion = 0; mockOffline = false; mockPending = ok([]); mockStock = 3; });
+
+async function reviewWithQuantity(stock: number, quantity: number) {
+  mockStock = stock;
+  const screen = render(<NewOrderScreen />);
+  await screen.findByText("Camisa");
+  fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
+  fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
+  for (let count = 1; count < quantity; count++) fireEvent.press(screen.getByRole("button", { name: "+" }));
+  return screen;
+}
+const stockWarning = /disponibles?\. Puedes guardar el pedido/;
+
+test("line warning says how many units are available and what happens, only above the shown stock", async () => {
+  const screen = await reviewWithQuantity(0, 4);
+  expect(screen.getByText("Solo hay 0 disponibles. Puedes guardar el pedido, pero no cobrarlo completo ni despacharlo hasta reponer stock.")).toBeTruthy();
+  screen.unmount();
+  const single = await reviewWithQuantity(1, 2);
+  expect(single.getByText(/^Solo hay 1 disponible\. Puedes guardar/)).toBeTruthy();
+  single.unmount();
+  const within = await reviewWithQuantity(3, 3);
+  expect(within.queryByText(stockWarning)).toBeNull();
+});
+
+test("line warning is in Portuguese with the available count", async () => {
+  try {
+    const screen = await reviewWithQuantity(2, 3);
+    await act(async () => { await i18n.changeLanguage("pt-BR"); });
+    expect(screen.getByText("Só há 2 disponíveis. Você pode salvar o pedido, mas não cobrá-lo por completo nem despachá-lo até repor o estoque.")).toBeTruthy();
+  } finally { await i18n.changeLanguage("es"); }
+});
+
+test("payment that covers the total with quantity above stock warns and blocks saving", async () => {
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
+  expect(screen.getByText(/Con este pago el pedido descuenta stock/)).toHaveProp("accessibilityRole", "alert");
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
+  expect(screen.queryByText(/Con este pago el pedido descuenta stock/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
+});
+
+test("delivered with payment and quantity above stock shows a single stock alert", async () => {
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
+  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  expect(screen.getAllByRole("alert").filter(node => /stock/.test(String(node.props.children)))).toHaveLength(1);
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+});
+
+test("delivered without payment still reports the stock need and blocks saving", async () => {
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
+  expect(screen.getByText(/repón el stock para guardarlo como entregado/)).toHaveProp("accessibilityRole", "alert");
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+});
+
+test("pending order with quantity above stock still saves and is sent", async () => {
+  mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({
+    items: [expect.objectContaining({ quantity: 4 })] }), mockId(1)));
+});
+
+test("stock warning texts exist in Spanish and Portuguese", () => {
+  for (const language of ["es", "pt-BR"]) {
+    for (const key of ["creationStockWarning", "paymentNeedsStock"]) {
+      expect(i18n.getFixedT(language)(key, { count: 0 })).not.toBe(key);
+    }
+  }
+});
 
 test("Chile seller selects a variant, reviews the amount, and opens the completed sale", async () => {
   mockCountry = "CL";

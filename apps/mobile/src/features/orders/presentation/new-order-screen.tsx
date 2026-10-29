@@ -32,7 +32,7 @@ import { ListRow } from "@mobile/components/ui/list-row";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
-import { addDraftItem, changeDraftQuantity, emptyOrderDraft, prepareOrder, removeDraftItem, type RatedDeliveryAssignment,
+import { addDraftItem, changeDraftQuantity, emptyOrderDraft, exceedsShownStock, paymentsDeductStock, prepareOrder, removeDraftItem, type RatedDeliveryAssignment,
   type OrderDraft } from "@mobile/features/orders/domain/order-draft";
 import type { ConfirmOrderOutcome, ConfirmOrderError } from "@mobile/features/orders/application/order-operations";
 import { useOrderDraft } from "@mobile/features/orders/presentation/order-draft-guard";
@@ -131,6 +131,9 @@ function CompanyOrderScreen() {
   const currency = productTotal.success ? productTotal.data.shownTotal.currency : "";
   const orderTotal = reviewedTotal?.success ? reviewedTotal.data : productTotal.success ? productTotal.data.shownTotal : null;
   const card = { backgroundColor: theme.backgroundElement, borderColor: theme.border };
+  const stockShort = exceedsShownStock(draft.items);
+  const paymentNeedsStock = stockShort && paymentsDeductStock(draft.payments ?? [], orderTotal);
+  const stockBlocked = stockShort && (paymentNeedsStock || !!draft.deliverImmediately);
   const balance = paidAmount?.success && reviewedTotal?.success ? subtract(paidAmount.data)(reviewedTotal.data) : null;
 
   useEffect(() => {
@@ -336,7 +339,7 @@ function CompanyOrderScreen() {
               <ThemedText type="smallBold">{item.productName}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">{Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ")} · {t('stockCount', { count: item.shownStock })}</ThemedText>
               <ThemedText>{money(item.shownUnitPrice.amount, item.shownUnitPrice.currency, locale)} × {item.quantity}</ThemedText>
-              {item.quantity > item.shownStock ? <ThemedText themeColor="textSecondary">{t('creationStockWarning')}</ThemedText> : null}
+              {item.quantity > item.shownStock ? <ThemedText themeColor="textSecondary">{t('creationStockWarning', { count: item.shownStock })}</ThemedText> : null}
               {problemVariantId === item.variantId ? <ThemedText accessibilityRole="alert">{problemCode === "VARIANT_NOT_FOUND" ? t('itemNoLongerAvailable', { name: Object.values(item.variantAttributes).join(" / ") || item.productName }) : t('reviewVariant')}</ThemedText> : null}
               <View style={styles.row}><Button variant="secondary" disabled={item.quantity <= 1} onPress={() => changeQuantity(item.variantId, item.quantity - 1)}>−</Button>
                 <Button variant="secondary" onPress={() => changeQuantity(item.variantId, item.quantity + 1)}>+</Button>
@@ -352,6 +355,7 @@ function CompanyOrderScreen() {
               currency={currency} busy={sending} newId={() => Crypto.randomUUID()} format={amount => money(amount, currency, locale)}
               total={orderTotal ? orderTotal.amount : null} balance={orderTotal ? money(orderTotal.amount, orderTotal.currency, locale) : null}
               onPaymentsChange={update => setDraft(current => ({ ...current, payments: update(current.payments ?? []) }))} />
+            {paymentNeedsStock ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('paymentNeedsStock')}</ThemedText> : null}
             <View style={[styles.card, card]}>
             <ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
             <Field disabled={sending}><FieldLabel>{t('deliveryStatus')}</FieldLabel><OptionSelector testID="delivery-status" value={draft.deliverImmediately ? "delivered" : "pending"}
@@ -372,7 +376,7 @@ function CompanyOrderScreen() {
             </> : <ThemedText themeColor="textSecondary">{t(settings ? 'orderDeliveryDisabled' : 'loadOrderDeliveryError')}</ThemedText>}
             {draft.deliverImmediately && balance?.success && balance.data.amount > 0
               ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('deliveryNeedsPayment')}</ThemedText> : null}
-            {draft.deliverImmediately && draft.items.some(item => item.quantity > item.shownStock)
+            {draft.deliverImmediately && stockShort && !paymentNeedsStock
               ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('deliveryNeedsStock')}</ThemedText> : null}
             </View>
             <View style={[styles.card, card]}>
@@ -383,7 +387,7 @@ function CompanyOrderScreen() {
             {paidAmount?.success ? <View style={styles.amountRow}><ThemedText>{t('initialPaid')}</ThemedText><ThemedText style={styles.amount}>{money(paidAmount.data.amount, paidAmount.data.currency, locale)}</ThemedText></View> : null}
             {balance?.success ? <View style={styles.amountRow}><ThemedText>{t('estimatedBalance')}</ThemedText><ThemedText style={styles.amount}>{money(Math.max(0, balance.data.amount), balance.data.currency, locale)}</ThemedText></View> : null}
             <ThemedText themeColor="textSecondary">{t('creationPriceHint')}</ThemedText>
-            <Button disabled={!prepared.success || !deliveryReady || offline || !!unavailableVariants.length || !!(draft.deliverImmediately && balance?.success && balance.data.amount > 0) || !!(draft.deliverImmediately && draft.items.some(item => item.quantity > item.shownStock))} loading={sending} onPress={() => void complete()}>{t(reviewingOrder ? 'saveReviewedOrder' : 'saveOrder')}</Button>
+            <Button disabled={!prepared.success || !deliveryReady || offline || !!unavailableVariants.length || !!(draft.deliverImmediately && balance?.success && balance.data.amount > 0) || stockBlocked} loading={sending} onPress={() => void complete()}>{t(reviewingOrder ? 'saveReviewedOrder' : 'saveOrder')}</Button>
             {offline ? <ThemedText type="small" accessibilityRole="alert">{t('offlineEditing')}</ThemedText> : null}
             </View>
           </View>}
