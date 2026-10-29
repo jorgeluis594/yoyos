@@ -1717,7 +1717,7 @@ test("findOpenChatOrderCandidate ignores manual orders, other chats and orders t
   try {
     const chat = await chatFixture(f);
     const states: Record<string, (order: ReturnType<typeof chatOrder>) => Promise<unknown>> = {
-      cancelled: (order) => prisma.order.update({ where: { id: order.id }, data: { cancelled: true } }),
+      cancelled: (order) => prisma.order.update({ where: { id: order.id }, data: { cancelled: true, cancelledAt: new Date() } }),
       completed: (order) => prisma.order.update({ where: { id: order.id }, data: { completedAt: new Date() } }),
       checkoutConfirmed: (order) => prisma.order.update({ where: { id: order.id }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date() } }),
       stockDeducted: (order) => prisma.order.update({ where: { id: order.id }, data: { stockDeducted: true, stockDeductedAt: new Date() } }),

@@ -30,14 +30,14 @@ export async function registerImmediateSale(input: CreateOrderInput, context: Or
     if (!paid.success) return paid;
     const savedPayment = await deps.savePayment(payment, context.companyId);
     if (!savedPayment.success) return savedPayment;
-    const plan = orderStateMachine.planStockDeduction(paid.data, false, paidAt);
+    const plan = orderStateMachine.planStockDeduction(paid.data, false, created.data.createdAt);
     if (!plan.success) return plan;
     if (plan.data.kind !== "deduct") throw new Error("New immediate sale has no stock deduction plan");
     for (const item of [...paid.data.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
       const deducted = await deps.deductProductStock(item.variantId, item.quantity);
       if (!deducted.success) return deducted;
     }
-    const stockSaved = await deps.saveStockDeduction(input.id, context.companyId, paidAt);
+    const stockSaved = await deps.saveStockDeduction(input.id, context.companyId, created.data.createdAt);
     if (!stockSaved.success) return stockSaved;
     const completedAt = deps.clock();
     const delivered = orderStateMachine.registerDelivery(plan.data.nextOrder, completedAt);
