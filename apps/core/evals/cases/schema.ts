@@ -1,6 +1,7 @@
 import { z } from "zod";
-import { assertKnownProducts, committedCatalog, type EvalCatalog } from "@core/evals/fixtures/catalog";
+import { assertKnownProducts, committedCatalog, isPartOfAVariant, variantOfCatalog, type EvalCatalog } from "@core/evals/fixtures/catalog";
 import { sellerNoticeKinds } from "@core/src/features/orders/domain/seller-notice";
+import { maxChatPendings, maxPendingCandidates } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
 
 /**
@@ -50,6 +51,27 @@ const base = {
 // Interpretation and end-to-end: a message against an open order.
 export const orderLine = z.strictObject({ product: productKey, variant: attributes, quantity: z.number().int().min(1).max(99) });
 export type OrderLine = z.output<typeof orderLine>;
+
+const pendingFields = {
+  /** Attribute names and values the buyer already gave; the others are still missing. */
+  known: attributes.default({}),
+  quantity: z.number().int().min(1).max(99).default(1),
+};
+/**
+ * A chat pending seeded before the first message, with catalog product keys: `product` is a named product without its full variant
+ * (`known` holds the values already given); `candidates` (2 to `maxPendingCandidates` different products) is a doubtful product.
+ */
+export const pendingSeed = z.union([
+  z.strictObject({ product: productKey, ...pendingFields }),
+  z.strictObject({ candidates: z.array(productKey).min(2).max(maxPendingCandidates), ...pendingFields }),
+]);
+export type PendingSeed = z.output<typeof pendingSeed>;
+const pendingSeeds = z.array(pendingSeed).max(maxChatPendings).default([]);
+
+/** The state a chat starts in: the open order, its pendings and whether the order is already closed (paid in full, as `confirm_payment`). */
+const orderState = z.literal("closed");
+const startState = { order: z.array(orderLine).default([]), pendings: pendingSeeds, orderState: orderState.optional() };
+const closedNeedsOrder = (start: Readonly<{ order: readonly unknown[]; orderState?: "closed" }>) => start.orderState === undefined || start.order.length > 0;
 const mentionedPrice = z.strictObject({ amount: z.number().positive(), units: z.number().int().min(1) });
 export const finalLine = orderLine.extend({ mentionedPrice: mentionedPrice.nullable().default(null) });
 export type FinalLine = z.output<typeof finalLine>;
@@ -70,12 +92,12 @@ const captionNeedsPhoto = (input: Readonly<{ photo?: unknown; caption?: string }
 
 export const messageInput = z.strictObject({
   ...messageContent,
-  /** The chat's open order before the message; empty means the chat has no order. */
-  order: z.array(orderLine).default([]),
-}).refine(hasOneContent, "A message is a text or a photo").refine(captionNeedsPhoto, "Only a photo has a caption");
+  /** The chat's open order before the message; empty means the chat has no order. `pendings` and `orderState` are the rest of the starting state. */
+  ...startState,
+}).refine(hasOneContent, "A message is a text or a photo").refine(captionNeedsPhoto, "Only a photo has a caption").refine(closedNeedsOrder, "A closed order needs order lines");
 export type MessageInput = z.output<typeof messageInput>;
 
-/** A message of a conversation: the chat's earlier messages are the order, so there is no seeded order. */
+/** A message of a conversation: the chat's earlier messages are the order; the starting state is the conversation's. */
 const conversationInput = z.strictObject(messageContent).refine(hasOneContent, "A message is a text or a photo").refine(captionNeedsPhoto, "Only a photo has a caption");
 
 const expectationFields = {
@@ -148,10 +170,12 @@ export const maxConversationMessages = 4;
 const conversationCase = z.strictObject({
   ...caseBase,
   pass: z.literal("conversation"),
+  /** The chat's state before the first step: `order` lines, `pendings` and `orderState` (as in a message case's input). */
+  ...startState,
   steps: z.array(z.union([messageStep, eventStep])).min(minConversationMessages)
     .refine((steps) => { const messages = steps.filter((step) => !("event" in step)).length; return messages >= minConversationMessages && messages <= maxConversationMessages; },
       `A conversation has ${minConversationMessages} to ${maxConversationMessages} messages`),
-});
+}).refine(closedNeedsOrder, "A closed order needs order lines");
 export type ConversationStep = MessageStep | EventStep;
 
 export const evalCase = z.discriminatedUnion("pass", [messageCase, imageCase, conversationCase]);
@@ -161,16 +185,48 @@ export type MessageCase = Extract<EvalCase, { pass: "interpretation" | "end_to_e
 export type ImageCase = Extract<EvalCase, { pass: "image" }>;
 export type ConversationCase = Extract<EvalCase, { pass: "conversation" }>;
 
+/** The starting state of a message case or conversation; image cases have none. */
+function startOf(testCase: EvalCase): Readonly<{ order: readonly OrderLine[]; pendings: readonly PendingSeed[] }> {
+  if (testCase.pass === "image") return { order: [], pendings: [] };
+  return testCase.pass === "conversation" ? testCase : testCase.input;
+}
+
+const pendingProducts = (pending: PendingSeed): readonly string[] => "product" in pending ? [pending.product] : pending.candidates;
+
 /** Every catalog product a case names, to check them against the catalog it runs on. */
 export function productsOf(testCase: EvalCase): readonly string[] {
   const lines = (order: readonly Readonly<{ product: string }>[] | undefined) => order?.map(({ product }) => product) ?? [];
   const shown = (photo: MessageInput["photo"]) => photo && "shows" in photo && photo.shows !== "not_product" ? [photo.shows] : [];
+  const start = startOf(testCase);
+  const seeded = [...lines(start.order), ...start.pendings.flatMap(pendingProducts)];
   if (testCase.pass === "image") return testCase.expected.flatMap((expectation) => expectation.kind === "found" ? [expectation.product] : []);
   if (testCase.pass === "conversation") {
-    return testCase.steps.flatMap((step) => isEventStep(step) ? (step.event === "deactivate_product" ? [step.product] : [])
-      : [...shown(step.input.photo), ...lines(step.expected.order)]);
+    return [...seeded, ...testCase.steps.flatMap((step) => isEventStep(step) ? (step.event === "deactivate_product" ? [step.product] : [])
+      : [...shown(step.input.photo), ...lines(step.expected.order)])];
   }
-  return [...lines(testCase.input.order), ...shown(testCase.input.photo), ...testCase.expected.flatMap(({ order }) => lines(order))];
+  return [...seeded, ...lines(testCase.input.order), ...shown(testCase.input.photo), ...testCase.expected.flatMap(({ order }) => lines(order))];
+}
+
+/**
+ * Checks the seeded start against the catalog (products are checked apart): an order line's variant is exactly one variant of its
+ * product, a product pending's `known` is part of a variant that still lacks some attribute, a doubtful pending's candidates differ and
+ * each `known` pair exists on one of them.
+ */
+function assertKnownStart(loaded: EvalCatalog, testCase: EvalCase): void {
+  const { order, pendings } = startOf(testCase);
+  for (const { product, variant } of order) {
+    if (!variantOfCatalog(loaded, product, variant)) throw new Error(`Seeded order line of ${product} matches no catalog variant`);
+  }
+  for (const pending of pendings) {
+    if ("product" in pending) {
+      if (!isPartOfAVariant(loaded, pending.product, pending.known, true)) throw new Error(`Pending of ${pending.product} has known values that are not part of one incomplete variant`);
+      continue;
+    }
+    if (new Set(pending.candidates).size !== pending.candidates.length) throw new Error("A doubtful pending names the same candidate twice");
+    for (const [name, value] of Object.entries(pending.known)) {
+      if (!pending.candidates.some((candidate) => isPartOfAVariant(loaded, candidate, { [name]: value }, false))) throw new Error("A doubtful pending has known values no candidate has");
+    }
+  }
 }
 
 /** Validates a case table against a catalog; duplicated ids and products outside the catalog fail like a schema error. */
@@ -182,6 +238,7 @@ export function parseCases(input: readonly EvalCaseInput[], catalog: EvalCatalog
     seen.add(id);
   }
   assertKnownProducts(catalog, cases.flatMap(productsOf));
+  for (const testCase of cases) assertKnownStart(catalog, testCase);
   return cases;
 }
 

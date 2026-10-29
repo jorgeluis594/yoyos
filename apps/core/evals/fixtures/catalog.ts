@@ -102,10 +102,20 @@ export const productById = (productId: string): CatalogProduct | null => {
   return null;
 };
 
-export function findVariant(product: ProductKey, attributes: Readonly<Record<string, string>>, scope: CatalogScope = "eval"): CatalogVariant {
-  const found = catalogOf(scope).products.find(({ key }) => key === product)?.variants.find((variant) =>
+/** The variant of `product` whose attributes are exactly `attributes` (in any order), or undefined. */
+export const variantOfCatalog = (loaded: EvalCatalog, product: ProductKey, attributes: Readonly<Record<string, string>>): CatalogVariant | undefined =>
+  loaded.products.find(({ key }) => key === product)?.variants.find((variant) =>
     Object.keys(attributes).length === Object.keys(variant.attributes).length
     && Object.entries(attributes).every(([name, value]) => variant.attributes[name] === value));
+
+/** Whether `known` names only attributes of one variant of `product`; with `incomplete`, that variant must also have attributes `known` leaves out. */
+export const isPartOfAVariant = (loaded: EvalCatalog, product: ProductKey, known: Readonly<Record<string, string>>, incomplete: boolean): boolean =>
+  loaded.products.find(({ key }) => key === product)?.variants.some((variant) =>
+    Object.entries(known).every(([name, value]) => variant.attributes[name] === value)
+    && (!incomplete || Object.keys(variant.attributes).length > Object.keys(known).length)) ?? false;
+
+export function findVariant(product: ProductKey, attributes: Readonly<Record<string, string>>, scope: CatalogScope = "eval"): CatalogVariant {
+  const found = variantOfCatalog(catalogOf(scope), product, attributes);
   if (!found) throw new Error(`Unknown catalog variant ${variantKey(product, attributes)}`);
   return found;
 }

@@ -11,6 +11,8 @@ afterEach(() => { for (const dir of created.splice(0)) rmSync(dir, { recursive: 
 const catalog = { products: [
   { key: "taza-a", name: "Taza A", variants: [{ attributes: { Color: "Rojo" }, price: 10 }] },
   { key: "taza-b", name: "Taza B", variants: [{ attributes: {}, price: 12 }] },
+  { key: "taza-c", name: "Taza C", variants: [{ attributes: { Color: "Azul", Tamaño: "Grande" }, price: 14 }, { attributes: { Color: "Azul", Tamaño: "Chico" }, price: 13 }] },
+  { key: "taza-vieja", name: "Taza vieja", active: false, variants: [{ attributes: {}, price: 9 }] },
 ] };
 const cases = [{ id: "pv-a", pass: "interpretation", criterion: 1, kind: "greeting", input: { text: "hola" }, expected: [{ notice: null }] }];
 
@@ -25,7 +27,7 @@ describe("private eval data", () => {
     write(outside);
     const loaded = loadPrivateData(outside);
 
-    expect(loaded.catalog.products.map(({ key }) => key)).toEqual(["taza-a", "taza-b"]);
+    expect(loaded.catalog.products.map(({ key }) => key)).toEqual(["taza-a", "taza-b", "taza-c", "taza-vieja"]);
     expect(loaded.cases.map(({ id }) => id)).toEqual(["pv-a"]);
 
     const inside = folder(resolve(import.meta.dirname, "../.."));
@@ -50,6 +52,22 @@ describe("private eval data", () => {
 
     expect(() => loadPrivateData(dir)).toThrow("names a product the catalog does not have");
     expect(() => loadPrivateData(dir)).not.toThrow("polo-basico");
+  });
+
+  test("loads a start with an order on an inactive product, pendings and a closed order, and refuses one the catalog cannot hold", () => {
+    const dir = folder(tmpdir());
+    writeFileSync(join(dir, "catalog.json"), JSON.stringify(catalog));
+    const start = { order: [{ product: "taza-vieja", variant: {}, quantity: 1 }], pendings: [{ product: "taza-c", known: { Color: "Azul" } }, { candidates: ["taza-a", "taza-b"], quantity: 2 }], orderState: "closed" };
+    writeFileSync(join(dir, "cases.json"), JSON.stringify([{ ...cases[0], input: { text: "hola", ...start } }]));
+
+    expect(loadPrivateData(dir).cases).toHaveLength(1);
+
+    writeFileSync(join(dir, "cases.json"), JSON.stringify([{ ...cases[0], input: { text: "hola", pendings: [{ product: "taza-c", known: { Color: "Rojo" } }] } }]));
+    expect(() => loadPrivateData(dir)).toThrow("seeds a start the catalog does not have");
+    expect(() => loadPrivateData(dir)).not.toThrow("Rojo");
+
+    writeFileSync(join(dir, "cases.json"), JSON.stringify([{ ...cases[0], input: { text: "hola", orderState: "closed" } }]));
+    expect(() => loadPrivateData(dir)).toThrow("input");
   });
 
   test("a malformed file names the file and the failing schema paths, never its content or keys", () => {

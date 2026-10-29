@@ -34,7 +34,7 @@ export function privateDirOf(dir: string): string {
 /** Schema field names that may appear in an error; any other path segment (a key the file chose, such as an attribute name) shows as «*». */
 const schemaFields = new Set(["products", "key", "name", "photo", "active", "variants", "attributes", "price", "id", "pass", "kind", "tags", "criterion", "ambiguous", "input",
   "expected", "text", "caption", "order", "notice", "outcomes", "steps", "event", "days", "product", "shows", "label", "file", "variant", "quantity", "mentionedPrice",
-  "amount", "units", "expectsRepeatNotice"]);
+  "amount", "units", "expectsRepeatNotice", "pendings", "orderState", "candidates", "known"]);
 
 /**
  * A malformed private file must never print its content: the error names the file and the schema paths that failed, with no values,
@@ -53,6 +53,7 @@ function invalid<T>(file: string, parse: () => T): T {
     const message = cause instanceof Error ? cause.message : "";
     if (message.startsWith("Duplicated eval case id")) throw new PrivateFileError(`${file} repeats a case id`);
     if (message.startsWith("Cases name products outside")) throw new PrivateFileError(`${file} names a product the catalog does not have`);
+    if (message.startsWith("Seeded order line") || message.startsWith("Pending of") || message.startsWith("A doubtful pending")) throw new PrivateFileError(`${file} seeds a start the catalog does not have`);
     throw new PrivateFileError(`${file} is not valid JSON or cannot be read`);
   }
 }
