@@ -13,6 +13,7 @@ import type { Result } from "@shared/result";
 import { add, subtract, type Money, type MoneyError } from "@shared/money";
 import { andThen, ok } from "@shared/functional";
 import { useEffect, useRef, useState } from "react";
+import { SymbolView } from "expo-symbols";
 import { KeyboardAvoidingView, Platform, ScrollView, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useNavigation, useRouter } from "expo-router";
@@ -134,7 +135,7 @@ function CompanyOrderScreen() {
   const stockShort = exceedsShownStock(draft.items);
   const paymentNeedsStock = stockShort && !draft.deliverImmediately
     && paymentsDeductStock(draft.payments ?? [], initialDelivery ? (reviewedTotal?.success ? reviewedTotal.data : null) : orderTotal);
-  const stockBlocked = (stockShort && !!draft.deliverImmediately) || paymentNeedsStock;
+  const stockBlocked = stockShort && !!draft.deliverImmediately;
   const balance = paidAmount?.success && reviewedTotal?.success ? subtract(paidAmount.data)(reviewedTotal.data) : null;
 
   useEffect(() => {
@@ -227,8 +228,22 @@ function CompanyOrderScreen() {
       void refreshPending(); syncPending();
     } finally { saving.current = false; setSending(false); }
   };
-  const complete = () => { if (deliveryReady && prepared.success && !unavailableVariants.length)
-    return performSave(reviewingOrder ? () => orders.reviewPendingOrder(companyId, saveDraft) : () => orders.completeOrder(saveDraft, companyId)); };
+  const send = (toSend: typeof saveDraft) => performSave(reviewingOrder ? () => orders.reviewPendingOrder(companyId, toSend) : () => orders.completeOrder(toSend, companyId));
+  const savePending = () => {
+    let payments = (draft.payments ?? []).filter(payment => payment.paymentId !== paidPaymentId).map(payment => ({ ...payment, deductStockIfPartial: false }));
+    while (payments.length && paymentsDeductStock(payments, orderTotal)) payments = payments.slice(0, -1);
+    setPaidPaymentId(null);
+    setDraft(current => ({ ...current, payments }));
+    return send({ ...saveDraft, payments });
+  };
+  const complete = () => {
+    if (!deliveryReady || !prepared.success || unavailableVariants.length) return;
+    if (!paymentNeedsStock) return send(saveDraft);
+    const lines = draft.items.filter(item => item.quantity > item.shownStock)
+      .map(item => t('stockShortItem', { name: item.productName, quantity: item.quantity, stock: item.shownStock }));
+    showConfirmation({ title: t('stockShortTitle'), description: `${lines.join("\n")}\n\n${t('stockShortAdvice')}`,
+      confirmLabel: t('saveAsPending'), cancelLabel: t('stockShortBack'), onConfirm: () => void savePending() });
+  };
   const startNewSale = () => {
     leaveAllowed.current = true;
     setDraft(emptyOrderDraft()); setStage("products"); setPaidPaymentId(null); setInitialDelivery(null);
@@ -340,7 +355,9 @@ function CompanyOrderScreen() {
               <ThemedText type="smallBold">{item.productName}</ThemedText>
               <ThemedText type="small" themeColor="textSecondary">{Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ")} · {t('stockCount', { count: item.shownStock })}</ThemedText>
               <ThemedText>{money(item.shownUnitPrice.amount, item.shownUnitPrice.currency, locale)} × {item.quantity}</ThemedText>
-              {item.quantity > item.shownStock ? <ThemedText themeColor="textSecondary">{t('creationStockWarning', { count: item.shownStock })}</ThemedText> : null}
+              {item.quantity > item.shownStock ? <View style={[styles.note, { backgroundColor: theme.warningSurface }]}>
+                <SymbolView name={{ ios: "exclamationmark.triangle", android: "warning" }} size={18} tintColor={theme.warning} />
+                <ThemedText type="small" style={styles.noteText}>{t('creationStockWarning', { count: item.shownStock })}</ThemedText></View> : null}
               {problemVariantId === item.variantId ? <ThemedText accessibilityRole="alert">{problemCode === "VARIANT_NOT_FOUND" ? t('itemNoLongerAvailable', { name: Object.values(item.variantAttributes).join(" / ") || item.productName }) : t('reviewVariant')}</ThemedText> : null}
               <View style={styles.row}><Button variant="secondary" disabled={item.quantity <= 1} onPress={() => changeQuantity(item.variantId, item.quantity - 1)}>−</Button>
                 <Button variant="secondary" onPress={() => changeQuantity(item.variantId, item.quantity + 1)}>+</Button>
@@ -402,4 +419,5 @@ const styles = StyleSheet.create({ page: { flex: 1 }, content: { gap: 16, paddin
   heading: { gap: 4 }, sectionHeading: { borderTopWidth: 1, paddingTop: 16, marginTop: 4 },
   card: { borderWidth: 1, borderRadius: 8, padding: 16, gap: 12 },
   amountRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
-  amount: { fontVariant: ["tabular-nums"], textAlign: "right", flexShrink: 1 }, section: { gap: 12 }, item: { gap: 8, paddingVertical: 12 }, row: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, error: { padding: 12 } });
+  amount: { fontVariant: ["tabular-nums"], textAlign: "right", flexShrink: 1 }, section: { gap: 12 }, item: { gap: 8, paddingVertical: 12 }, row: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, error: { padding: 12 },
+  note: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 8 }, noteText: { flex: 1 } });

@@ -1,3 +1,4 @@
+import { SymbolView } from "expo-symbols";
 import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import NewOrderScreen from "@mobile/features/orders/presentation/new-order-screen";
@@ -187,6 +188,12 @@ test("line warning says how many units are available and what happens, only abov
   expect(within.queryByText(stockWarning)).toBeNull();
 });
 
+test("line warning renders as a note with the warning icon", async () => {
+  const screen = await reviewWithQuantity(0, 4);
+  expect(screen.getByText(stockWarning)).toBeTruthy();
+  expect(screen.UNSAFE_getAllByType(SymbolView).some(node => node.props.name?.android === "warning")).toBe(true);
+});
+
 test("line warning is in Portuguese with the available count", async () => {
   try {
     const screen = await reviewWithQuantity(2, 3);
@@ -195,16 +202,65 @@ test("line warning is in Portuguese with the available count", async () => {
   } finally { await i18n.changeLanguage("es"); }
 });
 
-test("payment that covers the total with quantity above stock warns and blocks saving", async () => {
+const dialogDescription = "Camisa: pediste 4, hay 3.\n\nPuedes guardar el pedido como pendiente de pago o reponer stock antes de cobrarlo completo.";
+
+test("payment that covers the total with quantity above stock warns early and keeps Save enabled", async () => {
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
   expect(screen.getByText(/Con este pago el pedido descuenta stock/)).toHaveProp("accessibilityRole", "alert");
-  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
   fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
   expect(screen.queryByText(/Con este pago el pedido descuenta stock/)).toBeNull();
-  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
+});
+
+async function payFully(quantity: number) {
+  mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
+  const screen = await reviewWithQuantity(3, quantity);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("radio", { name: "Pagado" }));
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  return screen;
+}
+
+test("Pagado with quantity above stock asks on Save, and saving as pending sends no stock-deducting payment", async () => {
+  const screen = await payFully(4);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  expect(mockCompleteOrder).not.toHaveBeenCalled();
+  expect(mockShowConfirmation).toHaveBeenCalledWith(expect.objectContaining({ title: "No hay stock suficiente", description: dialogDescription,
+    confirmLabel: "Guardar como pendiente", cancelLabel: "Volver" }));
+  mockShowConfirmation.mock.lastCall?.[0].onConfirm();
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
+  const sent = mockCompleteOrder.mock.calls[0][0];
+  expect(sent.payments ?? []).toEqual([]);
+  expect(mockCompleteOrder.mock.calls[0][1]).toBe(mockId(1));
+});
+
+test("saving as pending keeps advance payments but clears their stock deduction", async () => {
+  mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  mockShowConfirmation.mock.lastCall?.[0].onConfirm();
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
+  expect((mockCompleteOrder.mock.calls[0][0].payments ?? []).some((payment: { deductStockIfPartial: boolean }) => payment.deductStockIfPartial)).toBe(false);
+});
+
+test("Volver on the stock dialog sends nothing", async () => {
+  const screen = await payFully(4);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  mockShowConfirmation.mock.lastCall?.[0].onCancel?.();
+  expect(mockCompleteOrder).not.toHaveBeenCalled();
+});
+
+test("Pagado with quantity within stock sends directly without a dialog", async () => {
+  const screen = await payFully(3);
+  fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
+  await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
+  expect(mockShowConfirmation).not.toHaveBeenCalledWith(expect.objectContaining({ title: "No hay stock suficiente" }));
 });
 
 test("Pagado sheet with quantity above stock shows the alert, and lowering the quantity removes it", async () => {
@@ -213,12 +269,10 @@ test("Pagado sheet with quantity above stock shows the alert, and lowering the q
   fireEvent.press(screen.getByRole("radio", { name: "Pagado" }));
   fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
   expect(screen.getByText(/Con este pago el pedido descuenta stock/)).toHaveProp("accessibilityRole", "alert");
-  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   fireEvent.press(screen.getByRole("button", { name: "−" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   expect(screen.queryByText(/Con este pago el pedido descuenta stock/)).toBeNull();
-  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
 });
 
 test("delivered with payment and quantity above stock shows a single stock alert", async () => {
@@ -231,6 +285,7 @@ test("delivered with payment and quantity above stock shows a single stock alert
   expect(screen.getByText(/repón el stock para guardarlo como entregado/)).toBeTruthy();
   expect(screen.queryByText(/deja el pago como pendiente/)).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+  expect(mockShowConfirmation).not.toHaveBeenCalled();
 });
 
 test("delivered without payment still reports the stock need and blocks saving", async () => {
@@ -253,7 +308,7 @@ test("pending order with quantity above stock still saves and is sent", async ()
 
 test("stock warning texts exist in Spanish and Portuguese", () => {
   for (const language of ["es", "pt-BR"]) {
-    for (const key of ["creationStockWarning", "paymentNeedsStock"]) {
+    for (const key of ["creationStockWarning", "paymentNeedsStock", "stockShortTitle", "stockShortItem", "stockShortAdvice", "saveAsPending", "stockShortBack"]) {
       expect(i18n.getFixedT(language)(key, { count: 0 })).not.toBe(key);
     }
   }
