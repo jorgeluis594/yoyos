@@ -89,6 +89,20 @@ function selectDistrict(screen: ReturnType<typeof render>, code = "150122") {
   fireEvent.changeText(screen.getByLabelText("Buscar distrito"), code);
   fireEvent(screen.getByTestId("delivery-district"), "valueChange", 0);
 }
+function openPayment(screen: ReturnType<typeof render>) {
+  fireEvent.press(screen.getByRole("button", { name: /^(Registrar pago|Cobrar saldo)/ }));
+}
+function advance(screen: ReturnType<typeof render>, amount: string, deductStock = false) {
+  openPayment(screen);
+  fireEvent.press(screen.getByRole("radio", { name: /Otro monto/ }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), amount);
+  if (deductStock) fireEvent(screen.getByLabelText("Descontar stock ahora"), "valueChange", true);
+  fireEvent.press(screen.getByRole("button", { name: /^Registrar .*\d/ }));
+}
+function payFull(screen: ReturnType<typeof render>) {
+  openPayment(screen);
+  fireEvent.press(screen.getByRole("button", { name: /^Registrar .*\d/ }));
+}
 async function review() {
   const screen = render(<NewOrderScreen />);
   fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
@@ -104,10 +118,9 @@ test("review preserves payment and shows one save action", async () => {
     order: { id: mockId(3) } }));
   const screen = await review();
   expect(screen.getByText("Productos (referencial)")).toBeTruthy();
-  expect(screen.getByRole("radio", { name: "Pendiente" })).toHaveProp("accessibilityState", expect.objectContaining({ checked: true }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
-  expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "5");
+  expect(screen.getByLabelText("Pendiente")).toBeTruthy();
+  advance(screen, "5");
+  expect(screen.getByLabelText("Pago parcial")).toBeTruthy();
   expect(screen.getAllByRole("button", { name: "Guardar pedido" })).toHaveLength(1);
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
@@ -141,8 +154,7 @@ test("products stay read-only on the form and returning preserves entered data",
   fireEvent.press(screen.getByRole("button", { name: /^Artículos/ }));
   expect(screen.getByText("Talla: M")).toBeTruthy();
   expect(screen.queryByRole("button", { name: "Quitar" })).toBeNull();
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
+  advance(screen, "10");
   fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
   expect(screen.getByTestId("delivery-status")).toHaveProp("accessibilityLabel", "Estado: Pendiente");
   fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
@@ -150,7 +162,7 @@ test("products stay read-only on the form and returning preserves entered data",
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   expect(screen.getByRole("button", { name: "+" })).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "10");
+  expect(screen.getByRole("button", { name: /^Quitar pago/ })).toBeTruthy();
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Calle 1");
   expect(screen.getByTestId("delivery-status")).toHaveProp("accessibilityLabel", "Estado: Entregado");
 });
@@ -160,8 +172,7 @@ test("delivered status explains missing payment and allows saving once covered",
   fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
   expect(screen.getByText(/Completa el pago/)).toHaveProp("accessibilityRole", "alert");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
+  advance(screen, "10");
   expect(screen.queryByText(/Completa el pago/)).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
 });
@@ -211,11 +222,11 @@ const dialogDescription = "Camisa: pediste 4, hay 3.\n\nSe guardará con sus pag
 test("payment that covers the total with quantity above stock warns early and keeps Save enabled", async () => {
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
+  advance(screen, "40");
   expect(screen.getByText(/Con este pago se descuenta stock/)).toHaveProp("accessibilityRole", "alert");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
+  fireEvent.press(screen.getByRole("button", { name: /^Quitar pago/ }));
+  advance(screen, "5");
   expect(screen.queryByText(/Con este pago se descuenta stock/)).toBeNull();
 });
 
@@ -223,8 +234,7 @@ async function payFully(quantity: number) {
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
   const screen = await reviewWithQuantity(3, quantity);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("radio", { name: "Pagado" }));
-  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  payFull(screen);
   return screen;
 }
 
@@ -246,8 +256,7 @@ test("saving as pending keeps an advance that covers the total and defers stock"
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
+  advance(screen, "40");
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   expect(mockShowConfirmation.mock.lastCall?.[0].description).toBe(dialogDescription);
   mockShowConfirmation.mock.lastCall?.[0].onConfirm();
@@ -259,9 +268,7 @@ test("saving as pending keeps a partial advance with its stock deduction option"
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
-  fireEvent(screen.getByLabelText("Descontar stock con abono parcial"), "valueChange", true);
+  advance(screen, "10", true);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   expect(mockShowConfirmation.mock.lastCall?.[0].description).toBe(dialogDescription);
   mockShowConfirmation.mock.lastCall?.[0].onConfirm();
@@ -286,8 +293,7 @@ test("Pagado with quantity within stock sends directly without a dialog", async 
 test("Pagado sheet with quantity above stock shows the alert, and lowering the quantity removes it", async () => {
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("radio", { name: "Pagado" }));
-  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  payFull(screen);
   expect(screen.getByText(/Con este pago se descuenta stock/)).toHaveProp("accessibilityRole", "alert");
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   fireEvent.press(screen.getByRole("button", { name: "−" }));
@@ -298,8 +304,7 @@ test("Pagado sheet with quantity above stock shows the alert, and lowering the q
 test("delivered with payment and quantity above stock shows a single stock alert", async () => {
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
+  advance(screen, "40");
   fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
   expect(screen.getAllByRole("alert").filter(node => /stock/.test(String(node.props.children)))).toHaveLength(1);
   expect(screen.getByText(/repón el stock para guardarlo como entregado/)).toBeTruthy();
@@ -437,10 +442,8 @@ test("one save retains editable payments and delivery on rejection and prevents 
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "5");
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getAllByLabelText(/Monto/)[1], "13");
+  advance(screen, "5");
+  advance(screen, "13");
   fireEvent.press(screen.getByRole("button", { name: "Datos de envío" }));
   fireEvent.changeText(screen.getByLabelText(/Dirección de entrega/), "Av. Lima 123");
   selectDistrict(screen);
@@ -458,7 +461,7 @@ test("one save retains editable payments and delivery on rejection and prevents 
     ratedDelivery: { expectedPrice: firstRate.price, delivery: { method: "home", rateId: firstRate.id,
       destination: { address: "Av. Lima 123", districtCode: "150122" }, recipient: { name: "Ana", phone: "999001" } } }, deliverImmediately: true });
   expect(screen.getByLabelText(/Dirección de entrega/)).toHaveProp("value", "Av. Lima 123");
-  expect(screen.getAllByLabelText(/Monto/)[1]).toHaveProp("value", "13");
+  expect(screen.getAllByRole("button", { name: /^Quitar pago/ })).toHaveLength(2);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(2));
   expect(mockCompleteOrder.mock.calls[1][0]).toEqual(mockCompleteOrder.mock.calls[0][0]);
@@ -472,13 +475,13 @@ test("decimal comma in an initial payment updates the summary and allows saving"
   fireEvent.press(screen.getByRole("button", { name: /Camisa/ }));
   fireEvent.press(screen.getByRole("button", { name: "Agregar" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "5,50");
-  expect(screen.getByText(/5[.,]50/)).toBeTruthy();
+  openPayment(screen);
+  fireEvent.press(screen.getByRole("radio", { name: /Otro monto/ }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "1e309");
-  expect(screen.queryByText(/5[.,]50/)).toBeNull();
-  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+  expect(screen.getAllByRole("button", { name: /^Registrar/ }).at(-1)).toBeDisabled();
   fireEvent.changeText(screen.getByLabelText(/Monto/), "5,50");
+  fireEvent.press(screen.getByRole("button", { name: /^Registrar .*\d/ }));
+  expect(screen.getAllByText(/5[.,]50/).length).toBeGreaterThan(0);
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({
@@ -747,14 +750,15 @@ test("a seller corrects a refused sale's missing references and payments; a repe
   fireEvent.press(screen.getByRole("button", { name: "Quitar producto no disponible 1" }));
   fireEvent.press(screen.getByRole("button", { name: "−" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "5.50");
+  fireEvent.press(screen.getByRole("button", { name: /^Quitar pago/ }));
+  advance(screen, "5.50");
   expect(screen.getByRole("button", { name: "Guardar otra vez" })).toBeEnabled();
   mockReviewOrder.mockResolvedValueOnce(err({ code: "INSUFFICIENT_STOCK", message: "No stock", issues: [{ field: "items", reason: "STOCK", variantId: mockId(2) }] }));
   await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" })); });
-  expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "5.50");
+  expect(screen.getByRole("button", { name: /^Quitar pago/ })).toBeTruthy();
   expect(mockReviewOrder).toHaveBeenLastCalledWith(mockId(1), expect.objectContaining({ id: pending.id,
     items: [expect.objectContaining({ variantId: mockId(2), quantity: 1 })],
-    payments: [expect.objectContaining({ paymentId: mockId(8), amount: "5.50" })] }));
+    payments: [expect.objectContaining({ amount: "5.50" })] }));
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   expect(screen.getByText("Revisa esta variante.")).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));

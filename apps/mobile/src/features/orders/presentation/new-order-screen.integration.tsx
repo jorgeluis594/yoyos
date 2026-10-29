@@ -118,6 +118,15 @@ beforeEach(() => {
 });
 afterEach(() => { rmSync(directory, { recursive: true, force: true }); });
 
+function openPayment(screen: ReturnType<typeof render>) {
+  fireEvent.press(screen.getByRole("button", { name: /^(Registrar pago|Cobrar saldo)/ }));
+}
+function advance(screen: ReturnType<typeof render>, amount: string) {
+  openPayment(screen);
+  fireEvent.press(screen.getByRole("radio", { name: /Otro monto/ }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), amount);
+  fireEvent.press(screen.getByRole("button", { name: /^Registrar .*\d/ }));
+}
 async function review() {
   const screen = render(<NewOrderScreen />);
   fireEvent.press(screen.getByRole("button", { name: "Agregar productos" }));
@@ -141,8 +150,7 @@ test("mobile interface creates a pending order without payments or stock changes
 
 test("mobile interface creates an immediate sale with payment, stock deduction and delivery", async () => {
   const screen = await review();
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "10");
+  advance(screen, "10");
   fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
@@ -202,8 +210,7 @@ async function ratedReview(method: "home" | "agency" = "home", rateIndex = 0) {
 test("mobile creates a rated home order and payment atomically with the full selected charge", async () => {
   const screen = await ratedReview();
   expect(screen.getAllByText(/S\/\s18\.00/).length).toBeGreaterThan(0);
-  fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
-  fireEvent.changeText(screen.getByLabelText(/Monto/), "18");
+  advance(screen, "18");
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledTimes(1));
   const id = mockReplace.mock.calls[0][0].split("/").at(-1);
@@ -365,7 +372,7 @@ test("restarted stock rejection keeps the paid attempt editable and resends its 
   const screen = render(<NewOrderScreen />);
   fireEvent.press(await screen.findByRole("button", { name: "Revisar venta" }));
   await screen.findByRole("button", { name: "Guardar otra vez" });
-  expect(screen.getByLabelText(/Monto/)).toHaveProp("value", "40");
+  expect(screen.getByRole("button", { name: /^Quitar pago/ })).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   for (let count = 0; count < 3; count++) fireEvent.press(screen.getByRole("button", { name: "−" }));
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));

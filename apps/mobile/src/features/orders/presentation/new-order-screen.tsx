@@ -68,7 +68,6 @@ function CompanyOrderScreen() {
   const { show } = useOrderResult();
   const [draft, setDraft] = useState<OrderDraft>(emptyOrderDraft);
   const [stage, setStage] = useState<"products" | "review">("products");
-  const [paidPaymentId, setPaidPaymentId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [catalog, setCatalog] = useState<Catalog>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
@@ -164,7 +163,7 @@ function CompanyOrderScreen() {
     version.current = discardVersion;
     leaveAllowed.current = true;
     setDraft(emptyOrderDraft());
-    setStage("products"); setPaidPaymentId(null);
+    setStage("products");
     setInitialDelivery(null);
     setReviewingOrder(false); setUnavailableVariants([]);
     setQuoteAttempt(value => value + 1);
@@ -239,7 +238,7 @@ function CompanyOrderScreen() {
   };
   const startNewSale = () => {
     leaveAllowed.current = true;
-    setDraft(emptyOrderDraft()); setStage("products"); setPaidPaymentId(null); setInitialDelivery(null);
+    setDraft(emptyOrderDraft()); setStage("products"); setInitialDelivery(null);
     setReviewingOrder(false); setUnavailableVariants([]); setUnavailableLabels({}); setError(""); setProblemVariantId(null); setProblemCode(null);
     scroll.current?.scrollTo({ y: 0, animated: true });
   };
@@ -264,7 +263,7 @@ function CompanyOrderScreen() {
     if (result.data.kind !== "review") return;
     setDraft(result.data.draft); setQueuedNotice(false);
     setUnavailableVariants(result.data.unavailableVariantIds); setUnavailableLabels(result.data.unavailableLabels ?? {});
-    setReviewingOrder(true); setStage("review"); setPaidPaymentId(null); setError("");
+    setReviewingOrder(true); setStage("review"); setError("");
     const delivery = result.data.pending.request.delivery?.delivery;
     if (delivery) restoreDelivery(delivery, result.data.pending.shownTotal.currency);
     else setInitialDelivery(null);
@@ -349,9 +348,8 @@ function CompanyOrderScreen() {
             <OrderItemsCard items={draft.items} total={productTotal.success ? money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale) : null}
               format={(amount, currency) => money(amount, currency, locale)} onEdit={backToProducts} collapsible />
             {unavailableVariants.length ? <ThemedText accessibilityRole="alert">{t('savedProductsNeedReview')}</ThemedText> : null}
-            <OrderPaymentCard payments={draft.payments ?? []} paidPaymentId={paidPaymentId} onPaidChange={setPaidPaymentId}
-              currency={currency} busy={sending} newId={() => Crypto.randomUUID()} format={amount => money(amount, currency, locale)}
-              total={orderTotal ? orderTotal.amount : null} balance={orderTotal ? money(orderTotal.amount, orderTotal.currency, locale) : null}
+            <OrderPaymentCard payments={draft.payments ?? []} currency={currency} busy={sending} newId={() => Crypto.randomUUID()} format={amount => money(amount, currency, locale)}
+              total={orderTotal ? orderTotal.amount : null} totalConfirmed={!!reviewedTotal?.success}
               onPaymentsChange={update => setDraft(current => ({ ...current, payments: update(current.payments ?? []) }))} />
             {paymentNeedsStock ? <ThemedText accessibilityRole="alert" style={{ color: theme.warning }}>{t('paymentNeedsStock')}</ThemedText> : null}
             <View style={[styles.card, card]}>
