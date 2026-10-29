@@ -267,7 +267,7 @@ function CompanyOrderScreen() {
   };
   const restoreDelivery = (selection: RatedDeliveryAssignment["delivery"], currency: Money["currency"]) => {
     const recipient = selection.recipient;
-    setInitialDelivery({ method: selection.method, name: recipient.name, phone: savedPhoneForForm(recipient.phone),
+    setInitialDelivery({ method: selection.method, name: recipient.name, phone: selection.method === "store" ? recipient.phone : savedPhoneForForm(recipient.phone),
       documentType: recipient.identity.kind === "document" ? recipient.identity.documentType : "absent",
       document: recipient.identity.kind === "document" ? recipient.identity.document : "",
       address: selection.method === "home" ? selection.destination.address : "",

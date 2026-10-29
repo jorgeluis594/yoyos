@@ -5,10 +5,10 @@ import { Field, FieldError, FieldLabel } from "@mobile/components/ui/field";
 import { Input } from "@mobile/components/ui/input";
 import { OptionSelector } from "@mobile/components/ui/option-selector";
 
-type Props = Readonly<{ value: string; onChange: (phone: string) => void; label: string; testID: string; invalid: boolean; disabled?: boolean; required?: boolean }>;
+type Props = Readonly<{ value: string; onChange: (phone: string) => void; label: string; testID: string; invalid: boolean; disabled?: boolean; required?: boolean; onBlur?: () => void }>;
 
 /** Country selector plus national number over an E.164 value; a value changed from outside (a prefill) is split back into both parts. */
-export function PhoneField({ value, onChange, label, testID, invalid, disabled, required }: Props) {
+export function PhoneField({ value, onChange, label, testID, invalid, disabled, required, onBlur }: Props) {
   const { t } = useTranslation();
   const initial = splitPhone(value);
   const [country, setCountry] = useState(initial?.country ?? defaultPhoneCountry);
@@ -28,7 +28,7 @@ export function PhoneField({ value, onChange, label, testID, invalid, disabled, 
       <OptionSelector testID={`${testID}-country`} value={country} onValueChange={next => change(next ?? defaultPhoneCountry, national)}
         options={phoneCountries.map(entry => ({ value: entry.iso, label: `${entry.iso} +${entry.dial}` }))} /></Field>
     <Field required={required} invalid={invalid} disabled={disabled}><FieldLabel>{label}</FieldLabel>
-      <Input value={national} onChangeText={next => change(country, next)} invalid={invalid} keyboardType="phone-pad" accessibilityLabel={label} />
+      <Input value={national} onChangeText={next => change(country, next)} onBlur={onBlur} invalid={invalid} keyboardType="phone-pad" accessibilityLabel={label} />
       {invalid ? <FieldError>{t("customerPhoneInvalid")}</FieldError> : null}</Field>
   </>;
 }

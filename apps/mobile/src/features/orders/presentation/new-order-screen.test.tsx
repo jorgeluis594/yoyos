@@ -599,7 +599,7 @@ test("quotation failure and empty coverage block creation while pickup remains e
   expect(screen.getAllByText(/S\/\s0\.00/).length).toBeGreaterThan(0);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledWith(expect.objectContaining({ ratedDelivery: {
-    expectedPrice: { amount: 0, currency: "PEN" }, delivery: { method: "store", recipient: { name: "Ana", phone: "+51999001", identity: { kind: "absent" } } },
+    expectedPrice: { amount: 0, currency: "PEN" }, delivery: { method: "store", recipient: { name: "Ana", phone: "999001", identity: { kind: "absent" } } },
   } }), mockId(1)));
   expect(mockQuotation).toHaveBeenCalledTimes(2);
 });

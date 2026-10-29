@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { StyleSheet, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
@@ -35,6 +36,7 @@ export function DeliveryFields({ value, onChange, settings, busy, language, rate
   rates: DeliveryQuotation["rates"]; quoting: boolean; quoteError: boolean; onRetry: () => void;
 }) {
   const { t, i18n } = useTranslation();
+  const [phoneLeft, setPhoneLeft] = useState(false);
   const { method, address, districtCode, instructions, name, phone, documentType, document, rateId, agencyId } = value;
   const selectedRate = rates.find(rate => rate.id === rateId);
   const enabled = !!method && settings[method].enabled;
@@ -72,8 +74,11 @@ export function DeliveryFields({ value, onChange, settings, busy, language, rate
           {districtCode && !quoting ? <Button variant="secondary" disabled={busy} onPress={onRetry}>{t("orderQuotationRetry")}</Button> : null}
         </View> : null}
         <FieldGroup><Field required disabled={busy}><FieldLabel>{t("deliveryRecipientName")}</FieldLabel><Input value={name} onChangeText={next => onChange({ ...value, name: next })} autoCapitalize="words" maxLength={120} accessibilityLabel={t("deliveryRecipientName")} /></Field>
-          <PhoneField testID="delivery-recipient-phone" label={t("deliveryRecipientPhone")} value={phone} required disabled={busy} invalid={recipientPhoneInvalid(value)}
-            onChange={next => onChange({ ...value, phone: next })} />
+          {method === "store"
+            ? <Field required disabled={busy}><FieldLabel>{t("deliveryRecipientPhone")}</FieldLabel><Input value={phone} onChangeText={next => onChange({ ...value, phone: next })} keyboardType="phone-pad" accessibilityLabel={t("deliveryRecipientPhone")} /></Field>
+            : <PhoneField testID="delivery-recipient-phone" label={t("deliveryRecipientPhone")} value={phone} required disabled={busy}
+              invalid={phoneLeft && recipientPhoneInvalid(value)} onBlur={() => setPhoneLeft(true)}
+              onChange={next => onChange({ ...value, phone: next })} />}
           <Field required={method === "agency"} disabled={busy}><FieldLabel>{t("deliveryDocumentType")}</FieldLabel><OptionSelector testID="delivery-document-type" value={method === "agency" && documentType === "absent" ? null : documentType} onValueChange={next => onChange({ ...value, documentType: (next ?? "absent") as OrderDeliveryFormValues["documentType"] })}
             options={[...(method === "agency" ? [] : [{ value: "absent", label: t("deliveryNoDocument") }]), ...(["national_id", "passport", "foreign_id"] as const).map(value => ({ value, label: documentTypeLabel(value, language) }))]} /></Field>
           {documentType !== "absent" ? <Field required disabled={busy}><FieldLabel>{t("deliveryDocument")}</FieldLabel><Input value={document} onChangeText={next => onChange({ ...value, document: next })} accessibilityLabel={t("deliveryDocument")} /></Field> : null}</FieldGroup>
