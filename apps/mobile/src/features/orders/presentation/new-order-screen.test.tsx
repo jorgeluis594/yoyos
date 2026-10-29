@@ -202,7 +202,7 @@ test("line warning is in Portuguese with the available count", async () => {
   } finally { await i18n.changeLanguage("es"); }
 });
 
-const dialogDescription = "Camisa: pediste 4, hay 3.\n\nPuedes guardar el pedido como pendiente de pago o reponer stock antes de cobrarlo completo.";
+const dialogDescription = "Camisa: pediste 4, hay 3.\n\nSe guardará con sus pagos y el stock quedará pendiente de descontar hasta reponer el stock.";
 
 test("payment that covers the total with quantity above stock warns early and keeps Save enabled", async () => {
   const screen = await reviewWithQuantity(3, 4);
@@ -224,7 +224,7 @@ async function payFully(quantity: number) {
   return screen;
 }
 
-test("Pagado with quantity above stock asks on Save, and saving as pending sends no stock-deducting payment", async () => {
+test("Pagado with quantity above stock asks on Save, and saving as pending sends the payment with deferred stock", async () => {
   const screen = await payFully(4);
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
   expect(mockCompleteOrder).not.toHaveBeenCalled();
@@ -233,24 +233,25 @@ test("Pagado with quantity above stock asks on Save, and saving as pending sends
   mockShowConfirmation.mock.lastCall?.[0].onConfirm();
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
   const sent = mockCompleteOrder.mock.calls[0][0];
-  expect(sent.payments ?? []).toEqual([]);
+  expect(sent.payments).toEqual([expect.objectContaining({ amount: "40.00" })]);
+  expect(sent.deferStockDeduction).toBe(true);
   expect(mockCompleteOrder.mock.calls[0][1]).toBe(mockId(1));
 });
 
-test("saving as pending drops an advance that covers the total and the dialog says how much is removed", async () => {
+test("saving as pending keeps an advance that covers the total and defers stock", async () => {
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
   fireEvent.press(screen.getByRole("button", { name: "Registrar adelanto" }));
   fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
   fireEvent.press(screen.getByRole("button", { name: "Guardar pedido" }));
-  expect(mockShowConfirmation.mock.lastCall?.[0].description).toBe(`${dialogDescription}\n\nSe quitará el adelanto de S/\u00a040.00; regístralo cuando repongas stock.`);
+  expect(mockShowConfirmation.mock.lastCall?.[0].description).toBe(dialogDescription);
   mockShowConfirmation.mock.lastCall?.[0].onConfirm();
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
-  expect(mockCompleteOrder.mock.calls[0][0].payments ?? []).toEqual([]);
+  expect(mockCompleteOrder.mock.calls[0][0]).toMatchObject({ payments: [expect.objectContaining({ amount: "40" })], deferStockDeduction: true });
 });
 
-test("saving as pending keeps a partial advance with its stock deduction cleared and does not mention removal", async () => {
+test("saving as pending keeps a partial advance with its stock deduction option", async () => {
   mockCompleteOrder.mockResolvedValue(ok({ kind: "completed", shownTotal: { amount: 40, currency: "PEN" }, order: { id: mockId(3) } }));
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
@@ -261,7 +262,7 @@ test("saving as pending keeps a partial advance with its stock deduction cleared
   expect(mockShowConfirmation.mock.lastCall?.[0].description).toBe(dialogDescription);
   mockShowConfirmation.mock.lastCall?.[0].onConfirm();
   await waitFor(() => expect(mockCompleteOrder).toHaveBeenCalledTimes(1));
-  expect(mockCompleteOrder.mock.calls[0][0].payments).toEqual([expect.objectContaining({ amount: "10", deductStockIfPartial: false })]);
+  expect(mockCompleteOrder.mock.calls[0][0]).toMatchObject({ payments: [expect.objectContaining({ amount: "10", deductStockIfPartial: true })], deferStockDeduction: true });
 });
 
 test("Volver on the stock dialog sends nothing", async () => {

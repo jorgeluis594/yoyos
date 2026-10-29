@@ -268,7 +268,7 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
     }
     const result = await createConfiguredOrder({ ...input,
       payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })), delivery,
-      deliverImmediately: parsed.data.deliverImmediately }, context);
+      deliverImmediately: parsed.data.deliverImmediately, deferStockDeduction: parsed.data.deferStockDeduction }, context);
     return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });

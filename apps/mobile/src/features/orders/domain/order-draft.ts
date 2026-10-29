@@ -18,7 +18,7 @@ export type OrderDraftItem = Readonly<{
 }>;
 
 export type DraftPayment = Readonly<{ paymentId: string; amount: string; method: "digital_wallet" | "bank_transfer"; deductStockIfPartial: boolean }>;
-type DraftOptions = Readonly<{ payments?: readonly DraftPayment[]; ratedDelivery?: RatedDeliveryAssignment; deliverImmediately?: boolean; scheduledDispatchDate?: string }>;
+type DraftOptions = Readonly<{ payments?: readonly DraftPayment[]; ratedDelivery?: RatedDeliveryAssignment; deliverImmediately?: boolean; deferStockDeduction?: boolean; scheduledDispatchDate?: string }>;
 const identity = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("absent") }),
   z.strictObject({ kind: z.literal("document"), documentType: z.enum(["national_id", "passport", "foreign_id"]), document: z.string().trim().min(1) })]);
 const recipient = z.strictObject({ name: z.string().trim().min(1), phone: z.string().trim().min(1), identity });
@@ -40,6 +40,7 @@ const submissionSchema = z.strictObject({ id: z.uuid(),
     method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
   delivery: ratedDeliveryAssignmentSchema.optional(),
   deliverImmediately: z.boolean().optional(),
+  deferStockDeduction: z.boolean().optional(),
   scheduledDispatchDate: dispatchDateSchema.optional(),
 });
 export type OrderSubmission = z.infer<typeof submissionSchema>;
@@ -81,6 +82,7 @@ export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSubmissi
     ...(draft.payments ? { payments: draft.payments.map(payment => ({ ...payment, amount: { amount: Number(normalizeDecimalInput(payment.amount)), currency: total?.currency } })) } : {}),
     ...(ratedDelivery?.success ? { delivery: ratedDelivery.data } : {}),
     ...(draft.deliverImmediately !== undefined ? { deliverImmediately: draft.deliverImmediately } : {}),
+    ...(draft.deferStockDeduction !== undefined ? { deferStockDeduction: draft.deferStockDeduction } : {}),
     ...(draft.scheduledDispatchDate ? { scheduledDispatchDate: draft.scheduledDispatchDate } : {}),
     items: draft.items.map(({ variantId, quantity }) => ({ variantId, quantity })) });
   return parsed.success && total ? ok({ request: parsed.data, shownTotal: total }) : invalid();
@@ -127,17 +129,3 @@ export function paymentsDeductStock(payments: readonly DraftPayment[], total: Mo
 
 export const exceedsShownStock = (items: readonly OrderDraftItem[]) => items.some(item => item.quantity > item.shownStock);
 
-/**
- * Payments to send so the order saves as pending without deducting stock: drops the covering «Pagado» payment,
- * clears `deductStockIfPartial` and then drops advances, last first, while the rest still covers the total.
- * `removedAdvanceAmount` is the sum of those advances (not «Pagado»), which the seller has to register again.
- */
-export function paymentsWithoutStockDeduction(payments: readonly DraftPayment[], paidPaymentId: string | null, total: Money | null): Readonly<{ kept: readonly DraftPayment[]; removedAdvanceAmount: number }> {
-  let kept = payments.filter(payment => payment.paymentId !== paidPaymentId).map(payment => ({ ...payment, deductStockIfPartial: false }));
-  let removedCents = 0;
-  while (kept.length && paymentsDeductStock(kept, total)) {
-    removedCents += cents(Number(normalizeDecimalInput(kept[kept.length - 1].amount)) || 0);
-    kept = kept.slice(0, -1);
-  }
-  return { kept, removedAdvanceAmount: removedCents / 100 };
-}
