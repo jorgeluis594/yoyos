@@ -11,6 +11,8 @@ export type CreateCompleteOrderInput = CreateOrderInput & Readonly<{
   payments?: readonly Omit<RegisterPaymentInput, "orderId" | "source">[];
   delivery?: InitialOrderDeliveryInput;
   deliverImmediately?: boolean;
+  /** Records the payments as sent but leaves stock to the later explicit deduction; only for orders that stay pending. */
+  deferStockDeduction?: boolean;
 }>;
 export type CreateCompleteOrderError = CreateOrderError | RegisterPaymentError | SetDeliveryError | FulfillOrderError;
 export type CreateCompleteOrderDependencies = Readonly<{
@@ -26,8 +28,11 @@ export async function createCompleteOrder(input: CreateCompleteOrderInput, conte
   if (input.delivery && !("expectedPrice" in input.delivery))
     return err({ code: "INVALID_ORDER", message: "Initial delivery requires a reviewed configured rate" });
   if ((input.deliverImmediately !== undefined && typeof input.deliverImmediately !== "boolean") ||
+    (input.deferStockDeduction !== undefined && typeof input.deferStockDeduction !== "boolean") ||
     new Set(input.payments?.map(payment => payment.paymentId)).size !== (input.payments?.length ?? 0))
     return err({ code: "INVALID_ORDER", message: "Invalid creation options or duplicate payment identifiers" });
+  if (input.deferStockDeduction && input.deliverImmediately)
+    return err({ code: "INVALID_ORDER", message: "Stock deduction cannot be deferred when delivering immediately" });
   return deps.transaction(context.companyId, async () => {
     const result = await deps.create({ id: input.id, scheduledDispatchDate: input.scheduledDispatchDate, items: input.items }, context);
     if (!result.success) return result;
@@ -38,7 +43,7 @@ export async function createCompleteOrder(input: CreateCompleteOrderInput, conte
       order = delivered.data;
     }
     for (const payment of input.payments ?? []) {
-      const paid = await deps.registerPayment({ ...payment, source: "manual", orderId: input.id }, context);
+      const paid = await deps.registerPayment({ ...payment, deferStockDeduction: input.deferStockDeduction, source: "manual", orderId: input.id }, context);
       if (!paid.success) return paid;
       order = paid.data.order;
     }

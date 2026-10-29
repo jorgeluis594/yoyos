@@ -55,6 +55,7 @@ export const completeOrderSchema = orderSelectionSchema.extend({
     method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
   delivery: setRatedOrderDeliverySchema.optional(),
   deliverImmediately: z.boolean().optional(),
+  deferStockDeduction: z.boolean().optional(),
   scheduledDispatchDate: dispatchDateSchema.optional(),
 });
 export const createRatedOrderSchema = completeOrderSchema.extend({ delivery: setRatedOrderDeliverySchema });

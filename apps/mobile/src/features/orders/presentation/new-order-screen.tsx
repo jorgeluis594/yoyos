@@ -34,7 +34,7 @@ import { ScreenState } from "@mobile/components/ui/screen-state";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { addDraftItem, changeDraftQuantity, emptyOrderDraft, exceedsShownStock, paymentsDeductStock, prepareOrder, removeDraftItem, type RatedDeliveryAssignment,
-  paymentsWithoutStockDeduction, type OrderDraft } from "@mobile/features/orders/domain/order-draft";
+  type OrderDraft } from "@mobile/features/orders/domain/order-draft";
 import type { ConfirmOrderOutcome, ConfirmOrderError } from "@mobile/features/orders/application/order-operations";
 import { useOrderDraft } from "@mobile/features/orders/presentation/order-draft-guard";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
@@ -229,21 +229,13 @@ function CompanyOrderScreen() {
     } finally { saving.current = false; setSending(false); }
   };
   const send = (toSend: typeof saveDraft) => performSave(reviewingOrder ? () => orders.reviewPendingOrder(companyId, toSend) : () => orders.completeOrder(toSend, companyId));
-  const pendingPayments = () => paymentsWithoutStockDeduction(draft.payments ?? [], paidPaymentId, orderTotal);
-  const savePending = () => {
-    const { kept } = pendingPayments();
-    setPaidPaymentId(null);
-    setDraft(current => ({ ...current, payments: kept }));
-    return send({ ...saveDraft, payments: kept });
-  };
+  const savePending = () => send({ ...saveDraft, deferStockDeduction: true });
   const complete = () => {
     if (!deliveryReady || !prepared.success || unavailableVariants.length) return;
     if (!paymentNeedsStock) return send(saveDraft);
     const lines = draft.items.filter(item => item.quantity > item.shownStock)
       .map(item => t('stockShortItem', { name: item.productName, quantity: item.quantity, stock: item.shownStock }));
-    const { removedAdvanceAmount } = pendingPayments();
-    const removal = removedAdvanceAmount > 0 ? `\n\n${t('stockShortRemovesAdvance', { amount: money(removedAdvanceAmount, currency, locale) })}` : "";
-    showConfirmation({ title: t('stockShortTitle'), description: `${lines.join("\n")}\n\n${t('stockShortAdvice')}${removal}`,
+    showConfirmation({ title: t('stockShortTitle'), description: `${lines.join("\n")}\n\n${t('stockShortAdvice')}`,
       confirmLabel: t('saveAsPending'), cancelLabel: t('stockShortBack'), onConfirm: () => void savePending() });
   };
   const startNewSale = () => {
