@@ -300,5 +300,13 @@
     "text_with_items_and_pendings": "Message kind: text message\nOrder items:\nI1: Casaca (P3) · Talla M · quantity 1 · PEN 120.00 each\nI2: Polo básico (P1) · Talla S · Color Negro · quantity 2 · PEN 40.00 each\nPendings:\nQ1: Polo básico (P1). Known: Color Negro. Missing: Talla. Quantity: 2.\nQ2: one of Polo básico (P1), Gorra (P2). Quantity: 1.\nProducts:\nP1 Polo básico — for sale\n  Talla: S, M\n  Color: Negro, Blanco\n  Prices in PEN:\n  40.00: Talla S · Color Negro; Talla M · Color Negro\n  42.00: Talla M · Color Blanco\n  Not sold: Talla S · Color Blanco\nP2 Gorra — for sale\n  Price: PEN 15.00\nP3 Casaca — not for sale\nBuyer's message:\nel segundo en M, y quita la casaca",
     "product_photo": "Message kind: caption of a product photo\nOrder items:\nThe chat has no open order.\nPendings:\nThe chat has no pendings.\nThe photo shows P1 Polo básico, variant Talla M · Color Negro.\nProducts:\nP1 Polo básico — for sale\n  Talla: S, M\n  Color: Negro, Blanco\n  Prices in PEN:\n  40.00: Talla S · Color Negro; Talla M · Color Negro\n  42.00: Talla M · Color Blanco\n  Not sold: Talla S · Color Blanco\nBuyer's message:\nme interesa 3",
     "non_product_photo": "Message kind: caption of a photo that shows no catalog product\nOrder items:\nThe chat has no open order.\nPendings:\nThe chat has no pendings.\nThe photo shows no catalog product.\nProducts:\nNo products are listed.\nBuyer's message:\nasí lo quiero"
+  },
+  "worstCase": {
+    "method": "characters / 3, an estimate until a live count replaces it",
+    "maxProducts": 24,
+    "estimatedInputTokens": 24548,
+    "inputTokenLimit": 25000,
+    "answerTokens": 1000,
+    "estimatedCostUsd": 0.00295
   }
 }

@@ -54,7 +54,6 @@ const answerShape = (maxActions: number) => z.strictObject({
 });
 
 type ParsedAction = z.output<typeof actionSchema>;
-type ParsedAnswer = z.output<ReturnType<typeof answerShape>>;
 
 const choices = (list: ParsedAction["attributes"]): readonly AttributeChoice[] => (list ?? []).map(({ name, value }) => ({ name, value }));
 const priceOf = (price: ParsedAction["price"]): StatedPrice | null => (price ? { amount: price.amount, currency: price.currency, per: price.per } : null);
@@ -72,35 +71,35 @@ function itemOf({ item }: ParsedAction): ReaderItem | null {
   return { kind: item.kind };
 }
 
-/** The action of one parsed entry, or the reason its fields do not fit its kind. Strict mode makes every field required, so each kind checks the ones it uses. */
-function convertAction(action: ParsedAction): ReaderAction | string {
-  const missing = (field: string) => `${action.kind}: ${field}`;
+/** The action of one parsed entry. Strict mode makes every field required, so each kind checks the ones it uses; an incomplete or inconsistent one is `malformed` and fails only itself. */
+function convertAction(action: ParsedAction): ReaderAction {
+  const malformed: ReaderAction = { kind: "malformed" };
   switch (action.kind) {
     case "add": {
       const product = productOf(action);
-      return product ? { kind: "add", product, attributes: choices(action.attributes), quantity: action.quantity, price: priceOf(action.price) } : missing("product");
+      return product ? { kind: "add", product, attributes: choices(action.attributes), quantity: action.quantity, price: priceOf(action.price) } : malformed;
     }
     case "complete_pending":
-      return action.pending ? { kind: "complete_pending", pending: action.pending, product: action.pendingProduct, attributes: choices(action.attributes), quantity: action.quantity, price: priceOf(action.price) } : missing("pending");
-    case "decline_pending": return action.pending ? { kind: "decline_pending", pending: action.pending } : missing("pending");
+      return action.pending ? { kind: "complete_pending", pending: action.pending, product: action.pendingProduct, attributes: choices(action.attributes), quantity: action.quantity, price: priceOf(action.price) } : malformed;
+    case "decline_pending": return action.pending ? { kind: "decline_pending", pending: action.pending } : malformed;
     case "remove": {
       const item = itemOf(action);
-      return item && action.amount ? { kind: "remove", item, amount: action.amount } : missing("item or amount");
+      return item && action.amount ? { kind: "remove", item, amount: action.amount } : malformed;
     }
     case "change_quantity": {
       const item = itemOf(action);
-      return item && action.mode && action.quantity !== null ? { kind: "change_quantity", item, mode: action.mode, quantity: action.quantity } : missing("item, mode or quantity");
+      return item && action.mode && action.quantity !== null ? { kind: "change_quantity", item, mode: action.mode, quantity: action.quantity } : malformed;
     }
     case "change_variant": {
       const item = itemOf(action);
-      return item ? { kind: "change_variant", item, attributes: choices(action.attributes), price: priceOf(action.price) } : missing("item");
+      return item ? { kind: "change_variant", item, attributes: choices(action.attributes), price: priceOf(action.price) } : malformed;
     }
     case "set_price": {
       const item = itemOf(action);
       const price = priceOf(action.price);
-      return item && price ? { kind: "set_price", item, price } : missing("item or price");
+      return item && price ? { kind: "set_price", item, price } : malformed;
     }
-    case "variant_for_pendings": return atLeastTwo(action.pendings) ? { kind: "variant_for_pendings", pendings: action.pendings } : missing("pendings");
+    case "variant_for_pendings": return atLeastTwo(action.pendings) ? { kind: "variant_for_pendings", pendings: action.pendings } : malformed;
     case "decline_shown":
     case "ready":
     case "variant_only":
@@ -108,21 +107,9 @@ function convertAction(action: ParsedAction): ReaderAction | string {
   }
 }
 
-const actionsOf = (parsed: ParsedAnswer): readonly ReaderAction[] | string => {
-  const actions: ReaderAction[] = [];
-  for (const entry of parsed.actions) {
-    const action = convertAction(entry);
-    if (typeof action === "string") return action;
-    actions.push(action);
-  }
-  return actions;
-};
-
-/** The one answer schema, the same for every message; nothing in it comes from a context. Zod checks what strict mode cannot: the fields each kind needs. */
+/** The one answer schema, the same for every message; nothing in it comes from a context. Only an `actions` outcome without actions fails here: a malformed action fails itself in `toReaderAnswer`. */
 export const readerSchema = answerShape(maxParsedActions).superRefine((parsed, context) => {
-  const actions = actionsOf(parsed);
-  if (typeof actions === "string") context.addIssue({ code: "custom", message: actions, path: ["actions"] });
-  else if (parsed.outcome === "actions" && actions.length === 0) context.addIssue({ code: "custom", message: "actions: empty", path: ["actions"] });
+  if (parsed.outcome === "actions" && parsed.actions.length === 0) context.addIssue({ code: "custom", message: "actions: empty", path: ["actions"] });
 });
 
 /** The JSON schema sent as the strict `text.format`: at most `maxReaderActions` actions, no `$schema`. */
@@ -137,7 +124,7 @@ type ReaderOutput = z.output<typeof readerSchema>;
 /** The domain answer of a parsed output. Call it only with a value `readerSchema` accepted. */
 export function toReaderAnswer(parsed: ReaderOutput): ReaderAnswer {
   if (parsed.outcome !== "actions") return { kind: parsed.outcome };
-  const actions = actionsOf(parsed);
-  if (typeof actions === "string" || actions.length === 0) throw new Error("The output was not accepted by readerSchema");
-  return { kind: "actions", actions: actions as readonly [ReaderAction, ...ReaderAction[]], moreActions: parsed.moreActions };
+  const [first, ...rest] = parsed.actions.map(convertAction);
+  if (!first) throw new Error("The output was not accepted by readerSchema");
+  return { kind: "actions", actions: [first, ...rest], moreActions: parsed.moreActions };
 }

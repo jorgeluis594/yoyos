@@ -57,7 +57,9 @@ export type ReaderAction =
   | Readonly<{ kind: "ready" }>
   | Readonly<{ kind: "variant_only" }>
   | Readonly<{ kind: "variant_for_pendings"; pendings: readonly [ReadingRef, ReadingRef, ...ReadingRef[]] }>
-  | Readonly<{ kind: "not_allowed" }>;
+  | Readonly<{ kind: "not_allowed" }>
+  /** An action the reader returned incomplete or inconsistent for its kind; the check reports it as `invalid_action` (`unknown_reference`) and the rest of the answer still applies. */
+  | Readonly<{ kind: "malformed" }>;
 
 export type ReaderAnswer =
   /** At most 10 actions are applied; moreActions says the message asked for more. */

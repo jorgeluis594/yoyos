@@ -76,19 +76,28 @@ describe("readerSchema", () => {
     }
   });
 
-  test("rejects an action missing a field its kind needs", () => {
-    expect(parse(answer([full({ kind: "remove", item: null, amount: "one" })])).success).toBe(false);
-    expect(parse(answer([full({ kind: "variant_for_pendings", pendings: ["Q1"] })])).success).toBe(false);
-    expect(parse(answer([full({ kind: "add", product: { kind: "one_of", refs: ["P1"], ref: null } })])).success).toBe(false);
-    expect(parse(answer([full({ kind: "add", product: { kind: "ref", refs: null, ref: null } })])).success).toBe(false);
-    expect(parse(answer([full({ kind: "change_quantity", item: { kind: "unnamed", ref: null }, mode: null, quantity: 1 })])).success).toBe(false);
+  test("turns an action missing a field its kind needs into a malformed action and keeps the others", () => {
+    const wrong = [
+      full({ kind: "remove", item: null, amount: "one" }),
+      full({ kind: "variant_for_pendings", pendings: ["Q1"] }),
+      full({ kind: "add", product: { kind: "one_of", refs: ["P1"], ref: null } }),
+      full({ kind: "add", product: { kind: "ref", refs: null, ref: null } }),
+      full({ kind: "change_quantity", item: { kind: "unnamed", ref: null }, mode: null, quantity: 1 }),
+    ];
+    const parsed = parse(answer([...wrong, full(ready)]));
+    expect(parsed.success).toBe(true);
+    if (!parsed.success) return;
+    expect(toReaderAnswer(parsed.data)).toEqual({ kind: "actions", moreActions: false, actions: [...wrong.map(() => ({ kind: "malformed" })), { kind: "ready" }] });
+  });
+
+  test("ignores the actions of a no intent or doubt answer", () => {
+    const parsed = parse({ outcome: "no_intent", actions: [full({ kind: "remove" })], moreActions: false });
+    expect(parsed.success && toReaderAnswer(parsed.data)).toEqual({ kind: "no_intent" });
   });
 });
 
 describe("readerJsonSchema", () => {
-  test("builds the same schema for every context", () => {
-    // It is a module constant: nothing in it can come from a context.
-    expect(JSON.stringify(readerJsonSchema)).toBe(JSON.stringify(structuredClone(readerJsonSchema)));
+  test("is a plain root object without a draft marker", () => {
     expect(Object.keys(readerJsonSchema).sort()).toEqual(["additionalProperties", "properties", "required", "type"]);
   });
 

@@ -56,25 +56,22 @@ const contexts: Readonly<Record<string, ChatReadingContext>> = {
   non_product_photo: context({ kind: "photo_not_product", text: "así lo quiero" }),
 };
 
-test("pins every model-facing text, the one schema and the request settings of the reader", async () => {
-  // Any change of the instructions, the schema, the settings or the context text fails here and is reviewed as a change of what the model reads.
+const maxProducts = 24; // READER_MAX_PRODUCTS, lowered only when the size test or the reasoning measurement says so
+const worstCaseTokens = tokensOf(requestText(worstCaseContext(maxProducts)));
+const worstCaseCostUsd = (worstCaseTokens * price.input + (answerTokens + measuredReasoningTokens) * price.output) / 1_000_000;
+
+test("pins every model-facing text, the one schema, the request settings and the worst-case size of the reader", async () => {
+  // Any change of the instructions, the schema, the settings, the context text or the worst-case size fails here and is reviewed as a change of what the model reads.
   const pinned = {
     model: "gpt-6-luna", settings: readerRequestSettings, instructions: readerInstructions, jsonSchema: readerJsonSchema,
     contexts: Object.fromEntries(Object.entries(contexts).map(([name, reading]) => [name, describeReadingContext(reading)])),
+    worstCase: { method: `characters / ${charsPerToken}, an estimate until a live count replaces it`, maxProducts, estimatedInputTokens: worstCaseTokens, inputTokenLimit, answerTokens: answerTokens + measuredReasoningTokens, estimatedCostUsd: Number(worstCaseCostUsd.toFixed(5)) },
   };
   await expect(`${JSON.stringify(pinned, null, 2)}\n`).toMatchFileSnapshot("chat-reader.model-text.json");
 });
 
 test("keeps the worst-case context with per-combination prices within the token limit derived from the cost bound", () => {
-  const maxProducts = 24; // READER_MAX_PRODUCTS, lowered only when this test or the reasoning measurement says so
-  const tokens = tokensOf(requestText(worstCaseContext(maxProducts)));
-  const costUsd = (tokens * price.input + (answerTokens + measuredReasoningTokens) * price.output) / 1_000_000;
-  // The measured size is recorded here; a failing count is fixed by lowering READER_MAX_PRODUCTS (each product is about 480 tokens), never by raising the limit.
-  console.info(`reader worst case: ${tokens} estimated input tokens, limit ${inputTokenLimit}, estimated cost US$${costUsd.toFixed(5)}`);
-  expect(tokens).toBeLessThanOrEqual(inputTokenLimit);
-  expect(costUsd).toBeLessThanOrEqual(costBoundUsd);
-});
-
-test("renders the same instructions and schema whatever the context", () => {
-  for (const reading of Object.values(contexts)) expect(requestText(reading).startsWith(`${readerInstructions}\n${JSON.stringify(readerJsonSchema)}\n`)).toBe(true);
+  // A failing count is fixed by lowering READER_MAX_PRODUCTS (each product is about 480 tokens), never by raising the limit.
+  expect(worstCaseTokens).toBeLessThanOrEqual(inputTokenLimit);
+  expect(worstCaseCostUsd).toBeLessThanOrEqual(costBoundUsd);
 });

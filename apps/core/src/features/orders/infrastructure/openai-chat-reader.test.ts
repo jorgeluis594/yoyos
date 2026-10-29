@@ -1,6 +1,7 @@
 import OpenAI from "openai";
 import { describe, expect, test } from "vitest";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
+import type { VariantId } from "@core/src/features/products/domain/product";
 import type { CompanyId } from "@core/src/features/orders/domain/order";
 import type { ChatReadingContext } from "@core/src/features/orders/domain/chat-reading";
 import { createOpenAiChatReader, readerRequestSettings } from "@core/src/features/orders/infrastructure/openai-chat-reader";
@@ -61,6 +62,17 @@ describe("createOpenAiChatReader", () => {
     expect(signal).toBeDefined();
     controller.abort();
     expect(signal?.aborted).toBe(true);
+  });
+
+  test("sends byte-identical instructions and schema for two different contexts and only the input changes", async () => {
+    const other: ChatReadingContext = { ...context, kind: "photo_not_product", text: "otro mensaje", items: [{ ref: "I1", variantId: "v" as VariantId, productId: null, productName: "Casaca", variantAttributes: {}, quantity: 1, unitPrice: { amount: 10, currency: "PEN" } }] };
+    const { read, sent } = readerWith(async () => answerResponse(strictAnswer));
+    await read(context, meta, new AbortController().signal);
+    await read(other, meta, new AbortController().signal);
+    const [first, second] = sent.map(({ body }) => body);
+    expect(JSON.stringify(first!.text)).toBe(JSON.stringify(second!.text));
+    expect(first!.instructions).toBe(second!.instructions);
+    expect(first!.input).not.toBe(second!.input);
   });
 
   test("asks for a strict json schema answer that is not stored, with the pinned settings", async () => {
