@@ -235,7 +235,7 @@ test("a cancellation concurrent with a photo puts the items in a new order witho
   try {
     await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
     const [first] = await chatOrders(f);
-    const result = await concurrentWithLockHolder(f, first!.id, await message(f, { codes: [f.variantIds[1]!] }), () => prisma.order.update({ where: { id: first!.id }, data: { cancelled: true } }));
+    const result = await concurrentWithLockHolder(f, first!.id, await message(f, { codes: [f.variantIds[1]!] }), () => prisma.order.update({ where: { id: first!.id }, data: { cancelled: true, cancelledAt: new Date() } }));
     expect(result).toMatchObject({ success: true, data: { kind: "applied", createdOrder: true, noticeDue: false } });
     const all = await chatOrders(f);
     expect(all[0]).toMatchObject({ cancelled: true });

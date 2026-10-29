@@ -20,7 +20,7 @@ export type RegisterPaymentDependencies = Readonly<{
   updatePayment: (payment: Payment, companyId: CompanyId, expectedStatus: "reported") => Promise<Result<null, RegisterPaymentError>>;
   saveCompletion: (id: OrderId, companyId: CompanyId, completedAt: Date) => Promise<Result<null, RegisterPaymentError>>;
   deductProductStock: (variantId: VariantId, quantity: PositiveInteger) => Promise<Result<null, RegisterPaymentError>>;
-  saveStockDeduction: (id: OrderId, companyId: CompanyId) => Promise<Result<null, RegisterPaymentError>>;
+  saveStockDeduction: (id: OrderId, companyId: CompanyId, stockDeductedAt: Date) => Promise<Result<null, RegisterPaymentError>>;
   clock: () => Date;
 }>;
 
@@ -30,15 +30,16 @@ export async function registerPayment(input: RegisterPaymentInput, context: Orde
     if (!found.success) return found;
     if (!found.data) return err({ code: "ORDER_NOT_FOUND", message: "Order is not available" });
     const existing = found.data.payments.find((item) => item.id === input.paymentId) ?? null;
+    const now = deps.clock();
     const confirmed = confirmPayment({ id: input.paymentId, orderId: input.orderId, source: input.source ?? "manual", amount: input.amount,
-      method: input.method, confirmedBy: context.userId, confirmedAt: deps.clock() }, existing);
+      method: input.method, confirmedBy: context.userId, confirmedAt: now }, existing);
     if (!confirmed.success) return confirmed;
     const payment = confirmed.data;
     const next = orderStateMachine.registerPayment(found.data, payment);
     if (!next.success) return next;
     if (existing?.status === "confirmed") return ok({ order: found.data,
       stock: { kind: found.data.stockDeducted ? "deducted" : "not_requested" } });
-    const plan = orderStateMachine.planStockDeduction(next.data, input.deductStockIfPartial);
+    const plan = orderStateMachine.planStockDeduction(next.data, input.deductStockIfPartial, now);
     if (!plan.success) return plan;
     const saved = existing?.status === "reported"
       ? await deps.updatePayment(payment, context.companyId, "reported") : await deps.savePayment(payment, context.companyId);
@@ -53,7 +54,7 @@ export async function registerPayment(input: RegisterPaymentInput, context: Orde
       const deducted = await deps.deductProductStock(item.variantId, item.quantity);
       if (!deducted.success) return deducted;
     }
-    const stockSaved = await deps.saveStockDeduction(input.orderId, context.companyId);
+    const stockSaved = await deps.saveStockDeduction(input.orderId, context.companyId, now);
     return stockSaved.success ? ok<RegisterPaymentOutput>({ order: plan.data.nextOrder, stock: { kind: "deducted" } }) : stockSaved;
   });
 }

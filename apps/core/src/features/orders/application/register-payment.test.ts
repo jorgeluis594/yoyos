@@ -25,6 +25,7 @@ test("confirms payment and required stock in one transaction", async () => {
   let transactions = 0;
   let paymentSaved = false;
   let stockSaved = false;
+  const stockSavedAt: Date[] = [];
   const deps: RegisterPaymentDependencies = {
     transaction: async (_company, work) => { transactions++; return work(); },
     findOrderForUpdate: async () => ok(pendingOrder()),
@@ -32,11 +33,12 @@ test("confirms payment and required stock in one transaction", async () => {
     updatePayment: async () => { throw new Error("Manual payment must be created"); },
     saveCompletion: async () => { throw new Error("Undelivered order cannot be completed"); },
     deductProductStock: async () => paymentSaved ? ok(null) : err({ code: "PERSISTENCE_UNAVAILABLE", message: "Payment missing" }),
-    saveStockDeduction: async () => { stockSaved = true; return ok(null); },
+    saveStockDeduction: async (_id, _company, at) => { stockSaved = true; stockSavedAt.push(at); return ok(null); },
     clock: () => new Date("2026-09-30T12:00:00Z"),
   };
   expect(await registerPayment(input, context, deps)).toMatchObject({ success: true,
-    data: { order: { stockDeducted: true, payments: [{ id: input.paymentId }] }, stock: { kind: "deducted" } } });
+    data: { order: { stockDeducted: true, stockDeductedAt: new Date("2026-09-30T12:00:00Z"), payments: [{ id: input.paymentId }] }, stock: { kind: "deducted" } } });
+  expect(stockSavedAt).toEqual([new Date("2026-09-30T12:00:00Z")]);
   expect({ transactions, paymentSaved, stockSaved }).toEqual({ transactions: 1, paymentSaved: true, stockSaved: true });
 });
 

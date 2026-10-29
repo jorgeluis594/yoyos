@@ -10,8 +10,9 @@ export type CancelOrderError = CancellationDomainError | CancellationPersistence
 export type CancelOrderDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, CancelOrderError>>) => Promise<Result<T, CancelOrderError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, CancellationPersistenceError | CancellationDomainError>>;
-  saveCancellation: (id: OrderId, companyId: CompanyId) => Promise<Result<null, CancellationPersistenceError>>;
+  saveCancellation: (id: OrderId, companyId: CompanyId, cancelledAt: Date) => Promise<Result<null, CancellationPersistenceError>>;
   publishOrderCancelled: PublishOrderCancelled;
+  clock: () => Date;
 }>;
 
 export async function cancelOrder(id: OrderId, context: OrderAccess, deps: CancelOrderDependencies): Promise<Result<CancelledOrder, CancelOrderError>> {
@@ -19,10 +20,10 @@ export async function cancelOrder(id: OrderId, context: OrderAccess, deps: Cance
     const found = await deps.findOrderForUpdate(id, context.companyId);
     if (!found.success) return found;
     if (!found.data) return err({ code: "ORDER_NOT_FOUND", message: "Order is not available" });
-    const plan = orderStateMachine.cancel(found.data);
+    const plan = orderStateMachine.cancel(found.data, deps.clock());
     if (!plan.success) return plan;
     if (plan.data.emitOrderCancelled) {
-      const saved = await deps.saveCancellation(id, context.companyId);
+      const saved = await deps.saveCancellation(id, context.companyId, plan.data.nextOrder.cancelledAt);
       if (!saved.success) return saved;
     }
     return plan;

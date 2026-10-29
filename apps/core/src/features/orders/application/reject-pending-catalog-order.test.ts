@@ -25,7 +25,7 @@ test("seller use cases treat an unconfirmed catalog order as not found", async (
   const pending = reader(catalogOrder(null));
   expect(await getOrderAggregate(orderId, context, pending)).toMatchObject({ success: false, error: { code: "ORDER_NOT_FOUND" } });
   expect(await cancelOrder(orderId, context, { transaction: (_company, work) => work(), findOrderForUpdate: pending,
-    saveCancellation: async () => { throw new Error("must not save"); }, publishOrderCancelled: async () => { throw new Error("must not publish"); } }))
+    saveCancellation: async () => { throw new Error("must not save"); }, publishOrderCancelled: async () => { throw new Error("must not publish"); }, clock: () => new Date() }))
     .toMatchObject({ success: false, error: { code: "ORDER_NOT_FOUND" } });
 
   const confirmed = catalogOrder(new Date("2026-10-17T12:05:00Z"));

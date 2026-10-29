@@ -18,7 +18,8 @@ export type SetDeliveryDependencies = Readonly<{
   resolveRatedDelivery: (selection: RatedDeliverySelection, context: OrderAccess, currency: Currency, expectedPrice: Money) => Promise<Result<ResolvedDelivery, SetDeliveryError>>;
   saveDelivery: (id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "delivery" | "deliveryCost" | "deliveryCharge" | "total">) => Promise<Result<null, SetDeliveryError>>;
   deductProductStock: (variantId: VariantId, quantity: PositiveInteger) => Promise<Result<null, SetDeliveryError>>;
-  saveStockDeduction: (id: OrderId, companyId: CompanyId) => Promise<Result<null, SetDeliveryError>>;
+  clock: () => Date;
+  saveStockDeduction: (id: OrderId, companyId: CompanyId, stockDeductedAt: Date) => Promise<Result<null, SetDeliveryError>>;
 }>;
 
 export async function setOrderDelivery(input: SetDeliveryInput, context: OrderAccess, deps: SetDeliveryDependencies): Promise<Result<OrderAggregate, SetDeliveryError>> {
@@ -36,24 +37,24 @@ export async function setOrderDelivery(input: SetDeliveryInput, context: OrderAc
     if (!resolved.success) return resolved;
     const changed = orderStateMachine.setDelivery(found.data, { resolved: resolved.data });
     if (!changed.success) return changed;
-    return persistDeliveryChange(found.data, changed.data, deps);
+    return persistDeliveryChange(found.data, changed.data, deps.clock(), deps);
   });
 }
 
-export async function persistDeliveryChange(previous: OrderAggregate, changed: OrderAggregate,
+export async function persistDeliveryChange(previous: OrderAggregate, changed: OrderAggregate, now: Date,
   deps: Pick<SetDeliveryDependencies, "saveDelivery" | "deductProductStock" | "saveStockDeduction">): Promise<Result<OrderAggregate, SetDeliveryError>> {
   const after = orderStateMachine.getPaymentSummary(changed);
   if (!after.success) return after;
   let next = changed;
   if (after.data.status === "paid" && !previous.stockDeducted) {
-    const plan = orderStateMachine.planStockDeduction(changed, false);
+    const plan = orderStateMachine.planStockDeduction(changed, false, now);
     if (!plan.success) return plan;
     if (plan.data.kind !== "deduct") throw new Error("Covered order has no stock deduction plan");
     for (const item of [...changed.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
       const deducted = await deps.deductProductStock(item.variantId, item.quantity);
       if (!deducted.success) return deducted;
     }
-    const saved = await deps.saveStockDeduction(previous.id, previous.companyId);
+    const saved = await deps.saveStockDeduction(previous.id, previous.companyId, now);
     if (!saved.success) return saved;
     next = plan.data.nextOrder;
   }

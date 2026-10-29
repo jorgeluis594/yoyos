@@ -133,7 +133,8 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
     },
     saveDelivery: (id, companyId, change) => { observed.stage = "save_delivery"; return saveDelivery(id, companyId, change); },
     deductProductStock: (variantId, quantity) => { observed.stage = "deduct_stock"; return deductProductStock(variantId, quantity, { operation: "set_order_delivery", orderId: input.orderId }); },
-    saveStockDeduction: (id, companyId) => { observed.stage = "save_stock_deduction"; return saveStockDeduction(id, companyId, "set_order_delivery"); },
+    saveStockDeduction: (id, companyId, at) => { observed.stage = "save_stock_deduction"; return saveStockDeduction(id, companyId, at, "set_order_delivery"); },
+    clock: () => new Date(),
   });
   const durationMs = Math.round(performance.now() - started);
   if (result.success) {
@@ -382,7 +383,7 @@ export const orders = {
       if (!published.success) failure = published.error;
       return published;
     };
-    const result = await cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation, publishOrderCancelled });
+    const result = await cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation, publishOrderCancelled, clock: () => new Date() });
     if (failure && result.success) log.error({ event: "order_cancelled_publish_failed", companyId: context.companyId, orderId: id, orderNumber: result.data.number, errorCode: failure.code, err: failure }, "order_cancelled_publish_failed");
     return result;
   },
@@ -444,7 +445,7 @@ export const orders = {
     return result;
   },
   deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
-    deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
+    deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction, clock: () => new Date() }),
   create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>
     createOrder(input, context, { transaction: pendingTransaction, orderExists,
       findVariants: findSellableOrderVariants, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,

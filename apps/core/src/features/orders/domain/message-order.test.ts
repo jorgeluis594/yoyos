@@ -12,10 +12,10 @@ const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const at = new Date("2026-10-01T12:00:00Z");
 const open = (): OrderAggregate => ({
   number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId, chatId,
-  buyer: null, fromCatalog: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: at, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false,
+  buyer: null, fromCatalog: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: at, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false, cancelledAt: null,
   items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null,
     quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
-  payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
+  payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false, stockDeductedAt: null,
   itemsTotal: money(10), deliveryCost: money(0), deliveryCharge: money(0), total: money(10),
 });
 const confirmed: ConfirmedPayment = { id: id(60) as PaymentId, orderId: id(1) as OrderId, status: "confirmed", amount: money(4), method: "digital_wallet",
