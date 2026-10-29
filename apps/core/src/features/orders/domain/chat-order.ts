@@ -1,18 +1,14 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { buildPendingOrder, orderStateMachine, type OrderAggregate, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
+import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order-target";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { ChatMessageOutcome, ChatMessageOutcomes, ProductIdentification } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { CompanyId, ContactId, MentionedPrice, OrderId, OrderItem, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 
-/** Why a chat has no order to change decides the outcome, so a missing order is not a bare null. */
-export type ChatOrderTarget =
-  | Readonly<{ kind: "open"; order: OrderAggregate; productIds: ReadonlyMap<VariantId, ProductId> }>
-  | Readonly<{ kind: "closed"; orderId: OrderId; number: OrderNumber }>
-  | Readonly<{ kind: "cancelled" }>
-  | Readonly<{ kind: "none" }>;
+export type { ChatOrderTarget };
 
 export type ItemTarget =
   | Readonly<{ kind: "variant"; variantId: VariantId }>
