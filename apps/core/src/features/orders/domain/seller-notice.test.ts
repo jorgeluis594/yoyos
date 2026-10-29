@@ -49,10 +49,9 @@ describe("chooseSellerNotice", () => {
     expect(chooseSellerNotice(outcomes(fresh, missing(31), missing(32)))).toMatchObject({ kind: "several_problems", newOrderId: order(4) });
   });
 
-  test("sends no notice for silent misses, ambiguous intent and no purchase intent", () => {
+  test("sends no notice for silent misses and no purchase intent", () => {
     expect(chooseSellerNotice(outcomes({ kind: "not_identified", source: "photo", identification: null, silent: true }))).toBeNull();
     expect(chooseSellerNotice(outcomes({ kind: "not_clear", productIds: [product(31)], silent: true }))).toBeNull();
-    expect(chooseSellerNotice(outcomes({ kind: "ambiguous_intent" }))).toBeNull();
     expect(chooseSellerNotice(outcomes({ kind: "no_intent" }))).toBeNull();
     expect(chooseSellerNotice(outcomes(added))).toBeNull();
     expect(chooseSellerNotice(outcomes({ kind: "removed", variantId: variant(40), namedItem: true }, { kind: "mentioned_price_set", variantId: variant(40) }))).toBeNull();

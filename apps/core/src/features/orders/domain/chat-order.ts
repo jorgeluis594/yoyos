@@ -26,7 +26,7 @@ export type ChangeVariantResolution =
   | Readonly<{ kind: "missing" | "not_available"; productId: ProductId }>;
 
 export type ReportOutcome =
-  | Readonly<{ kind: "no_intent" | "ambiguous_intent" | "variant_only" | "unnamed_add" | "image_with_request" }>
+  | Readonly<{ kind: "no_intent" | "variant_only" | "unnamed_add" | "image_with_request" }>
   | Extract<ChatMessageOutcome, { kind: "not_identified" | "not_clear" | "unclear_item" | "reader_doubt" | "request_not_allowed" | "invalid_action" | "product_not_available" | "variant_for_several_pendings" }>
   | Readonly<{ kind: "variant_missing" | "variant_not_available"; productId: ProductId; identification: ProductIdentification | null }>;
 
