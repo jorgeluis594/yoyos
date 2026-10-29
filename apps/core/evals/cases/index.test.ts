@@ -46,7 +46,7 @@ describe("eval cases", () => {
     const selected = selectCases(casesOf(manifest), { maxCases: 8 });
 
     expect(selected).toHaveLength(8);
-    expect(new Set(selected.map(({ pass }) => pass))).toEqual(new Set(["interpretation", "image", "end_to_end"]));
+    expect(new Set(selected.map(({ pass }) => pass))).toEqual(new Set(["interpretation", "image", "end_to_end", "conversation"]));
   });
 
   test("ids select a case with its paraphrases, which can be skipped", () => {
