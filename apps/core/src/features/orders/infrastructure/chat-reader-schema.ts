@@ -23,7 +23,7 @@ const attributeSchema = z.strictObject({
 });
 const priceSchema = z.strictObject({
   amount: z.string().describe("The price the buyer states, as written, digits only."),
-  currency: z.enum(["not_named", ...currencies, "other"]).describe("not_named when the buyer gives no currency."),
+  currency: z.enum(["not_named", ...currencies, "other"]).describe("soles or S/ is PEN, dólares or US$ is USD; other for an unlisted currency; not_named when none is named."),
   per: z.enum(["unit", "lot", "not_explicit"]).describe("unit: each. lot: for the whole quantity. not_explicit: the buyer does not say."),
 });
 const attributes = z.array(attributeSchema).nullable().describe("The attribute values the buyer chose, or null.");
