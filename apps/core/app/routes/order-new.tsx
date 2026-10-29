@@ -58,7 +58,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
     if (!selected.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa la entrega." });
     delivery = { delivery: selected.data, expectedPrice: input.expectedPrice };
   }
-  const result = await createConfiguredOrder({ id: parsed.data.id as OrderId,
+  const result = await createConfiguredOrder({ id: parsed.data.id as OrderId, customer: parsed.data.customer,
     items: [item(first), ...rest.map(item)],
     payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })),
     delivery,

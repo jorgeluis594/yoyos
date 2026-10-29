@@ -79,11 +79,11 @@ const orderContext = (response: Response<unknown, PrivateLocals>): OrderAccess =
   companyId: response.locals.auth.company.id as CompanyId, userId: response.locals.auth.user.id as UserId,
 });
 const orderId = (value: string | undefined) => z.uuid().safeParse(value);
-function toCreateOrderInput(value: OrderSelectionRequest & Readonly<{ scheduledDispatchDate?: string }>): CreateOrderInput {
+function toCreateOrderInput(value: OrderSelectionRequest & Readonly<{ scheduledDispatchDate?: string; customer?: { name: string; phone: string } }>): CreateOrderInput {
   const [first, ...rest] = value.items;
   if (!first) throw new Error("Validated order has no items");
   const item = (selection: typeof first) => ({ variantId: selection.variantId as VariantId, quantity: selection.quantity as PositiveInteger });
-  return { id: value.id as OrderId, scheduledDispatchDate: value.scheduledDispatchDate as DispatchDate | undefined, items: [item(first), ...rest.map(item)] };
+  return { id: value.id as OrderId, scheduledDispatchDate: value.scheduledDispatchDate as DispatchDate | undefined, customer: value.customer, items: [item(first), ...rest.map(item)] };
 }
 
 orderRoutes.get("/", async (request, response) => {
@@ -251,7 +251,11 @@ orderRoutes.patch("/:id/shipping", async (request, response: Response<unknown, P
 orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>) => {
   if (!request.is("application/json")) return apiError(response, 415, "UNSUPPORTED_MEDIA_TYPE", "JSON body required");
   const parsed = createOrderSchema.safeParse(request.body);
-  if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
+  if (!parsed.success) {
+    if (parsed.error.issues.some(issue => issue.path[0] === "customer"))
+      return apiError(response, 422, "INVALID_ORDER", "Customer name and international phone (+51...) are required", [{ field: "customer", reason: "INVALID_CUSTOMER" }]);
+    return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
+  }
   try {
     const input = toCreateOrderInput(parsed.data);
     const context = orderContext(response);

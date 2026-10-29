@@ -105,7 +105,8 @@ function newPendingOrder(input: BuildOrderInput & Pick<BuildPendingOrderInput, "
   const snapshot = built.data;
   const zero: Money = { amount: 0, currency: snapshot.total.currency };
   return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
-    buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
+    buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone }
+      : snapshot.customer.kind === "buyer" ? { contactId: null, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
     fromCatalog, checkoutEnabledAt: new Date(input.createdAt), checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
     createdAt: new Date(input.createdAt), scheduledDispatchDate: input.scheduledDispatchDate ?? null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,

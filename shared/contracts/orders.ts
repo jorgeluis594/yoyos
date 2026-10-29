@@ -4,6 +4,7 @@ import { moneySchema } from "@shared/contracts/money";
 import { peruDeliveryDistrictSchema, peruDistrictCodeSchema } from "@shared/contracts/peru-location";
 import { pickupPointSchema } from "@shared/contracts/delivery-settings";
 import { parseDispatchDate } from "@shared/dispatch-date";
+import { internationalPhonePattern } from "@shared/phone";
 
 export const dispatchDateSchema = z.string().refine((value) => parseDispatchDate(value).success, { message: "Invalid dispatch date" });
 
@@ -50,7 +51,12 @@ export const setRatedOrderDeliverySchema = z.strictObject({ delivery: ratedDeliv
 export type RatedDeliverySelectionRequest = z.infer<typeof ratedDeliverySelectionSchema>;
 export type SetRatedOrderDeliveryRequest = z.infer<typeof setRatedOrderDeliverySchema>;
 
+/** The customer a seller types by hand when creating an order; saved as the order buyer. */
+export const newOrderCustomerSchema = z.strictObject({ name: z.string().trim().min(1).max(120), phone: z.string().regex(internationalPhonePattern) });
+export type NewOrderCustomer = z.infer<typeof newOrderCustomerSchema>;
+
 export const completeOrderSchema = orderSelectionSchema.extend({
+  customer: newOrderCustomerSchema.optional(),
   payments: z.array(z.strictObject({ paymentId: z.uuid(), amount: moneySchema,
     method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
   delivery: setRatedOrderDeliverySchema.optional(),

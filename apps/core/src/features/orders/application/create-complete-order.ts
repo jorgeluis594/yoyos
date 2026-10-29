@@ -34,7 +34,7 @@ export async function createCompleteOrder(input: CreateCompleteOrderInput, conte
   if (input.deferStockDeduction && input.deliverImmediately)
     return err({ code: "INVALID_ORDER", message: "Stock deduction cannot be deferred when delivering immediately" });
   return deps.transaction(context.companyId, async () => {
-    const result = await deps.create({ id: input.id, scheduledDispatchDate: input.scheduledDispatchDate, items: input.items }, context);
+    const result = await deps.create({ id: input.id, scheduledDispatchDate: input.scheduledDispatchDate, customer: input.customer, items: input.items }, context);
     if (!result.success) return result;
     let order = result.data;
     if (input.delivery) {
