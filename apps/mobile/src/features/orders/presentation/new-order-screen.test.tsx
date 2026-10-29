@@ -207,6 +207,20 @@ test("payment that covers the total with quantity above stock warns and blocks s
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
 });
 
+test("Pagado sheet with quantity above stock shows the alert, and lowering the quantity removes it", async () => {
+  const screen = await reviewWithQuantity(3, 4);
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  fireEvent.press(screen.getByRole("radio", { name: "Pagado" }));
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  expect(screen.getByText(/Con este pago el pedido descuenta stock/)).toHaveProp("accessibilityRole", "alert");
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+  fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
+  fireEvent.press(screen.getByRole("button", { name: "−" }));
+  fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
+  expect(screen.queryByText(/Con este pago el pedido descuenta stock/)).toBeNull();
+  expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
+});
+
 test("delivered with payment and quantity above stock shows a single stock alert", async () => {
   const screen = await reviewWithQuantity(3, 4);
   fireEvent.press(screen.getByRole("button", { name: "Continuar" }));
@@ -214,6 +228,8 @@ test("delivered with payment and quantity above stock shows a single stock alert
   fireEvent.changeText(screen.getByLabelText(/Monto/), "40");
   fireEvent(screen.getByTestId("delivery-status"), "valueChange", 1);
   expect(screen.getAllByRole("alert").filter(node => /stock/.test(String(node.props.children)))).toHaveLength(1);
+  expect(screen.getByText(/repón el stock para guardarlo como entregado/)).toBeTruthy();
+  expect(screen.queryByText(/deja el pago como pendiente/)).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
 });
 

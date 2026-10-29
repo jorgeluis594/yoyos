@@ -132,8 +132,9 @@ function CompanyOrderScreen() {
   const orderTotal = reviewedTotal?.success ? reviewedTotal.data : productTotal.success ? productTotal.data.shownTotal : null;
   const card = { backgroundColor: theme.backgroundElement, borderColor: theme.border };
   const stockShort = exceedsShownStock(draft.items);
-  const paymentNeedsStock = stockShort && paymentsDeductStock(draft.payments ?? [], orderTotal);
-  const stockBlocked = stockShort && (paymentNeedsStock || !!draft.deliverImmediately);
+  const paymentNeedsStock = stockShort && !draft.deliverImmediately
+    && paymentsDeductStock(draft.payments ?? [], initialDelivery ? (reviewedTotal?.success ? reviewedTotal.data : null) : orderTotal);
+  const stockBlocked = (stockShort && !!draft.deliverImmediately) || paymentNeedsStock;
   const balance = paidAmount?.success && reviewedTotal?.success ? subtract(paidAmount.data)(reviewedTotal.data) : null;
 
   useEffect(() => {
@@ -376,7 +377,7 @@ function CompanyOrderScreen() {
             </> : <ThemedText themeColor="textSecondary">{t(settings ? 'orderDeliveryDisabled' : 'loadOrderDeliveryError')}</ThemedText>}
             {draft.deliverImmediately && balance?.success && balance.data.amount > 0
               ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('deliveryNeedsPayment')}</ThemedText> : null}
-            {draft.deliverImmediately && stockShort && !paymentNeedsStock
+            {draft.deliverImmediately && stockShort
               ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('deliveryNeedsStock')}</ThemedText> : null}
             </View>
             <View style={[styles.card, card]}>

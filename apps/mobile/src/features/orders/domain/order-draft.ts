@@ -109,7 +109,6 @@ export function removeDraftItem(draft: OrderDraft, variantId: string): OrderDraf
   return first ? { ...draft, items: [first, ...rest] } : { ...draft, kind: "empty", items: [] };
 }
 
-
 const cents = (value: number) => Math.round(value * 100);
 
 /** Whether these payments would deduct stock once the order is created: they cover the total, or one opts into partial deduction. */
