@@ -2,6 +2,7 @@ import { useState } from "react";
 import type { FetcherWithComponents } from "react-router";
 import { useTranslation } from "react-i18next";
 import { offersPartialStockDeduction } from "@shared/orders-payment";
+import { defaultPaymentChoice, paymentFromChoice } from "@shared/wallet-providers";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
@@ -28,7 +29,7 @@ type FormProps = Readonly<{ kind: DecisionKind; paymentId: string; order: Pick<O
 
 export function PaymentDecisionForm({ kind, paymentId, order, heading, fetcher, onSubmit, onCancel }: FormProps) {
   const { t, i18n } = useTranslation();
-  const [draft, setDraft] = useState<PaymentDraft>({ amount: order.balanceDue.amount > 0 ? order.balanceDue.amount.toFixed(2) : "", method: "digital_wallet", deductStockIfPartial: false });
+  const [draft, setDraft] = useState<PaymentDraft>({ amount: order.balanceDue.amount > 0 ? order.balanceDue.amount.toFixed(2) : "", ...paymentFromChoice(defaultPaymentChoice), deductStockIfPartial: false });
   const [reason, setReason] = useState("");
   const pending = fetcher.state !== "idle";
 
@@ -48,6 +49,7 @@ export function PaymentDecisionForm({ kind, paymentId, order, heading, fetcher, 
     else {
       body.set("operation", "confirm"); body.set("source", kind === "register" ? "manual" : "buyer_report");
       body.set("currency", order.total.currency); body.set("amount", draft.amount); body.set("method", draft.method);
+      if (draft.walletProvider) body.set("walletProvider", draft.walletProvider);
       if (stockBox && draft.deductStockIfPartial) body.set("deductStockIfPartial", "on");
     }
     fetcher.submit(body, { method: "post" });

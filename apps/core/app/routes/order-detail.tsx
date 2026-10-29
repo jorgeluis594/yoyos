@@ -198,7 +198,7 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
           : { url: null, success: false, error: paymentErrorCode(result.error.code) };
       }
       const parsed = registerPaymentSchema.safeParse({ paymentId: paymentId.data, source: fields.get("source"),
-        amount: { amount: Number(fields.get("amount")), currency: fields.get("currency") }, method: fields.get("method"),
+        amount: { amount: Number(fields.get("amount")), currency: fields.get("currency") }, method: fields.get("method"), walletProvider: fields.get("walletProvider") ?? undefined,
         deductStockIfPartial: fields.get("deductStockIfPartial") === "on" });
       if (!parsed.success) return { url: null, success: false, error: "INVALID_INPUT" };
       const result = await orders.registerPayment({ ...parsed.data, orderId: id.data as OrderId,
