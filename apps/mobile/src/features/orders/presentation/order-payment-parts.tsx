@@ -56,14 +56,15 @@ export function PaymentSummary({ total, paid, balance, showPaid }: { total: stri
 }
 
 export function PaymentRow({ method, amount, meta, tag, onPress, accessibilityLabel, trailing }: {
-  method: string; amount: string; meta?: string; tag?: string; onPress?: () => void; accessibilityLabel?: string; trailing?: React.ReactNode;
+  /** Absent while the payment has no method yet (reported by the buyer, or rejected); the tag then leads the row. */
+  method?: string; amount: string; meta?: string; tag?: string; onPress?: () => void; accessibilityLabel?: string; trailing?: React.ReactNode;
 }) {
   const theme = useTheme();
   const body = <>
     <View style={styles.flex}>
       <View style={styles.methodLine}>
-        <ThemedText style={styles.strong} numberOfLines={1}>{method}</ThemedText>
-        {tag ? <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>· {tag}</ThemedText> : null}
+        <ThemedText style={styles.strong} numberOfLines={1}>{method ?? tag}</ThemedText>
+        {method && tag ? <ThemedText type="small" themeColor="textSecondary" numberOfLines={1}>· {tag}</ThemedText> : null}
       </View>
       {meta ? <ThemedText type="small" themeColor="textSecondary">{meta}</ThemedText> : null}
     </View>

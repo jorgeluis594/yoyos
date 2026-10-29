@@ -169,7 +169,7 @@ export const buyerPaymentViewSchema = z.strictObject({ orderId: z.uuid(), total:
     z.strictObject({ method: z.literal("bank_transfer"), bank: z.string(), holder: z.string(), accountNumber: z.string().nullable(), cci: z.string().nullable(), imageUrl: z.url().nullable() }),
   ])),
   payments: z.array(z.strictObject({ id: z.uuid(), status: z.enum(["reported", "confirmed", "voided", "rejected"]),
-    amount: moneySchema.nullable(), method: z.enum(["digital_wallet", "bank_transfer"]).nullable(), walletProvider: walletProviderSchema.optional(), receiptImageUrl: z.url().nullable(),
+    amount: moneySchema.nullable(), method: z.enum(["digital_wallet", "bank_transfer"]).nullable(), receiptImageUrl: z.url().nullable(),
     rejectionReason: z.string().nullable() })),
   rejectedReport: z.strictObject({ reason: z.string().nullable() }).nullable() });
 export type BuyerPaymentView = z.infer<typeof buyerPaymentViewSchema>;

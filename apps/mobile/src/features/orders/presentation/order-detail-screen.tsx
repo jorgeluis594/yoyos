@@ -384,7 +384,7 @@ export default function OrderDetailScreen() {
               : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
             const tag = payment.status === "reported" ? t('paymentTagReported') : payment.status === "voided" ? t('paymentTagVoided')
               : payment.status === "rejected" ? t('paymentTagRejected') : advanceIds.has(payment.id) ? t('advancePayment') : t('detailPaymentConfirmed');
-            const method = paymentMethodLabel(t, payment.method === null ? { method: "bank_transfer" } : payment);
+            const method = payment.method === null ? undefined : paymentMethodLabel(t, payment);
             const when = date(payment.status === "reported" ? payment.data.reportedAt : payment.status === "rejected" ? payment.data.rejectedAt : payment.data.confirmedAt, locale);
             const amount = payment.amount ? format(payment.amount) : "—";
             return <View key={payment.id}>
