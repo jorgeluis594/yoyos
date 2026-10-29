@@ -99,7 +99,7 @@ export const conversationCases: readonly EvalCaseInput[] = [
   { id: "conv-two-pendings-size-fits-both", pass: "conversation", kind: "two-pendings", tags: [], steps: [
     { input: photo("polo-basico"), expected: { notice: "variant_missing", order: [] } },
     { input: photo("polera-capucha"), expected: { notice: "variant_missing", order: [] } },
-    { input: text("L"), expected: { notice: "variant_for_several_pendings", order: [] } },
+    { input: text("L"), expected: { notice: "variant_for_several_pendings", order: [] }, expectsRepeatNotice: true },
     { input: text("a las dos ponles talla L color negro"), expected: { notice: null, order: [polo(basicoL), after("polera-capucha", { Talla: "L", Color: "Negro" })] } },
   ] },
   { id: "conv-two-pendings-each-named", pass: "conversation", kind: "two-pendings", tags: [], steps: [
@@ -112,7 +112,7 @@ export const conversationCases: readonly EvalCaseInput[] = [
   { id: "conv-two-pendings-both-polos", pass: "conversation", kind: "two-pendings", tags: [], steps: [
     { input: photo("polo-rayas"), expected: { notice: "variant_missing", order: [] } },
     { input: photo("polo-oversize"), expected: { notice: "variant_missing", order: [] } },
-    { input: text("M"), expected: { notice: "variant_for_several_pendings", order: [] } },
+    { input: text("M"), expected: { notice: "variant_for_several_pendings", order: [] }, expectsRepeatNotice: true },
     { input: text("el de rayas en S y el oversize en XL"), expected: { notice: null,
       order: [after("polo-rayas", { Talla: "S", Color: "Azul" }), after("polo-oversize", { Talla: "XL", Color: "Verde" })] } },
   ] },
@@ -185,18 +185,18 @@ export const conversationCases: readonly EvalCaseInput[] = [
   { id: "conv-ready-with-pending-then-complete", pass: "conversation", kind: "ready-with-pending", tags: [], steps: [
     { input: text("una correa negra por favor"), expected: { notice: null, order: [after("correa-cuero", { Color: "Negro" })] } },
     { input: photo("polera-capucha"), expected: { notice: "variant_missing", order: [after("correa-cuero", { Color: "Negro" })] } },
-    { input: text("ya pedí todo lo que necesitaba"), expected: { notice: "ready_with_pendings", order: [after("correa-cuero", { Color: "Negro" })] } },
+    { input: text("ya pedí todo lo que necesitaba"), expected: { notice: "ready_with_pendings", order: [after("correa-cuero", { Color: "Negro" })] }, expectsRepeatNotice: true },
     { input: text("gris L"), expected: { notice: "ready", order: [after("correa-cuero", { Color: "Negro" }), after("polera-capucha", { Talla: "L", Color: "Gris" })] } },
   ] },
   { id: "conv-ready-with-pending-then-decline", pass: "conversation", kind: "ready-with-pending", tags: [], steps: [
     { input: text("me llevo la chompa tejida"), expected: { notice: null, order: [after("chompa-tejida", { Talla: "Única" })] } },
     { input: photo("polo-basico"), expected: { notice: "variant_missing", order: [after("chompa-tejida", { Talla: "Única" })] } },
-    { input: text("ya acabé de pedir"), expected: { notice: "ready_with_pendings", order: [after("chompa-tejida", { Talla: "Única" })] } },
+    { input: text("ya acabé de pedir"), expected: { notice: "ready_with_pendings", order: [after("chompa-tejida", { Talla: "Única" })] }, expectsRepeatNotice: true },
     { input: text("olvida ese polo, así dejémoslo"), expected: { notice: "ready", order: [after("chompa-tejida", { Talla: "Única" })] } },
   ] },
   { id: "conv-ready-then-new-request-drops-ready", pass: "conversation", kind: "ready-with-pending", tags: [], steps: [
     { input: photo("polo-basico"), expected: { notice: "variant_missing", order: [] } },
-    { input: text("ya terminé mi pedido"), expected: { notice: "ready_with_pendings", order: [] } },
+    { input: text("ya terminé mi pedido"), expected: { notice: "ready_with_pendings", order: [] }, expectsRepeatNotice: true },
     { input: text("y sumo una correa negra"), expected: { notice: null, order: [after("correa-cuero", { Color: "Negro" })] } },
     { input: text("el polo es blanco S"), expected: { notice: null, order: [after("correa-cuero", { Color: "Negro" }), polo({ Talla: "S", Color: "Blanco" })] } },
   ] },
