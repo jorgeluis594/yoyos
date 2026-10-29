@@ -31,7 +31,8 @@ const endToEndTable = (photo: (pick: PhotoPick) => Readonly<{ file: string }>): 
     input: { photo: photo({ folder: "customer", productKey: "polo-basico", scenario: "worn" }), caption: "talla M negro porfa" },
     expected: [{ outcomes: ["added"], order: [after("polo-basico", M_NEGRO)] }, pairNotIdentified] },
   { id: "e2e-photo-variant-missing", pass: "end_to_end", criterion: 5, kind: "photo", input: { photo: photo({ folder: "customer", productKey: "gorra-trucker", scenario: "in_hand" }) },
-    expected: [{ outcomes: ["variant_missing"] }] },
+    // Rules sheet, «Pendings»: a photo with no variant becomes a pending and sends «Falta la variante».
+    expected: [{ outcomes: ["pending_created", "variant_missing"], notice: "variant_missing" }] },
   { id: "e2e-photo-single-variant", pass: "end_to_end", criterion: 5, kind: "photo", input: { photo: photo({ folder: "customer", productKey: "chompa-tejida", scenario: "worn" }), order: [polo] },
     expected: [{ outcomes: ["added"], order: [kept(polo), after("chompa-tejida", { Talla: "Única" })] }] },
   { id: "e2e-photo-premium-details", pass: "end_to_end", criterion: 5, kind: "photo-caption", tags: ["indistinguishable-pair"],
@@ -55,10 +56,11 @@ const endToEndTable = (photo: (pick: PhotoPick) => Readonly<{ file: string }>): 
   { id: "e2e-text-price-hint", pass: "end_to_end", criterion: 3, kind: "price-hint", tags: ["consistency"], input: { text: "el polo de 35 en M negro" },
     expected: [{ outcomes: ["added"], order: [after("polo-basico", M_NEGRO, 1, { amount: 35, units: 1 })] }] },
   { id: "e2e-text-two-candidates", pass: "end_to_end", criterion: 3, kind: "two-candidates", input: { text: "quiero una gorra" },
-    expected: [{ outcomes: ["not_clear"] }] },
+    // Rules sheet, «Pendings» (b): a product doubtful between candidates becomes a pending and sends «Producto no claro».
+    expected: [{ outcomes: ["pending_created", "not_clear"], notice: "not_clear" }] },
   { id: "e2e-text-five-polos", pass: "end_to_end", criterion: 3, kind: "many-candidates", input: { text: "quiero un polo" },
-    ambiguous: "Five polos match «polo»: «Producto no reconocido» or «Producto no claro» both notify the seller; adding one does not.",
-    expected: [{ outcomes: ["not_identified"] }, { outcomes: ["not_clear"] }] },
+    // Rules sheet, «Generic names» and «Pendings» (b): several polos still fit, so it is a doubtful-product pending with «Producto no claro».
+    expected: [{ outcomes: ["pending_created", "not_clear"], notice: "not_clear" }] },
   { id: "e2e-text-nonexistent", pass: "end_to_end", criterion: 3, kind: "nonexistent", input: { text: "quiero una casaca de jean talla M" },
     expected: [{ outcomes: ["not_identified"] }] },
 ];
