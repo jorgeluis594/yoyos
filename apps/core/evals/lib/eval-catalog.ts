@@ -105,7 +105,7 @@ export async function seedEvalCatalog(catalog: EvalCatalog, companyId: string, e
       }
       await seedProduct({ id: productId, name: product.name, qrCode: productId, photoIds: imageId ? [imageId] : [], createdAt: now, updatedAt: now, variants: product.variants.map((variant) => {
         const variantId = variantIdOf(product.key, variant.attributes, scope);
-        return { id: variantId, attributes: variant.attributes, sku: `EVAL-${variantId.slice(0, 8)}`, salePrice: variant.price, qrCode: variantId,
+        return { id: variantId, attributes: variant.attributes, sku: `EVAL-${variantId.slice(0, 8)}`, salePrice: variant.price, qrCode: variantId, stock: 1000,
           status: product.active && variant.active ? "active" as const : "inactive" as const };
       }) });
     }

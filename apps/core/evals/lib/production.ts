@@ -16,6 +16,7 @@ import { findSellableVariantsByQrCodes, loadSellableVariants } from "@core/src/f
 import { findProductIdsOfVariants } from "@core/src/features/products";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { productVariantActions } from "@core/src/features/products/product-variant-actions";
+import { saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { cancelOrder } from "@core/src/features/orders/application/cancel-order";
 import { reportPayment } from "@core/src/features/orders/application/report-payment";
 import { registerPayment } from "@core/src/features/orders/application/register-payment";
@@ -394,6 +395,12 @@ async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clo
       await run(() => cancelOrder(orderId, access, { transaction, findOrderForUpdate, saveCancellation, publishOrderCancelled: async () => ok(undefined), clock }));
       return paymentId;
     case "report_payment": {
+      // A buyer can only report a payment once the checkout is confirmed (with the buyer's data), so the report confirms it first, at the same time.
+      const checkout = { companyId: access.companyId, orderId };
+      await run(() => withinTransaction(async () => {
+        const buyer = await saveCheckoutBuyer(checkout, { contactId: chat.contactId as ContactId, name: "Comprador", phone: "+51999999999" });
+        return buyer.success ? saveCheckoutConfirmed(checkout, clock()) : buyer;
+      }));
       const id = randomUUID();
       const receiptId = randomUUID();
       await inTenant(company, () => prisma.image.create({ data: { id: receiptId, storageKey: `evals/receipts/${receiptId}` } }));
@@ -403,7 +410,7 @@ async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clo
     }
     case "confirm_payment": {
       if (!paymentId) throw new Error("confirm_payment needs a reported payment");
-      const aggregate = await run(() => findOrderForUpdate(orderId, access.companyId));
+      const aggregate = await run(() => findOrderAggregate(orderId, access.companyId));
       if (!aggregate) throw new Error("Order not found");
       await run(() => registerPayment({ orderId, paymentId: paymentId as PaymentId, source: "buyer_report", amount: aggregate.total, method: "digital_wallet", deductStockIfPartial: false },
         access, { transaction, findOrderForUpdate, savePayment, updatePayment, saveCompletion, deductProductStock, saveStockDeduction, clock }));

@@ -106,7 +106,7 @@ the message sends (`chooseSellerNotice(outcomes)?.kind`) or `null` when the mess
 marks a step the rules sheet expects to repeat the notice of an earlier step for the same product.
 
 Event steps act on the chat's latest order through the production use cases, at the conversation's simulated time: `advance_days`
-(moves the clock; nothing else happens), `cancel_order`, `report_payment`, `confirm_payment` (confirms the payment the last
+(moves the clock; nothing else happens), `cancel_order`, `report_payment` (confirms the buyer's checkout first, which a payment report requires), `confirm_payment` (confirms the payment the last
 `report_payment` made), `void_payment` and `deactivate_product` (deactivates every variant of a catalog product). Every step happens a
 minute after the previous one, so messages keep their order. Nothing publishes events, so a cancellation does not restore stock.
 A conversation's split is the hash of its id. Each message leaves one record, `<conversation id>#<number>`, with the conversation id.
