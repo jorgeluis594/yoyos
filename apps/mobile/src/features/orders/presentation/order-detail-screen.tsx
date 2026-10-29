@@ -6,6 +6,7 @@
 // FORM: user-approved round2-a-resumen-conectado.png; grouped summary and compact contextual rows.
 // FINISH: unreviewed and undocumented is unfinished; this build ends with the finish review, the verdict, DESIGN.md, and every shipping raster carrying its provenance.
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
+import { choiceOfPayment, defaultPaymentChoice, paymentFromChoice, type PaymentMethodAndProvider } from "@shared/wallet-providers";
 import type { CancellationRequestError, CancellationRecoveryError } from "@mobile/features/orders/application/cancel-order";
 import { fulfillmentBlock } from "@shared/orders-fulfillment";
 import { mentionedPriceNote } from "@shared/mentioned-price";
@@ -32,7 +33,7 @@ import { useNotices } from "@mobile/features/notifications/composition";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { useOrderResult } from "@mobile/features/orders/presentation/order-result";
 import { documentTypeLabel, orderLanguage, orderStatusLabel } from "@mobile/features/orders/presentation/order-labels";
-import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentBadgeStatus } from "@mobile/features/orders/presentation/order-payment-parts";
+import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentBadgeStatus, paymentMethodLabel } from "@mobile/features/orders/presentation/order-payment-parts";
 import { DeliveryBadge, DeliveryRow, deliveryRowSymbols, useShippingSummary } from "@mobile/features/orders/presentation/order-delivery-parts";
 import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-print-review";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
@@ -138,7 +139,7 @@ export default function OrderDetailScreen() {
     return () => { stop(); if (timer !== null) clearTimeout(timer); };
   }, [noticeWatch, companyId, reload]));
   async function confirmPayment(paymentId: string, source: "manual" | "buyer_report", amountText: string,
-    method: "digital_wallet" | "bank_transfer", deductStockIfPartial: boolean) {
+    method: PaymentMethodAndProvider, deductStockIfPartial: boolean) {
     if (!order || cancellationLock.current || writeBusy || order.cancelled) return;
     const amount = Number(normalizeDecimalInput(amountText));
     if (!Number.isFinite(amount) || amount <= 0 || !/^\d+(?:[.,]\d{1,2})?$/.test(amountText.trim())) {
@@ -146,7 +147,7 @@ export default function OrderDetailScreen() {
     }
     setSavingPayment(paymentId); setPaymentError("");
     const result = await orders.registerPayment(order.id, { paymentId, source, amount: { amount, currency: order.total.currency },
-      method, deductStockIfPartial });
+      ...method, deductStockIfPartial });
     if (result.success) {
       setOrder(result.data.order); setEditor(null);
       if (source === "manual") manualPaymentId.current = null;
@@ -383,7 +384,7 @@ export default function OrderDetailScreen() {
               : payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
             const tag = payment.status === "reported" ? t('paymentTagReported') : payment.status === "voided" ? t('paymentTagVoided')
               : payment.status === "rejected" ? t('paymentTagRejected') : advanceIds.has(payment.id) ? t('advancePayment') : t('detailPaymentConfirmed');
-            const method = t(payment.method === "digital_wallet" ? 'wallet' : 'bankTransfer');
+            const method = paymentMethodLabel(t, payment.method === null ? { method: "bank_transfer" } : payment);
             const when = date(payment.status === "reported" ? payment.data.reportedAt : payment.status === "rejected" ? payment.data.rejectedAt : payment.data.confirmedAt, locale);
             const amount = payment.amount ? format(payment.amount) : "—";
             return <View key={payment.id}>
@@ -517,7 +518,7 @@ export default function OrderDetailScreen() {
         return { offered, reason: offered || amount === null ? null : order.stockDeducted ? t('stockAlreadyDeducted') : t('stockWithFullPayment') };
       }}
       onClose={closeEditor}
-      onSubmit={({ amount, method, deductStockIfPartial }) => {
+      onSubmit={({ amount, deductStockIfPartial, ...method }) => {
         manualPaymentId.current ??= Crypto.randomUUID();
         void confirmPayment(manualPaymentId.current, "manual", amount, method, deductStockIfPartial);
       }} />
@@ -581,14 +582,14 @@ const styles = StyleSheet.create({
 });
 
 function PaymentEditor({ order, busy, onConfirm }: { order: OrderAggregateResponse; busy: boolean;
-  onConfirm: (amount: string, method: "digital_wallet" | "bank_transfer", deductStockIfPartial: boolean) => void }) {
+  onConfirm: (amount: string, method: PaymentMethodAndProvider, deductStockIfPartial: boolean) => void }) {
   const { t } = useTranslation();
   const balance = order.balanceDue.amount;
-  const [value, setValue] = useState<PaymentFieldsValue>({ amount: balance > 0 ? balance.toFixed(2) : "", method: "digital_wallet", deductStockIfPartial: false });
+  const [value, setValue] = useState<PaymentFieldsValue>({ amount: balance > 0 ? balance.toFixed(2) : "", ...paymentFromChoice(defaultPaymentChoice), deductStockIfPartial: false });
   const typed = Number(normalizeDecimalInput(value.amount));
   const showStock = offersPartialStockDeduction(order, value.amount.trim() && Number.isFinite(typed) ? { amount: typed, currency: order.total.currency } : null);
   return <View style={styles.section}><PaymentFields value={value} onChange={setValue} currency={order.total.currency} busy={busy} showStockOption={showStock} />
-    <Button disabled={busy} loading={busy} onPress={() => onConfirm(value.amount, value.method, showStock && value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
+    <Button disabled={busy} loading={busy} onPress={() => onConfirm(value.amount, paymentFromChoice(choiceOfPayment(value) ?? defaultPaymentChoice), showStock && value.deductStockIfPartial)}>{t('confirmPayment')}</Button>
   </View>;
 }
 

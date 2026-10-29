@@ -3,7 +3,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { useTranslation } from "react-i18next";
 import type { DraftPayment } from "@mobile/features/orders/domain/order-draft";
-import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentBadgeStatus, type PaymentMethod } from "@mobile/features/orders/presentation/order-payment-parts";
+import { PaymentBadge, PaymentRegisterSheet, PaymentRow, PaymentSummary, paymentBadgeStatus, paymentMethodLabel } from "@mobile/features/orders/presentation/order-payment-parts";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
 import { useTheme } from "@mobile/hooks/use-theme";
@@ -45,7 +45,6 @@ export function OrderPaymentCard({ payments, total, totalConfirmed, currency, bu
     return next;
   }, 0);
   const status = paymentBadgeStatus(paid, balance);
-  const methodLabel = (method: PaymentMethod) => t(method === "digital_wallet" ? 'wallet' : 'bankTransfer');
   const open = () => { setInvalid(false); setSheet(true); };
 
   return <View style={[styles.card, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
@@ -55,7 +54,7 @@ export function OrderPaymentCard({ payments, total, totalConfirmed, currency, bu
     </View>
     {total !== null && totalConfirmed ? <PaymentSummary total={format(total)} paid={format(paid)} balance={format(balance)} showPaid={payments.length > 0} /> : null}
     {total !== null && paidCents > totalCents ? <ThemedText type="small" style={{ color: theme.warning }}>{t('overpaid', { amount: format((paidCents - totalCents) / 100) })}</ThemedText> : null}
-    {payments.map(payment => <PaymentRow key={payment.paymentId} method={methodLabel(payment.method)} amount={validAmount(payment.amount) ? format(Number(payment.amount)) : payment.amount}
+    {payments.map(payment => <PaymentRow key={payment.paymentId} method={paymentMethodLabel(t, payment)} amount={validAmount(payment.amount) ? format(Number(payment.amount)) : payment.amount}
       tag={advanceIds.has(payment.paymentId) ? t('advancePayment') : undefined}
       trailing={<Pressable accessibilityRole="button" accessibilityLabel={`${t('removePayment')} ${validAmount(payment.amount) ? format(Number(payment.amount)) : payment.amount}`} disabled={busy}
         onPress={() => onPaymentsChange(current => current.filter(row => row.paymentId !== payment.paymentId))} style={styles.remove}>
@@ -69,10 +68,10 @@ export function OrderPaymentCard({ payments, total, totalConfirmed, currency, bu
       stockOffer={amount => amount === null || cents(amount) < cents(balance) ? { offered: true, reason: null }
         : { offered: false, reason: t('stockWithFullPayment') }}
       onClose={() => setSheet(false)}
-      onSubmit={({ amount, method, deductStockIfPartial }) => {
+      onSubmit={({ amount, deductStockIfPartial, ...method }) => {
         const normalized = normalizeDecimalInput(amount.trim());
         if (!validAmount(normalized)) { setInvalid(true); return; }
-        onPaymentsChange(current => [...current, { paymentId: newId(), amount: normalized, method, deductStockIfPartial }]);
+        onPaymentsChange(current => [...current, { paymentId: newId(), amount: normalized, ...method, deductStockIfPartial }]);
         setSheet(false);
       }} />
   </View>;

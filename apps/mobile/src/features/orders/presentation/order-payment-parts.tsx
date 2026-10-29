@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { choiceOfPayment, defaultPaymentChoice, paymentChoices, paymentFromChoice, walletProviderLabel, type PaymentChoice, type PaymentMethodAndProvider } from "@shared/wallet-providers";
 import { KeyboardAvoidingView, Modal, Platform, Pressable, ScrollView, StyleSheet, Switch, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { SymbolView } from "expo-symbols";
@@ -11,7 +12,11 @@ import { useTheme } from "@mobile/hooks/use-theme";
 import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
 import tokens from "../../../../../../docs/design-tokens.json";
 
-export type PaymentMethod = "digital_wallet" | "bank_transfer";
+/** The name a payment is shown under: its wallet provider, or the method when it has none. */
+export function paymentMethodLabel(t: (key: 'wallet' | 'bankTransfer') => string, payment: Parameters<typeof choiceOfPayment>[0]): string {
+  const choice = choiceOfPayment(payment);
+  return choice === null ? t('wallet') : choice === "bank_transfer" ? t('bankTransfer') : walletProviderLabel(choice);
+}
 export type PaymentBadgeStatus = "pending" | "partial" | "paid";
 export type PillTone = "neutral" | "success" | "warning";
 
@@ -86,7 +91,7 @@ type SheetProps = {
   /** Whether "deduct stock now" applies to the typed amount, and why not when it does not. */
   stockOffer: (amount: number | null) => StockOffer;
   onClose: () => void;
-  onSubmit: (value: { amount: string; method: PaymentMethod; deductStockIfPartial: boolean }) => void;
+  onSubmit: (value: PaymentMethodAndProvider & { amount: string; deductStockIfPartial: boolean }) => void;
 };
 
 /** Floating sheet to register one payment: the full balance or another amount, plus the method. */
@@ -115,12 +120,12 @@ function SheetBody({ balance, currency, format, busy, error, amountError = "", s
   const theme = useTheme();
   const [mode, setMode] = useState<"full" | "other">("full");
   const [other, setOther] = useState("");
-  const [method, setMethod] = useState<PaymentMethod>("digital_wallet");
+  const [choice, setChoice] = useState<PaymentChoice>(defaultPaymentChoice);
   const [deduct, setDeduct] = useState(false);
   const typed = Number(normalizeDecimalInput(other));
   const amount = mode === "full" ? balance : other.trim() && Number.isFinite(typed) ? typed : null;
   const offer = mode === "other" ? stockOffer(amount) : { offered: false, reason: null };
-  const methodLabel = (value: PaymentMethod) => t(value === "digital_wallet" ? 'wallet' : 'bankTransfer');
+  const choiceLabel = (value: PaymentChoice) => paymentMethodLabel(t, paymentFromChoice(value));
   const label = mode === "full" ? format(balance) : amount !== null && amount > 0 ? format(amount) : "";
   return <>
     <View accessibilityRole="radiogroup" style={styles.gap12}>
@@ -147,13 +152,13 @@ function SheetBody({ balance, currency, format, busy, error, amountError = "", s
     <View style={styles.gap8}>
       <ThemedText type="small">{t('paymentMethod')}</ThemedText>
       <View accessibilityRole="radiogroup" accessibilityLabel={t('paymentMethod')} style={styles.chips}>
-        {(["digital_wallet", "bank_transfer"] as const).map(value => {
-          const selected = method === value;
-          return <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: selected, disabled: busy }} accessibilityLabel={methodLabel(value)} disabled={busy}
-            onPress={() => setMethod(value)}
+        {paymentChoices.map(value => {
+          const selected = choice === value;
+          return <Pressable key={value} accessibilityRole="radio" accessibilityState={{ checked: selected, disabled: busy }} accessibilityLabel={choiceLabel(value)} disabled={busy}
+            onPress={() => setChoice(value)}
             style={({ pressed }) => [styles.chip, { borderColor: selected ? theme.accent : theme.border, backgroundColor: selected || pressed ? theme.accent : "transparent" }]}>
             {selected ? <SymbolView name={{ ios: "checkmark", android: "check" }} size={16} tintColor={theme.primary} /> : null}
-            <ThemedText type="small" style={{ color: selected ? theme.primary : theme.text }}>{methodLabel(value)}</ThemedText>
+            <ThemedText type="small" style={{ color: selected ? theme.primary : theme.text }}>{choiceLabel(value)}</ThemedText>
           </Pressable>;
         })}
       </View>
@@ -164,7 +169,7 @@ function SheetBody({ balance, currency, format, busy, error, amountError = "", s
     </View> : mode === "other" && offer.reason ? <ThemedText type="small" themeColor="textSecondary">{offer.reason}</ThemedText> : null}
     {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{error}</ThemedText> : null}
     <Button disabled={busy || (mode === "other" && !(amount !== null && amount > 0))} loading={busy}
-      onPress={() => onSubmit({ amount: mode === "full" ? balance.toFixed(2) : other, method, deductStockIfPartial: offer.offered && deduct })}>
+      onPress={() => onSubmit({ amount: mode === "full" ? balance.toFixed(2) : other, ...paymentFromChoice(choice), deductStockIfPartial: offer.offered && deduct })}>
       {t('registerAmount', { amount: label })}
     </Button>
   </>;
