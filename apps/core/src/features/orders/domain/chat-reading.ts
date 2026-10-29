@@ -60,7 +60,9 @@ export type ReaderAction =
   | Readonly<{ kind: "ready" }>
   | Readonly<{ kind: "variant_only" }>
   | Readonly<{ kind: "variant_for_pendings"; pendings: readonly [ReadingRef, ReadingRef, ...ReadingRef[]] }>
-  | Readonly<{ kind: "not_allowed" }>;
+  | Readonly<{ kind: "not_allowed" }>
+  /** An incomplete or inconsistent action of the reader's answer; the rest of the message still applies. */
+  | Readonly<{ kind: "malformed" }>;
 
 export type ReaderAnswer =
   /** At most 10 actions are applied; moreActions says the message asked for more. */
@@ -197,6 +199,7 @@ function matchPendings(product: ReadingProduct, choices: readonly AttributeChoic
 function resolveAction(action: ReaderAction, target: PendingTarget, shared: boolean, world: World): readonly ResolvedChatAction[] {
   switch (action.kind) {
     case "not_allowed": return [report({ kind: "request_not_allowed" })];
+    case "malformed": return [invalid("unknown_reference")];
     case "ready": return [{ kind: "ready" }];
     case "variant_only": return [report({ kind: "variant_only" })];
     case "decline_shown": return [];

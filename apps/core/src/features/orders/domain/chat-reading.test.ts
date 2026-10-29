@@ -175,6 +175,13 @@ describe("checkReaderAnswer: the answer as a whole", () => {
     expect(createChat().say(say({ kind: "not_allowed" })).outcomes).toEqual([{ kind: "request_not_allowed" }]);
   });
 
+  test("reports a generic invalid action for a malformed action and applies the others", () => {
+    const chat = createChat();
+    const said = chat.say(say(add({ product: "snapback" }), { kind: "malformed" }));
+    expect(said.outcomes.map((outcome) => outcome.kind)).toEqual(["added", "invalid_action"]);
+    expect(chat.items()).toEqual(["Gorra snapback · Azul · ×1"]);
+  });
+
   test("reports no intent for the reader's no_intent and for declining the shown product alone", () => {
     expect(createChat().say({ kind: "no_intent" }).kinds).toEqual(["no_intent"]);
     expect(createChat().say(say({ kind: "decline_shown" }), { shown: [["polo"]] }).kinds).toEqual(["no_intent"]);
