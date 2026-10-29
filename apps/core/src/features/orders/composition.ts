@@ -244,7 +244,7 @@ export async function getBuyerPaymentView(id: string, hostCompanyId: CompanyId) 
       paidAmount: summary.data.paidAmount, balanceDue: summary.data.balanceDue, paymentStatus: summary.data.status,
       settings: offered,
       payments: found.data.payments.map((payment) => { const imageId = receiptImageId(payment);
-        return { id: payment.id, status: payment.status, amount: payment.amount, method: payment.method,
+        return { id: payment.id, status: payment.status, amount: payment.amount, method: payment.method, walletProvider: payment.walletProvider,
           receiptImageUrl: imageId ? images.get(imageId) ?? null : null, rejectionReason: payment.status === "rejected" ? payment.data.reason : null }; }),
       rejectedReport: rejectedReport(found.data) };
     return { success: true as const, data: view };

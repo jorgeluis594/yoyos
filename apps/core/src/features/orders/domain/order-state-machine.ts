@@ -14,7 +14,7 @@ import type { ChatId } from "@core/src/features/orders/domain/message-order";
 export type OrderStatus = "active" | "cancelled" | "completed";
 export type PaymentStatus = "pending" | "paid";
 export type DeliveryStatus = "pending" | "shipped" | "delivered";
-export type { Payment, PaymentMethod } from "@core/src/features/orders/domain/payment";
+export type { Payment, PaymentMethod, WalletProvider } from "@core/src/features/orders/domain/payment";
 export type DocumentType = "national_id" | "passport" | "foreign_id";
 export type Recipient = Readonly<{ name: string; phone: string; identity: { kind: "absent" } | { kind: "document"; documentType: DocumentType; document: string } }>;
 export type AgencyRecipient = Readonly<Omit<Recipient, "identity"> & { identity: Extract<Recipient["identity"], { kind: "document" }> }>;

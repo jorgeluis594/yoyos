@@ -5,6 +5,7 @@ import { peruDeliveryDistrictSchema, peruDistrictCodeSchema } from "@shared/cont
 import { pickupPointSchema } from "@shared/contracts/delivery-settings";
 import { parseDispatchDate } from "@shared/dispatch-date";
 import { internationalPhonePattern } from "@shared/phone";
+import { walletProviderFitsMethod, walletProviderSchema } from "@shared/wallet-providers";
 
 export const dispatchDateSchema = z.string().refine((value) => parseDispatchDate(value).success, { message: "Invalid dispatch date" });
 
@@ -58,7 +59,8 @@ export type NewOrderCustomer = z.infer<typeof newOrderCustomerSchema>;
 export const completeOrderSchema = orderSelectionSchema.extend({
   customer: newOrderCustomerSchema.optional(),
   payments: z.array(z.strictObject({ paymentId: z.uuid(), amount: moneySchema,
-    method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
+    method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(), deductStockIfPartial: z.boolean() })
+    .refine(walletProviderFitsMethod, { message: "Only a digital wallet has a provider" })).optional(),
   delivery: setRatedOrderDeliverySchema.optional(),
   deliverImmediately: z.boolean().optional(),
   deferStockDeduction: z.boolean().optional(),
@@ -100,9 +102,12 @@ export const paymentSchema = z.discriminatedUnion("status", [
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("reported"), currency: z.enum(currencies),
     amount: z.null(), method: z.null(), data: reportDataSchema }),
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("confirmed"), amount: moneySchema,
-    method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema }),
+    method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(), data: confirmationDataSchema })
+    .refine(walletProviderFitsMethod, { message: "Only a digital wallet has a provider" }),
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("voided"), amount: moneySchema,
-    method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema.extend({ voidedAt: z.iso.datetime(), voidedBy: z.string().min(1) }) }),
+    method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(),
+    data: confirmationDataSchema.extend({ voidedAt: z.iso.datetime(), voidedBy: z.string().min(1) }) })
+    .refine(walletProviderFitsMethod, { message: "Only a digital wallet has a provider" }),
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("rejected"), currency: z.enum(currencies),
     amount: z.null(), method: z.null(), data: rejectionDataSchema }),
 ]);
@@ -144,7 +149,8 @@ export const updateOrderShippingSchema = z.strictObject({
   { message: "At least one field is required" });
 export type UpdateOrderShippingRequest = z.infer<typeof updateOrderShippingSchema>;
 export const registerPaymentSchema = z.strictObject({ paymentId: z.uuid(), source: z.enum(["manual", "buyer_report"]).optional(),
-  amount: moneySchema, method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() });
+  amount: moneySchema, method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(), deductStockIfPartial: z.boolean() })
+  .refine(walletProviderFitsMethod, { message: "Only a digital wallet has a provider" });
 export type RegisterPaymentRequest = z.infer<typeof registerPaymentSchema>;
 export const stockOutcomeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("deducted") }), z.strictObject({ kind: z.literal("not_requested") }),
@@ -163,7 +169,7 @@ export const buyerPaymentViewSchema = z.strictObject({ orderId: z.uuid(), total:
     z.strictObject({ method: z.literal("bank_transfer"), bank: z.string(), holder: z.string(), accountNumber: z.string().nullable(), cci: z.string().nullable(), imageUrl: z.url().nullable() }),
   ])),
   payments: z.array(z.strictObject({ id: z.uuid(), status: z.enum(["reported", "confirmed", "voided", "rejected"]),
-    amount: moneySchema.nullable(), method: z.enum(["digital_wallet", "bank_transfer"]).nullable(), receiptImageUrl: z.url().nullable(),
+    amount: moneySchema.nullable(), method: z.enum(["digital_wallet", "bank_transfer"]).nullable(), walletProvider: walletProviderSchema.optional(), receiptImageUrl: z.url().nullable(),
     rejectionReason: z.string().nullable() })),
   rejectedReport: z.strictObject({ reason: z.string().nullable() }).nullable() });
 export type BuyerPaymentView = z.infer<typeof buyerPaymentViewSchema>;
