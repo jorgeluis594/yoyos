@@ -1,5 +1,6 @@
 import { add, isCurrency, multiply, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
+import { internationalPhonePattern } from "@shared/phone";
 import type { Result } from "@shared/result";
 export type { CompanyId, UserId } from "@shared/identity";
 import type { CompanyId } from "@shared/identity";
@@ -12,7 +13,7 @@ export type PaymentId = string & { readonly __brand: "PaymentId" };
 export type ContactId = string & { readonly __brand: "ContactId" };
 export type PositiveInteger = number & { readonly __brand: "PositiveInteger" };
 
-export type OrderCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: ContactId; name: string | null; phone: string | null }>;
+export type OrderCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: ContactId; name: string | null; phone: string | null }> | Readonly<{ kind: "buyer"; name: string; phone: string }>;
 /** Price the buyer wrote in the chat for an item, in the order currency. Stored for display only: it never changes the unit price. */
 export type MentionedPrice = Readonly<{ amount: Money; units: number }>;
 export type OrderItem = Readonly<{ id: OrderItemId; variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; quantity: PositiveInteger; unitPrice: Money; subtotal: Money; mentionedPrice?: MentionedPrice | null }>;
@@ -33,7 +34,8 @@ const validAmount = (amount: number, maxCents: number) => {
 
 export function buildOrder(input: BuildOrderInput): Result<PricedOrder, BuildOrderError> {
   if (!uuid.test(input.id) || !uuid.test(input.companyId) || (input.sellerId !== null && !input.sellerId) || !(input.createdAt instanceof Date) || !Number.isFinite(input.createdAt.getTime()) || !input.items.length ||
-    !["contact", "general_public"].includes(input.customer.kind) ||
+    !["contact", "buyer", "general_public"].includes(input.customer.kind) ||
+    (input.customer.kind === "buyer" && (!input.customer.name.trim() || !internationalPhonePattern.test(input.customer.phone))) ||
     (input.customer.kind === "contact" && (!uuid.test(input.customer.contactId) || (input.customer.name !== null && typeof input.customer.name !== "string")))) {
     return err({ code: "INVALID_ORDER", message: "Invalid order header" });
   }
@@ -60,7 +62,7 @@ export function buildOrder(input: BuildOrderInput): Result<PricedOrder, BuildOrd
     items.push({ ...item, quantity: item.quantity as PositiveInteger, variantAttributes: { ...item.variantAttributes }, unitPrice: { ...item.unitPrice }, subtotal: subtotal.data, mentionedPrice: item.mentionedPrice ?? null });
   }
   return ok({ id: input.id, companyId: input.companyId, sellerId: input.sellerId,
-    customer: input.customer.kind === "contact" ? { ...input.customer } : { kind: "general_public" },
+    customer: input.customer.kind === "general_public" ? { kind: "general_public" } : { ...input.customer },
     createdAt: new Date(input.createdAt), items: items as [OrderItem, ...OrderItem[]], total: total! });
 }
 

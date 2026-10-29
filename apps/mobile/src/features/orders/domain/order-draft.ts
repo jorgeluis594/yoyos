@@ -4,7 +4,7 @@ import { currencies } from "@shared/money";
 import { add, multiply, type Money } from "@shared/money";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { dispatchDateSchema } from "@shared/contracts/orders";
+import { dispatchDateSchema, newOrderCustomerSchema, type NewOrderCustomer } from "@shared/contracts/orders";
 import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
 
 export type OrderDraftItem = Readonly<{
@@ -18,7 +18,8 @@ export type OrderDraftItem = Readonly<{
 }>;
 
 export type DraftPayment = Readonly<{ paymentId: string; amount: string; method: "digital_wallet" | "bank_transfer"; deductStockIfPartial: boolean }>;
-type DraftOptions = Readonly<{ payments?: readonly DraftPayment[]; ratedDelivery?: RatedDeliveryAssignment; deliverImmediately?: boolean; deferStockDeduction?: boolean; scheduledDispatchDate?: string }>;
+export type DraftCustomer = NewOrderCustomer;
+type DraftOptions = Readonly<{ customer?: DraftCustomer; payments?: readonly DraftPayment[]; ratedDelivery?: RatedDeliveryAssignment; deliverImmediately?: boolean; deferStockDeduction?: boolean; scheduledDispatchDate?: string }>;
 const identity = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("absent") }),
   z.strictObject({ kind: z.literal("document"), documentType: z.enum(["national_id", "passport", "foreign_id"]), document: z.string().trim().min(1) })]);
 const recipient = z.strictObject({ name: z.string().trim().min(1), phone: z.string().trim().min(1), identity });
@@ -34,7 +35,7 @@ export const ratedDeliveryAssignmentSchema = z.strictObject({
   ]),
 }).refine(value => value.delivery.method === "store" ? value.expectedPrice.amount === 0 : value.expectedPrice.currency === "PEN");
 export type RatedDeliveryAssignment = z.infer<typeof ratedDeliveryAssignmentSchema>;
-const submissionSchema = z.strictObject({ id: z.uuid(),
+const submissionSchema = z.strictObject({ id: z.uuid(), customer: newOrderCustomerSchema.optional(),
   items: z.array(z.strictObject({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
   payments: z.array(z.strictObject({ paymentId: z.uuid(), amount: z.strictObject({ amount: z.number().finite().positive().refine(value => /^\d+(?:\.\d{1,2})?$/.test(String(value))), currency: z.enum(currencies) }),
     method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
@@ -79,6 +80,7 @@ export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSubmissi
   }
   if (new Set(draft.payments?.map(payment => payment.paymentId)).size !== (draft.payments?.length ?? 0)) return invalid();
   const parsed = submissionSchema.safeParse({ id: draft.id,
+    ...(draft.customer ? { customer: draft.customer } : {}),
     ...(draft.payments ? { payments: draft.payments.map(payment => ({ ...payment, amount: { amount: Number(normalizeDecimalInput(payment.amount)), currency: total?.currency } })) } : {}),
     ...(ratedDelivery?.success ? { delivery: ratedDelivery.data } : {}),
     ...(draft.deliverImmediately !== undefined ? { deliverImmediately: draft.deliverImmediately } : {}),

@@ -1,5 +1,6 @@
 import { OrderItemsCard } from "@mobile/features/orders/presentation/order-items-card";
 import { ProductPickerSheet } from "@mobile/features/orders/presentation/product-picker-sheet";
+import { OrderCustomerCard } from "@mobile/features/orders/presentation/order-customer-card";
 import { OrderPaymentCard } from "@mobile/features/orders/presentation/order-payment-card";
 import { usePendingOrders } from "@mobile/features/orders/presentation/pending-order-sync-provider";
 import { DeliveryFields, deliveryDraftFromOrder } from "@mobile/features/orders/presentation/delivery-fields";
@@ -291,13 +292,20 @@ function CompanyOrderScreen() {
   const showDeliveryFields = () => {
     if (!settings) return;
     const { name, phone, documentType, document, method, address, instructions } = deliveryDraftFromOrder({ delivery: null,
-      buyer: null,
+      buyer: draft.customer ? { contactId: null, name: draft.customer.name, phone: draft.customer.phone } : null,
       deliveryCharge: { amount: 0, currency: "PEN" } }, settings);
     setInitialDelivery({ name, phone, documentType, document, method, address, instructions, rateId: "", agencyId: "", price: null, districtCode: "",
       currency: productTotal.success ? productTotal.data.shownTotal.currency : "PEN" });
     setQuoteAttempt(value => value + 1);
   };
 
+  // The recipient follows the customer until the seller edits it; an edited recipient is kept and the customer never changes.
+  const changeCustomer = (customer: OrderDraft["customer"]) => {
+    const previous = draft.customer;
+    setDraft(current => ({ ...current, customer }));
+    setInitialDelivery(current => current && (!current.name && !current.phone || current.name === (previous?.name ?? "") && current.phone === (previous?.phone ?? ""))
+      ? { ...current, name: customer?.name ?? "", phone: customer?.phone ?? "" } : current);
+  };
   const rejected = pending?.success ? pending.data.filter(sale => sale.rejection) : [];
   const discardUnreadable = () => { void orders.discardPendingOrderConfirmation(companyId).then((result) => {
     if (result.success) { void refreshPending(); syncPending(); setError(""); }
@@ -330,6 +338,7 @@ function CompanyOrderScreen() {
             <ThemedText style={styles.amount}>{money(sale.shownTotal.amount, sale.shownTotal.currency, locale)}</ThemedText></View>
           <Button variant="secondary" loading={checking} disabled={sending || draft.kind === "items"} onPress={() => void reviewSavedOrder(sale.id)}>{t('reviewRejectedSale')}</Button>
         </View>) : null}
+      <OrderCustomerCard customer={draft.customer} busy={sending} onChange={changeCustomer} />
       {stage === "products" ? <View style={[styles.card, card]}>
             <ThemedText type="subtitle" accessibilityRole="header">{t('items')}</ThemedText>
             {unavailableVariants.map((variantId, index) => <View key={variantId} style={styles.item}>
@@ -349,7 +358,8 @@ function CompanyOrderScreen() {
                 <Button variant="ghost" onPress={() => setDraft(removeDraftItem(draft, item.variantId))}>{t('remove')}</Button></View>
             </View>)}
             <Button variant="secondary" onPress={() => { setSelected(null); setCatalogLoading(true); setPickerOpen(true); }}>{t('addProducts')}</Button>
-          </View> : <View style={styles.section}>
+          </View> : null}
+      {stage === "products" ? null : <View style={styles.section}>
             <OrderItemsCard items={draft.items} total={productTotal.success ? money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale) : null}
               format={(amount, currency) => money(amount, currency, locale)} onEdit={backToProducts} collapsible />
             {unavailableVariants.length ? <ThemedText accessibilityRole="alert">{t('savedProductsNeedReview')}</ThemedText> : null}
