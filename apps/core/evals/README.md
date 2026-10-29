@@ -55,9 +55,9 @@ suite skips with a message and the end-to-end suite runs only its text cases.
 
 | Suite | Pass | Production path |
 | --- | --- | --- |
-| `interpretation.eval.ts` | Interpretation and arguments (criteria 1, 4) | `applyChatMessage` with the real interpreter, text identification and variant resolution. The photo's identification is given by the case (visual match 0.95, QR label or «not a product») so only interpretation is measured. |
+| `interpretation.eval.ts` | Interpretation and arguments (criteria 1, 4) | `applyChatMessage` with the real reader (one model call per message), candidate search, checks and order transaction. The photo's identification is given by the case (visual match 0.95, QR label or «not a product») so only the reading is measured. |
 | `identification-image.eval.ts` | Non-product photos and visual identification (criteria 2, 5) | `identifyProductsInImage`: real QR reader, local embedding search and vision chooser. |
-| `end-to-end.eval.ts` | The whole message | `applyChatMessage` with the real photo cascade, interpretation and order transaction. |
+| `end-to-end.eval.ts` | The whole message | `applyChatMessage` with the real photo cascade, reader and order transaction. |
 | `conversation.eval.ts` | Conversations | One chat with 2 to 4 messages applied in order, with events between them, on a simulated clock. |
 
 Faked: image storage (fixture files instead of R2). Nothing publishes events, so no notice reaches WhatsApp or push. An open
@@ -75,7 +75,7 @@ identified (`no_match`) or not a product (`not_product`), with its `scenario` as
 uploads: they are indexed and never used as queries, since they would match their own embedding; the first photo of each answer and the first worn photo are tagged `consistency`. End-to-end cases pick
 their photo from the manifest by product, folder and a hint (`photo({ folder: "customer", productKey: "polo-basico", hint: "worn" })`)
 and are left out when no photo matches. A case has an id, pass, criterion
-(1 interpretation, 2 non-product photos, 4 arguments, 5 visual identification), kind, tags, the
+(1 reading, 2 non-product photos, 4 arguments, 5 visual identification), kind, tags, the
 input (text, or photo plus caption, and the open order) and one or more acceptable expectations. Tags: `consistency` and `pinned-miss` (run
 `EVAL_REPEATS` times when `EVAL_REPEAT_TAGS` names them; the report lists cases whose result flipped), `injection` (prompt injection attempts), `paraphrase`, and
 `known-limitation` (beyond the documented design, such as a synonym that shares no letters with the product name: reported apart
