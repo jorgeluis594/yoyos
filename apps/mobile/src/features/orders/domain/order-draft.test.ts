@@ -1,4 +1,4 @@
-import { addDraftItem, changeDraftQuantity, emptyOrderDraft, prepareOrder, removeDraftItem } from "@mobile/features/orders/domain/order-draft";
+import { addDraftItem, changeDraftQuantity, emptyOrderDraft, exceedsShownStock, paymentsDeductStock, paymentsWithoutStockDeduction, prepareOrder, removeDraftItem } from "@mobile/features/orders/domain/order-draft";
 import type { Currency } from "@shared/money";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -108,4 +108,49 @@ test("prepareOrder sends a valid scheduled dispatch date and omits it when absen
   const plain = prepareOrder(added.data);
   expect(plain.success && "scheduledDispatchDate" in plain.data.request).toBe(false);
   expect(prepareOrder({ ...added.data, scheduledDispatchDate: "2026-02-30" }).success).toBe(false);
+});
+
+describe("stock at creation", () => {
+  const payment = (amount: string, deductStockIfPartial = false) => ({ paymentId: id(5), amount, method: "bank_transfer" as const, deductStockIfPartial });
+  const total = { amount: 10, currency: "PEN" as const };
+
+  test("payments deduct stock when they cover the total or any opts into partial deduction", () => {
+    expect(paymentsDeductStock([payment("10")], total)).toBe(true);
+    expect(paymentsDeductStock([payment("4.5"), { ...payment("5.5"), paymentId: id(6) }], total)).toBe(true);
+    expect(paymentsDeductStock([payment("4,5", true)], total)).toBe(true);
+    expect(paymentsDeductStock([payment("9.99")], total)).toBe(false);
+  });
+
+  test("no payments and invalid amounts do not deduct stock", () => {
+    expect(paymentsDeductStock([], total)).toBe(false);
+    expect(paymentsDeductStock([payment("")], total)).toBe(false);
+    expect(paymentsDeductStock([payment("abc", true)], total)).toBe(false);
+    expect(paymentsDeductStock([payment("-10")], total)).toBe(false);
+    expect(paymentsDeductStock([payment("10")], null)).toBe(false);
+  });
+
+  describe("payments without stock deduction", () => {
+    const other = (amount: string, n: number, deductStockIfPartial = false) => ({ ...payment(amount, deductStockIfPartial), paymentId: id(n) });
+
+    test("drops the covering Pagado payment and removes nothing else", () => {
+      expect(paymentsWithoutStockDeduction([payment("10")], id(5), total)).toEqual({ kept: [], removedAdvanceAmount: 0 });
+    });
+
+    test("keeps a partial advance with its stock deduction cleared", () => {
+      expect(paymentsWithoutStockDeduction([payment("10"), other("4", 6, true)], id(5), total))
+        .toEqual({ kept: [{ ...other("4", 6), deductStockIfPartial: false }], removedAdvanceAmount: 0 });
+    });
+
+    test("drops advances that still cover the total, last first, and reports their amount", () => {
+      expect(paymentsWithoutStockDeduction([other("6", 6), other("4", 7)], null, total))
+        .toEqual({ kept: [other("6", 6)], removedAdvanceAmount: 4 });
+      expect(paymentsWithoutStockDeduction([other("10", 6)], null, total)).toEqual({ kept: [], removedAdvanceAmount: 10 });
+    });
+  });
+
+  test("a quantity above the shown stock is detected", () => {
+    expect(exceedsShownStock([{ ...item(1, 1, "PEN", 3), quantity: 3 }])).toBe(false);
+    expect(exceedsShownStock([{ ...item(1, 1, "PEN", 3), quantity: 4 }])).toBe(true);
+    expect(exceedsShownStock([{ ...item(1, 1, "PEN", 0), quantity: 1 }])).toBe(true);
+  });
 });
