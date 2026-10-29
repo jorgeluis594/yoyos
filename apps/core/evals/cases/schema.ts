@@ -129,7 +129,8 @@ export const eventStep = z.discriminatedUnion("event", [
   z.strictObject({ event: z.literal("advance_days"), days: z.number().int().min(1).max(60) }),
   z.strictObject({ event: z.literal("cancel_order") }),
   z.strictObject({ event: z.literal("report_payment") }),
-  z.strictObject({ event: z.literal("confirm_payment") }),
+  /** `partial`: the payment is half the order total, so the order is neither paid nor stock-deducted and a void reopens it. */
+  z.strictObject({ event: z.literal("confirm_payment"), partial: z.literal(true).optional() }),
   z.strictObject({ event: z.literal("void_payment") }),
   z.strictObject({ event: z.literal("deactivate_product"), product: productKey }),
 ]);

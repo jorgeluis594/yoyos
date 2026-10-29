@@ -180,7 +180,7 @@ function calibrationOf(records: readonly CaseRecord[]): Record<string, Calibrati
 const isMessageRecord = ({ pass }: CaseRecord) => pass !== "image";
 const percentOf = (part: number, whole: number) => whole ? Math.round((part / whole) * 1000) / 10 : 0;
 
-/** The gate lines of a set of first-repetition records. Conversations are counted whole, once, by the first record of each. */
+/** The gate lines of a set of first-repetition records: every message of a conversation counts as a scored message; a conversation counts once for the two-notices line. */
 export function gateLines(records: readonly CaseRecord[]): GateLines {
   const messages = records.filter(isMessageRecord);
   const silent = messages.filter(({ expectedSilent }) => expectedSilent);

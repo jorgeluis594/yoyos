@@ -15,7 +15,7 @@ import { readQrCodes } from "@core/src/shared/images/infrastructure/qr-code-read
 import { findSellableVariantsByQrCodes, loadSellableVariants } from "@core/src/features/products/infrastructure/order-stock";
 import { findProductIdsOfVariants } from "@core/src/features/products";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
-import { productVariantActions } from "@core/src/features/products/product-variant-actions";
+import { setVariantStatus } from "@core/src/features/products/infrastructure/variant-repository";
 import { saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { cancelOrder } from "@core/src/features/orders/application/cancel-order";
 import { reportPayment } from "@core/src/features/orders/application/report-payment";
@@ -329,7 +329,7 @@ export type AppliedConversation = Readonly<{ results: readonly StepResult<Conver
  */
 async function applyConversation(steps: readonly ConversationStepInput[], wiring: Wiring, company: EvalCompany): Promise<AppliedConversation> {
   const chat = await newChat(company);
-  let lastPaymentId: string | null = null;
+  let payment: PaymentState = null;
   let previousOrder: readonly AppliedLine[] = [];
   const driver = {
     message: async (step: MessageStep, _number: number, clock: SimulatedClock): Promise<ConversationMessage> => {
@@ -344,7 +344,7 @@ async function applyConversation(steps: readonly ConversationStepInput[], wiring
       return { applied: measured.value, previousOrder: before, observation: measured.observation, calls };
     },
     event: async (step: EventStep, clock: SimulatedClock) => {
-      lastPaymentId = await applyEvent(step, chat, company, clock.now, lastPaymentId);
+      payment = await applyEvent(step, chat, company, clock.now, payment);
     },
   };
   // A step that throws stops the conversation; the messages it applied before stay, so the runner can record them.
@@ -364,24 +364,33 @@ async function applyConversation(steps: readonly ConversationStepInput[], wiring
 
 const orderOfChat = (chatId: string, company: EvalCompany) => inTenant(company, () => prisma.order.findFirst({ where: { chatId }, orderBy: { number: "desc" }, select: { id: true } }));
 
+/** The conversation's latest payment: reported by the buyer, or confirmed (by the seller, with or without a report). */
+type PaymentState = Readonly<{ id: string; status: "reported" | "confirmed" }> | null;
+
 /**
  * Runs an event through the production use cases at the simulated time. Nothing publishes events here, so a cancellation does not
- * restore stock. Returns the id of the payment the event reported, or the one it was given.
+ * restore stock. Returns the conversation's payment after the event.
+ * - `report_payment` is the buyer's flow: it first confirms the checkout (a report requires it), which ends the order's time open for
+ *   messages for good.
+ * - `confirm_payment` confirms the reported payment, or, with none, registers a payment the seller received by hand (no checkout).
+ *   With `partial` the payment is half the total: the order is not paid and no stock is deducted, so a `void_payment` reopens it for
+ *   messages (a paid order, or one with stock deducted, never reopens).
+ * - `void_payment` voids the confirmed payment; after a report alone, it confirms it first, at the same time.
+ * - `deactivate_product` writes the variants' status as the use case does, without the product detail reload, which needs image storage.
  */
-async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clock: () => Date, paymentId: string | null): Promise<string | null> {
+async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clock: () => Date, payment: PaymentState): Promise<PaymentState> {
   const access = { companyId: company.companyId as CompanyId, userId: company.sellerId as UserId };
   const transaction = <T, E extends { code: string; message: string }>(_companyId: string, work: () => Promise<Result<T, E>>) => withinTransaction(work);
   if (step.event === "deactivate_product") {
-    const definition = productById(productIdOf(step.product, company.scope));
-    const product = definition ?? null;
+    const product = productById(productIdOf(step.product, company.scope));
     for (const variant of product?.variants ?? []) {
-      const changed = await inTenant(company, () => productVariantActions.changeStatus({ productId: productIdOf(step.product, company.scope) as ProductId,
-        variantId: variantIdOf(step.product, variant.attributes, company.scope) as VariantId, status: "inactive" }));
+      const variantId = variantIdOf(step.product, variant.attributes, company.scope) as VariantId;
+      const changed = await inTenant(company, () => setVariantStatus(variantId, "inactive", { productId: productIdOf(step.product, company.scope) as ProductId, variantId, action: "change_status", started: performance.now() }));
       if (!changed.success) throw new Error(`Deactivating ${step.product} failed: ${changed.error.code}`);
     }
-    return paymentId;
+    return payment;
   }
-  if (step.event === "advance_days") return paymentId;
+  if (step.event === "advance_days") return payment;
   const order = await orderOfChat(chat.chatId, company);
   if (!order) throw new Error(`The conversation has no order for ${step.event}`);
   const orderId = order.id as OrderId;
@@ -390,12 +399,17 @@ async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clo
     if (!result.success) throw new Error(`${step.event} failed: ${result.error.code} ${result.error.message}`);
     return result.data;
   };
+  const confirm = async (id: string, source: "manual" | "buyer_report", partial = false) => {
+    const aggregate = await run(() => findOrderAggregate(orderId, access.companyId));
+    if (!aggregate) throw new Error("Order not found");
+    await run(() => registerPayment({ orderId, paymentId: id as PaymentId, source, amount: partial ? { ...aggregate.total, amount: Math.floor(Math.round(aggregate.total.amount * 100) / 2) / 100 } : aggregate.total, method: "digital_wallet", deductStockIfPartial: false },
+      access, { transaction, findOrderForUpdate, savePayment, updatePayment, saveCompletion, deductProductStock, saveStockDeduction, clock }));
+  };
   switch (step.event) {
     case "cancel_order":
       await run(() => cancelOrder(orderId, access, { transaction, findOrderForUpdate, saveCancellation, publishOrderCancelled: async () => ok(undefined), clock }));
-      return paymentId;
+      return payment;
     case "report_payment": {
-      // A buyer can only report a payment once the checkout is confirmed (with the buyer's data), so the report confirms it first, at the same time.
       const checkout = { companyId: access.companyId, orderId };
       await run(() => withinTransaction(async () => {
         const buyer = await saveCheckoutBuyer(checkout, { contactId: chat.contactId as ContactId, name: "Comprador", phone: "+51999999999" });
@@ -406,20 +420,19 @@ async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clo
       await inTenant(company, () => prisma.image.create({ data: { id: receiptId, storageKey: `evals/receipts/${receiptId}` } }));
       await run(() => reportPayment({ paymentId: id as PaymentId, receiptImageId: receiptId as PaymentImageId }, { kind: "buyer", companyId: access.companyId, orderId },
         { transaction, findOrderForUpdate, findReceipt: async (image) => ok(image), savePayment, clock }));
-      return id;
+      return { id, status: "reported" };
     }
     case "confirm_payment": {
-      if (!paymentId) throw new Error("confirm_payment needs a reported payment");
-      const aggregate = await run(() => findOrderAggregate(orderId, access.companyId));
-      if (!aggregate) throw new Error("Order not found");
-      await run(() => registerPayment({ orderId, paymentId: paymentId as PaymentId, source: "buyer_report", amount: aggregate.total, method: "digital_wallet", deductStockIfPartial: false },
-        access, { transaction, findOrderForUpdate, savePayment, updatePayment, saveCompletion, deductProductStock, saveStockDeduction, clock }));
-      return paymentId;
+      if (payment?.status === "confirmed") throw new Error("The payment is already confirmed");
+      const id = payment?.id ?? randomUUID();
+      await confirm(id, payment ? "buyer_report" : "manual", step.partial === true);
+      return { id, status: "confirmed" };
     }
     case "void_payment": {
-      if (!paymentId) throw new Error("void_payment needs a confirmed payment");
-      await run(() => voidPayment({ orderId, paymentId: paymentId as PaymentId }, access, { transaction, findOrderForUpdate, updatePayment, saveCompletion, clock }));
-      return paymentId;
+      if (!payment) throw new Error("void_payment needs a payment");
+      if (payment.status === "reported") await confirm(payment.id, "buyer_report");
+      await run(() => voidPayment({ orderId, paymentId: payment.id as PaymentId }, access, { transaction, findOrderForUpdate, updatePayment, saveCompletion, clock }));
+      return null;
     }
   }
 }

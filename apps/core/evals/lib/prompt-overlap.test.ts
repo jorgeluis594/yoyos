@@ -56,7 +56,7 @@ describe("prompt overlap check", () => {
     expect(sourceFiles).toEqual(expect.arrayContaining(promptFiles));
   });
 
-  test("no production prompt example copies or closely paraphrases an eval input", () => {
+  test("finds no production prompt quoting a conversation case", () => {
     const examples = sourceFiles.flatMap((file) => examplesOf(readFileSync(join(root, file), "utf8"), file));
 
     expect(examples.length).toBeGreaterThan(20);

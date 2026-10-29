@@ -105,11 +105,21 @@ message is scored against the order they left. `expected` is `{ notice, order?, 
 the message sends (`chooseSellerNotice(outcomes)?.kind`) or `null` when the message must be silent. `expectsRepeatNotice: true`
 marks a step the rules sheet expects to repeat the notice of an earlier step for the same product.
 
-Event steps act on the chat's latest order through the production use cases, at the conversation's simulated time: `advance_days`
-(moves the clock; nothing else happens), `cancel_order`, `report_payment` (confirms the buyer's checkout first, which a payment report requires), `confirm_payment` (confirms the payment the last
-`report_payment` made), `void_payment` and `deactivate_product` (deactivates every variant of a catalog product). Every step happens a
-minute after the previous one, so messages keep their order. Nothing publishes events, so a cancellation does not restore stock.
-A conversation's split is the hash of its id. Each message leaves one record, `<conversation id>#<number>`, with the conversation id.
+Event steps act on the chat's latest order through the production use cases, at the conversation's simulated time:
+`advance_days` (moves the clock; nothing else happens), `cancel_order`, `report_payment`, `confirm_payment`, `void_payment` and
+`deactivate_product` (deactivates every variant of a catalog product, photos or no attributes included).
+
+- `report_payment` is the buyer's flow. A report requires a confirmed checkout, so it saves the buyer's data and confirms the checkout
+  first. A confirmed checkout closes the order for messages for good, so use it for cases where the order must stay closed.
+- `confirm_payment` confirms the payment the last `report_payment` made. With no report it registers a payment the seller received by
+  hand, which needs no checkout. `confirm_payment` with `partial: true` registers half the order total: the order is not paid and no
+  stock is deducted, which is what lets a later `void_payment` **reopen the order** for messages (product criterion 41: a message,
+  `confirm_payment` partial, `void_payment`, `advance_days`, a message). A full payment, or any stock deduction, closes it for good.
+- `void_payment` voids the confirmed payment. After a `report_payment` alone it confirms that payment first, at the same instant,
+  then voids it (a reported payment cannot be voided directly).
+
+Every step happens a minute after the previous one, so messages keep their order. Nothing publishes events, so a cancellation does
+not restore stock. A conversation's split is the hash of its id. Each message leaves one record, `<conversation id>#<number>`, with the conversation id.
 
 ## Scoring
 
@@ -180,7 +190,7 @@ true) and `variants` (non-empty list). A variant has `attributes` (an object who
   `key` of the catalog or `not_product`, plus optional `label` (an attributes object: the photo is a printed label of that variant).
 - A conversation has `steps`: a list with 2 to 4 message steps and any number of event steps. A message step has `input` (as above, with
   no `order`), `expected` and optionally `expectsRepeatNotice` (only `true`). An event step has `event`, one of `advance_days` (with
-  `days`, integer 1 to 60), `cancel_order`, `report_payment`, `confirm_payment`, `void_payment` and `deactivate_product` (with
+  `days`, integer 1 to 60), `cancel_order`, `report_payment`, `confirm_payment` (optionally with `partial`, only `true`), `void_payment` and `deactivate_product` (with
   `product`, a product `key`).
 - An order line has `product` (a product `key`), `variant` (an attributes object that matches one variant), and `quantity` (integer
   1 to 99). An expected order line adds `mentionedPrice`: `null`, or `{ amount, units }` (positive number, integer of at least 1).

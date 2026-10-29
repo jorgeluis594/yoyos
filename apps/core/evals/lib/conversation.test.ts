@@ -31,10 +31,11 @@ test("parses a conversation with events and rejects one with five messages", () 
     { input: { photo: { shows: "gorra-trucker" } }, expected: { notice: "variant_missing", outcomes: ["pending_created"] } },
     { event: "advance_days", days: 8 },
     { event: "deactivate_product", product: "gorra-trucker" },
+    { event: "confirm_payment", partial: true },
     { input: { text: "negro" }, expected: { notice: null, order: [{ product: "gorra-trucker", variant: { Color: "Negro" }, quantity: 1 }] }, expectsRepeatNotice: true },
   ])) as ConversationCase;
 
-  expect(parsed.steps).toHaveLength(4);
+  expect(parsed.steps).toHaveLength(5);
   expect(splitOfCase(parsed)).toBe(splitOfCase({ id: "conv-1" }));
 
   const five = Array.from({ length: 5 }, (_, index) => ({ input: { text: `m${index}` }, expected: { notice: null } }));

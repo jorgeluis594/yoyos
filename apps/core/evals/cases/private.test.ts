@@ -48,6 +48,31 @@ describe("private eval data", () => {
     writeFileSync(join(dir, "catalog.json"), JSON.stringify(catalog));
     writeFileSync(join(dir, "cases.json"), JSON.stringify([{ ...cases[0], input: { text: "hola", order: [{ product: "polo-basico", variant: {}, quantity: 1 }] } }]));
 
-    expect(() => loadPrivateData(dir)).toThrow("polo-basico");
+    expect(() => loadPrivateData(dir)).toThrow("names a product the catalog does not have");
+    expect(() => loadPrivateData(dir)).not.toThrow("polo-basico");
+  });
+
+  test("a malformed file names the file and the failing schema paths, never its content or keys", () => {
+    const dir = folder(tmpdir());
+    const failure = (): string => { try { loadPrivateData(dir); } catch (cause) { return (cause as Error).message; } return ""; };
+
+    writeFileSync(join(dir, "catalog.json"), '{"products": [secret-token');
+    writeFileSync(join(dir, "cases.json"), "[]");
+    expect(failure()).toBe("catalog.json is not valid JSON or cannot be read");
+
+    writeFileSync(join(dir, "catalog.json"), JSON.stringify({ products: [{ key: "taza-a", name: "Taza secreta", variants: [{ attributes: { Secreto: 3 }, price: 10 }], leakedKey: 1 }] }));
+    const message = failure();
+    expect(message).toMatch(/^catalog.json is invalid at: /);
+    expect(message).toContain("products.0.variants.0.attributes.*");
+    for (const leaked of ["Secreto", "secreta", "leakedKey", "taza-a"]) expect(message).not.toContain(leaked);
+
+    writeFileSync(join(dir, "catalog.json"), JSON.stringify(catalog));
+    writeFileSync(join(dir, "cases.json"), JSON.stringify([{ ...cases[0], id: "pv-dup" }, { ...cases[0], id: "pv-dup" }]));
+    expect(failure()).toBe("cases.json repeats a case id");
+
+    writeFileSync(join(dir, "cases.json"), JSON.stringify([{ ...cases[0], input: { text: "quiero la taza secreta", order: "x" }, privateField: "oculto" }]));
+    const bad = failure();
+    expect(bad).toMatch(/^cases.json is invalid at: /);
+    for (const leaked of ["taza secreta", "oculto", "privateField"]) expect(bad).not.toContain(leaked);
   });
 });

@@ -12,7 +12,7 @@ const record: CaseRecord = messageRecord({
   previousOrder: [], calls: [{ provider: "openai", role: "system", endpoint: "/v1/responses", model: "gpt-6-luna", inputTokens: 1000, outputTokens: 10, durationMs: 400, status: 200 }],
 });
 
-test("a rebuild rescores messages under the current rules and keeps the classifier's groups and usage", () => {
+test("rebuilds a saved report under the new scoring", () => {
   const meta = { runId: "run", startedAt: "2026-10-24T00:00:00.000Z", finishedAt: "2026-10-24T00:10:00.000Z", settings: { claudeModel: "claude-sonnet-5-5" } };
   const classifier = { provider: "anthropic" as const, role: "classifier" as const, endpoint: "/v1/messages", model: "claude-sonnet-5-5", inputTokens: 2000, outputTokens: 300, durationMs: 1, status: 200 };
   const groups = [{ cause: "lost notice", explanation: "x", caseIds: [record.caseId] }];
