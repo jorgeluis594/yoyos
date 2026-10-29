@@ -72,7 +72,7 @@ function isStatementTimeout(cause: unknown): boolean {
 const coverageRowSchema = z.object({ id: z.uuid(), matches: z.coerce.number().int().min(1) });
 
 /**
- * Active products with a sellable variant ranked by how many of the words their name matches (design §5.3).
+ * Active products with a sellable variant ranked by coverage, the sum of `word_similarity` over the words their name matches (design §5.3).
  * Scans the company's products as the app role under RLS, because the trigram index cannot serve these matches;
  * the cost is words × products, so the words are capped from the catalog size. A statement timeout is a result, not an error.
  */
@@ -90,15 +90,19 @@ export async function searchProductsByCoverage(words: readonly string[], limits:
     }, { statementTimeoutMs: limits.timeoutMs });
     const parsed = z.array(coverageRowSchema).safeParse(found.data.rows);
     if (!parsed.success) {
-      log.error({ event: "unable_to_find_message_candidates", companyId, errorCode: "INVALID_STORED_DATA" }, "unable_to_find_message_candidates");
+      log.error({ event: "unable_to_find_message_candidates", companyId, errorCode: "PERSISTENCE_UNAVAILABLE" }, "unable_to_find_message_candidates");
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
     }
-    return ok<MessageCandidates>({ productIds: parsed.data.map(({ id }) => id as ProductId), matchCount: parsed.data[0]?.matches ?? 0,
-      durationMs: Math.round(performance.now() - started), timedOut: false, wordsSearched: found.data.wordsSearched });
+    const candidates: MessageCandidates = { productIds: parsed.data.map(({ id }) => id as ProductId), matchCount: parsed.data[0]?.matches ?? 0,
+      durationMs: Math.round(performance.now() - started), timedOut: false, wordsSearched: found.data.wordsSearched };
+    log.info({ event: "message_candidates_found", companyId, wordCount: candidates.wordsSearched, matchCount: candidates.matchCount,
+      candidateCount: candidates.productIds.length, durationMs: candidates.durationMs }, "message_candidates_found");
+    return ok(candidates);
   } catch (cause) {
     if (isStatementTimeout(cause)) {
-      log.warn({ event: "message_candidates_timeout", companyId, wordCount: words.length, timeoutMs: limits.timeoutMs }, "message_candidates_timeout");
-      return ok<MessageCandidates>({ productIds: [], matchCount: 0, durationMs: Math.round(performance.now() - started), timedOut: true, wordsSearched: 0 });
+      const durationMs = Math.round(performance.now() - started);
+      log.warn({ event: "message_candidates_timeout", companyId, wordCount: words.length, durationMs }, "message_candidates_timeout");
+      return ok<MessageCandidates>({ productIds: [], matchCount: 0, durationMs, timedOut: true, wordsSearched: 0 });
     }
     if (!(cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError)) throw cause;
     return unavailable(cause);

@@ -177,19 +177,18 @@ export type ProductForReading = Readonly<{
 - **output:** up to `TEXT_MATCH_CANDIDATES` active product ids with a sellable variant, by coverage descending, then shorter name, then id. No model call.
 - **searched words (code, infrastructure):** the text is normalized with Unicode NFD, combining marks removed and lower case, then split on runs of non-letter, non-digit characters. Words of at least 3 characters are kept, distinct, and ordered by length descending, then by first appearance. Longer words carry more trigrams, and catalog names are made of them, so they are kept first. No words means no query and no candidates. This is character-level work with no word lists, so the founder rule holds.
 - **word cap from the catalog size:** `maxWords = clamp(floor(TEXT_MATCH_PAIR_BUDGET / companyProducts), TEXT_MATCH_MIN_WORDS, TEXT_MATCH_MAX_WORDS)`, with these initial values:
-  - `TEXT_MATCH_PAIR_BUDGET` 40,000 pairs, about 120 ms at about 3 µs per pair;
+  - `TEXT_MATCH_PAIR_BUDGET` 25,000 pairs, about 110 ms at about 4.5 µs per pair (measured as `core_app` in T1; the first value, 40,000, assumed 3 µs and missed the 150 ms p95 at 5,000 products);
   - `TEXT_MATCH_MIN_WORDS` 3;
   - `TEXT_MATCH_MAX_WORDS` 30.
 
-  `companyProducts` is the company's active product count. The same statement reads it first through `Product (companyId)`, an index count of at most a few thousand rows.
+  `companyProducts` is the company's active product count. The same transaction reads it first, in its own statement, through `Product (companyId)`, an index count of at most a few thousand rows.
 
   | Catalog | Words searched |
   | --- | --- |
   | 500 products | 30 |
-  | 2,000 products | 20 |
-  | 5,000 products | 8 |
-  | 10,000 products | 4 |
-  | Above about 13,000 products | 3 (the floor), so the budget is passed |
+  | 2,000 products | 12 |
+  | 5,000 products | 5 |
+  | Above about 8,333 products | 3 (the floor), so the budget is passed |
 - **query:** one statement inside a short transaction with `SET LOCAL jit = off` and `SET LOCAL statement_timeout = '1s'`, running as the app role under RLS:
   ```sql
   SELECT p.id, sum(m.sim) AS coverage
@@ -209,10 +208,10 @@ export type ProductForReading = Readonly<{
   - One score is used for the cut and for the order, so no earlier step can cut the named product.
   - Two searched words that are near-forms of one name word («negra» and «negro») both count. Code does not merge them (founder rule). T1 measures the effect in a recall cell.
 - **cost (measured as `core_app` with RLS forced, PostgreSQL 18):**
-  - The planner scans the company's products through `Product (companyId)` and computes `word_similarity` for every (word, product) pair, at about 3 µs per pair.
+  - The planner scans the company's products through `Product (companyId)` and computes `word_similarity` for every (word, product) pair, at about 4.5 µs per pair (T1 measurement on the dev host; the first estimate was 3 µs).
   - Measured without the cap: 14, 30 and 40 ms at 500 products, and 92, 225 and 460 ms at 5,000 products, for 5, 14 and 30 words.
-  - With the cap, the bound is about 120 ms (p95 under 150 ms) for any catalog up to about 13,000 active products.
-  - Above that, the floor of 3 words passes the budget: about 270 ms at 30,000 products, still under the 1 s timeout. Recall also falls, because only the 3 longest words are searched.
+  - With the cap, T1 measured p95 about 100–150 ms at 5,000 products.
+  - Above about 8,333 products the floor of 3 words passes the budget. At 10,000 products p95 was about 155–185 ms on a loaded host, above the 150 ms criterion; this is accepted as a known limitation. The statement stays under the 1 s timeout, and recall also falls, because only the 3 longest words are searched.
   - This is a known limitation (§14). Its meeting point is the Todoist task `6hrWWWJQVCmcM2W3`: a SECURITY DEFINER per-word lookup that lets the trigram index serve the matches, measured at 84 ms for 30 words on 5,000 products. That task only replaces the statement behind `findMessageCandidates`; the port, the coverage ranking and the callers stay.
 - **errors and degradation:**
   - A statement timeout does not fail the message. The use case continues with no candidates: items and pendings are still listed, and `contextTruncated` is set. It logs `message_candidates_timeout`. Retrying the message would hold the chat's FIFO queue for about 25 minutes and then fail it, for an input that is slow every time.
@@ -861,7 +860,7 @@ Evals unit (`evals/**/*.test.ts`)
   - `test("ranks the polera named with four words above products sharing only «con» or «negro»")`
   - `test("keeps the named product in the top eight when 1,000 names share a word with the message")`
   - `test("continues without candidates when the candidate query times out")`
-  - `test("searches 30 words at 500 products, 8 at 5,000 and 3 above 13,333")`
+  - `test("searches 30 words at 500 products, 12 at 2,000, 5 at 5,000 and 3 above 8,333")`
   - `test("keeps the longest distinct words first when the cap applies")`
   - `test.runIf(CANDIDATES_BENCH)("keeps p95 under 150 ms and the named product in the top eight for natural messages up to 10,000 products as core_app with forced RLS")` (opt-in benchmark, `CANDIDATES_BENCH=1`; skipped in CI)
 - `apply-chat-message.integration.test.ts` (reader faked with fixed answers; real database):
@@ -908,9 +907,9 @@ On WhatsApp with a real phone and a ready catalog, product criteria 1, 3, 4, 5, 
   - «quiero 2 de esos» after a matched photo gives two notices.
   - Added by this design:
     - A chat order with more than 40 items shows the reader only 40, and a reference to another one ends as `unclear_item`.
-    - The candidate search scans the company's products (founder decision, §16), so only `TEXT_MATCH_PAIR_BUDGET / products` words are searched: 30 at 500 products, 8 at 5,000 and 4 at 10,000, longest first.
+    - The candidate search scans the company's products (founder decision, §16), so only `TEXT_MATCH_PAIR_BUDGET / products` words are searched: 30 at 500 products, 12 at 2,000, 5 at 5,000 and 3 above about 8,333, longest first.
       - A product named only with shorter words than the kept ones is found only when it is already an item or a pending.
-      - Catalogs above about 10,000 active products degrade: at about 13,000 the floor of 3 words is reached, the budget is passed, and recall falls.
+      - Catalogs above about 10,000 active products degrade: above about 8,333 the floor of 3 words is reached, the budget is passed, and recall falls; at 10,000 products p95 was about 155–185 ms (T1, accepted).
       - The meeting point is Todoist task `6hrWWWJQVCmcM2W3`, a SECURITY DEFINER per-word lookup measured at 84 ms for 30 words on 5,000 products. It replaces only the statement behind `findMessageCandidates`.
     - A doubtful pending whose fifth fitting product was never a candidate can still be resolved when the reader names that product (§6.1). It is not resolved when that product was cut from the context.
     - A text naming a deactivated, archived or deleted product that is neither an item nor a pending never reaches the reader as that product, because candidates are only sellable products. It ends as `not_identified` instead of «Producto no disponible». Listed for the founder: returning inactive products as candidates would let them push sellable ones out of the 8.
@@ -1000,7 +999,7 @@ The holdout v3 (rules sheet, new catalog, cases) is written outside the reposito
      - if a cell still misses, the result goes to the coordinator before T6 starts.
 6. A candidate query that times out returns no ids with `timedOut: true` instead of an error.
 7. A stored row that fails its schema returns `INVALID_STORED_DATA`.
-8. «poleron» finds «Polerón». With 5,000 products, only the 8 longest distinct words are searched, as stated in §5.3.
+8. «poleron» finds «Polerón». With 5,000 products, only the 5 longest distinct words are searched, as stated in §5.3.
 
 **Tests:** the products unit and integration titles of §13.
 **Depends on:** T0 (`ProductForReading`).
@@ -1206,7 +1205,7 @@ On a real phone with WhatsApp and a ready catalog, check product criteria 1, 3, 
 | How are a chat's pendings stored? | One `ChatPendings` row per chat with a Zod-validated JSON list (at most 10) and `readyRemembered` | Design and performance reviewers of the architecture review gate, consolidated by the coordinator | The list is always read and written whole under the chat lock, nothing else queries it, and it matches `ChatMessageOutcome`. Per message it costs one PK read, one PK `FOR UPDATE` and at most one upsert. Per-pending FKs add nothing, because a deleted product is handled when the pending is addressed. | A `ChatPending` table with one row per pending, plus a per-chat row for `readyRemembered` |
 | Which catalog products does the reader get for a text? | The products whose names cover the most of the message's searched words, ranked by coverage (sum of per-word similarity at 0.3), top 8. To them are added the order items' and pendings' products, all under the one product ceiling of §2. The candidate query degrades to no candidates on timeout. | Design and performance reviewers, consolidated by the coordinator | One path for any catalog size, so holdout v3 measures what stores will see. Retrieval bounds the context. Coverage keeps the named product first where a ranking by the best single word ties on common words. | The whole active catalog up to 40 products, with retrieval above that (15–30k tokens per message and two paths to measure). A ranking by the best single word with a survivor cut, which loses the named product on shared vocabulary. |
 | A product photo whose caption asks for a different product: what does the seller get? | The generic «Revisa el chat». A caption naming a product with an open pending completes that pending instead (criterion 30). | Design and performance reviewers, consolidated by the coordinator | «Never silent» is a closed product decision, and criterion 30 keeps the pending completion. | Ignoring the other product silently |
-| How is the cost of the candidate search bounded, given that the trigram index cannot serve the app role (forced RLS on `Product`, non-leakproof pg_trgm operators)? | Keep the company scan and state its real cost: company products × searched words, at about 3 µs per pair (measured as `core_app`: 14–40 ms at 500 products, 92–460 ms at 5,000). The searched words are capped from the company's product count so that the bound of about 120 ms holds up to about 10,000 products. T1's benchmark runs as `core_app` with RLS forced. Catalogs above about 10,000 products degrade (§14). | Founder, 2026-10-28, on the performance reviewer's options | It keeps the design inside the current security model with no new database privilege, and stores today are far below 10,000 products. The way past the limit is measured and has its own task. | Marking the pg_trgm operators `LEAKPROOF` (a security judgment on extension functions, which an extension update can reset). A SECURITY DEFINER per-word lookup (measured at 84 ms for 30 words on 5,000 products), deferred to Todoist task `6hrWWWJQVCmcM2W3`, which replaces only the statement behind `findMessageCandidates`. A `(companyId, name)` GIN with `btree_gin`, which RLS also prevents from serving the matches. |
+| How is the cost of the candidate search bounded, given that the trigram index cannot serve the app role (forced RLS on `Product`, non-leakproof pg_trgm operators)? | Keep the company scan and state its real cost: company products × searched words, at about 4.5 µs per pair (measured as `core_app` in T1; the first estimate was 3 µs, 14–40 ms at 500 products, 92–460 ms at 5,000). The searched words are capped from the company's product count (budget 25,000 pairs) so that p95 stays near 150 ms up to about 5,000 products; at 10,000 products it measured about 155–185 ms, accepted as a known limitation. T1's benchmark runs as `core_app` with RLS forced. Catalogs above about 10,000 products degrade (§14). | Founder, 2026-10-28, on the performance reviewer's options | It keeps the design inside the current security model with no new database privilege, and stores today are far below 10,000 products. The way past the limit is measured and has its own task. | Marking the pg_trgm operators `LEAKPROOF` (a security judgment on extension functions, which an extension update can reset). A SECURITY DEFINER per-word lookup (measured at 84 ms for 30 words on 5,000 products), deferred to Todoist task `6hrWWWJQVCmcM2W3`, which replaces only the statement behind `findMessageCandidates`. A `(companyId, name)` GIN with `btree_gin`, which RLS also prevents from serving the matches. |
 
 ### Decisions taken by the review gate, pending founder confirmation in the final pull request
 
@@ -1227,7 +1226,7 @@ These cases keep their specific notice instead: an unknown attribute name gets �
 - A lot price is judged with the quantity it was stated for, goes whole on the first item of its request, and is cleared from the rest of that request (`requestId`).
 
 **Values and limits:**
-- `TEXT_MATCH_CANDIDATES` 8, `TEXT_MATCH_MIN_SIMILARITY` 0.3, `TEXT_MATCH_PAIR_BUDGET` 40,000, words between 3 and 30, longest first.
+- `TEXT_MATCH_CANDIDATES` 8, `TEXT_MATCH_MIN_SIMILARITY` 0.3, `TEXT_MATCH_PAIR_BUDGET` 25,000, words between 3 and 30, longest first.
 - Candidate statement timeout 1 s, degrading to no candidates.
 - `READER_MAX_PRODUCTS` 24, `READER_MAX_ITEMS` 40, `READER_MAX_TEXT_CHARS` 2,000; `CHAT_PENDING_TTL_DAYS` 7, `CHAT_PENDING_MAX` 10.
 - At most 10 actions per answer, plus `moreActions`; Zod accepts 30.
@@ -1242,6 +1241,6 @@ These cases keep their specific notice instead: an unknown attribute name gets �
 ### Deferred items with real risk
 
 The founder decides whether to create a Todoist task for each:
-- **Large catalogs.** Candidate search above about 10,000 active products degrades in recall and latency. Task `6hrWWWJQVCmcM2W3` already exists.
+- **Large catalogs.** Candidate search above about 8,000 active products degrades in recall and latency (p95 about 155–185 ms at 10,000, accepted in T1). Task `6hrWWWJQVCmcM2W3` already exists.
 - **Editing order items from web or mobile** (release gate, memory `de4d23f5`). A pending completed wrongly can only be fixed by cancelling the order.
 - **Inactive products named in a text.** They get `not_identified` instead of «Producto no disponible».
