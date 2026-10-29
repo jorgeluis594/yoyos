@@ -101,7 +101,7 @@ const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = s
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
-  saveFulfillment, clock: () => new Date() };
+  saveFulfillment, deductProductStock, saveStockDeduction, clock: () => new Date() };
 
 export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess) {
   const started = performance.now();
@@ -161,6 +161,7 @@ export function createConfiguredOrder(input: CreateCompleteOrderInput, context: 
     setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access),
     registerPayment: (payment, access) => registerPayment(payment, access, { transaction: paymentTransaction,
       findOrderForUpdate, savePayment, updatePayment, saveCompletion, deductProductStock, saveStockDeduction, clock: () => new Date() }),
+    ship: orders.ship,
     deliver: orders.deliver,
   });
 }

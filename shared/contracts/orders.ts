@@ -63,6 +63,7 @@ export const completeOrderSchema = orderSelectionSchema.extend({
     .refine(walletProviderFitsMethod, { message: "Only a digital wallet has a provider" })).optional(),
   delivery: setRatedOrderDeliverySchema.optional(),
   deliverImmediately: z.boolean().optional(),
+  shipImmediately: z.boolean().optional(),
   deferStockDeduction: z.boolean().optional(),
   scheduledDispatchDate: dispatchDateSchema.optional(),
 });

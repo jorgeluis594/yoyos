@@ -421,19 +421,20 @@ function planStockDeduction(order: OrderAggregate, requestedIfPartial: boolean):
   return ok({ kind: "deduct", nextOrder: { ...order, stockDeducted: true } });
 }
 
-function requireFulfillment(order: OrderAggregate): Result<null, OrderDomainError> {
+function requireFulfillment(order: OrderAggregate, requirePaid: boolean): Result<null, OrderDomainError> {
   const state = lifecycle(order);
   if (!state.success) return state;
   if (state.data.status === "cancelled") return failure("ORDER_CANCELLED", "Order is cancelled");
   const summary = paymentSummary(order);
   if (!summary.success) return summary;
-  if (summary.data.status !== "paid") return failure("PAYMENT_REQUIRED", "Order payment is not covered");
+  if (requirePaid ? summary.data.status !== "paid" : summary.data.paidAmount.amount === 0) return failure("PAYMENT_REQUIRED", "Order payment is not covered");
   if (!order.stockDeducted) return failure("STOCK_NOT_DEDUCTED", "Order stock is not deducted");
   return ok(null);
 }
 
+/** Shipping needs a confirmed payment, partial or full, and deducted stock; the caller deducts stock first. */
 function registerShipment(order: OrderAggregate, shippedAt: Date): Result<OrderAggregate, OrderDomainError> {
-  const allowed = requireFulfillment(order);
+  const allowed = requireFulfillment(order, false);
   if (!allowed.success) return allowed;
   if (!validDate(shippedAt)) return failure("INVALID_TRANSITION", "Invalid shipment date");
   return order.deliveryStatus === "pending" ? ok({ ...order, deliveryStatus: "shipped", shippedAt: new Date(shippedAt) }) : failure("INVALID_TRANSITION", "Delivery is not pending");
@@ -446,7 +447,7 @@ function scheduleDispatch(order: OrderAggregate, scheduledDispatchDate: Dispatch
 }
 
 function registerDelivery(order: OrderAggregate, completedAt: Date): Result<OrderAggregate, OrderDomainError> {
-  const allowed = requireFulfillment(order);
+  const allowed = requireFulfillment(order, true);
   if (!allowed.success) return allowed;
   if (!validDate(completedAt)) return failure("INVALID_TRANSITION", "Invalid completion date");
   return order.deliveryStatus === "pending" || order.deliveryStatus === "shipped"
