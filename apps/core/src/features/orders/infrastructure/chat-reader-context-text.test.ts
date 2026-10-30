@@ -11,8 +11,8 @@ describe("describeReadingContext", () => {
     const text = describeReadingContext(context({
       products: [polo, gorra],
       pendings: [
-        { ref: "Q1", pending: pending(1, { known: { Talla: "M" }, quantity: 3 as PositiveInteger, price: { amount: { amount: 35, currency: "PEN" }, per: "unit", forQuantity: 3 as PositiveInteger } }) },
-        { ref: "Q2", pending: pending(2, { subject: { kind: "product", candidates: [productId(1), productId(2)] } }) },
+        { ref: "Q1", photoJustSent: false, pending: pending(1, { known: { Talla: "M" }, quantity: 3 as PositiveInteger, price: { amount: { amount: 35, currency: "PEN" }, per: "unit", forQuantity: 3 as PositiveInteger } }) },
+        { ref: "Q2", photoJustSent: false, pending: pending(2, { subject: { kind: "product", candidates: [productId(1), productId(2)] } }) },
       ],
     }));
     expect(text).toContain("Q1: Polo básico (P1). Known: Talla M. Missing: Color. Quantity: 3. Stated price: PEN 35.00 per unit");
@@ -50,7 +50,7 @@ describe("describeReadingContext", () => {
     const archived = readingProduct(3, "Chompa", [[{ Talla: "M" }, 90]], { sellable: false });
     const text = describeReadingContext(context({
       products: [archived],
-      items: [{ ref: "I1", variantId: id(1) as VariantId, productId: productId(3), productName: "Chompa", variantAttributes: { Talla: "M" }, quantity: 2, unitPrice: { amount: 90, currency: "PEN" } }],
+      items: [{ ref: "I1", variantId: id(1) as VariantId, productId: productId(3), productName: "Chompa", variantAttributes: { Talla: "M" }, quantity: 2, unitPrice: { amount: 90, currency: "PEN" }, photoJustSent: false }],
     }));
     expect(text).toContain("I1: Chompa (P3) · Talla M · quantity 2 · PEN 90.00 each");
     expect(text).toContain("P3 Chompa — not for sale");
@@ -67,7 +67,7 @@ describe("describeReadingContext", () => {
 
   test("never writes ids, phones or order numbers and puts the buyer's text last", () => {
     const text = describeReadingContext(context({ text: "quiero 2", products: [readingProduct(1, "Polo", [[{}, 40]])],
-      items: [{ ref: "I1", variantId: id(7) as VariantId, productId: productId(1), productName: "Polo", variantAttributes: {}, quantity: 1, unitPrice: { amount: 40, currency: "PEN" } }] }));
+      items: [{ ref: "I1", variantId: id(7) as VariantId, productId: productId(1), productName: "Polo", variantAttributes: {}, quantity: 1, unitPrice: { amount: 40, currency: "PEN" }, photoJustSent: false }] }));
     expect(text).not.toMatch(/0000-4000|#\d/);
     expect(text.endsWith("Buyer's message:\nquiero 2")).toBe(true);
   });

@@ -8,7 +8,13 @@ import { describeReadingContext } from "@core/src/features/orders/infrastructure
 import { readerJsonSchema, readerSchema, toReaderAnswer } from "@core/src/features/orders/infrastructure/chat-reader-schema";
 import { readerInstructions } from "@core/src/features/orders/infrastructure/chat-reader-text";
 
-export type OpenAiChatReaderConfig = Readonly<{ client: OpenAI; model: string; timeoutMs: number }>;
+export type OpenAiChatReaderConfig = Readonly<{
+  client: OpenAI;
+  model: string;
+  timeoutMs: number;
+  /** Receives the raw parsed JSON of the answer before schema validation and mapping, or the raw text when it is not JSON. Evals use it; production does not pass it. */
+  observe?: (output: unknown) => void;
+}>;
 
 /**
  * Pinned request settings; the pinned model-text file records them. The bound is the answer (10 actions of about 100 tokens, 2000) plus the
@@ -72,7 +78,8 @@ export function createOpenAiChatReader(config: OpenAiChatReaderConfig): ReadChat
     const text = answerTextOf(response);
     if (!text.success) return rejected(text.error);
     let value: unknown;
-    try { value = JSON.parse(text.data); } catch { return rejected(invalid("The AI answer was not JSON")); }
+    try { value = JSON.parse(text.data); } catch { config.observe?.(text.data); return rejected(invalid("The AI answer was not JSON")); }
+    config.observe?.(value);
     const parsed = readerSchema.safeParse(value);
     if (!parsed.success) return rejected(invalid("The AI answer did not match the schema"), [...new Set(parsed.error.issues.map(({ path }) => path.filter((part) => typeof part === "string").join(".")))]);
     const answer = toReaderAnswer(parsed.data);

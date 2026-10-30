@@ -99,7 +99,7 @@ export function createChat(start: ChatStart = {}) {
 
   const latest = (): OrderAggregate | null => orders.at(-1) ?? null;
   const readingItems = (): readonly ReadingItem[] => (latest()?.items ?? []).map((item, index) => ({ ref: `I${index + 1}`, variantId: item.variantId, productId: productByVariant.get(item.variantId) ?? null,
-    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice }));
+    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice, photoJustSent: false }));
 
   const productsFor = (reading: Reading): readonly ReadingProduct[] => productKeys.filter((key) => !deleted.has(key)).map((key) => {
     const shown = reading.shown?.find(([shownKey]) => shownKey === key);
@@ -126,8 +126,8 @@ export function createChat(start: ChatStart = {}) {
     get now() { return now; },
     advance(ms: number) { now = new Date(now.getTime() + ms); },
     context(reading: Reading = {}): ChatReadingContext {
-      return { kind: reading.kind ?? (reading.shown ? "photo_product" : "text"), text: "message", items: readingItems(), products: productsFor(reading), truncated: false,
-        pendings: pendings.pendings.map((pending, index) => ({ ref: `Q${index + 1}`, pending })) };
+      return { kind: reading.kind ?? (reading.shown ? "photo_product" : "text"), text: "message", latestOrder: latest() === null ? "none" : "open", items: readingItems(), photoJustSent: null, products: productsFor(reading), truncated: false,
+        pendings: pendings.pendings.map((pending, index) => ({ ref: `Q${index + 1}`, pending, photoJustSent: false })) };
     },
     say(answer: ReaderAnswer, reading: Reading = {}): Said {
       if (reading.after) now = new Date(now.getTime() + reading.after);

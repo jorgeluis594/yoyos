@@ -286,15 +286,15 @@ describe("applyChatActions with chat pendings", () => {
 
   test("increases the item quantity by the stated units for «uno más» and sets it for «que sean»", () => {
     const chat = withPolo();
-    chat.say(say({ kind: "change_quantity", item: { kind: "ref", ref: ref(1) }, mode: "increase", quantity: 1 }));
+    chat.say(say({ kind: "change_quantity", target: { kind: "ref", ref: ref(1) }, mode: "increase", quantity: 1 }));
     expect(chat.items()).toEqual(["Polo básico · M · Negro · ×3"]);
-    chat.say(say({ kind: "change_quantity", item: { kind: "unnamed" }, mode: "set", quantity: 5 }));
+    chat.say(say({ kind: "change_quantity", target: { kind: "unnamed" }, mode: "set", quantity: 5 }));
     expect(chat.items()).toEqual(["Polo básico · M · Negro · ×5"]);
   });
 
   test("reports quantity above limit when «uno más» would pass 99", () => {
     const chat = createChat({ items: [["polo", { Talla: "M", Color: "Negro" }, 99]] });
-    expect(chat.say(say({ kind: "change_quantity", item: { kind: "unnamed" }, mode: "increase", quantity: 1 })).kinds).toEqual(["quantity_above_limit"]);
+    expect(chat.say(say({ kind: "change_quantity", target: { kind: "unnamed" }, mode: "increase", quantity: 1 })).kinds).toEqual(["quantity_above_limit"]);
   });
 
   test("creates the chat order when a pending completes without an open order", () => {

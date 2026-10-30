@@ -88,7 +88,7 @@ function convertAction(action: ParsedAction): ReaderAction {
     }
     case "change_quantity": {
       const item = itemOf(action);
-      return item && action.mode && action.quantity !== null ? { kind: "change_quantity", item, mode: action.mode, quantity: action.quantity } : malformed;
+      return item && action.mode && action.quantity !== null ? { kind: "change_quantity", target: item, mode: action.mode, quantity: action.quantity } : malformed;
     }
     case "change_variant": {
       const item = itemOf(action);
