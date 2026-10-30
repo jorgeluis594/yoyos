@@ -199,7 +199,11 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
               <p className="text-sm text-muted-foreground">{t("productEditor.optionsHelp", { count: maxOptions })}</p></div>)}
         <p aria-live="polite" className="sr-only">{reorder.announcement}</p>
         {noneActive && <Alert variant="warning"><AlertDescription>{t("productEditor.noActive")}</AlertDescription></Alert>}
-        {hasOptions && <>
+        {hasOptions && <section aria-labelledby="variants-table-heading" className="grid gap-4 border-t border-border pt-4">
+          <div className="grid gap-1">
+            <h3 id="variants-table-heading" className="text-sm font-semibold">{t("productEditor.variantsTable")}</h3>
+            <p className="text-sm text-muted-foreground" aria-live="polite">{t("productEditor.counter", { count: counter.count, max: counter.maximum })}{counter.inactive > 0 && ` · ${t("productEditor.counterInactive", { count: counter.inactive })}`}</p>
+          </div>
           {stockNotice !== null && <Alert variant="info"><AlertDescription>{t("productEditor.stockCopied", { count: stockNotice })}</AlertDescription></Alert>}
           {inactiveSources > 0 && <Alert variant="warning"><AlertDescription>{t("productEditor.inactiveSource", { count: inactiveSources })}</AlertDescription></Alert>}
           <div className="flex flex-wrap items-center gap-2" role="group" aria-label={t("productEditor.select")}>
@@ -213,7 +217,6 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
               </select>
             </label>
           </div>
-          <p className="text-sm text-muted-foreground" aria-live="polite">{t("productEditor.counter", { count: counter.count, max: counter.maximum })}{counter.inactive > 0 && ` · ${t("productEditor.counterInactive", { count: counter.inactive })}`}</p>
           {selectedLive.length > 0 && <div role="toolbar" className="flex flex-wrap items-center gap-2 rounded-lg bg-muted p-2 text-sm">
             <span>{t("productEditor.selected", { count: selectedLive.length })}{hidden > 0 && ` (${t("productEditor.hiddenByFilter", { count: hidden })})`}</span>
             <Button type="button" size="sm" variant="outline" onClick={() => setBulk("salePrice")}>{t("productEditor.editSalePrice")}</Button>
@@ -247,7 +250,7 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
               {page.hasMore && <li><Button type="button" size="sm" variant="ghost" onClick={() => setUncreatedLimit((current) => current + 50)}>{t("productEditor.showMore")}</Button></li>}
               {limitReached && <li>{t("productEditor.limitReached", { count: maxVariants })}</li>}</ul>}
           </div>}
-        </>}
+        </section>}
       </CardContent>
     </Card>
     {bulk && <BulkDialog kind={bulk} selected={selectedLive.length} hidden={hidden} newCount={newSelected} onApply={applyBulkPatch} onClose={() => setBulk(null)} />}
