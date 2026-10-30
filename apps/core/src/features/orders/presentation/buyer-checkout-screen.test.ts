@@ -1,6 +1,6 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import type { BuyerPaymentView } from "@shared/contracts/orders";
-import { amountRows, checkoutScreen, focusTargetFor, formatReceiptDate } from "@core/src/features/orders/presentation/buyer-checkout-screen";
+import { amountRows, checkoutScreen, focusTargetFor } from "@core/src/features/orders/presentation/buyer-checkout-screen";
 
 const pen = (amount: number) => ({ amount, currency: "PEN" as const });
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -92,9 +92,17 @@ test("names the heading to focus for closing, rejected, paid and cancelled, and 
   expect(focusTargetFor({ kind: "review" })).toBeNull();
 });
 
-test("formats the receipt date in Lima time as «30 oct. 2026, 6:42 p. m.» and «30 de out. de 2026, 18:42» whatever the process time zone", () => {
-  const instant = "2026-10-30T23:42:00.000Z";
-  expect(formatReceiptDate(instant, "es")).toBe("30 oct. 2026, 6:42 p. m.");
-  expect(formatReceiptDate(instant, "pt")).toBe("30 de out. de 2026, 18:42");
-  expect(formatReceiptDate("2026-10-31T04:30:00.000Z", "es")).toMatch(/^30 oct\. 2026/);
+test.each(["UTC", "Pacific/Auckland", "America/Los_Angeles"])("formats the receipt date in Lima time as «30 oct. 2026, 6:42 p. m.» and «30 de out. de 2026, 18:42» whatever the process time zone (%s)", async (zone) => {
+  const previous = process.env.TZ;
+  process.env.TZ = zone;
+  try {
+    vi.resetModules();
+    // A fresh module builds its own cached formatters under the process zone set above.
+    const { formatReceiptDate: format } = await import("@core/src/features/orders/presentation/buyer-checkout-screen");
+    expect(format("2026-10-30T23:42:00.000Z", "es")).toBe("30 oct. 2026, 6:42 p. m.");
+    expect(format("2026-10-30T23:42:00.000Z", "pt")).toBe("30 de out. de 2026, 18:42");
+    expect(format("2026-10-31T04:30:00.000Z", "es")).toMatch(/^30 oct\. 2026/);
+  } finally {
+    if (previous === undefined) delete process.env.TZ; else process.env.TZ = previous;
+  }
 });

@@ -16,7 +16,7 @@ export function CheckoutClosingCard({ receipts }: Readonly<{ receipts: ReadonlyA
     {entries.length > 0 && <ul className="flex flex-col">{entries.map((receipt) => <li key={receipt.id}>
       {receipt.url ? <a href={receipt.url} target="_blank" rel="noreferrer" className="inline-flex min-h-11 min-w-11 items-center gap-2 font-medium underline underline-offset-4">
         <ExternalLink className="size-4 shrink-0" aria-hidden="true" /><span suppressHydrationWarning>{label(receipt)}</span><span className="sr-only">{t("buyerPaymentContent.opensInNewTab")}</span></a>
-        : <span className="inline-flex min-h-11 items-center opacity-80" suppressHydrationWarning>{label(receipt)}</span>}
+        : <span className="inline-flex min-h-11 items-center" suppressHydrationWarning>{label(receipt)}</span>}
     </li>)}</ul>}
   </section>;
 }
