@@ -151,8 +151,6 @@ const es = {
 
     orderNumber: "Pedido #{{number}}",
     checkoutPending: "Pendiente de confirmación", checkoutConfirmed: "Confirmado por el comprador", checkoutCancelled: "Pedido cancelado",
-    status: {"active": "Orden activa", "cancelled": "Orden cancelada", "completed": "Venta completada"},
-    deliveryStatus: {"pending": "Pendiente", "shipped": "Enviada", "delivered": "Entregada"},
     documentType: {"national_id": "Documento de identidad", "passport": "Pasaporte", "foreign_id": "Documento de extranjería"},
     listOrder: "Pedido", listDate: "Fecha", listUnits: "Unidades", listViews: "Vistas de pedidos",
     listViewsLabels: { all: "Todos", unpaid: "Por cobrar", undelivered: "Por entregar" },
@@ -537,8 +535,6 @@ const pt = {
 
     orderNumber: "Pedido #{{number}}",
     checkoutPending: "Aguardando confirmação", checkoutConfirmed: "Confirmado pelo comprador", checkoutCancelled: "Pedido cancelado",
-    status: {"active": "Pedido ativo", "cancelled": "Pedido cancelado", "completed": "Venda concluída"},
-    deliveryStatus: {"pending": "Pendente", "shipped": "Enviada", "delivered": "Entregue"},
     documentType: {"national_id": "Documento de identidade", "passport": "Passaporte", "foreign_id": "Documento de estrangeiro"},
     listOrder: "Pedido", listDate: "Data", listUnits: "Unidades", listViews: "Visualizações de pedidos",
     listViewsLabels: { all: "Todos", unpaid: "A receber", undelivered: "A entregar" },

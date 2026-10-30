@@ -56,7 +56,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       if (mode === "shipment") {
         await page.getByRole("button", { name: "Marcar enviado", exact: true }).click();
         await browserExpect(page.getByRole("status")).toHaveText("Pedido marcado como enviado.");
-        await browserExpect(page.getByText("Entrega: Enviada", { exact: true })).toBeVisible();
+        await browserExpect(page.getByRole("group", { name: "Estado de la entrega: Enviada" })).toBeVisible();
         await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
         expect((await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).payments).toEqual(before.payments);
         for (const operation of ["ship", "cancel"] as const) {

@@ -21,7 +21,6 @@ test("authentication translations exist in both languages and preserve localized
   expect(Object.keys(resources.pt.translation.orderView).sort()).toEqual(Object.keys(resources.es.translation.orderView).sort());
   const i18n = createInstance();
   await i18n.init({ lng: "pt", resources });
-  expect(i18n.t("orders.status.active")).toBe("Pedido ativo");
   expect(i18n.t("orders.balanceDue", { amount: "R$ 10,00" })).toBe("Pendente: R$ 10,00");
   expect(i18n.t("auth.resetTitle")).toBe("Redefinir senha");
   expect(i18n.t("common.close")).toBe("Fechar");
@@ -59,5 +58,4 @@ test("order view texts have the same nested keys in both languages and interpola
   expect(i18n.t("orderView.payments.addWallet", { wallet: "Pix" })).toBe("Adicionar Pix");
   expect(i18n.t("orderView.picker.results", { count: 3 })).toBe("3 resultados");
   expect(i18n.t("orderView.labels.shipped")).toBe("Enviada");
-  expect(i18n.t("orders.deliveryStatus.shipped")).toBe("Enviada");
 });
