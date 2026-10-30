@@ -33,7 +33,7 @@ for (const language of ["es", "pt"] as const) {
       await browserExpect(page.getByText(spec.chips[1], { exact: true })).toBeVisible();
       await browserExpect(page.getByText(spec.chips[0], { exact: true })).toBeVisible();
       await page.locator("[data-photo]").nth(1).hover();
-      await page.locator("[data-photo]").nth(1).getByRole("button").last().click();
+      await page.locator("[data-photo]").nth(1).locator("[data-action=remove]").click();
       await browserExpect(page.getByText(spec.chips[2], { exact: true })).toBeVisible();
 
       const chips = await page.locator("[data-photo] span.absolute.bottom-0\\.5").evaluateAll((nodes) => nodes.map((node) => {
