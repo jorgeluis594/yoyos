@@ -33,6 +33,9 @@ function PasswordInput({ className, ref, disabled, ...props }: PasswordInputProp
     restore.current = null;
     if (!input || !pending || pending.start === null || pending.end === null) return;
     const frame = requestAnimationFrame(() => {
+      // The user may have tabbed to the button before the frame ran: never pull focus back from another element.
+      const active = document.activeElement;
+      if (active !== input && active !== document.body && active !== null) return;
       if (pending.focusInput) input.focus();
       input.setSelectionRange(pending.start, pending.end);
     });
