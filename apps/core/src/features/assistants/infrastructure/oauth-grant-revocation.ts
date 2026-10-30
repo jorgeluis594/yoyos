@@ -12,6 +12,8 @@ export type RevokeClientGrantInput = Readonly<{
   // Only for the failure log line.
   companyId: CompanyId;
   connectionId: AssistantConnectionId;
+  // The revocation time of the tokens revoked now; the caller owns the clock.
+  revokedAt: Date;
 }>;
 export type RevokedGrant = Readonly<{ refreshTokens: number; accessTokens: number; consents: number }>;
 export type RevokeClientGrantError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
@@ -24,7 +26,7 @@ export type RevokeClientGrantError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE";
 export async function revokeClientGrant(input: RevokeClientGrantInput): Promise<Result<RevokedGrant, RevokeClientGrantError>> {
   const { oauthClientId: clientId, userId } = input;
   try {
-    const revoked = new Date();
+    const revoked = input.revokedAt;
     const grant = await systemPrisma.$transaction(async (tx) => {
       const refresh = await tx.oauthRefreshToken.updateMany({ where: { clientId, userId, revoked: null }, data: { revoked } });
       const access = await tx.oauthAccessToken.updateMany({ where: { clientId, userId, revoked: null }, data: { revoked } });

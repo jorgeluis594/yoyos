@@ -51,6 +51,11 @@ describe("parseAgentName", () => {
     expect(parseAgentName("a".repeat(80))).toBe("a".repeat(80));
   });
 
+  test("measures the name in code points like the database check", () => {
+    expect(parseAgentName("😀".repeat(80))).toBe("😀".repeat(80));
+    expect(parseAgentName("😀".repeat(81))).toBeNull();
+  });
+
   test("trims the name and removes control characters", () => {
     expect(parseAgentName("  Cla\u0000ude\n ")).toBe("Claude");
   });
@@ -75,6 +80,22 @@ describe("redirect URIs", () => {
     expect(returnTargetOf("https://chatgpt.com/connector/oauth/abc")).toEqual({ kind: "web", domain: "chatgpt.com" });
     expect(returnTargetOf("http://127.0.0.1:9000/cb")).toEqual({ kind: "this_device" });
     expect(returnTargetOf("http://localhost/cb")).toEqual({ kind: "this_device" });
+  });
+
+  test("returns no target for a redirect that is not allowed instead of claiming this device", () => {
+    for (const uri of ["myapp://callback", "evil://chatgpt.com/cb", "not a url", "http://example.com/cb", "https://localhost/cb", "https://user:pass@claude.ai/cb", "https://claude.ai/cb#x"]) {
+      expect(returnTargetOf(uri)).toBeNull();
+    }
+  });
+
+  test("treats the whole 127.0.0.0/8 block, IPv4-mapped loopback and a trailing-dot localhost as loopback", () => {
+    for (const uri of ["http://127.0.0.2:8000/cb", "http://127.255.255.254/cb", "http://[::ffff:127.0.0.1]/cb", "http://localhost./cb"]) {
+      expect(isAllowedRedirectUri(uri)).toBe(true);
+      expect(returnTargetOf(uri)).toEqual({ kind: "this_device" });
+    }
+    for (const uri of ["https://127.0.0.2/cb", "https://[::ffff:127.0.0.1]/cb", "https://localhost./cb"]) expect(isAllowedRedirectUri(uri)).toBe(false);
+    expect(isAllowedRedirectUri("http://128.0.0.1/cb")).toBe(false);
+    expect(isAllowedRedirectUri("http://[::ffff:8.8.8.8]/cb")).toBe(false);
   });
 });
 
