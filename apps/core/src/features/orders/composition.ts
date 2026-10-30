@@ -238,7 +238,7 @@ async function readValidStock(variantIds: readonly VariantId[]): Promise<Result<
 }
 
 const dispatchQueueDependencies: ListDispatchQueueDependencies = { inSnapshot: withinReadSnapshot, findDispatchCandidates, readStock: readValidStock,
-  findAggregatesByIds: findOrderAggregatesByIds, countUndatedPending: countUndatedPendingOrders, maxCandidates: readDispatchQueueMax(process.env) };
+  findAggregatesByIds: (ids, companyId) => findOrderAggregatesByIds(ids, companyId), countUndatedPending: countUndatedPendingOrders, maxCandidates: readDispatchQueueMax(process.env) };
 
 /** The dispatch queue of the caller's company in one read snapshot: candidates, stock and the page's orders agree with each other. */
 async function readDispatchQueue(input: ListDispatchQueueInput, context: OrderAccess) {
