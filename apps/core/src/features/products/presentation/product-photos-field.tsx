@@ -375,7 +375,7 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
         ? <FieldError id="photos-status" data-photos-message {...(full ? { "data-photos-limit": "" } : {})} tabIndex={-1} className={`${statusClass} text-destructive`}>{status.text}</FieldError>
         : <p id="photos-status" tabIndex={full ? -1 : undefined} {...(full ? { "data-photos-limit": "" } : {})} {...(status.kind === "notice" ? { "data-photo-notice": "" } : {})}
             className={`${statusClass} ${status.kind === "photos" ? "text-destructive" : "text-muted-foreground"}`}>{status.text}</p>)}
-      {viewing !== null && viewable.some((photo) => photo.key === viewing) && <ProductPhotoViewer photos={viewable} current={viewing} onChange={setViewing} onClose={() => setViewing(null)}
+      {viewing !== null && <ProductPhotoViewer photos={viewable} current={viewing} onChange={setViewing} onClose={() => setViewing(null)}
         onCloseAutoFocus={(event) => { event.preventDefault(); root.current?.querySelector<HTMLElement>(`[data-photo="${viewing}"] [data-photo-open]`)?.focus(); }} />}
       <p aria-live="polite" aria-atomic="true" data-photo-live className="sr-only"><span key={photos.announcement.id}>{photos.announcement.text}</span></p>
     </div>

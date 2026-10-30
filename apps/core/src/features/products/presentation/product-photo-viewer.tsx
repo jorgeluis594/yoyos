@@ -20,9 +20,9 @@ type Props = Readonly<{
 /** The photo large in a modal; with several photos the seller steps through them, and past either end it wraps around. */
 export function ProductPhotoViewer({ photos, current, onChange, onClose, onCloseAutoFocus }: Props) {
   const { t } = useTranslation();
-  const index = Math.max(0, photos.findIndex((photo) => photo.key === current));
-  const photo = photos[index];
+  const photo = photos.find((candidate) => candidate.key === current);
   if (!photo) return null;
+  const index = photos.indexOf(photo);
   const { position, total } = photo;
   const step = (by: number) => onChange(photos[(index + by + photos.length) % photos.length].key);
   const several = photos.length > 1;
@@ -36,7 +36,7 @@ export function ProductPhotoViewer({ photos, current, onChange, onClose, onClose
       <DialogHeader><DialogTitle>{t("productPhotos.viewerTitle", { position, total })}</DialogTitle><DialogDescription className="sr-only">{t("productPhotos.viewerHint")}</DialogDescription></DialogHeader>
       {/* Below sm the buttons go under the image so it keeps the dialog's width; the image area has a fixed height so nothing moves while a photo loads. */}
       <div className="grid grid-cols-2 items-center gap-2 sm:grid-cols-[auto_minmax(0,1fr)_auto]">
-        <div className="order-1 col-span-2 flex h-[min(60dvh,28rem)] min-w-0 items-center justify-center sm:order-2 sm:col-span-1">
+        <div className="order-1 col-span-2 flex h-[min(60dvh,28rem)] min-w-0 items-center justify-center sm:order-2 sm:col-span-1 sm:col-start-2">
           <RetryableImage key={photo.key} url={photo.url} alt={t("productPhotos.name", { position, total })} className="max-h-full" failedText={t("productPhotos.viewerLoadFailed")} retryText={t("productPhotos.retry")} />
         </div>
         {several && <Button type="button" variant="outline" size="icon" className="order-2 justify-self-start sm:order-1" aria-label={t("productPhotos.viewerPrevious")} onClick={() => step(-1)}><ChevronLeft aria-hidden="true" /></Button>}
