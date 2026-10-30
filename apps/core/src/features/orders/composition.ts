@@ -612,10 +612,18 @@ export const orders = {
 const readChatMessage = createChatReaderFromEnv(process.env);
 
 // The budget needs the photo stages' reserve from the products composition, which is read lazily for the same reason: on the first message.
+// The worker calls `assertChatMessageBudget` at startup, when both compositions are evaluated, so an unpriced model or a too-small photo budget stops it there.
 let fitToBudget: FitReadingContext | null = null;
-const fitReadingContext: FitReadingContext = (context) => {
+function budgetFit(): FitReadingContext {
   fitToBudget ??= createFitReadingContext({ budget: readerTokenBudget({ photoStagesReserveUsd: photoStagesReserve.reserveUsd, model: readChatReaderEnv(process.env).AI_READER_MODEL }) });
-  return fitToBudget(context);
+  return fitToBudget;
+}
+export function assertChatMessageBudget(): void {
+  budgetFit();
+}
+const fitReadingContext: ApplyChatMessageDependencies["fitReadingContext"] = (context) => {
+  const fitted = budgetFit()(context);
+  return "code" in fitted ? err(fitted) : ok(fitted);
 };
 
 const chatMessageDependencies: ApplyChatMessageDependencies = {

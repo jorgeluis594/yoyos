@@ -3,7 +3,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
 import type { ReaderAnswer, ReaderAction, ChatReadingContext } from "@core/src/features/orders/domain/chat-reading";
-import type { ReaderError } from "@core/src/features/orders/application/read-chat-message";
+import type { ContextTooLarge, FittedReadingContext, ReaderError } from "@core/src/features/orders/application/read-chat-message";
 import type { ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
 import type { ChatPending, ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
@@ -35,7 +35,7 @@ const variant = (n: number, name: string, attributes: Record<string, string>, am
 const poloM = variant(1, "Polo básico", { Talla: "M" });
 const poloL = variant(2, "Polo básico", { Talla: "L" });
 const cap = variant(3, "Gorra", {}, 25);
-const forReading = (productId: ProductId, name: string, variants: readonly CatalogItem[], sellable = true): ProductForReading => ({ productId, name, sellable,
+const forReading = (productId: ProductId, name: string, variants: readonly CatalogItem[], sellable = true): ProductForReading => ({ productId, name, nameKey: name.toLowerCase(), sellable,
   attributes: Object.entries(variants.reduce<Record<string, string[]>>((all, { variantAttributes }) => {
     for (const [attribute, value] of Object.entries(variantAttributes)) all[attribute] = [...new Set([...(all[attribute] ?? []), value])];
     return all;
@@ -85,7 +85,7 @@ type Options = Readonly<{
   candidates?: Candidates;
   limits?: Partial<ApplyChatMessageDependencies["limits"]>;
   overrides?: Partial<ApplyChatMessageDependencies>;
-  fit?: ApplyChatMessageDependencies["fitReadingContext"];
+  fit?: (context: ChatReadingContext) => FittedReadingContext | ContextTooLarge;
   photoStageTimeoutMs?: number;
 }>;
 
@@ -145,7 +145,7 @@ function harness(options: Options = {}) {
     newPendingId: (() => { let counter = 700; return () => id(counter++) as ChatPendingId; })(),
     clock: () => at,
     limits: { maxItemQuantity: 99 as PositiveInteger, pendingTtlMs: 7 * 86_400_000, maxReaderProducts: 24, maxReaderItems: 40, maxReaderTextChars: 2000, ...options.limits },
-    fitReadingContext: (context) => options.fit ? options.fit(context) : { context, countedInputTokens: 1000, droppedProducts: 0 },
+    fitReadingContext: (context) => { const fitted = options.fit ? options.fit(context) : { context, countedInputTokens: 1000, droppedProducts: 0 }; return "code" in fitted ? err(fitted) : ok(fitted); },
     photoStageTimeoutMs: options.photoStageTimeoutMs ?? 40_000,
     ...options.overrides,
   };
@@ -442,7 +442,7 @@ describe("applyChatMessage: texts and pendings", () => {
 
 const unnamedSet = (quantity: number): ReaderAction => ({ kind: "change_quantity", target: { kind: "unnamed" }, mode: "set", quantity });
 const remembering = (left: ChatPendings["lastIncomingPhoto"], ...pendings: ChatPending[]): ChatPendings => ({ ...pendingSet(...pendings), lastIncomingPhoto: left });
-const tooLarge = (): ReturnType<ApplyChatMessageDependencies["fitReadingContext"]> => ({ code: "CONTEXT_TOO_LARGE", countedInputTokens: 25_001 });
+const tooLarge = (): ContextTooLarge => ({ code: "CONTEXT_TOO_LARGE", message: "Too large", countedInputTokens: 25_001 });
 
 describe("applyChatMessage: skipped texts and the photo memory", () => {
   test("a text with only emoji or punctuation is skipped without a reader call or a memory change", async () => {

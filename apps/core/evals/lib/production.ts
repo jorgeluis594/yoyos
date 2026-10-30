@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { ok } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { prisma, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createVisualSearch, products, type ImageEmbedder } from "@core/src/features/products/composition";
@@ -123,7 +123,8 @@ export function createProductionPath(env: Env, options: Readonly<{ diagnostics?:
   const readiness = { visualModel: visual.model, hasActiveProducts, hasIndexedProducts };
   const limits = readChatMessageLimits(env);
   // The same budget production derives: the reader model's prices and the photo stages' reserve at the configured bounds.
-  const fitReadingContext = createFitReadingContext({ budget: readerTokenBudget({ photoStagesReserveUsd: visualSetup.photoStagesReserveUsd, model: readChatReaderEnv(env).AI_READER_MODEL }) });
+  const fitToBudget = createFitReadingContext({ budget: readerTokenBudget({ photoStagesReserveUsd: visualSetup.photoStagesReserveUsd, model: readChatReaderEnv(env).AI_READER_MODEL }) });
+  const fitReadingContext: ApplyChatMessageDependencies["fitReadingContext"] = (context) => { const fitted = fitToBudget(context); return "code" in fitted ? err(fitted) : ok(fitted); };
   const wiring: Wiring = { readChatMessage, readiness, imageIdentification, limits, fitReadingContext, photoStageTimeoutMs: visualSetup.photoStageTimeoutMs };
 
   return {

@@ -49,7 +49,7 @@ test("returns the active variants of a product with their prices, attributes and
   const id = await polo(companyA);
   const result = await withTenantIsolation(companyA, () => read([id]));
   expect(result.success && result.data).toEqual([{
-    productId: id, name: "Polo básico", sellable: true,
+    productId: id, name: "Polo básico", nameKey: "polo basico", sellable: true,
     attributes: [{ name: "Talla", values: ["M"] }, { name: "Color", values: ["Negro", "Blanco"] }],
     variants: [
       expect.objectContaining({ variantAttributes: { Talla: "M", Color: "Negro" }, unitPrice: { amount: 35, currency: "PEN" } }),
@@ -68,7 +68,7 @@ test("reports a product with no active variant as not sellable and leaves out a 
   });
   const foreign = await polo(companyB, "Polo ajeno");
   const result = await withTenantIsolation(companyA, () => read([archived, deleted, foreign]));
-  expect(result.success && result.data).toEqual([{ productId: archived, name: "Gorra vieja", sellable: false, attributes: [], variants: [] }]);
+  expect(result.success && result.data).toEqual([{ productId: archived, name: "Gorra vieja", nameKey: "gorra vieja", sellable: false, attributes: [], variants: [] }]);
 });
 
 test("rejects a stored product that fails its schema as invalid stored data", async () => {

@@ -70,6 +70,8 @@ async function message(f: Fixture, content: { codes: readonly string[] } | { tex
   return messageId;
 }
 
+const fit = createFitReadingContext({ budget: readerTokenBudget({ photoStagesReserveUsd: 0.001 }) });
+
 function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = {}): ApplyChatMessageDependencies {
   const companyId = f.companyId as CompanyId;
   return {
@@ -106,7 +108,7 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
     newPendingId: () => randomUUID() as ChatPendingId,
     clock: () => clockNow(),
     limits: { maxItemQuantity: 99 as PositiveInteger, pendingTtlMs: 7 * 86_400_000, maxReaderProducts: 24, maxReaderItems: 40, maxReaderTextChars: 2000 },
-    fitReadingContext: createFitReadingContext({ budget: readerTokenBudget({ photoStagesReserveUsd: 0.001 }) }),
+    fitReadingContext: (context) => { const fitted = fit(context); return "code" in fitted ? err(fitted) : ok(fitted); },
     photoStageTimeoutMs: 40_000,
     ...over,
   };

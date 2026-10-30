@@ -6,7 +6,6 @@ import { mentionedPriceOf, type StatedPrice } from "@core/src/features/orders/do
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import { conflictsWithKnown, describePendings, normalizeValue, pendingPriceOf, resolveVariant, type AdvanceRequest, type AttributeChoice } from "@core/src/features/orders/domain/pending-transitions";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
-import { productNameKey } from "@core/src/features/products/domain/product-name-key";
 import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
 
 /** A short reference valid for one reading only: "P1" products, "I1" items, "Q1" pendings. */
@@ -202,8 +201,8 @@ function addedProductOf(product: ReaderProduct, world: World): AddedProduct {
   if (listed.length < named.length) return { kind: "other", reader: { kind: "unknown" } };
   const unique = listed.filter((found, index) => listed.findIndex((other) => other.productId === found.productId) === index);
   // A product that is not sellable and has the name of a sellable one is its twin, never a doubt.
-  const sellableNames = new Set(unique.filter((found) => found.sellable).map((found) => productNameKey(found.name)));
-  const distinct = unique.filter((found) => found.sellable || !sellableNames.has(productNameKey(found.name)));
+  const sellableNames = new Set(unique.filter((found) => found.sellable).map((found) => found.nameKey));
+  const distinct = unique.filter((found) => found.sellable || !sellableNames.has(found.nameKey));
   const [first, second, ...rest] = distinct;
   if (!first) return { kind: "other", reader: { kind: "unknown" } };
   if (!second) return { kind: "product", product: first };

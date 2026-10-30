@@ -111,7 +111,7 @@ export type ApplyChatMessageDependencies = Readonly<{
   /** A statement timeout is not an error: it returns no ids with timedOut true. */
   findMessageCandidates: (text: string) => Promise<Result<Readonly<{ productIds: readonly ProductId[]; unavailableProductIds: readonly ProductId[]; matchCount: number; durationMs: number; timedOut: boolean }>, PersistenceError>>;
   /** Reader infrastructure: the context whose whole request fits the input-token budget of its kind (a photo's is smaller by the photo stages' reserve), keeping products in priority order. */
-  fitReadingContext: (context: ChatReadingContext) => FittedReadingContext | ContextTooLarge;
+  fitReadingContext: (context: ChatReadingContext) => Result<FittedReadingContext, ContextTooLarge>;
   /** The whole photo stage (image read, QR, description, candidate reads, chooser) ends at this deadline: `2 × PRODUCT_MATCH_TIMEOUT_MS`. */
   photoStageTimeoutMs: number;
   catalogSearchReadiness: () => Promise<Result<CatalogSearchReadiness, PersistenceError>>; // miss paths only
@@ -255,16 +255,16 @@ async function answerFor(context: ChatReadingContext, deps: ApplyChatMessageDepe
   if (!reader || caption === null || tooLong) return ok({ actions: checkReaderAnswer({ kind: "no_intent" }, context, { captionDoubt: false }), trace: { ...noReading, ...base } });
   if (signal.aborted) return err({ code: "DEADLINE_EXCEEDED", message: "The attempt deadline passed" });
   const fitted = deps.fitReadingContext(context);
-  if ("code" in fitted) {
+  if (!fitted.success) {
     // The caption of a product photo that does not fit is doubted like a too-long one; anything else is an invalid action.
     if (context.kind === "photo_product") return ok(fixed(true));
     return ok({ actions: [contextTooLarge()], trace: { ...noReading, ...base } });
   }
-  const reading = await reader(fitted.context, meta, signal);
+  const reading = await reader(fitted.data.context, meta, signal);
   if (!reading.success) return reading;
   const { answer, usage } = reading.data;
-  return ok({ actions: checkReaderAnswer(answer, fitted.context, { captionDoubt: false }), trace: { readerCalls: 1, answer: answer.kind, actionKinds: actionKindsOf(answer), usage,
-    ...base, contextTruncated: fitted.context.truncated, countedInputTokens: fitted.countedInputTokens, droppedForBudget: fitted.droppedProducts } });
+  return ok({ actions: checkReaderAnswer(answer, fitted.data.context, { captionDoubt: false }), trace: { readerCalls: 1, answer: answer.kind, actionKinds: actionKindsOf(answer), usage,
+    ...base, contextTruncated: fitted.data.context.truncated, countedInputTokens: fitted.data.countedInputTokens, droppedForBudget: fitted.data.droppedProducts } });
 }
 
 const textTooLong = (): ResolvedChatAction => ({ kind: "report", outcome: { kind: "invalid_action", orderId: null, reason: "text_too_long" } });
