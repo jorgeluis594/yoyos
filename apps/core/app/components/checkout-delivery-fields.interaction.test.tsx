@@ -351,3 +351,34 @@ test("a picked district is quoted with trigger picked, while preselected, kept-o
   await pickMethod("agency");
   expect(calls()).toEqual([["150122", "picked"], ["150122", "picked"], ["150122", "automatic"]]);
 });
+
+test("a re-quotation caused by a confirmation recovery is quoted with trigger automatic even when the district was picked", async () => {
+  const options = optionsOf(lima, null);
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  mounted.push(() => root.unmount());
+  const render = (recoveryVersion: number | object) => act(async () => root.render(<I18nextProvider i18n={instances.es}>
+    <CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001" checkout={checkout} options={options}
+      recipient={{ name: "Ana", phone: "+51977909427" }} onChange={() => undefined} recoveryVersion={recoveryVersion} /></I18nextProvider>));
+  await render(0);
+  await choose(input("district"), "miraflores");
+  await render({});
+  expect(calls()).toEqual([["150122", "picked"], ["150122", "automatic"]]);
+});
+
+test("Pasar a Entrega a domicilio is absent from the no-agencies message when home is not offered", async () => {
+  await mount(optionsOf(null, places({ districtCodes: ["150122"] })));
+  expect(document.body.textContent).toContain("No hay agencias disponibles para envío a MIRAFLORES.");
+  expect(document.body.textContent).not.toContain("Pasar a Entrega a domicilio");
+});
+
+test("Pasar a Entrega a domicilio keeps a district covered by home and quotes it, as switching the method does", async () => {
+  await mount(optionsOf(places({ districtCodes: ["150122"] }), places({ districtCodes: ["150122"] })));
+  await pickMethod("agency");
+  const switchToHome = [...document.querySelectorAll("button")].find(button => button.textContent === "Pasar a Entrega a domicilio")!;
+  await act(async () => switchToHome.click());
+  expect(document.querySelector<HTMLInputElement>("input[type=radio][value=home]")!.checked).toBe(true);
+  expect(values()).toEqual(["Lima", "Lima", "Miraflores"]);
+  expect(calls().at(-1)).toEqual(["150122", "automatic"]);
+});

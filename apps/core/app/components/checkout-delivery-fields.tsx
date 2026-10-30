@@ -74,13 +74,19 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, recipient, 
   const choices = useMemo(() => draft.mode === "agency" && districtCode ? agencyChoices(rates, districtCode) : { level: "none" as const }, [draft.mode, districtCode, rates]);
   const choice = draft.mode === "agency" && agencyEnabled ? chosenAgency(choices, draft.agencyId ?? "") : null;
   const quoting = (draft.mode === "home" && homeEnabled) || (draft.mode === "agency" && agencyEnabled);
+  // What the page last asked for, so a retry repeats its trigger and a recovery re-quotation (which the buyer did not start) is automatic.
+  const lastRequest = useRef<Readonly<{ key: string; trigger: "picked" | "automatic"; recoveryVersion: number | object }> | null>(null);
   useEffect(() => {
-    if (!ready || !quoting || !districtCode) return;
+    if (!ready || !quoting || !districtCode) { lastRequest.current = null; return; }
+    const key = `${draft.mode}:${districtCode}`;
+    const last = lastRequest.current;
+    const trigger = last && last.recoveryVersion !== recoveryVersion ? "automatic" : last?.key === key ? last.trigger : districtSource;
+    lastRequest.current = { key, trigger, recoveryVersion };
     const controller = new AbortController();
     // The loading text comes from this state, so it always lands in an update after the notice's (the design's «Announcements»).
     const request = async () => {
       setInFlight(true);
-      const result = await requestDeliveryQuotation({ orderId, districtCode, trigger: districtSource }, controller.signal);
+      const result = await requestDeliveryQuotation({ orderId, districtCode, trigger }, controller.signal);
       if (controller.signal.aborted) return;
       setReceived({ districtCode, revision, recoveryVersion, result });
       setInFlight(false);
