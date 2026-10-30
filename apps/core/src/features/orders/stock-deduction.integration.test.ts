@@ -421,12 +421,16 @@ test("a restoration that serves 100 candidates finishes within about a second", 
 
 test("with 10,000 unpaid pending orders in the company the waiting query stays under the serving budget", async () => {
   const s = await shop([5]);
+  // Each statement is its own interactive transaction (5 s Prisma timeout), so seed in batches that stay well under it on a slow runner.
   await s.run(async () => {
-    await prisma.$executeRaw`INSERT INTO "Order" (id, number, "sellerId", currency, total, "itemsTotal", "createdAt")
-      SELECT gen_random_uuid(), 200000 + n, (SELECT id FROM "user" WHERE "companyId" = current_setting('app.company_id')::uuid LIMIT 1), 'PEN', 10, 10, now() - n * interval '1 second'
-      FROM generate_series(1, 10000) n`;
-    await prisma.$executeRaw`INSERT INTO "OrderItem" (id, "orderId", "variantId", "productName", "variantAttributes", quantity, "unitPrice", subtotal)
-      SELECT gen_random_uuid(), o.id, ${s.variants[0]!}::uuid, 'Camisa', '{}'::json, 1, 10, 10 FROM "Order" o`;
+    for (let first = 1; first <= 10000; first += 1000) {
+      const last = first + 999;
+      await prisma.$executeRaw`INSERT INTO "Order" (id, number, "sellerId", currency, total, "itemsTotal", "createdAt")
+        SELECT gen_random_uuid(), 200000 + n, (SELECT id FROM "user" WHERE "companyId" = current_setting('app.company_id')::uuid LIMIT 1), 'PEN', 10, 10, now() - n * interval '1 second'
+        FROM generate_series(${first}::int, ${last}::int) n`;
+      await prisma.$executeRaw`INSERT INTO "OrderItem" (id, "orderId", "variantId", "productName", "variantAttributes", quantity, "unitPrice", subtotal)
+        SELECT gen_random_uuid(), o.id, ${s.variants[0]!}::uuid, 'Camisa', '{}'::json, 1, 10, 10 FROM "Order" o WHERE o.number BETWEEN ${200000 + first}::int AND ${200000 + last}::int`;
+    }
     await prisma.$executeRaw`ANALYZE "Order"`;
   });
   const timings: number[] = [];
