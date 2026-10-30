@@ -11,7 +11,7 @@ function toOptionContract(option: DeliveryOption): DeliveryOptionContract {
 export function parseDeliveryZonesResponse(state: DeliveryZonesState) {
   return deliveryZonesSchema.safeParse({ ...state, zones: state.zones.map(zone => ({ ...zone, options: zone.options.map(toOptionContract) })),
     agencies: state.agencies.map(agency => ({ id: agency.id, courierId: agency.courierId, name: agency.name, address: agency.address,
-      location: peruDeliveryDistrict(agency.districtCode), enabled: agency.enabled })) });
+      location: peruDeliveryDistrict(agency.districtCode), enabled: agency.enabled && agency.courierEnabled })) });
 }
 
 export function toDeliveryZonesResponse(state: DeliveryZonesState) {

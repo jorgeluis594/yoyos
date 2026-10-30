@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { StyleSheet, Switch, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import { z } from "zod";
@@ -7,6 +7,7 @@ import type { Result } from "@shared/result";
 import type { DeliveryOptionDraft, DeliverySettingsError, DeliveryZonesError } from "@mobile/features/delivery-settings/application/delivery-settings";
 import { PeruDistrictMultiSelect } from "@mobile/components/peru-district-multi-select";
 import { parsePeruAreaSelection } from "@shared/peru-geography";
+import { deliveryCoverage, eligibleCoverageAgencies, type DeliveryCoverage } from "@shared/delivery-coverage";
 import { overlapMessage, toSelection, zoneEntries, zoneOverlaps } from "@mobile/components/zone-entries";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
@@ -49,9 +50,19 @@ export const hasEligibleAgency = (option: ZoneOption, state: DeliveryZonesRespon
     return !!agency?.enabled && couriers.some(courier => courier.courierId === agency.courierId && courier.enabled);
   });
 
-/** A method that is on but has no active option in an active zone (agency: with an eligible agency) cannot be quoted. */
-export const lacksCoverage = (method: "home" | "agency", state: DeliveryZonesResponse, couriers: readonly (AgencyCourier & Readonly<{ enabled: boolean }>)[]) => state[method].enabled &&
-  !state.zones.some(zone => zone.enabled && zone.options.some(option => option.enabled && option.method === method && (method === "home" || hasEligibleAgency(option, state, couriers))));
+type SettingsCourier = AgencyCourier & Readonly<{ enabled: boolean }>;
+/** Coverage of the saved zones; ignores the switches, so it only changes when zones, agencies or couriers change. */
+export const zonesCoverage = (zones: DeliveryZonesResponse["zones"], agencies: DeliveryZonesResponse["agencies"], couriers: readonly SettingsCourier[]): DeliveryCoverage =>
+  deliveryCoverage({ zones, agencies: eligibleCoverageAgencies(agencies.map(agency => ({ id: agency.id, courierId: agency.courierId, enabled: agency.enabled, districtCode: agency.location.districtCode })),
+    couriers.filter(courier => courier.enabled).map(courier => courier.courierId)) });
+
+/** A method that is on and covers no place cannot be quoted. Without loaded zones (`null`) there is no warning. */
+export const coverageWarnings = (coverage: DeliveryCoverage | null, switches: Readonly<{ home: boolean; agency: boolean }>) =>
+  ({ home: coverage !== null && switches.home && coverage.home === null, agency: coverage !== null && switches.agency && coverage.agency === null });
+
+/** Memoized on the zones and couriers, so typing or an optimistic toggle does not recompute it. `null` while the data is missing. */
+export const useZonesCoverage = (zones: DeliveryZonesResponse["zones"] | null, agencies: DeliveryZonesResponse["agencies"] | null, couriers: readonly SettingsCourier[]) =>
+  useMemo(() => zones && agencies ? zonesCoverage(zones, agencies, couriers) : null, [zones, agencies, couriers]);
 
 export function DeliveryZonesSection({ state, couriers, catalog, loadAgencies, disabled, blocked, onSave, onReload }: Readonly<{
   state: DeliveryZonesResponse; couriers: readonly (AgencyCourier & Readonly<{ enabled: boolean }>)[]; disabled: boolean; blocked: boolean;
