@@ -92,12 +92,12 @@ test("seller scans units and independent states, searches orders and combines wo
       }
     }
     await row("partial").locator("summary").first().click();
-    await browserExpect(row("partial").locator("details[open]")).toContainText("Por cobrar:");
+    await browserExpect(row("partial").locator("details[open]")).toContainText("Pago pendiente:");
     await row("partial").locator("summary").first().click();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto("/pt-BR/orders");
     await browserExpect(page.getByRole("columnheader")).toHaveText(["", "Pedido", "Cliente", "Distrito", "Data", "Unidades", "Total"]);
-    await browserExpect(page.locator('summary[aria-label="Concluído"]')).toHaveCount(2);
+    await browserExpect(page.locator('summary[aria-label="Status da venda: Venda concluída"]')).toHaveCount(2);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
     await page.screenshot({ path: "test-results/order-list-desktop-pt.png", fullPage: true, animations: "disabled" });
   } finally {
