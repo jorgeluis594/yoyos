@@ -36,7 +36,7 @@ export function saveChangesOutcome(state: OrderViewState, result: SaveChangesRes
   const alert = (text: string, focus?: string): ViewNotice => ({ kind: "alert", text, focus });
   if ("lost" in result) return result.lost === "offline" ? stay(alert(t("orderView.failure.changesOffline"))) : stay({ kind: "doubt", checking: true }, { check: true });
   if ("applied" in result) {
-    const { operation: _operation, ...saved } = result;
+    const saved = { order: result.order, revisions: result.revisions, lineCatalog: result.lineCatalog, applied: result.applied };
     return stay({ kind: "success", text: t(result.order.stockDue?.kind === "waiting" ? "orderView.status.changesSavedWaiting" : "orderView.status.changesSaved") },
       { state: applySaveResult(state, saved), focusHeading: true, bumpCatalog: true });
   }
