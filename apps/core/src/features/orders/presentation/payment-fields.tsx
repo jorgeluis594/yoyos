@@ -13,16 +13,18 @@ export function isValidPaymentAmount(amount: string): boolean {
   return /^\d+(\.\d{1,2})?$/.test(amount.trim()) && Number(amount) >= 0.01;
 }
 
-type PaymentFieldsProps = { value: PaymentDraft; onChange: (value: PaymentDraft) => void; showStockBox?: boolean; autoFocusAmount?: boolean };
+type PaymentFieldsProps = { value: PaymentDraft; onChange: (value: PaymentDraft) => void; showStockBox?: boolean; autoFocusAmount?: boolean;
+  /** A save attempt marked the amount (empty or malformed) from outside, as the view's invalid fields do. */
+  invalid?: boolean };
 
-export function PaymentFields({ value, onChange, showStockBox = true, autoFocusAmount = false }: PaymentFieldsProps) {
+export function PaymentFields({ value, onChange, showStockBox = true, autoFocusAmount = false, invalid = false }: PaymentFieldsProps) {
   const { t } = useTranslation();
   const id = useId();
   const invalidAmount = value.amount !== "" && !isValidPaymentAmount(value.amount);
   const methods = paymentChoices.map(item => ({ value: item, label: item === "bank_transfer" ? t("orders.bankTransfer") : walletProviderLabel(item) }));
   return <>
     <Field className="min-w-0"><FieldLabel htmlFor={`${id}-amount`}>{t("orders.paymentAmount")}</FieldLabel><Input id={`${id}-amount`} name="amount" className="h-control" type="number" min="0.01" step="0.01" value={value.amount} onChange={event => onChange({ ...value, amount: event.target.value })} autoFocus={autoFocusAmount}
-      aria-invalid={invalidAmount} aria-describedby={invalidAmount ? `${id}-amount-error` : undefined} required />
+      aria-invalid={invalidAmount || invalid} aria-describedby={invalidAmount ? `${id}-amount-error` : undefined} required />
       {invalidAmount && <p id={`${id}-amount-error`} role="alert" className="text-sm text-destructive">{t("orders.paymentInvalidAmount")}</p>}</Field>
     <Field className="min-w-0"><FieldLabel htmlFor={`${id}-method`}>{t("orders.paymentMethod")}</FieldLabel>
       <Select items={methods} value={choiceOfPayment(value) ?? defaultPaymentChoice} onValueChange={picked => onChange({ amount: value.amount, deductStockIfPartial: value.deductStockIfPartial, ...paymentFromChoice(picked as PaymentChoice) })}>

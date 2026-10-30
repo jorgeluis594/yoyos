@@ -125,7 +125,7 @@ function DraftRow({ row, index, totals, invalid, autoFocus, busy, onChange, onRe
   const value: PaymentDraft = { amount: row.amount, method: row.method, walletProvider: row.walletProvider, deductStockIfPartial: row.deductStockIfPartial && stockBox };
   const label = methodLabel(t, row);
   return <li id={draftPaymentRowId(row.paymentId)} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-start">
-    <PaymentFields value={value} showStockBox={stockBox} autoFocusAmount={autoFocus}
+    <PaymentFields value={value} showStockBox={stockBox} autoFocusAmount={autoFocus} invalid={invalid}
       onChange={next => onChange({ paymentId: row.paymentId, amount: next.amount, method: next.method, walletProvider: next.walletProvider, deductStockIfPartial: next.deductStockIfPartial })} />
     {invalid && row.amount === "" && <p role="alert" className="col-span-full text-sm text-destructive">{t("orders.paymentInvalidAmount")}</p>}
     <Button type="button" variant="outline" className="min-h-touch self-end sm:col-start-3 sm:row-start-1 md:min-h-control" disabled={busy} aria-label={`${t("orderView.payments.remove")} ${index + 1}: ${label}`}
