@@ -23,16 +23,16 @@ export function catalogNames(count: number, shape: "mixed" | "shared" = "mixed")
   });
 }
 
-/** Inserts active products with one active variant each, in chunks. Call inside withTenantIsolation. */
-export async function insertProductNames(names: readonly string[]): Promise<string[]> {
+/** Inserts active products with one variant each, in chunks; the variant is inactive (the product is not sellable) where `notSellable(index)` says so. Call inside withTenantIsolation. */
+export async function insertProductNames(names: readonly string[], notSellable: (index: number) => boolean = () => false): Promise<string[]> {
   const ids: string[] = [];
   const now = new Date();
   for (let from = 0; from < names.length; from += 2_000) {
-    const chunk = names.slice(from, from + 2_000).map((name) => ({ id: randomUUID(), name }));
+    const chunk = names.slice(from, from + 2_000).map((name, offset) => ({ id: randomUUID(), name, status: notSellable(from + offset) ? "inactive" : "active" }));
     ids.push(...chunk.map(({ id }) => id));
     const result = await withinTransaction(async () => {
       await prisma.product.createMany({ data: chunk.map(({ id, name }) => ({ id, name, currency: "PEN", qrCode: id, status: "active", createdAt: now, updatedAt: now, structureVersion: 1 })) });
-      await prisma.productVariant.createMany({ data: chunk.map(({ id }) => ({ id: randomUUID(), productId: id, combinationKey: combinationKey({}), salePrice: 10, qrCode: randomUUID(), status: "active" })) });
+      await prisma.productVariant.createMany({ data: chunk.map(({ id, status }) => ({ id: randomUUID(), productId: id, combinationKey: combinationKey({}), salePrice: 10, qrCode: randomUUID(), status })) });
       return ok(null);
     });
     if (!result.success) throw new Error("Unable to insert products");

@@ -78,7 +78,7 @@ export function coverageQuery(companyId: string, words: readonly string[], limit
       GROUP BY p."companyId", p.id, p.name
     ),
     keyed AS (
-      SELECT m.*, bool_or(m.sellable) OVER (PARTITION BY translate(lower(m.name), ${productNameFolds.from}, ${productNameFolds.to})) AS "sellableTwin"
+      SELECT m.*, bool_or(m.sellable) OVER (PARTITION BY translate(lower(m.name), ${productNameFolds.from}, ${productNameFolds.to}) COLLATE "C") AS "sellableTwin"
       FROM matched m
     ),
     ranked AS (
