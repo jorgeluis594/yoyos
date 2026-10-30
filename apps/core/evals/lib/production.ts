@@ -327,6 +327,7 @@ async function chatOrderLines(chatId: string, company: EvalCompany): Promise<rea
 async function photoIdentification(photo: NonNullable<MessageInput["photo"]>, wiring: Wiring, company: EvalCompany): Promise<ApplyChatMessageDependencies["identifyProductsInImage"]> {
   if ("file" in photo) return (image, signal) => identifyProductsInImage(image, wiring.imageIdentification, signal);
   if (photo.shows === "not_product") return fixed({ kind: "not_product" });
+  if (photo.shows === "not_found") return fixed({ kind: "not_found", reason: "no_visual_match" });
   if ("label" in photo && photo.label) return fixed(await labelIdentification(photo.shows, photo.label, company));
   return fixed({ kind: "found", method: "visual", productId: productIdOf(photo.shows, company.scope) as ProductId, confidence: 0.95 as MatchConfidence, candidates: 1, topDistance: 0 });
 }

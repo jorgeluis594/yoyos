@@ -77,14 +77,17 @@ export const finalLine = orderLine.extend({ mentionedPrice: mentionedPrice.nulla
 export type FinalLine = z.output<typeof finalLine>;
 
 /** A photo the interpretation pass identifies by hand (`shows`), so only the reader runs; `label` is a printed QR label. */
-const shownPhoto = z.strictObject({ shows: productKey, label: attributes.optional() });
+const shownPhoto = z.strictObject({ shows: productKey, label: attributes.optional() })
+  .refine(({ shows }) => shows !== "not_found" && shows !== "not_product", "A photo that matched nothing or is not a product takes no label");
 const notProductPhoto = z.strictObject({ shows: z.literal("not_product") });
+/** A photo the identification matched to nothing (a product the catalog does not have, or no match): the reader is told the photo was not found. No label. */
+const notFoundPhoto = z.strictObject({ shows: z.literal("not_found") });
 /** A photo file the end-to-end pass reads with the real identification cascade; relative to the photo folder (images/README.md) or to `apps/core`. */
 const photoFile = z.strictObject({ file: z.string() });
 
 const messageContent = {
   text: z.string().optional(),
-  photo: z.union([notProductPhoto, shownPhoto, photoFile]).optional(),
+  photo: z.union([notProductPhoto, notFoundPhoto, shownPhoto, photoFile]).optional(),
   caption: z.string().optional(),
 };
 const hasOneContent = (input: Readonly<{ text?: string; photo?: unknown; caption?: string }>) => (input.text === undefined) !== (input.photo === undefined);
@@ -196,7 +199,7 @@ const pendingProducts = (pending: PendingSeed): readonly string[] => "product" i
 /** Every catalog product a case names, to check them against the catalog it runs on. */
 export function productsOf(testCase: EvalCase): readonly string[] {
   const lines = (order: readonly Readonly<{ product: string }>[] | undefined) => order?.map(({ product }) => product) ?? [];
-  const shown = (photo: MessageInput["photo"]) => photo && "shows" in photo && photo.shows !== "not_product" ? [photo.shows] : [];
+  const shown = (photo: MessageInput["photo"]) => photo && "shows" in photo && photo.shows !== "not_product" && photo.shows !== "not_found" ? [photo.shows] : [];
   const start = startOf(testCase);
   const seeded = [...lines(start.order), ...start.pendings.flatMap(pendingProducts)];
   if (testCase.pass === "image") return testCase.expected.flatMap((expectation) => expectation.kind === "found" ? [expectation.product] : []);
