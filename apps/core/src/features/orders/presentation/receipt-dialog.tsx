@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { useFetcher } from "react-router";
 import { useTranslation } from "react-i18next";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
+import type { PaymentChoice } from "@shared/wallet-providers";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { RetryableImage } from "@core/src/shared/images/presentation/retryable-image";
@@ -15,14 +16,18 @@ export type PaymentDialogKind = "receipt" | DecisionKind;
 type Step = "choose" | "approve" | "reject";
 
 type Props = Readonly<{ kind: PaymentDialogKind; paymentId: string; payment: Order["payments"][number] | null; order: Order; receiptUrl: string | null;
-  format: PaymentFormat; onClose: () => void; onDone: (paymentId: string, result: PaymentDecisionResult) => void; onSubmitted: (paymentId: string) => void; onUncertain: (paymentId: string) => void; onCloseAutoFocus: (event: Event) => void }>;
+  format: PaymentFormat; onClose: () => void; onDone: (paymentId: string, result: PaymentDecisionResult) => void; onSubmitted: (paymentId: string) => void; onUncertain: (paymentId: string) => void; onCloseAutoFocus: (event: Event) => void;
+  /** The method a registered payment opens with. */
+  initialChoice?: PaymentChoice;
+  /** When set, Aprobar stays focusable but does nothing, and this note describes why. Rechazar is not affected. */
+  approveBlockedNote?: string }>;
 
 function ReceiptImage({ url, className }: { url: string; className: string }) {
   const { t } = useTranslation();
   return <RetryableImage url={url} alt={t("orders.receiptAlt")} className={className} failedText={t("orders.receiptLoadFailed")} retryText={t("orders.receiptRetry")} />;
 }
 
-export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, format, onClose, onDone, onSubmitted, onUncertain, onCloseAutoFocus }: Props) {
+export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, format, onClose, onDone, onSubmitted, onUncertain, onCloseAutoFocus, initialChoice, approveBlockedNote }: Props) {
   const { t } = useTranslation();
   const [step, setStep] = useState<Step>(kind === "receipt" ? "choose" : kind === "reject" ? "reject" : "approve");
   // A failure is shown until the seller changes step or submits again; the fetcher keeps the last answer.
@@ -60,12 +65,14 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
           <ReceiptImage url={receiptUrl} className={deciding ? "max-h-32 sm:max-h-[50dvh]" : "max-h-[60dvh]"} /></div>}
         <div className="flex flex-col gap-3">
           {deciding ? <PaymentDecisionForm kind={kind === "receipt" ? step as DecisionKind : kind} paymentId={paymentId} order={order}
-              heading={kind === "receipt"} fetcher={fetcher} onSubmit={() => { clearFailure(); onSubmitted(paymentId); }} onCancel={back} />
+              heading={kind === "receipt"} fetcher={fetcher} initialChoice={initialChoice} onSubmit={() => { clearFailure(); onSubmitted(paymentId); }} onCancel={back} />
             : reviewable ? <div className="flex flex-wrap items-center justify-between gap-3">
               <p className="text-sm font-medium tabular-nums">{t("orders.orderPendingBalance", { amount: format.amount(order.balanceDue) })}</p>
               <div className="flex gap-2">
                 <Button type="button" variant="outline" className="min-h-touch text-destructive md:min-h-control" onClick={() => { clearFailure(); setStep("reject"); }}>{t("orders.reject")}</Button>
-                <Button type="button" className="min-h-touch md:min-h-control" onClick={() => { clearFailure(); setStep("approve"); }}>{t("orders.approve")}</Button></div></div>
+                <Button type="button" className="min-h-touch md:min-h-control" aria-disabled={approveBlockedNote ? true : undefined} aria-describedby={approveBlockedNote ? "approve-blocked-note" : undefined}
+                  onClick={() => { if (approveBlockedNote) return; clearFailure(); setStep("approve"); }}>{t("orders.approve")}</Button></div>
+              {approveBlockedNote && <p id="approve-blocked-note" className="basis-full text-sm text-muted-foreground">{approveBlockedNote}</p>}</div>
             : <p className="text-sm font-medium">{t(`orders.${state}`)}</p>}
           {failure && <Alert variant="destructive"><AlertDescription role="alert">{t(paymentErrorKey(failure))}</AlertDescription></Alert>}
         </div>
