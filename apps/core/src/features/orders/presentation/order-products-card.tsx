@@ -99,7 +99,7 @@ export function OrderProductsCard({ state, onChange, search, pickerOpen, onPicke
           <p className="text-sm text-muted-foreground">{t("orderView.products.lineDetail", { variant, price })}</p>
           {note && <p className="text-sm text-muted-foreground">{t("orderDetail.mentionedPrice", { count: note.units, amount: money(note.amount, line.unitPrice.currency) })}</p>}
         </div>
-        <Button type="button" variant="ghost" size="icon" aria-label={t("orderView.products.removeLine", { name: line.productName, variant })}
+        <Button type="button" variant="ghost" size="icon" className="aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:hover:bg-transparent" aria-label={t("orderView.products.removeLine", { name: line.productName, variant })}
           disabled={locked} aria-disabled={onlyLine || undefined} aria-describedby={onlyLine && !locked ? lastLineNoteId : undefined}
           onClick={() => { if (!onlyLine) remove(line.variantId); }}><Trash2 aria-hidden="true" /></Button>
       </div>

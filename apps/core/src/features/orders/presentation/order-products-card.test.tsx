@@ -142,7 +142,7 @@ describe("OrderProductsCard", () => {
     expect(latest.draft.items.map((line) => line.variantId)).toEqual([trajeM]);
   });
 
-  test("blocks removing the only line with aria-disabled, still focusable, and links its note", async () => {
+  test("disables removing the only line with its note", async () => {
     await mount(saved({ order: order({ items: [item("00000000-0000-4000-8000-000000000001", trajeM, "Traje de Príncipe Azul", "M", 89)] }) }));
     const remove = button("Quitar Traje de Príncipe Azul, M");
     expect(remove.disabled).toBe(false);
