@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { EditOrderResult } from "@core/src/features/orders/presentation/order-edit-schemas";
 import {
-  applySaveResult, buildCreateRequest, buildEditRequest, clearCustomer, estimate, inDoubtOutcome, initialDraft, invalidFields, lineWarnings,
+  applySaveResult, buildCreateRequest, buildEditRequest, clearCustomer, estimate, inDoubtOutcome, initialDraft, invalidFields, isEmptyDraft, lineWarnings,
   refreshFromLoader, resetProducts, screenLocks, setCustomer, unsavedParts, type DeliveryDraft, type DraftLine, type LoadedOrder, type OrderViewState,
 } from "@core/src/features/orders/presentation/order-view-state";
 
@@ -83,6 +83,21 @@ describe("unsaved changes", () => {
   test("reports each edited part in screen order", () => {
     const edited = withDelivery(setCustomer(typeQuantity(savedState(), deadpoolM, "2"), { name: "Ana", phone: "+51988111222" }), { fields: { address: "Jr. Cusco 10" } });
     expect(unsavedParts(edited)).toEqual(["items", "customer", "delivery"]);
+  });
+});
+
+describe("empty draft", () => {
+  test("treats a new sale with nothing typed as empty and any typed field as not empty", () => {
+    const empty = initialDraft({ kind: "new", orderId, currency: "PEN" });
+    expect(isEmptyDraft(empty)).toBe(true);
+    expect(isEmptyDraft(setCustomer(empty, { name: "Ana", phone: "" }))).toBe(false);
+    expect(isEmptyDraft(withDelivery(empty, { tab: "store" }))).toBe(false);
+    expect(isEmptyDraft({ ...empty, draft: { ...empty.draft, deliverImmediately: true } })).toBe(false);
+    expect(isEmptyDraft({ ...empty, draft: { ...empty.draft, payments: [{ paymentId: "p", amount: "", method: "bank_transfer", deductStockIfPartial: false }] } })).toBe(false);
+  });
+
+  test("never treats a saved order as empty", () => {
+    expect(isEmptyDraft(savedState())).toBe(false);
   });
 });
 

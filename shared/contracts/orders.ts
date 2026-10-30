@@ -213,7 +213,8 @@ export const orderApiErrorSchema = z.strictObject({
 });
 export type OrderApiError = z.infer<typeof orderApiErrorSchema>;
 export const orderActionErrorSchema = z.strictObject({ code: z.string(), error: z.string(), currentPrice: orderApiErrorSchema.shape.currentPrice, variantId: z.uuid().optional() });
-export const newOrderLoaderSchema = z.strictObject({ products: orderCatalogSchema, base: z.string() });
+/** «Nueva venta» loads no catalog: the picker asks for products on demand. `orderId` is the id of the sale being typed, kept across save attempts. */
+export const newOrderLoaderSchema = z.strictObject({ base: z.string(), orderId: z.uuid(), currency: moneySchema.shape.currency });
 export const orderListLoaderSchema = z.strictObject({ list: listOrderAggregatesResponseSchema.extend({ items: z.array(orderAggregateSummarySchema.extend({ itemCount: z.number().int().positive().safe(), balanceDue: moneySchema,
   deliveryMethod: z.enum(["home", "agency", "pickup", "none"]), district: z.string().nullable() })) }), filters: listOrderAggregatesSchema, base: z.string() });
 export const orderDetailLoaderSchema = z.strictObject({ order: orderAggregateSchema, base: z.string(), manualPaymentId: z.uuid(),

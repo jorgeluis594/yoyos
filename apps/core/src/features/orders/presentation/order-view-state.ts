@@ -121,6 +121,13 @@ export function initialDraft(source: DraftSource): OrderViewState {
 // ---------------------------------------------------------------------------------------------------------------------
 // Unsaved changes
 
+/** A new sale with nothing typed or chosen: **Descartar** is disabled and leaving needs no confirmation. A saved order is never empty. */
+export function isEmptyDraft(state: OrderViewState): boolean {
+  const { draft } = state;
+  return state.base === null && draft.items.length === 0 && draft.payments.length === 0 && !draft.deliverImmediately
+    && draft.customer.name.trim() === "" && draft.customer.phone.trim() === "" && draft.delivery.tab === "none";
+}
+
 const quantityOf = (line: DraftLine): number | null => {
   const text = line.quantityText.trim();
   if (!/^\d+$/.test(text)) return null;

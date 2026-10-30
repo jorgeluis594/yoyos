@@ -53,9 +53,11 @@ type Props = Readonly<{
   state: OrderViewState; onChange: (state: OrderViewState) => void;
   /** The view mounts the catalog search, so its cache outlives the picker. */
   search: CatalogSearch; pickerOpen: boolean; onPickerOpenChange: (open: boolean) => void; createProductHref: string;
+  /** The variant that a save answered «ya no está disponible» for: its line carries the message. */
+  unavailableVariantId?: string | null;
 }>;
 
-export function OrderProductsCard({ state, onChange, search, pickerOpen, onPickerOpenChange, createProductHref }: Props) {
+export function OrderProductsCard({ state, onChange, search, pickerOpen, onPickerOpenChange, createProductHref, unavailableVariantId = null }: Props) {
   const { t, i18n } = useTranslation();
   const lastValid = useRef(new Map<string, string>());
   const addRef = useRef<HTMLButtonElement>(null);
@@ -91,7 +93,7 @@ export function OrderProductsCard({ state, onChange, search, pickerOpen, onPicke
     const note = savedItem ? mentionedPriceNote(savedItem) : null;
     const subtotal = quantity === null ? null : multiply(line.unitPrice)(quantity);
     const price = money(line.unitPrice.amount, line.unitPrice.currency);
-    return <li key={line.variantId} className="grid gap-2 py-3">
+    return <li key={line.variantId} id={`order-line-${line.variantId}`} tabIndex={-1} className="grid gap-2 py-3 outline-none">
       <div className="flex items-start gap-3">
         <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-sm font-semibold text-muted-foreground">{initialsOf(line.productName)}</span>
         <div className="min-w-0 flex-1">
@@ -118,6 +120,7 @@ export function OrderProductsCard({ state, onChange, search, pickerOpen, onPicke
       </div>
       {reason && <p id={errorId} role="alert" className="text-sm text-destructive">
         {reason === "quantity_max" ? t("orderView.products.quantityMax", { max: maxOrderLineQuantity }) : t("orderView.products.quantityInvalid")}</p>}
+      {line.variantId === unavailableVariantId && <p role="alert" className="text-sm font-medium text-destructive">{t("orderView.products.unavailable", { name: Object.values(line.attributes).join(" / ") || line.productName })}</p>}
       {warnings.availableStock !== null && <p className="text-sm text-muted-foreground">{t("orderView.products.stockWarning", { stock: warnings.availableStock })}</p>}
       {warnings.noLongerSold && <p className="text-sm text-muted-foreground">{t("orderView.products.deactivated")}</p>}
     </li>;
