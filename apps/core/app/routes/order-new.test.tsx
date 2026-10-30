@@ -42,3 +42,28 @@ test("a sale with a variant that was deactivated meanwhile marks the item with i
 
   await vi.waitFor(() => expect(container.querySelector('[role="alert"]')?.textContent).toBe("L / Azul ya no está disponible. Quítalo para continuar."));
 });
+
+test("a paid and delivered sale refused for short stock shows the stock message and keeps the products and the delivered choice", async () => {
+  vi.stubGlobal("IntersectionObserver", class { observe() {} disconnect() {} });
+  vi.stubGlobal("ResizeObserver", class { observe() {} unobserve() {} disconnect() {} });
+  const submitted = vi.fn();
+  const Stub = createRoutesStub([{
+    path: "/orders/new", Component: OrderNew,
+    loader: () => ({ products, base: "/es-PE/orders", settings: null }),
+    action: async ({ request }) => { submitted(JSON.parse(String((await request.formData()).get("order")))); return { code: "INSUFFICIENT_STOCK", error: "No hay stock suficiente para uno de los productos." }; },
+  }]);
+  container = document.body.appendChild(document.createElement("div"));
+  root = createRoot(container);
+  await act(async () => root!.render(<I18nextProvider i18n={i18n}><Stub initialEntries={["/orders/new"]} /></I18nextProvider>));
+  const named = (name: string) => [...container.querySelectorAll("button")].find((element) => element.getAttribute("aria-label") === name || element.textContent?.startsWith(name))!;
+
+  await vi.waitFor(() => expect(container.textContent).toContain("L · Azul · Stock: 4"));
+  await act(async () => { named("Agregar Polo básico").click(); });
+  await act(async () => { container.querySelector<HTMLElement>("#order-deliver-immediately")!.click(); });
+  await act(async () => { named("Guardar pedido").click(); });
+
+  await vi.waitFor(() => expect(container.querySelector('[role="alert"], [data-slot="alert"]')?.textContent).toBe("No hay stock suficiente para uno de los productos."));
+  expect(submitted).toHaveBeenCalledWith(expect.objectContaining({ deliverImmediately: true }));
+  expect(container.textContent).toContain("L · Azul · 39.90 PEN");
+  expect(container.querySelector("#order-deliver-immediately")?.getAttribute("aria-checked")).toBe("true");
+});
