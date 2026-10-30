@@ -21,7 +21,7 @@ An order's delivery status is `pending`, `shipped` or `delivered`. It carries th
 ## Cancellation
 
 - An order can be cancelled only before it ships. Cancelling keeps its payments.
-- After the cancellation commits, an `order_cancelled` event is published; a transactional listener restores the stock if it was deducted, once per order. Repeating a cancellation does not publish again.
+- After the cancellation commits, an `order_cancelled` event is published; a transactional listener restores the stock if it was deducted, once per order, and in the same transaction deducts the waiting orders the restored units cover ([Orders · Stock deduction](orders.md#stock-deduction)). Repeating a cancellation does not publish again.
 - There is no outbox: an event lost after the commit is an accepted limitation.
 - Cancelled orders are excluded from the "to collect" and "to deliver" views.
 

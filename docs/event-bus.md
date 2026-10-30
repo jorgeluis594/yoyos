@@ -149,7 +149,7 @@ Everything else stays on pg-boss after commit. The first and only users are the
 stock events of orders: `payment_confirmed`, `order_delivery_changed`,
 `order_stock_deduction_overdue` and `product_stock_increased`, so a payment
 answers with the stock already deducted and a restock deducts the orders it
-covers in the same step ([design](drafts/pagos-siempre-aceptados-y-descuento-auto-technical.md)).
+covers in the same step ([Orders · Stock deduction](orders.md#stock-deduction)).
 
 How it works:
 
