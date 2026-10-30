@@ -126,21 +126,48 @@ export type ImageReadError =
   | Readonly<{ code: "IMAGE_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE"; message: string }>
   | Readonly<{ code: "IMAGE_STORAGE_UNAVAILABLE"; storageCode: "IMAGE_STORAGE_UNAVAILABLE" | "IMAGE_STORAGE_CONFIG_ERROR" | "IMAGE_STORAGE_TIMEOUT"; message: string }>;
 
-/** Lee los bytes de una imagen de la empresa desde el almacenamiento. */
-export async function readImageBytes(
-  imageId: string,
-  storage: ImageStorage,
-  repository: ImageRepository,
-  options?: Readonly<{ signal: AbortSignal }>,
-): Promise<Result<Readonly<{ bytes: Uint8Array; contentType: string }>, ImageReadError>> {
-  const image = await repository.find(imageId);
-  if (!image.success) return image;
-  if (!image.data) return { success: false, error: { code: "IMAGE_NOT_FOUND", message: "Image not found" } };
-  const object = options ? await storage.read(image.data.storageKey, options) : await storage.read(image.data.storageKey);
+type ImageObject = Readonly<{ bytes: Uint8Array; contentType: string }>;
+
+async function readStoredImage(image: StoredImage, storage: ImageStorage, options?: Readonly<{ signal: AbortSignal }>): Promise<Result<ImageObject, ImageReadError>> {
+  const object = options ? await storage.read(image.storageKey, options) : await storage.read(image.storageKey);
   if (object.success) return object;
   if (object.error.code === "IMAGE_NOT_FOUND") return { success: false, error: { code: "IMAGE_NOT_FOUND", message: object.error.message } };
   // The SDK throws different errors before and during the body, so only the signal tells a deadline from an outage.
   const storageCode = options?.signal.aborted ? "IMAGE_STORAGE_TIMEOUT"
     : object.error.code === "IMAGE_STORAGE_CONFIG_ERROR" ? "IMAGE_STORAGE_CONFIG_ERROR" : "IMAGE_STORAGE_UNAVAILABLE";
   return { success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", storageCode, message: object.error.message } };
+}
+
+/** Lee los bytes de una imagen de la empresa desde el almacenamiento. */
+export async function readImageBytes(
+  imageId: string,
+  storage: ImageStorage,
+  repository: ImageRepository,
+  options?: Readonly<{ signal: AbortSignal }>,
+): Promise<Result<ImageObject, ImageReadError>> {
+  const image = await repository.find(imageId);
+  if (!image.success) return image;
+  if (!image.data) return { success: false, error: { code: "IMAGE_NOT_FOUND", message: "Image not found" } };
+  return readStoredImage(image.data, storage, options);
+}
+
+/**
+ * Lee los bytes de varias imágenes de la empresa: una consulta de registros y luego las lecturas del almacenamiento en paralelo.
+ * Devuelve un resultado por id, en el orden pedido; una imagen sin registro es IMAGE_NOT_FOUND.
+ */
+export async function readImagesBytes(
+  imageIds: readonly string[],
+  storage: ImageStorage,
+  repository: ImageRepository,
+  options?: Readonly<{ signal: AbortSignal }>,
+): Promise<Result<readonly Result<ImageObject, ImageReadError>[], ImageLookupError>> {
+  if (!imageIds.length) return { success: true, data: [] };
+  const found = await repository.findMany([...new Set(imageIds)]);
+  if (!found.success) return found;
+  const records = new Map(found.data.map((image) => [image.id, image]));
+  const read = await Promise.all(imageIds.map(async (id): Promise<Result<ImageObject, ImageReadError>> => {
+    const record = records.get(id);
+    return record ? readStoredImage(record, storage, options) : { success: false, error: { code: "IMAGE_NOT_FOUND", message: "Image not found" } };
+  }));
+  return { success: true, data: read };
 }

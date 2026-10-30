@@ -7,7 +7,7 @@ import type { EmbeddingModel, EmbeddingVector, ImageBytes, ImageEmbedding } from
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
 /** Port every embedding provider implements. */
-export type EmbedImage = (image: ImageBytes) =>
+export type EmbedImage = (image: ImageBytes, signal?: AbortSignal) =>
   Promise<Result<EmbeddingVector, Readonly<{ code: "EMBEDDER_UNAVAILABLE" | "INVALID_EMBEDDING"; message: string }>>>;
 
 /** Retry policy of index-product-photos; this module stays free of runtime imports so event-handlers can read it while loading. */

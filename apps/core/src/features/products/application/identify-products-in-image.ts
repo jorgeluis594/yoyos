@@ -33,7 +33,7 @@ export type IdentificationMissReason =
 
 export type IdentifyProductsError = Readonly<{
   code: "PERSISTENCE_UNAVAILABLE" | "IMAGE_STORAGE_UNAVAILABLE" | "QR_READER_UNAVAILABLE"
-    | "EMBEDDER_UNAVAILABLE" | "INVALID_EMBEDDING" | "PRODUCT_MATCHER_UNAVAILABLE" | "INVALID_MATCHER_RESPONSE";
+    | "EMBEDDER_UNAVAILABLE" | "INVALID_EMBEDDING" | "PRODUCT_MATCHER_UNAVAILABLE" | "INVALID_MATCHER_RESPONSE" | "DEADLINE_EXCEEDED";
   message: string;
 }>;
 
@@ -56,7 +56,8 @@ export type VisualSearch = Readonly<{
   hasIndexedProducts: (model: EmbeddingModel) => Promise<Result<boolean, PersistenceError>>;
   findNearestProductImages: (vector: EmbeddingVector, model: EmbeddingModel, limit: number) =>
     Promise<Result<readonly VisualCandidate[], PersistenceError>>;
-  readImage: (imageId: ImageId) => Promise<Result<ImageBytes, ImageReadError>>;
+  /** The bytes of these images in the order asked: one record lookup, then the storage reads in parallel under the signal. */
+  readImages: (imageIds: readonly ImageId[], signal?: AbortSignal) => Promise<Result<readonly Result<ImageBytes, ImageReadError>[], PersistenceError>>;
   chooseProduct: ChooseProduct;
 }>;
 
@@ -94,16 +95,19 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch, signal?: 
   const brightened = await visual.brightenDimPhoto(image);
   const postPhoto = await visual.cropPostPhoto(brightened ?? image);
   const detail: ChooserDetail | null = postPhoto ? { kind: "post_photo", image: postPhoto } : brightened ? { kind: "brightened", image: brightened } : null;
-  const vector = await visual.embedImage(detail?.image ?? image);
+  const vector = await visual.embedImage(detail?.image ?? image, signal);
   if (!vector.success) return vector;
   const nearest = await visual.findNearestProductImages(vector.data, visual.model, visual.candidates);
   if (!nearest.success) return nearest;
-  const read = await Promise.all(nearest.data.map(async (candidate) => ({ candidate, image: await visual.readImage(candidate.imageId) })));
+  const stored = await visual.readImages(nearest.data.map(({ imageId }) => imageId), signal);
+  if (!stored.success) return stored;
+  const read = nearest.data.map((candidate, index) => ({ candidate, image: stored.data[index]! }));
   const failed = read.find(({ image }) => !image.success && image.error.code !== "IMAGE_NOT_FOUND");
   if (failed && !failed.image.success) return err({ code: failed.image.error.code as "PERSISTENCE_UNAVAILABLE" | "IMAGE_STORAGE_UNAVAILABLE", message: failed.image.error.message });
   // An image deleted after indexing only drops that candidate.
   const available = read.flatMap(({ candidate, image }) => image.success ? [{ candidate, image: image.data }] : []);
   if (!available.length) return notFound("no_indexed_products");
+  if (signal?.aborted) return err({ code: "DEADLINE_EXCEEDED", message: "The photo stage passed its deadline" });
   const choice = await visual.chooseProduct({ query: image, ...(detail && { detail }), candidates: available.map(({ candidate, image }) => ({ productId: candidate.productId, image })) }, signal);
   if (!choice.success) return choice;
   const match = acceptVisualMatch(choice.data, available.map(({ candidate }) => candidate), visual.minConfidence);

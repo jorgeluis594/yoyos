@@ -6,7 +6,7 @@ import type { EventHandler } from "@core/src/shared/events/application/contracts
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { getCompanyId, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { getImages, readImageBytes } from "@core/src/shared/images/application/images";
+import { getImages, readImageBytes, readImagesBytes } from "@core/src/shared/images/application/images";
 import { imageRepository } from "@core/src/shared/images/infrastructure/image-repository";
 import { createR2ImageStorage } from "@core/src/shared/images/infrastructure/r2-image-storage";
 import type { ImageId, ProductId } from "@core/src/features/products/domain/product";
@@ -25,7 +25,7 @@ import { readQrCodes } from "@core/src/shared/images/infrastructure/qr-code-read
 import { brightenDimPhoto } from "@core/src/features/products/infrastructure/product-matching/dim-photo";
 import { cropPostPhoto } from "@core/src/features/products/infrastructure/product-matching/post-photo";
 import { createOpenAIProductChooser } from "@core/src/features/products/infrastructure/product-matching/openai-product-chooser";
-import { MAX_CANDIDATES } from "@core/src/features/products/infrastructure/product-matching/product-chooser";
+import { maxPhotoCandidates, photoStagesReserveUsd } from "@core/src/features/products/infrastructure/product-matching/visual-stages-cost";
 import { findCatalogProduct, listCatalogProducts } from "@core/src/features/products/application/catalog-products";
 import { catalogProductRepository } from "@core/src/features/products/infrastructure/catalog-products-repository";
 import { findVariantPhotos } from "@core/src/features/products/application/variant-photos";
@@ -77,7 +77,14 @@ export async function publishProductPhotosAdded(productId: ProductId) {
 
 type Env = Readonly<Record<string, string | undefined>>;
 export type ImageEmbedder = Readonly<{ model: EmbeddingModel; embedImage: EmbedImage }>;
-export type VisualSearchSetup = Readonly<{ embedder: ImageEmbedder | null; visual: VisualSearch | null }>;
+export type VisualSearchSetup = Readonly<{
+  embedder: ImageEmbedder | null;
+  visual: VisualSearch | null;
+  /** Worst US dollars the photo stages bill for one message (0 when visual search is off); the photo reader budget subtracts it. */
+  photoStagesReserveUsd: number;
+  /** The deadline of the whole photo stage: twice the matcher timeout, which reaches the describer's requests and the candidate image reads. */
+  photoStageTimeoutMs: number;
+}>;
 
 // Unknown provider names or invalid tuning values fail at startup; empty values count as unset.
 const visualEnvSchema = z.object({
@@ -89,18 +96,23 @@ const visualEnvSchema = z.object({
   // Vision model the openai embedder uses to describe the image before embedding the description.
   IMAGE_DESCRIBE_MODEL: z.string().default("gpt-6-luna"),
   OPENAI_API_KEY: z.string().optional(),
-  PRODUCT_MATCH_CANDIDATES: z.coerce.number().int().min(1).max(MAX_CANDIDATES).default(5),
+  PRODUCT_MATCH_CANDIDATES: z.coerce.number().int().min(1).max(maxPhotoCandidates).default(5),
   PRODUCT_MATCH_MIN_CONFIDENCE: z.coerce.number().min(0).max(1).default(0.8),
-  PRODUCT_MATCH_TIMEOUT_MS: z.coerce.number().int().positive().default(20_000),
+  PRODUCT_MATCH_TIMEOUT_MS: z.coerce.number().int().positive().max(20_000).default(20_000),
 });
 
 /** Indexing embedder and visual step of the cascade from one env selection; both null (visual_search_disabled) without the provider key. */
 export function createVisualSearch(env: Env): VisualSearchSetup {
   const config = visualEnvSchema.parse(Object.fromEntries(Object.entries(env).filter(([, value]) => value !== "")));
+  const photoStageTimeoutMs = 2 * config.PRODUCT_MATCH_TIMEOUT_MS;
   if (!config.OPENAI_API_KEY) {
     log.info({ event: "product_visual_search_disabled", reason: "missing_api_key" }, "product_visual_search_disabled");
-    return { embedder: null, visual: null };
+    return { embedder: null, visual: null, photoStagesReserveUsd: 0, photoStageTimeoutMs };
   }
+  // A model with no price fails at startup: the cost of a photo message cannot be bounded without it.
+  const reserveUsd = photoStagesReserveUsd({ candidates: config.PRODUCT_MATCH_CANDIDATES, matcherModel: config.PRODUCT_MATCHER_MODEL,
+    embedder: config.IMAGE_EMBEDDER_PROVIDER === "local" ? { provider: "local" }
+      : { provider: "openai", describeModel: config.IMAGE_DESCRIBE_MODEL, embedModel: config.IMAGE_EMBEDDER_MODEL ?? "text-embedding-3-small" } });
   const client = new OpenAI({ apiKey: config.OPENAI_API_KEY, timeout: config.PRODUCT_MATCH_TIMEOUT_MS, maxRetries: 0 });
   let embedder: ImageEmbedder;
   switch (config.IMAGE_EMBEDDER_PROVIDER) {
@@ -112,9 +124,9 @@ export function createVisualSearch(env: Env): VisualSearchSetup {
   switch (config.PRODUCT_MATCHER_PROVIDER) {
     case "openai": chooseProduct = createOpenAIProductChooser({ client, model: config.PRODUCT_MATCHER_MODEL, timeoutMs: config.PRODUCT_MATCH_TIMEOUT_MS, companyId: getCompanyId });
   }
-  return { embedder, visual: { model: embedder.model, embedImage: embedder.embedImage, brightenDimPhoto, cropPostPhoto, candidates: config.PRODUCT_MATCH_CANDIDATES,
+  return { embedder, photoStagesReserveUsd: reserveUsd, photoStageTimeoutMs, visual: { model: embedder.model, embedImage: embedder.embedImage, brightenDimPhoto, cropPostPhoto, candidates: config.PRODUCT_MATCH_CANDIDATES,
     minConfidence: config.PRODUCT_MATCH_MIN_CONFIDENCE as MatchConfidence, chooseProduct,
-    hasIndexedProducts, findNearestProductImages, readImage: (imageId) => readImageBytes(imageId, imageStorage, imageRepository) } };
+    hasIndexedProducts, findNearestProductImages, readImages: (imageIds, signal) => readImagesBytes(imageIds, imageStorage, imageRepository, signal && { signal }) } };
 }
 
 const candidateEnvSchema = z.object({
@@ -137,6 +149,7 @@ const messageCandidateLimits = createMessageCandidateLimits(process.env);
 
 const visualSearchSetup = createVisualSearch(process.env);
 export const imageEmbedder = visualSearchSetup.embedder;
+export const photoStagesReserve = Object.freeze({ reserveUsd: visualSearchSetup.photoStagesReserveUsd, timeoutMs: visualSearchSetup.photoStageTimeoutMs });
 const readinessDependencies = { visualModel: visualSearchSetup.visual?.model ?? null, hasActiveProducts, hasIndexedProducts };
 
 const identificationDependencies = {
