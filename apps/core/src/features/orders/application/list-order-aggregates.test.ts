@@ -24,3 +24,31 @@ test("rejects inverted real dispatch interval before reading", async () => {
     .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
   expect(find).not.toHaveBeenCalled();
 });
+
+test("paid and unpaid views exclude cancelled orders even when cancelled orders are included", async () => {
+  const find = vi.fn(async () => ok({ items: [], page: 1, pageSize: 20 as const, total: 0 }));
+  const context = { companyId: "c" as CompanyId } as Parameters<typeof listOrderAggregates>[1];
+  const base = { page: 1, customer: { kind: "all" } } as const;
+  await listOrderAggregates({ ...base, view: "paid" }, context, find);
+  await listOrderAggregates({ ...base, view: "unpaid" }, context, find);
+  await listOrderAggregates({ ...base, view: "all" }, context, find);
+  expect(find.mock.calls.map(([criteria]) => [criteria.view, criteria.cancelled])).toEqual([["paid", "exclude"], ["unpaid", "exclude"], ["all", undefined]]);
+});
+
+test("rejects unknown values of the new criteria before reading", async () => {
+  const find = vi.fn(async () => ok({ items: [], page: 1, pageSize: 20 as const, total: 0 }));
+  const context = { companyId: "c" as CompanyId } as Parameters<typeof listOrderAggregates>[1];
+  const base = { page: 1, customer: { kind: "all" } } as const;
+  expect(await listOrderAggregates({ ...base, cancelled: "include" as never }, context, find)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+  expect(await listOrderAggregates({ ...base, searchPhone: "include" as never }, context, find)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+  expect(await listOrderAggregates({ ...base, view: "settled" as never }, context, find)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
+  expect(find).not.toHaveBeenCalled();
+});
+
+test("accepts the paid view, excluding cancelled orders and the phone from the search", async () => {
+  const find = vi.fn(async () => ok({ items: [], page: 1, pageSize: 20 as const, total: 0 }));
+  const context = { companyId: "c" as CompanyId } as Parameters<typeof listOrderAggregates>[1];
+  const result = await listOrderAggregates({ page: 1, customer: { kind: "all" }, search: " 987654789 ", searchPhone: "exclude", cancelled: "exclude" }, context, find);
+  expect(result.success).toBe(true);
+  expect(find).toHaveBeenCalledWith(expect.objectContaining({ search: "987654789", searchPhone: "exclude", cancelled: "exclude" }), "c");
+});

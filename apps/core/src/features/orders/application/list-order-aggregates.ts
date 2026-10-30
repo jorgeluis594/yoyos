@@ -24,7 +24,7 @@ export function parseScheduledDispatchFilter(query: Readonly<{ scheduledFrom?: D
 }
 
 export type AggregateCriteria = Readonly<{ page: number; customer: { kind: "all" } | { kind: "general_public" };
-  search?: string; view?: "all" | "unpaid" | "undelivered"; createdFrom?: Date; createdBefore?: Date;
+  search?: string; view?: "all" | "unpaid" | "paid" | "undelivered"; cancelled?: "exclude"; searchPhone?: "exclude"; createdFrom?: Date; createdBefore?: Date;
   deliveryStatus?: "pending" | "shipped" | "delivered"; courierId?: string; scheduled?: ScheduledDispatchFilter; shippedFrom?: Date; shippedBefore?: Date }>;
 export type AggregatePage = Readonly<{ items: readonly OrderAggregate[]; page: number; pageSize: 20; total: number }>;
 type ListError = Readonly<{ code: "INVALID_ORDER" | "PERSISTENCE_UNAVAILABLE"; message: string }>;
@@ -32,7 +32,8 @@ type ListError = Readonly<{ code: "INVALID_ORDER" | "PERSISTENCE_UNAVAILABLE"; m
 export async function listOrderAggregates(criteria: AggregateCriteria, context: OrderAccess,
   find: (criteria: AggregateCriteria, companyId: CompanyId) => Promise<Result<AggregatePage, ListError>>): Promise<Result<AggregatePage, ListError>> {
   if ((criteria.search !== undefined && (typeof criteria.search !== "string" || criteria.search.length > 120)) ||
-    (criteria.view !== undefined && !["all", "unpaid", "undelivered"].includes(criteria.view)) ||
+    (criteria.view !== undefined && !["all", "unpaid", "paid", "undelivered"].includes(criteria.view)) ||
+    (criteria.cancelled !== undefined && criteria.cancelled !== "exclude") || (criteria.searchPhone !== undefined && criteria.searchPhone !== "exclude") ||
     !Number.isSafeInteger(criteria.page) || criteria.page <= 0 || !Number.isSafeInteger((criteria.page - 1) * 20) ||
     (criteria.createdFrom && !Number.isFinite(criteria.createdFrom.getTime())) ||
     (criteria.createdBefore && !Number.isFinite(criteria.createdBefore.getTime())) ||
@@ -42,5 +43,7 @@ export async function listOrderAggregates(criteria: AggregateCriteria, context: 
     (criteria.shippedBefore && !Number.isFinite(criteria.shippedBefore.getTime())) ||
     (criteria.shippedFrom && criteria.shippedBefore && criteria.shippedFrom >= criteria.shippedBefore))
     return err({ code: "INVALID_ORDER", message: "Invalid listing criteria" });
-  return find({ ...criteria, ...(criteria.search !== undefined ? { search: criteria.search.trim() } : {}) }, context.companyId);
+  /** Unpaid and paid are defined over not-cancelled orders, whatever `cancelled` says. */
+  const excludesCancelled = criteria.view === "unpaid" || criteria.view === "paid";
+  return find({ ...criteria, ...(excludesCancelled ? { cancelled: "exclude" as const } : {}), ...(criteria.search !== undefined ? { search: criteria.search.trim() } : {}) }, context.companyId);
 }
