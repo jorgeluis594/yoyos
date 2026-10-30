@@ -114,3 +114,58 @@ export function RatedDeliveryForm({ order, settings, pending, active, recovery, 
     if (ready && enabled && request && total?.success) submit(request, { method: "post", encType: "application/json" });
   })}>{fields}<Button type="submit" disabled={pending || !ready || !enabled || !request || !total?.success}>{t(pending ? "deliverySettings.saving" : "orderDelivery.save")}</Button></form>;
 }
+
+export type QuotedPlace = Readonly<{ districtCode: string | null; rateId: string; agencyId: string; ratePrice: Money | null; address: string; instructions: string }>;
+
+/**
+ * The place half of a delivery, controlled by the order view: district, quoted rate, agency and, for a home delivery, the address.
+ * It quotes again whenever the district changes and reports the chosen rate's price with the rate, so the view can send it as the expected price.
+ */
+export function QuotedPlaceFields({ method, place, settings, disabled, invalid, idPrefix, onChange }: Readonly<{
+  method: "home" | "agency" | "store"; place: QuotedPlace; settings: DeliverySettingsResponse; disabled: boolean; invalid: ReadonlySet<string>; idPrefix: string;
+  onChange: (place: QuotedPlace) => void;
+}>) {
+  const { t, i18n } = useTranslation();
+  const ready = useClientReady();
+  const [retry, setRetry] = useState(0);
+  const [received, setReceived] = useState<{ key: string; quotation: QuotationResponse | null } | null>(null);
+  const key = JSON.stringify([method, place.districtCode, retry, settings.version]);
+  const current = received?.key === key ? received : null;
+  const rates = current?.quotation?.rates.filter(rate => rate.method === method) ?? [];
+  const agencies = rates.find(rate => rate.id === place.rateId)?.method === "agency" ? (rates.find(rate => rate.id === place.rateId) as Extract<typeof rates[number], { method: "agency" }>).agencies : [];
+  const quotes = method !== "store" && place.districtCode !== null && !disabled;
+  useEffect(() => {
+    if (current || !quotes || !place.districtCode) return;
+    const controller = new AbortController();
+    void requestDeliveryQuotation({ districtCode: place.districtCode }, controller.signal).then(result => {
+      if (!controller.signal.aborted) setReceived({ key, quotation: result.success ? result.data : null });
+    });
+    return () => controller.abort();
+  }, [current, quotes, place.districtCode, key]);
+  const text = (name: "address" | "instructions", label: string, required: boolean) => <Field data-invalid={invalid.has(name)}>
+    <FieldLabel htmlFor={`${idPrefix}-${name}`}>{label}</FieldLabel>
+    <Input id={`${idPrefix}-${name}`} value={place[name]} required={required} aria-invalid={invalid.has(name)} onChange={event => onChange({ ...place, [name]: event.target.value })} /></Field>;
+  const rateItems = rates.map(item => ({ value: item.id, label: `${rateLabel(item, rates)} · ${item.price.amount === 0 ? t("deliveryZones.free") : formatCurrency(item.price.amount, item.price.currency, i18n.language)}` }));
+  const agencyItems = agencies.map(item => ({ value: item.id, label: agencyLabel(item) }));
+  const pickup = settings.store.pickupPoint;
+  if (method === "store") return pickup ? <p>{pickup.name} · {pickup.address}{pickup.instructions && <> · {pickup.instructions}</>}</p> : null;
+  return <FieldSet disabled={disabled || !ready} className="flex min-w-0 flex-col gap-4">
+    <PeruDistrictSelect value={place.districtCode ? getPeruDistrict(place.districtCode)?.code ?? null : null} disabled={disabled}
+      onChange={code => onChange({ ...place, districtCode: code, rateId: "", agencyId: "", ratePrice: null })} />
+    {quotes && !current && <Alert><AlertDescription>{t("orderDelivery.quoting")}</AlertDescription></Alert>}
+    {current && !current.quotation && <Alert variant="destructive"><AlertDescription>{t("orderDelivery.quoteError")}</AlertDescription>
+      <Button type="button" variant="outline" onClick={() => setRetry(value => value + 1)}>{t("orderDelivery.retryRates")}</Button></Alert>}
+    {current?.quotation && rates.length === 0 && <Alert><AlertDescription>{t("orderDelivery.noRates")}</AlertDescription></Alert>}
+    {rates.length > 0 && <Field data-invalid={invalid.has("rateId")}><FieldLabel htmlFor={`${idPrefix}-rateId`}>{t("orderDelivery.rate")}</FieldLabel>
+      <Select items={rateItems} value={rates.some(item => item.id === place.rateId) ? place.rateId : null} onValueChange={value => {
+        const chosen = rates.find(item => item.id === value);
+        onChange({ ...place, rateId: String(value ?? ""), ratePrice: chosen?.price ?? null, agencyId: chosen?.method === "agency" && chosen.agencies.length === 1 ? chosen.agencies[0].id : "" });
+      }}><SelectTrigger id={`${idPrefix}-rateId`} aria-invalid={invalid.has("rateId")}><SelectValue placeholder={t("orderDelivery.chooseRate")} /></SelectTrigger>
+        <SelectContent>{rateItems.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></Field>}
+    {agencies.length > 0 && <Field data-invalid={invalid.has("agencyId")}><FieldLabel htmlFor={`${idPrefix}-agencyId`}>{t("orderDelivery.agency")}</FieldLabel>
+      <Select items={agencyItems} value={agencies.some(item => item.id === place.agencyId) ? place.agencyId : null} onValueChange={value => onChange({ ...place, agencyId: String(value ?? "") })}>
+        <SelectTrigger id={`${idPrefix}-agencyId`} aria-invalid={invalid.has("agencyId")}><SelectValue placeholder={t("orderDelivery.chooseAgency")} /></SelectTrigger>
+        <SelectContent>{agencyItems.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></Field>}
+    {method === "home" && <>{text("address", t("orderDelivery.address"), true)}{text("instructions", t("orderDelivery.instructions"), false)}</>}
+  </FieldSet>;
+}
