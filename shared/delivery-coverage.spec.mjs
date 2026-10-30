@@ -83,10 +83,13 @@ function walkOffered(selection) {
   return count;
 }
 
-test("coverage of 1892 single-district zones with two home options and one agency option each, and the offered lists over it, take at most 10 ms as the minimum of 5 warmed runs", () => {
+function coverageInput(districts) {
   const agencyIds = peruDepartments.map(department => `agency-${department.code}`);
-  const zones = allDistricts.map(district => zone({ districtCodes: [district.code] }, [home(), home(), agencyOption(agencyIds)]));
-  const input = { zones, agencies: peruDepartments.map(department => ({ id: `agency-${department.code}`, districtCode: `${department.code}0101` })) };
+  const zones = districts.map(district => zone({ districtCodes: [district.code] }, [home(), home(), agencyOption(agencyIds)]));
+  return { zones, agencies: peruDepartments.map(department => ({ id: `agency-${department.code}`, districtCode: `${department.code}0101` })) };
+}
+
+function minimumMilliseconds(input) {
   const run = () => {
     const start = performance.now();
     const result = deliveryCoverage(input);
@@ -98,11 +101,18 @@ test("coverage of 1892 single-district zones with two home options and one agenc
   };
   run();
   run();
-  const minimum = Math.min(...Array.from({ length: 5 }, run));
-  const result = deliveryCoverage(input);
+  return Math.min(...Array.from({ length: 5 }, run));
+}
+
+// Machine speed and load scale both sizes alike, so the ratio of their times does not depend on them: 8x the zones
+// costs about 8x when linear and about 64x when quadratic. The bound sits between the two.
+test("coverage of 1892 single-district zones with two home options and one agency option each, and the offered lists over it, grow linearly: 8x the zones cost under 24x the time as the minimum of 5 warmed runs", () => {
+  const oneRound = coverageInput(allDistricts);
+  const eightRounds = coverageInput(Array.from({ length: 8 }, () => allDistricts).flat());
+  const result = deliveryCoverage(oneRound);
   expect(result.home.districtCodes).toHaveLength(1892);
   expect(result.agency.districtCodes).toHaveLength(1892);
-  expect(minimum).toBeLessThanOrEqual(10);
+  expect(minimumMilliseconds(eightRounds) / minimumMilliseconds(oneRound)).toBeLessThan(24);
 });
 
 test("canonical coverage output never needs a cast: it is already canonical", () => {
