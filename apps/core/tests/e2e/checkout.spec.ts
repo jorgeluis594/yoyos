@@ -49,7 +49,7 @@ async function fixture(prefill: "none" | "phone" | "full" = "none", enabled = tr
       await withTenantIsolation(companyId, async () => {
         await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
         await prisma.contact.deleteMany(); await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
-        await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany(); await prisma.deliveryZoneDistrict.deleteMany();
+        await prisma.deliveryRate.deleteMany(); await prisma.quotation.deleteMany(); await prisma.deliveryZoneDistrict.deleteMany(); await prisma.deliveryZoneProvince.deleteMany(); await prisma.deliveryZoneDepartment.deleteMany();
         await prisma.deliveryOptionAgency.deleteMany(); await prisma.deliveryOption.deleteMany(); await prisma.deliveryZone.deleteMany(); await prisma.companyCourier.deleteMany(); await prisma.companyDeliverySettings.deleteMany();
         await systemPrisma.user.delete({ where: { id: userId } }); await prisma.company.delete({ where: { id: companyId } });
       });
@@ -345,29 +345,17 @@ test("buyer selects a district rate, preserves the form on price conflict and co
     });
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto(f.path);
-    // One combobox per level: typing «villa» under Lima/Lima lists names only, never the ubigeo, and nothing overflows at 390 px.
-    for (const [label, name] of [["Departamento", "Lima"], ["Provincia", "Lima"]] as const) {
-      await page.getByRole("combobox", { name: label, exact: true }).fill(name);
-      await page.getByRole("option", { name, exact: true }).click();
-    }
-    await page.getByRole("combobox", { name: "Distrito", exact: true }).fill("villa");
-    await browserExpect(page.getByRole("option")).toHaveText(["Villa El Salvador", "Villa Maria del Triunfo"]);
-    await browserExpect(page.getByText("Escribe para buscar y elige tu distrito en la misma lista.")).toBeVisible();
-    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
-    await page.keyboard.press("Escape");
-    // Departamento and Provincia keep two columns on the phone, with their labels and a long name inside their boxes.
-    await page.getByRole("combobox", { name: "Departamento", exact: true }).fill("Madre de Dios");
-    await page.getByRole("option", { name: "Madre de Dios", exact: true }).click();
+    // The store covers only Miraflores: the three levels arrive filled, the notice says so and the quotation starts without a pick.
+    await expectDistrict(page, "150122");
+    await browserExpect(page.getByRole("combobox", { name: "Departamento", exact: true })).toHaveValue("Lima");
+    await browserExpect(page.getByRole("combobox", { name: "Provincia", exact: true })).toHaveValue("Lima");
+    await browserExpect(page.getByText("Completamos automáticamente los campos que tienen una sola opción.")).toBeVisible();
+    // Departamento and Provincia keep two columns on the phone, inside the screen.
     const [department, province] = [await page.getByRole("combobox", { name: "Departamento", exact: true }).boundingBox(), await page.getByRole("combobox", { name: "Provincia", exact: true }).boundingBox()];
     expect(Math.abs(department!.y - province!.y), "same row").toBeLessThan(2);
     expect(department!.x + department!.width, "no overlap").toBeLessThanOrEqual(province!.x);
     expect(province!.x + province!.width).toBeLessThanOrEqual(390);
-    await browserExpect(page.getByText("Departamento", { exact: true })).toBeVisible();
-    await page.getByRole("combobox", { name: "Departamento", exact: true }).fill("Lima");
-    await page.getByRole("option", { name: "Lima", exact: true }).click();
-    await page.getByRole("combobox", { name: "Provincia", exact: true }).fill("Lima");
-    await page.getByRole("option", { name: "Lima", exact: true }).click();
-    await chooseDistrict(page, "150122");
+    expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await browserExpect(page.getByLabel("Tarifa de envío").locator("option")).toHaveCount(3);
     await page.getByLabel("Tarifa de envío").selectOption({ index: 1 });
     const rates = page.getByLabel("Tarifa de envío");
@@ -421,6 +409,41 @@ test("buyer selects a district rate, preserves the form on price conflict and co
     expect(stored.payments).toEqual([]);
     expect(stored.stockDeducted).toBe(false);
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  } finally { await f.cleanup(); }
+});
+
+test("buyer of a store covering province Lima sees Lima preselected, picks Miraflores and confirms home delivery", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const access = { companyId: f.companyId, userId: f.userId };
+      expect((await deliverySettings.saveZones({ expectedVersion: 0, zones: [{ kind: "new", name: "Lima Metropolitana", enabled: true, provinceCodes: ["1501"], districtCodes: [],
+        options: [{ kind: "new", method: "home", name: "Motorizado", enabled: true, price: { amount: 10, currency: "PEN" } }] }] }, access)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false },
+        store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+    });
+    await page.goto(f.path);
+    await browserExpect(page.getByRole("combobox", { name: "Departamento", exact: true })).toBeEnabled();
+    await browserExpect(page.getByRole("combobox", { name: "Departamento", exact: true })).toHaveValue("Lima");
+    await browserExpect(page.getByRole("combobox", { name: "Provincia", exact: true })).toHaveValue("Lima");
+    await browserExpect(page.getByText("Completamos automáticamente los campos que tienen una sola opción.")).toBeVisible();
+    await browserExpect(page.getByText("Solo aparecen los lugares donde la tienda entrega", { exact: false })).toBeVisible();
+    await page.getByRole("combobox", { name: "Distrito", exact: true }).fill("Huamantanga");
+    await browserExpect(page.getByText("Ningún distrito de la lista coincide. Revisa cómo lo escribiste.")).toBeVisible();
+    await chooseDistrictInProvince(page, "150122");
+    await browserExpect(page.getByText("Completamos automáticamente los campos que tienen una sola opción.")).toHaveCount(0);
+    await page.getByLabel("Nombre", { exact: true }).fill("Ana");
+    await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
+    await page.getByLabel("Otra persona recibe el pedido").check();
+    await page.getByLabel("Nombre de quien recibe").fill("Recipient");
+    await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
+    const rates = page.getByLabel("Tarifa de envío");
+    await browserExpect(rates.locator("option")).toHaveCount(2);
+    await rates.selectOption({ index: 1 });
+    await page.getByLabel("Dirección de entrega").fill("Street 123");
+    await page.getByRole("button", { name: "Confirmar pedido", exact: true }).click();
+    await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
+    expect((await f.read()).delivery).toMatchObject({ method: "home", destination: { districtCode: "150122", address: "Street 123" } });
   } finally { await f.cleanup(); }
 });
 
@@ -595,8 +618,9 @@ test("buyer in Cayma chooses Envío a agencia, picks the cheaper Cayma agency an
     await configureDelivery(f, [{ districtCodes: ["040103", "040105"], options: [
       { name: "Shalom", price: 12, agencyIds: [agencies[0], agencies[1]] }, { name: "Olva", price: 10, agencyIds: [agencies[2]] }] }], true);
     await page.goto(f.path);
-    await browserExpect(mode(page, "home")).toBeChecked();
-    await mode(page, "agency").check();
+    // Only agency is covered, so home is not offered and the page opens on agency.
+    await browserExpect(mode(page, "agency")).toBeChecked();
+    await browserExpect(mode(page, "home")).toHaveCount(0);
     await pickDistrict(page, "04", "0401", "040103");
     const agency = page.getByLabel("Agencia de destino");
     await browserExpect(agency.locator("option")).toHaveCount(3);
@@ -651,13 +675,15 @@ test("buyer moves from Cayma to Characato, sees the province agencies and switch
 
 test("buyer without agencies in the department switches to home delivery from the no-agencies message", async ({ page }) => {
   const f = await fixture("none", true, false);
-  const agencies = [await insertAgency({ courierId: await seededCatalogId("shalom"), name: "Agencia Miraflores", districtCode: "150122" })];
+  const agencies = [await insertAgency({ courierId: await seededCatalogId("shalom"), name: "Agencia Arequipa", districtCode: "040101" })];
   try {
-    await configureDelivery(f, [{ districtCodes: ["150122"], options: [{ name: "Shalom", price: 12, agencyIds: agencies }] },
-      { districtCodes: ["040701"], options: [{ name: "Home Mollendo", price: 6 }] }], true);
+    await configureDelivery(f, [{ districtCodes: ["040701"], options: [{ name: "Home Mollendo", price: 6 }, { name: "Shalom", price: 12, agencyIds: agencies }] }], true);
     await page.goto(f.path);
+    await browserExpect(page.getByRole("combobox", { name: "Departamento", exact: true })).toBeEnabled();
+    // Coverage removed after the page loaded: the agency is disabled in the catalog, the page still offers Mollendo and the server answers without agencies.
+    await withCatalogAdmin(query => query('UPDATE "DeliveryAgency" SET enabled = false WHERE id = ANY($1::uuid[])', [[...agencies]]));
     await mode(page, "agency").check();
-    await pickDistrict(page, "04", "0407", "040701");
+    await expectDistrict(page, "040701");
     await browserExpect(page.getByText("No hay agencias disponibles para envío a MOLLENDO.", { exact: true })).toBeVisible();
     await browserExpect(page.getByLabel("Agencia de destino")).toHaveCount(0);
     await page.getByRole("button", { name: "Cambiar distrito" }).click();
@@ -743,8 +769,7 @@ test("buyer waits for a district and recovers a failed quotation without losing 
     await page.getByLabel("Teléfono de quien recibe").fill("+51999999999");
     const confirm = page.getByRole("button", { name: "Confirmar pedido", exact: true });
     await browserExpect(confirm).toBeDisabled();
-    expect(attempts).toBe(0);
-    await chooseDistrict(page, "150122");
+    // The only covered district is preselected, so the first quotation starts by itself and fails.
     await browserExpect(page.getByRole("alert")).toContainText("No se pudieron cargar las tarifas. Tus datos siguen aquí.");
     await browserExpect(confirm).toBeDisabled();
     await browserExpect(page.getByText("Gratis", { exact: true })).toHaveCount(0);
@@ -776,11 +801,21 @@ test("buyer distinguishes uncovered shipping from an explicit free home rate", a
     await withTenantIsolation(f.companyId, async () => {
       const access = { companyId: f.companyId, userId: f.userId };
       expect((await deliverySettings.saveZones({ expectedVersion: 0,
-        zones: [{ kind: "new", name: "Free home", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 0, currency: "PEN" } }] }] }, access)).success).toBe(true);
+        zones: [{ kind: "new", name: "Free home", enabled: true, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 0, currency: "PEN" } }] },
+          { kind: "new", name: "Later removed", enabled: true, districtCodes: ["040110"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 7, currency: "PEN" } }] }] }, access)).success).toBe(true);
       expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false },
         store: { enabled: true, pickupPoint: { name: "Shop", address: "Pickup address", instructions: "Door 2" } } }, access)).success).toBe(true);
     });
     await page.goto(f.path);
+    await browserExpect(page.getByRole("combobox", { name: "Departamento", exact: true })).toBeEnabled();
+    // Coverage removed after the page loaded: the seller disables the zone of Arequipa, the page still offers it and the quotation comes back empty.
+    await withTenantIsolation(f.companyId, async () => {
+      const current = await deliverySettings.getZones({ companyId: f.companyId, userId: f.userId });
+      if (!current.success) throw new Error(current.error.message);
+      expect((await deliverySettings.saveZones({ expectedVersion: 2, zones: current.data.zones.map(zone => ({ kind: "existing" as const, id: zone.id, name: zone.name, enabled: zone.name === "Free home",
+        districtCodes: zone.districtCodes, options: zone.options.map(option => ({ kind: "existing" as const, id: option.id, method: "home" as const, name: option.name, enabled: true, price: option.price })) })) },
+        { companyId: f.companyId, userId: f.userId })).success).toBe(true);
+    });
     await page.getByLabel("Nombre", { exact: true }).fill("Ana");
     await page.getByLabel("Teléfono", { exact: true }).fill("+51987654321");
     await page.getByLabel("Otra persona recibe el pedido").check();
@@ -809,7 +844,7 @@ test("buyer distinguishes uncovered shipping from an explicit free home rate", a
     await browserExpect(page.getByRole("region", { name: "Pago del pedido", exact: true })).toBeVisible();
     await browserExpect(page.getByText("Monto a pagar", { exact: true }).locator("..")).toContainText(/10[.,]00/);
     const stored = await f.read();
-    expect(stored.delivery).toMatchObject({ method: "home", destination: { districtCode: "150122" }, pricing: { settingsVersion: 2 } });
+    expect(stored.delivery).toMatchObject({ method: "home", destination: { districtCode: "150122" }, pricing: { settingsVersion: 3 } });
     expect(stored.total.toNumber()).toBe(10);
     expect(stored.deliveryCharge.toNumber()).toBe(0);
     expect(stored.payments).toEqual([]);
