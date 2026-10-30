@@ -1,7 +1,11 @@
+// @vitest-environment jsdom
 import { createInstance } from "i18next";
+import { createElement } from "react";
+import { act } from "react";
+import { createRoot } from "react-dom/client";
 import { expect, test } from "vitest";
 import resources from "@core/app/locales";
-import { courierOptionName, lacksCoverage, uniqueOptionName, zoneDraftSchema } from "@core/app/components/delivery-zones-section";
+import { courierOptionName, coverageWarnings, uniqueOptionName, useZonesCoverage, zoneDraftSchema, zonesCoverage } from "@core/app/components/delivery-zones-section";
 import { zoneEntries, zoneOverlaps } from "@core/app/components/zone-entries";
 import type { DeliveryZonesResponse } from "@shared/contracts/delivery-settings";
 
@@ -42,20 +46,70 @@ test("a prefilled agency option name is unique in the zone and follows the couri
   expect(courierOptionName("Recojo", "Olva", "Shalom", [])).toBe("Recojo");
 });
 
-test("a method without an active option in an active zone lacks coverage, and an agency option needs an eligible agency", () => {
-  const agencyId = "00000000-0000-4000-8000-000000000003";
-  const courierId = "00000000-0000-4000-8000-000000000004";
-  const agency = { id: agencyId, courierId, enabled: true } as DeliveryZonesResponse["agencies"][number];
-  const home = { id: "00000000-0000-4000-8000-000000000005", method: "home", name: "Moto", enabled: true, price: { amount: 5, currency: "PEN" } } as const;
-  const viaAgency = { id: "00000000-0000-4000-8000-000000000006", method: "agency", name: "Olva", enabled: true, price: { amount: 5, currency: "PEN" }, agencyIds: [agencyId] } as const;
-  const state = (zoneEnabled: boolean, agencies = [agency]) => ({ home: { enabled: true }, agency: { enabled: true }, version: 1, currency: "PEN", agencies,
-    zones: [{ id: "00000000-0000-4000-8000-000000000007", name: "Zona", enabled: zoneEnabled, departmentCodes: [], provinceCodes: [], districtCodes: ["150122"], options: [home, viaAgency] }] }) as unknown as DeliveryZonesResponse;
-  const couriers = [{ id: courierId, courierId, name: "Olva", enabled: true }];
-  expect(lacksCoverage("home", state(true), couriers)).toBe(false);
-  expect(lacksCoverage("home", state(false), couriers)).toBe(true);
-  expect(lacksCoverage("agency", state(true), couriers)).toBe(false);
-  expect(lacksCoverage("agency", state(true, [{ ...agency, enabled: false }]), couriers)).toBe(true);
-  expect(lacksCoverage("agency", state(true), [{ ...couriers[0]!, enabled: false }])).toBe(true);
+const id = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
+const arequipaDistrict = "040101";
+const cuscoDistrict = "080101";
+const price = { amount: 5, currency: "PEN" as const };
+const agencyIn = (value: number, districtCode: string, enabled = true): DeliveryZonesResponse["agencies"][number] => ({ id: id(value), courierId: id(4), name: `Agencia ${value}`, address: "Av. 1", enabled,
+  location: { country: "PE", districtCode, district: "D", province: "P", department: "X" } });
+const viaAgencies = (...agencyIds: string[]) => ({ id: id(6), method: "agency" as const, name: "Shalom", enabled: true, price, agencyIds });
+const homeOption = { id: id(5), method: "home" as const, name: "Moto", enabled: true, price };
+const zoneOf = (area: Partial<Pick<DeliveryZonesResponse["zones"][number], "departmentCodes" | "provinceCodes" | "districtCodes">>, options: DeliveryZonesResponse["zones"][number]["options"], enabled = true) =>
+  ({ id: id(7), name: "Zona", enabled, departmentCodes: [], provinceCodes: [], districtCodes: [], options, ...area });
+const couriers = [{ id: id(4), courierId: id(4), name: "Shalom", enabled: true }] as const;
+const warnings = (zones: DeliveryZonesResponse["zones"], agencies: DeliveryZonesResponse["agencies"], list: typeof couriers | readonly { id: string; courierId: string; name: string; enabled: boolean }[] = couriers) =>
+  coverageWarnings(zonesCoverage(zones, agencies, list as never), { home: true, agency: true });
+
+test("web coverage warning flags agency when every eligible agency is outside the departments the zone covers", () => {
+  const zones = [zoneOf({ departmentCodes: ["08"] }, [viaAgencies(id(1))])];
+  expect(warnings(zones, [agencyIn(1, arequipaDistrict)])).toEqual({ home: true, agency: true });
+});
+
+test("web coverage warning clears when the option gets an eligible agency in a covered department", () => {
+  const agencies = [agencyIn(1, arequipaDistrict), agencyIn(2, cuscoDistrict)];
+  expect(warnings([zoneOf({ departmentCodes: ["08"] }, [viaAgencies(id(1), id(2))])], agencies).agency).toBe(false);
+});
+
+test("web coverage warning flags agency when its only agency or courier is retired from the catalog", () => {
+  const zones = [zoneOf({ districtCodes: [arequipaDistrict] }, [viaAgencies(id(1))])];
+  expect(warnings(zones, [agencyIn(1, arequipaDistrict, false)]).agency).toBe(true);
+  expect(warnings(zones, [agencyIn(1, arequipaDistrict)], [{ ...couriers[0], enabled: false }]).agency).toBe(true);
+  expect(warnings(zones, [agencyIn(1, arequipaDistrict)]).agency).toBe(false);
+});
+
+test("web coverage warning stays silent for a zone over Arequipa, Cusco and Puno with agencies in Arequipa", () => {
+  const zones = [zoneOf({ departmentCodes: ["04", "08", "21"] }, [viaAgencies(id(1))])];
+  expect(warnings(zones, [agencyIn(1, arequipaDistrict)]).agency).toBe(false);
+});
+
+test("web home warning follows home options of enabled zones, and nothing warns while zones are not loaded or the switch is off", () => {
+  const area = { districtCodes: [arequipaDistrict] };
+  expect(warnings([zoneOf(area, [homeOption])], []).home).toBe(false);
+  expect(warnings([zoneOf(area, [homeOption], false)], []).home).toBe(true);
+  expect(warnings([zoneOf(area, [])], []).home).toBe(true);
+  expect(coverageWarnings(null, { home: true, agency: true })).toEqual({ home: false, agency: false });
+  expect(coverageWarnings(zonesCoverage([], [], []), { home: false, agency: false })).toEqual({ home: false, agency: false });
+});
+
+test("zones coverage hook returns the same object while zones and couriers keep their identity, and a new one when couriers change after a confirmed save", () => {
+  const zones = [zoneOf({ districtCodes: [arequipaDistrict] }, [homeOption])];
+  const agencies: DeliveryZonesResponse["agencies"] = [];
+  const seen: (ReturnType<typeof useZonesCoverage>)[] = [];
+  const Probe = ({ list, loaded }: { list: typeof couriers; loaded: boolean }) => { seen.push(useZonesCoverage(loaded ? zones : null, loaded ? agencies : null, list)); return null; };
+  const host = document.createElement("div");
+  const root = createRoot(host);
+  const run = (element: React.ReactElement) => act(() => root.render(element));
+  (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+  run(createElement(Probe, { list: couriers, loaded: false }));
+  expect(seen.at(-1)).toBeNull();
+  run(createElement(Probe, { list: couriers, loaded: true }));
+  const first = seen.at(-1);
+  expect(first).not.toBeNull();
+  run(createElement(Probe, { list: couriers, loaded: true }));
+  expect(seen.at(-1)).toBe(first);
+  run(createElement(Probe, { list: [...couriers] as unknown as typeof couriers, loaded: true }));
+  expect(seen.at(-1)).not.toBe(first);
+  act(() => root.unmount());
 });
 
 const selection = (departmentCodes: string[], provinceCodes: string[], districtCodes: string[]) => ({ departmentCodes, provinceCodes, districtCodes }) as never;

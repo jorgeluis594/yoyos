@@ -1,4 +1,4 @@
-import { useId, useState } from "react";
+import { useId, useMemo, useState } from "react";
 import { useForm, useFieldArray, useWatch, Controller } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
@@ -12,6 +12,7 @@ import { Checkbox } from "@core/app/components/ui/checkbox";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { PeruDistrictMultiSelect } from "@core/app/components/peru-district-multi-select";
 import { parsePeruAreaSelection } from "@shared/peru-geography";
+import { deliveryCoverage, eligibleCoverageAgencies, type DeliveryCoverage } from "@shared/delivery-coverage";
 import { toSelection, zoneEntries, zoneOverlaps } from "@core/app/components/zone-entries";
 import { parseDeliveryPrice } from "@core/src/features/delivery-settings/domain/delivery-price";
 import type { CourierCatalogResponse, DeliverySettingsResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest } from "@shared/contracts/delivery-settings";
@@ -69,9 +70,18 @@ type Option = Zone["options"][number];
 export const hasEligibleAgency = (option: Option, state: DeliveryZonesResponse, couriers: readonly Courier[]) => option.method === "agency" &&
   option.agencyIds.some(id => { const agency = state.agencies.find(value => value.id === id); return agency?.enabled && couriers.some(courier => courier.courierId === agency.courierId && courier.enabled); });
 
-/** A method that is on but has no active option in an active zone (agency: with an eligible agency) cannot be quoted. */
-export const lacksCoverage = (method: "home" | "agency", state: DeliveryZonesResponse, couriers: readonly Courier[]) => state[method].enabled &&
-  !state.zones.some(zone => zone.enabled && zone.options.some(option => option.enabled && option.method === method && (method === "home" || hasEligibleAgency(option, state, couriers))));
+/** Coverage of the saved zones; ignores the switches, so it only changes when zones, agencies or couriers change. */
+export const zonesCoverage = (zones: DeliveryZonesResponse["zones"], agencies: DeliveryZonesResponse["agencies"], couriers: readonly Courier[]): DeliveryCoverage =>
+  deliveryCoverage({ zones, agencies: eligibleCoverageAgencies(agencies.map(agency => ({ id: agency.id, courierId: agency.courierId, enabled: agency.enabled, districtCode: agency.location.districtCode })),
+    couriers.filter(courier => courier.enabled).map(courier => courier.courierId)) });
+
+/** A method that is on and covers no place cannot be quoted. Without loaded zones (`null`) there is no warning. */
+export const coverageWarnings = (coverage: DeliveryCoverage | null, switches: Readonly<{ home: boolean; agency: boolean }>) =>
+  ({ home: coverage !== null && switches.home && coverage.home === null, agency: coverage !== null && switches.agency && coverage.agency === null });
+
+/** Memoized on the zones and couriers, so typing or an optimistic toggle does not recompute it. `null` while the data is missing. */
+export const useZonesCoverage = (zones: DeliveryZonesResponse["zones"] | null, agencies: DeliveryZonesResponse["agencies"] | null, couriers: readonly Courier[]) =>
+  useMemo(() => zones && agencies ? zonesCoverage(zones, agencies, couriers) : null, [zones, agencies, couriers]);
 
 export function DeliveryZonesSection({ state, couriers, catalog, pending, error, saved, onSave, onReload }: Readonly<{
   state: DeliveryZonesResponse; couriers: readonly Courier[]; catalog: CourierCatalogResponse["couriers"]; pending: boolean; error?: string; saved?: DeliveryZonesResponse;

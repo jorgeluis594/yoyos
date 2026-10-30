@@ -23,7 +23,7 @@ import { TextLink } from "@core/app/components/ui/text-link";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
 import { DispatchSenderCard } from "@core/app/components/dispatch-sender-card";
-import { DeliveryZonesSection, lacksCoverage } from "@core/app/components/delivery-zones-section";
+import { DeliveryZonesSection, coverageWarnings, useZonesCoverage } from "@core/app/components/delivery-zones-section";
 import { useInstantDeliverySettings, type RowSaveState, type SaveTarget } from "@core/app/components/use-instant-delivery-settings";
 import { ErrorState } from "@core/app/components/ui/error-state";
 
@@ -109,13 +109,14 @@ function SettingsForm({ loaded }: { loaded: LoadedSettings }) {
   const instant = useInstantDeliverySettings({ loaded, zonesSaved: lastZonesSaved, zonesBusy: zonesFetcher.state !== "idle", ready });
   const { settings, rows, checked, draft, activating, busy, conflict, blocker, invalidFields } = instant;
   const zonesBase = loaded.zones && lastZonesSaved && lastZonesSaved.version > loaded.zones.version ? lastZonesSaved : loaded.zones;
+  const zonesCoverage = useZonesCoverage(zonesBase?.zones ?? null, zonesBase?.agencies ?? null, settings.couriers);
   const zonesState = zonesBase && { ...zonesBase, version: settings.version, home: settings.home, agency: settings.agency };
   const reloadAll = async () => { await instant.reload(); setDismissed(zonesFetcher.data); };
   const noCatalog = loaded.courierCatalog.couriers.length === 0;
-  const lacks = (method: "home" | "agency") => zonesState !== null && lacksCoverage(method, zonesState, settings.couriers);
+  const warnings = coverageWarnings(zonesCoverage, { home: settings.home.enabled, agency: settings.agency.enabled });
   const switchProps = (target: SaveTarget, label: string) => ({ id: `${target}-enabled`, checked: checked[target], "aria-label": label, "aria-describedby": `${target}-description`,
     disabled: busy || conflict || !ready, onCheckedChange: (value: boolean) => instant.toggle(target, value) });
-  const coverage = (method: "home" | "agency") => lacks(method) && <FieldDescription>{t(`deliveryZones.missing.${method}`)} <TextLink href="#delivery-zones">{t("deliverySettings.goToZones")}</TextLink></FieldDescription>;
+  const coverage = (method: "home" | "agency") => warnings[method] && <FieldDescription>{t(`deliveryZones.missing.${method}`)} <TextLink href="#delivery-zones">{t("deliverySettings.goToZones")}</TextLink></FieldDescription>;
   const showPickup = checked.store || activating || instant.unsaved;
   const zonesError = zonesFetcher.data !== dismissed ? (zonesFetcher.data && "zonesError" in zonesFetcher.data ? zonesFetcher.data.zonesError?.code : undefined) : undefined;
   return <div className="flex flex-col gap-6">
