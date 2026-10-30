@@ -1,4 +1,3 @@
-import { isDeepStrictEqual } from "node:util";
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import { maxOrderLineQuantity, maxOrderLines } from "@shared/orders-edit";
@@ -46,10 +45,16 @@ export type ItemsLocked = Readonly<{ code: "ITEMS_LOCKED"; message: string }>;
 
 const failure = (code: OrderDomainError["code"], message: string) => err({ code, message });
 
+/** The stored `variantId → quantity` map must equal the requested one, so a request that repeats a variant is never applied. */
 function isItemsApplied(order: OrderAggregate, lines: readonly OrderLineRequest[]): boolean {
-  if (lines.length !== order.items.length) return false;
-  const stored = new Map(order.items.map((item) => [item.variantId, item.quantity as number]));
-  return lines.every((line) => stored.get(line.variantId) === line.quantity);
+  const requested = new Map(lines.map((line) => [line.variantId, line.quantity as number]));
+  return requested.size === lines.length && requested.size === order.items.length && order.items.every((item) => requested.get(item.variantId) === item.quantity);
+}
+
+/** Structural comparison, so this module stays free of Node imports and usable from client code. */
+function sameRecipient(a: Recipient, b: Recipient): boolean {
+  return a.name === b.name && a.phone === b.phone && a.identity.kind === b.identity.kind &&
+    (a.identity.kind === "absent" || (b.identity.kind === "document" && a.identity.documentType === b.identity.documentType && a.identity.document === b.identity.document));
 }
 
 const isCustomerApplied = (order: OrderAggregate, value: BuyerData | null) =>
@@ -60,16 +65,16 @@ function isDeliveryApplied(order: OrderAggregate, change: DeliveryEdit): boolean
   if (!stored) return false;
   if (change.kind === "amend") {
     const amendment = change.amendment;
-    if (stored.method !== amendment.method || !isDeepStrictEqual(stored.recipient, amendment.recipient)) return false;
+    if (stored.method !== amendment.method || !sameRecipient(stored.recipient, amendment.recipient)) return false;
     return amendment.method !== "home" || (stored.method === "home" && stored.destination.address === amendment.address && stored.destination.instructions === amendment.instructions);
   }
   const { selection, expectedPrice } = change;
-  if (stored.method !== selection.method || stored.recordedBy.kind !== "seller" || !isDeepStrictEqual(stored.recipient, selection.recipient) ||
+  if (stored.method !== selection.method || stored.recordedBy.kind !== "seller" || !sameRecipient(stored.recipient, selection.recipient) ||
     order.deliveryCharge.amount !== expectedPrice.amount || order.deliveryCharge.currency !== expectedPrice.currency) return false;
   if (selection.method === "store") return true;
   if (stored.method === "home" && selection.method === "home")
     return stored.pricing.rateId === selection.rateId && stored.destination.districtCode === selection.destination.districtCode &&
-      stored.destination.address === selection.destination.address && stored.destination.instructions === selection.destination.instructions;
+      stored.destination.address === selection.destination.address && stored.destination.instructions === (selection.destination.instructions || null);
   return stored.method === "agency" && selection.method === "agency" && stored.pricing.rateId === selection.rateId &&
     stored.destination.districtCode === selection.districtCode && stored.agency.id === selection.agencyId;
 }
@@ -132,11 +137,10 @@ function applyItems(order: OrderAggregate, lines: readonly OrderLineRequest[], v
   const rebuilt = orderStateMachine.appendItems({ ...order, items: next as unknown as OrderAggregate["items"] }, [], newItemId);
   if (!rebuilt.success) return rebuilt;
   const requested = new Set(lines.map((line) => line.variantId));
-  const keptIds = new Set(order.items.map((item) => item.id));
   const previous = new Map(order.items.map((item) => [item.id, item]));
   return ok({ order: rebuilt.data, changes: {
-    added: rebuilt.data.items.filter((item) => !keptIds.has(item.id)),
-    updated: rebuilt.data.items.filter((item) => previous.get(item.id) && previous.get(item.id)!.quantity !== item.quantity),
+    added: rebuilt.data.items.filter((item) => !previous.has(item.id)),
+    updated: rebuilt.data.items.filter((item) => previous.has(item.id) && previous.get(item.id)?.quantity !== item.quantity),
     removedItemIds: order.items.filter((item) => !requested.has(item.variantId)).map((item) => item.id),
   } });
 }

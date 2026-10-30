@@ -45,6 +45,12 @@ describe("isApplied", () => {
     expect(orderEdit.isApplied(deducted, { items: { lines: keepAll.slice(1) } }, "items")).toBe(false);
   });
 
+  test("is false for a request with a repeated variant even when its lengths match", () => {
+    const two = order({ items: [traje(3, "S"), traje(4, "M")] as never, itemsTotal: money(178), total: money(178) });
+    expect(orderEdit.isApplied(two, { items: { lines: [line(variantOf(3), 1), line(variantOf(3), 1)] } }, "items")).toBe(false);
+    expect(orderEdit.isApplied(two, { items: { lines: [line(variantOf(3), 1), line(variantOf(4), 1)] } }, "items")).toBe(true);
+  });
+
   test("is false for a part that was not sent", () => {
     expect(orderEdit.isApplied(order(), {}, "items")).toBe(false);
     expect(orderEdit.isApplied(order(), {}, "customer")).toBe(false);
@@ -77,6 +83,9 @@ describe("isApplied", () => {
     expect(orderEdit.isApplied(withHome(), { delivery: { change: replace } }, "delivery")).toBe(false);
     expect(orderEdit.isApplied(bySeller, { delivery: { change: { ...replace, expectedPrice: money(12) } } }, "delivery")).toBe(false);
     expect(orderEdit.isApplied(withHome({ delivery: { ...home, recordedBy: other } }), { delivery: { change: replace } }, "delivery")).toBe(true);
+    const emptyReference = { ...replace, selection: { ...selection, destination: { ...selection.destination, instructions: "" } } } as DeliveryEdit;
+    const noReference = withHome({ delivery: { ...home, destination: { ...home.destination, instructions: null }, recordedBy: seller } });
+    expect(orderEdit.isApplied(noReference, { delivery: { change: emptyReference } }, "delivery")).toBe(true);
     const otherRate = { ...selection, rateId: id(99) } as RatedDeliverySelection;
     expect(orderEdit.isApplied(bySeller, { delivery: { change: { ...replace, selection: otherRate } } }, "delivery")).toBe(false);
   });
@@ -155,7 +164,7 @@ describe("planItems and applyItems", () => {
     expect(result.changes).toEqual({ added: [], updated: [], removedItemIds: [] });
   });
 
-  test("prices a new line with the current catalog price and reports it as added", () => {
+  test("prices a new line with the current catalog price", () => {
     const result = unwrap(orderEdit.applyItems(order(), [...keepAll, line(variantOf(7), 2)], [sellable(7, 95)], () => id(700) as OrderItemId));
     const added = result.order.items.find((entry) => entry.variantId === variantOf(7));
     expect(added).toMatchObject({ id: id(700), productName: "Nuevo", unitPrice: money(95), quantity: 2, subtotal: money(190), mentionedPrice: null });
