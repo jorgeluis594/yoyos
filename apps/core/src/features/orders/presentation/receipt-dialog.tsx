@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
+import { RetryableImage } from "@core/src/shared/images/presentation/retryable-image";
 import { SelectPortalContainer } from "@core/app/components/ui/select";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
 import { paymentErrorKey, PaymentDecisionForm, type DecisionKind, type PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
@@ -18,11 +19,7 @@ type Props = Readonly<{ kind: PaymentDialogKind; paymentId: string; payment: Ord
 
 function ReceiptImage({ url, className }: { url: string; className: string }) {
   const { t } = useTranslation();
-  const [attempt, setAttempt] = useState(0);
-  const [failed, setFailed] = useState(false);
-  if (failed) return <div role="alert" className="flex flex-col items-center gap-2 rounded-lg border p-4 text-sm">{t("orders.receiptLoadFailed")}
-    <Button type="button" variant="outline" onClick={() => { setFailed(false); setAttempt(attempt + 1); }}>{t("orders.receiptRetry")}</Button></div>;
-  return <img key={attempt} src={url} alt={t("orders.receiptAlt")} loading="eager" onError={() => setFailed(true)} className={`mx-auto w-auto max-w-full rounded-md object-contain ${className}`} />;
+  return <RetryableImage url={url} alt={t("orders.receiptAlt")} className={className} failedText={t("orders.receiptLoadFailed")} retryText={t("orders.receiptRetry")} />;
 }
 
 export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, format, onClose, onDone, onSubmitted, onUncertain, onCloseAutoFocus }: Props) {

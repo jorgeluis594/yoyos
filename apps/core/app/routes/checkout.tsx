@@ -6,7 +6,8 @@ import { redirect, data, isRouteErrorResponse, useFetcher, useLoaderData, usePar
 import { z } from "zod";
 import { useTranslation } from "react-i18next";
 import { Button } from "@core/app/components/ui/button";
-import { CheckoutBuyerDetails, CheckoutConfirmAction, CheckoutOrderSummary, CheckoutPayment, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
+import { CheckoutConfirmAction, CheckoutOrderSummary, CheckoutReviewFields, CheckoutShell, checkoutTotal } from "@core/app/components/checkout-sections";
+import { CheckoutStateView } from "@core/app/components/checkout-state-view";
 import { brandHostCompanyContext } from "@core/app/brand-host-context";
 import { orders } from "@core/src/features/orders/composition";
 import { parseBuyer, type CheckoutAccess } from "@core/src/features/orders/domain/checkout";
@@ -234,11 +235,11 @@ export default function Checkout() {
     recipientName: recipientName.fieldState.error ? t("checkoutRecipient.nameRequired") : fetcher.data?.fieldErrors?.recipientName,
     recipientPhone: recipientPhone.fieldState.error ? t("checkoutRecipient.phoneInvalid") : fetcher.data?.fieldErrors?.recipientPhone };
   if (fetcher.data?.unavailable) return <main className="mx-auto max-w-lg p-6"><h1 className="text-2xl font-semibold">{t("checkoutPage.unavailable")}</h1><p>{t("checkoutPage.askSeller")}</p></main>;
-  const confirmable = checkout.state.kind === "pending";
+  if (checkout.state.kind !== "pending") return <CheckoutStateView appearance={initialData.appearance ?? null} checkout={checkout} payment={initialData.payment ?? null} />;
   return <CheckoutShell appearance={initialData.appearance ?? null} checkout={checkout}
     summary={<CheckoutOrderSummary checkout={checkout} deliveryDraft={deliveryDraft}
-      action={confirmable && <CheckoutConfirmAction form="checkout-form" type="submit" disabled={pending || !deliveryDraft || !total} pending={pending} />} />}>
-    {confirmable ? <fetcher.Form id="checkout-form" method="post" noValidate className="flex flex-col gap-4" onSubmit={buyerForm.handleSubmit(form => {
+      action={<CheckoutConfirmAction form="checkout-form" type="submit" disabled={pending || !deliveryDraft || !total} pending={pending} />} />}>
+    <fetcher.Form id="checkout-form" method="post" noValidate className="flex flex-col gap-4" onSubmit={buyerForm.handleSubmit(form => {
       if (pending || !deliveryDraft || !total) return;
       const { delivery } = deliveryDraft;
       const kept = delivery.kind === "keep" && form.otherRecipient ? { kind: "keep" as const, recipient: { name: form.recipientName, phone: form.recipientPhone } } : delivery;
@@ -248,8 +249,7 @@ export default function Checkout() {
         recipient={{ other: other.field.value, onOtherChange: other.field.onChange, name: { ...recipientName.field }, nameError: errors.recipientName,
           phone: recipientPhone.field, phoneError: errors.recipientPhone }}
         delivery={<CheckoutDeliveryFields orderId={orderId} checkout={checkout} options={initialData.deliveryOptions!} recipient={recipient} onChange={setDeliveryDraft} recoveryVersion={recoveryVersion} disabled={pending} />} />
-    </fetcher.Form> : <CheckoutBuyerDetails buyer={checkout.buyer} delivery={checkout.delivery} />}
-    {checkout.state.kind === "confirmed" && initialData.payment && <CheckoutPayment view={initialData.payment} />}
+    </fetcher.Form>
   </CheckoutShell>;
 }
 

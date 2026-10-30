@@ -174,7 +174,8 @@ export const buyerPaymentViewSchema = z.strictObject({ orderId: z.uuid(), total:
   ])),
   payments: z.array(z.strictObject({ id: z.uuid(), status: z.enum(["reported", "confirmed", "voided", "rejected"]),
     amount: moneySchema.nullable(), method: z.enum(["digital_wallet", "bank_transfer"]).nullable(), receiptImageUrl: z.url().nullable(),
-    rejectionReason: z.string().nullable() })),
+    rejectionReason: z.string().nullable(), reportedAt: z.iso.datetime().nullable() })
+    .refine((payment) => payment.status !== "reported" || payment.reportedAt !== null, { message: "A reported payment has a report date" })),
   rejectedReport: z.strictObject({ reason: z.string().nullable() }).nullable() });
 export type BuyerPaymentView = z.infer<typeof buyerPaymentViewSchema>;
 

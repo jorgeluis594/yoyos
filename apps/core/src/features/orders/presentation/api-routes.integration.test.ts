@@ -1319,6 +1319,29 @@ test("buyer view exposes the rejected status, its reason and rejectedReport", as
     payments: expect.arrayContaining([expect.objectContaining({ status: "rejected" }), expect.objectContaining({ id: newPaymentId, status: "reported" })]) });
 });
 
+test("buyer view carries the report date of reported, rejected and report-confirmed payments and null for a manual payment", async () => {
+  const seller = await fixture("PE");
+  const report = await reportedOrder(seller, 4);
+  const reportedAt = (id: string, view: { payments: Array<{ id: string; reportedAt: string | null }> }) => view.payments.find((payment) => payment.id === id)?.reportedAt;
+  const viewOf = async () => buyerPaymentViewSchema.parse(await (await report.buyer(`${report.buyerPath}/payment`)).json());
+  const pending = reportedAt(report.paymentId, await viewOf());
+  expect(pending).toEqual(expect.any(String));
+  expect(Math.abs(Date.now() - new Date(pending!).getTime())).toBeLessThan(60_000);
+  expect((await report.reject(seller.cookie, "No coincide")).status).toBe(200);
+  expect(reportedAt(report.paymentId, await viewOf())).toBe(pending);
+  const secondId = randomUUID();
+  const secondImageId = randomUUID();
+  await withTenantIsolation(seller.companyId, async () => { await prisma.image.create({ data: { id: secondImageId, storageKey: `test/${secondImageId}` } }); });
+  expect((await report.buyer(`${report.buyerPath}/reports`, undefined, { paymentId: secondId, receiptImageId: secondImageId }, "POST")).status).toBe(201);
+  const second = reportedAt(secondId, await viewOf());
+  expect(second).toEqual(expect.any(String));
+  expect((await call(`/api/orders/${report.orderId}/payments`, seller.cookie, confirmBody(secondId), "POST")).status).toBe(200);
+  expect(reportedAt(secondId, await viewOf())).toBe(second);
+  const manualId = randomUUID();
+  expect((await call(`/api/orders/${report.orderId}/payments`, seller.cookie, { ...confirmBody(manualId, 5), source: "manual" }, "POST")).status).toBe(200);
+  expect(reportedAt(manualId, await viewOf())).toBeNull();
+});
+
 test("buyer view resolves the bank transfer image and every receipt url with one image lookup", async () => {
   const seller = await fixture("PE");
   const report = await reportedOrder(seller);
