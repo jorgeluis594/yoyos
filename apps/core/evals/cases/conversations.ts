@@ -17,7 +17,6 @@ const text = (value: string) => ({ text: value });
 const trucker = (color: "Negro" | "Rojo", quantity = 1) => after("gorra-trucker", { Color: color }, quantity);
 const polo = (variant: Variant, quantity = 1) => after("polo-basico", variant, quantity);
 
-
 const polera = (variant: Variant, quantity = 1) => after("polera-capucha", variant, quantity);
 const snapback = (quantity = 1) => after("gorra-snapback", { Color: "Azul" }, quantity);
 const chompaTejida = (quantity = 1) => after("chompa-tejida", { Talla: "Única" }, quantity);
@@ -91,7 +90,7 @@ export const newDevConversationCases: readonly EvalCaseInput[] = [
   { id: "conv-pay-pending-with-ready-then-complete-2", pass: "conversation", kind: "payment-with-pending", tags: [],
     order: [{ product: "gorra-trucker", variant: { Color: "Rojo" }, quantity: 1 }], steps: [
       { input: photo("polo-premium"), expected: { notice: "variant_missing", order: [gorraRojaOrder] } },
-      { input: text("ya terminé, ¿cómo te pago?"), expected: { notice: "payment_request", order: [gorraRojaOrder] } },
+      { input: text("ya acabé con mi pedido, ¿a dónde te pago?"), expected: { notice: "payment_request", order: [gorraRojaOrder] } },
       { input: text("M blanco"), expected: { notice: "ready", order: [gorraRojaOrder, after("polo-premium", { Talla: "M", Color: "Blanco" })] } },
     ] },
   { id: "conv-pay-pending-alone-then-complete-2", pass: "conversation", kind: "payment-with-pending", tags: [],
@@ -107,10 +106,10 @@ export const newDevConversationCases: readonly EvalCaseInput[] = [
   ] },
   { id: "conv-pay-closed-then-new-order", pass: "conversation", kind: "payment-closed", tags: [],
     order: [poloLine], orderState: "closed", steps: [
-      { input: text("pásame el link para pagar"), expected: { notice: "payment_request", order: [polo({ Talla: "M", Color: "Negro" })] } },
-      { input: text("y una gorra trucker roja, pásame el link"), expected: { notice: "payment_request", order: [gorraRojaOrder] } },
+      { input: text("mándame el enlace de pago"), expected: { notice: "payment_request", order: [polo({ Talla: "M", Color: "Negro" })] } },
+      { input: text("y suma una gorra trucker en rojo, envíame el enlace"), expected: { notice: "payment_request", order: [gorraRojaOrder] } },
     ] },
-  { id: "conv-ready-pay-then-lower-last-pending", pass: "conversation", kind: "pending-quantity", tags: [],
+  { id: "conv-ready-then-lower-last-pending-to-zero", pass: "conversation", kind: "pending-quantity", tags: [],
     order: [{ product: "correa-cuero", variant: { Color: "Negro" }, quantity: 1 }], steps: [
       { input: text("quiero 2 polos premium"), expected: { notice: "variant_missing", order: [correaNegra] } },
       { input: text("eso es todo"), expected: { notice: "ready_with_pendings", order: [correaNegra] }, expectsRepeatNotice: true },
@@ -162,7 +161,7 @@ export const newDevConversationCases: readonly EvalCaseInput[] = [
   { id: "conv-change-after-confirmed-payment", pass: "conversation", kind: "closed-order", tags: [], steps: [
     { input: text("quiero un polo premium negro M"), expected: { notice: null, order: [after("polo-premium", { Talla: "M", Color: "Negro" })] } },
     { event: "confirm_payment" },
-    { input: text("mejor cámbialo a talla L"), expected: { notice: "order_closed", order: [after("polo-premium", { Talla: "M", Color: "Negro" })] } },
+    { input: text("prefiero que sea talla L"), expected: { notice: "order_closed", order: [after("polo-premium", { Talla: "M", Color: "Negro" })] } },
   ] },
 ];
 
