@@ -37,6 +37,8 @@ export type ResolvedChatAction =
   | Readonly<{ kind: "set_quantity"; target: ItemTarget; quantity: number }>
   | Readonly<{ kind: "change_variant"; target: ItemTarget; to: ChangeVariantResolution; mentionedPrice: MentionedPrice | null }>
   | Readonly<{ kind: "set_mentioned_price"; target: ItemTarget; price: MentionedPrice | null }>
+  /** A change to an item the reading could not find: with the chat's order closed or missing the report says so, otherwise the item is unclear. */
+  | Readonly<{ kind: "change_unfound_item"; target: ItemTarget }>
   | Readonly<{ kind: "increase_quantity"; target: ItemTarget; quantity: PositiveInteger }>
   /** Lowers an item: above 0 a lowered quantity, exactly 0 a removal, below 0 nothing changes. */
   | Readonly<{ kind: "lower_quantity"; target: ItemTarget; quantity: PositiveInteger }>
@@ -135,6 +137,10 @@ function applyAction(state: State, action: ResolvedChatAction, ids: ChatOrderIds
       : Number.isSafeInteger(action.quantity) && action.quantity > 0 ? changeQuantity(state, order, item, action.quantity, named, "quantity_changed", limits)
         : err({ code: "INVALID_ORDER", message: "Quantity must be a whole number" }));
     case "change_variant": return changeVariant(state, action, ids, limits);
+    case "change_unfound_item": return withOrderItem(state, action.target, (order, item, named) => {
+      state.outcomes.push({ kind: "unclear_item", orderId: order.id, namedItem: named, namedProductId: state.productIds.get(item.variantId) ?? null });
+      return done;
+    });
     case "set_mentioned_price": return withOrderItem(state, action.target, (order, item) => {
       if (!action.price) { state.outcomes.push({ kind: "no_intent" }); return done; }
       const next = orderStateMachine.setItemMentionedPrice(order, item.id, action.price);

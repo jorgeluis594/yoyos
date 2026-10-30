@@ -313,7 +313,7 @@ const markedQuantity = (left: PhotoLeft, quantity: number): ResolvedChatAction =
 function changeVariant(action: Extract<ReaderAction, { kind: "change_variant" }>, world: World): readonly ResolvedChatAction[] {
   const item = readingItem(action.item, world);
   const unclear = (productId: ProductId | null) => [report({ kind: "unclear_item", orderId: null, namedItem: action.item.kind === "ref", namedProductId: productId })];
-  if (!item) return unclear(null);
+  if (!item) return world.context.latestOrder === "closed" ? [{ kind: "change_unfound_item", target: itemTarget(action.item, world) }] : unclear(null);
   const product = item.productId ? world.byProductId.get(item.productId) : undefined;
   if (!product) return unclear(item.productId);
   if (!product.sellable) return [report({ kind: "product_not_available", productId: product.productId })];
