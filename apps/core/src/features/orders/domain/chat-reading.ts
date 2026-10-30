@@ -299,8 +299,8 @@ function changeQuantity(action: Extract<ReaderAction, { kind: "change_quantity" 
     if (world.context.kind === "photo_product") return [mode === "set" && quantity === 0 ? invalid("quantity_not_whole") : unnamedAdd()];
     const left = photoLeftOf(world);
     if (left) return mode === "set" ? [markedQuantity(left, quantity, null, world)] : [unnamedAdd()];
-    // A text with no marker and no listed item has no line to set: the total is what the buyer wants of an unnamed product.
-    if (mode === "set" && world.context.kind === "text" && world.context.items.length === 0) return [unnamedAdd()];
+    // A text with no marker and no order at all has no line to set: the total is what the buyer wants of an unnamed product. A closed order keeps its own report.
+    if (mode === "set" && world.context.kind === "text" && world.context.latestOrder === "none") return [unnamedAdd()];
   }
   const lineTarget = itemTarget(target, world);
   if (mode === "increase") return [{ kind: "increase_quantity", target: lineTarget, quantity: quantity as PositiveInteger }];

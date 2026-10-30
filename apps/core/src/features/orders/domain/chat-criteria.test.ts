@@ -503,6 +503,12 @@ describe("product criteria (message to order without silent losses)", () => {
     const said = closed.say(say({ kind: "change_variant", item: { kind: "not_in_order" }, attributes: [{ name: "Talla", value: "L" }], price: null }));
     expect(said.outcomes).toEqual([{ kind: "order_closed", orderId: closed.order!.id }]);
     expect(closed.order!.payments).toHaveLength(1);
+
+    const closedSet = createChat({ items: [["polo", M_NEGRO, 1]] });
+    pay(closedSet, t0);
+    const setSaid = closedSet.say(say(change("unnamed", "set", 3)));
+    expect(setSaid.kinds).not.toContain("unnamed_add");
+    expect(setSaid.outcomes).toEqual([{ kind: "order_closed", orderId: closedSet.order!.id }]);
   });
 });
 
