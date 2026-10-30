@@ -2,11 +2,10 @@ import { useTranslation } from "react-i18next";
 import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
 import { useState } from "react";
-import { cn } from "cn";
 import { z } from "zod";
 import { Form, isRouteErrorResponse, Link, useLoaderData, useLocation, type LoaderFunctionArgs } from "react-router";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
-import { BadgeDollarSign, Check, CircleCheck, CircleX, Coins, PackageCheck, Send, SlidersHorizontal, TriangleAlert, Truck } from "lucide-react";
+import { Check, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { Badge } from "@core/app/components/ui/badge";
 import { listOrderAggregatesSchema, orderListLoaderSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc } from "@shared/orders-date";
@@ -29,6 +28,7 @@ import { Sheet, SheetContent, SheetTrigger } from "@core/app/components/ui/sheet
 import { Checkbox } from "@core/app/components/ui/checkbox";
 import { titleCase } from "@core/app/components/zone-entries";
 import { DispatchLabelPrintDialog } from "@core/src/features/dispatch-labels/presentation/dispatch-label-print-dialog";
+import { OrderStatusIndicators } from "@core/src/features/orders/presentation/order-status-labels";
 import { OrderLabelSelectionBar } from "@core/src/features/orders/presentation/order-label-selection-bar";
 import { pageSelectionState, selectionScope, skipReason, summarizeSelection, type SelectedOrder } from "@core/src/features/orders/presentation/order-label-selection";
 import { useOrderLabelSelection } from "@core/src/features/orders/presentation/use-order-label-selection";
@@ -96,10 +96,7 @@ export default function OrderList() {
     { id: "number", header: t("orders.listOrder"), mobile: "title", cell: (item) => <div className="flex flex-col items-start">
       <TextLink asChild><Link to={`${base}/${item.id}`} aria-label={t("orders.orderNumber", { number: item.number })}>#{item.number}</Link></TextLink>
       {item.source === "catalog" && <Badge variant="secondary">{t("orders.fromCatalog")}</Badge>}
-      <OrderStateIndicators states={item.status === "active" ? [
-        { kind: "payment", state: item.paymentStatus, label: item.paymentStatus === "paid" ? t("orders.listStatus.paid") : t("orders.listBalance", { amount: formatCurrency(item.balanceDue.amount, item.balanceDue.currency, i18n.language) }) },
-        { kind: "delivery", state: item.deliveryStatus, label: `${t("orders.delivery")}: ${t(`orders.deliveryStatus.${item.deliveryStatus}`)}` },
-      ] : [{ kind: "order", state: item.status, label: t(`orders.listStatus.${item.status}`) }]} />
+      <OrderStatusIndicators order={item} />
       {checkoutLabel(item) && <span className="text-xs font-normal text-muted-foreground">{t(checkoutLabel(item)!)}</span>}
       <SkipWarning item={item} selected={!!labels.selection[item.id]} />
     </div> },
@@ -161,21 +158,6 @@ function SkipWarning({ item, selected }: { item: SelectedOrder; selected: boolea
   const { t } = useTranslation();
   const reason = selected ? skipReason(item) : null;
   return reason && <span className="flex items-center gap-1 text-xs font-normal text-[var(--warning)]"><TriangleAlert className="size-3.5 shrink-0" aria-hidden="true" />{t(`dispatchLabels.rowSkip.${reason}`)}</span>;
-}
-
-function OrderStateIndicators({ states }: { states: { kind: "payment" | "delivery" | "order"; state: "pending" | "paid" | "shipped" | "delivered" | "completed" | "cancelled"; label: string }[] }) {
-  const label = states.map((item) => item.label).join(" · ");
-  return <details className="order-state-indicator max-w-32">
-    <summary aria-label={label} title={label} className="flex cursor-pointer list-none items-center justify-center gap-1 rounded-[var(--radius-control)] transition-colors hover:bg-muted focus-visible:outline-2 focus-visible:outline-ring">
-      {states.map(({ kind, state }) => {
-        const Icon = state === "completed" ? CircleCheck : state === "cancelled" ? CircleX
-          : kind === "payment" ? (state === "paid" ? BadgeDollarSign : Coins)
-          : state === "delivered" ? PackageCheck : state === "shipped" ? Send : Truck;
-        return <Icon key={kind} className={cn("size-4", state === "pending" ? "text-[var(--warning)]" : state === "shipped" ? "text-[var(--info)]" : state === "cancelled" ? "text-muted-foreground" : "text-[var(--success)]")} aria-hidden="true" />;
-      })}
-    </summary>
-    <span className="block pt-1 text-xs font-normal text-muted-foreground">{label}</span>
-  </details>;
 }
 
 function OrderFilterSheet({ filters, base }: Pick<Awaited<ReturnType<typeof loader>>, "filters" | "base">) {

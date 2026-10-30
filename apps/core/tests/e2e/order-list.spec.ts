@@ -47,12 +47,12 @@ test("seller scans units and independent states, searches orders and combines wo
     await browserExpect(row("partial").locator('[data-column="itemCount"]')).toHaveText("5");
     await row("partial").locator("summary").first().focus();
     await page.keyboard.press("Enter");
-    await browserExpect(row("partial").locator("details[open]")).toContainText("Por cobrar: S/ 50.00");
+    await browserExpect(row("partial").locator("details[open]")).toContainText("Pago pendiente: S/ 50.00");
     await row("partial").locator("summary").first().click();
-    await browserExpect(row("shipped").locator("summary").last()).toHaveAttribute("aria-label", /Entrega: Despachada/);
+    await browserExpect(row("shipped").locator("summary").last()).toHaveAttribute("aria-label", /Estado de la entrega: Enviada/);
     for (const kind of ["completed", "historical", "cancelled"]) {
       await browserExpect(row(kind).locator("summary")).toHaveCount(1);
-      await browserExpect(row(kind).locator("summary")).toHaveAttribute("aria-label", kind === "cancelled" ? "Cancelado" : "Completado");
+      await browserExpect(row(kind).locator("summary")).toHaveAttribute("aria-label", kind === "cancelled" ? "Estado del pedido: Pedido cancelado" : "Estado de la venta: Venta completada");
     }
     await page.getByRole("link", { name: "Por cobrar", exact: true }).click();
     await browserExpect(rows).toHaveCount(1);
