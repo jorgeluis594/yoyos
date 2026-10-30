@@ -5,7 +5,6 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { getCompanyId, prisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { chatMessageOutcomesSchema, type ChatMessageFailureCode, type ChatMessageOutcomes, type StoredChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
-import { isNoticeDue } from "@core/src/features/orders/domain/seller-notice";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;

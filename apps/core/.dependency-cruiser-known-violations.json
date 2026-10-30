@@ -1024,5 +1024,22 @@
       "severity": "error",
       "name": "web-imports-feature-infrastructure"
     }
+  },
+  {
+    "type": "dependency",
+    "from": "src/features/orders/domain/chat-reading.ts",
+    "to": "src/features/products/domain/product-name-key.ts",
+    "unresolvedTo": "@core/src/features/products/domain/product-name-key",
+    "dependencyTypes": [
+      "aliased",
+      "aliased-tsconfig",
+      "aliased-tsconfig-paths",
+      "local",
+      "import"
+    ],
+    "rule": {
+      "severity": "error",
+      "name": "feature-imports-other-feature-internals"
+    }
   }
 ]
