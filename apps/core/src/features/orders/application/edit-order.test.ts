@@ -2,10 +2,10 @@ import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { SellableVariant } from "@core/src/features/orders/domain/catalog-order";
-import type { CompanyId, ContactId, OrderId, OrderItem, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { CompanyId, ContactId, OrderId, OrderItem, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { DeliveryEdit, OrderLineQuantity, OrderLineRequest, OrderPart } from "@core/src/features/orders/domain/order-edit";
 import { orderRevisions } from "@core/src/features/orders/domain/order-revisions";
-import { parseDeliverySnapshot, type DeliveryPricing, type DeliverySnapshot, type OrderAggregate, type Payment, type PaymentId, type PeruDeliveryDistrict, type RatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
+import { parseDeliverySnapshot, type DeliveryPricing, type DeliverySnapshot, type OrderAggregate, type Payment, type PeruDeliveryDistrict, type RatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { editOrder, type EditOrderDependencies, type EditOrderInput } from "@core/src/features/orders/application/edit-order";
 

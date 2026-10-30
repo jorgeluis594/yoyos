@@ -567,7 +567,7 @@ export async function findOpenChatOrderCandidate(chatId: ChatId) {
   }
 }
 
-type ItemChangesFailure = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }> | Readonly<{ code: "VARIANT_NOT_FOUND"; message: string; variantId: string }>;
+type ItemChangesFailure = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }> | Readonly<{ code: "VARIANT_NOT_FOUND"; message: string; variantId: VariantId }>;
 
 /**
  * Applies the row changes of an item edit to the locked order and stores its recalculated totals, in a fixed number of statements:
@@ -600,7 +600,7 @@ export async function saveItemChanges(order: OrderAggregate, changes: OrderItemC
       const present = await prisma.$queryRaw<{ id: string }[]>`SELECT id FROM "ProductVariant" WHERE id = ANY(${ids}::uuid[]) AND "companyId" = ${order.companyId}::uuid ORDER BY id FOR KEY SHARE`;
       const found = new Set(present.map((row) => row.id));
       const missing = ids.find((id) => !found.has(id));
-      if (missing) return err({ code: "VARIANT_NOT_FOUND" as const, message: "Variant is not available", variantId: missing });
+      if (missing) return err({ code: "VARIANT_NOT_FOUND" as const, message: "Variant is not available", variantId: missing as VariantId });
     }
     if (inserts.length) await prisma.orderItem.createMany({ data: inserts.map((item) => ({ id: item.id, orderId: order.id, variantId: item.variantId, productName: item.productName,
       variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
