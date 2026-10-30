@@ -307,9 +307,9 @@ const es = {
   },
   orderView: {
     header: {
-      sales: "Ventas", newSale: "Nueva venta", unsaved: "Sin guardar", newHint: "Completa los productos, pagos, cliente y entrega. Todo se puede editar después.",
+      sales: "Ventas", breadcrumb: "Ruta de navegación", newSale: "Nueva venta", unsaved: "Sin guardar", newHint: "Completa los productos, pagos, cliente y entrega. Todo se puede editar después.",
       viewSales: "Ver ventas", discard: "Descartar", save: "Guardar venta", saving: "Guardando…", printLabel: "Imprimir rótulo", discardChanges: "Descartar cambios", saveChanges: "Guardar cambios",
-      createdOn: "Creado el {{date}}", completedOn: "Venta completada el {{date}}",
+      viewSale: "Ver la venta", createdOn: "Creado el {{date}}", completedOn: "Venta completada el {{date}}",
       origin: { manual: "Registrado por el vendedor", catalog: "Pedido desde el catálogo", whatsapp: "Pedido desde WhatsApp" },
     },
     status: {
@@ -699,9 +699,9 @@ const pt = {
   },
   orderView: {
     header: {
-      sales: "Vendas", newSale: "Nova venda", unsaved: "Não salva", newHint: "Preencha os produtos, pagamentos, cliente e entrega. Tudo pode ser editado depois.",
+      sales: "Vendas", breadcrumb: "Caminho de navegação", newSale: "Nova venda", unsaved: "Não salva", newHint: "Preencha os produtos, pagamentos, cliente e entrega. Tudo pode ser editado depois.",
       viewSales: "Ver vendas", discard: "Descartar", save: "Salvar venda", saving: "Salvando…", printLabel: "Imprimir etiqueta", discardChanges: "Descartar alterações", saveChanges: "Salvar alterações",
-      createdOn: "Criado em {{date}}", completedOn: "Venda concluída em {{date}}",
+      viewSale: "Ver a venda", createdOn: "Criado em {{date}}", completedOn: "Venda concluída em {{date}}",
       origin: { manual: "Registrado pelo vendedor", catalog: "Pedido do catálogo", whatsapp: "Pedido do WhatsApp" },
     },
     status: {
