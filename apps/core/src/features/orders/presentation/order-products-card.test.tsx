@@ -142,10 +142,15 @@ describe("OrderProductsCard", () => {
     expect(latest.draft.items.map((line) => line.variantId)).toEqual([trajeM]);
   });
 
-  test("disables removing the only line with its note", async () => {
+  test("blocks removing the only line with aria-disabled, still focusable, and links its note", async () => {
     await mount(saved({ order: order({ items: [item("00000000-0000-4000-8000-000000000001", trajeM, "Traje de Príncipe Azul", "M", 89)] }) }));
-    expect(button("Quitar Traje de Príncipe Azul, M").disabled).toBe(true);
-    expect(text()).toContain("Un pedido necesita al menos un producto. Para anularlo, cancela el pedido.");
+    const remove = button("Quitar Traje de Príncipe Azul, M");
+    expect(remove.disabled).toBe(false);
+    expect(remove.getAttribute("aria-disabled")).toBe("true");
+    const note = document.getElementById(remove.getAttribute("aria-describedby")!)!;
+    expect(note.textContent).toBe("Un pedido necesita al menos un producto. Para anularlo, cancela el pedido.");
+    await click(remove);
+    expect(latest.draft.items).toHaveLength(1);
   });
 
   test("keeps only digits while typing and marks 0 without removing the line", async () => {
@@ -158,6 +163,16 @@ describe("OrderProductsCard", () => {
     expect(fields()[0]!.getAttribute("aria-invalid")).toBe("true");
     await type(fields()[0]!, "10000");
     expect(text()).toContain("Máximo 9999 unidades.");
+  });
+
+  test("restores the last valid quantity, never 0, when the field is cleared after an invalid one", async () => {
+    await mount(saved({ order: order({ items: [item("00000000-0000-4000-8000-000000000001", trajeM, "Traje de Príncipe Azul", "M", 89)] }) }));
+    await type(fields()[0]!, "0");
+    expect(text()).toContain("Escribe una cantidad de 1 o más.");
+    await type(fields()[0]!, "");
+    await blur(fields()[0]!);
+    expect(quantities()).toEqual(["1"]);
+    expect(text()).not.toContain("Escribe una cantidad de 1 o más.");
   });
 
   test("restores the previous quantity when the field is left empty", async () => {
@@ -191,10 +206,43 @@ describe("OrderProductsCard", () => {
     expect(text()).not.toContain("ya no se vende");
   });
 
-  test("shows the locked note with its remedy when stock is deducted and disables every control", async () => {
+  test("shows the combination in web format with its values joined by a middle dot", async () => {
+    const twoOptions = { ...item("00000000-0000-4000-8000-000000000001", trajeM, "Traje", null, 89), variantAttributes: { Talla: "M", Color: "Azul" } };
+    await mount(saved({ order: order({ items: [twoOptions, item("00000000-0000-4000-8000-000000000002", trajeL, "Traje", "L", 89)] }) }));
+    expect(text()).toContain("M · Azul · S/ 89.00 c/u");
+    expect(button("Quitar Traje, M · Azul")).toBeDefined();
+  });
+
+  test("returns focus to Agregar producto when the picker closes", async () => {
+    await mount(fresh(), { open: true });
+    await click(button("Listo"));
+    await act(async () => { await new Promise((resolve) => setTimeout(resolve, 10)); });
+    expect(document.querySelector("input[role=combobox]")).toBeNull();
+    expect(document.activeElement).toBe(button("Agregar producto"));
+  });
+
+  test("warns about stock when adding a variant without stock", async () => {
+    const soldOut = { ...crown, variants: [{ ...crown.variants[0]!, stock: 0 }] };
+    await mount(fresh(), { search: catalogSearch({ products: [soldOut] }), open: true });
+    await click(button("Agregar"));
+    expect(text()).toContain("Disponible: 0. Si lo cobras");
+  });
+
+  test("adding a variant whose line has invalid text resets it to 1", async () => {
+    await mount(saved(), { search: catalogSearch({ products: [suit] }), open: true });
+    await type(fields()[0]!, "10000");
+    await click(chip("M, "));
+    expect(quantities()[0]).toBe("1");
+  });
+
+  test("shows the locked note with its remedy when stock is deducted", async () => {
     await mount(saved({ order: order({ stockDeducted: true }) }));
     expect(text()).toContain("El stock de este pedido ya se descontó; los productos ya no se pueden cambiar. Para cambiarlos, cancela el pedido y crea una venta nueva.");
     expect(text()).toContain("Stock descontado");
+  });
+
+  test("disables every products control when stock is deducted", async () => {
+    await mount(saved({ order: order({ stockDeducted: true }) }));
     expect(button("Agregar producto").disabled).toBe(true);
     expect(button("Aumentar cantidad").disabled).toBe(true);
     expect(button("Quitar Traje de Príncipe Azul, M").disabled).toBe(true);

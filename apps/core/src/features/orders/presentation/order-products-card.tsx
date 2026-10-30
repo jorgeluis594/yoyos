@@ -7,7 +7,6 @@ import { mentionedPriceNote } from "@shared/mentioned-price";
 import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { formatCurrency } from "@core/app/format-currency";
-import { attributesLabel } from "@core/app/lib/variant-attributes-label";
 import { cn } from "@core/app/lib/utils";
 import { ProductPickerDialog, initialsOf, type PickerChoice } from "@core/src/features/orders/presentation/product-picker-dialog";
 import type { CatalogSearch } from "@core/src/features/orders/presentation/use-catalog-search";
@@ -58,8 +57,8 @@ type Props = Readonly<{
 
 export function OrderProductsCard({ state, onChange, search, pickerOpen, onPickerOpenChange, createProductHref }: Props) {
   const { t, i18n } = useTranslation();
-  const lastTyped = useRef(new Map<string, string>());
-  const searchRowRef = useRef<HTMLButtonElement>(null);
+  const lastValid = useRef(new Map<string, string>());
+  const addRef = useRef<HTMLButtonElement>(null);
   const money = (amount: number, currency: string) => formatCurrency(amount, currency, i18n.language);
   const { items } = state.draft;
   const locks = screenLocks(state);
@@ -75,15 +74,16 @@ export function OrderProductsCard({ state, onChange, search, pickerOpen, onPicke
   const setQuantity = (variantId: string, quantityText: string) => onChange(mapLine(state, variantId, (line) => ({ ...line, quantityText })));
   const typeQuantity = (line: DraftLine, raw: string) => {
     const digits = raw.replace(/\D/g, "").slice(0, 7);
-    if (digits === "" && line.quantityText.trim() !== "") lastTyped.current.set(line.variantId, line.quantityText);
+    if (quantityOf(line) !== null) lastValid.current.set(line.variantId, line.quantityText);
     setQuantity(line.variantId, digits);
   };
-  const restoreQuantity = (line: DraftLine) => { if (line.quantityText.trim() === "") setQuantity(line.variantId, lastTyped.current.get(line.variantId) ?? "1"); };
+  const restoreQuantity = (line: DraftLine) => { if (line.quantityText.trim() === "") setQuantity(line.variantId, lastValid.current.get(line.variantId) ?? "1"); };
+  const lastLineNoteId = "order-products-last-line";
   const remove = (variantId: string) => onChange(withItems(state, items.filter((line) => line.variantId !== variantId)));
 
   const lineView = (line: DraftLine) => {
     const quantity = quantityOf(line);
-    const variant = attributesLabel(line.attributes) || t("orderView.products.uniqueVariant");
+    const variant = Object.values(line.attributes).join(" · ") || t("orderView.products.uniqueVariant");
     const warnings = lineWarnings(state, line);
     const reason = invalid.find((field) => field.id === line.variantId && field.field === "quantity")?.reason;
     const errorId = `quantity-error-${line.variantId}`;
@@ -100,7 +100,8 @@ export function OrderProductsCard({ state, onChange, search, pickerOpen, onPicke
           {note && <p className="text-sm text-muted-foreground">{t("orderDetail.mentionedPrice", { count: note.units, amount: money(note.amount, line.unitPrice.currency) })}</p>}
         </div>
         <Button type="button" variant="ghost" size="icon" aria-label={t("orderView.products.removeLine", { name: line.productName, variant })}
-          disabled={locked || onlyLine} onClick={() => remove(line.variantId)}><Trash2 aria-hidden="true" /></Button>
+          disabled={locked} aria-disabled={onlyLine || undefined} aria-describedby={onlyLine && !locked ? lastLineNoteId : undefined}
+          onClick={() => { if (!onlyLine) remove(line.variantId); }}><Trash2 aria-hidden="true" /></Button>
       </div>
       <div className="flex items-center justify-between gap-3">
         <div className="flex items-center gap-1">
@@ -135,7 +136,7 @@ export function OrderProductsCard({ state, onChange, search, pickerOpen, onPicke
             {stockState && <> · {t(`orderView.products.${stockState}`)}</>}
           </p>
         </div>
-        <Button type="button" variant="outline" aria-label={t("orderView.products.add")} disabled={locked} onClick={() => onPickerOpenChange(true)}>
+        <Button ref={addRef} type="button" variant="outline" aria-label={t("orderView.products.add")} disabled={locked} onClick={() => onPickerOpenChange(true)}>
           {t("orderView.products.add")}<kbd aria-hidden="true" className="ml-2 hidden rounded border px-1.5 text-xs text-muted-foreground [@media(any-pointer:fine)]:inline">/</kbd>
         </Button>
       </div>
@@ -146,8 +147,8 @@ export function OrderProductsCard({ state, onChange, search, pickerOpen, onPicke
         ? <div className="grid justify-items-center gap-1 py-6 text-center"><p className="font-medium">{t("orderView.products.empty")}</p>
           <p className="text-sm text-muted-foreground">{t("orderView.products.emptyHint")}</p></div>
         : <ul className="divide-y">{items.map(lineView)}</ul>}
-      {onlyLine && !locked && <p className="text-sm text-muted-foreground">{t("orderView.products.lastLine")}</p>}
-      <button ref={searchRowRef} type="button" disabled={locked} onClick={() => onPickerOpenChange(true)}
+      {onlyLine && !locked && <p id={lastLineNoteId} className="text-sm text-muted-foreground">{t("orderView.products.lastLine")}</p>}
+      <button type="button" disabled={locked} onClick={() => onPickerOpenChange(true)}
         className="flex min-h-touch items-center gap-2 rounded-[var(--radius-control)] border border-dashed px-3 text-left text-sm text-muted-foreground outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring disabled:opacity-50">
         <Search aria-hidden="true" className="size-icon-inline" />{t("orderView.products.searchRow")}
       </button>
@@ -162,7 +163,8 @@ export function OrderProductsCard({ state, onChange, search, pickerOpen, onPicke
         {isEstimate && <p className="pt-1 text-muted-foreground">{t("orderView.products.estimate")}</p>}
       </dl>}
     </CardContent>
-    {pickerOpen && <ProductPickerDialog search={search} quantities={quantitiesOf(items)} createProductHref={createProductHref}
-      onAdd={(choice) => onChange(addVariant(state, choice))} onClose={() => onPickerOpenChange(false)} />}
+    {pickerOpen && !locked && <ProductPickerDialog search={search} quantities={quantitiesOf(items)} createProductHref={createProductHref}
+      onAdd={(choice) => onChange(addVariant(state, choice))} onClose={() => onPickerOpenChange(false)}
+      onCloseAutoFocus={(event) => { event.preventDefault(); addRef.current?.focus(); }} />}
   </Card>;
 }
