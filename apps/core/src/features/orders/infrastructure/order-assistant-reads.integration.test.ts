@@ -13,14 +13,14 @@ type SeedPayment = Readonly<{ amount: number; status?: "confirmed" | "reported" 
 type SeedOrder = Readonly<{ number: number; total: number; quantity?: number; payments?: readonly SeedPayment[]; cancelled?: boolean; deliveryStatus?: "pending" | "shipped" | "delivered";
   date?: string | null; fromCatalog?: boolean; confirmed?: boolean; delivery?: object | null; buyer?: Readonly<{ name: string | null; phone: string | null }>; createdAt?: Date }>;
 
-async function scenario<T>(work: (ctx: { companyId: CompanyId; access: { companyId: CompanyId; userId: UserId }; variant: VariantId; seed: (order: SeedOrder) => Promise<OrderId> }) => Promise<T>) {
+async function scenario<T>(work: (ctx: { companyId: CompanyId; access: { companyId: CompanyId; userId: UserId }; variant: VariantId; seed: (order: SeedOrder) => Promise<OrderId> }) => Promise<T>, stock = 10) {
   const companyId = randomUUID() as CompanyId;
   await withTenantIsolation(companyId, async () => { await prisma.company.create({ data: { id: companyId, name: companyId, country: "PE" } }); });
   const sellerId = randomUUID() as UserId;
   /** The company id is random and isolated, so the rows are left behind like the other order integration tests do. */
   return withTenantIsolation(companyId, async () => {
     await systemPrisma.user.create({ data: { id: sellerId, name: "Seller", email: `${sellerId}@example.test`, companyId } });
-    const seeded = await seedProduct({ variants: [{ attributes: { Talla: "M" }, stock: 10 }] });
+    const seeded = await seedProduct({ variants: [{ attributes: { Talla: "M" }, stock }] });
     const variant = [...seeded.variantIds][0] as VariantId;
     const seed = async (order: SeedOrder) => {
       const id = randomUUID();
@@ -160,4 +160,44 @@ test("answers queue too large above the candidate ceiling through the composed o
     const exact = await withinReadSnapshot(() => findDispatchCandidates(through, 4, access.companyId));
     expect(exact.success && exact.data !== "too_many" && exact.data.map((candidate) => candidate.number)).toEqual([1001, 1002, 1003, 1004]);
   });
+});
+
+test("lists the product's example queue in order with the expected reasons", async () => {
+  await scenario(async ({ seed, access }) => {
+    const paid = [{ amount: 80 }];
+    await seed({ number: 1047, total: 80, date: null, delivery: home, payments: paid });
+    await seed({ number: 1048, total: 80, date: "2026-10-28", delivery: home, payments: paid });
+    await seed({ number: 1049, total: 80, date: "2026-10-31", delivery: home, payments: paid });
+    await seed({ number: 1050, total: 80, date: "2026-10-30", delivery: home, payments: paid });
+    await seed({ number: 1051, total: 80, date: "2026-10-30", delivery: home });
+    await seed({ number: 1052, total: 880, quantity: 11, date: "2026-10-30", delivery: home, payments: [{ amount: 880 }] });
+    await seed({ number: 1053, total: 80, date: "2026-10-30", delivery: storePickup, payments: [{ amount: 40 }] });
+    await seed({ number: 1054, total: 80, date: "2026-10-30", delivery: home, payments: [{ amount: 0, status: "reported" }] });
+    const queue = await orders.listDispatchQueue({ today: "2026-10-30" as DispatchDate, page: 1 }, access);
+    if (!queue.success) throw new Error(queue.error.message);
+    expect(queue.data.entries.map((entry) => [Number(entry.order.number), entry.readiness])).toEqual([
+      [1048, { kind: "ready", operation: "ship" }],
+      [1050, { kind: "ready", operation: "ship" }],
+      [1051, { kind: "blocked", operation: "ship", reason: { code: "SHIP_PAYMENT_REQUIRED", pendingReport: false } }],
+      [1052, { kind: "blocked", operation: "ship", reason: { code: "STOCK_WAITING", variantIds: [expect.any(String)] } }],
+      [1053, { kind: "blocked", operation: "deliver", reason: { code: "PAYMENT_REQUIRED", pendingReport: false } }],
+      [1054, { kind: "blocked", operation: "ship", reason: { code: "SHIP_PAYMENT_REQUIRED", pendingReport: true } }],
+    ]);
+    expect(queue.data.undatedPending).toBe(1);
+    expect(queue.data.summary).toEqual({ overdue: 1, overdueReady: 1, today: 5, todayReady: 1 });
+  });
+});
+
+test("a partially paid home delivery with more items than stock waits for stock naming the variant", async () => {
+  await scenario(async ({ seed, access, variant }) => {
+    await seed({ number: 1080, total: 80, quantity: 4, date: "2026-10-30", delivery: home, payments: [{ amount: 30 }] });
+    const queue = await orders.listDispatchQueue({ today: "2026-10-30" as DispatchDate, page: 1 }, access);
+    if (!queue.success) throw new Error(queue.error.message);
+    expect(queue.data.entries.map((entry) => entry.readiness)).toEqual([{ kind: "blocked", operation: "ship", reason: { code: "STOCK_WAITING", variantIds: [variant] } }]);
+    const detail = await orders.getAggregateByNumber({ number: 1080 as OrderNumber }, access);
+    if (!detail.success) throw new Error(detail.error.message);
+    const described = await orders.describeDispatchStock([detail.data]);
+    if (!described.success) throw new Error(described.error.message);
+    expect(described.data.get(detail.data.id)).toEqual({ stockDue: null, shortAtCurrentStock: [variant] });
+  }, 3);
 });
