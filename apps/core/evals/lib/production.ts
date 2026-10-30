@@ -279,9 +279,9 @@ async function addOrderLines(chat: Chat, lines: readonly OrderLine[], wiring: Se
   }
 }
 
-/** Saves the pendings through the repository, attached to the chat's order when it has one (a pending created while the order was open). */
+/** Saves the pendings through the repository, attached to the chat's order when it has one (a pending created while the order was open), and clears the photo memory. */
 async function seedPendings(chat: Chat, pendings: readonly PendingSeed[], company: EvalCompany): Promise<void> {
-  if (!pendings.length) return;
+  // Saved even when empty: the label photos that seeded the order left a photo memory, and a seeded start has no photo just sent.
   const order = await orderOfChat(chat.chatId, company);
   const now = new Date();
   const productId = (product: ProductKey) => productIdOf(product, company.scope) as ProductId;
