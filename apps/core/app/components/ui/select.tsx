@@ -29,12 +29,14 @@ const SelectPortalContainer = React.createContext<HTMLElement | null>(null);
 
 function SelectContent({ className, children, ...props }: React.ComponentProps<typeof SelectPrimitive.Popup>) {
   const container = React.useContext(SelectPortalContainer);
+  // Not item-aligned: inside a transformed dialog the fixed popup would be placed from the dialog, not the viewport.
+  // The portal host is absolute so it takes no row of the dialog grid.
   return (
-    <SelectPrimitive.Portal container={container ?? undefined}>
-      <SelectPrimitive.Positioner>
+    <SelectPrimitive.Portal container={container ?? undefined} className="absolute">
+      <SelectPrimitive.Positioner alignItemWithTrigger={false} sideOffset={4}>
         <SelectPrimitive.Popup
           data-slot="select-content"
-          className={cn("z-50 max-h-60 min-w-[var(--anchor-width)] overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none", className)}
+          className={cn("z-50 max-h-[min(15rem,var(--available-height))] min-w-[var(--anchor-width)] overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none", className)}
           {...props}
         >
           <SelectPrimitive.List>{children}</SelectPrimitive.List>
