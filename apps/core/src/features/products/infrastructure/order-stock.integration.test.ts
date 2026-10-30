@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { ok } from "@shared/functional";
 import { prisma, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
-import { deductStockBulk, findVariantStock, lockVariantStock } from "@core/src/features/products/infrastructure/order-stock";
+import { deductStockBulk, findVariantStock, lockVariantStock, searchSaleCatalog } from "@core/src/features/products/infrastructure/order-stock";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 
@@ -74,5 +74,21 @@ test("reads stock of inactive variants", async () => {
   await withStock([4], "inactive", async (_companyId, [variantId]) => {
     const stock = await findVariantStock([variantId]);
     expect(stock.success && quantity(stock.data, variantId)).toBe(4);
+  });
+});
+
+test("filters the sale catalog to products with an active variant in stock", async () => {
+  await withStock([0, 0], "active", async () => {
+    const tag = randomUUID().slice(0, 8);
+    await seedProduct({ name: `Sin stock ${tag}`, variants: [{ attributes: { Talla: "S" }, stock: 0 }] });
+    const mixed = await seedProduct({ name: `Mixto ${tag}`, variants: [{ attributes: { Talla: "S" }, stock: 0 }, { attributes: { Talla: "M" }, stock: 4 }] });
+    await seedProduct({ name: `Inactivo ${tag}`, variants: [{ attributes: { Talla: "S" }, stock: 5, status: "inactive" }, { attributes: { Talla: "M" }, stock: 0 }] });
+    const all = await searchSaleCatalog(tag);
+    expect(all.success && all.data.map((product) => product.name)).toEqual([`Inactivo ${tag}`, `Mixto ${tag}`, `Sin stock ${tag}`]);
+    const filtered = await searchSaleCatalog(tag, undefined, { inStock: true });
+    expect(filtered.success && filtered.data.map((product) => product.name)).toEqual([`Mixto ${tag}`]);
+    // The matching product keeps all its active variants, including the one without stock.
+    expect(filtered.success && filtered.data[0].variants.map((variant) => variant.stock).sort()).toEqual([0, 4]);
+    expect(filtered.success && filtered.data[0].id).toBe(mixed.productId);
   });
 });
