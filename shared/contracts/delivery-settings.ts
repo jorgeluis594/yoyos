@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { currencies } from "@shared/money";
 import { moneySchema } from "@shared/contracts/money";
-import { peruDeliveryDistrictSchema } from "@shared/contracts/peru-location";
+import { peruDeliveryDistrictSchema, peruDepartmentCodeSchema, peruProvinceCodeSchema, peruDistrictCodeSchema } from "@shared/contracts/peru-location";
 
 export const pickupPointSchema = z.strictObject({
   name: z.string().trim().min(1).max(120),
@@ -52,9 +52,6 @@ export const agencyCatalogSchema = z.strictObject({ agencies: z.array(catalogAge
 export type CatalogAgencyContract = z.infer<typeof catalogAgencySchema>;
 export type AgencyCatalogResponse = z.infer<typeof agencyCatalogSchema>;
 
-const peruDepartmentCodeSchema = z.string().regex(/^\d{2}$/);
-const peruProvinceCodeSchema = z.string().regex(/^\d{4}$/);
-const peruDistrictCodeSchema = z.string().regex(/^\d{6}$/);
 const optionFields = { name: z.string().trim().min(1).max(120), enabled: z.boolean(), price: moneySchema };
 export const deliveryOptionSchema = z.discriminatedUnion("method", [
   z.strictObject({ id: z.uuid(), method: z.literal("home"), ...optionFields }),

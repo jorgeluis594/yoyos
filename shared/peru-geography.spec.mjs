@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
-import { peruDepartments, getPeruProvinces, getPeruDistricts, getPeruDistrict, parsePeruDistrictCode, parsePeruAreaSelection, peruAreaDistricts, peruAreaIncludes, peruAreaEntries, selectPeruArea } from "@shared/peru-geography";
+import { peruDepartments, getPeruProvinces, getPeruDistricts, getPeruDistrict, parsePeruDistrictCode, parsePeruAreaSelection, peruAreaDistricts, peruAreaIncludes, peruAreaEntries, selectPeruArea,
+  canonicalPeruArea, peruCodesWithinDepartments, peruDepartmentOfDistrict, offeredPeruDepartments, offeredPeruProvinces, offeredPeruDistricts,
+  keepCoveredPeruPlace, isCompletePeruLocation, settlePeruLocation } from "@shared/peru-geography";
+import { peruAreaSelectionSchema } from "@shared/contracts/peru-location";
 
 test("official catalog preserves every geographic level, unique district and parent relationship", () => {
   const provinces = peruDepartments.flatMap(department => getPeruProvinces(department.code));
@@ -81,4 +84,86 @@ test("peruAreaEntries orders departments, then provinces, then districts by name
 test("parsePeruDistrictCode still rejects province and department codes", () => {
   expect(parsePeruDistrictCode("1501")).toMatchObject({ success: false });
   expect(parsePeruDistrictCode("04")).toMatchObject({ success: false });
+});
+
+const loose = (departmentCodes = [], provinceCodes = [], districtCodes = []) => ({ departmentCodes, provinceCodes, districtCodes });
+
+test("canonical area absorbs provinces and districts inside a whole department, removes duplicates and ignores unknown codes", () => {
+  expect(canonicalPeruArea(loose(["04", "04", "99"], ["0401", "1501", "1501", "9999"], ["040103", "150122", "150105", "999999", "150122"])))
+    .toEqual(sel(["04"], ["1501"], []));
+  expect(canonicalPeruArea(loose([], ["0401"], ["040103", "080101"]))).toEqual(sel([], ["0401"], ["080101"]));
+  expect(canonicalPeruArea(loose(new Set(["15"]), new Set(), new Set()))).toEqual(sel(["15"]));
+});
+
+test("codes within departments keep whole departments, provinces and loose districts of those departments and drop the rest", () => {
+  const result = peruCodesWithinDepartments(loose(["04", "08"], ["0401", "2101"], ["080101", "150122", "999999"]), new Set(["04", "21"]));
+  expect([...result.departmentCodes]).toEqual(["04"]);
+  expect([...result.provinceCodes]).toEqual(["0401", "2101"]);
+  expect([...result.districtCodes]).toEqual([]);
+  const districts = peruCodesWithinDepartments(loose([], [], ["080101", "040101"]), new Set(["04"]));
+  expect([...districts.districtCodes]).toEqual(["040101"]);
+});
+
+test("department of a district comes from the catalog and is null for an unknown code", () => {
+  expect(peruDepartmentOfDistrict("040110")).toBe("04");
+  expect(peruDepartmentOfDistrict("150122")).toBe("15");
+  expect(peruDepartmentOfDistrict("999999")).toBeNull();
+  expect(peruDepartmentOfDistrict("1501")).toBeNull();
+});
+
+test("offered lists show only covered departments, provinces and districts, and a whole department lists all its provinces", () => {
+  const area = canonicalPeruArea(loose(["04"], [], ["150122", "150105", "080101"]));
+  expect(offeredPeruDepartments(area).map(value => value.code)).toEqual(["04", "08", "15"]);
+  expect(offeredPeruProvinces(area, "04")).toEqual(getPeruProvinces("04"));
+  expect(offeredPeruProvinces(area, "15").map(value => value.code)).toEqual(["1501"]);
+  expect(offeredPeruProvinces(area, "21")).toEqual([]);
+  expect(offeredPeruDistricts(area, "0401")).toEqual(getPeruDistricts("0401"));
+  expect(offeredPeruDistricts(area, "1501").map(value => value.code)).toEqual(["150105", "150122"]);
+  const province = canonicalPeruArea(loose([], ["1501"], []));
+  expect(offeredPeruDistricts(province, "1501")).toEqual(getPeruDistricts("1501"));
+  expect(offeredPeruDistricts(province, "1502")).toEqual([]);
+});
+
+test("keeping a covered place walks up from district to province to department and returns null when none is covered", () => {
+  const area = canonicalPeruArea(loose([], [], ["150122", "150105"]));
+  expect(keepCoveredPeruPlace(area, { kind: "district", code: "150122" })).toEqual({ kind: "district", code: "150122" });
+  expect(keepCoveredPeruPlace(area, { kind: "district", code: "150101" })).toEqual({ kind: "province", code: "1501" });
+  expect(keepCoveredPeruPlace(area, { kind: "district", code: "150701" })).toEqual({ kind: "department", code: "15" });
+  expect(keepCoveredPeruPlace(area, { kind: "district", code: "040101" })).toBeNull();
+  expect(keepCoveredPeruPlace(area, { kind: "province", code: "1502" })).toEqual({ kind: "department", code: "15" });
+  expect(keepCoveredPeruPlace(area, { kind: "department", code: "04" })).toBeNull();
+  const whole = canonicalPeruArea(loose(["04"]));
+  expect(keepCoveredPeruPlace(whole, { kind: "district", code: "040103" })).toEqual({ kind: "district", code: "040103" });
+  expect(isCompletePeruLocation({ kind: "district", code: "040103" })).toBe(true);
+  expect(isCompletePeruLocation({ kind: "province", code: "0401" })).toBe(false);
+});
+
+test("settling a location fills every level with a single offered choice and stops at the first level with several", () => {
+  expect(settlePeruLocation(canonicalPeruArea(loose([], [], ["150122"])), null))
+    .toEqual({ location: { kind: "district", code: "150122" }, filled: "complete" });
+  expect(settlePeruLocation(canonicalPeruArea(loose(["15"])), null))
+    .toEqual({ location: { kind: "department", code: "15" }, filled: "partial" });
+  expect(settlePeruLocation(canonicalPeruArea(loose(["04", "08"])), null)).toEqual({ location: null, filled: "none" });
+  expect(settlePeruLocation(canonicalPeruArea(loose([], [], ["150122", "080101"])), null)).toEqual({ location: null, filled: "none" });
+});
+
+test("settling keeps the levels already chosen and fills only below them", () => {
+  const area = canonicalPeruArea(loose([], ["1501"], ["080101"]));
+  expect(settlePeruLocation(area, { kind: "department", code: "08" }))
+    .toEqual({ location: { kind: "district", code: "080101" }, filled: "complete" });
+  expect(settlePeruLocation(area, { kind: "department", code: "15" }))
+    .toEqual({ location: { kind: "province", code: "1501" }, filled: "partial" });
+  expect(settlePeruLocation(area, { kind: "district", code: "080101" })).toEqual({ location: { kind: "district", code: "080101" }, filled: "none" });
+});
+
+test("area selection contract accepts canonical catalog selections and rejects empty, unknown, non-canonical and oversized ones", () => {
+  const value = sel(["04"], ["1501"], ["080101"]);
+  expect(peruAreaSelectionSchema.parse(value)).toEqual(value);
+  const fails = input => peruAreaSelectionSchema.safeParse(input).success === false;
+  expect(fails(sel())).toBe(true);
+  expect(fails(sel(["99"]))).toBe(true);
+  expect(fails(sel(["15"], ["1501"]))).toBe(true);
+  expect(fails(sel([], [], ["999999"]))).toBe(true);
+  expect(fails(sel(Array.from({ length: 26 }, (_, index) => String(index + 1).padStart(2, "0"))))).toBe(true);
+  expect(fails({ ...value, extra: 1 })).toBe(true);
 });
