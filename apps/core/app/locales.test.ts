@@ -59,4 +59,5 @@ test("order view texts have the same nested keys in both languages and interpola
   expect(i18n.t("orderView.payments.addWallet", { wallet: "Pix" })).toBe("Adicionar Pix");
   expect(i18n.t("orderView.picker.results", { count: 3 })).toBe("3 resultados");
   expect(i18n.t("orderView.labels.shipped")).toBe("Enviada");
+  expect(i18n.t("orders.deliveryStatus.shipped")).toBe("Enviada");
 });
