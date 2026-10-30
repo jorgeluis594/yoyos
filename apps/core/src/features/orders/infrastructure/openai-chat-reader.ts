@@ -4,6 +4,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
 import type { ReadChatMessage, ReaderError, ReaderUsage } from "@core/src/features/orders/application/read-chat-message";
+import { countRequestTokens, readerOutputTokenLimit } from "@core/src/features/orders/infrastructure/chat-reader-budget";
 import { describeReadingContext } from "@core/src/features/orders/infrastructure/chat-reader-context-text";
 import { readerJsonSchema, readerSchema, toReaderAnswer } from "@core/src/features/orders/infrastructure/chat-reader-schema";
 import { readerInstructions } from "@core/src/features/orders/infrastructure/chat-reader-text";
@@ -17,10 +18,10 @@ export type OpenAiChatReaderConfig = Readonly<{
 }>;
 
 /**
- * Pinned request settings; the pinned model-text file records them. The bound is the answer (10 actions of about 100 tokens, 2000) plus the
- * reasoning tokens measured at the pinned effort, which count against it. Measured on the live model: gpt-6-luna rejects "minimal" with HTTP 400; "none" works with 0 reasoning tokens.
+ * Pinned request settings; the pinned model-text file records them. The limit is the answer (10 actions of about 100 tokens, 1,000; the budget
+ * derives the input side from it) plus the reasoning tokens at the pinned effort, which count against it and are 0 with `none`. Measured on the live model: gpt-6-luna rejects "minimal" with HTTP 400; "none" works with 0 reasoning tokens.
  */
-export const readerRequestSettings = { reasoningEffort: "none" as ReasoningEffort, maxOutputTokens: 2000, schemaName: "chat_reader_answer" } as const;
+export const readerRequestSettings = { reasoningEffort: "none" as ReasoningEffort, maxOutputTokens: readerOutputTokenLimit, schemaName: "chat_reader_answer" } as const;
 
 const invalid = (message: string): ReaderError => ({ code: "INVALID_AI_RESPONSE", message });
 
@@ -85,10 +86,10 @@ export function createOpenAiChatReader(config: OpenAiChatReaderConfig): ReadChat
     const answer = toReaderAnswer(parsed.data);
     const usage = usageOf(response.usage);
     log.info({
-      event: "chat_reader_completed", ...fields(), answer: answer.kind, actionKinds: answer.kind === "actions" ? answer.actions.map(({ kind }) => kind) : [],
+      event: "chat_reader_completed", ...fields(), budget: context.kind === "text" ? "text" : "photo", answer: answer.kind, actionKinds: answer.kind === "actions" ? answer.actions.map(({ kind }) => kind) : [],
       productCount: context.products.length, variantCount: context.products.reduce((total, { variants }) => total + variants.length, 0),
       pendingCount: context.pendings.length, itemCount: context.items.length, contextChars: contextText.length, contextTruncated: context.truncated,
-      inputTokens: usage.inputTokens, cachedInputTokens: usage.cachedInputTokens, outputTokens: usage.outputTokens, reasoningTokens: usage.reasoningTokens,
+      inputTokens: usage.inputTokens, countedInputTokens: countRequestTokens(contextText), cachedInputTokens: usage.cachedInputTokens, outputTokens: usage.outputTokens, reasoningTokens: usage.reasoningTokens,
     }, "chat_reader_completed");
     return ok({ answer, usage });
   };

@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { currencies } from "@shared/money";
-import type { AttributeChoice, ReaderAction, ReaderAnswer, ReaderItem, ReaderProduct, StatedPrice } from "@core/src/features/orders/domain/chat-reading";
+import { shippedReaderFeatures } from "@core/src/features/orders/infrastructure/shipped-reader-features";
+import type { AttributeChoice, ReaderAction, ReaderAnswer, ReaderItem, ReaderProduct, ReaderQuantityTarget, StatedPrice } from "@core/src/features/orders/domain/chat-reading";
 
 /** The strict schema carries at most this many actions; `moreActions` says the message asked for more. */
 const maxReaderActions = 10;
@@ -30,8 +31,11 @@ const attributes = z.array(attributeSchema).nullable().describe("The attribute v
 const quantity = z.number().nullable().describe("The quantity, or null when the buyer states none.");
 const stated = priceSchema.nullable().describe("The price the buyer states, or null.");
 
-const actionKinds = ["add", "complete_pending", "decline_pending", "decline_shown", "remove", "change_quantity", "change_variant", "set_price",
-  "ready", "variant_only", "variant_for_pendings", "not_allowed"] as const;
+const everyActionKind = ["add", "complete_pending", "decline_pending", "decline_shown", "remove", "change_quantity", "change_variant", "set_price",
+  "ready", "variant_only", "variant_for_pendings", "not_allowed", "payment_request"] as const;
+type ActionKind = (typeof everyActionKind)[number];
+/** The kinds the reader may answer with: `payment_request` only while the shipped features include it (otherwise payment requests are `not_allowed`). */
+const actionKinds = everyActionKind.filter((kind) => kind !== "payment_request" || shippedReaderFeatures.paymentRequest) as [ActionKind, ...ActionKind[]];
 
 const actionSchema = z.strictObject({
   kind: z.enum(actionKinds),
@@ -40,10 +44,10 @@ const actionSchema = z.strictObject({
   attributes,
   quantity,
   price: stated,
-  pending: z.string().nullable().describe("For complete_pending and decline_pending: the pending reference."),
-  item: itemSchema.nullable().describe("For remove, change_quantity, change_variant and set_price."),
+  pending: z.string().nullable().describe("For complete_pending and decline_pending: the pending reference. For change_quantity on a pending the buyer names: the pending reference, with item null."),
+  item: itemSchema.nullable().describe("For remove, change_variant and set_price, and for change_quantity on an order item (then pending is null)."),
   amount: z.enum(["all", "one"]).nullable().describe("Only for remove."),
-  mode: z.enum(["increase", "set"]).nullable().describe("Only for change_quantity."),
+  mode: z.enum(["increase", "set", "decrease"]).nullable().describe("Only for change_quantity: set gives the new total, increase and decrease say how many more or fewer."),
   pendings: z.array(z.string()).nullable().describe("Only for variant_for_pendings: at least two pending references."),
 });
 
@@ -71,6 +75,13 @@ function itemOf({ item }: ParsedAction): ReaderItem | null {
   return { kind: item.kind };
 }
 
+/** Exactly one of `item` and `pending` names the target of a quantity change; both or neither is incomplete. */
+function quantityTargetOf(action: ParsedAction): ReaderQuantityTarget | null {
+  if ((action.item === null) === (action.pending === null)) return null;
+  if (action.pending !== null) return action.pending ? { kind: "pending", ref: action.pending } : null;
+  return itemOf(action);
+}
+
 /** The action of one parsed entry. Strict mode makes every field required, so each kind checks the ones it uses; an incomplete or inconsistent one is `malformed` and fails only itself. */
 function convertAction(action: ParsedAction): ReaderAction {
   const malformed: ReaderAction = { kind: "malformed" };
@@ -87,9 +98,10 @@ function convertAction(action: ParsedAction): ReaderAction {
       return item && action.amount ? { kind: "remove", item, amount: action.amount } : malformed;
     }
     case "change_quantity": {
-      const item = itemOf(action);
-      return item && action.mode && action.quantity !== null ? { kind: "change_quantity", target: item, mode: action.mode, quantity: action.quantity } : malformed;
+      const target = quantityTargetOf(action);
+      return target && action.mode && action.quantity !== null ? { kind: "change_quantity", target, mode: action.mode, quantity: action.quantity } : malformed;
     }
+    case "payment_request": return { kind: "payment_request" };
     case "change_variant": {
       const item = itemOf(action);
       return item ? { kind: "change_variant", item, attributes: choices(action.attributes), price: priceOf(action.price) } : malformed;

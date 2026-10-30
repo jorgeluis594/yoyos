@@ -1,5 +1,6 @@
 import type { Money } from "@shared/money";
 import type { ChatReadingContext, ReadingItem, ReadingPending, ReadingProduct } from "@core/src/features/orders/domain/chat-reading";
+import { shippedReaderFeatures } from "@core/src/features/orders/infrastructure/shipped-reader-features";
 import type { ProductId } from "@core/src/features/products/domain/product";
 
 /** Products with more combinations than this list only what is sold, so a rendering never grows with the cartesian product. */
@@ -43,28 +44,34 @@ function productLines(product: ReadingProduct): string[] {
   return missing.length < sold.length ? [...lines, `  Not sold: ${missing.join("; ")}`] : [...lines, `  Sold combinations: ${sold.join("; ")}`];
 }
 
+/** One product's text, as the budget counts it: the block and the newline that joins it to the previous line. */
+export const productBlock = (product: ReadingProduct): string => productLines(product).join("\n");
+
+const photoMark = " · left by the photo just sent";
+
 const refOfProduct = (products: readonly ReadingProduct[]) => (productId: ProductId | null) => products.find((product) => product.productId === productId);
 
 function itemLine(item: ReadingItem, productOf: ReturnType<typeof refOfProduct>): string {
   const product = productOf(item.productId);
   const name = product ? `${item.productName} (${product.ref})` : item.productName;
   const values = valuesText(item.variantAttributes);
-  return [`${item.ref}: ${name}`, ...(values ? [values] : []), `quantity ${item.quantity}`, `${moneyText(item.unitPrice)} each`].join(" · ");
+  return [`${item.ref}: ${name}`, ...(values ? [values] : []), `quantity ${item.quantity}`, `${moneyText(item.unitPrice)} each`].join(" · ") + (item.photoJustSent ? photoMark : "");
 }
 
-function pendingLine({ ref, pending }: ReadingPending, productOf: ReturnType<typeof refOfProduct>): string {
+function pendingLine({ ref, pending, photoJustSent }: ReadingPending, productOf: ReturnType<typeof refOfProduct>): string {
   const named = (productId: ProductId) => { const product = productOf(productId); return product ? `${product.name} (${product.ref})` : null; };
   const { subject } = pending;
+  const candidates = subject.kind === "product" ? subject.candidates.map(named).filter((name): name is string => name !== null) : [];
   const subjectText = subject.kind === "variant"
     ? named(subject.productId) ?? "a product that is not listed"
-    : `one of ${subject.candidates.map(named).filter((name): name is string => name !== null).join(", ")}`;
+    : candidates.length > 0 ? `one of ${candidates.join(", ")}` : "several products that are not listed";
   const known = Object.entries(pending.known).map(([name, value]) => `${name} ${value}`).join(", ");
   const product = subject.kind === "variant" ? productOf(subject.productId) : undefined;
   const missing = product?.attributes.filter(({ name }) => !(name in pending.known)).map(({ name }) => name) ?? [];
   const price = pending.price
     ? ` Stated price: ${moneyText(pending.price.amount)} ${pending.price.per === "not_explicit" ? "basis not stated" : `per ${pending.price.per}`} (stated for ${pending.price.forQuantity} ${pending.price.forQuantity === 1 ? "unit" : "units"}).`
     : "";
-  return `${ref}: ${subjectText}.${known ? ` Known: ${known}.` : ""}${missing.length ? ` Missing: ${missing.join(", ")}.` : ""} Quantity: ${pending.quantity}.${price}`;
+  return `${ref}: ${subjectText}.${known ? ` Known: ${known}.` : ""}${missing.length ? ` Missing: ${missing.join(", ")}.` : ""} Quantity: ${pending.quantity}.${price}${photoJustSent ? photoMark : ""}`;
 }
 
 const kindText: Readonly<Record<ChatReadingContext["kind"], string>> = {
@@ -72,6 +79,8 @@ const kindText: Readonly<Record<ChatReadingContext["kind"], string>> = {
   photo_product: "Message kind: caption of a product photo",
   photo_not_product: "Message kind: caption of a photo that shows no catalog product",
 };
+
+const noOpenOrderLine = { closed: "The chat has no open order: its latest order is closed and can no longer be changed.", other: "The chat has no open order." } as const;
 
 /** The per-message context after the fixed instructions: items, pendings, products in the compact rendering, the photo and last the buyer's text. No ids, phones or order numbers: only refs. */
 export function describeReadingContext(context: ChatReadingContext): string {
@@ -83,10 +92,10 @@ export function describeReadingContext(context: ChatReadingContext): string {
   const photo = context.kind === "photo_not_product" ? ["The photo shows no catalog product."] : shown;
   return [
     kindText[context.kind],
-    "Order items:", ...(context.items.length ? context.items.map((item) => itemLine(item, productOf)) : ["The chat has no open order."]),
+    "Order items:", ...(context.items.length ? context.items.map((item) => itemLine(item, productOf)) : [noOpenOrderLine[context.latestOrder === "closed" && shippedReaderFeatures.closedOrderLine ? "closed" : "other"]]),
     "Pendings:", ...(context.pendings.length ? context.pendings.map((pending) => pendingLine(pending, productOf)) : ["The chat has no pendings."]),
     ...photo,
-    "Products:", ...(context.products.length ? context.products.flatMap(productLines) : ["No products are listed."]),
+    "Products:", ...(context.products.length ? context.products.map(productBlock) : ["No products are listed."]),
     "Buyer's message:",
     context.text ?? "(no text)",
   ].join("\n");
