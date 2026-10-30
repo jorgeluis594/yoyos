@@ -21,7 +21,7 @@ export const outcomeKinds = ["added", "removed", "quantity_lowered", "quantity_c
   "order_closed", "no_intent", "variant_only", "unnamed_add", "image_with_request", "no_open_order", "not_identified", "not_clear",
   "variant_missing", "variant_not_available", "quantity_above_limit", "unclear_item", "new_order_after_closed", "failed",
   "pending_created", "pending_updated", "pending_completed", "pending_split", "pending_ended", "reader_doubt", "request_not_allowed", "invalid_action",
-  "product_not_available", "variant_for_several_pendings", "ready_with_pendings", "caption_not_applied"] as const;
+  "product_not_available", "variant_for_several_pendings", "ready_with_pendings", "caption_not_applied", "payment_requested"] as const;
 export type OutcomeKind = (typeof outcomeKinds)[number];
 /**
  * Compile-time check: every outcome kind of the domain can be expected. Kinds named «ambiguous_…» are the one the domain union still

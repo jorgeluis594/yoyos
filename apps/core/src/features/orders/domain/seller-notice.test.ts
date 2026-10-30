@@ -145,6 +145,43 @@ describe("chooseSellerNotice with the single reader", () => {
   });
 });
 
+describe("payment request notices", () => {
+  const payment = (orderState: Extract<ChatMessageOutcome, { kind: "payment_requested" }>["order"], productIds: ProductId[] = [], unnamed = 0): ChatMessageOutcome =>
+    ({ kind: "payment_requested", order: orderState, productIds, unnamed });
+
+  test("a payment_requested outcome alone chooses the payment request notice", () => {
+    expect(chooseSellerNotice(outcomes(payment({ kind: "open", orderId: order(1) }))))
+      .toEqual({ kind: "payment_request", order: { kind: "open", orderId: order(1) }, productIds: [], unnamed: 0, newOrderId: null });
+  });
+
+  test("a payment_requested outcome with ready chooses the payment request notice", () => {
+    expect(chooseSellerNotice(outcomes({ kind: "ready", orderId: order(1) }, payment({ kind: "open", orderId: order(1) }))))
+      .toMatchObject({ kind: "payment_request" });
+    expect(chooseSellerNotice(outcomes({ kind: "ready_with_pendings", orderId: order(1), productIds: [product(1)], unnamed: 0 }, payment({ kind: "open", orderId: order(1) }, [product(1)]))))
+      .toMatchObject({ kind: "payment_request", productIds: [product(1)] });
+  });
+
+  test("a payment_requested outcome with another problem chooses several problems counting both", () => {
+    expect(chooseSellerNotice(outcomes(payment({ kind: "none" }), missing(31))))
+      .toEqual({ kind: "several_problems", problemCount: 2, productIds: [product(31)], newOrderId: null });
+  });
+
+  test("a payment request that also created an order carries the new order", () => {
+    const fresh: ChatMessageOutcome = { kind: "new_order_after_closed", orderId: order(4), previousOrderId: order(3) };
+    expect(chooseSellerNotice(outcomes(fresh, payment({ kind: "open", orderId: order(4) })))).toMatchObject({ kind: "payment_request", newOrderId: order(4) });
+  });
+
+  test("notice references include the payment order and its pending products", () => {
+    expect(noticeReferences({ kind: "payment_request", order: { kind: "closed", orderId: order(1) }, productIds: [product(1), product(1), product(2)], unnamed: 0, newOrderId: order(2) }))
+      .toEqual({ orderIds: [order(1), order(2)], productIds: [product(1), product(2)] });
+    expect(noticeReferences({ kind: "payment_request", order: { kind: "none" }, productIds: [], unnamed: 0, newOrderId: null })).toEqual({ orderIds: [], productIds: [] });
+  });
+
+  test("opens the chat on the message", () => {
+    expect(sellerNoticeTarget({ kind: "payment_request", order: { kind: "open", orderId: order(1) }, productIds: [], unnamed: 0, newOrderId: null })).toEqual({ kind: "message" });
+  });
+});
+
 describe("sellerNoticeKinds", () => {
   test("lists each kind once and covers every kind the notice union already has", () => {
     expect(new Set(sellerNoticeKinds).size).toBe(sellerNoticeKinds.length);

@@ -31,6 +31,8 @@ type Texts = Readonly<{
   productNotAvailable: (name: string | null) => Text;
   readyWithPendings: (orderNumber: number | null, missing: ProductList) => Text;
   variantForSeveralPendings: (missing: ProductList) => Text;
+  /** `order` is the number of an order that exists; `closed` wins over the pending list. */
+  paymentRequest: (order: Readonly<{ kind: "open" | "closed"; number: number }> | null, missing: ProductList) => Text;
   newOrderNote: (orderNumber: number) => string;
 }>;
 
@@ -65,6 +67,12 @@ const es: Texts = {
   productNotAvailable: (name) => ({ title: "Producto no disponible", body: `Un cliente pidió ${name === null ? "un producto" : name}${name === null ? "" : ","} que ya no está a la venta. Revisa el chat.` }),
   readyWithPendings: (number, { names, more }) => ({ title: "Revisa el chat", body: `Un cliente dice que terminó ${number === null ? "su pedido" : `el pedido #${number}`}, pero falta completar ${names.length ? listWithMore(names, more, " y ", (n) => `${n} más`) : more === 1 ? "un producto" : `${more} productos`}.` }),
   variantForSeveralPendings: ({ names, more }) => ({ title: "Revisa el chat", body: `Un cliente mencionó una variante sin decir de cuál ${names.length ? `producto: ${listWithMore(names, more, " y ", (n) => `${n} más`)}` : `de ${more} productos`}.` }),
+  paymentRequest: (order, { names, more }) => {
+    const left = names.length ? listWithMore(names, more, " y ", (n) => `${n} más`) : more === 1 ? "un producto" : `${more} productos`;
+    const body = order?.kind === "closed" ? `Un cliente quiere pagar, pero el pedido #${order.number} ya tiene un pago o está cerrado. Revisa el chat.`
+      : `Un cliente quiere pagar${order ? ` el pedido #${order.number}` : ""}${names.length + more > 0 ? `, pero falta completar ${left}` : ""}.`;
+    return { title: "Revisa el chat", body };
+  },
   newOrderNote: (number) => `Se creó el pedido nuevo #${number}.`,
 };
 
@@ -97,6 +105,12 @@ const pt: Texts = {
   productNotAvailable: (name) => ({ title: "Produto indisponível", body: `Um cliente pediu ${name ?? "um produto"}${name === null ? "" : ","} que não está mais à venda. Veja o chat.` }),
   readyWithPendings: (number, { names, more }) => ({ title: "Veja o chat", body: `Um cliente diz que terminou o pedido${number === null ? "" : ` #${number}`}, mas falta completar ${names.length ? listWithMore(names, more, " e ", (n) => `mais ${n}`) : more === 1 ? "um produto" : `${more} produtos`}.` }),
   variantForSeveralPendings: ({ names, more }) => ({ title: "Veja o chat", body: `Um cliente mencionou uma variante sem dizer de qual ${names.length ? `produto: ${listWithMore(names, more, " e ", (n) => `mais ${n}`)}` : `de ${more} produtos`}.` }),
+  paymentRequest: (order, { names, more }) => {
+    const left = names.length ? listWithMore(names, more, " e ", (n) => `mais ${n}`) : more === 1 ? "um produto" : `${more} produtos`;
+    const body = order?.kind === "closed" ? `Um cliente quer pagar, mas o pedido #${order.number} já tem um pagamento ou está fechado. Veja o chat.`
+      : `Um cliente quer pagar${order ? ` o pedido #${order.number}` : ""}${names.length + more > 0 ? `, mas falta completar ${left}` : ""}.`;
+    return { title: "Veja o chat", body };
+  },
   newOrderNote: (number) => `Foi criado o novo pedido #${number}.`,
 };
 
@@ -151,6 +165,10 @@ function textOf(notice: SellerNotice, texts: Texts, { names }: NoticeContext): T
     case "product_not_available": return texts.productNotAvailable(notice.productId === null ? null : productName(notice.productId));
     case "ready_with_pendings": return texts.readyWithPendings(orderNumber(notice.orderId), listOf(notice.productIds, notice.unnamed));
     case "variant_for_several_pendings": return texts.variantForSeveralPendings(listOf(notice.productIds, notice.unnamed));
+    case "payment_request": {
+      const number = notice.order.kind === "none" ? null : orderNumber(notice.order.orderId);
+      return texts.paymentRequest(notice.order.kind === "none" || number === null ? null : { kind: notice.order.kind, number }, listOf(notice.productIds, notice.unnamed));
+    }
     case "only_item_kept": return texts.onlyItemKept(orderNumber(notice.orderId));
     case "ready": return texts.ready(orderNumber(notice.orderId));
     case "new_order": return texts.newOrder(orderNumber(notice.orderId), orderNumber(notice.previousOrderId));

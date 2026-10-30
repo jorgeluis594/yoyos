@@ -1,7 +1,7 @@
 import type { OrderId } from "@core/src/features/orders/domain/order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ProductId } from "@core/src/features/products/domain/product";
-import type { ChatMessageOutcome, ChatMessageOutcomes } from "@core/src/features/orders/domain/chat-message-outcome";
+import type { ChatMessageOutcome, ChatMessageOutcomes, PaymentOrder } from "@core/src/features/orders/domain/chat-message-outcome";
 
 /**
  * Every kind a seller notice has, including the ones whose data fields arrive with the single reader (`not_applied`, `caption_not_applied`,
@@ -10,7 +10,7 @@ import type { ChatMessageOutcome, ChatMessageOutcomes } from "@core/src/features
 export const sellerNoticeKinds = [
   "not_identified", "not_clear", "variant_missing", "variant_not_available", "quantity_above_limit", "unclear_item", "unnamed_add", "variant_only",
   "image_with_request", "no_open_order", "failed", "order_closed", "several_problems", "only_item_kept", "ready", "new_order",
-  "not_applied", "caption_not_applied", "product_not_available", "variant_for_several_pendings", "ready_with_pendings",
+  "not_applied", "caption_not_applied", "product_not_available", "variant_for_several_pendings", "ready_with_pendings", "payment_request",
 ] as const;
 export type SellerNoticeKind = (typeof sellerNoticeKinds)[number];
 
@@ -27,6 +27,8 @@ type ProblemNotice =
   | Readonly<{ kind: "product_not_available"; productId: ProductId | null }>
   /** `unnamed` counts the pendings the product list cannot name (doubtful product); a deleted product is counted by the texts. */
   | Readonly<{ kind: "variant_for_several_pendings"; productIds: readonly ProductId[]; unnamed: number }>
+  /** `productIds` and `unnamed` describe the pendings left after the message, as in `ready_with_pendings`. */
+  | Readonly<{ kind: "payment_request"; order: PaymentOrder; productIds: readonly ProductId[]; unnamed: number }>
   /** `productIds` are up to three distinct identified products; the other `problemCount - productIds.length` problems are counted. */
   | Readonly<{ kind: "several_problems"; problemCount: number; productIds: readonly ProductId[] }>;
 
@@ -61,6 +63,7 @@ function problemOf(outcome: ChatMessageOutcome): ProblemNotice | null {
     case "caption_not_applied": return { kind: "caption_not_applied", productId: outcome.productId, orderId: outcome.orderId };
     case "product_not_available": return { kind: "product_not_available", productId: outcome.productId };
     case "variant_for_several_pendings": return { kind: "variant_for_several_pendings", productIds: [...new Set(outcome.productIds)], unnamed: outcome.unnamed };
+    case "payment_requested": return { kind: "payment_request", order: outcome.order, productIds: [...new Set(outcome.productIds)], unnamed: outcome.unnamed };
     default: return null;
   }
 }
@@ -106,6 +109,7 @@ export function noticeReferences(notice: SellerNotice): Readonly<{ orderIds: rea
   const orderIds: OrderId[] = [];
   const productIds: ProductId[] = [];
   if ("orderId" in notice && notice.orderId) orderIds.push(notice.orderId);
+  if ("order" in notice && notice.order.kind !== "none") orderIds.push(notice.order.orderId);
   if ("previousOrderId" in notice) orderIds.push(notice.previousOrderId);
   if ("newOrderId" in notice && notice.newOrderId) orderIds.push(notice.newOrderId);
   if ("productId" in notice && notice.productId) productIds.push(notice.productId);
