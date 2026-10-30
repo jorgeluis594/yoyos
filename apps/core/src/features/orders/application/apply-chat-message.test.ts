@@ -70,7 +70,7 @@ const add = (context: ChatReadingContext, productId: ProductId, attributes: Read
 const actions = (...list: ReaderAction[]): ReaderAnswer => ({ kind: "actions", actions: list as [ReaderAction, ...ReaderAction[]], moreActions: false });
 
 type Reader = (context: ChatReadingContext) => ReaderAnswer | ReaderError;
-type Candidates = Readonly<{ productIds: readonly ProductId[]; matchCount: number; durationMs: number; timedOut: boolean }>;
+type Candidates = Readonly<{ productIds: readonly ProductId[]; unavailableProductIds?: readonly ProductId[]; matchCount: number; durationMs: number; timedOut: boolean }>;
 
 type Options = Readonly<{
   message?: ChatSourceMessage | null;
@@ -85,6 +85,8 @@ type Options = Readonly<{
   candidates?: Candidates;
   limits?: Partial<ApplyChatMessageDependencies["limits"]>;
   overrides?: Partial<ApplyChatMessageDependencies>;
+  fit?: ApplyChatMessageDependencies["fitReadingContext"];
+  photoStageTimeoutMs?: number;
 }>;
 
 type Store = { orders: Map<string, OrderAggregate>; pendings: ChatPendings; customers: Set<string>; messages: Map<string, string>; outcomes: Map<string, ChatMessageOutcomes> };
@@ -115,7 +117,7 @@ function harness(options: Options = {}) {
     readImage: async () => called("readImage", ok({ bytes: new Uint8Array([1]), contentType: "image/jpeg" })),
     identifyProductsInImage: async (_image, signal) => { identifySignals.push(signal); return called("identifyProductsInImage", ok(options.identification ?? visual(productCap))); },
     findProductsForReading: async (ids) => { readingIds.push([...ids]); return called("findProductsForReading", ok(catalog.filter((product) => ids.includes(product.productId)))); },
-    findMessageCandidates: async (text) => { candidateQueries.push(text); return called("findMessageCandidates", ok(options.candidates ?? { productIds: [], matchCount: 0, durationMs: 4, timedOut: false })); },
+    findMessageCandidates: async (text) => { candidateQueries.push(text); return called("findMessageCandidates", ok({ unavailableProductIds: [], ...(options.candidates ?? { productIds: [], matchCount: 0, durationMs: 4, timedOut: false }) })); },
     catalogSearchReadiness: async () => called("catalogSearchReadiness", ok(options.readiness ?? "ready")),
     readChatMessage: reader === null ? null : async (context) => {
       calls.push("readChatMessage");
@@ -143,6 +145,8 @@ function harness(options: Options = {}) {
     newPendingId: (() => { let counter = 700; return () => id(counter++) as ChatPendingId; })(),
     clock: () => at,
     limits: { maxItemQuantity: 99 as PositiveInteger, pendingTtlMs: 7 * 86_400_000, maxReaderProducts: 24, maxReaderItems: 40, maxReaderTextChars: 2000, ...options.limits },
+    fitReadingContext: (context) => options.fit ? options.fit(context) : { context, countedInputTokens: 1000, droppedProducts: 0 },
+    photoStageTimeoutMs: options.photoStageTimeoutMs ?? 40_000,
     ...options.overrides,
   };
   const controller = new AbortController();
@@ -166,7 +170,10 @@ describe("applyChatMessage: photos", () => {
   test("passes the attempt's signal to the photo identification", async () => {
     const h = harness({ identification: visual(productCap) });
     await h.run();
-    expect(h.identifySignals).toEqual([h.controller.signal]);
+    expect(h.identifySignals).toHaveLength(1);
+    expect(h.identifySignals[0]!.aborted).toBe(false);
+    h.controller.abort();
+    expect(h.identifySignals[0]!.aborted).toBe(true);
   });
 
   test("creates a pending and a variant-missing notice for a photo without size", async () => {
@@ -394,7 +401,7 @@ describe("applyChatMessage: texts and pendings", () => {
   });
 
   test("writes the pendings row only when the set changed", async () => {
-    const unchanged = harness({ identification: visual(productCap) });
+    const unchanged = harness({ message: textMessage("hola"), pendings: pendingSet() });
     await unchanged.run();
     expect(unchanged.pendingSaves).toEqual([]);
     const changed = harness({ identification: visual(productPolo) });
@@ -430,5 +437,163 @@ describe("applyChatMessage: texts and pendings", () => {
     h.controller.abort();
     expect(await h.run()).toMatchObject({ success: false, error: { code: "DEADLINE_EXCEEDED" } });
     expect(h.calls).not.toContain("readChatMessage");
+  });
+});
+
+const unnamedSet = (quantity: number): ReaderAction => ({ kind: "change_quantity", target: { kind: "unnamed" }, mode: "set", quantity });
+const remembering = (left: ChatPendings["lastIncomingPhoto"], ...pendings: ChatPending[]): ChatPendings => ({ ...pendingSet(...pendings), lastIncomingPhoto: left });
+const tooLarge = (): ReturnType<ApplyChatMessageDependencies["fitReadingContext"]> => ({ code: "CONTEXT_TOO_LARGE", countedInputTokens: 25_001 });
+
+describe("applyChatMessage: skipped texts and the photo memory", () => {
+  test("a text with only emoji or punctuation is skipped without a reader call or a memory change", async () => {
+    for (const text of ["👍", "...", " 😍😍 ", "¿?"]) {
+      const h = harness({ message: textMessage(text), pendings: remembering({ left: null }) });
+      expect(await succeeded(h.run())).toEqual({ kind: "skipped", reason: "empty_text" });
+      expect(h.calls).not.toContain("readChatMessage");
+      expect(h.calls).not.toContain("transaction");
+      expect(h.store.pendings.lastIncomingPhoto).toEqual({ left: null });
+    }
+    const digits = harness({ message: textMessage("2") });
+    expect(await succeeded(digits.run())).toMatchObject({ kind: "applied" });
+  });
+
+  test("a caption with only emoji counts as no caption and makes no reader call", async () => {
+    const h = harness({ message: photoMessage({ caption: "😍😍" }), identification: visual(productCap) });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }], noticeDue: false, trace: { readerCalls: 0, answer: "fixed" } });
+    expect(h.calls).not.toContain("readChatMessage");
+    expect(h.calls).not.toContain("findMessageCandidates");
+  });
+
+  test("a text skipped with the reader off or with no letter or digit leaves the memory unchanged", async () => {
+    const off = harness({ message: textMessage("quiero 3"), reader: null, pendings: remembering({ left: { kind: "pending", pendingId: id(20) as ChatPendingId } }, pendingOf(20)) });
+    expect(await succeeded(off.run())).toEqual({ kind: "skipped", reason: "reader_disabled" });
+    expect(off.store.pendings.lastIncomingPhoto).toEqual({ left: { kind: "pending", pendingId: id(20) } });
+    expect(off.pendingSaves).toEqual([]);
+  });
+
+  test("the context carries the latest order state and the photo just sent marker", async () => {
+    const left = { kind: "pending" as const, pendingId: id(20) as ChatPendingId };
+    const h = harness({ message: textMessage("quiero 3"), target: openTarget(), pendings: remembering({ left }, pendingOf(20)), reader: () => ({ kind: "no_intent" }) });
+    await h.run();
+    expect(h.contexts[0]).toMatchObject({ latestOrder: "open", photoJustSent: left, pendings: [{ ref: "Q1", photoJustSent: true }] });
+    const closed = harness({ message: textMessage("quiero 3"), target: { kind: "closed", orderId: id(9) as OrderId, number: 1007 as OrderNumber } });
+    await closed.run();
+    expect(closed.contexts[0]).toMatchObject({ latestOrder: "closed", photoJustSent: null });
+  });
+
+  test("a set quantity after the photo just sent sets what the photo left, silently", async () => {
+    const left = { kind: "pending" as const, pendingId: id(20) as ChatPendingId };
+    const h = harness({ message: textMessage("quiero 3 de esos"), pendings: remembering({ left }, pendingOf(20)), reader: () => actions(unnamedSet(3)) });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "pending_updated", pendingId: id(20) }], noticeDue: false });
+    expect(h.store.pendings.pendings[0]?.quantity).toBe(3);
+    expect(h.store.pendings.lastIncomingPhoto).toBeNull();
+  });
+
+  test("a photo transaction saves the next memory and a text transaction clears it", async () => {
+    const photo = harness({ identification: visual(productPolo) });
+    await photo.run();
+    expect(photo.store.pendings.lastIncomingPhoto).toEqual({ left: { kind: "pending", pendingId: photo.store.pendings.pendings[0]!.id } });
+    const text = harness({ message: textMessage("hola"), pendings: remembering({ left: { kind: "pending", pendingId: id(20) as ChatPendingId } }, pendingOf(20)) });
+    await text.run();
+    expect(text.store.pendings.lastIncomingPhoto).toBeNull();
+    expect(text.pendingSaves).toHaveLength(1);
+  });
+
+  test("a photo right after another photo remembers no leftover", async () => {
+    const h = harness({ identification: visual(productPolo), pendings: remembering({ left: null }) });
+    await h.run();
+    expect(h.store.pendings.lastIncomingPhoto).toEqual({ left: null });
+  });
+
+  test("a photo with the caption «quiero 3» leaves the previous photo's pending alone and gives its own product the quantity", async () => {
+    const left = { kind: "pending" as const, pendingId: id(20) as ChatPendingId };
+    const h = harness({ message: photoMessage({ caption: "quiero 3" }), identification: visual(productCap), pendings: remembering({ left }, pendingOf(20)), reader: () => actions(unnamedSet(3)) });
+    await h.run();
+    expect(h.contexts[0]!.photoJustSent).toBeNull();
+    expect(h.store.pendings.pendings).toMatchObject([{ id: id(20), quantity: 1 }]);
+    expect([...h.store.orders.values()].flatMap((order) => order.items.map(({ variantId, quantity }) => [variantId, quantity]))).toEqual([[cap.variantId, 3]]);
+  });
+
+  test("a text answered text_too_long or context_too_large clears the memory", async () => {
+    const left = { kind: "pending" as const, pendingId: id(20) as ChatPendingId };
+    const long = harness({ message: textMessage("x".repeat(30)), limits: { maxReaderTextChars: 20 }, pendings: remembering({ left }, pendingOf(20)) });
+    expect(await succeeded(long.run())).toMatchObject({ outcomes: [{ kind: "invalid_action", reason: "text_too_long" }] });
+    expect(long.store.pendings.lastIncomingPhoto).toBeNull();
+    const big = harness({ message: textMessage("quiero 3"), fit: tooLarge, pendings: remembering({ left }, pendingOf(20)) });
+    expect(await succeeded(big.run())).toMatchObject({ outcomes: [{ kind: "invalid_action", reason: "context_too_large" }], noticeDue: true });
+    expect(big.store.pendings.lastIncomingPhoto).toBeNull();
+  });
+});
+
+describe("applyChatMessage: input-token budget", () => {
+  test("a context over the input-token budget gets context_too_large without a reader call", async () => {
+    const h = harness({ message: textMessage("quiero 3"), fit: tooLarge });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "invalid_action", reason: "context_too_large" }], trace: { readerCalls: 0, countedInputTokens: null } });
+    expect(h.calls).not.toContain("readChatMessage");
+    const photo = harness({ message: photoMessage({ caption: "y una gorra" }), identification: notProduct, fit: tooLarge });
+    expect(await succeeded(photo.run())).toMatchObject({ outcomes: [{ kind: "invalid_action", reason: "context_too_large" }] });
+    expect(photo.calls).not.toContain("readChatMessage");
+  });
+
+  test("the reader and the check receive the same fitted context", async () => {
+    const dropped = (context: ChatReadingContext) => ({ context: { ...context, products: context.products.filter(({ productId }) => productId !== productPolo), truncated: true }, countedInputTokens: 777, droppedProducts: 1 });
+    const h = harness({ message: textMessage("un polo y una gorra"), candidates: { productIds: [productPolo, productCap], matchCount: 2, durationMs: 3, timedOut: false }, fit: dropped,
+      reader: (context) => actions({ kind: "add", product: { kind: "ref", ref: "P1" }, attributes: [], quantity: null, price: null }, add(context, productCap)) });
+    const done = await succeeded(h.run());
+    expect(h.contexts[0]!.products.map(({ productId }) => productId)).toEqual([productCap]);
+    // "P1" is the Gorra in the fitted context: the check resolved it against the same context the reader saw.
+    expect(done).toMatchObject({ trace: { countedInputTokens: 777, droppedForBudget: 1, contextTruncated: true } });
+    expect(h.store.orders.size).toBe(1);
+  });
+
+  test("not-sellable candidates are given after the sellable ones within the ceiling", async () => {
+    const unavailable = forReading(id(12) as ProductId, "Casaca vieja", [], false);
+    const h = harness({ message: textMessage("la casaca vieja o una gorra"), catalog: [polo, gorra, unavailable],
+      candidates: { productIds: [productCap], unavailableProductIds: [id(12) as ProductId], matchCount: 1, durationMs: 3, timedOut: false } });
+    await h.run();
+    expect(h.readingIds[0]).toEqual([productCap, id(12)]);
+    expect(h.contexts[0]!.products.map(({ productId, sellable }) => [productId, sellable])).toEqual([[productCap, true], [id(12), false]]);
+    const ceiling = harness({ message: textMessage("la casaca vieja o una gorra"), catalog: [polo, gorra, unavailable], limits: { maxReaderProducts: 1 },
+      candidates: { productIds: [productCap], unavailableProductIds: [id(12) as ProductId], matchCount: 1, durationMs: 3, timedOut: false } });
+    await ceiling.run();
+    expect(ceiling.readingIds[0]).toEqual([productCap]);
+  });
+
+  test("a product photo whose caption does not fit the budget gets the fixed answer with a caption doubt and no reader call, and remembers what it left", async () => {
+    const h = harness({ message: photoMessage({ caption: "quiero 3" }), identification: visual(productCap), fit: tooLarge });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }, { kind: "caption_not_applied", productId: productCap }], noticeDue: true, trace: { readerCalls: 0, answer: "fixed" } });
+    expect(h.calls).not.toContain("readChatMessage");
+    expect([...h.store.orders.values()][0]!.items.map(({ quantity }) => quantity)).toEqual([1]);
+    expect(h.store.pendings.lastIncomingPhoto).toMatchObject({ left: { kind: "item", variantId: cap.variantId, quantity: 1 } });
+  });
+});
+
+describe("applyChatMessage: photo-stage deadline", () => {
+  test("the image read and the identification receive a signal that ends at the photo-stage deadline", async () => {
+    const seen: AbortSignal[] = [];
+    const h = harness({ photoStageTimeoutMs: 20, overrides: {
+      readImage: async (_id, signal) => { seen.push(signal); return ok({ bytes: new Uint8Array([1]), contentType: "image/jpeg" }); },
+      identifyProductsInImage: async (_image, signal) => { seen.push(signal); return ok(visual(productCap)); } } });
+    await h.run();
+    expect(seen).toHaveLength(2);
+    expect(seen[0]).toBe(seen[1]);
+    expect(seen[0]).not.toBe(h.controller.signal);
+    expect(seen[0]!.aborted).toBe(false);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    expect(seen[0]!.aborted).toBe(true);
+    expect(h.controller.signal.aborted).toBe(false);
+  });
+
+  test("a stage cut by the photo-stage deadline is a deadline error, not a storage or embedder failure", async () => {
+    for (const code of ["IMAGE_STORAGE_UNAVAILABLE", "EMBEDDER_UNAVAILABLE"] as const) {
+      const h = harness({ photoStageTimeoutMs: 1, overrides: {
+        identifyProductsInImage: async (_image, signal) => { await new Promise((resolve) => setTimeout(resolve, 15)); expect(signal.aborted).toBe(true); return err({ code, message: "aborted" }); },
+        readImage: async () => ok({ bytes: new Uint8Array([1]), contentType: "image/jpeg" }) } });
+      expect(await h.run()).toMatchObject({ success: false, error: { code: "DEADLINE_EXCEEDED" } });
+      expect(h.calls).not.toContain("readChatMessage");
+      expect(h.calls).not.toContain("transaction");
+    }
+    const failure = harness({ overrides: { identifyProductsInImage: async () => err({ code: "EMBEDDER_UNAVAILABLE", message: "down" }) } });
+    expect(await failure.run()).toMatchObject({ success: false, error: { code: "EMBEDDER_UNAVAILABLE" } });
   });
 });

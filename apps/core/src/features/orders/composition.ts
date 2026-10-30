@@ -46,21 +46,24 @@ import { allocateOrderNumber, findOrderNumbers, findChatOrderTargetForUpdate, fi
 import { findSellableVariants, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
+import { recordFailedChatMessage } from "@core/src/features/orders/application/record-failed-chat-message";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
 import { createChatMessageDeadLetterHandler, createChatMessageHandler, type ChatMessageHandlerDependencies } from "@core/src/features/orders/application/chat-message-handler";
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
-import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { findChatPendings, findChatPendingsForUpdate, saveChatPendings, saveLastIncomingPhotoOfMessageChat } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { createFitReadingContext, readerTokenBudget, type FitReadingContext } from "@core/src/features/orders/infrastructure/chat-reader-budget";
+import { readChatReaderEnv } from "@core/src/features/orders/infrastructure/chat-reader-env";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
-import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
+import { findOutcome, insertFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import { claimNotice, releaseNotice } from "@core/src/features/orders/infrastructure/chat-message-notice-repository";
 import type { ClaimedNotice } from "@core/src/features/orders/domain/seller-notice";
 import { describeChatMessageNotice as describeNotice, type NoticeLocale } from "@core/src/features/orders/application/describe-chat-message-notice";
 import { findSellerNoticeTarget } from "@core/src/features/orders/application/find-seller-notice-target";
 import { renderSellerNotice } from "@core/src/features/orders/presentation/seller-notice-texts";
-import { products } from "@core/src/features/products/composition";
+import { photoStagesReserve, products } from "@core/src/features/products/composition";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
@@ -608,6 +611,13 @@ export const orders = {
 // The products composition imports the event handlers that import this module, so `products` is only read when a message is applied.
 const readChatMessage = createChatReaderFromEnv(process.env);
 
+// The budget needs the photo stages' reserve from the products composition, which is read lazily for the same reason: on the first message.
+let fitToBudget: FitReadingContext | null = null;
+const fitReadingContext: FitReadingContext = (context) => {
+  fitToBudget ??= createFitReadingContext({ budget: readerTokenBudget({ photoStagesReserveUsd: photoStagesReserve.reserveUsd, model: readChatReaderEnv(process.env).AI_READER_MODEL }) });
+  return fitToBudget(context);
+};
+
 const chatMessageDependencies: ApplyChatMessageDependencies = {
   findOutcome,
   findSourceMessage: async (id) => {
@@ -645,6 +655,8 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   newPendingId: () => randomUUID() as ChatPendingId,
   clock: () => new Date(),
   limits: readChatMessageLimits(process.env),
+  fitReadingContext,
+  get photoStageTimeoutMs() { return photoStagesReserve.timeoutMs; },
 };
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
@@ -662,7 +674,7 @@ const publishChatMessageProcessed: PublishChatMessageProcessed = async (payload)
 const chatMessageHandlerDependencies: ChatMessageHandlerDependencies = {
   withTenant: withTenantIsolation,
   apply: (input, signal) => applyChatMessage(input, chatMessageDependencies, signal),
-  recordFailedOutcome,
+  recordFailedOutcome: recordFailedChatMessage({ transaction: (work) => scopedOrderTransaction(getCompanyId(), work), insertFailedOutcome, saveLastIncomingPhotoOfMessageChat }),
   publishNotice: publishChatMessageProcessed,
   deadlineMs: chatMessageDeadlineMs,
   retries: chatMessagePolicy.retries,

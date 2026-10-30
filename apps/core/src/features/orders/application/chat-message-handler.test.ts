@@ -12,7 +12,7 @@ const context = (attempt = 1, signal = new AbortController().signal) => ({ attem
 
 const applied = (noticeDue: boolean): ApplyChatMessageOutcome => ({ kind: "applied", orderId: null, createdOrder: false,
   outcomes: noticeDue ? [{ kind: "unnamed_add" }] : [{ kind: "no_intent" }], noticeDue, pendingsBefore: 1, pendingsAfter: 0,
-  trace: { readerCalls: 1, answer: "no_intent", actionKinds: [], usage: null, contextTruncated: false, candidateMs: 12, candidateMatchCount: 3, candidatesTimedOut: false } });
+  trace: { readerCalls: 1, answer: "no_intent", actionKinds: [], usage: null, contextTruncated: false, photoJustSent: false, countedInputTokens: null, droppedForBudget: 0, candidateMs: 12, candidateMatchCount: 3, candidatesTimedOut: false } });
 
 function harness(over: Partial<ChatMessageHandlerDependencies> = {}) {
   const published: unknown[] = [];
@@ -108,8 +108,8 @@ describe("apply-chat-message handler", () => {
   test("logs the applied message without any text, caption or product name", async () => {
     await harness({ apply: async () => ok(applied(true)) }).handle(payload, metadata, context(3));
     const [fields] = vi.mocked(log.info).mock.calls[0]!;
-    expect(Object.keys(fields as object).sort()).toEqual(["actionKinds", "answer", "attempt", "candidateMatchCount", "candidateMs", "candidatesTimedOut", "chatId", "companyId", "contextTruncated", "createdOrder",
-      "durationMs", "event", "eventId", "messageId", "noticeDue", "orderId", "outcomeKinds", "pendingsAfter", "pendingsBefore", "readerCalls"]);
+    expect(Object.keys(fields as object).sort()).toEqual(["actionKinds", "answer", "attempt", "candidateMatchCount", "candidateMs", "candidatesTimedOut", "chatId", "companyId", "contextTruncated", "countedInputTokens", "createdOrder",
+      "droppedForBudget", "durationMs", "event", "eventId", "messageId", "noticeDue", "orderId", "outcomeKinds", "pendingsAfter", "pendingsBefore", "photoJustSent", "readerCalls"]);
     expect(fields).toMatchObject({ event: "orders_chat_message_applied", outcomeKinds: ["unnamed_add"], attempt: 3 });
   });
 

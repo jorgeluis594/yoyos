@@ -27,7 +27,7 @@ const openWith = (amount: number): ChatOrderTarget => ({ kind: "open", order: or
 const pending = (n: number, productId = productPolo): ChatPending => ({ id: id(n) as ChatPendingId, subject: { kind: "variant", productId }, known: {}, quantity: quantity(1), price: null, order: null,
   lastChangedAt: new Date("2026-10-22T11:00:00Z"), sourceMessageId: id(900) as ChatMessageId, requestId: id(n) as ChatPendingId });
 const applied = (outcomes: ChatMessageOutcome[], over: Partial<AppliedChatActions> = {}): AppliedChatActions => ({ target: { kind: "none" }, createdOrder: null,
-  changes: { added: [], updated: [], removedItemIds: [] }, pendings: { pendings: [], readyRemembered: false, lastIncomingPhoto: null }, outcomes: outcomes as AppliedChatActions["outcomes"], ...over });
+  changes: { added: [], updated: [], removedItemIds: [] }, pendings: { pendings: [], readyRemembered: false, lastIncomingPhoto: null }, outcomes: outcomes as unknown as AppliedChatActions["outcomes"], ...over });
 const withPendings = (...list: ChatPending[]): ChatPendings => ({ pendings: list, readyRemembered: false, lastIncomingPhoto: null });
 const next = (over: Partial<Parameters<typeof nextLastIncomingPhoto>[0]>, result: AppliedChatActions) =>
   nextLastIncomingPhoto({ kind: "photo", previous: null, shownProductIds: [productPolo], applied: result, ...over });

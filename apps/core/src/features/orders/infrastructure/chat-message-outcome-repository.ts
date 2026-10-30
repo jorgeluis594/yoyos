@@ -48,27 +48,32 @@ export async function recordOutcome(record: ChatMessageOutcomeRecord): Promise<R
   }
 }
 
-export type FailedOutcomeResult = Readonly<{ publishNotice: boolean }>;
+export type InsertedFailedOutcome = Readonly<{ inserted: boolean; stored: StoredChatMessageOutcome | null }>;
 
 /**
- * Records `failed` for a message that has no outcome yet. `publishNotice` is true when this call wrote the row, or when an
- * existing row calls for a notice that was not claimed. A message that does not exist leaves nothing to notify.
+ * Part of the failed message's transaction: inserts `failed` unless the message already has an outcome, and returns what is stored after
+ * the call. The insert selects from `ChatMessage`, so a message that does not exist inserts nothing (`stored: null`) without a foreign-key
+ * error aborting the transaction.
  */
-export async function recordFailedOutcome(messageId: ChatMessageId, errorCode: ChatMessageFailureCode): Promise<Result<FailedOutcomeResult, PersistenceError | InvalidStoredData>> {
+export async function insertFailedOutcome(messageId: ChatMessageId, errorCode: ChatMessageFailureCode): Promise<Result<InsertedFailedOutcome, PersistenceError | InvalidStoredData>> {
   const companyId = getCompanyId();
+  requireActiveTransaction(companyId);
+  const outcomes: ChatMessageOutcomes = [{ kind: "failed", errorCode }];
+  const parsed = chatMessageOutcomesSchema.safeParse(outcomes);
+  if (!parsed.success) return err({ code: "INVALID_STORED_DATA", message: "Invalid chat message outcomes" });
   try {
-    const outcomes: ChatMessageOutcomes = [{ kind: "failed", errorCode }];
-    const inserted = await prisma.chatMessageOutcome.createMany({ data: [{ companyId, messageId, outcomes: outcomes as unknown as Prisma.InputJsonArray }], skipDuplicates: true });
-    if (inserted.count === 1) return ok({ publishNotice: true });
+    const stored = JSON.stringify(parsed.data);
+    const inserted = await prisma.$executeRaw`INSERT INTO "ChatMessageOutcome" ("companyId", "messageId", "outcomes")
+      SELECT "companyId", "id", ${stored}::jsonb FROM "ChatMessage" WHERE "companyId" = ${companyId}::uuid AND "id" = ${messageId}::uuid
+      ON CONFLICT ("companyId", "messageId") DO NOTHING`;
+    if (inserted === 1) return ok({ inserted: true, stored: { outcomes: parsed.data, noticeSentAt: null } });
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
-    if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2003") {
-      log.warn({ event: "chat_message_outcome_without_message", messageId, errorCode }, "chat_message_outcome_without_message");
-      return ok({ publishNotice: false });
-    }
     log.error({ event: "unable_to_record_failed_chat_message_outcome", messageId, err: cause }, "unable_to_record_failed_chat_message_outcome");
     return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to record failed chat message outcome" });
   }
   const existing = await findOutcome(messageId);
-  return existing.success ? ok({ publishNotice: existing.data !== null && isNoticeDue(existing.data.outcomes, existing.data.noticeSentAt) }) : existing;
+  if (!existing.success) return existing;
+  if (!existing.data) log.warn({ event: "chat_message_outcome_without_message", messageId, errorCode }, "chat_message_outcome_without_message");
+  return ok({ inserted: false, stored: existing.data });
 }
