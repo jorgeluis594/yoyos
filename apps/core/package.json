@@ -29,11 +29,11 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-      "version": "12.5.1",
+      "version": "12.15.0",
       "onFail": "download"
     }
   },
-  "packageManager": "pnpm@12.5.1",
+  "packageManager": "pnpm@12.15.0",
   "type": "module",
   "devDependencies": {
     "@eslint/js": "^10.0.1",
