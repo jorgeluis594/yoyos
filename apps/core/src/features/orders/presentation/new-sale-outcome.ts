@@ -61,11 +61,12 @@ export function markSaleSaved(orderId: string): void {
   try { sessionStorage.setItem(savedMarkKey, orderId); } catch { /* storage is optional: the view then only skips the announcement */ }
 }
 
-/** Whether the saved view of this order was reached from its own **Guardar venta**; the mark is read once. */
-export function takeSaleSaved(orderId: string): boolean {
-  try {
-    const marked = sessionStorage.getItem(savedMarkKey) === orderId;
-    if (marked) sessionStorage.removeItem(savedMarkKey);
-    return marked;
-  } catch { return false; }
+/** Whether the saved view of this order was reached from its own **Guardar venta**. */
+export function readSaleSaved(orderId: string): boolean {
+  try { return sessionStorage.getItem(savedMarkKey) === orderId; } catch { return false; }
+}
+
+/** The saved view consumed the mark: a later visit to the same order is an ordinary one. */
+export function clearSaleSaved(orderId: string): void {
+  try { if (sessionStorage.getItem(savedMarkKey) === orderId) sessionStorage.removeItem(savedMarkKey); } catch { /* nothing to clear */ }
 }
