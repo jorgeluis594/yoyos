@@ -17,7 +17,8 @@ import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { StockOrderRow } from "@core/src/features/orders/application/deduct-due-stock";
 import { isOpenForMessageItems, type ChatId, type OrderChatSource } from "@core/src/features/orders/domain/message-order";
-import type { ChatOrderItemChanges, ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
+import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
+import type { OrderItemChanges } from "@core/src/features/orders/domain/order-edit";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 
 const aggregateInclude = { buyer: true, items: { orderBy: { id: "asc" as const } }, payments: { orderBy: { id: "asc" as const } } };
@@ -567,7 +568,7 @@ export async function findOpenChatOrderCandidate(chatId: ChatId) {
 }
 
 /** Applies the row changes of `applyChatActions` to the locked order and stores its recalculated totals. */
-export async function saveItemChanges(order: OrderAggregate, changes: ChatOrderItemChanges) {
+export async function saveItemChanges(order: OrderAggregate, changes: OrderItemChanges) {
   requireActiveTransaction(order.companyId);
   const money = (value: number) => new Prisma.Decimal(value.toString());
   try {
