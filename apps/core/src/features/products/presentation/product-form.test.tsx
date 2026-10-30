@@ -187,3 +187,15 @@ test("a selection of saved variants has no Quitar and cannot edit stock", () => 
   expect(button("Quitar", toolbar)).toBeUndefined();
   expect(button("Editar stock", toolbar).disabled).toBe(true);
 });
+
+test("the consolidated variants table has its own heading section, apart from the options and holding the selection chips and the counter", () => {
+  mount({ draft: draftFromProduct(product(false)) });
+  const heading = [...container.querySelectorAll("h4")].find((candidate) => candidate.textContent === "Variantes del producto")!;
+  const section = heading.closest("section")!;
+  expect(section.getAttribute("aria-labelledby")).toBe(heading.id);
+  expect(section.textContent).toContain("2 de 100 variantes");
+  expect(section.querySelector("table")).not.toBeNull();
+  expect(section.querySelector('[role="group"][aria-label="Seleccionar:"]')).not.toBeNull();
+  expect(section.textContent).not.toContain("Agregar otra opción");
+  expect(section.closest("[data-slot='card']")?.querySelector("[data-slot='card']")).toBeNull();
+});
