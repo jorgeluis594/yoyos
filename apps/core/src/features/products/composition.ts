@@ -118,17 +118,18 @@ export function createVisualSearch(env: Env): VisualSearchSetup {
 }
 
 const candidateEnvSchema = z.object({
-  TEXT_MATCH_CANDIDATES: z.coerce.number().int().min(1).max(MAX_CANDIDATES).default(defaultTextMatchLimits.candidates),
+  TEXT_MATCH_CANDIDATES: z.coerce.number().int().min(1).max(8).default(defaultTextMatchLimits.candidates),
+  TEXT_MATCH_UNAVAILABLE_CANDIDATES: z.coerce.number().int().min(0).max(4).default(defaultTextMatchLimits.unavailableCandidates),
   TEXT_MATCH_MIN_SIMILARITY: z.coerce.number().min(0).max(1).default(defaultTextMatchLimits.minSimilarity),
-  TEXT_MATCH_PAIR_BUDGET: z.coerce.number().int().positive().default(defaultTextMatchLimits.pairBudget),
+  TEXT_MATCH_PAIR_BUDGET: z.coerce.number().int().positive().max(50_000).default(defaultTextMatchLimits.pairBudget),
   TEXT_MATCH_MIN_WORDS: z.coerce.number().int().min(1).default(defaultTextMatchLimits.minWords),
-  TEXT_MATCH_MAX_WORDS: z.coerce.number().int().min(1).default(defaultTextMatchLimits.maxWords),
+  TEXT_MATCH_MAX_WORDS: z.coerce.number().int().min(1).max(30).default(defaultTextMatchLimits.maxWords),
 });
 
 /** Message candidate search limits from env; invalid values fail at startup, empty values count as unset. */
 export function createMessageCandidateLimits(env: Env) {
   const config = candidateEnvSchema.parse(Object.fromEntries(Object.entries(env).filter(([, value]) => value !== "")));
-  return { candidates: config.TEXT_MATCH_CANDIDATES, minSimilarity: config.TEXT_MATCH_MIN_SIMILARITY, pairBudget: config.TEXT_MATCH_PAIR_BUDGET,
+  return { candidates: config.TEXT_MATCH_CANDIDATES, unavailableCandidates: config.TEXT_MATCH_UNAVAILABLE_CANDIDATES, minSimilarity: config.TEXT_MATCH_MIN_SIMILARITY, pairBudget: config.TEXT_MATCH_PAIR_BUDGET,
     minWords: config.TEXT_MATCH_MIN_WORDS, maxWords: config.TEXT_MATCH_MAX_WORDS, timeoutMs: 1_000 };
 }
 

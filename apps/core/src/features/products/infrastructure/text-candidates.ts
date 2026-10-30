@@ -4,6 +4,7 @@ import { err, ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { getCompanyId, prisma, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import type { ProductId } from "@core/src/features/products/domain/product";
+import { productNameFolds } from "@core/src/features/products/domain/product-name-key";
 import { searchedWordCap, type TextMatchLimits } from "@core/src/features/products/domain/message-words";
 import type { MessageCandidates } from "@core/src/features/products/application/find-message-candidates";
 
@@ -23,10 +24,11 @@ function isStatementTimeout(cause: unknown): boolean {
     || (typeof message === "string" && message.includes("statement timeout")) || metaText.includes("statement timeout") || isStatementTimeout(inner);
 }
 
-const coverageRowSchema = z.object({ id: z.uuid(), matches: z.coerce.number().int().min(1) });
+const coverageRowSchema = z.object({ id: z.uuid(), sellable: z.boolean(), matches: z.coerce.number().int().min(0) });
 
 /**
- * Active products with a sellable variant ranked by coverage, the sum of `word_similarity` over the words their name matches (design §5.3).
+ * The company's products ranked by coverage, the sum of `word_similarity` over the words their name matches (design §5.2):
+ * the sellable ones (an active variant) and, apart, the ones with no active variant, which the reader gets as not sellable.
  * Scans the company's products as the app role under RLS, because the trigram index cannot serve these matches;
  * the cost is words × products, so the words are capped from the catalog size. A statement timeout is a result, not an error.
  */
@@ -47,10 +49,11 @@ export async function searchProductsByCoverage(words: readonly string[], limits:
       log.error({ event: "unable_to_find_message_candidates", companyId, errorCode: "PERSISTENCE_UNAVAILABLE" }, "unable_to_find_message_candidates");
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
     }
-    const candidates: MessageCandidates = { productIds: parsed.data.map(({ id }) => id as ProductId), unavailableProductIds: [], matchCount: parsed.data[0]?.matches ?? 0,
+    const idsOf = (sellable: boolean) => parsed.data.filter((row) => row.sellable === sellable).map(({ id }) => id as ProductId);
+    const candidates: MessageCandidates = { productIds: idsOf(true), unavailableProductIds: idsOf(false), matchCount: parsed.data[0]?.matches ?? 0,
       durationMs: Math.round(performance.now() - started), timedOut: false, wordsSearched: found.data.wordsSearched };
     log.info({ event: "message_candidates_found", companyId, wordCount: candidates.wordsSearched, matchCount: candidates.matchCount,
-      candidateCount: candidates.productIds.length, durationMs: candidates.durationMs }, "message_candidates_found");
+      candidateCount: candidates.productIds.length, unavailableCount: candidates.unavailableProductIds.length, durationMs: candidates.durationMs }, "message_candidates_found");
     return ok(candidates);
   } catch (cause) {
     if (isStatementTimeout(cause)) {
@@ -63,18 +66,30 @@ export async function searchProductsByCoverage(words: readonly string[], limits:
   }
 }
 
-/** The one ranking statement; exported so the benchmark can explain exactly what runs. */
-export function coverageQuery(companyId: string, words: readonly string[], limits: Pick<TextMatchLimits, "candidates" | "minSimilarity">) {
+/** The one ranking statement; exported so the benchmark can explain exactly what runs. At most `candidates + unavailableCandidates` rows leave it. */
+export function coverageQuery(companyId: string, words: readonly string[], limits: Pick<TextMatchLimits, "candidates" | "unavailableCandidates" | "minSimilarity">) {
   return Prisma.sql`
-    SELECT p.id, count(*) OVER ()::int AS matches
-    FROM (
-      SELECT p.id, p.name, sum(m.sim) AS coverage
+    WITH matched AS (
+      SELECT p.id, p.name, sum(m.sim) AS coverage,
+             EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active') AS sellable
       FROM "Product" p
       CROSS JOIN LATERAL (SELECT word_similarity(w, p.name) AS sim FROM unnest(${[...words]}::text[]) AS w) m
       WHERE p."companyId" = ${companyId}::uuid AND p.status = 'active' AND m.sim >= ${limits.minSimilarity}
-        AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active')
-      GROUP BY p.id, p.name
-    ) p
-    ORDER BY p.coverage DESC, length(p.name), p.id
-    LIMIT ${limits.candidates}`;
+      GROUP BY p."companyId", p.id, p.name
+    ),
+    keyed AS (
+      SELECT m.*, bool_or(m.sellable) OVER (PARTITION BY translate(lower(m.name), ${productNameFolds.from}, ${productNameFolds.to})) AS "sellableTwin"
+      FROM matched m
+    ),
+    ranked AS (
+      SELECT id, sellable, row_number() OVER (PARTITION BY sellable ORDER BY coverage DESC, length(name), id) AS rank,
+             (count(*) FILTER (WHERE sellable) OVER ())::int AS matches
+      FROM keyed
+      WHERE sellable OR (NOT "sellableTwin"
+        AND EXISTS (SELECT 1 FROM "Product" a WHERE a."companyId" = ${companyId}::uuid
+          AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = a."companyId" AND v."productId" = a.id AND v.status = 'active')))
+    )
+    SELECT id, sellable, matches FROM ranked
+    WHERE (sellable AND rank <= ${limits.candidates}) OR (NOT sellable AND rank <= ${limits.unavailableCandidates})
+    ORDER BY sellable DESC, rank`;
 }

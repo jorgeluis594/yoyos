@@ -13,7 +13,7 @@ vi.mock("@core/src/shared/infrastructure/persistance", () => ({
 vi.mock("@core/src/features/products/application/index-product-photos", async (original) => ({
   ...await original<typeof import("@core/src/features/products/application/index-product-photos")>(), indexProductPhotos }));
 
-import { createVisualSearch, indexProductPhotosHandler, publishProductPhotosAdded } from "@core/src/features/products/composition";
+import { createMessageCandidateLimits, createVisualSearch, indexProductPhotosHandler, publishProductPhotosAdded } from "@core/src/features/products/composition";
 
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -50,6 +50,23 @@ describe("createVisualSearch", () => {
   test("fails at startup for an unknown provider name", () => {
     expect(() => createVisualSearch({ PRODUCT_MATCHER_PROVIDER: "acme", OPENAI_API_KEY: "key" })).toThrow();
     expect(() => createVisualSearch({ IMAGE_EMBEDDER_PROVIDER: "acme" })).toThrow();
+  });
+});
+
+describe("createMessageCandidateLimits", () => {
+  test("defaults to 8 sellable and 2 not-sellable candidates", () => {
+    expect(createMessageCandidateLimits({})).toMatchObject({ candidates: 8, unavailableCandidates: 2, maxWords: 30 });
+  });
+
+  test.each([
+    { TEXT_MATCH_CANDIDATES: "9" }, { TEXT_MATCH_UNAVAILABLE_CANDIDATES: "5" }, { TEXT_MATCH_MAX_WORDS: "31" }, { TEXT_MATCH_PAIR_BUDGET: "50001" },
+  ])("%o fails at startup", (env) => {
+    expect(() => createMessageCandidateLimits(env)).toThrow();
+  });
+
+  test("accepts every bound", () => {
+    expect(createMessageCandidateLimits({ TEXT_MATCH_CANDIDATES: "8", TEXT_MATCH_UNAVAILABLE_CANDIDATES: "4", TEXT_MATCH_MAX_WORDS: "30", TEXT_MATCH_PAIR_BUDGET: "50000" }))
+      .toMatchObject({ candidates: 8, unavailableCandidates: 4, maxWords: 30, pairBudget: 50_000 });
   });
 });
 

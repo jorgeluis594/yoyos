@@ -15,6 +15,7 @@ import { catalogSearchReadiness } from "@core/src/features/products/application/
 import { hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
 import type { EmbeddingModel, EmbeddingVector } from "@core/src/features/products/domain/image-identification";
 import type { ProductId } from "@core/src/features/products/domain/product";
+import { productNameKey } from "@core/src/features/products/domain/product-name-key";
 
 const model = "openai/text-test" as EmbeddingModel;
 const companyA = randomUUID();
@@ -90,6 +91,77 @@ test("finds the products whose name appears in a whole message", async () => {
   expect(found).toMatchObject({ timedOut: false, matchCount: expect.any(Number), unavailableProductIds: [] });
   const nothing = await candidates(company, "hola");
   expect(nothing).toMatchObject({ productIds: [], matchCount: 0, timedOut: false });
+  await dropCompany(company);
+});
+
+const inactive = (name: string) => seedProduct({ name, variants: [{ status: "inactive" }] });
+const rawRows = (companyId: string, text: string) => withTenantIsolation(companyId, () => withinTransaction(async () => ({ success: true as const,
+  data: await prisma.$queryRaw<{ id: string; sellable: boolean; matches: number }[]>(coverageQuery(companyId, searchedWords(text), limits)) })));
+
+test("a named product whose variants are all inactive is returned as not sellable", async () => {
+  const company = await freshCompany();
+  await withTenantIsolation(company, () => insertProductNames(["Casaca denim"]));
+  await withTenantIsolation(company, () => inactive("Casaca jean"));
+  const found = await candidates(company, "quiero la casaca jean en L");
+  expect(await namesOf(company, found.productIds)).toEqual(["Casaca denim"]);
+  expect(await namesOf(company, found.unavailableProductIds)).toEqual(["Casaca jean"]);
+  await dropCompany(company);
+});
+
+test("a not-sellable product with the same name as a sellable one is not returned", async () => {
+  const company = await freshCompany();
+  await withTenantIsolation(company, () => insertProductNames(["Polo básico"]));
+  await withTenantIsolation(company, () => inactive("Polo básico"));
+  const found = await candidates(company, "quiero el polo básico");
+  expect(await namesOf(company, found.productIds)).toEqual(["Polo básico"]);
+  expect(found.unavailableProductIds).toEqual([]);
+  await dropCompany(company);
+});
+
+test("a not-sellable product named like a sellable one up to accents and case is not returned when both match", async () => {
+  const company = await freshCompany();
+  await withTenantIsolation(company, () => insertProductNames(["polo basico", "Gorra roja"]));
+  await withTenantIsolation(company, () => inactive("Polo básico"));
+  await withTenantIsolation(company, () => inactive("POLO BÁSICO"));
+  const found = await candidates(company, "quiero el polo basico");
+  expect(await namesOf(company, found.productIds)).toEqual(["polo basico"]);
+  expect(found.unavailableProductIds).toEqual([]);
+  await dropCompany(company);
+});
+
+test("a fully uppercase accented not-sellable name has the same key in SQL as in productNameKey", async () => {
+  const company = await freshCompany();
+  const names = ["CAMISÓN AÑEJO ÇÀ", "Camisón añejo çà"];
+  await withTenantIsolation(company, () => insertProductNames([names[1]!]));
+  await withTenantIsolation(company, () => inactive(names[0]!));
+  expect(productNameKey(names[0]!)).toBe(productNameKey(names[1]!));
+  const found = await candidates(company, "quiero el camison anejo");
+  expect(found.unavailableProductIds).toEqual([]);
+  expect(found.productIds).toHaveLength(1);
+  await dropCompany(company);
+});
+
+test("a company whose products all have only inactive variants returns no candidates", async () => {
+  const company = await freshCompany();
+  await withTenantIsolation(company, () => inactive("Casaca jean"));
+  await withTenantIsolation(company, () => inactive("Casaca denim"));
+  expect(await candidates(company, "quiero la casaca jean")).toMatchObject({ productIds: [], unavailableProductIds: [], matchCount: 0, timedOut: false });
+  await dropCompany(company);
+});
+
+test("at most the configured sellable and not-sellable candidates leave the statement, and matchCount counts sellable matches", async () => {
+  const company = await freshCompany();
+  await withTenantIsolation(company, () => insertProductNames(Array.from({ length: 20 }, (_, index) => `Chompa verde modelo ${index}`)));
+  for (let index = 0; index < 10; index += 1) await withTenantIsolation(company, () => inactive(`Chompa verde agotada ${index}`));
+  const rows = await rawRows(company, "quiero la chompa verde");
+  expect(rows.data).toHaveLength(10);
+  expect(rows.data.filter(({ sellable }) => sellable)).toHaveLength(8);
+  expect(rows.data.filter(({ sellable }) => !sellable)).toHaveLength(2);
+  expect(rows.data.every(({ matches }) => matches === 20)).toBe(true);
+  const found = await candidates(company, "quiero la chompa verde");
+  expect(found).toMatchObject({ matchCount: 20 });
+  expect(found.productIds).toHaveLength(8);
+  expect(found.unavailableProductIds).toHaveLength(2);
   await dropCompany(company);
 });
 
