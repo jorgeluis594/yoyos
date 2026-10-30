@@ -182,7 +182,7 @@ orderRoutes.post("/:id/payments", async (request, response: Response<unknown, Pr
   try {
     const input: RegisterPaymentInput = { ...parsed.data, orderId: parsedId.data as OrderId, paymentId: parsed.data.paymentId as PaymentId };
     const result = await orders.registerPayment(input, orderContext(response));
-    return result.success ? response.json(registerPaymentResponseSchema.parse({ order: toOrderAggregateJson(result.data.order), stock: result.data.stock }))
+    return result.success ? response.json(registerPaymentResponseSchema.parse({ order: toOrderAggregateJson(result.data.order) }))
       : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
