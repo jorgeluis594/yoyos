@@ -646,8 +646,11 @@ test("photos still uploading or failed cannot be opened and the viewer skips the
   await answer(0, done(0));
   click(button("Ver la foto 2 de 3"));
   expect(viewerImage()).toBe("https://img.test/new-0.png");
+  expect(dialog()?.textContent).toContain("Foto 2 de 3");
+  expect(dialog()?.querySelector("img")?.getAttribute("alt")).toBe("Foto 2 de 3");
   click(dialogButton("Foto siguiente"));
   expect(viewerImage()).toBe("https://img.test/0.png");
+  expect(dialog()?.textContent).toContain("Foto 1 de 3");
 });
 
 test("opening a photo keeps the other tile actions working", () => {
@@ -657,4 +660,24 @@ test("opening a photo keeps the other tile actions working", () => {
   click(button("Quitar la foto 2 de 2"));
   expect(dialog()).toBeNull();
   expect(names()[1]).toContain("se eliminará al guardar");
+});
+
+test("a photo that cannot load shows the failure with Reintentar, and stepping to another photo starts clean", () => {
+  mount({ photos: savedPhotos(2) });
+  click(button("Ver la foto 1 de 2"));
+  act(() => { dialog()!.querySelector("img")!.dispatchEvent(new Event("error")); });
+  expect(dialog()?.querySelector("[role='alert']")?.textContent).toContain("No se pudo cargar la foto.");
+  expect(dialog()?.querySelector("img")).toBeNull();
+  click(dialogButton("Foto siguiente"));
+  expect(dialog()?.querySelector("[role='alert']")).toBeNull();
+  expect(viewerImage()).toBe("https://img.test/1.png");
+});
+
+test("Reintentar in the viewer loads the photo again", () => {
+  mount({ photos: savedPhotos(1) });
+  click(button("Ver la foto 1 de 1"));
+  act(() => { dialog()!.querySelector("img")!.dispatchEvent(new Event("error")); });
+  click([...dialog()!.querySelectorAll("button")].find((candidate) => candidate.textContent === "Reintentar"));
+  expect(dialog()?.querySelector("[role='alert']")).toBeNull();
+  expect(viewerImage()).toBe("https://img.test/0.png");
 });

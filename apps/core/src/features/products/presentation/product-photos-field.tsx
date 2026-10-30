@@ -283,7 +283,7 @@ function Thumbnail({ photo, index, total, photos, onOpen }: { photo: FieldPhoto;
     </div>
     {/* After the actions in the DOM so the tile's first button stays the first action; a photo still uploading or failed has nothing to show, so it has no button. */}
     {isKept(photo) && <button type="button" data-photo-open aria-label={t("productPhotos.openLabel", position)} onClick={() => onOpen(photo.key)}
-      className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background" />}
+      className="absolute inset-0 rounded-md transition-colors hover:bg-foreground/10 hover:ring-2 hover:ring-inset hover:ring-ring focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background" />}
   </li>;
 }
 
@@ -344,7 +344,7 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
     marks: (marked, savedOnes) => t(savedOnes ? "productPhotos.markedSaved" : "productPhotos.markedNew", { count: marked }),
     freeUp: t("productPhotos.freeUp"),
   });
-  const viewable = field.photos.filter(isKept).map((photo) => ({ key: photo.key, url: photo.url }));
+  const viewable = field.photos.flatMap((photo, at) => isKept(photo) ? [{ key: photo.key, url: photo.url, position: at + 1, total: field.photos.length }] : []);
   const empty = field.photos.length === 0;
   const open = () => input.current?.click();
   // Free cells keep the box at 12 cells: the 8 small ones minus those taken by the photos next to the primary and by the add tile.
