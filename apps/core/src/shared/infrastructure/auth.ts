@@ -83,7 +83,9 @@ export const auth = betterAuth({
     loginPage: "/login",
     consentPage: "/assistants/authorize",
     scopes: [...oauthScopes],
-    resources: [{ identifier: mcpResourceUrl, name: "Yoyos" }],
+    resources: [{ identifier: mcpResourceUrl, name: "Yoyos", allowedScopes: [...oauthScopes] }],
+    // No client_credentials: every token belongs to an owner who allowed access on the authorization screen.
+    grantTypes: ["authorization_code", "refresh_token"],
     clientRegistrationDefaultResources: [mcpResourceUrl],
     clientRegistrationDefaultScopes: [...oauthScopes],
     allowDynamicClientRegistration: true,
