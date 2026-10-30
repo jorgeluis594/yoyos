@@ -1,8 +1,9 @@
 import { expect, test } from "vitest";
+import { stockDeductionRecoveryPolicy } from "@core/src/composition/scheduled-jobs";
 import { err, ok } from "@shared/functional";
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
-import { recoverDueStockDeductions, type RecoverDueStockDeductionsDependencies } from "@core/src/features/orders/application/recover-due-stock-deductions";
+import { STOCK_DEDUCTION_RECOVERY_CRON, STOCK_DEDUCTION_RECOVERY_LAST_PASS_START_MS, STOCK_DEDUCTION_RECOVERY_PASS_BUDGET, STOCK_DEDUCTION_RECOVERY_PASS_OFFSETS_MS, recoverDueStockDeductions, type RecoverDueStockDeductionsDependencies } from "@core/src/features/orders/application/recover-due-stock-deductions";
 
 const company = (n: number) => `00000000-0000-4000-8000-0000000009${String(n).padStart(2, "0")}` as CompanyId;
 const order = (n: number) => `00000000-0000-4000-8000-0000000001${String(n).padStart(2, "0")}` as OrderId;
@@ -113,4 +114,16 @@ test("keeps going after a failed order and fails only when listing companies fai
   let calls = 0;
   const partial = { ...f.deps, passOffsetsMs: [0, 20_000], listCompaniesWithOverdueStockDeductions: async () => (calls++ === 0 ? err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "down" }) : ok([] as CompanyId[])) };
   expect(await recoverDueStockDeductions(new AbortController().signal, partial)).toMatchObject({ success: true, data: [{ pass: 2 }] });
+});
+
+test("the schedule recovers a due order within one minute: every pass is at most twenty seconds from the next and a run ends before the next one starts", () => {
+  expect(STOCK_DEDUCTION_RECOVERY_CRON).toBe("* * * * *");
+  const offsets = STOCK_DEDUCTION_RECOVERY_PASS_OFFSETS_MS;
+  const starts = [...offsets, 60_000 + offsets[0]];
+  const longestWait = Math.max(...starts.slice(1).map((start, index) => start - starts[index]!));
+  expect(longestWait).toBeLessThanOrEqual(20_000);
+  // An order that becomes due right after a pass starts waits for the next pass, which can itself run up to its time budget.
+  expect(longestWait + STOCK_DEDUCTION_RECOVERY_PASS_BUDGET.maxMs).toBeLessThanOrEqual(60_000);
+  expect(STOCK_DEDUCTION_RECOVERY_LAST_PASS_START_MS + STOCK_DEDUCTION_RECOVERY_PASS_BUDGET.maxMs).toBeLessThan(stockDeductionRecoveryPolicy.expireInSeconds! * 1000);
+  expect(Math.max(...offsets)).toBeLessThanOrEqual(STOCK_DEDUCTION_RECOVERY_LAST_PASS_START_MS);
 });

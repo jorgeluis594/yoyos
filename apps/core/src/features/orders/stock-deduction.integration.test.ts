@@ -112,8 +112,9 @@ test("a restock serves the oldest waiting order that fits and leaves the larger 
   expect(await s.deducted(small)).toBe(true);
   expect(await s.stock()).toBe(1);
   expect(await s.run(() => orders.getAggregate(old, s.context)).then((found) => found.success ? found.data.stockDeducted : null)).toBe(false);
-  expect(await s.run(async () => { const found = await orders.getAggregate(old, s.context); return found.success ? await orders.describeStockDue([found.data]) : null; }))
-    .toMatchObject({ success: true });
+  const described = await s.run(async () => { const found = await orders.getAggregate(old, s.context); return found.success ? await orders.describeStockDue([found.data]) : null; });
+  expect(described).toMatchObject({ success: true });
+  expect(described && described.success ? described.data.get(old) : null).toEqual(waiting(s, 0, 1));
 });
 
 test("a restock of one variant leaves an order short of another variant waiting", async () => {
@@ -122,6 +123,8 @@ test("a restock of one variant leaves an order short of another variant waiting"
   await s.pay(id, 20);
   await s.restock(0, 5);
   expect(await s.deducted(id)).toBe(false);
+  const described = await s.run(async () => { const found = await orders.getAggregate(id, s.context); return found.success ? await orders.describeStockDue([found.data]) : null; });
+  expect(described && described.success ? described.data.get(id) : null).toEqual(waiting(s, 1, 0));
   await s.restock(1, 1);
   expect(await s.deducted(id)).toBe(true);
   expect([await s.stock(0), await s.stock(1)]).toEqual([4, 0]);
@@ -150,7 +153,7 @@ test("voiding the covering payment takes the order out of waiting", async () => 
     .toMatchObject({ success: true, data: new Map([[id, null]]) });
 });
 
-test("a delivery change that raises the total takes the order out of waiting and one that lowers it makes it due", async () => {
+test("a delivery change that keeps the payments covering the total leaves the order waiting", async () => {
   const s = await shop([0]);
   const settings = await s.run(() => deliverySettings.save({ expectedVersion: 0, agency: { enabled: false }, home: { enabled: false },
     store: { enabled: true, pickupPoint: { name: "Store", address: "Address", instructions: null } } }, s.context));
@@ -161,6 +164,25 @@ test("a delivery change that raises the total takes the order out of waiting and
   if (!store.success) throw new Error("setup");
   expect(await s.run(() => orders.setDelivery({ orderId: id, delivery: store.data, expectedPrice: { amount: 0, currency: "PEN" } }, s.context)))
     .toMatchObject({ success: true, data: { order: { stockDeducted: false }, stockDue: waiting(s, 0, 0) } });
+});
+
+test("a delivery change that raises the total above the payments takes the order out of waiting", async () => {
+  const s = await shop([0]);
+  const zone = await s.run(() => deliverySettings.saveZones({ expectedVersion: 0, zones: [{ kind: "new" as const, name: "Home zone", enabled: true, districtCodes: ["150122"],
+    options: [{ kind: "new" as const, method: "home" as const, name: "Home", enabled: true, price: { amount: 10, currency: "PEN" as const } }] }] }, s.context));
+  expect(zone).toMatchObject({ success: true });
+  expect(await s.run(() => deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, store: { enabled: false, pickupPoint: null } }, s.context)))
+    .toMatchObject({ success: true });
+  const quotation = await s.run(() => deliverySettings.createQuotation({ companyId: s.companyId, country: "PE", districtCode: "150122", address: null, instructions: null }));
+  if (!quotation.success) throw new Error("setup");
+  const id = await s.create([[0, 2]]);
+  expect(await s.pay(id, 20)).toMatchObject({ success: true, data: { stockDue: waiting(s, 0, 0) } });
+  const home = parseRatedDeliverySelection({ method: "home", rateId: quotation.data.rates[0]!.rate.id, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } },
+    destination: { address: "Street 1", districtCode: "150122", instructions: null } });
+  if (!home.success) throw new Error("setup");
+  const changed = await s.run(() => orders.setDelivery({ orderId: id, delivery: home.data, expectedPrice: { amount: 10, currency: "PEN" } }, s.context));
+  expect(changed).toMatchObject({ success: true, data: { order: { stockDeducted: false, total: { amount: 30, currency: "PEN" } }, stockDue: null } });
+  expect(await s.stock()).toBe(0);
 });
 
 test("creating an order with payments and short stock saves it waiting, and with enough stock saves it deducted", async () => {
@@ -206,6 +228,20 @@ test("a waiting order takes restored units before a new sale", async () => {
   await s.cancelAndRestore(holder);
   expect(await s.deducted(waitingOrder)).toBe(true);
   expect(await s.pay(newSale, 20)).toMatchObject({ success: true, data: { order: { stockDeducted: false }, stockDue: waiting(s, 0, 0) } });
+});
+
+test("a new sale paid while the restoration runs never takes the units of an older waiting order", async () => {
+  const s = await shop([2]);
+  const holder = await s.create([[0, 2]], new Date("2026-10-01"));
+  const waitingOrder = await s.create([[0, 2]], new Date("2026-10-02"));
+  const newSale = await s.create([[0, 2]], new Date("2026-10-03"));
+  await s.pay(holder, 20);
+  await s.pay(waitingOrder, 20);
+  const [, paid] = await Promise.all([s.cancelAndRestore(holder), s.pay(newSale, 20)]);
+  expect(paid).toMatchObject({ success: true });
+  expect(await s.deducted(waitingOrder)).toBe(true);
+  expect(await s.deducted(newSale)).toBe(false);
+  expect(await s.stock()).toBe(0);
 });
 
 test("shipping a partially paid order with short stock still answers INSUFFICIENT_STOCK", async () => {
@@ -482,6 +518,8 @@ test("the checkout confirms a delivery that covers the order with short stock", 
   expect(confirmed).toMatchObject({ success: true });
   expect(await s.run(async () => await prisma.order.findUniqueOrThrow({ where: { id: orderId } }))).toMatchObject({ checkoutConfirmedAt: expect.any(Date), stockDeducted: false });
   expect(await s.stock()).toBe(3);
+  const described = await s.run(async () => { const found = await orders.getAggregate(orderId, s.context); return found.success ? await orders.describeStockDue([found.data]) : null; });
+  expect(described && described.success ? described.data.get(orderId) : null).toEqual(waiting(s, 0, 3));
 });
 
 async function reported(s: Shop, orderId: OrderId) {
