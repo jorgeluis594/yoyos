@@ -1,11 +1,10 @@
-import type { ImageExpectation, MessageExpectation, OutcomeKind, TextExpectation } from "@core/evals/cases/schema";
+import type { ImageExpectation, MessageExpectation, OutcomeKind } from "@core/evals/cases/schema";
 import type { CaseRecord } from "@core/evals/lib/case-record";
 
 /**
- * Grades a model's own pick against what the case expects, whatever the gate then did with it. The calibration needs this: below a
- * gate every outcome field is decided by the gate (an action under 0.6 always ends as `ambiguous_intent`), so grading by outcome only
- * confirms the gate. True or false when the case says what the right pick is, null when it cannot tell (an item choice, or a record
- * from before picks were kept).
+ * Grades the visual-search model's own pick against what the case expects, whatever the gate then did with it. Only the visual
+ * sources are graded: the reading of text has no certainty gate (technical design §2). True or false when the case says what the right
+ * pick is, null when it cannot tell.
  */
 
 type Certainty = CaseRecord["certainties"][number];
@@ -14,68 +13,28 @@ type Certainty = CaseRecord["certainties"][number];
 export function pickOf(certainty: Certainty): string | null | undefined {
   if (certainty.pick !== undefined) return certainty.pick;
   if (certainty.detail === undefined) return undefined;
-  if (certainty.source === "action") return certainty.detail;
   const [, chosen] = certainty.detail.split(" → ");
   if (chosen === undefined) return undefined;
   return chosen === "none" ? null : chosen;
 }
 
-const sortedValues = (values: readonly string[]) => [...values].sort().join(" ");
-const noProductOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["no_intent", "ambiguous_intent", "not_identified", "image_with_request"]);
-
-/**
- * Tools the interpreter rewrites after the Decision (variantOnlyRule in chat-message-interpreter.ts): a variant change that is not an
- * explicit request runs as the variant-only report. The pick is then graded as the tool that ran, so calibration follows the outcome.
- */
-const rewrites: Readonly<Record<string, string>> = { change_item_variant: "report_variant_without_product" };
-
-/** The tools that ran, from the record's signature («tools|outcomes|order»). */
-const ranTools = (record: CaseRecord) => record.signature.split("|")[0]!.split("+").filter(Boolean);
-
-function gradeAction(chosen: string, record: CaseRecord): boolean | null {
-  const expectations = record.expected as readonly MessageExpectation[];
-  const scorable = expectations.filter(({ tools }) => tools !== undefined && tools.length > 0);
-  if (!scorable.length) return null;
-  const rewritten = rewrites[chosen];
-  const pick = rewritten !== undefined && ranTools(record).includes(rewritten) && !ranTools(record).includes(chosen) ? rewritten : chosen;
-  // One expected tool: the Decision chose it. Several: it chose «several».
-  return scorable.some(({ tools }) => tools!.length === 1 ? pick === tools![0] : pick === "several");
-}
+const noProductOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["no_intent", "not_identified", "image_with_request"]);
 
 const orderedProducts = (expectations: readonly MessageExpectation[]) => new Set(expectations.flatMap(({ order }) => order?.map(({ product }) => product) ?? []));
 
-/** A product pick (text or visual) in a message case is right when an acceptable final order has that product. */
+/** A product pick in a message case is right when an acceptable final order has that product. */
 function gradeMessageProduct(pick: string | null, expectations: readonly MessageExpectation[]): boolean | null {
-  // A declined photo leaves its product out of every order, so nothing says which product it showed.
-  if (expectations.some(({ tools }) => tools?.includes("decline_shown_product"))) return null;
   const products = orderedProducts(expectations);
-  const expectsNoProduct = expectations.every(({ order, outcomes }) => !order?.length && outcomes.every((kind) => noProductOutcomes.has(kind)));
+  const expectsNoProduct = expectations.every(({ order, outcomes, notice }) => !order?.length
+    && (outcomes ?? []).every((kind) => noProductOutcomes.has(kind)) && (outcomes !== undefined || notice == null || notice === "not_identified"));
   if (pick === null) {
-    if (expectsNoProduct || expectations.some(({ outcomes }) => outcomes.includes("not_identified"))) return true;
+    if (expectsNoProduct || expectations.some(({ outcomes, notice }) => outcomes?.includes("not_identified") || notice === "not_identified")) return true;
     return products.size ? false : null;
   }
-  if (products.has(pick as never)) return true;
+  if (products.has(pick)) return true;
   // With no product in any acceptable order: wrong when nothing should be identified (a selfie, a product not sold), else unknown
   // (a photo whose product ends in «Falta la variante» names no order line).
   return products.size || expectsNoProduct ? false : null;
-}
-
-function gradeMessageVariant(pick: string | null, expectations: readonly MessageExpectation[]): boolean | null {
-  const variants = new Set(expectations.flatMap(({ order }) => order?.map(({ variant }) => sortedValues(Object.values(variant))) ?? []));
-  if (pick === null) {
-    if (expectations.some(({ outcomes }) => outcomes.includes("variant_not_available") || outcomes.includes("variant_missing"))) return true;
-    return variants.size ? false : null;
-  }
-  return variants.size ? variants.has(sortedValues(pick.split(" "))) : null;
-}
-
-function gradeText(pick: string | null, expectations: readonly TextExpectation[]): boolean | null {
-  return expectations.some((expectation) => {
-    if (expectation.kind === "found") return pick === expectation.product;
-    if (expectation.kind === "not_found") return pick === null;
-    // «Producto no claro»: a pick among the expected candidates is a right reading; «none» is not.
-    return pick !== null && (expectation.products === undefined || expectation.products.includes(pick as never));
-  });
 }
 
 /** A visual pick names the expected product; «none» is right when the photo may end unidentified or as no product. */
@@ -89,19 +48,14 @@ function gradeShowsProduct(pick: string, expectations: readonly ImageExpectation
 }
 
 export function gradePick(certainty: Certainty, record: CaseRecord): boolean | null {
-  if (certainty.source === "item") return null;
   const pick = pickOf(certainty);
   if (pick === undefined) return null;
-  if (record.pass === "text") return certainty.source.startsWith("text") ? gradeText(pick, record.expected as readonly TextExpectation[]) : null;
   if (record.pass === "image") {
     const expectations = record.expected as readonly ImageExpectation[];
     if (certainty.source === "shows_product") return pick === null ? null : gradeShowsProduct(pick, expectations);
     return certainty.source.startsWith("visual") ? gradeImage(pick, expectations) : null;
   }
   // Whether a message photo is a product is not stated by message expectations (a declined product photo also ends as no intent).
-  if (certainty.source === "shows_product") return null;
-  const expectations = record.expected as readonly MessageExpectation[];
-  if (certainty.source === "action") return pick === null ? null : gradeAction(pick, record);
-  if (certainty.source.startsWith("variant")) return gradeMessageVariant(pick, expectations);
-  return gradeMessageProduct(pick, expectations);
+  if (certainty.source === "shows_product" || record.pass === "conversation") return null;
+  return certainty.source.startsWith("visual") ? gradeMessageProduct(pick, record.expected as readonly MessageExpectation[]) : null;
 }

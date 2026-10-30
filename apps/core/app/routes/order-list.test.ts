@@ -152,7 +152,7 @@ test("web list loader returns the delivery method and district of each stored sn
     agency: { id: id(15), name: "Sede", address: "Jr. 1", location: district("LA VICTORIA") }, recordedBy };
   const store = { method: "store", recipient, pickupPoint: { name: "Tienda", address: "Calle 1", instructions: null }, settingsVersion: 1, recordedBy };
   const items = [{ ...built(1), delivery: home }, { ...built(2), delivery: agency }, { ...built(3), delivery: store },
-    built(4), { ...built(5), delivery: home, cancelled: true }] as unknown as OrderAggregate[];
+    built(4), { ...built(5), delivery: home, cancelled: true, cancelledAt: new Date("2026-10-01T00:00:00Z") }] as unknown as OrderAggregate[];
   const list = vi.spyOn(orders, "listAggregates").mockResolvedValue({ success: true, data: { items, page: 1, pageSize: 20, total: 5 } });
 
   const result = await loader(args("http://localhost/es-PE/orders"));

@@ -1,9 +1,9 @@
-import type { MessageExpectation, OutcomeKind } from "@core/evals/cases/schema";
+import type { MessageExpectation, OrderLine } from "@core/evals/cases/schema";
 import { splitOf, type EvalSplit } from "@core/evals/cases/split";
 import type { CaseRecord } from "@core/evals/lib/case-record";
 import type { ModelCall } from "@core/evals/lib/model-meter";
 import { buildReport, type EvalReport } from "@core/evals/lib/report";
-import { noticeErrorOf } from "@core/evals/lib/scorers";
+import { scoreMessage, type MessageActual } from "@core/evals/lib/scorers";
 
 /**
  * Recomputes a run's report from the case records saved in its result JSON, with no model call: the report views can change
@@ -12,12 +12,22 @@ import { noticeErrorOf } from "@core/evals/lib/scorers";
 
 export type ResultFile = Readonly<{ report: EvalReport; records: readonly CaseRecord[]; extraCalls?: readonly ModelCall[] }>;
 
-/** The notice error of a message record under the current rules: from its matched expectation and its actual outcomes. */
-export function rescoreNotice(record: CaseRecord): CaseRecord {
-  if (record.pass !== "interpretation" && record.pass !== "end_to_end") return record;
-  const expected = (record.expected as readonly MessageExpectation[])[record.expectationIndex]?.outcomes ?? [];
-  const actual = ((record.actual as { outcomes?: readonly OutcomeKind[] }).outcomes) ?? [];
-  return { ...record, noticeError: noticeErrorOf(record.exactPassed, expected, actual) };
+/**
+ * Scores a message record again under the current rules, from its stored expectations, actual result and earlier order. The unit
+ * price check stays as recorded (it depends on the catalog the run used), and a judge rescue stays.
+ */
+export function rescoreMessage(record: CaseRecord): CaseRecord {
+  const actual = record.actual as Partial<MessageActual>;
+  if (record.pass === "image" || !Array.isArray(record.expected) || !actual.outcomes) return record;
+  const expectations = (record.expected as readonly MessageExpectation[]).filter((expectation) => "notice" in expectation || "outcomes" in expectation);
+  if (!expectations.length) return record;
+  const scored = scoreMessage({ outcomes: actual.outcomes, notice: actual.notice ?? null, noticeProducts: actual.noticeProducts ?? [], order: actual.order ?? [] },
+    expectations, record.previousOrder as readonly OrderLine[]);
+  const fields = { ...scored.fields, unitPrice: record.fields.unitPrice ?? true };
+  const exactPassed = Object.values(fields).every((value) => value !== false);
+  const rescued = record.passed && !record.exactPassed;
+  return { ...record, fields, exactPassed, passed: exactPassed || rescued, expectationIndex: scored.expectationIndex, ignoredActions: scored.ignoredActions,
+    wrongSilentChange: scored.wrongSilentChange, extraNotice: scored.extraNotice, expectedSilent: scored.expectedSilent };
 }
 
 /**
@@ -48,7 +58,7 @@ const withKnownLimitation = (knownLimitations: ReadonlySet<string>) => (record: 
 
 /** `knownLimitations`: base case ids tagged `known-limitation` in the current cases. */
 export function rebuildResult(file: ResultFile, knownLimitations: ReadonlySet<string> = new Set()): ResultFile {
-  const records = file.records.map((record) => withKnownLimitation(knownLimitations)(backfillVisualPick(rescoreNotice(record))));
+  const records = file.records.map((record) => withKnownLimitation(knownLimitations)(backfillVisualPick(rescoreMessage(record))));
   const { runId, startedAt, finishedAt, settings, errorGroups } = file.report;
   const extraCalls = extraCallsOf(file);
   return { report: buildReport(records, { runId, startedAt, finishedAt, settings }, extraCalls, errorGroups), records, extraCalls };

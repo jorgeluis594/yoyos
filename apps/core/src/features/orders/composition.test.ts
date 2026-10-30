@@ -20,13 +20,14 @@ vi.mock("@core/src/features/orders/infrastructure/checkout-repository", () => ({
 vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
   allocateOrderNumber: async () => ok(1001 as OrderNumber), orderExists: async () => ok(false), savePendingOrder: async () => ok(null), savePayment: async () => ok(null),
   saveStockDeduction: async () => ok(null), findOrders: vi.fn(), findOrderForUpdate: vi.fn(), findOrderAggregate: vi.fn(), saveFulfillment: async () => ok(null),
-  findOpenChatOrderCandidate: vi.fn(), findChatOrderTargetForUpdate: vi.fn(), saveItemChanges: vi.fn(), recordProcessedMessage: vi.fn(), saveCancellation: vi.fn(),
+  findChatOrderTarget: vi.fn(), findChatOrdersOpenedSince: vi.fn(), findChatOrderTargetForUpdate: vi.fn(), saveItemChanges: vi.fn(), recordProcessedMessage: vi.fn(), saveCancellation: vi.fn(),
 }));
 vi.mock("@core/src/features/products", () => ({
   findSellableVariants: async (variantIds: readonly string[]) => ok(variantIds.map((variantId) => ({ variantId, productName: "Product", variantAttributes: {}, sku: null,
     unitPrice: { amount: 1, currency: "PEN" } }))), deductProductStock: async () => ok(null), searchSaleCatalog: vi.fn(),
 }));
 vi.mock("@core/src/features/products/composition", () => ({ products: { identifyProductsInImage: vi.fn(), findVariantPhotos: vi.fn() } }));
+vi.mock("@core/src/features/orders/infrastructure/chat-pending-repository", () => ({ findChatPendings: vi.fn(), findChatPendingsForUpdate: vi.fn(), saveChatPendings: vi.fn() }));
 vi.mock("@core/src/features/orders/infrastructure/chat-message-outcome-repository", () => ({ findOutcome: vi.fn(), recordOutcome: vi.fn(), recordFailedOutcome: vi.fn() }));
 vi.mock("@core/src/features/contacts", () => ({ findContactById: vi.fn(), searchSaleContacts: vi.fn(), ensureCustomerForContact: vi.fn(), lockContact: vi.fn() }));
 vi.mock("@core/src/features/chats", () => ({ findOrderSourceMessage: vi.fn() }));

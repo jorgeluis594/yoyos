@@ -15,13 +15,13 @@ const coreDir = resolve(import.meta.dirname, "../..");
 export const defaultImagesDir = resolve(import.meta.dirname, "images");
 export const defaultLocalImagesDir = resolve(import.meta.dirname, "images-local");
 
-const productKeys = catalog.map(({ key }) => key) as [ProductKey, ...ProductKey[]];
+const productKeys = new Set(catalog.map(({ key }) => key));
 
 export const manifestEntry = z.strictObject({
   /** Path relative to the manifest's folder (`customer/polo-basico-worn.jpg`), or the file name inside `folder`. */
   file: z.string().regex(/^([a-z-]+\/)?[^/]+\.(jpe?g|png|webp)$/i),
   folder: z.enum(["catalog", "customer", "negative", "non-product", "label"]),
-  productKey: z.enum(productKeys).nullable(),
+  productKey: z.string().refine((key) => productKeys.has(key), "A catalog product").nullable(),
   color: z.string().nullable(),
   /** What the photo shows: «worn», «repost-screenshot», «second-color-worn», «payment»… Reported as `kind:<scenario>`. */
   scenario: z.string().min(1),

@@ -14,6 +14,9 @@ export type ModelCall = Readonly<{
   model: string;
   inputTokens: number;
   outputTokens: number;
+  /** Part of `inputTokens` served from the provider's cache, and part of `outputTokens` spent reasoning; absent in older records. */
+  cachedTokens?: number;
+  reasoningTokens?: number;
   durationMs: number;
   status: number;
 }>;
@@ -66,13 +69,17 @@ function requestModel(body: unknown): string {
 }
 
 type Usage = Readonly<{ input_tokens?: number; output_tokens?: number; prompt_tokens?: number; completion_tokens?: number;
-  cache_read_input_tokens?: number; cache_creation_input_tokens?: number }>;
+  cache_read_input_tokens?: number; cache_creation_input_tokens?: number;
+  input_tokens_details?: Readonly<{ cached_tokens?: number }>; prompt_tokens_details?: Readonly<{ cached_tokens?: number }>;
+  output_tokens_details?: Readonly<{ reasoning_tokens?: number }>; completion_tokens_details?: Readonly<{ reasoning_tokens?: number }> }>;
 
 /** Token counts of a JSON response body; Responses, Decisions and Messages use input/output, Chat and Embeddings prompt/completion. */
-export function tokensOf(usage: Usage | undefined): Readonly<{ inputTokens: number; outputTokens: number }> {
-  if (!usage) return { inputTokens: 0, outputTokens: 0 };
+export function tokensOf(usage: Usage | undefined): Readonly<{ inputTokens: number; outputTokens: number; cachedTokens: number; reasoningTokens: number }> {
+  if (!usage) return { inputTokens: 0, outputTokens: 0, cachedTokens: 0, reasoningTokens: 0 };
   const input = (usage.input_tokens ?? usage.prompt_tokens ?? 0) + (usage.cache_read_input_tokens ?? 0) + (usage.cache_creation_input_tokens ?? 0);
-  return { inputTokens: input, outputTokens: usage.output_tokens ?? usage.completion_tokens ?? 0 };
+  return { inputTokens: input, outputTokens: usage.output_tokens ?? usage.completion_tokens ?? 0,
+    cachedTokens: usage.input_tokens_details?.cached_tokens ?? usage.prompt_tokens_details?.cached_tokens ?? usage.cache_read_input_tokens ?? 0,
+    reasoningTokens: usage.output_tokens_details?.reasoning_tokens ?? usage.completion_tokens_details?.reasoning_tokens ?? 0 };
 }
 
 async function usageOf(response: Response): Promise<Usage | undefined> {

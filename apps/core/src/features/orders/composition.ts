@@ -36,26 +36,24 @@ import { getOrderAggregate } from "@core/src/features/orders/application/read-or
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
-import { allocateOrderNumber, findOrderNumbers, findOpenChatOrderCandidate, findChatOrderTargetForUpdate, saveItemChanges, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
+import { allocateOrderNumber, findOrderNumbers, findChatOrderTargetForUpdate, findChatOrderTarget, findChatOrdersOpenedSince, saveItemChanges, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariants, findProductIdsOfVariants, findProductNoticeNames, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
-import { createChatToolRegistry } from "@core/src/features/orders/infrastructure/chat-tools";
-import { createChatToolActions } from "@core/src/features/orders/application/chat-message-actions";
-import { createChatInterpreter } from "@core/src/features/orders/application/chat-message-interpreter";
-import { describeChatContext } from "@core/src/features/orders/infrastructure/chat-context-text";
 import { createChatMessageDeadLetterHandler, createChatMessageHandler, type ChatMessageHandlerDependencies } from "@core/src/features/orders/application/chat-message-handler";
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
+import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
+import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
+import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
 import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import { claimNotice, releaseNotice } from "@core/src/features/orders/infrastructure/chat-message-notice-repository";
 import type { ClaimedNotice } from "@core/src/features/orders/domain/seller-notice";
 import { describeChatMessageNotice as describeNotice, type NoticeLocale } from "@core/src/features/orders/application/describe-chat-message-notice";
 import { findSellerNoticeTarget } from "@core/src/features/orders/application/find-seller-notice-target";
 import { renderSellerNotice } from "@core/src/features/orders/presentation/seller-notice-texts";
-import { createAiToolsFromEnv } from "@core/src/shared/ai-tools/composition";
-import { isOpenForMessageItems } from "@core/src/features/orders/domain/message-order";
 import { products } from "@core/src/features/products/composition";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
@@ -65,7 +63,7 @@ import { companyPaymentSettings } from "@core/src/features/companies";
 import type { ImageId, VariantId } from "@core/src/features/products/domain/product";
 import { orderStateMachine } from "@core/src/features/orders/domain/order-state-machine";
 import type { BuyerPaymentView } from "@shared/contracts/orders";
-import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
 
 async function orderTransaction<T, E extends AppError>(callback: () => Promise<Result<T, E>>, deliveryContext?: Readonly<{ orderId: string; userId: string }>): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
   try {
@@ -104,7 +102,7 @@ const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOr
 const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
   saveFulfillment, clock: () => new Date(),
   deductProductStock: (variantId, quantity, orderId) => deductProductStock(variantId, quantity, { operation: "ship_order", orderId }),
-  saveStockDeduction: (id, companyId) => saveStockDeduction(id, companyId, "ship_order") };
+  saveStockDeduction: (id, companyId, at) => saveStockDeduction(id, companyId, at, "ship_order") };
 
 export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess) {
   const started = performance.now();
@@ -136,7 +134,8 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
     },
     saveDelivery: (id, companyId, change) => { observed.stage = "save_delivery"; return saveDelivery(id, companyId, change); },
     deductProductStock: (variantId, quantity) => { observed.stage = "deduct_stock"; return deductProductStock(variantId, quantity, { operation: "set_order_delivery", orderId: input.orderId }); },
-    saveStockDeduction: (id, companyId) => { observed.stage = "save_stock_deduction"; return saveStockDeduction(id, companyId, "set_order_delivery"); },
+    saveStockDeduction: (id, companyId, at) => { observed.stage = "save_stock_deduction"; return saveStockDeduction(id, companyId, at, "set_order_delivery"); },
+    clock: () => new Date(),
   });
   const durationMs = Math.round(performance.now() - started);
   if (result.success) {
@@ -386,7 +385,7 @@ export const orders = {
       if (!published.success) failure = published.error;
       return published;
     };
-    const result = await cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation, publishOrderCancelled });
+    const result = await cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation, publishOrderCancelled, clock: () => new Date() });
     if (failure && result.success) log.error({ event: "order_cancelled_publish_failed", companyId: context.companyId, orderId: id, orderNumber: result.data.number, errorCode: failure.code, err: failure }, "order_cancelled_publish_failed");
     return result;
   },
@@ -448,7 +447,7 @@ export const orders = {
     return result;
   },
   deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
-    deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
+    deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction, clock: () => new Date() }),
   create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>
     createOrder(input, context, { transaction: pendingTransaction, orderExists,
       findVariants: findSellableOrderVariants, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,
@@ -457,32 +456,8 @@ export const orders = {
   searchProducts: searchSaleCatalog,
 };
 
-// Chats and contacts return plain strings; the brands belong to orders and are applied only here.
-const persistenceUnavailable = (message: string) => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message });
-
-/** The open order as the models see it. Read without lock: the transaction re-reads the order under lock. */
-async function findChatOrderContext(chatId: ChatId) {
-  const candidate = await findOpenChatOrderCandidate(chatId);
-  if (!candidate.success) return candidate;
-  if (!candidate.data) return ok({ items: [] });
-  const found = await findAnyOrderAggregate(candidate.data, getCompanyId() as CompanyId, "apply_chat_message");
-  if (!found.success && found.error.code === "PERSISTENCE_UNAVAILABLE") return persistenceUnavailable(found.error.message);
-  // An invalid stored order shows no items; the locked read fails the message for good.
-  if (!found.success || !found.data || !isOpenForMessageItems(found.data, chatId)) return ok({ items: [] });
-  const productIds = await findProductIdsOfVariants(found.data.items.map((item) => item.variantId));
-  if (!productIds.success) return persistenceUnavailable(productIds.error.message);
-  return ok({ items: found.data.items.map((item, index) => ({ label: `I${index + 1}`, variantId: item.variantId, productId: productIds.data.get(item.variantId) ?? null,
-    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice })) });
-}
-
-const aiTools = createAiToolsFromEnv(process.env);
 // The products composition imports the event handlers that import this module, so `products` is only read when a message is applied.
-const chatToolRegistry = createChatToolRegistry(createChatToolActions({
-  loadSellableVariants: (productIds) => products.loadSellableVariants(productIds),
-  resolveVariant: (input, signal) => products.resolveVariant(input, signal),
-  identifyProductsInText: (lines, signal) => products.identifyProductsInText(lines, signal),
-  findTopTextCandidate: (mention) => products.findTopTextCandidate(mention),
-}));
+const readChatMessage = createChatReaderFromEnv(process.env);
 
 const chatMessageDependencies: ApplyChatMessageDependencies = {
   findOutcome,
@@ -493,13 +468,17 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
     return ok({ ...message, companyId: message.companyId as string as CompanyId, chatId: message.chatId as ChatId,
       contactId: message.contactId as ContactId, uploadedByUserId: message.uploadedByUserId as string as UserId, imageId: message.imageId as ImageId | null });
   },
-  findChatOrderContext,
+  findChatOrderTarget: (chatId) => findChatOrderTarget(chatId, findProductIdsOfVariants),
+  findChatOrdersOpenedSince,
+  findChatPendings,
+  findChatPendingsForUpdate,
+  saveChatPendings,
   readImage: (imageId) => readImageBytes(imageId),
-  identifyProductsInImage: (image) => products.identifyProductsInImage(image),
-  loadSellableProducts: (productIds) => products.loadSellableVariants(productIds),
+  identifyProductsInImage: (image, signal) => products.identifyProductsInImage(image, signal),
+  findProductsForReading: (productIds) => products.findProductsForReading(productIds),
+  findMessageCandidates: (text) => products.findMessageCandidates(text),
   catalogSearchReadiness: () => products.catalogSearchReadiness(),
-  interpretationEnabled: aiTools !== null,
-  interpretAndApply: createChatInterpreter(chatToolRegistry, aiTools, describeChatContext),
+  readChatMessage,
   transaction: scopedOrderTransaction,
   lockContact,
   ensureCustomerForContact: async (contactId) => {
@@ -514,8 +493,9 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   recordOutcome,
   newOrderId: () => randomUUID() as OrderId,
   newItemId: () => randomUUID() as OrderItemId,
+  newPendingId: () => randomUUID() as ChatPendingId,
   clock: () => new Date(),
-  limits: { maxItemQuantity: 99 as PositiveInteger },
+  limits: readChatMessageLimits(process.env),
 };
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;

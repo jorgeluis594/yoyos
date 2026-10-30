@@ -1,18 +1,17 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { buildPendingOrder, orderStateMachine, type OrderAggregate, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
+import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order-target";
+import type { ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
+import { advancePending, attachOrderless, declinePending, describePendings, draftPending, type AdvanceRequest, type PendingDraft, type PendingStep, type TransitionEnv } from "@core/src/features/orders/domain/pending-transitions";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { ChatMessageOutcome, ChatMessageOutcomes, ProductIdentification } from "@core/src/features/orders/domain/chat-message-outcome";
+import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CompanyId, ContactId, MentionedPrice, OrderId, OrderItem, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 
-/** Why a chat has no order to change decides the outcome, so a missing order is not a bare null. */
-export type ChatOrderTarget =
-  | Readonly<{ kind: "open"; order: OrderAggregate; productIds: ReadonlyMap<VariantId, ProductId> }>
-  | Readonly<{ kind: "closed"; orderId: OrderId; number: OrderNumber }>
-  | Readonly<{ kind: "cancelled" }>
-  | Readonly<{ kind: "none" }>;
+export type { ChatOrderTarget };
 
 export type ItemTarget =
   | Readonly<{ kind: "variant"; variantId: VariantId }>
@@ -27,8 +26,8 @@ export type ChangeVariantResolution =
   | Readonly<{ kind: "missing" | "not_available"; productId: ProductId }>;
 
 export type ReportOutcome =
-  | Readonly<{ kind: "no_intent" | "ambiguous_intent" | "variant_only" | "unnamed_add" | "image_with_request" }>
-  | Extract<ChatMessageOutcome, { kind: "not_identified" | "not_clear" | "unclear_item" }>
+  | Readonly<{ kind: "no_intent" | "variant_only" | "unnamed_add" | "image_with_request" }>
+  | Extract<ChatMessageOutcome, { kind: "not_identified" | "not_clear" | "unclear_item" | "reader_doubt" | "request_not_allowed" | "invalid_action" | "product_not_available" | "variant_for_several_pendings" }>
   | Readonly<{ kind: "variant_missing" | "variant_not_available"; productId: ProductId; identification: ProductIdentification | null }>;
 
 /** The only input of the transitions: model output never reaches the domain. */
@@ -38,18 +37,28 @@ export type ResolvedChatAction =
   | Readonly<{ kind: "set_quantity"; target: ItemTarget; quantity: number }>
   | Readonly<{ kind: "change_variant"; target: ItemTarget; to: ChangeVariantResolution; mentionedPrice: MentionedPrice | null }>
   | Readonly<{ kind: "set_mentioned_price"; target: ItemTarget; price: MentionedPrice | null }>
+  | Readonly<{ kind: "increase_quantity"; target: ItemTarget; quantity: PositiveInteger }>
+  /** A product with no open pending before the message becomes one. */
+  | Readonly<{ kind: "draft_pending"; draft: PendingDraft }>
+  /** A later message naming a pending's product. `otherwise` is the action when the pending is gone by the time it applies (ended under the lock, or completed by an earlier action). */
+  | Readonly<{ kind: "advance_pending"; request: AdvanceRequest; otherwise: ResolvedChatAction }>
+  | Readonly<{ kind: "decline_pending"; pendingId: ChatPendingId }>
+  /** The caption of this product's photo was doubted: the order domain tells the seller what the photo did. */
+  | Readonly<{ kind: "caption_doubt"; productId: ProductId; identification: ProductIdentification | null }>
   | Readonly<{ kind: "ready" }>
   | Readonly<{ kind: "report"; outcome: ReportOutcome }>;
 
 /** Everything a new chat order needs besides its items. The use case allocates `number` only when `needsNewChatOrder` says so. */
-export type NewChatOrderSeed = Readonly<{ number: OrderNumber; companyId: CompanyId; sellerId: UserId; chatId: ChatId; contactId: ContactId }>;
+export type NewChatOrderSeed = Readonly<{ number: OrderNumber; companyId: CompanyId; sellerId: UserId; chatId: ChatId; contactId: ContactId;
+  /** The message being applied: the source of the pendings it creates. */
+  messageId: ChatMessageId }>;
 
 /** Row changes of the chat's open order: items are compared by id, and a replaced variant is a removed item plus an added one. */
 export type ChatOrderItemChanges = Readonly<{ added: readonly OrderItem[]; updated: readonly OrderItem[]; removedItemIds: readonly OrderItemId[] }>;
 
 export type ChatOrderLimits = Readonly<{ maxItemQuantity: PositiveInteger }>;
-export type ChatOrderIds = Readonly<{ newOrderId: () => OrderId; newItemId: () => OrderItemId }>;
-export type AppliedChatActions = Readonly<{ target: ChatOrderTarget; createdOrder: OrderAggregate | null; changes: ChatOrderItemChanges; outcomes: ChatMessageOutcomes }>;
+export type ChatOrderIds = Readonly<{ newOrderId: () => OrderId; newItemId: () => OrderItemId; newPendingId: () => ChatPendingId }>;
+export type AppliedChatActions = Readonly<{ target: ChatOrderTarget; createdOrder: OrderAggregate | null; changes: ChatOrderItemChanges; pendings: ChatPendings; outcomes: ChatMessageOutcomes }>;
 
 type State = {
   /** The target as it was before this message, which item actions resolve against even after an add created a new order. */
@@ -58,33 +67,55 @@ type State = {
   createdOrder: OrderAggregate | null;
   productIds: Map<VariantId, ProductId>;
   outcomes: ChatMessageOutcome[];
+  pendings: ChatPendings;
+  /** The pendings before the message. */
+  readonly pendingsBefore: number;
+  readyRequested: boolean;
+  /** An add or a new pending drops the «listo» the chat remembered. */
+  newRequest: boolean;
+  /** A pending was completed or declined by the buyer (not ended by the system). */
+  pendingResolved: boolean;
+  captionDoubts: Array<Extract<ResolvedChatAction, { kind: "caption_doubt" }>>;
 };
 type Step = Result<null, OrderDomainError>;
 const done: Step = ok(null);
 
-/** True when applying the actions to the target creates an order: an add that fits the limit while no order is open. */
-export function needsNewChatOrder(target: ChatOrderTarget, actions: readonly ResolvedChatAction[], limits: ChatOrderLimits): boolean {
-  return target.kind !== "open" && actions.some((action) => action.kind === "add" && action.quantity <= limits.maxItemQuantity);
+/** True when applying the actions creates an order: an add that fits the limit, or a pending completion, while no order is open. */
+export function needsNewChatOrder(target: ChatOrderTarget, pendings: ChatPendings, actions: readonly ResolvedChatAction[], limits: ChatOrderLimits): boolean {
+  if (target.kind === "open") return false;
+  const zero = "00000000-0000-4000-8000-000000000000";
+  let counter = 0;
+  const unique = () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`;
+  const dryRun = applyChatActions(target, pendings, actions, { newOrderId: () => zero as OrderId, newItemId: () => unique() as OrderItemId, newPendingId: () => unique() as ChatPendingId }, new Date(0), limits,
+    { number: 1001 as OrderNumber, companyId: zero as CompanyId, sellerId: "dry-run" as UserId, chatId: zero as ChatId, contactId: zero as ContactId, messageId: zero as ChatMessageId });
+  return dryRun.success && dryRun.data.createdOrder !== null;
 }
 
-export function applyChatActions(target: ChatOrderTarget, actions: readonly ResolvedChatAction[], ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Result<AppliedChatActions, OrderDomainError> {
+export function applyChatActions(target: ChatOrderTarget, pendings: ChatPendings, actions: readonly ResolvedChatAction[], ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Result<AppliedChatActions, OrderDomainError> {
   if (actions.length === 0) return err({ code: "INVALID_ORDER", message: "A message needs at least one action" });
-  const state: State = { original: target, target, createdOrder: null, productIds: new Map(target.kind === "open" ? target.productIds : []), outcomes: [] };
+  const state: State = { original: target, target, createdOrder: null, productIds: new Map(target.kind === "open" ? target.productIds : []), outcomes: [], pendings,
+    pendingsBefore: pendings.pendings.length, readyRequested: false, newRequest: false, pendingResolved: false, captionDoubts: [] };
   for (const action of actions) {
     const step = applyAction(state, action, ids, now, limits, seed);
     if (!step.success) return step;
   }
+  finishPendings(state, now);
   const [first, ...rest] = state.outcomes;
   if (!first) return err({ code: "INVALID_ORDER", message: "A message needs at least one outcome" });
   const next: ChatOrderTarget = state.target.kind === "open" ? { ...state.target, productIds: state.productIds } : state.target;
-  return ok({ target: next, createdOrder: state.createdOrder, changes: diffItems(target, state), outcomes: [first, ...rest] });
+  return ok({ target: next, createdOrder: state.createdOrder, changes: diffItems(target, state), pendings: state.pendings, outcomes: [first, ...rest] });
 }
 
 function applyAction(state: State, action: ResolvedChatAction, ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Step {
   switch (action.kind) {
-    case "add": return addItem(state, action, ids, now, limits, seed);
+    case "add": state.newRequest = true; return addItem(state, action, ids, now, limits, seed);
     case "report": return report(state, action.outcome);
-    case "ready": return markReady(state);
+    case "ready": state.readyRequested = true; return done;
+    case "increase_quantity": return withOrderItem(state, action.target, (order, item, named) => changeQuantity(state, order, item, item.quantity + action.quantity, named, "quantity_changed", limits));
+    case "draft_pending": return draft(state, action.draft, ids, now, limits, seed);
+    case "advance_pending": return advance(state, action, ids, now, limits, seed);
+    case "decline_pending": return decline(state, action.pendingId);
+    case "caption_doubt": state.captionDoubts.push(action); return done;
     case "remove": return withOrderItem(state, action.target, (order, item, named) => action.amount === "one" && item.quantity > 1
       ? changeQuantity(state, order, item, item.quantity - 1, named, "quantity_lowered", limits) : removeFromOrder(state, order, item, named));
     case "set_quantity": return withOrderItem(state, action.target, (order, item, named) => action.quantity === 0 ? removeFromOrder(state, order, item, named)
@@ -102,10 +133,11 @@ function applyAction(state: State, action: ResolvedChatAction, ids: ChatOrderIds
   }
 }
 
-/** An unclear item reported by a tool carries the order it was read against, when the chat has an open one. */
+/** A report that points at the chat order (unclear item, doubt, a request not allowed, an invalid action) carries the order it was read against, when the chat has an open one. */
 function report(state: State, outcome: ReportOutcome): Step {
   const open = state.original.kind === "open" ? state.original.order.id : null;
-  state.outcomes.push(outcome.kind === "unclear_item" && outcome.orderId === null ? { ...outcome, orderId: open } : outcome);
+  const carriesOrder = outcome.kind === "unclear_item" || outcome.kind === "reader_doubt" || outcome.kind === "request_not_allowed" || outcome.kind === "invalid_action";
+  state.outcomes.push(carriesOrder && outcome.orderId === null ? { ...outcome, orderId: open } : outcome);
   return done;
 }
 
@@ -144,9 +176,72 @@ function addItem(state: State, action: Extract<ResolvedChatAction, { kind: "add"
   return done;
 }
 
-function markReady(state: State): Step {
-  state.outcomes.push(state.target.kind === "open" ? { kind: "ready", orderId: state.target.order.id } : { kind: "no_intent" });
+function transitionEnv(state: State, ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): TransitionEnv {
+  const quantityOf = (variantId: VariantId) => (state.target.kind === "open" ? state.target.order.items.find((item) => item.variantId === variantId)?.quantity ?? 0 : 0);
+  return { now, maxItemQuantity: limits.maxItemQuantity, newPendingId: ids.newPendingId, sourceMessageId: seed.messageId, existingQuantity: quantityOf };
+}
+
+function takeStep(state: State, step: PendingStep): void {
+  state.pendings = step.set;
+  state.outcomes.push(...step.outcomes);
+}
+
+function draft(state: State, pendingDraft: PendingDraft, ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Step {
+  const step = draftPending(state.pendings, pendingDraft, transitionEnv(state, ids, now, limits, seed));
+  if (step.outcomes.some((outcome) => outcome.kind === "pending_created")) state.newRequest = true;
+  takeStep(state, step);
   return done;
+}
+
+function decline(state: State, pendingId: ChatPendingId): Step {
+  const step = declinePending(state.pendings, pendingId);
+  if (step.outcomes.length === 0) state.outcomes.push({ kind: "no_intent" });
+  else state.pendingResolved = true;
+  takeStep(state, step);
+  return done;
+}
+
+/** Advances the pending, or applies `otherwise` when it is gone. The covered units that complete become items of the chat order. */
+function advance(state: State, action: Extract<ResolvedChatAction, { kind: "advance_pending" }>, ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Step {
+  if (!state.pendings.pendings.some((pending) => pending.id === action.request.pendingId)) return applyAction(state, action.otherwise, ids, now, limits, seed);
+  const step = advancePending(state.pendings, action.request, transitionEnv(state, ids, now, limits, seed));
+  takeStep(state, step);
+  if (step.outcomes.some((outcome) => outcome.kind === "pending_completed")) state.pendingResolved = true;
+  for (const added of step.adds) {
+    const result = addItem(state, { kind: "add", ...added }, ids, now, limits, seed);
+    if (!result.success) return result;
+  }
+  return done;
+}
+
+const openOrderId = (state: State): OrderId | null => (state.target.kind === "open" ? state.target.order.id : null);
+
+/** After every action: pendings join the open order, the seller learns what a doubted photo caption did, and the remembered «listo» is evaluated. */
+function finishPendings(state: State, now: Date): void {
+  if (state.target.kind === "open") state.pendings = attachOrderless(state.pendings, state.target.order.id, now);
+  for (const doubt of state.captionDoubts) noticeForDoubtedCaption(state, doubt);
+  const left = state.pendings.pendings;
+  let remembered = state.pendings.readyRemembered && !state.newRequest;
+  if (state.readyRequested) {
+    if (left.length > 0) { state.outcomes.push({ kind: "ready_with_pendings", orderId: openOrderId(state), ...describePendings(left) }); remembered = true; }
+    else { state.outcomes.push(state.target.kind === "open" ? { kind: "ready", orderId: state.target.order.id } : { kind: "no_intent" }); remembered = false; }
+  } else if (remembered && state.pendingsBefore > 0 && left.length === 0 && state.pendingResolved) {
+    if (state.target.kind === "open") state.outcomes.push({ kind: "ready", orderId: state.target.order.id });
+  }
+  state.pendings = { ...state.pendings, readyRemembered: left.length > 0 && remembered };
+}
+
+/** A doubted caption's photo is still the request, but the seller is never left without a notice for it. */
+function noticeForDoubtedCaption(state: State, doubt: Extract<ResolvedChatAction, { kind: "caption_doubt" }>): void {
+  const { productId } = doubt;
+  const hasNotice = state.outcomes.some((outcome) => ("productId" in outcome && outcome.productId === productId)
+    || (outcome.kind === "not_clear" && outcome.productIds.includes(productId)));
+  if (hasNotice) return;
+  const pendingStays = state.pendings.pendings.some((pending) => pending.subject.kind === "variant" && pending.subject.productId === productId);
+  if (pendingStays) state.outcomes.push({ kind: "variant_missing", productId, identification: doubt.identification });
+  else if (state.outcomes.some((outcome) => outcome.kind === "added" && outcome.identification.productId === productId)) {
+    state.outcomes.push({ kind: "caption_not_applied", productId, orderId: openOrderId(state) });
+  }
 }
 
 /** Finds the order and item an item action applies to, or records why nothing can change. */

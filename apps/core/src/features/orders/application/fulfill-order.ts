@@ -11,20 +11,20 @@ export type FulfillOrderDependencies = Readonly<{
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, FulfillOrderError>>;
   saveFulfillment: (id: OrderId, companyId: CompanyId, change: FulfillmentChange) => Promise<Result<null, FulfillOrderError>>;
   deductProductStock: (variantId: VariantId, quantity: PositiveInteger, orderId: OrderId) => Promise<Result<null, FulfillOrderError>>;
-  saveStockDeduction: (id: OrderId, companyId: CompanyId) => Promise<Result<null, FulfillOrderError>>;
+  saveStockDeduction: (id: OrderId, companyId: CompanyId, stockDeductedAt: Date) => Promise<Result<null, FulfillOrderError>>;
   clock: () => Date;
 }>;
 
 /** Shipping deducts the stock when it is still pending; short stock fails and the surrounding transaction persists nothing. */
 export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
-  const plan = orderStateMachine.planStockDeduction(order, true);
+  const plan = orderStateMachine.planStockDeduction(order, true, shippedAt);
   if (!plan.success) return plan;
   if (plan.data.kind === "deduct") {
     for (const item of [...order.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
       const deducted = await deps.deductProductStock(item.variantId, item.quantity, order.id);
       if (!deducted.success) return deducted;
     }
-    const saved = await deps.saveStockDeduction(order.id, order.companyId);
+    const saved = await deps.saveStockDeduction(order.id, order.companyId, shippedAt);
     if (!saved.success) return saved;
   }
   return orderStateMachine.registerShipment(plan.data.nextOrder, shippedAt);

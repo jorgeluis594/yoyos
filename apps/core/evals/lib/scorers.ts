@@ -1,5 +1,6 @@
-import { findVariant, type ProductKey } from "@core/evals/fixtures/catalog";
-import type { FinalLine, ImageExpectation, MessageExpectation, OrderLine, OutcomeKind, TextExpectation } from "@core/evals/cases/schema";
+import { findVariant, type CatalogScope, type ProductKey } from "@core/evals/fixtures/catalog";
+import type { FinalLine, ImageExpectation, MessageExpectation, OrderLine, OutcomeKind } from "@core/evals/cases/schema";
+import type { SellerNoticeKind } from "@core/src/features/orders/domain/seller-notice";
 
 /**
  * Exact-match scorers. Each field scores true, false, or null when the expectation does not state it. A case passes when every
@@ -7,21 +8,33 @@ import type { FinalLine, ImageExpectation, MessageExpectation, OrderLine, Outcom
  */
 
 export type FieldScores = Readonly<Record<string, boolean | null>>;
+/** `Scored` of a message also says how a miss misled the seller (see `ignoredActionsOf`, `wrongSilentChange`, `extraNotice`). */
 export type Scored = Readonly<{ passed: boolean; fields: FieldScores; expectationIndex: number }>;
+export type MessageScored = Scored & Readonly<{
+  /** Actions the buyer asked for that produced neither their effect nor a notice, counted per action. */
+  ignoredActions: number;
+  /** The order is wrong and the seller got no notice. */
+  wrongSilentChange: boolean;
+  /** A notice was sent where the expectation says the message is silent. */
+  extraNotice: boolean;
+  expectedSilent: boolean;
+}>;
 
 export type ActualLine = Readonly<{ product: ProductKey | null; variant: Readonly<Record<string, string>>; quantity: number; unitPrice: number;
   mentionedPrice: Readonly<{ amount: number; units: number }> | null }>;
 
 export type MessageActual = Readonly<{
-  tools: readonly string[];
   /** Outcome kinds; empty when the message was skipped, `["failed"]` when the use case returned an error. */
   outcomes: readonly OutcomeKind[];
+  /** The kind of the one notice of the message (`chooseSellerNotice(outcomes)?.kind`); null when the seller gets none. */
+  notice: SellerNoticeKind | null;
+  /** The products the notice names, as catalog keys (or ids outside the catalog). */
+  noticeProducts: readonly string[];
   order: readonly ActualLine[];
 }>;
 
 const sorted = (values: readonly string[]) => [...values].sort();
 const sameMultiset = (left: readonly string[], right: readonly string[]) => JSON.stringify(sorted(left)) === JSON.stringify(sorted(right));
-const sameSet = (left: readonly string[], right: readonly string[]) => sameMultiset([...new Set(left)], [...new Set(right)]);
 
 const variantText = (variant: Readonly<Record<string, string>>) => Object.entries(variant).sort(([a], [b]) => a.localeCompare(b)).map(([name, value]) => `${name}=${value}`).join(",");
 const productOf = (line: Pick<ActualLine, "product">) => line.product ?? "unknown";
@@ -38,8 +51,8 @@ export function scoreMessageFields(actual: MessageActual, expectation: MessageEx
   const priced = (lines: readonly Pick<ActualLine, "product" | "variant" | "mentionedPrice">[]) =>
     lines.flatMap((line) => line.mentionedPrice ? [`${variantOf(line)}@${priceText(line.mentionedPrice)}`] : []);
   return {
-    tool: expectation.tools === undefined ? null : sameSet(actual.tools, expectation.tools),
-    outcome: sameMultiset(actual.outcomes, expectation.outcomes),
+    notice: expectation.notice === undefined ? null : actual.notice === expectation.notice,
+    outcome: expectation.outcomes === undefined ? null : sameMultiset(actual.outcomes, expectation.outcomes),
     product: sameMultiset(actual.order.map(productOf), order.map(productOf)),
     variant: sameMultiset(actual.order.map(variantOf), order.map(variantOf)),
     quantity: sameMultiset(actual.order.map((line) => `${variantOf(line)}x${line.quantity}`), order.map((line) => `${variantOf(line)}x${line.quantity}`)),
@@ -48,11 +61,11 @@ export function scoreMessageFields(actual: MessageActual, expectation: MessageEx
 }
 
 /** True when every unit price is the catalog price: no message may change prices, whatever it says. */
-export function unitPricesIntact(order: readonly ActualLine[]): boolean {
+export function unitPricesIntact(order: readonly ActualLine[], scope: CatalogScope = "eval"): boolean {
   return order.every((line) => {
     if (line.product === null) return false;
     try {
-      return findVariant(line.product, line.variant).price === line.unitPrice;
+      return findVariant(line.product, line.variant, scope).price === line.unitPrice;
     } catch {
       return false; // a variant outside the eval catalog
     }
@@ -69,34 +82,70 @@ function best<Expectation>(expectations: readonly Expectation[], score: (expecta
   return { passed: passes(winner.fields), fields: winner.fields, expectationIndex: winner.index };
 }
 
-const onlyNoIntent = (expectation: MessageExpectation) => expectation.outcomes.length === 1 && expectation.outcomes[0] === "no_intent";
+/** Outcomes that are something the buyer asked for: a change, a «listo» or a pending. A missing one with no notice is an ignored action. */
+export const askedOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["added", "removed", "quantity_lowered", "quantity_changed", "variant_changed",
+  "mentioned_price_set", "ready", "ready_with_pendings", "pending_created", "pending_updated", "pending_completed", "pending_split"]);
+
+const lineKey = (line: Pick<ActualLine, "product" | "variant" | "quantity" | "mentionedPrice">) =>
+  `${variantOf(line)}x${line.quantity}${line.mentionedPrice ? `@${priceText(line.mentionedPrice)}` : ""}`;
+
+/** Elements of `wanted` the multiset `have` lacks. */
+function missingFrom(wanted: readonly string[], have: readonly string[]): number {
+  const left = [...have];
+  return wanted.filter((item) => { const index = left.indexOf(item); if (index < 0) return true; left.splice(index, 1); return false; }).length;
+}
 
 /**
- * `ambiguous_intent` has the effect of `no_intent` (no change, no notice; docs/message-to-order.md «Ambiguous intent»), so it
- * satisfies an expectation of no purchase intent, tool included.
+ * Actions the buyer asked for that produced neither their effect nor any notice for the message, per action («quita la gorra y
+ * listo» with the removal applied and «listo» lost is one). With outcomes stated, an asked outcome the message lacks is one. Without,
+ * each expected order line the order lacks is one, and so is an expected notice that never came (a new order notice rides on an
+ * add and is not counted again).
  */
-function asNoIntent(actual: MessageActual, expectation: MessageExpectation): MessageActual {
-  if (!onlyNoIntent(expectation) || actual.outcomes.length !== 1 || actual.outcomes[0] !== "ambiguous_intent") return actual;
-  return { ...actual, outcomes: ["no_intent"], tools: expectation.tools ?? actual.tools };
+export function ignoredActionsOf(actual: MessageActual, expectation: MessageExpectation, initial: readonly OrderLine[]): number {
+  if (actual.notice !== null) return 0;
+  if (expectation.outcomes !== undefined) return missingFrom(expectation.outcomes.filter((kind) => askedOutcomes.has(kind)), actual.outcomes);
+  const lines = expectedOrder(expectation, initial);
+  const initialKeys = initial.map((line) => lineKey({ ...line, mentionedPrice: null }));
+  const changed = lines.map(lineKey).filter((key) => !initialKeys.includes(key) || missingFrom([key], actual.order.map(lineKey)) > 0);
+  const missingLines = missingFrom(changed, actual.order.map(lineKey));
+  const lostNotice = expectation.notice != null && expectation.notice !== "new_order" ? 1 : 0;
+  return missingLines + lostNotice;
 }
 
-export function scoreMessage(actual: MessageActual, expectations: readonly MessageExpectation[], initial: readonly OrderLine[]): Scored {
-  const scored = best(expectations, (expectation) => scoreMessageFields(asNoIntent(actual, expectation), expectation, initial));
+const orderFields = ["product", "variant", "quantity", "mentionedPrice"] as const;
+
+const statusOf = (fields: FieldScores, actual: MessageActual, expectation: MessageExpectation, initial: readonly OrderLine[]) => ({
+  ignoredActions: ignoredActionsOf(actual, expectation, initial),
+  wrongSilentChange: actual.notice === null && orderFields.some((name) => fields[name] === false),
+  extraNotice: expectation.notice === null && actual.notice !== null,
+  expectedSilent: expectation.notice === null,
+});
+
+export function scoreMessage(actual: MessageActual, expectations: readonly MessageExpectation[], initial: readonly OrderLine[], scope: CatalogScope = "eval"): MessageScored {
+  const scored = best(expectations, (expectation) => scoreMessageFields(actual, expectation, initial));
   // Price integrity is checked on every message, whatever the expectation.
-  const unitPrice = unitPricesIntact(actual.order);
-  return { ...scored, passed: scored.passed && unitPrice, fields: { ...scored.fields, unitPrice } };
+  const unitPrice = unitPricesIntact(actual.order, scope);
+  const fields = { ...scored.fields, unitPrice };
+  return { ...scored, passed: scored.passed && unitPrice, fields, ...statusOf(fields, actual, expectations[scored.expectationIndex]!, initial) };
 }
 
-export type TextActual = Readonly<{ kind: "found"; product: ProductKey | null } | { kind: "not_clear"; products: readonly (ProductKey | null)[] } | { kind: "not_found" } | { kind: "error"; code: string }>;
+/** What a conversation step leaves for the one-notice-per-product check. */
+export type StepNotice = Readonly<{ noticeProducts: readonly string[]; expectsRepeatNotice: boolean }>;
 
-export function scoreText(actual: TextActual, expectations: readonly TextExpectation[]): Scored {
-  return best(expectations, (expectation) => {
-    if (expectation.kind !== actual.kind) return { identification: false };
-    if (expectation.kind === "found" && actual.kind === "found") return { identification: actual.product === expectation.product };
-    // «Producto no claro» passes when it names at least the expected candidates.
-    if (expectation.kind === "not_clear" && actual.kind === "not_clear") return { identification: (expectation.products ?? []).every((product) => actual.products.includes(product)) };
-    return { identification: true };
-  });
+/**
+ * Products named by the notices of two or more messages of a conversation, unless the later message is marked as an expected
+ * repeat (rules sheet exception). A product named twice by one notice counts once.
+ */
+export function repeatedNoticeProducts(steps: readonly StepNotice[]): readonly string[] {
+  const seen = new Map<string, number>();
+  const repeated = new Set<string>();
+  for (const step of steps) {
+    for (const product of new Set(step.noticeProducts)) {
+      if (seen.has(product) && !step.expectsRepeatNotice) repeated.add(product);
+      seen.set(product, (seen.get(product) ?? 0) + 1);
+    }
+  }
+  return [...repeated];
 }
 
 /** A found photo lists its products and, for a QR label, the color of each variant read (null for a visual match). */
@@ -114,40 +163,4 @@ export function scoreImage(actual: ImageActual, expectations: readonly ImageExpe
     }
     return { identification: true, color: null };
   });
-}
-
-/** Outcomes that make the seller act (docs/message-to-order.md «Notices», problems first). */
-export const problemOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["not_identified", "not_clear", "variant_missing", "variant_not_available",
-  "quantity_above_limit", "unclear_item", "unnamed_add", "variant_only", "image_with_request", "order_closed", "no_open_order", "failed"]);
-/** Outcomes that change the order's items or notes. */
-export const changeOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["added", "removed", "quantity_lowered", "quantity_changed", "variant_changed", "mentioned_price_set"]);
-
-export type NoticeError = "false_notice" | "silent_error" | "wrong_change" | "missed_notice" | "dropped_request" | "wrong_notice" | null;
-
-/** Outcomes that notify the seller without being a problem (domain/seller-notice.ts: «Revisa el pedido», «Pedido listo», new order). */
-export const orderNoticeOutcomes: ReadonlySet<OutcomeKind> = new Set<OutcomeKind>(["only_item_kept", "ready", "new_order_after_closed"]);
-
-/**
- * How a failed message misled the seller. False notice: a change was expected and the seller got a problem notice instead. Wrong
- * notice: a problem notice of another kind than the expected one. Silent error: a notice was expected and an item changed without
- * one. Missed notice: a notice (a problem, «ready», «only item kept» or a new order) was due and none was sent, whether or not
- * something changed. Wrong change: another change applied silently. Dropped request: a change was expected and nothing changed,
- * with no notice.
- */
-export function noticeErrorOf(passed: boolean, expected: readonly OutcomeKind[], actual: readonly OutcomeKind[]): NoticeError {
-  if (passed) return null;
-  const problems = (kinds: readonly OutcomeKind[]) => kinds.filter((kind) => problemOutcomes.has(kind));
-  const expectedProblem = problems(expected).length > 0;
-  const actualProblem = problems(actual).length > 0;
-  const expectedChange = expected.some((kind) => changeOutcomes.has(kind));
-  const actualChange = actual.some((kind) => changeOutcomes.has(kind));
-  const expectedNotice = expectedProblem || expected.some((kind) => orderNoticeOutcomes.has(kind));
-  const actualNotice = actualProblem || actual.some((kind) => orderNoticeOutcomes.has(kind));
-  if (expectedChange && !expectedProblem && actualProblem) return "false_notice";
-  if (expectedProblem && actualProblem && !sameMultiset(problems(expected), problems(actual))) return "wrong_notice";
-  if (expectedProblem && !actualProblem && actualChange && !expectedChange) return "silent_error";
-  if (expectedNotice && !actualNotice) return "missed_notice";
-  if (!expectedProblem && !actualProblem && actualChange) return "wrong_change";
-  if (expectedChange && !actualChange && !actualNotice) return "dropped_request";
-  return null;
 }

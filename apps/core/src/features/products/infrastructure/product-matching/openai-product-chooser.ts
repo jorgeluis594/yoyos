@@ -16,7 +16,7 @@ function failureCode(cause: unknown): ChooserError["code"] {
 
 /** ChooseProduct over the OpenAI Decisions API: one choice question whose options are the candidate labels and none. */
 export function createOpenAIProductChooser(config: OpenAIProductChooserConfig): ChooseProduct {
-  return async (input) => {
+  return async (input, signal) => {
     const prompt = await buildChooserPrompt(input);
     if (!prompt.success) return prompt;
     const { labels } = prompt.data;
@@ -29,7 +29,7 @@ export function createOpenAIProductChooser(config: OpenAIProductChooserConfig): 
       decision = await config.client.decisions.create({ model: config.model, input: [{ role: "user", content }], questions: [{
         type: "choice", name: "product", instructions: prompt.data.instructions,
         choices: [...labels.map((value) => ({ value, description: `Candidate ${value}` })), { value: NONE, description: "None of the candidates" }],
-      }, { type: "predicate", name: SHOWS_PRODUCT, instructions: showsProductInstructions }] }, { timeout: config.timeoutMs, maxRetries: 0 }); // the event bus owns retries
+      }, { type: "predicate", name: SHOWS_PRODUCT, instructions: showsProductInstructions }] }, { timeout: config.timeoutMs, maxRetries: 0, ...(signal && { signal }) }); // the event bus owns retries
     } catch (cause) {
       const code = failureCode(cause);
       log.warn({ event: "product_matcher_request_failed", ...fields(), errorCode: code, httpStatus: cause instanceof OpenAI.APIError ? cause.status : undefined, err: cause }, "product_matcher_request_failed");
