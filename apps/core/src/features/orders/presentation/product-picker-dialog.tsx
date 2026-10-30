@@ -9,6 +9,7 @@ import { formatCurrency } from "@core/app/format-currency";
 import { attributesLabel } from "@core/app/lib/variant-attributes-label";
 import { cn } from "@core/app/lib/utils";
 import { catalogResultLimit, type CatalogProduct, type CatalogSearch, type CatalogVariant } from "@core/src/features/orders/presentation/use-catalog-search";
+import { touchTargets } from "@core/src/features/orders/presentation/touch-targets";
 import { isPickerKey, pickerKey, type PickerHighlight } from "@core/src/features/orders/presentation/product-picker-keyboard";
 
 export type PickerChoice = Readonly<{ product: CatalogProduct; variant: CatalogVariant }>;
@@ -81,7 +82,7 @@ export function ProductPickerDialog({ search, quantities, createProductHref, onA
   return <Dialog open onOpenChange={(next) => { if (!next) onClose(); }}>
     <DialogContent aria-describedby={undefined} closeLabel={t("common.close")} onCloseAutoFocus={onCloseAutoFocus}
       onOpenAutoFocus={(event) => { event.preventDefault(); inputRef.current?.focus(); }}
-      className="top-0 left-0 grid h-dvh max-w-none translate-x-0 translate-y-0 grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-3 overflow-hidden rounded-none sm:top-1/2 sm:left-1/2 sm:h-[min(40rem,calc(100dvh-4rem))] sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--radius-overlay)]">
+      className={cn(touchTargets, "top-0 left-0 grid h-dvh max-w-none translate-x-0 translate-y-0 grid-cols-[minmax(0,1fr)] grid-rows-[auto_auto_minmax(0,1fr)_auto] gap-3 overflow-hidden rounded-none sm:top-1/2 sm:left-1/2 sm:h-[min(40rem,calc(100dvh-4rem))] sm:max-w-2xl sm:-translate-x-1/2 sm:-translate-y-1/2 sm:rounded-[var(--radius-overlay)]")}>
       <DialogHeader><DialogTitle>{t("orderView.products.add")}</DialogTitle></DialogHeader>
       <div className="grid gap-3">
         <div className="grid gap-1.5">
@@ -95,7 +96,7 @@ export function ProductPickerDialog({ search, quantities, createProductHref, onA
           {!loadingFirst && <span className="ml-auto text-sm text-muted-foreground">{t("orderView.picker.results", { count: products.length })}</span>}
         </div>
       </div>
-      <div className="min-h-0 overflow-y-auto">
+      <div className="min-h-0 overflow-x-hidden overflow-y-auto">
         {loadingFirst && <p className="py-6 text-center text-sm text-muted-foreground">{t("orderView.picker.loading")}</p>}
         {failed && <div className="grid justify-items-center gap-3 py-6 text-center"><p role="alert">{t("orderView.picker.loadError")}</p>
           <Button type="button" variant="outline" onClick={search.retry}>{t("orderView.picker.retry")}</Button></div>}
