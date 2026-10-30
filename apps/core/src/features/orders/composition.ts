@@ -210,6 +210,12 @@ function receiptImageId(payment: OrderAggregate["payments"][number]) {
   return payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.receiptImageId : null;
 }
 
+function reportedAt(payment: OrderAggregate["payments"][number]) {
+  if (payment.status === "reported") return payment.data.reportedAt;
+  if (payment.status === "rejected") return payment.data.report.reportedAt;
+  return payment.data.evidence.kind === "buyer_report" ? payment.data.evidence.report.reportedAt : null;
+}
+
 function rejectedReport(order: OrderAggregate): BuyerPaymentView["rejectedReport"] {
   const rejected = orderStateMachine.rejectionAwaitingNewReport(order);
   return rejected ? { reason: rejected.data.reason } : null;
@@ -248,7 +254,8 @@ export async function getBuyerPaymentView(id: string, hostCompanyId: CompanyId) 
       settings: offered,
       payments: found.data.payments.map((payment) => { const imageId = receiptImageId(payment);
         return { id: payment.id, status: payment.status, amount: payment.amount, method: payment.method,
-          receiptImageUrl: imageId ? images.get(imageId) ?? null : null, rejectionReason: payment.status === "rejected" ? payment.data.reason : null }; }),
+          receiptImageUrl: imageId ? images.get(imageId) ?? null : null, rejectionReason: payment.status === "rejected" ? payment.data.reason : null,
+          reportedAt: reportedAt(payment)?.toISOString() ?? null }; }),
       rejectedReport: rejectedReport(found.data) };
     return { success: true as const, data: view };
   });

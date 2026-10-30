@@ -25,7 +25,7 @@ async function render(value: BuyerPaymentView, lng = "es") {
 
 test("shows the rejection notice with its reason at the start of the upload block and lists the rejected receipt", async () => {
   const html = await render(view({ rejectedReport: { reason: "El monto no coincide" },
-    payments: [{ id: id(2), status: "rejected", amount: null, method: null, receiptImageUrl: "https://cdn.example/r.png", rejectionReason: "El monto no coincide" }] }));
+    payments: [{ id: id(2), status: "rejected", amount: null, method: null, receiptImageUrl: "https://cdn.example/r.png", rejectionReason: "El monto no coincide", reportedAt: "2026-10-30T23:42:00.000Z" }] }));
   expect(html).toContain("Tu comprobante fue rechazado");
   expect(html).toContain("Motivo: El monto no coincide");
   expect(html).toContain("Envía otro comprobante para que la tienda lo revise.");
@@ -38,7 +38,7 @@ test("shows the rejection notice with its reason at the start of the upload bloc
 });
 
 test("shows the pending notice instead of the upload block while a report is pending", async () => {
-  const html = await render(view({ payments: [{ id: id(3), status: "reported", amount: null, method: null, receiptImageUrl: "https://cdn.example/n.png", rejectionReason: null }] }));
+  const html = await render(view({ payments: [{ id: id(3), status: "reported", amount: null, method: null, receiptImageUrl: "https://cdn.example/n.png", rejectionReason: null, reportedAt: "2026-10-30T23:42:00.000Z" }] }));
   expect(html).toContain("Pago pendiente de revisión");
   expect(html).not.toContain("Tu comprobante fue rechazado");
   expect(html).not.toContain("Adjunta tu comprobante");
@@ -46,14 +46,14 @@ test("shows the pending notice instead of the upload block while a report is pen
 
 test("shows the reason once with its own period and no doubled one", async () => {
   const html = await render(view({ rejectedReport: { reason: "El monto no coincide." },
-    payments: [{ id: id(2), status: "rejected", amount: null, method: null, receiptImageUrl: "https://cdn.example/r.png", rejectionReason: "El monto no coincide." }] }));
+    payments: [{ id: id(2), status: "rejected", amount: null, method: null, receiptImageUrl: "https://cdn.example/r.png", rejectionReason: "El monto no coincide.", reportedAt: "2026-10-30T23:42:00.000Z" }] }));
   expect(html).toContain("Motivo: El monto no coincide.");
   expect(html).not.toContain("coincide..");
 });
 
 test("renders the rejected checkout state in Portuguese without a doubled period", async () => {
   const html = await render(view({ rejectedReport: { reason: "Valor diferente." },
-    payments: [{ id: id(2), status: "rejected", amount: null, method: null, receiptImageUrl: "https://cdn.example/r.png", rejectionReason: "Valor diferente." }] }), "pt");
+    payments: [{ id: id(2), status: "rejected", amount: null, method: null, receiptImageUrl: "https://cdn.example/r.png", rejectionReason: "Valor diferente.", reportedAt: "2026-10-30T23:42:00.000Z" }] }), "pt");
   expect(html).toContain("Seu comprovante foi rejeitado");
   expect(html).toContain("Motivo: Valor diferente.");
   expect(html).not.toContain("diferente..");
