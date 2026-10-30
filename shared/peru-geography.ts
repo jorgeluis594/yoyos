@@ -287,3 +287,11 @@ export function settlePeruLocation(area: PeruAreaSelection, location: PeruArea |
 function single(options: readonly { code: string }[], kind: PeruArea["kind"]): PeruArea | null {
   return options.length === 1 ? { kind, code: options[0]!.code } as PeruArea : null;
 }
+
+/** True when `next`, reported by the control for `level`, is a department or province the location did not already have; a clear or the same value is not. */
+export function isNewUpperPeruPlace(current: PeruArea | null, next: PeruArea | null, level: PeruArea["kind"]): boolean {
+  if (level === "district" || next?.kind !== level) return false;
+  const prefix = level === "department" ? 2 : 4;
+  const kept = current && current.code.length >= prefix ? current.code.slice(0, prefix) : null;
+  return next.code !== kept;
+}

@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { peruDepartments, getPeruProvinces, getPeruDistricts, getPeruDistrict, parsePeruDistrictCode, parsePeruAreaSelection, peruAreaDistricts, peruAreaIncludes, peruAreaEntries, selectPeruArea,
   canonicalPeruArea, peruCodesWithinDepartments, peruDepartmentOfDistrict, offeredPeruDepartments, offeredPeruProvinces, offeredPeruDistricts,
-  keepCoveredPeruPlace, isCompletePeruLocation, settlePeruLocation } from "@shared/peru-geography";
+  keepCoveredPeruPlace, isNewUpperPeruPlace, isCompletePeruLocation, settlePeruLocation } from "@shared/peru-geography";
 import { peruAreaSelectionSchema } from "@shared/contracts/peru-location";
 
 test("official catalog preserves every geographic level, unique district and parent relationship", () => {
@@ -166,4 +166,14 @@ test("area selection contract accepts canonical catalog selections and rejects e
   expect(fails(sel([], [], ["999999"]))).toBe(true);
   expect(fails(sel(Array.from({ length: 26 }, (_, index) => String(index + 1).padStart(2, "0"))))).toBe(true);
   expect(fails({ ...value, extra: 1 })).toBe(true);
+});
+
+test("a new department or province value is a new upper place, while a clear, the same value or a district is not", () => {
+  const miraflores = { kind: "district", code: "150122" };
+  expect(isNewUpperPeruPlace(miraflores, { kind: "department", code: "04" }, "department")).toBe(true);
+  expect(isNewUpperPeruPlace(miraflores, { kind: "department", code: "15" }, "department")).toBe(false);
+  expect(isNewUpperPeruPlace(null, { kind: "province", code: "1501" }, "province")).toBe(true);
+  expect(isNewUpperPeruPlace({ kind: "department", code: "15" }, { kind: "department", code: "15" }, "province")).toBe(false);
+  expect(isNewUpperPeruPlace(miraflores, { kind: "department", code: "15" }, "province")).toBe(false);
+  expect(isNewUpperPeruPlace(miraflores, { kind: "district", code: "150101" }, "district")).toBe(false);
 });
