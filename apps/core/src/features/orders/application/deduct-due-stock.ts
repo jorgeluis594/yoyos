@@ -6,7 +6,7 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 import type { ProductStockIncreased } from "@core/src/features/products/application/events";
 import { isStockDeductionDue, parseStockQuantity, planDueStockDeduction, type NonNegativeInteger, type ShortItem, type StockLine, type StockOrder, type VariantStock } from "@core/src/features/orders/domain/stock-deduction";
 
-export type OrderStockTrigger = "payment_confirmed" | "order_delivery_changed" | "order_stock_deduction_overdue";
+export type OrderStockTrigger = "payment_confirmed" | "order_delivery_changed" | "order_edited" | "order_stock_deduction_overdue";
 export type DeductionStage = "load_order" | "lock_stock" | "deduct_stock" | "save_deduction" | "list_waiting" | "lock_orders";
 /** Data faults vs statement-level database errors; the creation paths map them to different HTTP answers. */
 export type DeductionErrorCode = ContainedFailureCode;

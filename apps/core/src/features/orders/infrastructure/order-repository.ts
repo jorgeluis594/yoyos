@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { checkoutState, parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
+import { checkoutState, parseOrderNumber, type OrderBuyer, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { isPersistenceFailure, persistenceFailureResult } from "@core/src/shared/infrastructure/persistence-error";
 import type { ContainedFailure, TransactionEndingError } from "@core/src/shared/application/contained-failure";
@@ -303,7 +303,7 @@ export async function findOrderForUpdate(id: OrderId, companyId: CompanyId, oper
   try {
     const started = performance.now();
     const rows = await prisma.$queryRaw<Array<{ id: string }>>`SELECT id FROM "Order" WHERE id = ${id}::uuid AND "companyId" = ${companyId}::uuid FOR UPDATE`;
-    if (rows.length && operation === "set_order_delivery") log.debug({ event: "delivery_lock_acquired", operation, orderId: id,
+    if (rows.length && (operation === "set_order_delivery" || operation === "edit_order")) log.debug({ event: "delivery_lock_acquired", operation, orderId: id,
       lockTarget: "order", lockMode: "exclusive", lockWaitMs: Math.round(performance.now() - started) }, "Order delivery lock acquired");
     return rows.length ? findOrderAggregate(id, companyId, operation) : ok(null);
   } catch (cause) {
@@ -567,32 +567,69 @@ export async function findOpenChatOrderCandidate(chatId: ChatId) {
   }
 }
 
-/** Applies the row changes of `applyChatActions` to the locked order and stores its recalculated totals. */
-export async function saveItemChanges(order: OrderAggregate, changes: OrderItemChanges) {
+type ItemChangesFailure = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }> | Readonly<{ code: "VARIANT_NOT_FOUND"; message: string; variantId: VariantId }>;
+
+/**
+ * Applies the row changes of an item edit to the locked order and stores its recalculated totals, in a fixed number of statements:
+ * one delete, one update of every changed quantity, one insert of the added items and the totals.
+ */
+export async function saveItemChanges(order: OrderAggregate, changes: OrderItemChanges): Promise<Result<null, ItemChangesFailure>> {
   requireActiveTransaction(order.companyId);
   const money = (value: number) => new Prisma.Decimal(value.toString());
+  const unavailable = (message: string) => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message });
   try {
     // Removals first: a replaced variant frees its (order, variant) pair for the item that takes its place.
     if (changes.removedItemIds.length) await prisma.orderItem.deleteMany({ where: { orderId: order.id, id: { in: [...changes.removedItemIds] } } });
-    for (const item of changes.updated) await prisma.orderItem.update({ where: { id: item.id },
-      data: { quantity: BigInt(item.quantity), subtotal: money(item.subtotal.amount), ...mentionedPriceColumns(item.mentionedPrice) } });
+    if (changes.updated.length) {
+      const values = Prisma.join(changes.updated.map((item) => Prisma.sql`(${item.id}::uuid, ${BigInt(item.quantity)}::bigint, ${money(item.subtotal.amount).toString()}::numeric(15,2),
+        ${item.mentionedPrice ? money(item.mentionedPrice.amount.amount).toString() : null}::numeric(11,2), ${item.mentionedPrice?.units ?? null}::int)`));
+      const count = await prisma.$executeRaw`UPDATE "OrderItem" i SET quantity = v.quantity, subtotal = v.subtotal, "mentionedPriceAmount" = v.amount, "mentionedPriceUnits" = v.units
+        FROM (VALUES ${values}) AS v(id, quantity, subtotal, amount, units)
+        WHERE i.id = v.id AND i."orderId" = ${order.id}::uuid AND i."companyId" = ${order.companyId}::uuid`;
+      if (count !== changes.updated.length) {
+        log.error({ event: "unable_to_save_item_changes", orderId: order.id, errorCode: "UNEXPECTED_ROW_COUNT" }, "unable_to_save_item_changes");
+        return unavailable("Unable to save item changes");
+      }
+    }
     // Inserts take their locks on the variants in a fixed order, so two concurrent additions cannot wait for each other.
     const inserts = [...changes.added].sort((a, b) => a.variantId < b.variantId ? -1 : a.variantId > b.variantId ? 1 : 0);
-    for (const item of inserts) {
-      await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, variantId: item.variantId, productName: item.productName,
-        variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
-        unitPrice: money(item.unitPrice.amount), subtotal: money(item.subtotal.amount), ...mentionedPriceColumns(item.mentionedPrice) } });
+    if (inserts.length) {
+      // The driver does not expose the key detail of a foreign-key violation, so the variants are locked (KEY SHARE, in id order, as the inserts would)
+      // and the first one that is gone is named before the insert; the violation below only remains for a company mismatch.
+      const ids = inserts.map((item) => item.variantId);
+      const present = await prisma.$queryRaw<{ id: string }[]>`SELECT id FROM "ProductVariant" WHERE id = ANY(${ids}::uuid[]) AND "companyId" = ${order.companyId}::uuid ORDER BY id FOR KEY SHARE`;
+      const found = new Set(present.map((row) => row.id));
+      const missing = ids.find((id) => !found.has(id));
+      if (missing) return err({ code: "VARIANT_NOT_FOUND" as const, message: "Variant is not available", variantId: missing as VariantId });
     }
+    if (inserts.length) await prisma.orderItem.createMany({ data: inserts.map((item) => ({ id: item.id, orderId: order.id, variantId: item.variantId, productName: item.productName,
+      variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
+      unitPrice: money(item.unitPrice.amount), subtotal: money(item.subtotal.amount), ...mentionedPriceColumns(item.mentionedPrice) })) });
     const updated = await prisma.order.updateMany({ where: { id: order.id, companyId: order.companyId, cancelled: false },
       data: { itemsTotal: money(order.itemsTotal.amount), total: money(order.total.amount) } });
     if (updated.count !== 1) throw new Error("Locked order was not available for item changes");
-    return ok<null>(null);
+    return ok(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
-    if (isMissingVariantViolation(cause))
-      return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Variant is not available" });
+    if (isMissingVariantViolation(cause)) return unavailable("Variant is not available");
     log.error({ event: "unable_to_save_item_changes", orderId: order.id, err: cause }, "unable_to_save_item_changes");
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save item changes" });
+    return unavailable("Unable to save item changes");
+  }
+}
+
+/** Sets or replaces the order's buyer (nulls included), or removes the row when the order has no buyer left. */
+export async function saveOrderCustomer(id: OrderId, companyId: CompanyId, buyer: OrderBuyer | null): Promise<Result<null, Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
+  requireActiveTransaction(companyId);
+  try {
+    if (buyer) await prisma.orderBuyer.upsert({ where: { companyId_orderId: { companyId, orderId: id } },
+      create: { companyId, orderId: id, contactId: buyer.contactId, name: buyer.name, phone: buyer.phone },
+      update: { contactId: buyer.contactId, name: buyer.name, phone: buyer.phone } });
+    else await prisma.orderBuyer.deleteMany({ where: { companyId, orderId: id } });
+    return ok(null);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_save_order_customer", orderId: id, err: cause }, "unable_to_save_order_customer");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to save order customer" });
   }
 }
 
