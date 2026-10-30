@@ -116,19 +116,20 @@ function emitStockEvent(event: StockEvent) {
   }
 }
 
-const deductDueStockDependencies: DeductDueStockDependencies = { loadStockOrders, lockOrdersSkipLocked, lockVariantStock, deductStockBulk, saveStockDeductions, listWaitingOrderIds,
+export const deductDueStockDependencies: DeductDueStockDependencies = { loadStockOrders, lockOrdersSkipLocked, lockVariantStock, deductStockBulk, saveStockDeductions, listWaitingOrderIds,
   limitStatementsToMs: (ms) => setLocalTimeouts({ statementTimeout: `${ms}ms`, lockTimeout: `${ms}ms` }),
   emit: emitStockEvent, waitingOrdersBatchSize: WAITING_ORDERS_BATCH_SIZE, waitingOrdersBudgetMs: WAITING_ORDERS_BUDGET_MS, clock: () => new Date() };
 
 // The registry lives here because every handler belongs to orders; products receives the publisher by injection.
-const stockRegistry: InTransactionRegistry<TransactionEndingError> = {
+export const stockRegistry: InTransactionRegistry<TransactionEndingError> = {
   payment_confirmed: deductDueOrderStock("payment_confirmed", deductDueStockDependencies),
   order_delivery_changed: deductDueOrderStock("order_delivery_changed", deductDueStockDependencies),
   order_stock_deduction_overdue: deductDueOrderStock("order_stock_deduction_overdue", deductDueStockDependencies),
   product_stock_increased: serveWaitingOrders(deductDueStockDependencies),
 };
 
-export const publishStockEvent = createInTransactionPublisher(stockRegistry, {
+/** Builds the in-transaction publisher; tests pass a registry with a slower or failing handler. */
+export const createStockPublisher = (registry: InTransactionRegistry<TransactionEndingError>) => createInTransactionPublisher(registry, {
   requireTransaction: requireActiveTransaction,
   withinSavepoint,
   containedOutcome: ((name: string, payload: { companyId: string; orderId?: string }, failure: Parameters<typeof containedDeductionOutcome>[0]) => {
@@ -143,6 +144,7 @@ export const publishStockEvent = createInTransactionPublisher(stockRegistry, {
   }) as never,
   onTransactionEnding: (name, error) => log.warn({ event: "stock_deduction_rolled_back", event_name: name, errorCode: error.code }, "stock_deduction_rolled_back"),
 });
+export const publishStockEvent = createStockPublisher(stockRegistry);
 
 // --- Recovery of due orders that stayed undeducted (worker only) ---
 const recoveryTransaction: TransactionOptions = { timeout: 3000, lockTimeoutMs: 1000, statementTimeoutMs: 1000 };
