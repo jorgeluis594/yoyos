@@ -106,7 +106,7 @@ export function OrderDeliveryCard({ state, settings, invalid, settingsHref, onCh
           <TextLink asChild><Link to={settingsHref}>{t("orderDelivery.configure")}</Link></TextLink></div>
         : <FieldSet disabled={lock !== null} className="flex min-w-0 flex-col gap-4">
           <Tabs value={tab} onValueChange={value => { if (value !== tab) onChange(withTab(delivery, value as DeliveryTab, customer, saved)); }}>
-            <TabsList className="h-auto w-full flex-wrap">{tabs.map(item => <TabsTrigger key={item.value} value={item.value} className="min-h-touch" disabled={item.disabled || lock !== null}>{item.label}</TabsTrigger>)}</TabsList>
+            <TabsList className="w-full flex-wrap group-data-horizontal/tabs:h-auto">{tabs.map(item => <TabsTrigger key={item.value} value={item.value} className="min-h-touch" disabled={item.disabled || lock !== null}>{item.label}</TabsTrigger>)}</TabsList>
           </Tabs>
           {savedHasDelivery && lock === null && <p className="text-sm text-muted-foreground">{t("orderView.delivery.cannotClear")}</p>}
           {recordedByBuyer && <p className="text-sm text-muted-foreground">{t("orderView.delivery.chosenByBuyer")}</p>}

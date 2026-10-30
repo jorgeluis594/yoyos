@@ -201,9 +201,9 @@ export function OrderView(props: OrderViewProps) {
   const paymentTotals = totals.success ? totals.data : { total: zero, paid: zero, balance: zero, excess: zero };
   const discardTitle = saved ? "orderView.discard.leaveTitle" : "orderView.discard.saleTitle";
   const discardConfirm = saved ? "orderView.discard.leaveConfirm" : "orderView.discard.saleConfirm";
-  const stickyLabel = inDoubt ? "orderView.status.stickyVerifying" : notice?.kind === "success" ? "orderView.status.stickySaved" : saved && unsaved ? "orderView.status.stickyUnsaved" : "orderView.products.total";
+  const stickyLabel = inDoubt ? "orderView.status.stickyVerifying" : notice?.kind === "success" ? "orderView.status.stickySaved" : saved && unsaved && !order?.cancelled ? "orderView.status.stickyUnsaved" : "orderView.products.total";
   const confirmDiscard = () => { setDiscarding(false); if (saved) saved.onDiscardChanges(); else props.onDiscard?.(); };
-  const stickyActions = saved ? unsaved && <>
+  const stickyActions = saved ? unsaved && !order?.cancelled && <>
     <Button type="button" variant="outline" disabled={busy} onClick={() => setDiscarding(true)}>{t("orderView.header.discardChanges")}</Button>
     <Button type="button" disabled={!canSave} onClick={props.onSave}>{saveLabel}</Button></>
     : hasProducts && <Button type="button" disabled={!canSave} onClick={props.onSave}>{saveLabel}</Button>;

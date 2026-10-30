@@ -112,7 +112,7 @@ test("rated pickup freezes its point, a recipient correction records the editor 
     expect(home.delivery).not.toHaveProperty("pickupPoint");
     await page.reload();
     await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveValue("Calle Destino 789");
-    await browserExpect(page.getByText("MIRAFLORES", { exact: false }).first()).toBeVisible();
+    await browserExpect(page.getByRole("combobox", { name: "Distrito", exact: true })).toHaveValue(/Miraflores/i);
     await page.goto(`/pt-BR/orders/${orderId}`);
     await browserExpect(page.getByLabel("Endereço de entrega", { exact: true })).toHaveValue("Calle Destino 789");
     await browserExpect(page.getByRole("tab", { name: "Domicílio" })).toBeVisible();

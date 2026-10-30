@@ -321,6 +321,15 @@ describe("OrderView (saved order)", () => {
     expect(container.textContent).not.toContain("Una entrega guardada se puede cambiar");
   });
 
+  test("keeps a cancelled order read-only in the header and the sticky bar when it was cancelled while the edits were kept", async () => {
+    await mountSaved(typeQuantity(savedState({ order: order1042({ status: "cancelled", cancelled: true }) }), deadpoolM, "2"), { notice: { kind: "locked", code: "ORDER_CANCELLED" } });
+    expect(button("Guardar cambios")).toBeUndefined();
+    expect(button("Descartar cambios")).toBeUndefined();
+    expect(container.textContent).not.toContain("Tienes cambios sin guardar.");
+    expect(container.textContent).not.toContain("Cambios sin guardar");
+    expect(document.body.textContent).toContain("El pedido está cancelado; no se guardaron los cambios.");
+  });
+
   test("asks for touch targets of at least 44 px on every control of the view, also with a mouse", async () => {
     await mountSaved();
     expect(container.querySelector("section")!.className).toContain("[&_[data-slot=button]]:min-h-touch");

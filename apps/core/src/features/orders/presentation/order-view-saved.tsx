@@ -48,7 +48,7 @@ export function SavedHeader({ order, salesHref, format, headerRef, unsaved, busy
         <PageHeader.Description>{subtitle}</PageHeader.Description>
       </PageHeader.Heading>
       <PageHeader.Actions>
-        {unsaved && <p className="basis-full text-sm text-muted-foreground xl:basis-auto xl:self-center">{t("orderView.status.unsavedChanges")} {t("orderView.status.saveFirst")}</p>}
+        {unsaved && !order.cancelled && <p className="basis-full text-sm text-muted-foreground xl:basis-auto xl:self-center">{t("orderView.status.unsavedChanges")} {t("orderView.status.saveFirst")}</p>}
         <PrintButton blocked={unsaved} onPrint={onPrint} />
         <Button asChild variant="ghost" className="text-muted-foreground"><Link to={salesHref}>{t("orderView.header.viewSales")}</Link></Button>
         {!order.cancelled && <>
