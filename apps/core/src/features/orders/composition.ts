@@ -12,9 +12,14 @@ import type { ContainedFailure, TransactionEndingError } from "@core/src/shared/
 import { createInTransactionPublisher, type InTransactionRegistry } from "@core/src/shared/events/application/in-transaction-events";
 import { recoverDueStockDeductions, STOCK_DEDUCTION_FAILURE_QUARANTINE_MINUTES, STOCK_DEDUCTION_RECOVERY_LAST_PASS_START_MS, STOCK_DEDUCTION_RECOVERY_PASS_BUDGET, STOCK_DEDUCTION_RECOVERY_PASS_OFFSETS_MS, type RecoverDueStockDeductionsDependencies } from "@core/src/features/orders/application/recover-due-stock-deductions";
 import { containedDeductionOutcome, containedServeOutcome, deductDueOrderStock, serveWaitingOrders, type DeductDueStockDependencies, type DeductionOutcome, type ServeOutcome, type StockEvent } from "@core/src/features/orders/application/deduct-due-stock";
+import { getOrderAggregateByNumber } from "@core/src/features/orders/application/get-order-by-number";
+import { hasAnyOrder } from "@core/src/features/orders/application/has-any-order";
+import { summarizeUnpaidOrders } from "@core/src/features/orders/application/summarize-unpaid-orders";
+import { describeDispatchStock, listDispatchQueue, type ListDispatchQueueDependencies, type ListDispatchQueueError, type ListDispatchQueueInput } from "@core/src/features/orders/application/list-dispatch-queue";
+import { readDispatchQueueMax } from "@core/src/features/orders/infrastructure/dispatch-queue-env";
 import { describeOrderStockDue } from "@core/src/features/orders/application/describe-order-stock-due";
-import type { StockDue } from "@core/src/features/orders/domain/stock-deduction";
-import { listCompaniesWithOverdueStockDeductions, listOverdueOrderIds, listWaitingOrderIds, loadStockOrders, lockOrdersSkipLocked, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
+import { parseStockQuantity, type NonNegativeInteger, type StockDue, type VariantStock } from "@core/src/features/orders/domain/stock-deduction";
+import { countUndatedPendingOrders, existsOrder, findDispatchCandidates, findOrderAggregateByNumber as findAnyOrderAggregateByNumber, summarizeUnpaidOrders as summarizeUnpaidInDatabase, listCompaniesWithOverdueStockDeductions, listOverdueOrderIds, listWaitingOrderIds, loadStockOrders, lockOrdersSkipLocked, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
 import { err, map, ok } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, requireActiveTransaction, requireNoActiveTransaction, setLocalTimeouts, withinReadSnapshot, withinSavepoint, withinTransaction, withTenantIsolation, type TransactionOptions } from "@core/src/shared/infrastructure/persistance";
@@ -83,6 +88,7 @@ async function orderTransaction<T, E extends AppError>(callback: () => Promise<R
 }
 
 const findOrderAggregate = rejectPendingCatalogOrder(findAnyOrderAggregate);
+const findOrderAggregateByNumber = rejectPendingCatalogOrder(findAnyOrderAggregateByNumber);
 const findOrderForUpdate = rejectPendingCatalogOrder(findAnyOrderForUpdate);
 const findSellerCheckoutOrder = rejectPendingCatalogOrder(findCheckoutOrder);
 
@@ -214,6 +220,48 @@ async function describeStockDue(found: readonly OrderAggregate[]): Promise<Resul
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
     log.error({ event: "unable_to_describe_stock_due", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_describe_stock_due");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read stock" });
+  }
+}
+
+/** Stock of these variants with every quantity validated; one unreadable quantity fails the read instead of counting as zero. */
+async function readValidStock(variantIds: readonly VariantId[]): Promise<Result<VariantStock, ListDispatchQueueError>> {
+  const rows = await readStock(variantIds);
+  if (!rows.success) return err({ code: "PERSISTENCE_UNAVAILABLE", message: rows.error.message });
+  const stock = new Map<VariantId, NonNegativeInteger>();
+  for (const [variantId, raw] of rows.data) {
+    const quantity = parseStockQuantity(raw);
+    if (!quantity.success) return err({ code: "INVALID_ORDER", message: "Invalid stored stock quantity" });
+    stock.set(variantId, quantity.data);
+  }
+  return ok(stock);
+}
+
+const dispatchQueueDependencies: ListDispatchQueueDependencies = { inSnapshot: withinReadSnapshot, findDispatchCandidates, readStock: readValidStock,
+  findAggregatesByIds: findOrderAggregatesByIds, countUndatedPending: countUndatedPendingOrders, maxCandidates: readDispatchQueueMax(process.env) };
+
+/** The dispatch queue of the caller's company in one read snapshot: candidates, stock and the page's orders agree with each other. */
+async function readDispatchQueue(input: ListDispatchQueueInput, context: OrderAccess) {
+  if (getCompanyId() !== context.companyId) throw new Error("Order company differs from tenant context");
+  try {
+    const page = await listDispatchQueue(input, context, dispatchQueueDependencies);
+    if (!page.success && page.error.code === "QUEUE_TOO_LARGE") log.warn({ event: "dispatch_queue_too_large", companyId: context.companyId, maxCandidates: dispatchQueueDependencies.maxCandidates }, "dispatch_queue_too_large");
+    return page;
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    log.error({ event: "unable_to_list_dispatch_queue", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_list_dispatch_queue");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read the dispatch queue" });
+  }
+}
+
+/** Stock due and current-stock shortfall of full orders, in one snapshot with one stock read. */
+async function describeOrdersDispatchStock(found: readonly OrderAggregate[]) {
+  try {
+    return await describeDispatchStock(found, { inSnapshot: withinReadSnapshot,
+      readStock: async (variantIds) => { const stock = await readValidStock(variantIds); return stock.success ? stock : err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: stock.error.message }); } });
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    log.error({ event: "unable_to_describe_dispatch_stock", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_describe_dispatch_stock");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read stock" });
   }
 }
@@ -521,6 +569,18 @@ export const orders = {
   getAggregatesByIds: (ids: readonly OrderId[], companyId: CompanyId) => findOrderAggregatesByIds(ids, companyId),
   getAggregate: (id: Parameters<typeof getOrderAggregate>[0], context: Parameters<typeof getOrderAggregate>[1]) =>
     getOrderAggregate(id, context, findOrderAggregate),
+  /** Read-only. An unconfirmed catalog order and another company's number both answer `ORDER_NOT_FOUND`. */
+  getAggregateByNumber: (input: Parameters<typeof getOrderAggregateByNumber>[0], context: Parameters<typeof getOrderAggregateByNumber>[1]) =>
+    getOrderAggregateByNumber(input, context, findOrderAggregateByNumber),
+  /** Read-only: whether the company has an order the seller can see. */
+  hasAny: (input: Parameters<typeof hasAnyOrder>[0], context: Parameters<typeof hasAnyOrder>[1]) => hasAnyOrder(input, context, existsOrder),
+  /** Read-only: count, balance and pending reports over every unpaid order. */
+  summarizeUnpaid: (input: Parameters<typeof summarizeUnpaidOrders>[0], context: Parameters<typeof summarizeUnpaidOrders>[1]) =>
+    summarizeUnpaidOrders(input, context, summarizeUnpaidInDatabase),
+  /** Read-only: pending orders scheduled today or earlier with their readiness, 20 per page. */
+  listDispatchQueue: readDispatchQueue,
+  /** Read-only: `stockDue` and the current-stock shortfall of full orders. */
+  describeDispatchStock: describeOrdersDispatchStock,
   ship: (id: Parameters<typeof registerShipment>[0], context: Parameters<typeof registerShipment>[1]) =>
     registerShipment(id, context, fulfillmentDependencies),
   updateShipping: (input: Parameters<typeof updateOrderShipping>[0], context: Parameters<typeof updateOrderShipping>[1]) =>
