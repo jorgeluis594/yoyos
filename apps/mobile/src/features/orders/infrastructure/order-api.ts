@@ -16,7 +16,7 @@ import type { TransportError } from "@mobile/shared/application/transport-error"
 import type { OrderRequestError } from "@mobile/features/orders/application/order-operations";
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
-type Operation = "fulfillment" | "deliverFulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "deduct" | "catalog" | "shipping" | "sender" | "reject";
+type Operation = "fulfillment" | "deliverFulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "catalog" | "shipping" | "sender" | "reject";
 
 const statusByCode: Record<OrderApiError["code"], number> = {
   INVALID_INPUT: 400, UNSUPPORTED_MEDIA_TYPE: 415, PAYLOAD_TOO_LARGE: 413,
@@ -47,13 +47,13 @@ const errorSchemas = {
     "INVALID_TRANSITION", "STOCK_NOT_DEDUCTED", "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED",
     "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
   payment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_PAYMENT", "CURRENCY_MISMATCH",
-    "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "INVALID_TRANSITION", "ORDER_CANCELLED", "INSUFFICIENT_STOCK",
+    "PAYMENT_CONFLICT", "PAYMENT_NOT_FOUND", "INVALID_TRANSITION", "ORDER_CANCELLED",
     "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
   void: httpErrorSchema(["ORDER_NOT_FOUND", "PAYMENT_NOT_FOUND", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "INVALID_ORDER"]),
   reject: httpErrorSchema(["ORDER_NOT_FOUND", "PAYMENT_NOT_FOUND", "PAYMENT_CONFLICT", "INVALID_TRANSITION", "ORDER_CANCELLED",
     "INVALID_PAYMENT", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
   delivery: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "CURRENCY_MISMATCH", "ORDER_CANCELLED", "DELIVERY_LOCKED",
-    "DELIVERY_METHOD_DISABLED", "DELIVERY_UNAVAILABLE", "INSUFFICIENT_STOCK",
+    "DELIVERY_METHOD_DISABLED", "DELIVERY_UNAVAILABLE",
     "RATE_UNAVAILABLE", "TOTAL_CHANGED", "INVALID_DISTRICT", "INVALID_DELIVERY_RATE",
     "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
   // Only shipping deducts stock, so only it can answer INSUFFICIENT_STOCK.
@@ -61,7 +61,6 @@ const errorSchemas = {
   fulfillment: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_TRANSITION", "PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "INSUFFICIENT_STOCK", "ORDER_CANCELLED", "CURRENCY_MISMATCH"]),
   shipping: httpErrorSchema(["ORDER_NOT_FOUND", "INVALID_ORDER", "INVALID_TRANSITION", "PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "INSUFFICIENT_STOCK", "ORDER_CANCELLED",
     "CURRENCY_MISMATCH", "UNSUPPORTED_MEDIA_TYPE", "PAYLOAD_TOO_LARGE"]),
-  deduct: httpErrorSchema(["ORDER_NOT_FOUND", "INSUFFICIENT_STOCK", "ORDER_CANCELLED", "INVALID_ORDER"]),
   get: getErrorSchema,
   aggregate: getErrorSchema,
   list: commonErrorSchema,
@@ -202,10 +201,6 @@ export function createOrderApi(request: Request) {
       const result = response(await request(`/api/orders/${orderId}/shipping`, { method: "PATCH", headers: { "content-type": "application/json" },
         body: JSON.stringify(parsed.data) }), orderAggregateSchema, "shipping");
       return result.success && result.data.id !== orderId ? err({ code: "INVALID_RESPONSE", message: "Unexpected order shipping" }) : result;
-    },
-    deductStock: async (orderId: string): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
-      if (!z.uuid().safeParse(orderId).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
-      return response(await request(`/api/orders/${orderId}/deduct-stock`, { method: "POST" }), orderAggregateSchema, "deduct");
     },
     /** Effective sender of the company's dispatch labels; the server already applies the company-name fallback. */
     getDispatchSender: async (): Promise<Result<DispatchLabelSender, OrderRequestError>> => {
