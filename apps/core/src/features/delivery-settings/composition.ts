@@ -5,7 +5,8 @@ import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { getCourierCatalog, getDeliverySettings, saveDeliverySettings, type DeliverySettingsAccess, type SaveDeliverySettingsInput } from "@core/src/features/delivery-settings/application/delivery-settings";
-import { readCourierCatalog, readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
+import { listCompanyCouriers } from "@core/src/features/delivery-settings/application/list-company-couriers";
+import { readCompanyCouriers, readCourierCatalog, readDeliverySettings, writeDeliverySettings } from "@core/src/features/delivery-settings/infrastructure/delivery-settings-repository";
 import type { CourierCatalogId, CourierId, DeliverySettingsReadError } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { getAgencyCatalog } from "@core/src/features/delivery-settings/application/agency-catalog";
 import { readAgencies, readAgencyCatalog } from "@core/src/features/delivery-settings/infrastructure/agency-catalog-repository";
@@ -42,6 +43,8 @@ async function settingsTransaction<T, E extends AppError>(context: DeliverySetti
 }
 
 export const deliverySettings = {
+  /** The store's couriers by name, disabled included, read without locking the settings row. */
+  listCouriers: (companyId: string) => listCompanyCouriers({ companyId }, readCompanyCouriers),
   getForCompany: (companyId: string) => quotationTransaction(companyId,
     () => getDeliverySettings({ companyId }, id => readDeliverySettings(id, "shared", undefined, "confirm_checkout"))),
   getCheckoutDeliveryOptions: (companyId: string) => quotationTransaction(companyId,
