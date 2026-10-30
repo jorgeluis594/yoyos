@@ -33,7 +33,7 @@ test("turns a contained savepoint failure into the event's failed outcome and re
   const contained = createInTransactionPublisher(registryOf(async () => ok(deducted)), { ...base, withinSavepoint: (async () => err(containedFailure)) as never });
   expect(await contained("payment_confirmed", event)).toEqual(ok(failed));
   const seen: unknown[] = [];
-  const ending = createInTransactionPublisher(registryOf(async () => err({ code: "ENDED", message: "ended" })), { ...base, onTransactionEnding: (name, error) => seen.push([name, error]) });
+  const ending = createInTransactionPublisher(registryOf(async () => err({ code: "ENDED", message: "ended" })), { ...base, onTransactionEnding: (name, payload, error) => seen.push([name, payload, error]) });
   expect(await ending("payment_confirmed", event)).toEqual(err({ code: "ENDED", message: "ended" }));
-  expect(seen).toEqual([["payment_confirmed", { code: "ENDED", message: "ended" }]]);
+  expect(seen).toEqual([["payment_confirmed", event, { code: "ENDED", message: "ended" }]]);
 });

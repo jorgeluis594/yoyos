@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
-import type { TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
+import type { TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import { orderStateMachine, type OrderAggregate, type OrderDomainError, type Payment, type PaymentMethod, type WalletProvider } from "@core/src/features/orders/domain/order-state-machine";
 import { confirmPayment } from "@core/src/features/orders/domain/payment";
 import type { PaymentError } from "@core/src/features/orders/domain/payment";

@@ -72,7 +72,7 @@ export interface BlockedKeysReader {
   listBlockedKeys(handlerId: string): Promise<Result<readonly string[], EventBusError>>;
 }
 export type ScheduledJobHandler = (context: EventHandlerContext) => Promise<Result<void, EventHandlerError>>;
-/** Queue behavior of a scheduled job; without it the job keeps the default (3 retries, 300 s apart). `stately` allows one active and one queued run across every worker. */
+/** Queue behavior of a scheduled job; without it the job keeps the default (3 retries, 300 s apart). `queuePolicy` is fixed when the queue is created. The stock recovery uses `standard`: on pg-boss 12.35 a `stately` queue started a job up to 55 s late after a long run. */
 export type ScheduledJobPolicy = Readonly<{ retryLimit: number; expireInSeconds: number; queuePolicy: "standard" | "stately" }>;
 export type ScheduleOptions = Readonly<{ tz: string; policy?: ScheduledJobPolicy }>;
 export interface JobScheduler {

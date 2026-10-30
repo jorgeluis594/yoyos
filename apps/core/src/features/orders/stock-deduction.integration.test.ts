@@ -1,10 +1,15 @@
 import { appendFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { err } from "@shared/functional";
+import { persistenceFailureResult } from "@core/src/shared/infrastructure/persistence-error";
+import { log } from "@core/src/shared/infrastructure/logger";
 import pg from "pg";
 import { lockVariantStock } from "@core/src/features/products/infrastructure/order-stock";
 import { ok } from "@shared/functional";
-import { orders, createConfiguredOrder, createStockPublisher, deductDueStockDependencies, publishStockEvent, stockRegistry } from "@core/src/features/orders/composition";
+import { orders, createConfiguredOrder, createStockPublisher, deductDueStockDependencies, publishStockEvent, recoveryDependencies, stockRegistry } from "@core/src/features/orders/composition";
+import { recoverDueStockDeductions } from "@core/src/features/orders/application/recover-due-stock-deductions";
+import { parseBuyer } from "@core/src/features/orders/domain/checkout";
 import { serveWaitingOrders } from "@core/src/features/orders/application/deduct-due-stock";
 import { listOverdueOrderIds, listWaitingOrderIds } from "@core/src/features/orders/infrastructure/order-repository";
 import { restoreCancelledStock } from "@core/src/composition/event-handlers";
@@ -282,7 +287,7 @@ test("a waiting-orders query that exceeds the serving budget still commits the r
     await prisma.productStock.update({ where: { variantId: s.variants[0]! }, data: { quantity: { increment: 3n } } });
     return slow("product_stock_increased", { companyId: s.companyId, variantIds: [s.variants[0]!] });
   }, { timeout: 5000, lockTimeoutMs: 2000, statementTimeoutMs: 2000 }));
-  expect(outcome).toMatchObject({ success: true, data: { budgetExhausted: true, deducted: 0 } });
+  expect(outcome).toMatchObject({ success: true, data: { budgetExhausted: true, deducted: 0, candidates: 0 } });
   expect(Date.now() - started).toBeLessThan(1500);
   expect(await s.stock()).toBe(3);
   expect(await s.deducted(id)).toBe(false);
@@ -397,4 +402,128 @@ test("with 10,000 unpaid pending orders in the company the waiting query stays u
   }
   measure({ measure: "list_waiting_order_ids_with_10000_unpaid_pending_orders", timingsMs: timings });
   expect(Math.min(...timings)).toBeLessThan(500);
+});
+
+test("a serving timeout keeps the candidates it had already listed in the outcome", async () => {
+  const s = await shop([0]);
+  const id = await s.create([[0, 1]]);
+  await s.pay(id, 10);
+  const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+  try {
+    const slowRegistry = { ...stockRegistry, product_stock_increased: serveWaitingOrders({ ...deductDueStockDependencies,
+      lockOrdersSkipLocked: async () => {
+        try { await prisma.$queryRaw`SELECT pg_sleep(1.5)`; return ok([]); }
+        catch (cause) { return err(persistenceFailureResult(cause, "Unable to lock orders")); }
+      } }) };
+    const publish = createStockPublisher(slowRegistry);
+    const outcome = await s.run(() => withinTransaction(async () => {
+      await prisma.productStock.update({ where: { variantId: s.variants[0]! }, data: { quantity: { increment: 3n } } });
+      return publish("product_stock_increased", { companyId: s.companyId, variantIds: [s.variants[0]!] });
+    }, { timeout: 5000, lockTimeoutMs: 2000, statementTimeoutMs: 2000 }));
+    // The partial progress (one candidate listed before the timeout) survives in the outcome.
+    expect(outcome).toMatchObject({ success: true, data: { budgetExhausted: true, candidates: 1 } });
+  } finally { warn.mockRestore(); }
+});
+
+test("serving that runs out of budget through the real publisher is logged with budgetExhausted true", async () => {
+  const s = await shop([0]);
+  const id = await s.create([[0, 1]]);
+  await s.pay(id, 10);
+  const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+  const previous = deductDueStockDependencies.waitingOrdersBudgetMs;
+  try {
+    // 1 ms of budget: the first statement already has none left, so serving is cut as a contained timeout.
+    (deductDueStockDependencies as { waitingOrdersBudgetMs: number }).waitingOrdersBudgetMs = 1;
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    const outcome = await s.restock(0, 3);
+    expect(outcome).toMatchObject({ success: true, data: { budgetExhausted: true } });
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ event: "waiting_orders_served", budgetExhausted: true, variantCount: 1 }), "waiting_orders_served");
+    expect(await s.stock()).toBe(3);
+  } finally {
+    (deductDueStockDependencies as { waitingOrdersBudgetMs: number }).waitingOrdersBudgetMs = previous;
+    warn.mockRestore();
+  }
+});
+
+test("a transaction-ending failure of the listener is logged as stock_deduction_rolled_back and rolls the payment back", async () => {
+  const s = await shop([5]);
+  const id = await s.create([[0, 2]]);
+  const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+  try {
+    const ending = createStockPublisher({ ...stockRegistry, payment_confirmed: async () => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "closed", transactionEnding: true as const }) });
+    const result = await s.run(() => withinTransaction(async () => {
+      const published = await ending("payment_confirmed", { companyId: s.companyId, orderId: id, paymentId: randomUUID() as PaymentId });
+      return published;
+    }));
+    expect(result).toMatchObject({ success: false, error: { transactionEnding: true } });
+    expect(warn).toHaveBeenCalledWith(expect.objectContaining({ event: "stock_deduction_rolled_back", eventName: "payment_confirmed", companyId: s.companyId }), "stock_deduction_rolled_back");
+  } finally { warn.mockRestore(); }
+});
+
+// --- Checkout, report approval and recovery overlap ---
+
+test("the checkout confirms a delivery that covers the order with short stock", async () => {
+  const s = await shop([3]);
+  await s.run(async () => {
+    expect((await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: false },
+      store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } }, s.context)).success).toBe(true);
+  });
+  const orderId = await s.create([[0, 4]]);
+  await s.run(async () => {
+    await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } });
+    await prisma.payment.create({ data: { id: randomUUID(), orderId, status: "confirmed", currency: "PEN", amount: 40, method: "digital_wallet",
+      deductStockIfPartial: false, data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
+  });
+  const buyer = parseBuyer({ name: "Ana", phone: "+51987654321" });
+  const pickup = parseRatedDeliverySelection({ method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } });
+  if (!buyer.success || !pickup.success) throw new Error("setup");
+  const confirmed = await orders.confirmCheckoutDelivery({ buyer: buyer.data, expectedTotal: { amount: 40, currency: "PEN" },
+    delivery: { kind: "replace", selection: pickup.data, expectedPrice: { amount: 0, currency: "PEN" } } }, { companyId: s.companyId, orderId });
+  expect(confirmed).toMatchObject({ success: true });
+  expect(await s.run(async () => await prisma.order.findUniqueOrThrow({ where: { id: orderId } }))).toMatchObject({ checkoutConfirmedAt: expect.any(Date), stockDeducted: false });
+  expect(await s.stock()).toBe(3);
+});
+
+async function reported(s: Shop, orderId: OrderId) {
+  const paymentId = randomUUID() as PaymentId;
+  await s.run(async () => {
+    await prisma.payment.create({ data: { id: paymentId, orderId, status: "reported", currency: "PEN", amount: null, method: null,
+      data: { receiptImageId: randomUUID(), reportedAt: new Date().toISOString() } } });
+  });
+  const approve = () => s.run(() => orders.registerPayment({ orderId, paymentId, source: "buyer_report", amount: { amount: 40, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, s.context));
+  return { paymentId, approve };
+}
+
+test("approving a covering report with short stock confirms it and leaves the order waiting", async () => {
+  const s = await shop([3]);
+  const id = await s.create([[0, 4]]);
+  const report = await reported(s, id);
+  expect(await report.approve()).toMatchObject({ success: true, data: { order: { stockDeducted: false }, stockDue: waiting(s, 0, 3) } });
+  expect(await s.run(async () => await prisma.payment.findUniqueOrThrow({ where: { id: report.paymentId } }))).toMatchObject({ status: "confirmed", deductStockIfPartial: false });
+  expect(await s.stock()).toBe(3);
+});
+
+test("approving the same report twice records one payment and deducts once", async () => {
+  const s = await shop([4]);
+  const id = await s.create([[0, 4]]);
+  const report = await reported(s, id);
+  expect(await report.approve()).toMatchObject({ success: true, data: { order: { stockDeducted: true }, stockDue: null } });
+  expect(await report.approve()).toMatchObject({ success: true, data: { order: { stockDeducted: true }, stockDue: null } });
+  expect(await s.run(async () => await prisma.payment.count({ where: { orderId: id, status: "confirmed" } }))).toBe(1);
+  expect(await s.stock()).toBe(0);
+});
+
+test("two concurrent recovery runs over the same due order deduct it once", async () => {
+  const s = await shop([5]);
+  const id = await s.create([[0, 2]]);
+  await s.run(async () => {
+    await prisma.payment.create({ data: { id: randomUUID(), orderId: id, status: "confirmed", currency: "PEN", amount: 20, method: "digital_wallet",
+      deductStockIfPartial: false, data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
+  });
+  const once = { ...recoveryDependencies, passOffsetsMs: [0] };
+  // The runs see every company of the shared test database; this order is checked through its own stock and flag.
+  const runs = await Promise.all([recoverDueStockDeductions(new AbortController().signal, once), recoverDueStockDeductions(new AbortController().signal, once)]);
+  expect(runs.every((run) => run.success)).toBe(true);
+  expect(await s.deducted(id)).toBe(true);
+  expect(await s.stock()).toBe(3);
 });

@@ -3,7 +3,7 @@ import type { Result } from "@shared/result";
 import type { CompanyId, OrderId, OrderCancelled } from "@core/src/features/orders";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { EventHandlerError } from "@core/src/shared/events/application/contracts";
-import type { TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
+import type { TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import type { ProductStockIncreased } from "@core/src/features/products/application/events";
 
 type RestorationError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_ORDER"; message: string }>;

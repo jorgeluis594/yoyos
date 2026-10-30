@@ -6,7 +6,7 @@ import type { OrderAccess } from "@core/src/features/orders/application/create-o
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 import type { ResolveRateError } from "@core/src/features/delivery-settings";
 import type { PeruDistrictError } from "@shared/peru-geography";
-import type { TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
+import type { TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import type { OrderDeliveryChanged } from "@core/src/features/orders/application/events";
 import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
 import { describeOrderStockDue, orderWithStockDue, type StockEventResult, type StockReader } from "@core/src/features/orders/application/describe-order-stock-due";

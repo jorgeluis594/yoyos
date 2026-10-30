@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { checkoutState, parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { isPersistenceFailure, transactionEndingOrThrow, type TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
+import { isPersistenceFailure, persistenceFailureResult } from "@core/src/shared/infrastructure/persistence-error";
+import type { ContainedFailure, TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -685,7 +686,7 @@ const stockOrderRow = z.object({
 });
 
 /** One statement for any number of orders: core fields, items and confirmed payments aggregated per order. A row that does not validate comes back as `ok: false`, after the query, so it never aborts the transaction. */
-export async function loadStockOrders(ids: readonly OrderId[], companyId: CompanyId): Promise<Result<readonly StockOrderRow[], TransactionEndingError>> {
+export async function loadStockOrders(ids: readonly OrderId[], companyId: CompanyId): Promise<Result<readonly StockOrderRow[], TransactionEndingError | ContainedFailure>> {
   requireActiveTransaction(companyId);
   try {
     const rows = await prisma.$queryRaw<unknown[]>`SELECT o.id, o."createdAt", o.cancelled, o."stockDeducted", o."deliveryStatus", o.total::text AS total, o.currency,
@@ -705,36 +706,36 @@ export async function loadStockOrders(ids: readonly OrderId[], companyId: Compan
         deliveryStatus: parsed.data.deliveryStatus, total: { amount: Number(parsed.data.total), currency }, items: [line(first), ...rest.map(line)],
         confirmedPayments: parsed.data.payments.map((payment) => ({ amount: { amount: payment.amount, currency }, deductStockIfPartial: payment.deductStockIfPartial })) } };
     }));
-  } catch (cause) { return err(transactionEndingOrThrow(cause, "Unable to load orders for stock deduction")); }
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to load orders for stock deduction")); }
 }
 
 /** Locks the orders not held elsewhere in one statement, oldest first. FOR NO KEY UPDATE: foreign-key inserts on the order are not blocked, mutual exclusion with FOR UPDATE holds. */
-export async function lockOrdersSkipLocked(ids: readonly OrderId[], companyId: CompanyId): Promise<Result<readonly OrderId[], TransactionEndingError>> {
+export async function lockOrdersSkipLocked(ids: readonly OrderId[], companyId: CompanyId): Promise<Result<readonly OrderId[], TransactionEndingError | ContainedFailure>> {
   requireActiveTransaction(companyId);
   try {
     const rows = await prisma.$queryRaw<{ id: string }[]>`SELECT id FROM "Order" WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[])
       ORDER BY "createdAt", id FOR NO KEY UPDATE SKIP LOCKED`;
     return ok(rows.map((row) => row.id as OrderId));
-  } catch (cause) { return err(transactionEndingOrThrow(cause, "Unable to lock orders")); }
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to lock orders")); }
 }
 
 /** One statement; returns how many orders it marked (those still undeducted). */
-export async function saveStockDeductions(ids: readonly OrderId[], companyId: CompanyId): Promise<Result<number, TransactionEndingError>> {
+export async function saveStockDeductions(ids: readonly OrderId[], companyId: CompanyId): Promise<Result<number, TransactionEndingError | ContainedFailure>> {
   requireActiveTransaction(companyId);
   try {
     return ok(await prisma.$executeRaw`UPDATE "Order" SET "stockDeducted" = true WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[]) AND NOT "stockDeducted"`);
-  } catch (cause) { return err(transactionEndingOrThrow(cause, "Unable to save stock deductions")); }
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to save stock deductions")); }
 }
 
 /** Orders of the company with an item on one of these variants that are due and now fit, oldest first. Walks the partial index. */
-export async function listWaitingOrderIds(companyId: CompanyId, variantIds: readonly VariantId[], limit: number): Promise<Result<readonly OrderId[], TransactionEndingError>> {
+export async function listWaitingOrderIds(companyId: CompanyId, variantIds: readonly VariantId[], limit: number): Promise<Result<readonly OrderId[], TransactionEndingError | ContainedFailure>> {
   requireActiveTransaction(companyId);
   try {
     const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT o.id FROM "Order" o WHERE o."companyId" = ${companyId}::uuid
       AND EXISTS (SELECT 1 FROM "OrderItem" w WHERE w."companyId" = o."companyId" AND w."orderId" = o.id AND w."variantId" = ANY(${[...variantIds]}::uuid[]))
       AND ${dueAndFit} ORDER BY o."createdAt", o.id LIMIT ${limit}`);
     return ok(rows.map((row) => row.id as OrderId));
-  } catch (cause) { return err(transactionEndingOrThrow(cause, "Unable to list waiting orders")); }
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to list waiting orders")); }
 }
 
 export async function listOverdueOrderIds(companyId: CompanyId, limit: number, exclude: readonly OrderId[]) {

@@ -12,6 +12,7 @@ import { listOrderAggregatesSchema, orderListLoaderSchema } from "@shared/contra
 import { limaMidnightUtc } from "@shared/orders-date";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders } from "@core/src/features/orders/composition";
+import { orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { toOrderAggregateListJson, toOrderListDispatchFields } from "@core/src/features/orders/presentation/order-json";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
@@ -42,7 +43,6 @@ function checkoutLabel(item: CheckoutLabelled) {
   return item.status === "active" ? "orders.checkoutPending" : null;
 }
 
-import { orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 
 /** The balance comes from the payment summary: a list never describes stock. */
 function paidBalance(order: OrderAggregate) {

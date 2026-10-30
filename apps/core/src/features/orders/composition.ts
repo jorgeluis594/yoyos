@@ -7,10 +7,11 @@ import { canAccessBuyerPayment, type CheckoutAccess, type CheckoutError } from "
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
-import { isPersistenceFailure, type TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
+import { classifyPersistenceFailure, isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
+import type { ContainedFailure, TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import { createInTransactionPublisher, type InTransactionRegistry } from "@core/src/shared/events/application/in-transaction-events";
 import { recoverDueStockDeductions, STOCK_DEDUCTION_FAILURE_QUARANTINE_MINUTES, STOCK_DEDUCTION_RECOVERY_LAST_PASS_START_MS, STOCK_DEDUCTION_RECOVERY_PASS_BUDGET, STOCK_DEDUCTION_RECOVERY_PASS_OFFSETS_MS, type RecoverDueStockDeductionsDependencies } from "@core/src/features/orders/application/recover-due-stock-deductions";
-import { containedDeductionOutcome, containedServeOutcome, deductDueOrderStock, serveWaitingOrders, type DeductDueStockDependencies, type DeductionOutcome, type StockEvent } from "@core/src/features/orders/application/deduct-due-stock";
+import { containedDeductionOutcome, containedServeOutcome, deductDueOrderStock, serveWaitingOrders, type DeductDueStockDependencies, type DeductionOutcome, type ServeOutcome, type StockEvent } from "@core/src/features/orders/application/deduct-due-stock";
 import { describeOrderStockDue } from "@core/src/features/orders/application/describe-order-stock-due";
 import type { StockDue } from "@core/src/features/orders/domain/stock-deduction";
 import { listCompaniesWithOverdueStockDeductions, listOverdueOrderIds, listWaitingOrderIds, loadStockOrders, lockOrdersSkipLocked, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
@@ -108,9 +109,6 @@ function emitStockEvent(event: StockEvent) {
       itemCount: event.itemCount, durationMs: event.durationMs }, "order_stock_deducted"));
     case "waiting": return afterTransactionCommit(() => log.info({ event: "order_stock_waiting", companyId: event.companyId, orderId: event.orderId, trigger: event.trigger,
       shortItemCount: event.shortItemCount }, "order_stock_waiting"));
-    case "served": return afterTransactionCommit(() => log.info({ event: "waiting_orders_served", companyId: event.companyId, variantCount: event.variantCount,
-      candidates: event.candidates, deducted: event.deducted, skippedLocked: event.skippedLocked, skippedInvalid: event.skippedInvalid,
-      budgetExhausted: event.budgetExhausted, durationMs: event.durationMs }, "waiting_orders_served"));
     case "skipped_invalid": return log.error({ event: "stock_deduction_failed", companyId: event.companyId, orderId: event.orderId, trigger: "product_stock_increased",
       stage: "load_order", errorCode: "INVALID_STORED_DATA" }, "stock_deduction_failed");
   }
@@ -121,7 +119,7 @@ export const deductDueStockDependencies: DeductDueStockDependencies = { loadStoc
   emit: emitStockEvent, waitingOrdersBatchSize: WAITING_ORDERS_BATCH_SIZE, waitingOrdersBudgetMs: WAITING_ORDERS_BUDGET_MS, clock: () => new Date() };
 
 // The registry lives here because every handler belongs to orders; products receives the publisher by injection.
-export const stockRegistry: InTransactionRegistry<TransactionEndingError> = {
+export const stockRegistry: InTransactionRegistry<TransactionEndingError | ContainedFailure> = {
   payment_confirmed: deductDueOrderStock("payment_confirmed", deductDueStockDependencies),
   order_delivery_changed: deductDueOrderStock("order_delivery_changed", deductDueStockDependencies),
   order_stock_deduction_overdue: deductDueOrderStock("order_stock_deduction_overdue", deductDueStockDependencies),
@@ -129,7 +127,7 @@ export const stockRegistry: InTransactionRegistry<TransactionEndingError> = {
 };
 
 /** Builds the in-transaction publisher; tests pass a registry with a slower or failing handler. */
-export const createStockPublisher = (registry: InTransactionRegistry<TransactionEndingError>) => createInTransactionPublisher(registry, {
+export const createStockPublisher = (registry: InTransactionRegistry<TransactionEndingError | ContainedFailure>) => createInTransactionPublisher(registry, {
   requireTransaction: requireActiveTransaction,
   withinSavepoint,
   containedOutcome: ((name: string, payload: { companyId: string; orderId?: string }, failure: Parameters<typeof containedDeductionOutcome>[0]) => {
@@ -142,9 +140,28 @@ export const createStockPublisher = (registry: InTransactionRegistry<Transaction
     }
     return name === "product_stock_increased" ? containedServeOutcome(failure) : containedDeductionOutcome(failure);
   }) as never,
-  onTransactionEnding: (name, error) => log.warn({ event: "stock_deduction_rolled_back", event_name: name, errorCode: error.code }, "stock_deduction_rolled_back"),
+  // The producer rolls back: reported both when a handler returns the ending error and when the savepoint rethrows one.
+  onTransactionEnding: (name, payload, error) => {
+    const ending = (error as { transactionEnding?: unknown }).transactionEnding === true || classifyPersistenceFailure(error)?.kind === "transaction_ending";
+    if (ending) log.warn({ event: "stock_deduction_rolled_back", companyId: payload.companyId, eventName: name, stage: "listener", errorCode: "PERSISTENCE_UNAVAILABLE" }, "stock_deduction_rolled_back");
+  },
 });
-export const publishStockEvent = createStockPublisher(stockRegistry);
+const publishStock = createStockPublisher(stockRegistry);
+
+/** Reported from the outcome once the savepoint has ended, so a rolled-back serving cannot lose it; warn when the budget ran out or serving failed. */
+function logServed(companyId: string, variantCount: number, outcome: ServeOutcome, durationMs: number) {
+  afterTransactionCommit(() => log[outcome.budgetExhausted || outcome.failed ? "warn" : "info"]({ event: "waiting_orders_served", companyId, variantCount,
+    candidates: outcome.candidates, deducted: outcome.deducted, skippedLocked: outcome.skippedLocked, skippedInvalid: outcome.skippedInvalid,
+    budgetExhausted: outcome.budgetExhausted, ...(outcome.failed ? { stage: outcome.failed.stage, errorCode: outcome.failed.errorCode } : {}), durationMs }, "waiting_orders_served"));
+}
+
+export const publishStockEvent: typeof publishStock = (async (name: Parameters<typeof publishStock>[0], payload: Parameters<typeof publishStock>[1]) => {
+  const started = performance.now();
+  const result = await publishStock(name, payload);
+  if (name === "product_stock_increased" && result.success)
+    logServed(payload.companyId, (payload as { variantIds: readonly unknown[] }).variantIds.length, result.data as ServeOutcome, Math.round(performance.now() - started));
+  return result;
+}) as typeof publishStock;
 
 // --- Recovery of due orders that stayed undeducted (worker only) ---
 const recoveryTransaction: TransactionOptions = { timeout: 3000, lockTimeoutMs: 1000, statementTimeoutMs: 1000 };
@@ -160,7 +177,7 @@ const waitFor = (ms: number, signal: AbortSignal) => new Promise<"elapsed" | "ab
 });
 let recoveryPassSequence = 0;
 
-const recoveryDependencies: RecoverDueStockDeductionsDependencies = {
+export const recoveryDependencies: RecoverDueStockDeductionsDependencies = {
   listCompaniesWithOverdueStockDeductions,
   listOverdueOrderIds: (companyId, limit, exclude) => withTenantIsolation(companyId, () => orderTransaction(() => listOverdueOrderIds(companyId, limit, exclude), undefined, recoveryTransaction)),
   // The order is locked first and skipped when a seller operation holds it, so recovery never waits while holding anything.
@@ -216,10 +233,22 @@ const rejectTransaction: RejectPaymentDependencies["transaction"] = scopedOrderT
 const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = producerTransaction;
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
+/** Shipping runs outside any savepoint, so a failed statement there simply ends its transaction: it answers like any other persistence failure. */
+function forShip<A extends unknown[], T>(call: (...args: A) => Promise<Result<T, TransactionEndingError | ContainedFailure>>, stage: string) {
+  return async (...args: A): Promise<Result<T, Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> => {
+    const result = await call(...args);
+    if (result.success) return result;
+    const failure = result.error;
+    if (failure.code === "PERSISTENCE_UNAVAILABLE") return err(failure);
+    log.error({ event: "unable_to_deduct_product_stock", operation: "ship_order", stage, errorCode: failure.errorCode, err: failure.cause }, "unable_to_deduct_product_stock");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: failure.message });
+  };
+}
+
 // Shipping deducts pending stock, so the deduction logs under its own operation like set_order_delivery does.
 const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
   saveFulfillment, clock: () => new Date(),
-  lockVariantStock, deductStockBulk,
+  lockVariantStock: forShip(lockVariantStock, "lock_stock"), deductStockBulk: forShip(deductStockBulk, "deduct_stock"),
   saveStockDeduction: (id, companyId) => saveStockDeduction(id, companyId, "ship_order") };
 
 export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess) {

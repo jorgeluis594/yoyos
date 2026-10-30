@@ -12,13 +12,15 @@ async function withStock<T>(stocks: number[], status: "active" | "inactive", wor
   await withTenantIsolation(companyId, async () => { await prisma.company.create({ data: { id: companyId, name: companyId, country: "PE" } }); });
   return withTenantIsolation(companyId, async () => {
     const seeded = await seedProduct({ variants: stocks.map((stock, index) => ({ attributes: { Talla: `T${index}` }, stock, status })) });
-    return work(companyId, [...seeded.variantIds].sort() as VariantId[]);
+    // Seed order, so variants[i] is the one seeded with stocks[i].
+    return work(companyId, [...seeded.variantIds] as VariantId[]);
   });
 }
 const quantity = (map: ReadonlyMap<VariantId, unknown>, id: VariantId) => Number(map.get(id));
 
 test("locks stock rows in variant order and skips rows held by another transaction", async () => {
-  await withStock([5, 6], "active", async (companyId, [first, second]) => {
+  await withStock([5, 6], "active", async (companyId, seeded) => {
+    const [first, second] = [...seeded].sort() as [VariantId, VariantId];
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
     let locked!: () => void;

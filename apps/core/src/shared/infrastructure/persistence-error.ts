@@ -1,4 +1,5 @@
 import { Prisma } from "@prisma/client";
+import type { ContainedErrorCode, ContainedFailure, TransactionEndingError } from "@core/src/shared/application/contained-failure";
 
 export function isPersistenceFailure(cause: unknown): boolean {
   return cause instanceof Prisma.PrismaClientKnownRequestError
@@ -22,7 +23,6 @@ export function transactionFailureStage(error: unknown): "transaction_timeout" |
   return undefined;
 }
 
-export type ContainedErrorCode = "LOCK_TIMEOUT" | "STATEMENT_TIMEOUT" | "DEADLOCK" | "DATABASE_ERROR";
 export type PersistenceFailureClass = Readonly<{ kind: "transaction_ending" }> | Readonly<{ kind: "contained"; errorCode: ContainedErrorCode }>;
 
 const closedConnection = /connection (terminated|closed|ended)|ECONNRESET|terminating connection|server closed the connection|transaction already closed|57P0[123]|0800[036]/i;
@@ -47,31 +47,19 @@ export function classifyPersistenceFailure(error: unknown): PersistenceFailureCl
   return { kind: "contained", errorCode: "DATABASE_ERROR" };
 }
 
-/** The only failure a stock or order capability returns instead of throwing: it ends the whole transaction. */
-export type TransactionEndingError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string; transactionEnding: true }>;
+/**
+ * What a capability returns for a failed statement: a transaction-ending error, or a contained failure the savepoint can undo.
+ * Anything that is not a database failure is rethrown. `stage` is filled in by the use case that knows which step failed.
+ */
+export function persistenceFailureResult(cause: unknown, message: string): TransactionEndingError | ContainedFailure {
+  const kind = classifyPersistenceFailure(cause);
+  if (kind === undefined) throw cause;
+  if (kind.kind === "transaction_ending") return { code: "PERSISTENCE_UNAVAILABLE", message, transactionEnding: true };
+  return { code: "CONTAINED_FAILURE", errorCode: kind.errorCode, message, cause };
+}
 
-/** Statement-level database errors are thrown so the surrounding savepoint (or transaction) can contain them; transaction-ending ones are returned. */
+/** For a read made outside any savepoint: a failed statement already ended the transaction, so every database failure ends it. */
 export function transactionEndingOrThrow(cause: unknown, message: string): TransactionEndingError {
-  if (classifyPersistenceFailure(cause)?.kind === "transaction_ending") return { code: "PERSISTENCE_UNAVAILABLE", message, transactionEnding: true };
-  throw cause;
-}
-
-export type ContainedFailureCode = ContainedErrorCode | "INVALID_STORED_DATA" | "UNEXPECTED_ROW_COUNT";
-
-/** Thrown by a savepoint handler to roll the savepoint back and report a contained failure (data fault or statement-level error) with the stage it happened in. */
-export class ContainedFailureSignal extends Error {
-  constructor(readonly errorCode: ContainedFailureCode, readonly stage: string, readonly origin?: unknown) {
-    super(`Contained failure ${errorCode} at ${stage}`);
-    this.name = "ContainedFailureSignal";
-  }
-}
-
-/** Runs one step of a savepoint handler: a contained database error becomes a signal that names the stage; anything else passes through. */
-export async function atStage<T>(stage: string, step: () => Promise<T>): Promise<T> {
-  try { return await step(); }
-  catch (cause) {
-    const kind = classifyPersistenceFailure(cause);
-    if (kind?.kind === "contained") throw new ContainedFailureSignal(kind.errorCode, stage, cause);
-    throw cause;
-  }
+  if (classifyPersistenceFailure(cause) === undefined) throw cause;
+  return { code: "PERSISTENCE_UNAVAILABLE", message, transactionEnding: true };
 }

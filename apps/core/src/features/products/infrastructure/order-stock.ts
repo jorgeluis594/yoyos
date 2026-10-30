@@ -3,7 +3,8 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
 import { prisma, requireActiveTransaction, getCompanyId, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
-import { transactionEndingOrThrow, type TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
+import { persistenceFailureResult, transactionEndingOrThrow } from "@core/src/shared/infrastructure/persistence-error";
+import type { ContainedFailure, TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import type { Result } from "@shared/result";
 import { loadAttributesOfProducts, loadAttributesOfVariants, savedVariantOrder, type VariantAttributes } from "@core/src/features/products/infrastructure/variant-combinations";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -74,17 +75,17 @@ export type StockRowMode = "wait" | "skip_locked";
 export type StockQuantities = ReadonlyMap<VariantId, unknown>;
 
 /** Locks the stock rows of these variants in variantId order; with "skip_locked" the rows another transaction holds are left out. Raw quantities: the caller validates them. */
-export async function lockVariantStock(variantIds: readonly VariantId[], mode: StockRowMode): Promise<Result<StockQuantities, TransactionEndingError>> {
+export async function lockVariantStock(variantIds: readonly VariantId[], mode: StockRowMode): Promise<Result<StockQuantities, TransactionEndingError | ContainedFailure>> {
   requireActiveTransaction(getCompanyId());
   try {
     const rows = await prisma.$queryRaw<{ variantId: string; quantity: unknown }[]>(Prisma.sql`SELECT "variantId", quantity FROM "ProductStock"
       WHERE "variantId" = ANY(${[...variantIds]}::uuid[]) ORDER BY "variantId" FOR UPDATE${Prisma.raw(mode === "skip_locked" ? " SKIP LOCKED" : "")}`);
     return ok(new Map(rows.map((row) => [row.variantId as VariantId, row.quantity])));
-  } catch (cause) { return err(transactionEndingOrThrow(cause, "Unable to lock stock")); }
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to lock stock")); }
 }
 
 /** One guarded statement: it decrements every line or none, and returns the number of updated rows (the number of lines, or 0 when any row is short). */
-export async function deductStockBulk(lines: readonly Readonly<{ variantId: VariantId; quantity: number }>[]): Promise<Result<number, TransactionEndingError>> {
+export async function deductStockBulk(lines: readonly Readonly<{ variantId: VariantId; quantity: number }>[]): Promise<Result<number, TransactionEndingError | ContainedFailure>> {
   requireActiveTransaction(getCompanyId());
   try {
     const need = Prisma.join(lines.map((line) => Prisma.sql`(${line.variantId}::uuid, ${BigInt(line.quantity)}::bigint)`));
@@ -92,7 +93,7 @@ export async function deductStockBulk(lines: readonly Readonly<{ variantId: Vari
       short AS (SELECT 1 FROM need LEFT JOIN "ProductStock" s ON s."variantId" = need.v WHERE s.quantity IS NULL OR s.quantity < need.q)
       UPDATE "ProductStock" s SET quantity = s.quantity - need.q FROM need WHERE s."variantId" = need.v AND NOT EXISTS (SELECT 1 FROM short)`;
     return ok(count);
-  } catch (cause) { return err(transactionEndingOrThrow(cause, "Unable to deduct stock")); }
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to deduct stock")); }
 }
 
 /** Current stock without lock and without a status filter: inactive variants count. Raw quantities: the caller validates them. */

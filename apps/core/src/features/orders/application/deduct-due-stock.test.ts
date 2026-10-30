@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { ContainedFailureSignal, type TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
+import type { ContainedFailure, TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import { containedDeductionOutcome, containedServeOutcome, deductDueOrderStock, serveWaitingOrders, type DeductDueStockDependencies, type OrderStockTrigger, type StockEvent, type StockOrderRow } from "@core/src/features/orders/application/deduct-due-stock";
 import type { StockOrder } from "@core/src/features/orders/domain/stock-deduction";
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
@@ -82,14 +82,16 @@ test("does nothing for an order that is not due", async () => {
   expect(f.statements).toEqual(["load"]);
 });
 
+const contained = (errorCode: ContainedFailure["errorCode"]): ContainedFailure => ({ code: "CONTAINED_FAILURE", errorCode, message: errorCode });
+const failureOf = (result: Result<unknown, ContainedFailure | TransactionEndingError>) => (result.success ? null : result.error as ContainedFailure);
+
 test("returns failed without throwing when the order's stored data is invalid", async () => {
   const f = fixture([order(1, [[1, 1]])], { 1: "bad" });
-  const thrown = await deduct(f, "payment_confirmed", 1).catch((error) => error);
-  expect(thrown).toBeInstanceOf(ContainedFailureSignal);
-  expect(containedDeductionOutcome({ code: "CONTAINED_FAILURE", errorCode: thrown.errorCode, stage: thrown.stage, message: "", cause: null }))
-    .toEqual({ kind: "failed", stage: "lock_stock", errorCode: "INVALID_STORED_DATA" });
+  const failure = failureOf(await deduct(f, "payment_confirmed", 1));
+  expect(failure).toMatchObject({ code: "CONTAINED_FAILURE", errorCode: "INVALID_STORED_DATA", stage: "lock_stock" });
+  expect(containedDeductionOutcome(failure!)).toEqual({ kind: "failed", stage: "lock_stock", errorCode: "INVALID_STORED_DATA" });
   const invalidOrder = fixture([order(1, [[1, 1]])], { 1: 3 }, { invalid: [1] });
-  expect(await deduct(invalidOrder, "payment_confirmed", 1).catch((error) => error)).toMatchObject({ stage: "load_order", errorCode: "INVALID_STORED_DATA" });
+  expect(failureOf(await deduct(invalidOrder, "payment_confirmed", 1))).toMatchObject({ errorCode: "INVALID_STORED_DATA", stage: "load_order" });
 });
 
 test("returns a transaction-ending failure so the producer rolls back", async () => {
@@ -100,11 +102,8 @@ test("returns a transaction-ending failure so the producer rolls back", async ()
 
 test("contains a lock timeout on the stock rows and reports it as failed", async () => {
   const f = fixture([order(1, [[1, 1]])], { 1: 3 });
-  const timeout = Object.assign(new Error("canceling statement due to lock timeout 55P03"), { name: "DriverAdapterError", cause: { kind: "postgres" } });
-  const thrown = await deductDueOrderStock("payment_confirmed", { ...f.deps, lockVariantStock: async () => { throw timeout; } })({ companyId: company, orderId: id(1) as OrderId }).catch((error) => error);
-  expect(thrown).toBeInstanceOf(ContainedFailureSignal);
-  expect(containedDeductionOutcome({ code: "CONTAINED_FAILURE", errorCode: thrown.errorCode, stage: thrown.stage, message: "", cause: null }))
-    .toEqual({ kind: "failed", stage: "lock_stock", errorCode: "LOCK_TIMEOUT" });
+  const result = await deductDueOrderStock("payment_confirmed", { ...f.deps, lockVariantStock: async () => err(contained("LOCK_TIMEOUT")) })({ companyId: company, orderId: id(1) as OrderId });
+  expect(containedDeductionOutcome(failureOf(result)!)).toEqual({ kind: "failed", stage: "lock_stock", errorCode: "LOCK_TIMEOUT" });
 });
 
 test("the overdue trigger skips a locked stock row instead of waiting", async () => {
@@ -149,18 +148,17 @@ test("sets each serving statement's timeout to the budget left", async () => {
 });
 
 test("reports a statement timeout while serving as budget exhausted", async () => {
-  const timeout = Object.assign(new Error("57014 canceling statement due to statement timeout"), { name: "DriverAdapterError", cause: { kind: "postgres" } });
   const f = fixture([order(1, [[1, 1]])], { 1: 5 });
-  const thrown = await serveWaitingOrders({ ...f.deps, listWaitingOrderIds: async () => { throw timeout; } })({ companyId: company, variantIds: [v(1)] }).catch((error) => error);
-  expect(containedServeOutcome({ code: "CONTAINED_FAILURE", errorCode: thrown.errorCode, stage: thrown.stage, message: "", cause: null }))
-    .toMatchObject({ budgetExhausted: true, failed: null });
+  const result = await serveWaitingOrders({ ...f.deps, listWaitingOrderIds: async () => err(contained("STATEMENT_TIMEOUT")) })({ companyId: company, variantIds: [v(1)] });
+  expect(containedServeOutcome(failureOf(result)!)).toMatchObject({ budgetExhausted: true, failed: null });
 });
 
-test("stops before the next statement when the budget is spent", async () => {
+test("stops before the next statement when the budget is spent and still counts the candidates it listed", async () => {
   const f = fixture([order(1, [[1, 1]])], { 1: 5 }, { budget: 100 });
   const list = f.deps.listWaitingOrderIds;
-  const thrown = await serveWaitingOrders({ ...f.deps, listWaitingOrderIds: async (...args) => { f.tick(150); return list(...args); } })({ companyId: company, variantIds: [v(1)] }).catch((error) => error);
-  expect(thrown).toMatchObject({ errorCode: "STATEMENT_TIMEOUT", stage: "lock_orders" });
+  const result = await serveWaitingOrders({ ...f.deps, listWaitingOrderIds: async (...args) => { f.tick(150); return list(...args); } })({ companyId: company, variantIds: [v(1)] });
+  expect(failureOf(result)).toMatchObject({ errorCode: "STATEMENT_TIMEOUT", stage: "lock_orders", candidates: 1 });
+  expect(containedServeOutcome(failureOf(result)!)).toMatchObject({ candidates: 1, budgetExhausted: true });
   expect(f.statements).toEqual(["list"]);
 });
 

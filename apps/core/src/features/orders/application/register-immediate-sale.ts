@@ -5,7 +5,7 @@ import { orderStateMachine, type OrderAggregate, type FulfillmentChange, type Or
 import { confirmPayment } from "@core/src/features/orders/domain/payment";
 import type { PaymentError } from "@core/src/features/orders/domain/payment";
 import type { CompanyId, OrderId, PaymentId } from "@core/src/features/orders/domain/order";
-import type { TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
+import type { TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import type { PaymentConfirmed } from "@core/src/features/orders/application/events";
 import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
 import { stockRefusalOf, type StockRefusal } from "@core/src/features/orders/application/describe-order-stock-due";

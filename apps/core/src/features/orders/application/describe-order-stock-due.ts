@@ -1,6 +1,6 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
+import type { TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
