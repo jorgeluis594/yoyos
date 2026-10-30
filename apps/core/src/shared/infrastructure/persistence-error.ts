@@ -46,3 +46,32 @@ export function classifyPersistenceFailure(error: unknown): PersistenceFailureCl
   if (causes.some((item) => code(item) === "P2034" || /40P01|deadlock detected/i.test(text(item)))) return { kind: "contained", errorCode: "DEADLOCK" };
   return { kind: "contained", errorCode: "DATABASE_ERROR" };
 }
+
+/** The only failure a stock or order capability returns instead of throwing: it ends the whole transaction. */
+export type TransactionEndingError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string; transactionEnding: true }>;
+
+/** Statement-level database errors are thrown so the surrounding savepoint (or transaction) can contain them; transaction-ending ones are returned. */
+export function transactionEndingOrThrow(cause: unknown, message: string): TransactionEndingError {
+  if (classifyPersistenceFailure(cause)?.kind === "transaction_ending") return { code: "PERSISTENCE_UNAVAILABLE", message, transactionEnding: true };
+  throw cause;
+}
+
+export type ContainedFailureCode = ContainedErrorCode | "INVALID_STORED_DATA" | "UNEXPECTED_ROW_COUNT";
+
+/** Thrown by a savepoint handler to roll the savepoint back and report a contained failure (data fault or statement-level error) with the stage it happened in. */
+export class ContainedFailureSignal extends Error {
+  constructor(readonly errorCode: ContainedFailureCode, readonly stage: string, readonly origin?: unknown) {
+    super(`Contained failure ${errorCode} at ${stage}`);
+    this.name = "ContainedFailureSignal";
+  }
+}
+
+/** Runs one step of a savepoint handler: a contained database error becomes a signal that names the stage; anything else passes through. */
+export async function atStage<T>(stage: string, step: () => Promise<T>): Promise<T> {
+  try { return await step(); }
+  catch (cause) {
+    const kind = classifyPersistenceFailure(cause);
+    if (kind?.kind === "contained") throw new ContainedFailureSignal(kind.errorCode, stage, cause);
+    throw cause;
+  }
+}

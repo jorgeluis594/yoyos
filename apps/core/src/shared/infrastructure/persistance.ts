@@ -3,7 +3,7 @@ import { PrismaClient, Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { err } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
-import { classifyPersistenceFailure, type ContainedErrorCode } from "@core/src/shared/infrastructure/persistence-error";
+import { classifyPersistenceFailure, ContainedFailureSignal, type ContainedFailureCode } from "@core/src/shared/infrastructure/persistence-error";
 
 type TransactionScope = { companyId: string; tx: Prisma.TransactionClient; aborted: boolean; abortCause?: unknown; active: boolean; afterCommit: (() => void)[]; startedAt: number; savepoints: number };
 type PrismaState = {
@@ -196,7 +196,7 @@ export async function readLocalTimeouts(): Promise<Readonly<{ statementTimeout: 
   return { statementTimeout: row.s, lockTimeout: row.l };
 }
 
-export type ContainedFailure = Readonly<{ code: "CONTAINED_FAILURE"; errorCode: ContainedErrorCode; message: string; cause: unknown }>;
+export type ContainedFailure = Readonly<{ code: "CONTAINED_FAILURE"; errorCode: ContainedFailureCode; stage?: string; message: string; cause: unknown }>;
 export type SavepointOptions = Readonly<{
   /** Narrows both timeouts for the duration of the savepoint to this many milliseconds, given the time elapsed in the transaction; the previous values come back when it ends. */
   limitMs?: (elapsedMs: number) => number;
@@ -233,9 +233,13 @@ export async function withinSavepoint<T, E>(work: () => Promise<Result<T, E>>, o
   try {
     outcome = await work();
   } catch (error) {
-    const kind = classifyPersistenceFailure(error);
-    if (kind?.kind !== "contained") { scope.aborted = true; scope.abortCause ??= error; throw error; }
-    outcome = err({ code: "CONTAINED_FAILURE", errorCode: kind.errorCode, message: "Statement failed inside a savepoint", cause: error });
+    if (error instanceof ContainedFailureSignal) {
+      outcome = err({ code: "CONTAINED_FAILURE", errorCode: error.errorCode, stage: error.stage, message: error.message, cause: error.origin });
+    } else {
+      const kind = classifyPersistenceFailure(error);
+      if (kind?.kind !== "contained") { scope.aborted = true; scope.abortCause ??= error; throw error; }
+      outcome = err({ code: "CONTAINED_FAILURE", errorCode: kind.errorCode, message: "Statement failed inside a savepoint", cause: error });
+    }
   }
   try {
     if (outcome.success) await scope.tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${name}`);
