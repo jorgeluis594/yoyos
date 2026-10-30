@@ -167,7 +167,7 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
     await page.getByRole("listbox").getByRole("option", { name: "Transferencia bancaria" }).click();
     await dialog.getByRole("button", { name: "Aprobar pago S/ 12.50" }).click();
     await browserExpect(dialog).toHaveCount(0);
-    await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
+    await browserExpect(page.getByText("Pago registrado.", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("listitem").filter({ hasText: "Pago confirmado" })).toBeFocused();
     expect((await withTenantIsolation(tenantId, async () => await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } }))).status).toBe("confirmed");
     await page.goto(checkoutAddress);
@@ -184,7 +184,7 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
     await manual.getByRole("button", { name: "Confirmar pago" }).click();
     await manualResponse;
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId, status: "confirmed" } }))).toBe(1);
-    await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
+    await browserExpect(page.getByText("Pago registrado.", { exact: true })).toBeVisible();
     await page.goto(checkoutAddress);
     await browserExpect(page.getByRole("heading", { name: "Pedido pagado" })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
@@ -325,7 +325,7 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
     await review.getByLabel("Motivo (opcional, lo verá el comprador)").fill("Foto cortada");
     await review.getByRole("button", { name: "Rechazar comprobante" }).click();
     await browserExpect(review).toHaveCount(0);
-    await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
+    await browserExpect(page.getByText("Pago registrado.", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("listitem").filter({ hasText: "Motivo: Foto cortada" })).toBeFocused();
     await browserExpect(page.getByRole("listitem").filter({ hasText: "Pago rechazado" })).toHaveCount(3);
     await browserExpect(page.getByText("Pago por revisar")).toHaveCount(0);

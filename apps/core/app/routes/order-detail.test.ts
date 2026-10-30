@@ -17,6 +17,7 @@ import { resolvePublicImages } from "@core/src/shared/images";
 import { ok, err } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { paymentErrorKey } from "@core/src/features/orders/presentation/payment-decision-form";
+import { paymentRecordedKey } from "@core/src/features/orders/presentation/stock-due";
 
 vi.mock("@core/src/shared/images", async (importOriginal) => ({ ...await importOriginal<typeof import("@core/src/shared/images")>(), resolvePublicImages: vi.fn() }));
 
@@ -261,7 +262,6 @@ test("approve and reject map PAYMENT_CONFLICT to the already-reviewed message", 
       .toMatchObject({ success: false, error: "ALREADY_REVIEWED" });
   }
   expect(paymentErrorKey("ALREADY_REVIEWED")).toBe("orders.paymentAlreadyReviewed");
-  expect(paymentErrorKey("INSUFFICIENT_STOCK")).toBe("orders.paymentStockError");
   expect(paymentErrorKey("NO_RESPONSE")).toBe("orders.paymentUncertain");
 });
 
@@ -292,4 +292,114 @@ test.each(["confirm", "reject", "void"])("a lost %s response answers NO_RESPONSE
   expect(serverAction).toHaveBeenCalledOnce();
   expect(paymentErrorKey("NO_RESPONSE")).toBe("orders.paymentUncertain");
   expect(shouldRevalidate({ actionResult: result, defaultShouldRevalidate: true })).toBe(true);
+});
+
+const stockId = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
+const camisa = stockId(41);
+const polo = stockId(42);
+type StockDueJson = ReturnType<typeof toOrderAggregateJson>["stockDue"];
+/** A paid order of 4 Camisa (M · Azul) and 2 Polo (L), rendered as the detail page shows it for the given stock state. */
+async function renderStockDetail(patch: { stockDue: StockDueJson; stockDeducted?: boolean; paymentStatus?: "paid" | "pending"; catalog?: boolean }) {
+  const i18n = createInstance();
+  await i18n.init({ lng: "es", resources });
+  const items = [
+    { id: stockId(43) as OrderItemId, variantId: camisa as VariantId, productName: "Camisa", variantAttributes: { Talla: "M", Color: "Azul" } as Record<string, string>, sku: null, quantity: 4, unitPrice: { amount: 30, currency: "PEN" as const } },
+    { id: stockId(44) as OrderItemId, variantId: polo as VariantId, productName: "Polo", variantAttributes: { Talla: "L" } as Record<string, string>, sku: null, quantity: 2, unitPrice: { amount: 20, currency: "PEN" as const } },
+  ];
+  const common = { id: stockId(2) as OrderId, companyId: companyId as CompanyId, number: 1012 as OrderNumber, customer: { kind: "general_public" } as const, createdAt: new Date("2026-10-17T12:00:00Z"), items };
+  const built = patch.catalog ? buildPendingCatalogOrder(common) : buildPendingOrder({ ...common, sellerId: "seller" as UserId });
+  if (!built.success) throw new Error("expected order");
+  const json = toOrderAggregateJson(built.data, null);
+  const order = { ...json, paymentStatus: patch.paymentStatus ?? "paid", paidAmount: { amount: 160, currency: "PEN" as const }, balanceDue: { amount: 0, currency: "PEN" as const },
+    stockDeducted: patch.stockDeducted ?? false, stockDue: patch.stockDue };
+  const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
+    hydrationData: { loaderData: { detail: { order, base: "/es-PE/orders", manualPaymentId: stockId(5), receiptUrls: {}, settings: null,
+      settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" } } } } });
+  try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
+  finally { router.dispose(); }
+}
+const waiting = (...items: Array<[string, number]>) => ({ kind: "waiting" as const, shortItems: items.map(([variantId, available]) => ({ variantId, available })) });
+
+test("shows the waiting notice with each short item and its available units", async () => {
+  const html = await renderStockDetail({ stockDue: waiting([camisa, 3], [polo, 0]) });
+  expect(html).toContain("Esperando stock");
+  expect(html).toContain("Camisa (M · Azul): 4 en el pedido, hay 3.");
+  expect(html).toContain("Polo (L): 2 en el pedido, hay 0.");
+  expect(html).toContain("Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede despachar ni entregar.");
+  expect(html).toMatch(/<h2[^>]*>Esperando stock<\/h2>/);
+  expect(html.indexOf("Camisa (M · Azul): 4 en el pedido")).toBeLessThan(html.indexOf('aria-labelledby="order-products-title"'));
+});
+
+test("shows the deducting notice when every item fits", async () => {
+  const html = await renderStockDetail({ stockDue: { kind: "deducting" } });
+  expect(html).toMatch(/<h2[^>]*>Descontando stock<\/h2>/);
+  expect(html).toContain("Ya hay stock para este pedido; se descontará en menos de un minuto.");
+  expect(html).not.toContain("en el pedido, hay");
+});
+
+test("shows no notice for deducted or not due orders", async () => {
+  for (const patch of [{ stockDue: null, stockDeducted: true }, { stockDue: null, paymentStatus: "pending" as const }]) {
+    const html = await renderStockDetail(patch);
+    expect(html).not.toContain("Se descontará solo cuando");
+    expect(html).not.toContain("se descontará en menos de un minuto");
+  }
+});
+
+test("shows the four internal stock line values", async () => {
+  const line = (html: string) => /<dt[^>]*>Stock<\/dt><dd>([^<]*)<\/dd>/.exec(html)?.[1];
+  expect(line(await renderStockDetail({ stockDue: null, stockDeducted: true }))).toBe("Descontado");
+  expect(line(await renderStockDetail({ stockDue: waiting([camisa, 3]) }))).toBe("Esperando stock");
+  expect(line(await renderStockDetail({ stockDue: { kind: "deducting" } }))).toBe("Descontando stock");
+  expect(line(await renderStockDetail({ stockDue: null, paymentStatus: "pending" }))).toBe("Pendiente");
+});
+
+test("disables ship and deliver with the short items as a list", async () => {
+  const html = await renderStockDetail({ stockDue: waiting([camisa, 3], [polo, 0]) });
+  expect(html).toContain("Para despachar falta stock de Camisa (M · Azul) y Polo (L).");
+  expect(html).toContain("Para entregar falta stock de Camisa (M · Azul) y Polo (L).");
+  expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-describedby="fulfillment-ship-reason"[^>]*>Marcar enviado/);
+  const deducting = await renderStockDetail({ stockDue: { kind: "deducting" } });
+  expect(deducting).toContain("El stock se está descontando; podrás entregarlo en menos de un minuto.");
+  expect(deducting).not.toContain("fulfillment-ship-reason");
+  expect(deducting).toMatch(/<button[^>]*disabled=""[^>]*aria-describedby="fulfillment-deliver-reason"[^>]*>Marcar entregado/);
+});
+
+test("reloads the order when shipping meets short stock", async () => {
+  vi.spyOn(orders, "ship").mockResolvedValue(err({ code: "INSUFFICIENT_STOCK", message: "Short" }));
+  const result = await action(args({ operation: "ship" }));
+  expect(result).toEqual({ operation: "ship", url: null, success: false, error: "INSUFFICIENT_STOCK" });
+  expect(shouldRevalidate({ actionResult: result, defaultShouldRevalidate: false })).toBe(true);
+  expect(resources.es.translation.orderFulfillment.INSUFFICIENT_STOCK).toBe("No hay stock suficiente para despachar este pedido.");
+});
+
+test("chooses the payment success text from the returned order", async () => {
+  const { order, id } = builtOrder();
+  const paymentId = id(6);
+  const confirm = vi.spyOn(orders, "registerPayment");
+  const fields = { operation: "confirm", paymentId, source: "buyer_report", amount: "80", currency: "PEN", method: "digital_wallet" };
+  confirm.mockResolvedValue(ok({ order, stockDue: { kind: "waiting", shortItems: [{ variantId: id(4) as VariantId, available: 3 }] }, outcome: null } as never));
+  const short = await action(args(fields));
+  expect(short).toMatchObject({ success: true, error: false, recorded: true, order: { stockDue: { kind: "waiting" } } });
+  expect(paymentRecordedKey((short as { order: { stockDue: StockDueJson } }).order)).toBe("orders.paymentRecordedWaiting");
+  confirm.mockResolvedValue(ok({ order, stockDue: null, outcome: null } as never));
+  const deducted = await action(args(fields));
+  expect(deducted).toMatchObject({ success: true, recorded: true, order: { stockDue: null } });
+  expect(paymentRecordedKey((deducted as { order: { stockDue: StockDueJson } }).order)).toBe("orders.paymentRecorded");
+  expect(paymentRecordedKey({ stockDue: { kind: "deducting" } })).toBe("orders.paymentRecorded");
+  expect(resources.es.translation.orders.paymentRecordedWaiting).toBe("Pago registrado. El pedido queda esperando stock.");
+  expect(resources.es.translation.orders.paymentSaved).toBe("Pago actualizado.");
+});
+
+test("a catalog order's notice never says pediste", async () => {
+  const html = await renderStockDetail({ catalog: true, stockDue: waiting([camisa, 3]) });
+  expect(html).toContain("Camisa (M · Azul): 4 en el pedido, hay 3.");
+  expect(html).not.toMatch(/pediste/i);
+  const pt = resources.pt.translation;
+  expect(JSON.stringify(pt.orderStock)).not.toMatch(/pediste|pediu/i);
+});
+
+test("a payment never fails for stock and the dialog no longer has a stock rejection text", () => {
+  expect(paymentErrorKey("INSUFFICIENT_STOCK")).toBe("orders.paymentSaveError");
+  expect(resources.es.translation.orders).not.toHaveProperty("paymentStockError");
+  expect(resources.pt.translation.orders).not.toHaveProperty("paymentStockError");
 });
