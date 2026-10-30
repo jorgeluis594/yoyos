@@ -17,9 +17,10 @@ import type { RatedSetDeliveryInput } from "@core/src/features/orders/applicatio
 import type { RegisterPaymentInput } from "@core/src/features/orders/application/register-payment";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
-const searchSchema = z.strictObject({ search: z.string().trim().max(100).default("") });
+const maxCatalogVariantIds = 100;
+const searchSchema = z.strictObject({ search: z.string().trim().max(100).default(""), inStock: z.literal("true").optional() });
 const catalogQuerySchema = z.union([searchSchema, z.strictObject({ variantIds: z.string().transform(value => value.split(","))
-  .pipe(z.array(z.uuid()).min(1).refine(values => new Set(values).size === values.length)) })]);
+  .pipe(z.array(z.uuid()).min(1).max(maxCatalogVariantIds).refine(values => new Set(values).size === values.length)) })]);
 
 
 function queryFrom(request: Request, response: Response): Record<string, string> | null {
@@ -138,7 +139,8 @@ orderRoutes.get("/catalog", async (request, response) => {
   const parsed = catalogQuerySchema.safeParse(query);
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid search");
   try {
-    const result = await orders.searchProducts("search" in parsed.data ? parsed.data.search : "", "variantIds" in parsed.data ? parsed.data.variantIds : undefined);
+    const result = await orders.searchProducts("search" in parsed.data ? parsed.data.search : "", "variantIds" in parsed.data ? parsed.data.variantIds : undefined,
+      { inStock: "inStock" in parsed.data && parsed.data.inStock === "true" });
     return result.success ? response.json(orderCatalogSchema.parse(result.data)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });

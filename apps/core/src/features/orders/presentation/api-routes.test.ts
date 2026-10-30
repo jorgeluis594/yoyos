@@ -154,3 +154,20 @@ test("creation API rejects obsolete delivery choices without dispatching a save"
   expect(create).not.toHaveBeenCalled();
   expect(immediate).not.toHaveBeenCalled();
 });
+
+test("rejects more than 100 variant ids in the catalog query", async () => {
+  const search = vi.spyOn(orders, "searchProducts");
+  const ids = (count: number) => Array.from({ length: count }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`).join(",");
+  expect(await request(`/catalog?variantIds=${ids(101)}`)).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+  expect(search).not.toHaveBeenCalled();
+});
+
+test("passes the in-stock flag to the catalog search and rejects other values", async () => {
+  const search = vi.spyOn(orders, "searchProducts").mockResolvedValue({ success: true, data: [] });
+  expect(await request("/catalog?search=pr&inStock=true")).toMatchObject({ status: 200, body: [] });
+  expect(search).toHaveBeenLastCalledWith("pr", undefined, { inStock: true });
+  expect(await request("/catalog?search=pr")).toMatchObject({ status: 200 });
+  expect(search).toHaveBeenLastCalledWith("pr", undefined, { inStock: false });
+  expect(await request("/catalog?inStock=false")).toMatchObject({ status: 400, body: { code: "INVALID_INPUT" } });
+  expect(await request(`/catalog?variantIds=${"00000000-0000-4000-8000-000000000001"}&inStock=true`)).toMatchObject({ status: 400 });
+});

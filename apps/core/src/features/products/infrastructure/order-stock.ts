@@ -115,11 +115,13 @@ export async function restoreProductStock(variantId: VariantId, quantity: number
   }
 }
 
-export async function searchSaleCatalog(search: string, variantIds?: readonly string[]) {
+/** `inStock` keeps the products with at least one active variant in stock, still shown with all their active variants. */
+export async function searchSaleCatalog(search: string, variantIds?: readonly string[], filter: Readonly<{ inStock: boolean }> = { inStock: false }) {
   try {
     const variantFilter = { status: "active" as const, ...(variantIds ? { id: { in: [...variantIds] } } : {}) };
+    const productVariantFilter = filter.inStock ? { ...variantFilter, stock: { is: { quantity: { gt: 0 } } } } : variantFilter;
     const { rows, attributes } = await withinReadSnapshot(async () => {
-      const rows = await prisma.product.findMany({ where: { status: "active", variants: { some: variantFilter }, ...(variantIds
+      const rows = await prisma.product.findMany({ where: { status: "active", variants: { some: productVariantFilter }, ...(variantIds
         ? {}
         : { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" as const } }) },
         orderBy: { name: "asc" }, ...(variantIds ? {} : { take: 20 }),
