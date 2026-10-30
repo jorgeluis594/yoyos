@@ -48,15 +48,20 @@ describe("chatPendingsSchema", () => {
     expect(chatPendingsSchema.safeParse(stored).success).toBe(false);
   });
 
-  test("parses a last incoming photo that left a pending, an item or nothing", () => {
-    const parse = (lastIncomingPhoto: unknown) => chatPendingsSchema.safeParse({ pendings: [], readyRemembered: false, lastIncomingPhoto });
-    expect(parse({ left: { kind: "pending", pendingId: id(1) } }).success).toBe(true);
-    expect(parse({ left: { kind: "item", orderId: id(7), variantId: id(8), quantity: 3 } }).success).toBe(true);
-    expect(parse({ left: null }).success).toBe(true);
+  test("a stored pendings row with a last incoming photo reads back equal", () => {
+    const parse = (lastIncomingPhoto: unknown) => chatPendingsSchema.parse({ pendings: [], readyRemembered: false, lastIncomingPhoto });
+    for (const lastIncomingPhoto of [
+      { left: { kind: "pending", pendingId: id(1) } },
+      { left: { kind: "item", orderId: id(7), variantId: id(8), quantity: 3 } },
+      { left: null },
+    ]) expect(parse(lastIncomingPhoto)).toEqual({ pendings: [], readyRemembered: false, lastIncomingPhoto });
+  });
+
+  test("a stored last incoming photo with an item of quantity 0 reads as invalid stored data", () => {
+    expect(chatPendingsSchema.safeParse({ pendings: [], readyRemembered: false, lastIncomingPhoto: { left: { kind: "item", orderId: id(7), variantId: id(8), quantity: 0 } } }).success).toBe(false);
   });
 
   test.each([
-    ["a quantity of 0", { left: { kind: "item", orderId: id(7), variantId: id(8), quantity: 0 } }],
     ["a quantity of 100", { left: { kind: "item", orderId: id(7), variantId: id(8), quantity: 100 } }],
     ["a fractional quantity", { left: { kind: "item", orderId: id(7), variantId: id(8), quantity: 1.5 } }],
     ["a pending id that is not a uuid", { left: { kind: "pending", pendingId: "Q1" } }],

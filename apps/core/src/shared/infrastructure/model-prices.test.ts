@@ -10,7 +10,7 @@ describe("priceOf", () => {
     expect(priceOf("text-embedding-3-small")).toEqual({ input: 0.02, output: 0 });
   });
 
-  test("gives null for a model with no price", () => {
+  test("an unknown model has no price", () => {
     expect(priceOf("unknown")).toBeNull();
     expect(priceOf("")).toBeNull();
     expect(priceOf("constructor")).toBeNull();

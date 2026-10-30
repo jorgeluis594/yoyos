@@ -4,9 +4,9 @@ import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@c
 import { findChatPendings, findChatPendingsForUpdate, saveChatPendings, saveLastIncomingPhotoOfMessageChat } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import type { ChatPending, ChatPendingId, ChatPendings, LastIncomingPhoto } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
-import type { PositiveInteger } from "@core/src/features/orders/domain/order";
+import type { OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
-import type { ProductId } from "@core/src/features/products/domain/product";
+import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 
 async function fixture() {
   const companyId = randomUUID();
@@ -62,14 +62,21 @@ test("saves and reads a chat's pendings within its company", async () => {
 test("never reads another company's pendings", async () => {
   const [x, y] = [await fixture(), await fixture()];
   try {
-    await withTenantIsolation(x.companyId, () => withinTransaction(() => saveChatPendings(x.chatId, { pendings: [variantPending], readyRemembered: false, lastIncomingPhoto: null })));
+    const stored: ChatPendings = { pendings: [variantPending], readyRemembered: false, lastIncomingPhoto: null };
+    const messageId = await x.message();
+    await withTenantIsolation(x.companyId, () => withinTransaction(() => saveChatPendings(x.chatId, stored)));
     await withTenantIsolation(y.companyId, async () => {
+      // The message belongs to the other company: nothing is written and no error is raised.
+      expect(await withinTransaction(() => saveLastIncomingPhotoOfMessageChat(messageId, { left: null }))).toEqual({ success: true, data: null });
       expect(await findChatPendings(x.chatId)).toEqual({ success: true, data: empty });
       expect(await withinTransaction(() => findChatPendingsForUpdate(x.chatId))).toEqual({ success: true, data: empty });
       expect(await prisma.chatPendings.count()).toBe(0);
       // The chat belongs to the other company, so the row cannot be written even when its id is known.
       expect(await withinTransaction(() => saveChatPendings(x.chatId, { pendings: [variantPending], readyRemembered: false, lastIncomingPhoto: null })))
         .toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    });
+    await withTenantIsolation(x.companyId, async () => {
+      expect(await findChatPendings(x.chatId)).toEqual({ success: true, data: stored });
     });
   } finally { await x.cleanup(); await y.cleanup(); }
 });
@@ -102,7 +109,7 @@ test("rejects a stored row that fails its schema as invalid stored data", async 
   } finally { await f.cleanup(); }
 });
 
-const photoItem: LastIncomingPhoto = { left: { kind: "item", orderId: randomUUID() as never, variantId: randomUUID() as never, quantity: 3 as PositiveInteger } };
+const photoItem: LastIncomingPhoto = { left: { kind: "item", orderId: randomUUID() as OrderId, variantId: randomUUID() as VariantId, quantity: 3 as PositiveInteger } };
 
 test("saves and reads a last incoming photo with no pending", async () => {
   const [x, y] = [await fixture(), await fixture()];

@@ -2,9 +2,10 @@ import { describe, expect, test } from "vitest";
 import { productNameFolds, productNameKey } from "@core/src/features/products/domain/product-name-key";
 
 describe("productNameKey", () => {
-  test("is the same for a name written with other case or without accents", () => {
+  test("two names that differ only by case and Spanish or Portuguese accents have the same key", () => {
     expect(productNameKey("Polo Básico")).toBe(productNameKey("polo basico"));
     expect(productNameKey("POLO BÁSICO")).toBe("polo basico");
+    expect(productNameKey("Calção Pão")).toBe(productNameKey("CALCAO PAO"));
   });
 
   test("removes exactly the accents of the folds and keeps every other character", () => {
