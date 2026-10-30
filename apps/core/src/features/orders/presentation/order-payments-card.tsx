@@ -11,6 +11,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/u
 import { PaymentDialog, type PaymentDialogKind } from "@core/src/features/orders/presentation/receipt-dialog";
 import { paymentErrorKey, type PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
 import { paymentDate, paymentRowId, type PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
+import { paymentRecordedKey } from "@core/src/features/orders/presentation/stock-due";
 
 type Order = OrderAggregateResponse;
 type Payment = Order["payments"][number];
@@ -62,7 +63,7 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
   const navigation = useNavigation();
   const summary = paymentCardSummary(order);
   const [dialog, setDialog] = useState<OpenDialog | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [saved, setSaved] = useState<"orders.paymentSaved" | ReturnType<typeof paymentRecordedKey> | null>(null);
   // A void answer belongs to the moment it arrived: opening a dialog dismisses it so it never sits next to a later result.
   const [dismissedVoid, setDismissedVoid] = useState<unknown>(null);
   const visibleVoid = voidResult !== dismissedVoid ? voidResult : undefined;
@@ -71,7 +72,7 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
   const decided = useRef(false);
   const history = [...order.payments].sort((a, b) => paymentDate(b).localeCompare(paymentDate(a)));
   const open = (kind: PaymentDialogKind, paymentId: string, element: HTMLElement) => {
-    opener.current = element; decided.current = false; setSaved(false); setDismissedVoid(voidResult); setDialog({ kind, paymentId });
+    opener.current = element; decided.current = false; setSaved(null); setDismissedVoid(voidResult); setDialog({ kind, paymentId });
   };
   // The decided row may only exist after the card reloads, so the focus waits for the next render that finds it.
   useEffect(() => {
@@ -97,7 +98,7 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
       </dl>
       {order.overpaidAmount.amount > 0 && <Alert variant="warning"><AlertDescription>{t("orders.overpaid", { amount: format.amount(order.overpaidAmount) })}</AlertDescription></Alert>}
       {visibleVoid?.error && <Alert variant="destructive"><AlertDescription>{t(paymentErrorKey(visibleVoid.error))}</AlertDescription></Alert>}
-      {((saved && !visibleVoid?.error) || visibleVoid?.success) && <Alert variant="success"><AlertDescription role="status">{t("orders.paymentSaved")}</AlertDescription></Alert>}
+      {((saved && !visibleVoid?.error) || visibleVoid?.success) && <Alert variant="success"><AlertDescription role="status">{t(visibleVoid?.success ? "orders.paymentSaved" : saved ?? "orders.paymentSaved")}</AlertDescription></Alert>}
       <section className="flex flex-col gap-3 border-t pt-4" aria-labelledby="payment-history-title">
         <h3 id="payment-history-title" className="text-sm font-semibold">{t("orderDetail.paymentHistory")}</h3>
         {history.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderDetail.noPayments")}</p> : <ul className="flex flex-col gap-3">{history.map(payment => {
@@ -140,7 +141,7 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
     {dialog && <PaymentDialog key={`${dialog.kind}-${dialog.paymentId}`} kind={dialog.kind} paymentId={dialog.paymentId} payment={dialogPayment} order={order}
       receiptUrl={receiptUrls[dialog.paymentId] ?? null} format={format} onClose={() => setDialog(null)} onSubmitted={paymentId => { submitted.current = { paymentId, order }; }}
       onUncertain={paymentId => setUncertain(submitted.current?.paymentId === paymentId ? submitted.current : null)}
-      onDone={paymentId => { decided.current = true; pendingFocus.current = paymentId; setDialog(null); setSaved(true); }}
+      onDone={(paymentId, result) => { decided.current = true; pendingFocus.current = paymentId; setDialog(null); setSaved(result.recorded && result.order ? paymentRecordedKey(result.order) : "orders.paymentSaved"); }}
       onCloseAutoFocus={event => { event.preventDefault(); if (!decided.current) opener.current?.focus(); }} />}
   </Card>;
 }

@@ -160,7 +160,7 @@ test("new loader data replaces a recovered active cancellation snapshot after a 
     await page.unroute(dataRoute);
     await page.getByRole("button", { name: "¿Te pagaron por fuera? Registrar pago", exact: true }).click();
     await page.getByRole("dialog", { name: "Registrar pago" }).getByRole("button", { name: "Confirmar pago" }).click();
-    await browserExpect(page.getByText("Pago actualizado.")).toBeVisible();
+    await browserExpect(page.getByText(/^Pago registrado\./)).toBeVisible();
     expect((await f.detail(id)).checkoutEnabledAt).not.toBeNull();
   } finally { await f.cleanup(); }
 });

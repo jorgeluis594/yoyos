@@ -10,15 +10,14 @@ import { Input } from "@core/app/components/ui/input";
 import { formatCurrency } from "@core/app/format-currency";
 import { isValidPaymentAmount, PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 
-/** What the route action answers to a payment decision; the dialog reads only the outcome. */
-export type PaymentDecisionResult = Readonly<{ success: boolean; error: string | false }>;
+/** What the route action answers to a payment decision. A recorded payment carries the order it left, which chooses the success text. */
+export type PaymentDecisionResult = Readonly<{ success: boolean; error: string | false; recorded?: boolean; order?: Pick<OrderAggregateResponse, "stockDue"> }>;
 
 export type DecisionKind = "approve" | "register" | "reject";
 
 /** Text key of a failed payment decision. A conflicting decision means somebody reviewed that payment first. */
 export function paymentErrorKey(error: string) {
   if (error === "ALREADY_REVIEWED") return "orders.paymentAlreadyReviewed" as const;
-  if (error === "INSUFFICIENT_STOCK") return "orders.paymentStockError" as const;
   if (error === "NO_RESPONSE" || error === "INTERNAL_ERROR" || error === "PERSISTENCE_UNAVAILABLE") return "orders.paymentUncertain" as const;
   return "orders.paymentSaveError" as const;
 }
