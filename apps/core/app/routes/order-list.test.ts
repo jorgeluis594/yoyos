@@ -37,21 +37,21 @@ test("filters sales by Lima calendar days, including the start and excluding the
 });
 
 test.each([
-  ["active", "pending", "pending", "Pago pendiente · Entrega: Pendiente"],
-  ["active", "paid", "pending", "Pagado · Entrega: Pendiente"],
-  ["active", "paid", "shipped", "Pagado · Entrega: Despachada"],
-  ["active", "pending", "delivered", "Pago pendiente · Entrega: Entregada"],
-  ["cancelled", "pending", "pending", "Cancelado"],
-  ["cancelled", "paid", "pending", "Cancelado"],
-  ["completed", "paid", "delivered", "Completado"],
-  ["completed", "paid", "delivered", "Completado", "es", "2020-01-01T12:00:00.000Z"],
-  ["active", "pending", "pending", "Pagamento pendente · Entrega: Pendente", "pt"],
-  ["active", "paid", "shipped", "Pago · Entrega: Enviada", "pt"],
-  ["cancelled", "pending", "pending", "Cancelado", "pt"],
-  ["completed", "paid", "delivered", "Concluído", "pt"],
+  ["active", "pending", "pending", /^Estado del pago: Pago pendiente: S\/\s10\.00 · Estado de la entrega: Entrega pendiente$/],
+  ["active", "paid", "pending", "Estado del pago: Pagada · Estado de la entrega: Entrega pendiente"],
+  ["active", "paid", "shipped", "Estado del pago: Pagada · Estado de la entrega: Enviada"],
+  ["active", "pending", "delivered", /^Estado del pago: Pago pendiente: S\/\s10\.00 · Estado de la entrega: Entregada$/],
+  ["cancelled", "pending", "pending", "Estado del pedido: Pedido cancelado"],
+  ["cancelled", "paid", "shipped", "Estado del pedido: Pedido cancelado"],
+  ["completed", "paid", "delivered", "Estado de la venta: Venta completada"],
+  ["completed", "paid", "delivered", "Estado de la venta: Venta completada", "es", "2020-01-01T12:00:00.000Z"],
+  ["active", "pending", "pending", /^Status do pagamento: Pagamento pendente: .*10.* · Status da entrega: Entrega pendente$/, "pt"],
+  ["active", "paid", "shipped", "Status do pagamento: Paga · Status da entrega: Enviada", "pt"],
+  ["cancelled", "pending", "pending", "Status do pedido: Pedido cancelado", "pt"],
+  ["completed", "paid", "delivered", "Status da venda: Venda concluída", "pt"],
 ] as const)("renders %s orders with %s payment and %s delivery", async (status, paymentStatus, deliveryStatus, expected, language = "es", createdAt: string = "2026-09-28T12:00:00.000Z") => {
   const i18n = createInstance();
-  await i18n.init({ lng: language, resources });
+  await i18n.init({ lng: language, resources, interpolation: { escapeValue: false } });
   const item = { id: "sale", number: 1001, buyer: null, createdAt,
     itemCount: 5, balanceDue: { amount: paymentStatus === "paid" ? 0 : 10, currency: "PEN" },
     status, paymentStatus, deliveryStatus, total: { amount: 10, currency: "PEN" },
@@ -67,16 +67,13 @@ test.each([
     expect(cell("createdAt")).toBeDefined();
     expect(cell("createdAt")).not.toMatch(/Pago|Pagamento|Entrega|Cancelado|Completado|Concluído/);
     expect(cell("itemCount")).toBe("5");
-    if (status === "active") {
-      const [payment, delivery] = expected.split(" · Entrega: ");
-      expect(cell("number")).toContain(payment.replace("Pago pendiente", "Por cobrar:").replace("Pagamento pendente", "A receber:"));
-      expect(cell("number")).toContain(delivery);
-      if (paymentStatus === "pending") expect(cell("number")).toContain(language === "es" ? "Por cobrar:" : "A receber:");
-    } else {
-      expect(html).toContain(`aria-label="${expected}"`);
-      expect(cell("paymentStatus")).toBeUndefined();
-      expect(cell("deliveryStatus")).toBeUndefined();
-    }
+    const name = html.match(/<summary[^>]*aria-label="([^"]*)"/)?.[1];
+    if (typeof expected === "string") expect(name).toBe(expected); else expect(name).toMatch(expected);
+    expect(html).not.toMatch(/Despachad|Entrega: /);
+    expect(cell("paymentStatus")).toBeUndefined();
+    expect(cell("deliveryStatus")).toBeUndefined();
+    expect(html.match(/<summary/g)).toHaveLength(1);
+    expect(html.includes("lucide-credit-card")).toBe(status === "active");
   } finally {
     router.dispose();
   }

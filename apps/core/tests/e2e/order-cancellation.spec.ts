@@ -139,7 +139,7 @@ test("core resolves a committed lost response, offers manual verification and re
     expect((await page.request.post(`/api/orders/${id}/ship`)).ok()).toBe(true);
     await confirm(page);
     await browserExpect(page.getByRole("alert")).toContainText("ya fue enviado");
-    await browserExpect(page.getByText("Entrega: Despachada", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Entrega: Enviada", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toHaveCount(0);
   } finally { await f.cleanup(); }
 }, 120000);
