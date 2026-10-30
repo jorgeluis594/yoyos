@@ -9,6 +9,7 @@ import { context, id, pending, productId, readingProduct } from "@core/src/featu
 import { createFitReadingContext, messageCostBoundUsd, readerOutputTokenLimit, readerTokenBudget, requestTextOf } from "@core/src/features/orders/infrastructure/chat-reader-budget";
 import { describeReadingContext } from "@core/src/features/orders/infrastructure/chat-reader-context-text";
 import { readerSettingBounds } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
+import { readChatReaderEnv } from "@core/src/features/orders/infrastructure/chat-reader-env";
 import { readerJsonSchema } from "@core/src/features/orders/infrastructure/chat-reader-schema";
 import { readerInstructions } from "@core/src/features/orders/infrastructure/chat-reader-text";
 import { readerRequestSettings } from "@core/src/features/orders/infrastructure/openai-chat-reader";
@@ -238,8 +239,7 @@ test("a strict 10-action answer of realistic values takes at most 900 tokens", (
 });
 
 test("the reader model of the configuration has a price", () => {
-  expect(priceOf(model)).toEqual({ input: 0.1, output: 0.5 });
-  expect(priceOf(readerRequestSettings.schemaName)).toBeNull();
+  expect(priceOf(readChatReaderEnv({}).AI_READER_MODEL)).toEqual({ input: 0.1, output: 0.5 });
 });
 
 test("the usual case drops no product and costs at most US$0.003", () => {

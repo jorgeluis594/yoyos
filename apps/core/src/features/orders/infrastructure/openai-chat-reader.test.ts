@@ -132,7 +132,7 @@ describe("createOpenAiChatReader", () => {
     try {
       await readWith(() => answerResponse(strictAnswer));
       const completedLog = info.mock.calls.map(([fields]) => fields as Record<string, unknown>).find((fields) => fields.event === "chat_reader_completed");
-      expect(completedLog).toMatchObject({ inputTokens: 5200, countedInputTokens: countRequestTokens(describeReadingContext(context)) });
+      expect(completedLog).toMatchObject({ inputTokens: 5200, countedInputTokens: countRequestTokens(describeReadingContext(context)), budget: "text" });
     } finally {
       info.mockRestore();
     }

@@ -63,6 +63,7 @@ export function createFitReadingContext(options: Readonly<{ budget: ReaderTokenB
   const fixedTokens = tokenizer.count(requestTextOf("")); // the instructions, the schema and the newlines that join the context to them
   return (context) => {
     const limit = context.kind === "text" ? budget.textInputTokens : budget.photoInputTokens;
+    // The early exit stops counting at the limit, so this is "over the budget" (limit + 1), not a measured size: never log it as one.
     const tooLarge = (): ContextTooLarge => ({ code: "CONTEXT_TOO_LARGE", countedInputTokens: limit + 1 });
     const neverCut = context.products.filter(({ shown }) => shown);
     const baseTokens = tokenizer.within(describeReadingContext({ ...context, products: neverCut }), limit - fixedTokens);

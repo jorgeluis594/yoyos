@@ -9,7 +9,7 @@ export type ReaderError = Readonly<{ code: "AI_PROVIDER_UNAVAILABLE" | "DEADLINE
 
 /** A reading context fitted to the input-token budget of its kind, with what the fit counted and cut. */
 export type FittedReadingContext = Readonly<{ context: ChatReadingContext; countedInputTokens: number; droppedProducts: number }>;
-/** The part of the request that is never cut does not fit the budget: no reader call. */
+/** The part of the request that is never cut does not fit the budget: no reader call. `countedInputTokens` is the budget plus one ("over budget"), not a measured size: the count stops at the limit. */
 export type ContextTooLarge = Readonly<{ code: "CONTEXT_TOO_LARGE"; countedInputTokens: number }>;
 
 /** The reader port: one model call that turns the message and its context into a `ReaderAnswer`. */

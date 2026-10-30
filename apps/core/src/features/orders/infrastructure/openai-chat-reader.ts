@@ -86,7 +86,7 @@ export function createOpenAiChatReader(config: OpenAiChatReaderConfig): ReadChat
     const answer = toReaderAnswer(parsed.data);
     const usage = usageOf(response.usage);
     log.info({
-      event: "chat_reader_completed", ...fields(), answer: answer.kind, actionKinds: answer.kind === "actions" ? answer.actions.map(({ kind }) => kind) : [],
+      event: "chat_reader_completed", ...fields(), budget: context.kind === "text" ? "text" : "photo", answer: answer.kind, actionKinds: answer.kind === "actions" ? answer.actions.map(({ kind }) => kind) : [],
       productCount: context.products.length, variantCount: context.products.reduce((total, { variants }) => total + variants.length, 0),
       pendingCount: context.pendings.length, itemCount: context.items.length, contextChars: contextText.length, contextTruncated: context.truncated,
       inputTokens: usage.inputTokens, countedInputTokens: countRequestTokens(contextText), cachedInputTokens: usage.cachedInputTokens, outputTokens: usage.outputTokens, reasoningTokens: usage.reasoningTokens,
