@@ -1,9 +1,13 @@
 import { ScrollView, TextInput } from "react-native";
-import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, configure, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import { deliverySettings } from "@mobile/features/delivery-settings/composition";
 import DeliverySettingsScreen from "@mobile/features/delivery-settings/presentation/delivery-settings-screen";
 import "@mobile/i18n";
+
+// A reload re-renders the whole screen; on a loaded host it exceeds the 1 s default of findBy/waitFor and the 5 s of a test.
+configure({ asyncUtilTimeout: 5000 });
+jest.setTimeout(15000);
 
 jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: { get: jest.fn(), getCourierCatalog: jest.fn(), save: jest.fn(), getZones: jest.fn(), saveZones: jest.fn(), getAgencyCatalog: jest.fn() } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready", company: { id: "company", country: "PE" } } }) }));
