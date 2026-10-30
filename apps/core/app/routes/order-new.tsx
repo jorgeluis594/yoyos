@@ -16,7 +16,8 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 import { Button } from "@core/app/components/ui/button";
 import { ErrorState } from "@core/app/components/ui/error-state";
 import { OrderView, type ViewNotice } from "@core/src/features/orders/presentation/order-view";
-import { applyRateRecovery, saleOutcome, type SaleActionResult, type SaleOutcome } from "@core/src/features/orders/presentation/new-sale-outcome";
+import { checkOrderExists } from "@core/src/features/orders/presentation/order-existence";
+import { applyRateRecovery, markSaleSaved, saleOutcome, type SaleActionResult, type SaleOutcome } from "@core/src/features/orders/presentation/new-sale-outcome";
 import { buildCreateRequest, initialDraft, invalidFields, isEmptyDraft, type OrderViewState } from "@core/src/features/orders/presentation/order-view-state";
 import { useUnsavedChangesGuard } from "@core/src/features/orders/presentation/use-unsaved-changes-guard";
 
@@ -85,9 +86,10 @@ export default function OrderNew() {
   const [outcome, setOutcome] = useState<SaleOutcome | null>(null);
   const [doubt, setDoubt] = useState<Doubt>(null);
   const [catalogEpoch, setCatalogEpoch] = useState(0);
-  const guard = useUnsavedChangesGuard({ dirty: !isEmptyDraft(state), inDoubt: doubt !== null });
-  const saving = navigation.state !== "idle" && navigation.formMethod?.toUpperCase() === "POST";
   const orderPath = `${loaded.base}/${state.draft.orderId}`;
+  // The guard stays active while the save is in flight; only the navigation to the order this sale creates passes.
+  const guard = useUnsavedChangesGuard({ dirty: !isEmptyDraft(state), inDoubt: doubt !== null, allowedPath: orderPath });
+  const saving = navigation.state !== "idle" && navigation.formMethod?.toUpperCase() === "POST";
   const money = (amount: { amount: number; currency: string }) => formatCurrency(amount.amount, amount.currency, i18n.language);
 
   // Stock and «✓ n» never stay stale: every loader revalidation drops the picker's cached search.
@@ -98,14 +100,15 @@ export default function OrderNew() {
   }, [loaded]);
 
   // A lost answer is resolved by reading the order with the same id: found, the sale was saved; missing, the form is intact and saving again can never make a second order.
-  const { allowLeaving, holdLeaving } = guard;
-  const readOrder = useCallback(() => fetch(`/api/orders/${state.draft.orderId}/aggregate`, { headers: { accept: "application/json" } }).then((response) => {
-    if (response.ok) { allowLeaving(); navigate(orderPath, { replace: true }); return; }
-    if (response.status === 404) { setDoubt(null); setOutcome(null); return; }
-    setDoubt("failed");
-  // The check itself got no answer.
-  }, () => setDoubt("failed")), [allowLeaving, navigate, orderPath, state.draft.orderId]);
-  useEffect(() => { if (doubt === "checking") void readOrder(); }, [doubt, readOrder]);
+  const orderId = state.draft.orderId;
+  const readOrder = useCallback(() => void checkOrderExists(orderId).then((found) => {
+    if (found === "exists") { markSaleSaved(orderId); navigate(orderPath, { replace: true }); return; }
+    if (found === "unknown") { setDoubt("failed"); return; }
+    // Missing: the form is intact and saving again can never make a second order.
+    setDoubt(null);
+    setOutcome(saleOutcome({ lost: "offline" }, { t, formatMoney: () => "", orderPath }));
+  }), [navigate, orderPath, orderId, t]);
+  useEffect(() => { if (doubt === "checking") readOrder(); }, [doubt, readOrder]);
 
   // Each answer of the action is read once, when it arrives: the outcome belongs to the answer that produced it.
   const [answered, setAnswered] = useState<SaleActionResult | undefined>(undefined);
@@ -116,13 +119,13 @@ export default function OrderNew() {
     setState(applyRateRecovery(state, next.rate));
     setDoubt(next.check ? "checking" : null);
   }
-  useEffect(() => { if (result !== undefined) holdLeaving(); }, [result, holdLeaving]);
 
   function save() {
     const request = buildCreateRequest(state);
+    setOutcome(null);
     if (invalidFields(state).length > 0 || !request.success) { setAttempts((count) => count + 1); return; }
     setOutcome(null);
-    guard.allowLeaving();
+    markSaleSaved(orderId);
     submit({ order: JSON.stringify(request.data) }, { method: "post", replace: true });
   }
 

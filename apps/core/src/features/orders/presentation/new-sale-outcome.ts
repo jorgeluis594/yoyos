@@ -1,13 +1,12 @@
 import type { TFunction } from "i18next";
 import type { Money } from "@shared/money";
-import type { LostResponse } from "@core/app/routes/lost-response";
 import type { ViewNotice } from "@core/src/features/orders/presentation/order-view";
 import type { DeliveryFields, OrderViewState } from "@core/src/features/orders/presentation/order-view-state";
 
 /** What «Nueva venta» gets back from its action: a known refusal of core, or the lost answer of the client action. */
 export type SaleActionResult =
   | Readonly<{ code: string; error: string; currentPrice?: Money; variantId?: string }>
-  | Readonly<{ lost: LostResponse }>;
+  | Readonly<{ lost: "offline" | "in-doubt" }>;
 
 /** What the screen shows and does after a refused or lost save; the draft itself stays as the seller left it, except for the delivery rate. */
 export type SaleOutcome = Readonly<{
@@ -47,10 +46,30 @@ export function saleOutcome(result: SaleActionResult, context: Readonly<{ t: TFu
   }
 }
 
-/** Applies the rate recovery to the draft: a changed price becomes the one the seller reviews, a vanished rate is picked again. */
+/**
+ * Applies the rate recovery to the draft. A quotation rate is a frozen snapshot: after a changed price (or a vanished rate) the old rate id can never save again,
+ * so the rate is cleared and the place fields quote again; the seller picks the rate with the current price on screen, without choosing the district again.
+ */
 export function applyRateRecovery(state: OrderViewState, rate: SaleOutcome["rate"]): OrderViewState {
   if (rate === "keep" || state.draft.delivery.tab === "none") return state;
   const { delivery } = state.draft;
-  const fields: DeliveryFields = rate === "clear" ? { ...delivery.fields, rateId: "", agencyId: "", ratePrice: null } : { ...delivery.fields, ratePrice: rate.price };
-  return { ...state, draft: { ...state.draft, delivery: { ...delivery, fields } } };
+  const fields: DeliveryFields = { ...delivery.fields, rateId: "", agencyId: "", ratePrice: null };
+  return { ...state, quoteEpoch: (state.quoteEpoch ?? 0) + 1, draft: { ...state.draft, delivery: { ...delivery, fields } } };
+}
+
+const savedMarkKey = "order-view-saved";
+
+/** A new sale that was saved lands on the saved view, which announces «Venta guardada.»: the mark survives the navigation, which can be the action's own redirect. */
+export function markSaleSaved(orderId: string): void {
+  try { sessionStorage.setItem(savedMarkKey, orderId); } catch { /* storage is optional: the view then only skips the announcement */ }
+}
+
+/** Whether the saved view of this order was reached from its own **Guardar venta**. */
+export function readSaleSaved(orderId: string): boolean {
+  try { return sessionStorage.getItem(savedMarkKey) === orderId; } catch { return false; }
+}
+
+/** The saved view consumed the mark: a later visit to the same order is an ordinary one. */
+export function clearSaleSaved(orderId: string): void {
+  try { if (sessionStorage.getItem(savedMarkKey) === orderId) sessionStorage.removeItem(savedMarkKey); } catch { /* nothing to clear */ }
 }

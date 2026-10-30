@@ -41,8 +41,10 @@ test("the seller approves a report with short stock and sees the order waiting f
     await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
     await browserExpect(page.getByText("Para despachar falta stock de Camisa (M).")).toBeVisible();
     await browserExpect(page.getByText("Para entregar falta stock de Camisa (M).")).toBeVisible();
-    await page.getByText("Detalles internos").click();
-    await browserExpect(page.getByText("Esperando stock", { exact: true }).last()).toBeVisible();
+    // The waiting state is told by the notice under the header and is not repeated in the products card.
+    await browserExpect(page.getByText("Detalles internos")).toHaveCount(0);
+    await browserExpect(page.getByText("Stock pendiente")).toHaveCount(0);
+    await browserExpect(page.getByText("Stock descontado")).toHaveCount(0);
 
     const order = await withTenantIsolation(tenantId, async () => await prisma.order.findUniqueOrThrow({ where: { id: orderId } }));
     expect(order.stockDeducted).toBe(false);

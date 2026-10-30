@@ -73,7 +73,8 @@ test("core confirms cancellation, retains payments and updates operational views
       await browserExpect(page.getByRole("status")).toContainText("Pedido cancelado");
       await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toHaveCount(0);
       await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toHaveCount(0);
-      await browserExpect(page.getByText("Entrega: Pendiente", { exact: true })).toHaveCount(0);
+      await browserExpect(page.getByRole("group", { name: "Estado del pedido: Pedido cancelado" })).toBeVisible();
+      await browserExpect(page.getByRole("group", { name: /^Estado de la entrega/ })).toHaveCount(0);
       expect((await f.detail(id)).payments).toEqual(before.payments);
       await vi.waitFor(async () => expect(await f.stock()).toBe(stock + (paid ? 1n : 0n)), { timeout: 15000 });
       await page.reload();
@@ -121,7 +122,7 @@ test("core resolves a committed lost response, offers manual verification and re
       await confirm(page);
       await committed;
       await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
-      await browserExpect(page.getByRole("button", { name: "¿Te pagaron por fuera? Registrar pago", exact: true })).toBeDisabled();
+      await browserExpect(page.getByRole("button", { name: "Agregar Yape", exact: true })).toBeDisabled();
       await browserExpect(page.getByRole("button", { name: /^Anular pago del/ })).toBeDisabled();
       await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toBeDisabled();
       release();
@@ -139,7 +140,7 @@ test("core resolves a committed lost response, offers manual verification and re
     expect((await page.request.post(`/api/orders/${id}/ship`)).ok()).toBe(true);
     await confirm(page);
     await browserExpect(page.getByRole("alert")).toContainText("ya fue enviado");
-    await browserExpect(page.getByText("Entrega: Enviada", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("group", { name: "Estado de la entrega: Enviada" })).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Cancelar pedido", exact: true })).toHaveCount(0);
   } finally { await f.cleanup(); }
 }, 120000);
@@ -158,7 +159,7 @@ test("new loader data replaces a recovered active cancellation snapshot after a 
     await browserExpect(page.getByRole("alert")).toBeVisible();
     await browserExpect(page.getByText("Pendiente de confirmación", { exact: true })).toBeVisible();
     await page.unroute(dataRoute);
-    await page.getByRole("button", { name: "¿Te pagaron por fuera? Registrar pago", exact: true }).click();
+    await page.getByRole("button", { name: "Agregar Yape", exact: true }).click();
     await page.getByRole("dialog", { name: "Registrar pago" }).getByRole("button", { name: "Confirmar pago" }).click();
     await browserExpect(page.getByText(/^Pago registrado\./)).toBeVisible();
     expect((await f.detail(id)).checkoutEnabledAt).not.toBeNull();

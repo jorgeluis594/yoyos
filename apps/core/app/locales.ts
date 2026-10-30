@@ -84,10 +84,9 @@ const es = {
   },
   orderDelivery: {
     quoting: "Consultando tarifas…", quoteError: "No se pudieron cargar las tarifas. Conservamos tus datos.", retryRates: "Reintentar tarifas", noRates: "No hay tarifas para esta modalidad y distrito.", rate: "Tarifa de entrega", chooseRate: "Selecciona una tarifa",
-    priceChanged: "La tarifa cambió. Selecciona nuevamente la entrega para confirmar el precio actual.", rateUnavailable: "La tarifa ya no está disponible. Selecciona otra entrega.",
     chooseAgency: "Selecciona una agencia",
-    method: "Modalidad de entrega", chooseMethod: "Selecciona una modalidad", courier: "Courier", chooseCourier: "Selecciona un courier", agency: "Agencia de destino", identityRequired: "Documento de identidad (obligatorio)", chooseDocument: "Selecciona un documento", address: "Dirección de entrega", district: "Distrito", instructions: "Indicaciones de entrega (opcional)",
-    undefined: "Entrega por definir", cost: "Costo de entrega: {{amount}}", assign: "Asignar entrega", replace: "Reemplazar entrega", recipientName: "Nombre del destinatario", recipientPhone: "Teléfono del destinatario", identity: "Documento de identidad (opcional)", noDocument: "Sin documento", document: "Número de documento", charge: "Cobrar la entrega al cliente", priceHint: "El costo se calcula al guardar. Si no está disponible, conservamos tus datos.", save: "Guardar entrega", saved: "Entrega guardada.", savedWaiting: "Entrega guardada. El pedido queda esperando stock.", recordedBy: "Registrada por", buyer: "Comprador", configure: "Configurar modalidades de entrega", invalid: "Revisa los datos del destinatario y el destino de entrega.", disabled: "La modalidad de entrega no está disponible. Revisa la configuración para asignarla.", unavailable: "No se pudo confirmar la disponibilidad y el costo de la entrega. Inténtalo de nuevo.", locked: "La entrega no se puede cambiar después de despachar, entregar o cancelar la orden.", saveError: "No se pudo guardar la entrega. Conservamos tus datos para reintentar.",
+    agency: "Agencia de destino", identityRequired: "Documento de identidad (obligatorio)", address: "Dirección de entrega", district: "Distrito", instructions: "Indicaciones de entrega (opcional)",
+    recipientName: "Nombre del destinatario", recipientPhone: "Teléfono del destinatario", identity: "Documento de identidad (opcional)", noDocument: "Sin documento", document: "Número de documento", configure: "Configurar modalidades de entrega", disabled: "La modalidad de entrega no está disponible. Revisa la configuración para asignarla.",
   },
   storePreview: { sampleMethods: "Aún no configuraste tus medios de cobro: estos son datos de ejemplo.",
     title: "Vista previa de la tienda", surface: "Vista previa", catalog: "Catálogo", checkout: "Checkout", label: "Tema {{theme}} · {{origin}}",
@@ -136,9 +135,9 @@ const es = {
   },
   products: {
     title: "Productos", new: "Nuevo producto", newDescription: "Completa los datos para agregarlo a tu empresa.", name: "Nombre", multipleVariants: "Varias variantes", noSku: "Sin SKU", salePrice: "Precio de venta", purchasePrice: "Precio de compra", from: "Desde ", stock: "Stock", searchLabel: "Buscar por nombre o SKU", search: "Buscar", caption: "Productos del catálogo", emptySearch: "No se encontraron productos para esta búsqueda.", empty: "Aún no hay productos en el catálogo. ", createFirst: "Crea el primero", pages: "Páginas de productos", page: "Página {{page}}", invalidSearch: "Búsqueda no válida", loadError: "No se pudo cargar el catálogo", invalidSearchDescription: "Revisa los criterios e inténtalo de nuevo.", retry: "Reintentar", backCatalog: "Volver al catálogo", backProducts: "Volver a productos", saved: "Producto guardado correctamente.", saveChanges: "Guardar cambios", variants: "Variantes", variant: "Variante {{number}}", noPrice: "Sin precio", missing: "Producto no encontrado", loadProductError: "No se pudo cargar el producto", missingDescription: "No hay un producto disponible en esta dirección.", backHome: "Volver al inicio",
-    readonlyVariants: "Puedes editar los datos generales y la foto. Las variantes son de solo lectura.", data: "Datos del producto", description: "Descripción", priceVariant: "Precio y variante", initialStock: "Stock inicial", saving: "Guardando…", save: "Guardar producto", cancel: "Cancelar", 
+    readonlyVariants: "Puedes editar los datos generales y la foto. Las variantes son de solo lectura.", data: "Datos del producto", description: "Descripción", priceVariant: "Precio y variante", initialStock: "Stock inicial", saving: "Guardando…", save: "Guardar producto", cancel: "Cancelar",
   },
-  orderDetail: { receivedShort: "Recibido", pendingPayment: "Pendiente", amount: "Importe", subtotal: "Subtotal", deliveryCharge: "Cargo de entrega al cliente", received: "Importe recibido", balance: "Saldo pendiente", paymentHistory: "Historial de pagos", noPayments: "Aún no hay pagos registrados.", confirmedPayment: "Pago confirmado", editDelivery: "Editar entrega", closeEditor: "Cerrar edición", internalDeliveryCost: "Costo de entrega (interno)", internalDetails: "Detalles internos", mentionedPrice_one: "El cliente mencionó {{amount}} por unidad", mentionedPrice_other: "El cliente mencionó {{amount}} por {{count}}" },
+  orderDetail: { mentionedPrice_one: "El cliente mencionó {{amount}} por unidad", mentionedPrice_other: "El cliente mencionó {{amount}} por {{count}}" },
   orderLink: {
     title: "Enlace del pedido", confirmed: "Confirmado por el comprador", pending: "Pendiente de confirmación", cancelled: "Pedido cancelado",
     label: "Enlace del pedido", copy: "Copiar enlace", open: "Abrir enlace en una pestaña nueva", copied: "Enlace copiado",
@@ -148,15 +147,10 @@ const es = {
   },
   orders: {
     deliveryChargePending: "El cargo de entrega se calculará y añadirá al guardar.",
-    
-    
-    
-    
-    
+
+
     orderNumber: "Pedido #{{number}}",
     checkoutPending: "Pendiente de confirmación", checkoutConfirmed: "Confirmado por el comprador", checkoutCancelled: "Pedido cancelado",
-    status: {"active": "Orden activa", "cancelled": "Orden cancelada", "completed": "Venta completada"},
-    deliveryStatus: {"pending": "Pendiente", "shipped": "Enviada", "delivered": "Entregada"},
     documentType: {"national_id": "Documento de identidad", "passport": "Pasaporte", "foreign_id": "Documento de extranjería"},
     listOrder: "Pedido", listDate: "Fecha", listUnits: "Unidades", listViews: "Vistas de pedidos",
     listViewsLabels: { all: "Todos", unpaid: "Por cobrar", undelivered: "Por entregar" },
@@ -175,7 +169,7 @@ const es = {
     reportedByBuyer: "Reportado por el comprador · {{date}}", paymentRowConfirmed: "Pago confirmado · {{date}}", paymentRowRejected: "Pago rechazado · {{date}}", paymentRowVoided: "Pago anulado · {{date}}",
     rejectionReason: "Motivo: {{reason}}", paymentReviewPending: "Pago por revisar", includesDelivery: "Incluye entrega {{amount}}",
     approve: "Aprobar", reject: "Rechazar", cancelDecision: "Cancelar", backDecision: "Volver",
-    registerPayment: "¿Te pagaron por fuera? Registrar pago", registerPaymentHint: "Para pagos acordados directamente con el comprador.", registerPaymentTitle: "Registrar pago",
+    registerPaymentHint: "Para pagos acordados directamente con el comprador.", registerPaymentTitle: "Registrar pago",
     approvePaymentTitle: "Aprobar pago", approvePayment: "Aprobar pago", approvePaymentAmount: "Aprobar pago {{amount}}",
     rejectTitle: "¿Rechazar este comprobante?", rejectBody: "El saldo seguirá pendiente y el comprador podrá enviar otro comprobante.", rejectReasonLabel: "Motivo (opcional, lo verá el comprador)", rejectConfirm: "Rechazar comprobante",
     receiptTitle: "Comprobante de pago", receiptSubtitle: "Pedido #{{number}} · Reportado por el comprador · {{date}}", receiptClose: "Cerrar comprobante", receiptAlt: "Comprobante enviado por el comprador",
@@ -186,12 +180,10 @@ const es = {
     viewReceipt: "Ver captura", voidPayment: "Anular pago", manualPayment: "Registrar pago manual", paymentAmount: "Importe recibido",
     paymentMethod: "Medio de pago", wallet: "Billetera digital", bankTransfer: "Transferencia bancaria",
     deductStockIfPartial: "Descontar stock aunque sea un abono parcial", confirmPayment: "Confirmar pago",
-    paymentSaveError: "No se pudo guardar el pago. Revisa los datos e inténtalo de nuevo.", 
+    paymentSaveError: "No se pudo guardar el pago. Revisa los datos e inténtalo de nuevo.",
     paymentSaved: "Pago actualizado.", paymentRecorded: "Pago registrado.", paymentRecordedWaiting: "Pago registrado. El pedido queda esperando stock.",
     paid: "Cubierto",
     balanceDue: "Pendiente: {{amount}}",
-    stockDeducted: "Descontado",
-    stockPending: "Pendiente",
     deliveryCharge: "Cargo de entrega: {{amount}}",
     overpaid: "Exceso recibido: {{amount}}",
     title: "Ventas", new: "Nueva venta", view: "Ver ventas", completed: "Venta completada", instant: "Cobro y entrega en el momento", uniqueVariant: "Variante única", stock: "Stock", addNamed: "Agregar {{name}}", itemCount_one: "{{count}} producto", itemCount_other: "{{count}} productos", quantity: "Cantidad", currencyMismatch: "Los productos deben tener la misma moneda.", customer: "Cliente", generalPublic: "Público general", fromCatalog: "Desde el catálogo", completing: "Completando…", complete: "Confirmar cobro y completar venta", pointOfSaleError: "No se pudo cargar el punto de venta",
@@ -382,7 +374,7 @@ const es = {
       changesOffline: "No se pudieron guardar los cambios. Revisa tu conexión e inténtalo de nuevo.", changesInDoubt: "No sabemos si los cambios se guardaron. Verificando…",
       checkFailed: "No pudimos comprobar si se guardó. Revisa tu conexión y vuelve a comprobar.", checkAgain: "Comprobar de nuevo",
       conflict: "Este pedido cambió mientras lo editabas. Tus cambios siguen aquí; recarga para ver la versión actual.", reload: "Recargar pedido",
-      stockDeducted: "El stock se descontó mientras editabas: los productos ya no se pueden cambiar. Tus cambios de cliente y entrega siguen aquí.", nothingElse: "No hay otros cambios que guardar.",
+      stockDeducted: "El stock se descontó mientras editabas: los productos ya no se pueden cambiar. Tus cambios de cliente y entrega siguen aquí.", stockDeductedAlone: "El stock se descontó mientras editabas: los productos ya no se pueden cambiar. No hay otros cambios que guardar.",
       shipped: "El pedido ya se envió; no se guardaron los cambios.", delivered: "El pedido ya se entregó; no se guardaron los cambios.", cancelled: "El pedido está cancelado; no se guardaron los cambios.",
       saveOnlyCustomer: "Guardar solo el cliente",
     },
@@ -476,10 +468,9 @@ const pt = {
   },
   orderDelivery: {
     quoting: "Consultando tarifas…", quoteError: "Não foi possível carregar as tarifas. Seus dados foram mantidos.", retryRates: "Tentar tarifas novamente", noRates: "Não há tarifas para esta modalidade e distrito.", rate: "Tarifa de entrega", chooseRate: "Selecione uma tarifa",
-    priceChanged: "A tarifa mudou. Selecione novamente a entrega para confirmar o preço atual.", rateUnavailable: "A tarifa não está mais disponível. Selecione outra entrega.",
     chooseAgency: "Selecione uma agência",
-    method: "Modalidade de entrega", chooseMethod: "Selecione uma modalidade", courier: "Transportadora", chooseCourier: "Selecione uma transportadora", agency: "Agência de destino", identityRequired: "Documento de identidade (obrigatório)", chooseDocument: "Selecione um documento", address: "Endereço de entrega", district: "Distrito", instructions: "Instruções de entrega (opcional)",
-    undefined: "Entrega a definir", cost: "Custo da entrega: {{amount}}", assign: "Definir entrega", replace: "Substituir entrega", recipientName: "Nome do destinatário", recipientPhone: "Telefone do destinatário", identity: "Documento de identidade (opcional)", noDocument: "Sem documento", document: "Número do documento", charge: "Cobrar a entrega do cliente", priceHint: "O custo é calculado ao salvar. Se não estiver disponível, mantemos seus dados.", save: "Salvar entrega", saved: "Entrega salva.", savedWaiting: "Entrega salva. O pedido fica aguardando estoque.", recordedBy: "Registrada por", buyer: "Comprador", configure: "Configurar modalidades de entrega", invalid: "Revise os dados do destinatário e o destino da entrega.", disabled: "A modalidade de entrega não está disponível. Confira a configuração para defini-la.", unavailable: "Não foi possível confirmar a disponibilidade e o custo da entrega. Tente novamente.", locked: "A entrega não pode ser alterada depois de despachar, entregar ou cancelar o pedido.", saveError: "Não foi possível salvar a entrega. Mantemos seus dados para tentar novamente.",
+    agency: "Agência de destino", identityRequired: "Documento de identidade (obrigatório)", address: "Endereço de entrega", district: "Distrito", instructions: "Instruções de entrega (opcional)",
+    recipientName: "Nome do destinatário", recipientPhone: "Telefone do destinatário", identity: "Documento de identidade (opcional)", noDocument: "Sem documento", document: "Número do documento", configure: "Configurar modalidades de entrega", disabled: "A modalidade de entrega não está disponível. Confira a configuração para defini-la.",
   },
   storePreview: { sampleMethods: "Você ainda não configurou seus meios de pagamento: estes são dados de exemplo.",
     title: "Pré-visualização da loja", surface: "Pré-visualização", catalog: "Catálogo", checkout: "Checkout", label: "Tema {{theme}} · {{origin}}",
@@ -528,9 +519,9 @@ const pt = {
   },
   products: {
     title: "Produtos", new: "Novo produto", newDescription: "Preencha os dados para adicioná-lo à sua empresa.", name: "Nome", multipleVariants: "Várias variantes", noSku: "Sem SKU", salePrice: "Preço de venda", purchasePrice: "Preço de compra", from: "A partir de ", stock: "Estoque", searchLabel: "Buscar por nome ou SKU", search: "Buscar", caption: "Produtos do catálogo", emptySearch: "Nenhum produto encontrado para esta busca.", empty: "Ainda não há produtos no catálogo. ", createFirst: "Crie o primeiro", pages: "Páginas de produtos", page: "Página {{page}}", invalidSearch: "Busca inválida", loadError: "Não foi possível carregar o catálogo", invalidSearchDescription: "Confira os critérios e tente novamente.", retry: "Tentar novamente", backCatalog: "Voltar ao catálogo", backProducts: "Voltar aos produtos", saved: "Produto salvo com sucesso.", saveChanges: "Salvar alterações", variants: "Variantes", variant: "Variante {{number}}", noPrice: "Sem preço", missing: "Produto não encontrado", loadProductError: "Não foi possível carregar o produto", missingDescription: "Não há um produto disponível neste endereço.", backHome: "Voltar ao início",
-    readonlyVariants: "Você pode editar os dados gerais e a foto. As variantes são somente leitura.", data: "Dados do produto", description: "Descrição", priceVariant: "Preço e variante", initialStock: "Estoque inicial", saving: "Salvando…", save: "Salvar produto", cancel: "Cancelar", 
+    readonlyVariants: "Você pode editar os dados gerais e a foto. As variantes são somente leitura.", data: "Dados do produto", description: "Descrição", priceVariant: "Preço e variante", initialStock: "Estoque inicial", saving: "Salvando…", save: "Salvar produto", cancel: "Cancelar",
   },
-  orderDetail: { receivedShort: "Recebido", pendingPayment: "Pendente", amount: "Valor", subtotal: "Subtotal", deliveryCharge: "Taxa de entrega ao cliente", received: "Valor recebido", balance: "Saldo pendente", paymentHistory: "Histórico de pagamentos", noPayments: "Ainda não há pagamentos registrados.", confirmedPayment: "Pagamento confirmado", editDelivery: "Editar entrega", closeEditor: "Fechar edição", internalDeliveryCost: "Custo da entrega (interno)", internalDetails: "Detalhes internos", mentionedPrice_one: "O cliente mencionou {{amount}} por unidade", mentionedPrice_other: "O cliente mencionou {{amount}} por {{count}}" },
+  orderDetail: { mentionedPrice_one: "O cliente mencionou {{amount}} por unidade", mentionedPrice_other: "O cliente mencionou {{amount}} por {{count}}" },
   orderLink: {
     title: "Link do pedido", confirmed: "Confirmado pelo comprador", pending: "Aguardando confirmação", cancelled: "Pedido cancelado",
     label: "Link do pedido", copy: "Copiar link", open: "Abrir link em uma nova aba", copied: "Link copiado",
@@ -540,15 +531,10 @@ const pt = {
   },
   orders: {
     deliveryChargePending: "O valor da entrega será calculado e adicionado ao salvar.",
-    
-    
-    
-    
-    
+
+
     orderNumber: "Pedido #{{number}}",
     checkoutPending: "Aguardando confirmação", checkoutConfirmed: "Confirmado pelo comprador", checkoutCancelled: "Pedido cancelado",
-    status: {"active": "Pedido ativo", "cancelled": "Pedido cancelado", "completed": "Venda concluída"},
-    deliveryStatus: {"pending": "Pendente", "shipped": "Enviada", "delivered": "Entregue"},
     documentType: {"national_id": "Documento de identidade", "passport": "Passaporte", "foreign_id": "Documento de estrangeiro"},
     listOrder: "Pedido", listDate: "Data", listUnits: "Unidades", listViews: "Visualizações de pedidos",
     listViewsLabels: { all: "Todos", unpaid: "A receber", undelivered: "A entregar" },
@@ -567,7 +553,7 @@ const pt = {
     reportedByBuyer: "Reportado pelo comprador · {{date}}", paymentRowConfirmed: "Pagamento confirmado · {{date}}", paymentRowRejected: "Pagamento rejeitado · {{date}}", paymentRowVoided: "Pagamento anulado · {{date}}",
     rejectionReason: "Motivo: {{reason}}", paymentReviewPending: "Pagamento para revisar", includesDelivery: "Inclui entrega {{amount}}",
     approve: "Aprovar", reject: "Rejeitar", cancelDecision: "Cancelar", backDecision: "Voltar",
-    registerPayment: "Receberam por fora? Registrar pagamento", registerPaymentHint: "Para pagamentos combinados diretamente com o comprador.", registerPaymentTitle: "Registrar pagamento",
+    registerPaymentHint: "Para pagamentos combinados diretamente com o comprador.", registerPaymentTitle: "Registrar pagamento",
     approvePaymentTitle: "Aprovar pagamento", approvePayment: "Aprovar pagamento", approvePaymentAmount: "Aprovar pagamento {{amount}}",
     rejectTitle: "Rejeitar este comprovante?", rejectBody: "O saldo continuará pendente e o comprador poderá enviar outro comprovante.", rejectReasonLabel: "Motivo (opcional, o comprador verá)", rejectConfirm: "Rejeitar comprovante",
     receiptTitle: "Comprovante de pagamento", receiptSubtitle: "Pedido #{{number}} · Reportado pelo comprador · {{date}}", receiptClose: "Fechar comprovante", receiptAlt: "Comprovante enviado pelo comprador",
@@ -578,12 +564,10 @@ const pt = {
     viewReceipt: "Ver comprovante", voidPayment: "Anular pagamento", manualPayment: "Registrar pagamento manual", paymentAmount: "Valor recebido",
     paymentMethod: "Meio de pagamento", wallet: "Carteira digital", bankTransfer: "Transferência bancária",
     deductStockIfPartial: "Descontar estoque mesmo com pagamento parcial", confirmPayment: "Confirmar pagamento",
-    paymentSaveError: "Não foi possível salvar o pagamento. Confira os dados e tente novamente.", 
+    paymentSaveError: "Não foi possível salvar o pagamento. Confira os dados e tente novamente.",
     paymentSaved: "Pagamento atualizado.", paymentRecorded: "Pagamento registrado.", paymentRecordedWaiting: "Pagamento registrado. O pedido fica aguardando estoque.",
     paid: "Pago",
     balanceDue: "Pendente: {{amount}}",
-    stockDeducted: "Descontado",
-    stockPending: "Pendente",
     deliveryCharge: "Taxa de entrega: {{amount}}",
     overpaid: "Valor recebido a mais: {{amount}}",
     title: "Vendas", new: "Nova venda", view: "Ver vendas", completed: "Venda concluída", instant: "Pagamento e entrega na hora", uniqueVariant: "Variante única", stock: "Estoque", addNamed: "Adicionar {{name}}", itemCount_one: "{{count}} produto", itemCount_other: "{{count}} produtos", quantity: "Quantidade", currencyMismatch: "Os produtos devem ter a mesma moeda.", customer: "Cliente", generalPublic: "Público geral", fromCatalog: "Do catálogo", completing: "Concluindo…", complete: "Confirmar pagamento e concluir venda", pointOfSaleError: "Não foi possível carregar o ponto de venda",
@@ -774,7 +758,7 @@ const pt = {
       changesOffline: "Não foi possível salvar as alterações. Verifique sua conexão e tente novamente.", changesInDoubt: "Não sabemos se as alterações foram salvas. Verificando…",
       checkFailed: "Não conseguimos verificar se foi salvo. Verifique sua conexão e tente de novo.", checkAgain: "Verificar de novo",
       conflict: "Este pedido mudou enquanto você o editava. Suas alterações continuam aqui; recarregue para ver a versão atual.", reload: "Recarregar pedido",
-      stockDeducted: "O estoque foi baixado enquanto você editava: os produtos não podem mais ser alterados. Suas alterações de cliente e entrega continuam aqui.", nothingElse: "Não há outras alterações para salvar.",
+      stockDeducted: "O estoque foi baixado enquanto você editava: os produtos não podem mais ser alterados. Suas alterações de cliente e entrega continuam aqui.", stockDeductedAlone: "O estoque foi baixado enquanto você editava: os produtos não podem mais ser alterados. Não há outras alterações para salvar.",
       shipped: "O pedido já foi enviado; as alterações não foram salvas.", delivered: "O pedido já foi entregue; as alterações não foram salvas.", cancelled: "O pedido está cancelado; as alterações não foram salvas.",
       saveOnlyCustomer: "Salvar só o cliente",
     },

@@ -124,7 +124,19 @@ test("marks the line of a variant that is no longer available and keeps everythi
   await click(button("Guardar venta"));
   await vi.waitFor(() => expect(container.textContent).toContain("Corona de Príncipe ya no está disponible."));
   expect(container.querySelector(`#order-line-${variantId}`)).not.toBeNull();
+  expect(document.activeElement?.closest(`#order-line-${variantId}`)).not.toBeNull();
   expect(button("Guardar venta")!.disabled).toBe(false);
+});
+
+test("clears an earlier refusal when the next save is refused for an invalid field", async () => {
+  await mount(() => ({ code: "PERSISTENCE_UNAVAILABLE", error: "private" }));
+  await addCrown();
+  await click(button("Guardar venta"));
+  await vi.waitFor(() => expect(container.textContent).toContain("No se pudo completar la venta"));
+  await type("input[data-quantity]", "");
+  await click(button("Guardar venta"));
+  expect(container.textContent).not.toContain("No se pudo completar la venta");
+  expect(container.textContent).toContain("No se guardó: revisa");
 });
 
 test("asks to confirm before leaving a started sale and keeps it on Seguir editando", async () => {

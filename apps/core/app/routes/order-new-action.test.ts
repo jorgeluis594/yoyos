@@ -3,7 +3,6 @@ import { RouterContextProvider, type ActionFunctionArgs } from "react-router";
 import { action, loader } from "@core/app/routes/order-new";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import resources from "@core/app/locales";
-import { deliverySavedKey } from "@core/src/features/orders/presentation/stock-due";
 import * as composition from "@core/src/features/orders/composition";
 import { privateUserContext } from "@core/app/private-user-context";
 import type { ReadyAccess } from "@core/src/features/users";
@@ -68,12 +67,8 @@ test("saves a new sale with payments and short stock and opens the order", async
   expect(create).toHaveBeenCalledWith(expect.objectContaining({ payments: [expect.objectContaining({ paymentId, amount: { amount: 120, currency: "PEN" } })] }), { companyId, userId: "seller" });
 });
 
-test("a delivery saved on a waiting order says so and the new-sale note promises the wait", () => {
-  expect(deliverySavedKey({ stockDue: { kind: "waiting", shortItems: [{ variantId: orderId, available: 0 }] } })).toBe("orderDelivery.savedWaiting");
-  for (const stockDue of [null, { kind: "deducting" } as const]) expect(deliverySavedKey({ stockDue })).toBe("orderDelivery.saved");
-  expect(resources.es.translation.orderDelivery.savedWaiting).toBe("Entrega guardada. El pedido queda esperando stock.");
+test("the new-sale stock note promises the wait", () => {
   expect(resources.es.translation.orderView.products.stockWarning.replace("{{stock}}", "3")).toBe("Disponible: 3. Si lo cobras, el pedido quedará esperando stock.");
-  expect(resources.pt.translation.orderDelivery.savedWaiting).toBeTruthy();
 });
 
 test("loads Nueva venta without searching the catalog", async () => {

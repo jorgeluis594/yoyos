@@ -39,14 +39,3 @@ export function fulfillmentReason(block: Block, operation: "ship" | "deliver", o
 export function paymentRecordedKey(order: Pick<StockOrder, "stockDue">) {
   return order.stockDue?.kind === "waiting" ? "orders.paymentRecordedWaiting" as const : "orders.paymentRecorded" as const;
 }
-
-/** Success text of a saved delivery, chosen from the order the response returns. */
-export function deliverySavedKey(order: Pick<StockOrder, "stockDue">) {
-  return order.stockDue?.kind === "waiting" ? "orderDelivery.savedWaiting" as const : "orderDelivery.saved" as const;
-}
-
-/** Value of the stock line in «Detalles internos». */
-export function stockLineKey(order: Pick<OrderAggregateResponse, "stockDeducted" | "stockDue">) {
-  if (order.stockDeducted) return "orders.stockDeducted" as const;
-  return order.stockDue === null ? "orders.stockPending" as const : order.stockDue.kind === "waiting" ? "orderStock.waitingTitle" as const : "orderStock.deductingTitle" as const;
-}

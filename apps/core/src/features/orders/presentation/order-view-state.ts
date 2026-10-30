@@ -53,7 +53,11 @@ type PartBase<T> = Readonly<{ saved: T; revision: string }>;
 /** The saved state and revision each part was loaded with. It moves only as §6.4 of the design says. */
 export type ViewBase = Readonly<{ items: PartBase<readonly DraftLine[]>; customer: PartBase<CustomerDraft>; delivery: PartBase<DeliveryDraft> }>;
 export type LoadedOrder = Readonly<{ order: Order; revisions: Revisions; lineCatalog: LineCatalog }>;
-export type OrderViewState = Readonly<{ draft: OrderViewDraft; base: ViewBase | null; loaded: LoadedOrder | null }>;
+export type OrderViewState = Readonly<{
+  draft: OrderViewDraft; base: ViewBase | null; loaded: LoadedOrder | null;
+  /** Grows when a refused save leaves the delivery rate stale: the place fields quote again, so the next save sends a fresh rate. */
+  quoteEpoch?: number;
+}>;
 export type DraftSource =
   | Readonly<{ kind: "new"; orderId: string; currency: Currency }>
   | (Readonly<{ kind: "saved" }> & LoadedOrder);

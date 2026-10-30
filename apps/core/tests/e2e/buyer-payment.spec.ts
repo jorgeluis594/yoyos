@@ -148,7 +148,7 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
     await browserExpect(report.getByRole("button", { name: /^Ver comprobante del/ })).toBeVisible();
     await browserExpect(report.getByRole("button", { name: /^Rechazar pago reportado el/ })).toBeVisible();
     await browserExpect(page.getByText("Pago por revisar")).toBeVisible();
-    await browserExpect(page.getByRole("button", { name: "¿Te pagaron por fuera? Registrar pago" })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Agregar Yape" })).toBeVisible();
     await browserExpect(page.getByLabel("Importe recibido")).toHaveCount(0);
     expect(await report.locator("img").first().evaluate((image: HTMLImageElement) => [image.loading, image.decoding, image.getAttribute("width"), image.getAttribute("height")])).toEqual(["lazy", "async", "56", "80"]);
     await report.getByRole("button", { name: /^Ver captura del/ }).click();
@@ -175,11 +175,11 @@ test("buyer pays with the verified wallet qr and the seller approves the report 
     await browserExpect(page.getByRole("heading", { name: "Pedido pagado" })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
     await page.goto(`/es-PE/orders/${orderId}`);
-    await browserExpect(page.getByRole("button", { name: "¿Te pagaron por fuera? Registrar pago" })).toHaveCount(0);
+    await browserExpect(page.getByRole("button", { name: "Agregar Yape" })).toHaveCount(0);
     await page.getByRole("button", { name: /^Anular pago del/ }).click();
     await browserExpect(page.getByText("Pago anulado", { exact: false }).first()).toBeVisible();
     expect((await withTenantIsolation(tenantId, async () => await prisma.payment.findUniqueOrThrow({ where: { id: payment.id } }))).status).toBe("voided");
-    await page.getByRole("button", { name: "¿Te pagaron por fuera? Registrar pago" }).click();
+    await page.getByRole("button", { name: "Agregar Yape" }).click();
     const manual = page.getByRole("dialog", { name: "Registrar pago" });
     const manualResponse = page.waitForResponse((response) => response.request().method() === "POST" && response.url().includes(`/orders/${orderId}`));
     await manual.getByRole("button", { name: "Confirmar pago" }).click();

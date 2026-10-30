@@ -6,8 +6,9 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import { createMemoryRouter, RouterProvider } from "react-router";
 import { afterEach, describe, expect, test, vi } from "vitest";
 import resources from "@core/app/locales";
-import { OrderView, type OrderViewProps } from "@core/src/features/orders/presentation/order-view";
+import { OrderView, type OrderViewProps, type SavedViewProps } from "@core/src/features/orders/presentation/order-view";
 import { initialDraft, type OrderViewState } from "@core/src/features/orders/presentation/order-view-state";
+import { deadpoolM, order1042, savedState } from "@core/src/features/orders/presentation/order-1042.fixture";
 import type { LeaveGuard } from "@core/src/features/orders/presentation/use-unsaved-changes-guard";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -19,7 +20,7 @@ const variantId = "00000000-0000-4000-8000-0000000000a1";
 const empty = () => initialDraft({ kind: "new", orderId: "00000000-0000-4000-8000-000000001042", currency: "PEN" });
 const withLine = (state: OrderViewState): OrderViewState => ({ ...state, draft: { ...state.draft, items: [{ variantId, productName: "Corona de Príncipe", attributes: {}, sku: null,
   unitPrice: { amount: 45, currency: "PEN" }, quantityText: "2", stock: 12, sellable: true }] } });
-const guard = (patch: Partial<LeaveGuard> = {}): LeaveGuard => ({ blocked: false, mode: "changes", stay: vi.fn(), leave: vi.fn(), allowLeaving: vi.fn(), holdLeaving: vi.fn(), ...patch });
+const guard = (patch: Partial<LeaveGuard> = {}): LeaveGuard => ({ blocked: false, mode: "changes", stay: vi.fn(), leave: vi.fn(), ...patch });
 
 let root: Root | undefined;
 let container: HTMLDivElement;
@@ -172,5 +173,188 @@ describe("OrderView (new sale)", () => {
     expect(bar.textContent).toContain("Total");
     expect(bar.textContent).toMatch(/S\/\s90\.00/);
     expect(bar.textContent).toContain("Guardar venta");
+  });
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+
+const savedExtras = (over: Partial<SavedViewProps> = {}): SavedViewProps => ({
+  link: { kind: "ready", url: "https://fantasio.yoyos.lat/checkout/1042" }, receiptUrls: {}, manualPaymentId: "00000000-0000-4000-8000-0000000000f2", voidResult: undefined,
+  actionBusy: false, underHeader: null, fulfillment: <button type="button">Marcar enviado</button>,
+  onPrint: vi.fn(), onDiscardChanges: vi.fn(), onReload: vi.fn(), onSaveCustomerOnly: vi.fn(), ...over });
+const mountSaved = (start: OrderViewState = savedState(), over: Partial<OrderViewProps> = {}, extras: Partial<SavedViewProps> = {}) => mount(start, { saved: savedExtras(extras), ...over });
+const typeQuantity = (state: OrderViewState, variantId: string, quantityText: string): OrderViewState =>
+  ({ ...state, draft: { ...state.draft, items: state.draft.items.map((line) => line.variantId === variantId ? { ...line, quantityText } : line) } });
+const edited = () => typeQuantity(savedState(), deadpoolM, "2");
+const labelOf = (name: string) => container.querySelector(`[role="group"][aria-label="${name}"]`);
+
+describe("OrderView (saved order)", () => {
+  test("shows the saved order sections in mockup order without Detalles internos", async () => {
+    await mountSaved();
+    const titles = [...container.querySelectorAll('[data-slot="card-title"]')].map((title) => title.textContent?.replace(/\s+/g, " ").trim());
+    expect(titles).toEqual(["Productos", "Pagos", "Cliente (opcional)", "Enlace del pedido", "Entrega"]);
+    expect(container.textContent).not.toContain("Detalles internos");
+    expect(container.querySelector("h1")?.textContent).toBe("Pedido #1042");
+    expect(container.querySelector('nav [aria-current="page"]')?.textContent).toBe("Pedido #1042");
+    expect(container.textContent).toContain("Creado el 2026-10-30T09:10:00.000Z · Registrado por el vendedor");
+    expect(container.querySelector<HTMLInputElement>('input[aria-label="Enlace del pedido"]')?.value ?? container.querySelector<HTMLInputElement>("input[readonly]")?.value).toBe("https://fantasio.yoyos.lat/checkout/1042");
+    expect(button("Marcar enviado")).toBeDefined();
+  });
+
+  test("shows only Venta completada, only Pedido cancelado, or Pago pendiente and Enviada in the saved order header with their accessible names", async () => {
+    await mountSaved(savedState({ order: order1042({ deliveryStatus: "shipped" }) }));
+    expect([...container.querySelectorAll('[role="group"][aria-label^="Estado"]')].map((label) => label.getAttribute("aria-label")))
+      .toEqual(["Estado del pago: Pago pendiente", "Estado de la entrega: Enviada"]);
+    expect(labelOf("Estado del pago: Pago pendiente")?.textContent).toBe("Pago pendiente");
+    act(() => root!.unmount());
+    await mountSaved(savedState({ order: order1042({ status: "completed", paymentStatus: "paid", deliveryStatus: "delivered", completedAt: "2026-10-31T16:40:00.000Z" }) }));
+    expect([...container.querySelectorAll('[role="group"][aria-label^="Estado"]')].map((label) => label.getAttribute("aria-label"))).toEqual(["Estado de la venta: Venta completada"]);
+    expect(container.textContent).toContain("Venta completada el 2026-10-31T16:40:00.000Z");
+    act(() => root!.unmount());
+    await mountSaved(savedState({ order: order1042({ status: "cancelled", cancelled: true }) }));
+    expect([...container.querySelectorAll('[role="group"][aria-label^="Estado"]')].map((label) => label.getAttribute("aria-label"))).toEqual(["Estado del pedido: Pedido cancelado"]);
+  });
+
+  test("names the origin of a catalog order in the subtitle and drops its badge", async () => {
+    await mountSaved(savedState({ order: order1042({ source: "catalog" }) }));
+    expect(container.textContent).toContain("Pedido desde el catálogo");
+    expect(container.textContent).not.toContain("Desde el catálogo");
+  });
+
+  test("keeps Guardar cambios and Descartar cambios disabled until something differs and blocks the payment actions while editing", async () => {
+    const onSave = vi.fn();
+    await mountSaved(savedState(), { onSave });
+    expect(button("Guardar cambios")!.disabled).toBe(true);
+    expect(button("Descartar cambios")!.disabled).toBe(true);
+    expect(container.textContent).not.toContain("Tienes cambios sin guardar.");
+    expect(button("Agregar Yape")!.getAttribute("aria-disabled")).toBeNull();
+    act(() => root!.unmount());
+    await mountSaved(edited(), { onSave });
+    expect(container.textContent).toContain("Tienes cambios sin guardar.");
+    expect(button("Descartar cambios")!.disabled).toBe(false);
+    expect(button("Agregar Yape")!.getAttribute("aria-disabled")).toBe("true");
+    expect(container.textContent).toContain("Guarda o descarta los cambios primero.");
+    await click(button("Guardar cambios"));
+    expect(onSave).toHaveBeenCalledOnce();
+  });
+
+  test("blocks Imprimir rótulo with its note while there are unsaved changes", async () => {
+    const onPrint = vi.fn();
+    await mountSaved(savedState(), {}, { onPrint });
+    await click(button("Imprimir rótulo"));
+    expect(onPrint).toHaveBeenCalledOnce();
+    act(() => root!.unmount());
+    const blocked = vi.fn();
+    await mountSaved(edited(), {}, { onPrint: blocked });
+    expect(button("Imprimir rótulo")!.getAttribute("aria-disabled")).toBe("true");
+    await click(button("Imprimir rótulo"));
+    expect(blocked).not.toHaveBeenCalled();
+  });
+
+  test("asks before discarding the changes of a saved order and then hands the discard to the route", async () => {
+    const onDiscardChanges = vi.fn();
+    await mountSaved(edited(), {}, { onDiscardChanges });
+    await click(button("Descartar cambios"));
+    expect(document.body.textContent).toContain("¿Descartar los cambios?");
+    await click(button("Seguir editando"));
+    expect(onDiscardChanges).not.toHaveBeenCalled();
+    await click(button("Descartar cambios"));
+    await click([...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((element) => element.textContent === "Descartar cambios"));
+    expect(onDiscardChanges).toHaveBeenCalledOnce();
+  });
+
+  test("asks to discard changes when leaving a saved order with unsaved edits and keeps them on Seguir editando", async () => {
+    const held = guard({ blocked: true });
+    await mountSaved(edited(), { guard: held });
+    expect(document.body.textContent).toContain("¿Descartar los cambios?");
+    await click(button("Seguir editando"));
+    expect(held.stay).toHaveBeenCalled();
+    await click([...document.querySelectorAll<HTMLButtonElement>('[role="dialog"] button')].find((element) => element.textContent === "Descartar cambios"));
+    expect(held.leave).toHaveBeenCalled();
+  });
+
+  test("shows only the total in the sticky bar of a saved order without changes and the two actions after an edit", async () => {
+    let notify: (entries: { isIntersecting: boolean }[]) => void = () => {};
+    vi.stubGlobal("IntersectionObserver", class { constructor(callback: typeof notify) { notify = callback; } observe() {} disconnect() {} });
+    await mountSaved();
+    await act(async () => notify([{ isIntersecting: false }]));
+    const bar = () => container.querySelector(".fixed")!;
+    expect(bar().textContent).toMatch(/S\/\s298\.00/);
+    expect(bar().querySelector("button")).toBeNull();
+    act(() => root!.unmount());
+    await mountSaved(edited());
+    await act(async () => notify([{ isIntersecting: false }]));
+    expect(bar().textContent).toContain("Cambios sin guardar");
+    expect([...bar().querySelectorAll("button")].map((element) => element.textContent)).toEqual(["Descartar cambios", "Guardar cambios"]);
+    expect(bar().textContent).toMatch(/S\/\s418\.00/);
+  });
+
+  test("shows the conflict alert with Recargar pedido, which asks before discarding the edits", async () => {
+    const onReload = vi.fn();
+    await mountSaved(edited(), { notice: { kind: "conflict" } }, { onReload });
+    expect(document.body.textContent).toContain("Este pedido cambió mientras lo editabas. Tus cambios siguen aquí; recarga para ver la versión actual.");
+    expect(document.activeElement?.getAttribute("role")).toBe("alert");
+    await click(button("Recargar pedido"));
+    expect(document.body.textContent).toContain("¿Descartar tus cambios y ver la versión actual?");
+    await click(button("Seguir viendo mis cambios"));
+    expect(onReload).not.toHaveBeenCalled();
+    await click(button("Recargar pedido"));
+    await click(button("Descartar y recargar"));
+    expect(onReload).toHaveBeenCalledOnce();
+  });
+
+  test("tells a shipped order from a delivered or cancelled one and offers Guardar solo el cliente only with a customer edit", async () => {
+    const onSaveCustomerOnly = vi.fn();
+    const shipped = savedState({ order: order1042({ deliveryStatus: "shipped" }) });
+    await mountSaved(shipped, { notice: { kind: "locked", code: "DELIVERY_LOCKED" } }, { onSaveCustomerOnly });
+    expect(document.body.textContent).toContain("El pedido ya se envió; no se guardaron los cambios.");
+    expect(button("Guardar solo el cliente")).toBeUndefined();
+    act(() => root!.unmount());
+    const withName = { ...shipped, draft: { ...shipped.draft, customer: { name: "Ana", phone: "+51977909427" } } };
+    await mountSaved(withName, { notice: { kind: "locked", code: "DELIVERY_LOCKED" } }, { onSaveCustomerOnly });
+    await click(button("Guardar solo el cliente"));
+    expect(onSaveCustomerOnly).toHaveBeenCalledOnce();
+    act(() => root!.unmount());
+    await mountSaved(savedState({ order: order1042({ deliveryStatus: "delivered" }) }), { notice: { kind: "locked", code: "DELIVERY_LOCKED" } });
+    expect(document.body.textContent).toContain("El pedido ya se entregó; no se guardaron los cambios.");
+    act(() => root!.unmount());
+    await mountSaved(savedState({ order: order1042({ status: "cancelled", cancelled: true }) }), { notice: { kind: "locked", code: "ORDER_CANCELLED" } });
+    expect(document.body.textContent).toContain("El pedido está cancelado; no se guardaron los cambios.");
+    expect(button("Guardar solo el cliente")).toBeUndefined();
+  });
+
+  test("says other edits stay after the stock was deducted, or that there are none", async () => {
+    const deducted = savedState({ order: order1042({ stockDeducted: true }), lineCatalog: null });
+    const withName = { ...deducted, draft: { ...deducted.draft, customer: { name: "Ana", phone: "+51977909427" } } };
+    await mountSaved(withName, { notice: { kind: "itemsLocked" } });
+    expect(document.body.textContent).toContain("El stock se descontó mientras editabas: los productos ya no se pueden cambiar. Tus cambios de cliente y entrega siguen aquí.");
+    act(() => root!.unmount());
+    await mountSaved(deducted, { notice: { kind: "itemsLocked" } });
+    expect(document.body.textContent).toContain("El stock se descontó mientras editabas: los productos ya no se pueden cambiar. No hay otros cambios que guardar.");
+    expect(document.body.textContent).toContain("El stock de este pedido ya se descontó");
+  });
+
+  test("announces the result of a save politely and moves focus to the heading", async () => {
+    await mountSaved(savedState(), { notice: { kind: "success", text: "Cambios guardados." }, headingFocus: 0 });
+    expect(container.querySelector('[role="status"]')?.textContent).toContain("Cambios guardados.");
+    act(() => root!.unmount());
+    await mountSaved(savedState(), { notice: { kind: "success", text: "Venta guardada." }, headingFocus: 1 });
+    expect(document.activeElement?.id).toBe("order-view-title");
+  });
+
+  test("shows the in-doubt check of a save with its own text and offers Comprobar de nuevo only after it failed", async () => {
+    const onCheckAgain = vi.fn();
+    await mountSaved(edited(), { notice: { kind: "doubt", checking: true }, onCheckAgain });
+    expect(document.body.textContent).toContain("No sabemos si los cambios se guardaron. Verificando…");
+    expect(button("Guardar cambios")!.disabled).toBe(true);
+    act(() => root!.unmount());
+    await mountSaved(edited(), { notice: { kind: "doubt", checking: false }, onCheckAgain });
+    await click(button("Comprobar de nuevo"));
+    expect(onCheckAgain).toHaveBeenCalledOnce();
+  });
+
+  test("does not let the seller save while a payment or fulfillment action is in flight", async () => {
+    await mountSaved(edited(), {}, { actionBusy: true });
+    expect(button("Guardar cambios")!.disabled).toBe(true);
   });
 });

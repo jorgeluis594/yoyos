@@ -110,7 +110,7 @@ export function OrderDeliveryCard({ state, settings, invalid, settingsHref, onCh
           {recordedByBuyer && <p className="text-sm text-muted-foreground">{t("orderView.delivery.chosenByBuyer")}</p>}
           {tab === "none" ? <p className="text-sm text-muted-foreground">{t("orderView.delivery.pendingHint")}</p> : <>
             {showSaved && loaded && <SavedDelivery order={loaded.order} />}
-            {settings && !(showSaved && tab === "store") && <QuotedPlaceFields method={tab} place={fields} settings={settings} disabled={lock !== null} invalid={marked} idPrefix={idPrefix} quoting={!untouched} onChange={place => set(place)} />}
+            {settings && !(showSaved && tab === "store") && <QuotedPlaceFields method={tab} place={fields} settings={settings} disabled={lock !== null} invalid={marked} idPrefix={idPrefix} quoting={!untouched} requote={state.quoteEpoch} onChange={place => set(place)} />}
             <h3 className="text-sm font-medium">{t("orderView.delivery.recipient")}</h3>
             <Field orientation="horizontal" className="min-h-touch items-center">
               <Checkbox id={`${idPrefix}-same`} checked={delivery.sameAsCustomer}
