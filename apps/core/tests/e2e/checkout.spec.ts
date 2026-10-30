@@ -1084,3 +1084,58 @@ test("buyer keeps a historical rate after its zone changes or replaces it with a
     } finally { await f.cleanup(); }
   }
 });
+
+test("buyer sees the no-method text and cannot confirm when home is on but uncovered and nothing else is offered", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const access = { companyId: f.companyId, userId: f.userId };
+      expect((await deliverySettings.saveZones({ expectedVersion: 0,
+        zones: [{ kind: "new", name: "Disabled", enabled: false, districtCodes: ["150122"], options: [{ kind: "new", method: "home", name: "Home", enabled: true, price: { amount: 5, currency: "PEN" } }] }] }, access)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+    });
+    await page.goto(f.path);
+    await browserExpect(page.getByText("No hay modalidades de entrega disponibles. Consulta con la tienda cómo recibir tu pedido.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
+  } finally { await f.cleanup(); }
+});
+
+test("buyer picks a place whose coverage was removed after load, sees the no-options text, and a reload offers a newly covered Callao", async ({ page }) => {
+  const f = await fixture("none", true, false);
+  const home = (name: string) => ({ kind: "new" as const, method: "home" as const, name, enabled: true, price: { amount: 5, currency: "PEN" as const } });
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const access = { companyId: f.companyId, userId: f.userId };
+      expect((await deliverySettings.saveZones({ expectedVersion: 0,
+        zones: [{ kind: "new", name: "Miraflores", enabled: true, districtCodes: ["150122"], options: [home("Moto")] },
+          { kind: "new", name: "Barranco", enabled: true, districtCodes: ["150104"], options: [home("Moto Barranco")] }] }, access)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, home: { enabled: true }, agency: { enabled: false }, store: { enabled: false, pickupPoint: null } }, access)).success).toBe(true);
+    });
+    await page.goto(f.path);
+    // Two covered districts, so nothing is preselected and the buyer's pick is what quotes.
+    await browserExpect(page.getByRole("combobox", { name: "Distrito", exact: true })).toBeEnabled();
+    await withTenantIsolation(f.companyId, async () => {
+      const access = { companyId: f.companyId, userId: f.userId };
+      const current = await deliverySettings.getZones(access);
+      if (!current.success) throw new Error(current.error.message);
+      expect((await deliverySettings.saveZones({ expectedVersion: 2, zones: current.data.zones.map(zone => ({ kind: "existing" as const, id: zone.id, name: zone.name, enabled: zone.name === "Barranco",
+        districtCodes: zone.districtCodes, options: zone.options.map(option => ({ kind: "existing" as const, id: option.id, method: "home" as const, name: option.name, enabled: true, price: option.price })) })) }, access)).success).toBe(true);
+    });
+    await chooseDistrict(page, "150122");
+    await browserExpect(page.getByText("No hay opciones de envío para este distrito. Elige otro distrito.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("button", { name: "Confirmar pedido", exact: true })).toBeDisabled();
+    await withTenantIsolation(f.companyId, async () => {
+      const access = { companyId: f.companyId, userId: f.userId };
+      const current = await deliverySettings.getZones(access);
+      if (!current.success) throw new Error(current.error.message);
+      expect((await deliverySettings.saveZones({ expectedVersion: 3, zones: [...current.data.zones.map(zone => ({ kind: "existing" as const, id: zone.id, name: zone.name, enabled: zone.name === "Barranco",
+        districtCodes: zone.districtCodes, options: zone.options.map(option => ({ kind: "existing" as const, id: option.id, method: "home" as const, name: option.name, enabled: true, price: option.price })) })),
+        { kind: "new" as const, name: "Callao", enabled: true, districtCodes: ["070101"], options: [home("Moto Callao")] }] }, access)).success).toBe(true);
+    });
+    await page.reload();
+    const department = page.getByRole("combobox", { name: "Departamento", exact: true });
+    await department.click();
+    await department.fill("callao");
+    await browserExpect(page.getByRole("option", { name: "Callao", exact: true })).toBeVisible();
+  } finally { await f.cleanup(); }
+});
