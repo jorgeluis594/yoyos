@@ -49,6 +49,9 @@ test("applies the rate recovery only to a chosen delivery", () => {
   expect(applyRateRecovery(none, "clear")).toBe(none);
   const home = { ...none, draft: { ...none.draft, delivery: { ...none.draft.delivery, tab: "home" as const, fields: { ...none.draft.delivery.fields, rateId: "r1", agencyId: "a1", ratePrice: { amount: 8, currency: "PEN" as const } } } } };
   expect(applyRateRecovery(home, "clear").draft.delivery.fields).toMatchObject({ rateId: "", agencyId: "", ratePrice: null });
-  expect(applyRateRecovery(home, { price: { amount: 12, currency: "PEN" } }).draft.delivery.fields).toMatchObject({ rateId: "r1", ratePrice: { amount: 12 } });
+  const changed = applyRateRecovery(home, { price: { amount: 12, currency: "PEN" } });
+  expect(changed.draft.delivery.fields).toMatchObject({ rateId: "", agencyId: "", ratePrice: null });
+  expect(changed.quoteEpoch).toBe(1);
+  expect(applyRateRecovery(changed, "clear").quoteEpoch).toBe(2);
   expect(applyRateRecovery(home, "keep")).toBe(home);
 });

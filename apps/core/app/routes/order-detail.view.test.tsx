@@ -104,6 +104,7 @@ describe("saved order route", () => {
     await click(button("Guardar cambios"));
     await settle();
     expect(bodies[0]).toMatchObject({ items: { base: revisions.items } });
+    await vi.waitFor(() => expect(container.textContent).toContain("Este pedido cambió mientras lo editabas."));
   });
 
   test("blocks saving and leaving while an in-doubt check is running, then revalidates when the changes were applied so the next save sends fresh revisions", async () => {
@@ -208,7 +209,7 @@ describe("saved order route", () => {
     expect(Object.keys(bodies[0]!).sort()).toEqual(["customer", "operation"]);
   });
 
-  test("answers TOTAL_CHANGED by marking the delivery rate with the current price and keeping the edits", async () => {
+  test("answers ORDER_CANCELLED by naming it, keeping the edits and offering no customer-only save", async () => {
     await mount();
     refuse("ORDER_CANCELLED");
     await raiseDeadpool();
@@ -226,7 +227,7 @@ describe("saved order route", () => {
     expect(sessionStorage.getItem("order-view-saved")).toBeNull();
   });
 
-  test("asks before leaving with unsaved changes and nothing otherwise", async () => {
+  test("lets the seller leave without asking when there are no unsaved changes", async () => {
     await mount();
     await act(async () => { await router.navigate("/es-PE/orders"); });
     expect(router.state.location.pathname).toBe("/es-PE/orders");

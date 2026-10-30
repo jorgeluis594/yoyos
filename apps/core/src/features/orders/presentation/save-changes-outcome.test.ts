@@ -48,16 +48,19 @@ describe("a refused save_changes", () => {
     expect(saveChangesOutcome(edited(), refuse("ORDER_CANCELLED"), context).notice).toEqual({ kind: "locked", code: "ORDER_CANCELLED" });
   });
 
-  test("marks the delivery rate with the current price on TOTAL_CHANGED so the next save can be sent", () => {
+  test("clears the stale rate and asks the place fields to quote again on TOTAL_CHANGED, without clearing the district", () => {
     const home = savedState();
     const state = { ...home, draft: { ...home.draft, delivery: { ...home.draft.delivery, fields: { ...home.draft.delivery.fields, districtCode: "150101" } } } };
     const outcome = saveChangesOutcome(state, refuse("TOTAL_CHANGED", { currentPrice: pen(12) }), context);
-    expect(outcome.state.draft.delivery.fields.ratePrice).toEqual(pen(12));
+    expect(outcome.state.draft.delivery.fields).toMatchObject({ districtCode: "150101", rateId: "", agencyId: "", ratePrice: null });
+    expect(outcome.state.quoteEpoch).toBe(1);
     expect(outcome.notice).toMatchObject({ kind: "alert", text: "El precio de la entrega cambió a S/ 12.00. Revísalo y guarda de nuevo.", focus: "order-delivery-rateId" });
   });
 
   test("clears the rate when it is no longer available", () => {
     const outcome = saveChangesOutcome(edited(), refuse("RATE_UNAVAILABLE"), context);
+    expect(outcome.state.quoteEpoch).toBe(1);
+    expect(outcome.state.draft.delivery.fields).toMatchObject({ rateId: "", ratePrice: null });
     expect(outcome.notice).toMatchObject({ text: "Esa opción de entrega ya no está disponible. Elige otra." });
   });
 

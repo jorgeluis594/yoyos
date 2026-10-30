@@ -21,17 +21,19 @@ export type QuotedPlace = Readonly<{ districtCode: string | null; rateId: string
  * The place half of a delivery, controlled by the order view: district, quoted rate, agency and, for a home delivery, the address.
  * It quotes again whenever the district changes and reports the chosen rate's price with the rate, so the view can send it as the expected price.
  */
-export function QuotedPlaceFields({ method, place, settings, disabled, invalid, idPrefix, onChange, quoting = true }: Readonly<{
+export function QuotedPlaceFields({ method, place, settings, disabled, invalid, idPrefix, onChange, quoting = true, requote = 0 }: Readonly<{
   method: "home" | "agency" | "store"; place: QuotedPlace; settings: DeliverySettingsResponse; disabled: boolean; invalid: ReadonlySet<string>; idPrefix: string;
   onChange: (place: QuotedPlace) => void;
   /** False while the place is the saved one: nothing is quoted and no rate is offered until the seller changes the district. */
   quoting?: boolean;
+  /** Grows when a save was refused for a stale rate: the place quotes again even though the district did not change. */
+  requote?: number;
 }>) {
   const { t, i18n } = useTranslation();
   const ready = useClientReady();
   const [retry, setRetry] = useState(0);
   const [received, setReceived] = useState<{ key: string; quotation: QuotationResponse | null } | null>(null);
-  const key = JSON.stringify([method, place.districtCode, retry, settings.version]);
+  const key = JSON.stringify([method, place.districtCode, retry, requote, settings.version]);
   const current = quoting && received?.key === key ? received : null;
   const rates = current?.quotation?.rates.filter(rate => rate.method === method) ?? [];
   const agencies = rates.find(rate => rate.id === place.rateId)?.method === "agency" ? (rates.find(rate => rate.id === place.rateId) as Extract<typeof rates[number], { method: "agency" }>).agencies : [];

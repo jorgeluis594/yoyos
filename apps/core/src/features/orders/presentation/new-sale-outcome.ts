@@ -46,12 +46,15 @@ export function saleOutcome(result: SaleActionResult, context: Readonly<{ t: TFu
   }
 }
 
-/** Applies the rate recovery to the draft: a changed price becomes the one the seller reviews, a vanished rate is picked again. */
+/**
+ * Applies the rate recovery to the draft. A quotation rate is a frozen snapshot: after a changed price (or a vanished rate) the old rate id can never save again,
+ * so the rate is cleared and the place fields quote again; the seller picks the rate with the current price on screen, without choosing the district again.
+ */
 export function applyRateRecovery(state: OrderViewState, rate: SaleOutcome["rate"]): OrderViewState {
   if (rate === "keep" || state.draft.delivery.tab === "none") return state;
   const { delivery } = state.draft;
-  const fields: DeliveryFields = rate === "clear" ? { ...delivery.fields, rateId: "", agencyId: "", ratePrice: null } : { ...delivery.fields, ratePrice: rate.price };
-  return { ...state, draft: { ...state.draft, delivery: { ...delivery, fields } } };
+  const fields: DeliveryFields = { ...delivery.fields, rateId: "", agencyId: "", ratePrice: null };
+  return { ...state, quoteEpoch: (state.quoteEpoch ?? 0) + 1, draft: { ...state.draft, delivery: { ...delivery, fields } } };
 }
 
 const savedMarkKey = "order-view-saved";

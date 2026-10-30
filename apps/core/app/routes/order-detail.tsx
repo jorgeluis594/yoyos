@@ -362,7 +362,9 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
   }
 
   // A lost answer is resolved by reading the order and comparing it with what was sent.
+  // It is compared with what was sent: edits typed while the check runs must not turn «applied» into «changed».
   const latest = useRef(state);
+  const sent = useRef<OrderViewState | null>(null);
   useEffect(() => { latest.current = state; });
   const orderId = loaded.order.id;
   useEffect(() => {
@@ -370,7 +372,7 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
     let current = true;
     void readCancellationOrder(orderId).then((found) => {
       if (!current) return;
-      const pinned = latest.current;
+      const pinned = sent.current ?? latest.current;
       if (!found.success || pinned.base === null) { setDoubt("failed"); return; }
       const outcome = inDoubtOutcome(found.data, pinned.draft, pinned.base);
       setDoubt(null);
@@ -418,6 +420,7 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
     if (!request.success) return;
     setNotice(null);
     setUnavailableVariantId(null);
+    sent.current = next;
     submit(request.data, { method: "post", encType: "application/json" });
   }
 
