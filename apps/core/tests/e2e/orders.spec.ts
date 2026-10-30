@@ -294,7 +294,7 @@ test("new order saves partial payments, paid pending delivery and configured del
           zones: stateBefore.zones.map((zone: { id: string; name: string; enabled: boolean; districtCodes: string[]; options: { price: unknown }[] }) => ({ ...zone, kind: "existing",
             options: zone.options.map(option => ({ ...option, kind: "existing", price: { amount: 4, currency: "PEN" } })) })) } })).ok()).toBe(true);
         await page.getByRole("button", { name: "Guardar venta" }).click();
-        await browserExpect(page.getByRole("alert")).toContainText(`El precio de la entrega cambió a ${formatCurrency(4, "PEN", "es")}. Revísalo y guarda de nuevo.`);
+        await browserExpect(page.getByRole("alert").filter({ hasText: "El precio de la entrega cambió a" })).toContainText(`El precio de la entrega cambió a ${formatCurrency(4, "PEN", "es")}. Revísalo y guarda de nuevo.`);
         expect(await withTenantIsolation(companyId, async () => await prisma.order.count())).toBe(countBefore);
         await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveValue("Av. Lima 123");
         await browserExpect(page.getByLabel("Importe recibido").nth(1)).toHaveValue("3");
