@@ -1,9 +1,12 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { PrismaClient, Prisma } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
+import { err } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
+import { classifyPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
+import type { ContainedFailure } from "@core/src/shared/application/contained-failure";
 
-type TransactionScope = { companyId: string; tx: Prisma.TransactionClient; aborted: boolean; abortCause?: unknown; active: boolean; afterCommit: (() => void)[] };
+type TransactionScope = { companyId: string; tx: Prisma.TransactionClient; aborted: boolean; abortCause?: unknown; active: boolean; afterCommit: (() => void)[]; startedAt: number; savepoints: number; timeoutMs: number };
 type PrismaState = {
   base: PrismaClient;
   companies: AsyncLocalStorage<string>;
@@ -119,6 +122,9 @@ export type TransactionOptions = Readonly<{
   statementTimeoutMs?: number;
 }>;
 
+/** Prisma's interactive transaction timer when the caller names none. */
+const prismaDefaultTransactionTimeoutMs = 5000;
+
 async function openContext(tx: Prisma.TransactionClient, companyId: string, options: TransactionOptions) {
   // Only the limits the caller names are set; the other keeps the server value.
   const settings = [
@@ -149,7 +155,7 @@ export async function withinTransaction<R extends OperationResult>(callback: () 
   try {
     committedResult = await base.$transaction(async (tx) => {
       await openContext(tx, companyId, options);
-      const activeScope: TransactionScope = { companyId, tx, aborted: false, active: true, afterCommit };
+      const activeScope: TransactionScope = { companyId, tx, aborted: false, active: true, afterCommit, startedAt: performance.now(), savepoints: 0, timeoutMs: options.timeout ?? prismaDefaultTransactionTimeoutMs };
       try {
         const result = await transactions.run(activeScope, callback);
         if (!result.success) failedResult = result;
@@ -176,4 +182,74 @@ export async function withinTransaction<R extends OperationResult>(callback: () 
 export async function withinReadSnapshot<T>(read: () => Promise<T>): Promise<T> {
   const result = await withinTransaction(async () => ({ success: true as const, data: await read() }), { isolationLevel: "RepeatableRead" });
   return result.data;
+}
+
+/** Milliseconds since the outermost transaction of this context started. */
+export function transactionElapsedMs(): number {
+  const scope = transactions.getStore();
+  return scope?.active ? performance.now() - scope.startedAt : 0;
+}
+
+/** Sets the transaction-local statement and lock timeouts in one statement. A setting made inside a savepoint survives RELEASE, so callers restore it. */
+export async function setLocalTimeouts(limits: Readonly<{ statementTimeout: string; lockTimeout: string }>): Promise<void> {
+  await prisma.$queryRaw`SELECT set_config('statement_timeout', ${limits.statementTimeout}, true), set_config('lock_timeout', ${limits.lockTimeout}, true)`;
+}
+
+export async function readLocalTimeouts(): Promise<Readonly<{ statementTimeout: string; lockTimeout: string }>> {
+  const [row] = await prisma.$queryRaw<{ s: string; l: string }[]>`SELECT current_setting('statement_timeout') AS s, current_setting('lock_timeout') AS l`;
+  return { statementTimeout: row.s, lockTimeout: row.l };
+}
+
+export type SavepointOptions = Readonly<{
+  /** Narrows both timeouts for the duration of the savepoint to this many milliseconds, given the time elapsed in the transaction and the transaction's own timer; the previous values come back when it ends. */
+  limitMs?: (elapsedMs: number, transactionTimeoutMs: number) => number;
+}>;
+
+/**
+ * Runs `work` inside a savepoint of the active transaction.
+ * Released when `work` succeeds. Rolled back, restoring the scope's abort state and discarding the after-commit observers registered inside,
+ * when `work` returns a failed Result (returned as is, so a ContainedFailure result keeps its stage) or throws a statement-level database error (returned as a ContainedFailure).
+ * A result that says the transaction ended (`transactionEnding`) marks the scope aborted and is returned without a rollback, which could not run anyway.
+ * Errors that end the whole transaction (Prisma timeout, lost connection) and non-database errors mark the scope aborted and are rethrown.
+ */
+export async function withinSavepoint<T, E extends AppError>(work: () => Promise<Result<T, E>>, options: SavepointOptions = {}): Promise<Result<T, E | ContainedFailure>> {
+  const companyId = getCompanyId();
+  requireActiveTransaction(companyId);
+  const scope = transactions.getStore()!;
+  const name = `s_${++scope.savepoints}`;
+  const before = { aborted: scope.aborted, abortCause: scope.abortCause, observers: scope.afterCommit.length };
+  const rollback = async () => {
+    await scope.tx.$executeRawUnsafe(`ROLLBACK TO SAVEPOINT ${name}`);
+    scope.aborted = before.aborted;
+    scope.abortCause = before.abortCause;
+    scope.afterCommit.length = before.observers;
+  };
+  let limits: Awaited<ReturnType<typeof readLocalTimeouts>> | undefined;
+  try {
+    await scope.tx.$executeRawUnsafe(`SAVEPOINT ${name}`);
+    if (options.limitMs) {
+      limits = await readLocalTimeouts();
+      const ms = `${Math.max(50, Math.floor(options.limitMs(transactionElapsedMs(), scope.timeoutMs)))}ms`;
+      await setLocalTimeouts({ statementTimeout: ms, lockTimeout: ms });
+    }
+  } catch (error) { scope.aborted = true; scope.abortCause ??= error; throw error; }
+  let outcome: Result<T, E | ContainedFailure>;
+  try {
+    outcome = await work();
+  } catch (error) {
+    const kind = classifyPersistenceFailure(error);
+    if (kind?.kind !== "contained") { scope.aborted = true; scope.abortCause ??= error; throw error; }
+    outcome = err({ code: "CONTAINED_FAILURE", errorCode: kind.errorCode, message: "Statement failed inside a savepoint", cause: error });
+  }
+  if (!outcome.success && (outcome.error as { transactionEnding?: unknown }).transactionEnding === true) {
+    scope.aborted = true;
+    scope.abortCause ??= outcome.error;
+    return outcome;
+  }
+  try {
+    if (outcome.success) await scope.tx.$executeRawUnsafe(`RELEASE SAVEPOINT ${name}`);
+    else await rollback();
+    if (limits) await setLocalTimeouts(limits);
+  } catch (error) { scope.aborted = true; scope.abortCause ??= error; throw error; }
+  return outcome;
 }

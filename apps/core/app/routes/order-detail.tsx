@@ -46,6 +46,9 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
   const result = await orders.getAggregate((params.orderId ?? "") as OrderId,
     { companyId: access.company.id, userId: access.user.id });
   if (!result.success) throw new Response(result.error.message, { status: result.error.code === "ORDER_NOT_FOUND" ? 404 : result.error.code === "INVALID_ORDER" ? 400 : 503 });
+  const described = await orders.describeStockDue([result.data]);
+  if (!described.success) throw new Response(described.error.message, { status: 503 });
+  const stockDue = described.data.get(result.data.id) ?? null;
   const receiptIds = new Map<string, string>();
   for (const payment of result.data.payments) {
     const imageId = payment.status === "reported" ? payment.data.receiptImageId : payment.status === "rejected" ? payment.data.report.receiptImageId
@@ -61,7 +64,7 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
   }
   const settings = await deliverySettings.get({ companyId: access.company.id, userId: access.user.id });
   const pathname = new URL(request.url).pathname;
-  return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(result.data), base: companyPath(pathname, access.company.country, "/orders"),
+  return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(result.data, stockDue), base: companyPath(pathname, access.company.country, "/orders"),
     manualPaymentId: randomUUID(), receiptUrls }),
     settings: settings.success ? toDeliverySettingsResponse(settings.data) : null,
     settingsPath: companyPath(pathname, access.company.country, "/settings/delivery"),
@@ -90,13 +93,12 @@ async function deliveryAction({ params, request, context }: ActionFunctionArgs) 
     const selection = parseRatedDeliverySelection(parsed.data.delivery);
     if (!selection.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
     const result = await setConfiguredOrderDelivery({ orderId: id.data as OrderId, delivery: selection.data, expectedPrice: parsed.data.expectedPrice }, seller);
-    if (result.success) return { operation: "delivery" as const, url: null, success: false, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data)) };
+    if (result.success) return { operation: "delivery" as const, url: null, success: false, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data.order, result.data.stockDue)) };
     if (result.error.code === "TOTAL_CHANGED") return { operation: "delivery" as const, url: null, success: false, error: "priceChanged" as const, currentPrice: result.error.currentPrice };
     return { operation: "delivery" as const, url: null, success: false, error: result.error.code === "RATE_UNAVAILABLE" ? "rateUnavailable" as const
       : result.error.code === "DELIVERY_METHOD_DISABLED" ? "disabled" as const
       : result.error.code === "DELIVERY_UNAVAILABLE" ? "unavailable" as const
       : result.error.code === "DELIVERY_LOCKED" || result.error.code === "ORDER_CANCELLED" ? "locked" as const
-      : result.error.code === "INSUFFICIENT_STOCK" ? "stockError" as const
       : result.error.code === "INVALID_ORDER" ? "invalid" as const : "saveError" as const };
   } catch (cause) {
     log.error({ event: "order_delivery_request_failed", operation: "set_order_delivery", entryPoint: "web_action", orderId: id.data,
@@ -162,7 +164,7 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
     if (!isOrderId(orderId)) return { operation: "cancel", result: err({ code: "INVALID_INPUT", message: "Invalid order ID" }) } satisfies CancelOrderActionResult;
     try {
       const result = await orders.cancel(orderId, { companyId: access.company.id, userId: access.user.id });
-      return { operation: "cancel", result: result.success ? ok(cancelOrderResponseSchema.parse(toOrderAggregateJson(result.data))) : result } satisfies CancelOrderActionResult;
+      return { operation: "cancel", result: result.success ? ok(cancelOrderResponseSchema.parse(toOrderAggregateJson(result.data, null))) : result } satisfies CancelOrderActionResult;
     } catch (cause) {
       log.error({ event: "order_cancellation_request_failed", orderId, err: cause }, "Unable to cancel order");
       return { operation: "cancel", result: err({ code: "INTERNAL_ERROR", message: "Cancellation could not be confirmed" }) } satisfies CancelOrderActionResult;
@@ -194,8 +196,10 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
         const reason = z.string().max(1000).nullable().safeParse(fields.get("reason"));
         if (!reason.success) return { url: null, success: false, error: "INVALID_INPUT" };
         const result = await orders.rejectPayment({ orderId: id.data as OrderId, paymentId: paymentId.data as PaymentId, reason: reason.data }, seller);
-        return result.success ? { url: null, success: true, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data.order)) }
-          : { url: null, success: false, error: paymentErrorCode(result.error.code) };
+        if (!result.success) return { url: null, success: false, error: paymentErrorCode(result.error.code) };
+        const described = await orders.describeStockDue([result.data.order]);
+        if (!described.success) return { url: null, success: false, error: paymentErrorCode(described.error.code) };
+        return { url: null, success: true, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data.order, described.data.get(result.data.order.id) ?? null)) };
       }
       const parsed = registerPaymentSchema.safeParse({ paymentId: paymentId.data, source: fields.get("source"),
         amount: { amount: Number(fields.get("amount")), currency: fields.get("currency") }, method: fields.get("method"), walletProvider: fields.get("walletProvider") ?? undefined,

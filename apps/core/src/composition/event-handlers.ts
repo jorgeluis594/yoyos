@@ -2,7 +2,7 @@ import { err } from "@shared/functional";
 import { restoreCancelledOrderStock, restoreProductStock } from "@core/src/features/products";
 import { parseMessageCreated } from "@core/src/features/chats/infrastructure/event-payloads";
 import { applyChatMessageDeadLetterId, applyChatMessageQueueId, chatMessageDeadLetterPolicy, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
-import { orders, applyChatMessageHandler, chatMessageDeadLetterHandler } from "@core/src/features/orders/composition";
+import { orders, publishStockEvent, applyChatMessageHandler, chatMessageDeadLetterHandler } from "@core/src/features/orders/composition";
 import { sendChatMessageNoticePolicy, sendChatMessageNoticeQueueId } from "@core/src/features/notifications/application/send-chat-message-notice-policy";
 import { createSendChatMessageNoticeHandler, pushNoticeDependencies } from "@core/src/features/notifications";
 import { indexProductPhotosPolicy } from "@core/src/features/products/application/index-product-photos";
@@ -37,18 +37,22 @@ export function defineEventHandler<Events extends object, Name extends EventName
     policy: { ...defaultPolicy, ...options.policy } };
 }
 
+/** The restoration also serves the waiting orders it covers, inside its own transaction; its limits keep that bounded (initial values, adjustable). */
+const restorationTransaction = { timeout: 5000, lockTimeoutMs: 2000, statementTimeoutMs: 2000 } as const;
+
 /** Feature exports are added here when their first event is introduced. */
 export const restoreCancelledStock = defineEventHandler<AppEvents, "order_cancelled">("order_cancelled",
   (payload) => withTenantIsolation(payload.companyId, () => restoreCancelledOrderStock(payload, {
     transaction: async (companyId, work) => {
       if (getCompanyId() !== companyId) throw new Error("Restoration company differs from context");
-      try { return await withinTransaction(work); }
+      try { return await withinTransaction(work, restorationTransaction); }
       catch (cause) {
         if (!isPersistenceFailure(cause)) throw cause;
         return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to commit stock restoration" });
       }
     },
     findOrderForUpdate, restoreProductStock, saveStockRestoration,
+    publishStockIncreased: (event) => publishStockEvent("product_stock_increased", event),
   })), { id: "restore-cancelled-order-stock", parsePayload: parseOrderCancelled });
 // The parser comes from event-payloads, not chats/index. The cycle orders/composition → chats → mobile-message-dispatch
 // → event-bus → event-handlers is safe: the handler is wrapped lazily and nothing is evaluated while modules load.

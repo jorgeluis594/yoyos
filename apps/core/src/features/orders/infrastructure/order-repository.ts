@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { checkoutState, parseOrderNumber, type OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
+import { isPersistenceFailure, persistenceFailureResult } from "@core/src/shared/infrastructure/persistence-error";
+import type { ContainedFailure, TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -14,6 +15,7 @@ import { parsePayment } from "@core/src/features/orders/domain/payment";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
+import type { StockOrderRow } from "@core/src/features/orders/application/deduct-due-stock";
 import { isOpenForMessageItems, type ChatId, type OrderChatSource } from "@core/src/features/orders/domain/message-order";
 import type { ChatOrderItemChanges, ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
@@ -85,7 +87,7 @@ function mapPaymentUnsafe(row: DbAggregate["payments"][number]): Payment {
       report: { receiptImageId: parsed.data.evidence.report.receiptImageId, reportedAt: new Date(parsed.data.evidence.report.reportedAt) } };
     candidate = { id: row.id, orderId: row.orderId, status: row.status,
       amount: { amount: row.amount.toNumber(), currency: row.currency }, method: row.method,
-      ...(row.walletProvider === null ? {} : { walletProvider: row.walletProvider }),
+      ...(row.walletProvider === null ? {} : { walletProvider: row.walletProvider }), deductStockIfPartial: row.deductStockIfPartial,
       data: { confirmedAt: new Date(parsed.data.confirmedAt), confirmedBy: parsed.data.confirmedBy, evidence,
         ...(voided?.success ? { voidedAt: new Date(voided.data.voidedAt), voidedBy: voided.data.voidedBy } : {}) } };
   } else throw new InvalidStoredOrderError("Invalid stored payment status");
@@ -102,6 +104,8 @@ function mapPayment(row: DbAggregate["payments"][number]): Payment {
     throw cause;
   }
 }
+
+const stockRequested = (payment: Payment) => payment.status === "confirmed" || payment.status === "voided" ? payment.deductStockIfPartial : false;
 
 function paymentDataJson(payment: Payment): Prisma.InputJsonObject {
   if (payment.status === "reported") return { receiptImageId: payment.data.receiptImageId, reportedAt: payment.data.reportedAt.toISOString() };
@@ -327,7 +331,7 @@ export async function savePayment(payment: Payment, companyId: CompanyId) {
     await prisma.payment.create({ data: { id: payment.id, companyId, orderId: payment.orderId,
       status: payment.status, amount: payment.amount ? new Prisma.Decimal(payment.amount.amount.toString()) : null,
       currency: payment.amount ? payment.amount.currency : payment.currency,
-      method: payment.method, walletProvider: payment.walletProvider ?? null, data: paymentDataJson(payment) } });
+      method: payment.method, walletProvider: payment.walletProvider ?? null, deductStockIfPartial: stockRequested(payment), data: paymentDataJson(payment) } });
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
@@ -343,7 +347,7 @@ export async function updatePayment(payment: Payment, companyId: CompanyId, expe
   try {
     const updated = await prisma.payment.updateMany({ where: { id: payment.id, orderId: payment.orderId, companyId, status: expectedStatus },
       data: { status: payment.status, amount: payment.amount ? new Prisma.Decimal(payment.amount.amount.toString()) : null,
-        method: payment.method, walletProvider: payment.walletProvider ?? null, data: paymentDataJson(payment) } });
+        method: payment.method, walletProvider: payment.walletProvider ?? null, deductStockIfPartial: stockRequested(payment), data: paymentDataJson(payment) } });
     return updated.count === 1 ? ok<null>(null) : err({ code: "PAYMENT_CONFLICT" as const, message: "Payment changed during update" });
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
@@ -656,5 +660,105 @@ export async function findOrderNumbers(ids: readonly OrderId[]) {
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_read_order_numbers", err: cause }, "unable_to_read_order_numbers");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read order numbers" });
+  }
+}
+
+
+/**
+ * The due-and-fit rule in SQL, for an order aliased `o`: the three stock queries and the definer function share it. Its first line repeats the
+ * partial index predicate with the same literals, so PostgreSQL can prove `Order_undeducted_pending_idx` applies under a generic plan.
+ */
+const dueAndFit = Prisma.sql`NOT o."stockDeducted" AND NOT o.cancelled AND o."deliveryStatus" = 'pending'
+  AND (
+    (SELECT coalesce(sum(p.amount), 0) FROM "Payment" p
+       WHERE p."companyId" = o."companyId" AND p."orderId" = o.id AND p.status = 'confirmed') >= o.total
+    OR EXISTS (SELECT 1 FROM "Payment" p WHERE p."companyId" = o."companyId" AND p."orderId" = o.id
+       AND p.status = 'confirmed' AND p."deductStockIfPartial")
+  )
+  AND NOT EXISTS (SELECT 1 FROM "OrderItem" i LEFT JOIN "ProductStock" s ON s."variantId" = i."variantId"
+       WHERE i."companyId" = o."companyId" AND i."orderId" = o.id AND coalesce(s.quantity, 0) < i.quantity)`;
+
+const stockOrderRow = z.object({
+  id: z.uuid(), createdAt: z.date(), cancelled: z.boolean(), stockDeducted: z.boolean(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
+  total: z.string().regex(/^\d+(\.\d+)?$/), currency: z.string(),
+  items: z.array(z.object({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
+  payments: z.array(z.object({ amount: z.number().positive().finite(), currency: z.string(), deductStockIfPartial: z.boolean() })),
+});
+
+/** One statement for any number of orders: core fields, items and confirmed payments aggregated per order. A row that does not validate comes back as `ok: false`, after the query, so it never aborts the transaction. */
+export async function loadStockOrders(ids: readonly OrderId[], companyId: CompanyId): Promise<Result<readonly StockOrderRow[], TransactionEndingError | ContainedFailure>> {
+  requireActiveTransaction(companyId);
+  try {
+    const rows = await prisma.$queryRaw<unknown[]>`SELECT o.id, o."createdAt", o.cancelled, o."stockDeducted", o."deliveryStatus", o.total::text AS total, o.currency,
+      (SELECT coalesce(json_agg(json_build_object('variantId', i."variantId", 'quantity', i.quantity) ORDER BY i.id), '[]'::json)
+         FROM "OrderItem" i WHERE i."companyId" = o."companyId" AND i."orderId" = o.id) AS items,
+      (SELECT coalesce(json_agg(json_build_object('amount', p.amount, 'currency', p.currency, 'deductStockIfPartial', p."deductStockIfPartial") ORDER BY p.id), '[]'::json)
+         FROM "Payment" p WHERE p."companyId" = o."companyId" AND p."orderId" = o.id AND p.status = 'confirmed') AS payments
+      FROM "Order" o WHERE o."companyId" = ${companyId}::uuid AND o.id = ANY(${[...ids]}::uuid[])`;
+    return ok(rows.map((raw): StockOrderRow => {
+      const id = (raw as { id: string }).id as OrderId;
+      const parsed = stockOrderRow.safeParse(raw);
+      const [first, ...rest] = parsed.success ? parsed.data.items : [];
+      if (!parsed.success || !first || !isCurrency(parsed.data.currency) || parsed.data.payments.some((payment) => payment.currency !== parsed.data.currency)) return { ok: false, id };
+      const currency = parsed.data.currency;
+      const line = (item: typeof first) => ({ variantId: item.variantId as VariantId, quantity: item.quantity as PositiveInteger });
+      return { ok: true, order: { id, createdAt: parsed.data.createdAt, cancelled: parsed.data.cancelled, stockDeducted: parsed.data.stockDeducted,
+        deliveryStatus: parsed.data.deliveryStatus, total: { amount: Number(parsed.data.total), currency }, items: [line(first), ...rest.map(line)],
+        confirmedPayments: parsed.data.payments.map((payment) => ({ amount: { amount: payment.amount, currency }, deductStockIfPartial: payment.deductStockIfPartial })) } };
+    }));
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to load orders for stock deduction")); }
+}
+
+/** Locks the orders not held elsewhere in one statement, oldest first. FOR NO KEY UPDATE: foreign-key inserts on the order are not blocked, mutual exclusion with FOR UPDATE holds. */
+export async function lockOrdersSkipLocked(ids: readonly OrderId[], companyId: CompanyId): Promise<Result<readonly OrderId[], TransactionEndingError | ContainedFailure>> {
+  requireActiveTransaction(companyId);
+  try {
+    const rows = await prisma.$queryRaw<{ id: string }[]>`SELECT id FROM "Order" WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[])
+      ORDER BY "createdAt", id FOR NO KEY UPDATE SKIP LOCKED`;
+    return ok(rows.map((row) => row.id as OrderId));
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to lock orders")); }
+}
+
+/** One statement; returns how many orders it marked (those still undeducted). */
+export async function saveStockDeductions(ids: readonly OrderId[], companyId: CompanyId): Promise<Result<number, TransactionEndingError | ContainedFailure>> {
+  requireActiveTransaction(companyId);
+  try {
+    return ok(await prisma.$executeRaw`UPDATE "Order" SET "stockDeducted" = true WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[]) AND NOT "stockDeducted"`);
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to save stock deductions")); }
+}
+
+/** Orders of the company with an item on one of these variants that are due and now fit, oldest first. Walks the partial index. */
+export async function listWaitingOrderIds(companyId: CompanyId, variantIds: readonly VariantId[], limit: number): Promise<Result<readonly OrderId[], TransactionEndingError | ContainedFailure>> {
+  requireActiveTransaction(companyId);
+  try {
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT o.id FROM "Order" o WHERE o."companyId" = ${companyId}::uuid
+      AND EXISTS (SELECT 1 FROM "OrderItem" w WHERE w."companyId" = o."companyId" AND w."orderId" = o.id AND w."variantId" = ANY(${[...variantIds]}::uuid[]))
+      AND ${dueAndFit} ORDER BY o."createdAt", o.id LIMIT ${limit}`);
+    return ok(rows.map((row) => row.id as OrderId));
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to list waiting orders")); }
+}
+
+export async function listOverdueOrderIds(companyId: CompanyId, limit: number, exclude: readonly OrderId[]) {
+  requireActiveTransaction(companyId);
+  try {
+    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT o.id FROM "Order" o WHERE o."companyId" = ${companyId}::uuid
+      AND ${dueAndFit} AND o.id <> ALL(${[...exclude]}::uuid[]) ORDER BY o."createdAt", o.id LIMIT ${limit}`);
+    return ok<readonly OrderId[]>(rows.map((row) => row.id as OrderId));
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    log.error({ event: "unable_to_list_overdue_stock_deductions", stage: "list_overdue_orders", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_list_overdue_stock_deductions");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list overdue stock deductions" });
+  }
+}
+
+/** Definer function: returns only company ids, so each deduction still runs under RLS. */
+export async function listCompaniesWithOverdueStockDeductions() {
+  try {
+    const rows = await systemPrisma.$queryRaw<{ companyId: string }[]>`SELECT public.list_companies_with_overdue_stock_deductions() AS "companyId"`;
+    return ok(rows.map((row) => row.companyId as CompanyId));
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    log.error({ event: "stock_deduction_recovery_failed", stage: "list_companies", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "stock_deduction_recovery_failed");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list companies with overdue stock deductions" });
   }
 }

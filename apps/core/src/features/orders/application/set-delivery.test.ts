@@ -24,11 +24,11 @@ function order(): OrderAggregate {
   return result.data;
 }
 const payment = (amount: number): Payment => ({ id: id(5) as PaymentId, orderId: id(2) as OrderId,
-  amount: money(amount), status: "confirmed", method: "digital_wallet", data: { confirmedAt: new Date("2026-10-02"), confirmedBy: { kind: "seller", userId: context.userId }, evidence: { kind: "manual" } } });
+  amount: money(amount), status: "confirmed", method: "digital_wallet", deductStockIfPartial: false, data: { confirmedAt: new Date("2026-10-02"), confirmedBy: { kind: "seller", userId: context.userId }, evidence: { kind: "manual" } } });
 function dependencies(current: OrderAggregate | null, amount = 3) {
   const saveDelivery = vi.fn<SetDeliveryDependencies["saveDelivery"]>(async () => ok(null));
-  const deductProductStock = vi.fn<SetDeliveryDependencies["deductProductStock"]>(async () => ok(null));
-  const saveStockDeduction = vi.fn<SetDeliveryDependencies["saveStockDeduction"]>(async () => ok(null));
+  const publishStockEvent = vi.fn<SetDeliveryDependencies["publishStockEvent"]>(async () => ok({ kind: "not_due" }));
+  const findVariantStock = vi.fn<SetDeliveryDependencies["findVariantStock"]>(async () => ok(new Map([[id(4) as VariantId, 5n]])));
   const resolveRatedDelivery = vi.fn<SetDeliveryDependencies["resolveRatedDelivery"]>(async (selection, access) => {
     if (selection.method !== "home") throw new Error("Expected home selection");
     const { rateId, ...details } = selection;
@@ -40,25 +40,25 @@ function dependencies(current: OrderAggregate | null, amount = 3) {
     return ok({ delivery: snapshot.data, cost: money(amount) });
   });
   const deps: SetDeliveryDependencies = { resolveRatedDelivery, transaction: async (_companyId, work) => work(),
-    findOrderForUpdate: async () => ok(current), saveDelivery, deductProductStock, saveStockDeduction };
-  return { deps, saveDelivery, deductProductStock, saveStockDeduction, resolveRatedDelivery };
+    findOrderForUpdate: async () => ok(current), saveDelivery, publishStockEvent, findVariantStock };
+  return { deps, saveDelivery, publishStockEvent, findVariantStock, resolveRatedDelivery };
 }
 const input = { orderId: id(2) as OrderId, delivery: home, expectedPrice: money(3) };
 
 test("assigns and replaces the current snapshot with seller authorship and a complete aggregate", async () => {
   const initial = order();
   const first = await setOrderDelivery(input, context, dependencies(initial).deps);
-  expect(first).toMatchObject({ success: true, data: { delivery: { method: "home", pricing: { rateId: id(6) },
+  expect(first).toMatchObject({ success: true, data: { order: { delivery: { method: "home", pricing: { rateId: id(6) },
     recordedBy: { kind: "seller", userId: context.userId } }, deliveryCost: money(3), deliveryCharge: money(3), total: money(13),
-    payments: [], stockDeducted: false } });
+    payments: [], stockDeducted: false } } });
   if (!first.success) throw new Error("Expected assigned delivery");
   const replacement = parseRatedDeliverySelection({ ...home, rateId: id(9) });
   if (!replacement.success) throw new Error("Invalid replacement fixture");
-  const second = await setOrderDelivery({ ...input, delivery: replacement.data, expectedPrice: money(2) }, { ...context, userId: "second-seller" as UserId }, dependencies(first.data, 2).deps);
-  expect(second).toMatchObject({ success: true, data: { delivery: { pricing: { rateId: id(9) }, recordedBy: { kind: "seller", userId: "second-seller" } },
-    deliveryCost: money(2), deliveryCharge: money(2), total: money(12) } });
+  const second = await setOrderDelivery({ ...input, delivery: replacement.data, expectedPrice: money(2) }, { ...context, userId: "second-seller" as UserId }, dependencies(first.data.order, 2).deps);
+  expect(second).toMatchObject({ success: true, data: { order: { delivery: { pricing: { rateId: id(9) }, recordedBy: { kind: "seller", userId: "second-seller" } },
+    deliveryCost: money(2), deliveryCharge: money(2), total: money(12) } } });
   expect(initial.delivery).toBeNull();
-  expect(first.data.delivery?.recordedBy).toEqual({ kind: "seller", userId: "seller" });
+  expect(first.data.order.delivery?.recordedBy).toEqual({ kind: "seller", userId: "seller" });
 });
 
 test("rejects missing, cancelled and fulfilled orders before resolving delivery", async () => {
@@ -71,20 +71,35 @@ test("rejects missing, cancelled and fulfilled orders before resolving delivery"
     expect(await setOrderDelivery(input, context, f.deps)).toMatchObject({ success: false, error: { code } });
     expect(f.resolveRatedDelivery).not.toHaveBeenCalled();
     expect(f.saveDelivery).not.toHaveBeenCalled();
-    expect(f.deductProductStock).not.toHaveBeenCalled();
+    expect(f.publishStockEvent).not.toHaveBeenCalled();
   }
 });
 
-test.each([12, 13, 15])("deducts missing stock only when the new total is covered by existing payment of %s", async (paid) => {
+test.each([12, 13, 15])("publishes the delivery change and answers the outcome with existing payment of %s", async (paid) => {
   const current = { ...order(), payments: [payment(paid)] };
   const f = dependencies(current);
+  f.publishStockEvent.mockResolvedValue(ok(paid >= 13 ? { kind: "deducted", stock: new Map() } : { kind: "not_due" }));
   const result = await setOrderDelivery(input, context, f.deps);
-  expect(result).toMatchObject({ success: true, data: { stockDeducted: paid >= 13, payments: current.payments } });
-  expect(f.deductProductStock).toHaveBeenCalledTimes(paid >= 13 ? 1 : 0);
-  expect(f.saveStockDeduction).toHaveBeenCalledTimes(paid >= 13 ? 1 : 0);
-  const deducted = dependencies({ ...current, stockDeducted: true });
-  expect((await setOrderDelivery(input, context, deducted.deps)).success).toBe(true);
-  expect(deducted.deductProductStock).not.toHaveBeenCalled();
+  expect(result).toMatchObject({ success: true, data: { order: { stockDeducted: paid >= 13, payments: current.payments }, stockDue: null } });
+  expect(f.publishStockEvent).toHaveBeenCalledWith({ companyId: context.companyId, orderId: id(2) });
+});
+
+test("saves a delivery that makes payments cover the total even with short stock", async () => {
+  const f = dependencies({ ...order(), payments: [payment(13)] });
+  f.publishStockEvent.mockResolvedValue(ok({ kind: "short", shortItems: [{ variantId: id(4) as VariantId, available: 0 as never }] }));
+  expect(await setOrderDelivery(input, context, f.deps)).toMatchObject({ success: true,
+    data: { order: { stockDeducted: false, total: money(13) }, stockDue: { kind: "waiting", shortItems: [{ available: 0 }] } } });
+  expect(f.saveDelivery).toHaveBeenCalledTimes(1);
+});
+
+test("an unchanged delivery publishes no event", async () => {
+  const first = await setOrderDelivery(input, context, dependencies({ ...order(), payments: [payment(2)] }).deps);
+  if (!first.success) throw new Error("setup");
+  const f = dependencies(first.data.order);
+  const { persistDeliveryChange } = await import("@core/src/features/orders/application/set-delivery");
+  expect(await persistDeliveryChange(first.data.order, first.data.order, f.deps)).toMatchObject({ success: true, data: { stockDue: null } });
+  expect(f.publishStockEvent).not.toHaveBeenCalled();
+  expect(f.saveDelivery).not.toHaveBeenCalled();
 });
 
 test("failed resolution and forged authority leave all writes untouched", async () => {
@@ -96,21 +111,22 @@ test("failed resolution and forged authority leave all writes untouched", async 
   expect(await setOrderDelivery({ ...input, delivery: forged as RatedDeliverySelection }, context, f.deps))
     .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
   expect(f.saveDelivery).not.toHaveBeenCalled();
-  expect(f.deductProductStock).not.toHaveBeenCalled();
+  expect(f.publishStockEvent).not.toHaveBeenCalled();
 });
 
-test("rated assignments charge the validated price and reuse covered-stock deduction without a client charge flag", async () => {
+test("rated assignments charge the validated price and publish the delivery change without a client charge flag", async () => {
   const f = dependencies({ ...order(), payments: [payment(10)] });
   const resolveRatedDelivery = vi.fn<SetDeliveryDependencies['resolveRatedDelivery']>(async () => ok({
     delivery: { ...delivery, pickupPoint: point, settingsVersion: 2 as DeliverySettingsVersion,
       recordedBy: { kind: 'seller', userId: context.userId } }, cost: money(0),
   }));
   const rated = { orderId: input.orderId, delivery, expectedPrice: money(0) };
-  expect(await setOrderDelivery(rated, context, { ...f.deps, resolveRatedDelivery })).toMatchObject({ success: true, data: {
+  f.publishStockEvent.mockResolvedValue(ok({ kind: "deducted", stock: new Map() }));
+  expect(await setOrderDelivery(rated, context, { ...f.deps, resolveRatedDelivery })).toMatchObject({ success: true, data: { order: {
     stockDeducted: true, deliveryCost: money(0), deliveryCharge: money(0), total: money(10),
-  } });
+  } } });
   expect(resolveRatedDelivery).toHaveBeenCalledWith(delivery, context, 'PEN', money(0));
-  expect(f.deductProductStock).toHaveBeenCalledTimes(1);
+  expect(f.publishStockEvent).toHaveBeenCalledTimes(1);
 });
 
 test("rated price conflicts never save delivery, stock or totals", async () => {
@@ -119,8 +135,7 @@ test("rated price conflicts never save delivery, stock or totals", async () => {
   expect(await setOrderDelivery({ orderId: input.orderId, delivery, expectedPrice: money(0) }, context,
     { ...f.deps, resolveRatedDelivery: async () => failure })).toEqual(failure);
   expect(f.saveDelivery).not.toHaveBeenCalled();
-  expect(f.deductProductStock).not.toHaveBeenCalled();
-  expect(f.saveStockDeduction).not.toHaveBeenCalled();
+  expect(f.publishStockEvent).not.toHaveBeenCalled();
 });
 
 test("rejects a missing reviewed price before resolving or writing", async () => {
@@ -129,6 +144,5 @@ test("rejects a missing reviewed price before resolving or writing", async () =>
     .toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
   expect(f.resolveRatedDelivery).not.toHaveBeenCalled();
   expect(f.saveDelivery).not.toHaveBeenCalled();
-  expect(f.deductProductStock).not.toHaveBeenCalled();
-  expect(f.saveStockDeduction).not.toHaveBeenCalled();
+  expect(f.publishStockEvent).not.toHaveBeenCalled();
 });

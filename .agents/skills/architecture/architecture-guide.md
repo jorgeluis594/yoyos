@@ -174,6 +174,8 @@ What is part of an agreement (address, agency, rate, names) is copied into a Zod
 **6.7 Events after commit; retry from the producer.**
 An event is published once the transaction has committed. If publishing fails, the producer (the client that made the POST, the job that retries) repeats the idempotent operation; no outbox or republisher is designed unless explicitly required, with its duplicate strategy.
 
+*Exception: in-transaction events.* A handler may run inside the producer's transaction, through the in-transaction publisher (`docs/event-bus.md`, "In-transaction events"), only when it writes to the same database, is idempotent under the row locks it takes, and performs no external I/O. It runs in a savepoint: a statement-level failure or a data fault is contained and left to a recovery job, and only an error that ends the whole transaction rolls the producer back. Everything else stays after commit.
+
 **6.8 Operational values per environment, never fixed in code.**
 Domains, size limits, timeouts and keys go in environment variables with an initial value documented as "adjustable".
 
