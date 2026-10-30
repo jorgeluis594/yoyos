@@ -6,38 +6,45 @@ import { Input } from "@/components/ui/input";
 
 type PasswordInputProps = Omit<React.ComponentProps<"input">, "type">;
 
-function PasswordInput({ className, ref, ...props }: PasswordInputProps) {
+function PasswordInput({ className, ref, disabled, ...props }: PasswordInputProps) {
   const { t } = useTranslation();
   const [visible, setVisible] = React.useState(false);
   const inputRef = React.useRef<HTMLInputElement | null>(null);
-  const selection = React.useRef<{ start: number | null; end: number | null }>({ start: null, end: null });
+  const restore = React.useRef<{ start: number | null; end: number | null; focusInput: boolean } | null>(null);
   const Icon = visible ? EyeOff : Eye;
 
-  function setRefs(node: HTMLInputElement | null) {
+  const setRefs = React.useCallback((node: HTMLInputElement | null) => {
     inputRef.current = node;
     if (typeof ref === "function") ref(node);
     else if (ref) ref.current = node;
-  }
+  }, [ref]);
 
-  function toggle() {
+  function toggle(event: React.MouseEvent<HTMLButtonElement>) {
     const input = inputRef.current;
-    if (input) selection.current = { start: input.selectionStart, end: input.selectionEnd };
+    // detail === 0 means keyboard activation: the focus stays on the button so it can be pressed again.
+    restore.current = input ? { start: input.selectionStart, end: input.selectionEnd, focusInput: event.detail !== 0 } : null;
     setVisible((current) => !current);
   }
 
+  // Chromium resets the caret after React rewrites `type` on the focused input, so restore it on the next frame.
   React.useLayoutEffect(() => {
     const input = inputRef.current;
-    const { start, end } = selection.current;
-    if (!input || start === null || end === null) return;
-    input.focus();
-    input.setSelectionRange(start, end);
+    const pending = restore.current;
+    restore.current = null;
+    if (!input || !pending || pending.start === null || pending.end === null) return;
+    const frame = requestAnimationFrame(() => {
+      if (pending.focusInput) input.focus();
+      input.setSelectionRange(pending.start, pending.end);
+    });
+    return () => cancelAnimationFrame(frame);
   }, [visible]);
 
   return (
     <div data-slot="password-input" className="relative">
-      <Input ref={setRefs} type={visible ? "text" : "password"} className={cn("pr-12", className)} {...props} />
+      <Input ref={setRefs} type={visible ? "text" : "password"} disabled={disabled} className={cn("pr-12 [&::-ms-reveal]:hidden", className)} {...props} />
       <button
         type="button"
+        disabled={disabled}
         aria-label={visible ? t("common.hidePassword") : t("common.showPassword")}
         aria-pressed={visible}
         onMouseDown={(event) => event.preventDefault()}

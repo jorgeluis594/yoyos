@@ -132,3 +132,26 @@ test("company creation remains private without a session", async ({ request }) =
   expect(await access.json()).toMatchObject({ code: "UNAUTHENTICATED" });
   expect((await request.get("/api/anything")).status()).toBe(401);
 });
+
+test("the password eye keeps focus and selection on pointer use and toggles with the keyboard", async ({ page }) => {
+  await page.goto("/login");
+  const password = page.getByLabel("Contraseña", { exact: true });
+  const eye = page.getByRole("button", { name: "Mostrar contraseña" });
+  await password.fill("secreto123");
+  await password.evaluate((input: HTMLInputElement) => { input.focus(); input.setSelectionRange(2, 5); });
+  await eye.click();
+  await browserExpect(password).toHaveAttribute("type", "text");
+  await browserExpect(page.getByRole("button", { name: "Ocultar contraseña" })).toHaveAttribute("aria-pressed", "true");
+  await browserExpect(password).toBeFocused();
+  await browserExpect.poll(() => password.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([2, 5]);
+  await page.getByRole("button", { name: "Ocultar contraseña" }).click();
+  await browserExpect(password).toHaveAttribute("type", "password");
+  await browserExpect(password).toBeFocused();
+
+  await password.focus();
+  await page.keyboard.press("Tab");
+  await browserExpect(eye).toBeFocused();
+  await page.keyboard.press("Space");
+  await browserExpect(password).toHaveAttribute("type", "text");
+  await browserExpect(page.getByRole("button", { name: "Ocultar contraseña" })).toBeFocused();
+});

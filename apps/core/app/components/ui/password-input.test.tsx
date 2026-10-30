@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import * as React from "react";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createInstance } from "i18next";
@@ -62,26 +63,54 @@ test("toggling switches the input type, label and pressed state without submitti
   expect(onSubmit).not.toHaveBeenCalled();
 });
 
-test("the label «Contraseña» exact resolves to the input, not the button", () => {
-  expect(container.querySelectorAll("[aria-label='Contraseña']").length).toBe(0);
-  expect(input().value).toBe("secreto123");
+test("a disabled input has a disabled eye", () => {
+  act(() => root.render(<I18nextProvider i18n={i18n}><PasswordInput id="password" defaultValue="x" disabled /></I18nextProvider>));
+  expect(input().disabled).toBe(true);
+  expect(eye().disabled).toBe(true);
 });
 
-test("toggling returns focus to the input and restores the selection", () => {
+const nextFrame = () => act(() => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())));
+
+test("pointer activation puts focus back on the input (caret restore is covered by the E2E)", async () => {
   input().focus();
-  input().setSelectionRange(2, 5);
-  act(() => eye().click());
+  act(() => eye().dispatchEvent(new MouseEvent("click", { bubbles: true, detail: 1 })));
+  await nextFrame();
   expect(document.activeElement).toBe(input());
-  expect([input().selectionStart, input().selectionEnd]).toEqual([2, 5]);
 });
 
-test("is reachable and operable with the keyboard", () => {
+test("keyboard activation keeps focus on the button so it can be pressed again", async () => {
+  eye().focus();
+  act(() => eye().click());
+  await nextFrame();
+  expect(input().type).toBe("text");
+  expect(document.activeElement).toBe(eye());
+  act(() => eye().click());
+  expect(input().type).toBe("password");
+});
+
+test("is reachable right after the input in tab order and is a native button", () => {
   const tabbable = Array.from(container.querySelectorAll<HTMLElement>("input, button")).filter((el) => el.tabIndex >= 0);
   expect(tabbable.indexOf(eye())).toBe(tabbable.indexOf(input()) + 1);
-  // Enter and Space activate a native <button> by dispatching click; jsdom does not synthesize it.
   expect(eye().tagName).toBe("BUTTON");
-  expect(eye().disabled).toBe(false);
+});
+
+test("a controlled value survives the toggle and typing still reaches onChange", () => {
+  const onChange = vi.fn();
+  function Controlled() {
+    const [value, setValue] = React.useState("abc");
+    return <PasswordInput id="password" value={value} onChange={(event) => { onChange(event.target.value); setValue(event.target.value); }} />;
+  }
+  act(() => root.render(<I18nextProvider i18n={i18n}><Controlled /></I18nextProvider>));
   act(() => eye().click());
-  expect(input().type).toBe("text");
-  expect(document.activeElement).toBe(input());
+  expect(input().value).toBe("abc");
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!;
+  act(() => { setter.call(input(), "abcd"); input().dispatchEvent(new Event("input", { bubbles: true })); });
+  expect(onChange).toHaveBeenCalledWith("abcd");
+  expect(input().value).toBe("abcd");
+});
+
+test("forwards the ref to the input element", () => {
+  const ref = React.createRef<HTMLInputElement>();
+  act(() => root.render(<I18nextProvider i18n={i18n}><PasswordInput id="password" ref={ref} /></I18nextProvider>));
+  expect(ref.current).toBe(input());
 });
