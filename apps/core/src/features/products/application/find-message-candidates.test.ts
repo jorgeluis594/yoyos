@@ -17,3 +17,9 @@ test("makes no query and finds no candidates for a message without words", async
   expect(searches).toBe(0);
   expect(result).toEqual(ok({ productIds: [], unavailableProductIds: [], matchCount: 0, durationMs: 0, timedOut: false, wordsSearched: 0 }));
 });
+
+test("returns not-sellable products apart from the sellable candidates", async () => {
+  const withUnavailable: MessageCandidates = { ...found, productIds: ["a" as never], unavailableProductIds: ["b" as never] };
+  const result = await findMessageCandidates("quiero la casaca jean", { searchByCoverage: async () => ok(withUnavailable) });
+  expect(result).toEqual(ok(withUnavailable));
+});
