@@ -369,3 +369,14 @@ test("the agency warning disappears after saving a zone option with an eligible 
   await waitFor(() => expect(screen.queryByText("Falta una opción de agencia activa con cobertura")).toBeNull());
   expect(get).toHaveBeenCalledTimes(2);
 });
+
+test("delivery settings screen renders the loading state and then the warning without changing the hook order", async () => {
+  let release: (value: Awaited<ReturnType<typeof get>>) => void = () => undefined;
+  get.mockReturnValue(new Promise(resolve => { release = resolve; }));
+  getZones.mockResolvedValue(ok({ ...zonesState, home: { enabled: true }, zones: [] }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Cargando configuración…");
+  expect(screen.queryByText("Falta una opción de domicilio activa con cobertura")).toBeNull();
+  await act(async () => { release(ok({ ...empty, home: { enabled: true } })); });
+  expect(await screen.findByText("Falta una opción de domicilio activa con cobertura")).toBeTruthy();
+});
