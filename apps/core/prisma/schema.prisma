@@ -654,6 +654,7 @@ model ChatPendings {
   chat            Chat     @relation(fields: [companyId, chatId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
   pendings        Json
   readyRemembered Boolean  @default(false)
+  lastIncomingPhoto Json?
   updatedAt       DateTime @db.Timestamptz(3)
 
   @@id([companyId, chatId])
