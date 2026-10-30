@@ -164,7 +164,7 @@ Besides pass or fail, each message is counted for the acceptance gate of the pro
 
 `eval-results/<run>.json` holds `report` and every case `record` (input, expected, actual, fields, judge verdict, the visual-search
 certainties with their gate, the counts above, latency, retries, model calls with cached and reasoning tokens). Every record says whether it
-is a photo case. In a dev-split run that is not private (diagnostics on), a record also keeps `readerAnswer`, the reader's raw answer
+is a photo case (a run from before this field rebuilds with an empty photo partition: all its messages count as without photo). In a dev-split run that is not private (diagnostics on), a record also keeps `readerAnswer`, the reader's raw answer
 before validation, and `invalidReasons`, the reasons of the `invalid_action` outcomes; in a test-split, all-split or private run both are `null`. The report has:
 
 - **The gate**, over the first run of each scored message, whole, without photo cases (`gate.withoutPhoto`), for photo cases only

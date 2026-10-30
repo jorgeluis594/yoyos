@@ -1,13 +1,6 @@
 import type { PrivateData } from "@core/evals/cases/private";
 import type { EvalCase } from "@core/evals/cases/schema";
-import { isMessageStep } from "@core/evals/cases/schema";
-
-/** A message case with a photo, or a conversation with a photo in any step: the cases the report counts apart (`CaseRecord.photoCase`). */
-export function isPhotoCase(testCase: EvalCase): boolean {
-  if (testCase.pass === "image") return true;
-  if (testCase.pass === "conversation") return testCase.steps.some((step) => isMessageStep(step) && step.input.photo !== undefined);
-  return testCase.input.photo !== undefined;
-}
+import { isMessageStep, isPhotoCase } from "@core/evals/cases/schema";
 
 /** What `check-private.ts` prints for a folder that loaded: counts per pass, per kind of case and of photo case. No id, text, product or family name. */
 export function privateSummaryText(data: PrivateData): string {

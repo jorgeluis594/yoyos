@@ -1,12 +1,11 @@
 import { chooseSellerNotice } from "@core/src/features/orders/domain/seller-notice";
 import { productById, describeVariantId, type CatalogScope } from "@core/evals/fixtures/catalog";
-import { isMessageStep, needsJudge, type ConversationCase, type EvalCase, type ImageCase, type MessageCase, type MessageInput, type OrderLine, type OutcomeKind } from "@core/evals/cases/schema";
+import { isMessageStep, isPhotoCase, needsJudge, type ConversationCase, type EvalCase, type ImageCase, type MessageCase, type MessageInput, type OrderLine, type OutcomeKind } from "@core/evals/cases/schema";
 import type { Claude, JudgeVerdict } from "@core/evals/lib/claude";
 import { appendRecord, type CaseRecord } from "@core/evals/lib/case-record";
 import { metered, type ModelCall } from "@core/evals/lib/model-meter";
 import { observing, type AppliedMessage, type Observation, type ProductionPath } from "@core/evals/lib/production";
 import { diagnosticsOf } from "@core/evals/lib/diagnostics";
-import { isPhotoCase } from "@core/evals/lib/private-summary";
 import { readFixtureImage } from "@core/evals/lib/eval-catalog";
 import { scoreImage, scoreMessage, type ImageActual, type MessageActual, type MessageScored, type Scored } from "@core/evals/lib/scorers";
 

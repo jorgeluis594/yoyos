@@ -245,6 +245,13 @@ export function parseCases(input: readonly EvalCaseInput[], catalog: EvalCatalog
   return cases;
 }
 
+/** A message case with a photo, or a conversation with a photo in any step: the cases the report counts apart (`CaseRecord.photoCase`). */
+export function isPhotoCase(testCase: EvalCase): boolean {
+  if (testCase.pass === "image") return true;
+  if (testCase.pass === "conversation") return testCase.steps.some((step) => isMessageStep(step) && step.input.photo !== undefined);
+  return testCase.input.photo !== undefined;
+}
+
 /**
  * Cases whose docs allow several answers, or marked ambiguous, are also graded by the Claude judge. The indistinguishable pair has a
  * founder rule instead (cases/identification.ts), so no judge. Conversations are scored by their expectations alone.

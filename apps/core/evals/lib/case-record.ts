@@ -22,6 +22,7 @@ export type CaseRecord = Readonly<{
   passed: boolean;
   exactPassed: boolean;
   fields: FieldScores;
+  /** May point past `expected` when a shipped-features alternative matched (lib/shipped-expectations.ts). */
   expectationIndex: number;
   judge: JudgeVerdict | null;
   /** What the message was, for the reader calls the design allows it (technical design §8); null outside message passes. */

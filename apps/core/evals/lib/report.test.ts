@@ -104,7 +104,7 @@ describe("buildReport", () => {
     expect(report.gate.photo).toMatchObject({ scored: 3, right: 1, ignoredActions: 2, wrongSilentChanges: 1 });
   });
 
-  test("a conversation with a photo step counts all its records as photo case", () => {
+  test("the report partitions a conversation's records, all marked as photo case, together", () => {
     const report = buildReport([
       record({ caseId: "c#1", photoCase: true, conversationId: "c", step: 1, messageKind: "text" }),
       record({ caseId: "c#2", photoCase: true, conversationId: "c", step: 2, messageKind: "text" }),

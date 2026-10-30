@@ -10,7 +10,7 @@ import { shippedReaderFeatures } from "@core/src/features/orders/infrastructure/
  *   `order_closed` is also accepted with notice `not_applied`, the same order and the outcomes unstated.
  * The alternative exists only inside the exact matcher: judge eligibility (`needsJudge`) reads the case as written.
  */
-export type ShippedFeatures = Readonly<{ paymentRequest: boolean; closedOrderLine: boolean }>;
+export type ShippedFeatures = typeof shippedReaderFeatures;
 
 const withoutPayment = (expectation: MessageExpectation): MessageExpectation => ({
   ...expectation,

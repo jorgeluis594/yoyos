@@ -218,7 +218,24 @@ const consistencyLine = (runs: readonly (readonly CaseRecord[])[]): ConsistencyL
   return { repeated: runs.length, consistent, percent: percentOf(consistent, runs.length) };
 };
 
+function gateOf(scored: readonly CaseRecord[]) {
+  const families = [...new Set(scored.filter(isMessageRecord).map(({ kind }) => kind))].sort();
+  return { whole: gateLines(scored), withoutPhoto: gateLines(scored.filter(({ photoCase }) => !photoCase)), photo: gateLines(scored.filter(({ photoCase }) => photoCase)),
+    byFamily: Object.fromEntries(families.map((kind) => [kind, gateLines(scored.filter((record) => record.kind === kind))])) };
+}
+
+type ConsistencyFlips = EvalReport["consistency"]["flipped"];
+
+function consistencyOf(repeated: ReadonlyMap<string, readonly CaseRecord[]>, flipped: ConsistencyFlips) {
+  const groups = [...repeated.values()];
+  const families = [...new Set(groups.map((runs) => runs[0]!.kind))].sort();
+  return { ...consistencyLine(groups), cases: repeated.size, repeats: Math.max(0, ...groups.map((runs) => runs.length)), flipped,
+    byFamily: Object.fromEntries(families.map((kind) => [kind, consistencyLine(groups.filter((runs) => runs[0]!.kind === kind))])) };
+}
+
 const noticeOf = (record: CaseRecord): string | null => (record.actual as { notice?: string | null } | null)?.notice ?? null;
+/** The notice key of the count by kind: a message whose evaluation threw counts as `error`, not as a silent one. */
+const noticeKeyOf = (record: CaseRecord): string => record.error !== null && noticeOf(record) === null ? "error" : noticeOf(record) ?? "none";
 const outcomesOf = (record: CaseRecord): readonly string[] => (record.actual as { outcomes?: readonly string[] } | null)?.outcomes ?? [];
 const addingOutcomes: ReadonlySet<string> = new Set(["added", "pending_created", "pending_completed"]);
 
@@ -227,7 +244,7 @@ function tagMetricsOf(scored: readonly CaseRecord[]): TagMetrics {
   const questions = messages.filter(({ tags }) => tags.includes("question-caption"));
   const payments = messages.filter((record) => outcomesOf(record).includes("payment_requested"));
   const byKind = new Map<string, number>();
-  for (const record of messages) byKind.set(noticeOf(record) ?? "none", (byKind.get(noticeOf(record) ?? "none") ?? 0) + 1);
+  for (const record of messages) byKind.set(noticeKeyOf(record), (byKind.get(noticeKeyOf(record)) ?? 0) + 1);
   return {
     questionCaptionSilentAdds: { messages: questions.length, silentAdds: questions.filter((record) => noticeOf(record) === null && outcomesOf(record).some((kind) => addingOutcomes.has(kind))).length },
     paymentInCount: { paymentRequests: payments.length, insideCount: payments.filter((record) => noticeOf(record) === "several_problems").length },
@@ -340,8 +357,7 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
       rescued: judged.filter(({ judge, exactPassed, passed }) => judge?.pass && !exactPassed && passed).map(({ caseId }) => caseId),
       disagreed: judged.filter(({ judge, exactPassed }) => judge?.pass !== exactPassed).map(({ caseId }) => caseId),
     },
-    gate: { whole: gateLines(scored), withoutPhoto: gateLines(scored.filter(({ photoCase }) => !photoCase)), photo: gateLines(scored.filter(({ photoCase }) => photoCase)), byFamily: Object.fromEntries([...new Set(scored.filter(isMessageRecord).map(({ kind }) => kind))].sort()
-      .map((kind) => [kind, gateLines(scored.filter((record) => record.kind === kind))])) },
+    gate: gateOf(scored),
     cost: costOfRecords(scored.filter(isMessageRecord)),
     readerCalls: readerCallsOf(scored),
     pinnedMiss: pinnedMissOf(records),
@@ -354,9 +370,7 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
     retries: { messages: records.filter(({ retries }) => retries > 0).length, attempts: records.reduce((sum, { retries }) => sum + retries, 0) },
     calibration,
     gates: Object.fromEntries(records.flatMap(({ certainties }) => certainties.map(({ source, gate }) => [source, gate] as const)).sort(([a], [b]) => a.localeCompare(b))),
-    consistency: { ...consistencyLine([...repeated.values()]), cases: repeated.size, repeats: Math.max(0, ...[...repeated.values()].map((runs) => runs.length)), flipped,
-      byFamily: Object.fromEntries([...new Set([...repeated.values()].map((runs) => runs[0]!.kind))].sort()
-        .map((kind) => [kind, consistencyLine([...repeated.values()].filter((runs) => runs[0]!.kind === kind))])) },
+    consistency: consistencyOf(repeated, flipped),
     tagMetrics: tagMetricsOf(scored),
     injection: { total: injection.length, allowed: injection.filter(({ passed }) => passed).length,
       priceChanged: injection.filter(({ fields }) => fields.unitPrice === false).map(({ caseId }) => caseId) },
