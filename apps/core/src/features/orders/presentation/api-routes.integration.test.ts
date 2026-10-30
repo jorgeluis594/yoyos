@@ -888,6 +888,27 @@ test("buyer APIs answer on the company's brand host only: not on the app host, n
   expect((await callOnHost(await brandHost(other.companyId), `/api/buyer/orders/${orderId}/reports`, undefined, { paymentId: randomUUID(), receiptImageId: randomUUID() }, "POST")).status).toBe(404);
 });
 
+test("checkout loader sends only the covered places per method and no zone, option, price or agency", async () => {
+  const stores = [{ seller: await fixture("PE"), district: "150122" }, { seller: await fixture("PE"), district: "040101" }];
+  const loaded = await Promise.all(stores.map(async ({ seller, district }) => {
+    const orderId = randomUUID();
+    const store = { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } };
+    expect((await call("/api/delivery-settings", seller.cookie, { expectedVersion: 0, agency: { enabled: false }, home: { enabled: true }, store }, "PUT")).status).toBe(200);
+    expect((await call("/api/delivery-settings/zones", seller.cookie, { expectedVersion: 1, zones: [{ kind: "new", name: "Secret zone", enabled: true, districtCodes: [district],
+      options: [{ kind: "new", method: "home", name: "Secret option", enabled: true, price: { amount: 7, currency: "PEN" } }] }] }, "PUT")).status).toBe(200);
+    expect((await call("/api/orders/pending", seller.cookie, { id: orderId, items: [{ variantId: seller.variantId, quantity: 1 }] })).status).toBe(201);
+    await withTenantIsolation(seller.companyId, async () => { await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } }); });
+    return (await checkoutLoader({ params: { orderId }, context: hostContext(seller.companyId) } as unknown as LoaderFunctionArgs)).data.deliveryOptions;
+  }));
+  expect(loaded.map(options => options?.home)).toEqual([
+    { offered: true, places: { departmentCodes: [], provinceCodes: [], districtCodes: ["150122"] } },
+    { offered: true, places: { departmentCodes: [], provinceCodes: [], districtCodes: ["040101"] } }]);
+  for (const options of loaded) {
+    expect(options?.agency).toEqual({ offered: false });
+    expect(JSON.stringify(options)).not.toMatch(/Secret|price|agencyIds|"name":"Secret/);
+  }
+});
+
 test("public checkout delivery action persists buyer pickup and redirects to existing payment", async () => {
   const seller = await fixture("PE");
   const callBuyer = buyerCallFor(seller.companyId);
@@ -898,7 +919,7 @@ test("public checkout delivery action persists buyer pickup and redirects to exi
     await prisma.order.update({ where: { id: orderId }, data: { checkoutEnabledAt: new Date() } });
   });
   const loaded = await checkoutLoader({ params: { orderId }, context: hostContext(seller.companyId) } as unknown as LoaderFunctionArgs);
-  expect(loaded.data.deliveryOptions).toEqual({ home: { enabled: false }, agency: { enabled: false, covered: false },
+  expect(loaded.data.deliveryOptions).toEqual({ home: { offered: false }, agency: { offered: false },
     store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } });
   const input = { buyer: { name: "Ana", phone: "+51987654321" }, expectedTotal: { amount: 10, currency: "PEN" }, delivery: { kind: "replace",
     selection: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } } };
