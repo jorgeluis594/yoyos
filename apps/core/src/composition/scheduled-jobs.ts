@@ -60,10 +60,12 @@ export function reportBlockedChatKeysJob(reader: BlockedKeysReader, handlerIds: 
 }
 
 /**
- * Recovery runs once a minute with three passes inside the run (pg-boss sends at most one cron job per minute).
- * `stately`: one active and one queued run across every worker, no retry (the next minute is the retry), expiry below the slot.
+ * Recovery runs once a minute with three passes inside the run (pg-boss sends at most one cron job per minute across replicas).
+ * No retry (the next minute is the retry) and expiry below the slot, so a stuck run frees the queue before the next one.
+ * Not `stately`: measured on pg-boss 12.35, a stately job created after a 40 s run started up to 55 s late, while a standard queue started within 1 s.
+ * A run lasts under 55 s (the last pass starts by 45 s and is capped at 10 s), so runs do not overlap; if one did, the listener's row locks keep it correct.
  */
-export const stockDeductionRecoveryPolicy: ScheduledJobPolicy = { retryLimit: 0, expireInSeconds: 58, queuePolicy: "stately" };
+export const stockDeductionRecoveryPolicy: ScheduledJobPolicy = { retryLimit: 0, expireInSeconds: 58, queuePolicy: "standard" };
 
 export function scheduledJobs(
   catalogOrderTtl: number,

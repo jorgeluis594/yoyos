@@ -208,7 +208,8 @@ infrastructure reachable only from backend processes; it does not justify
 - Scheduled (cron) jobs are registered only by the worker in
   `apps/core/src/composition/scheduled-jobs.ts`. A job may carry a queue policy
   (`stately`, `retryLimit`, `expireInSeconds`); `recover-due-stock-deductions` runs
-  `* * * * *` as `stately` with no retry and 58 s expiry. pg-boss 12.35 sends at
+  `* * * * *` on a standard queue with no retry and 58 s expiry (a `stately` queue was
+  measured to start a job up to 55 s late after a long run). pg-boss 12.35 sends at
   most one cron job per 60-second slot, so its sub-minute cadence comes from three
   passes inside one run, and the provider sets `cronMonitorIntervalSeconds: 10`.
 

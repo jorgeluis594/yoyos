@@ -76,9 +76,9 @@ test("fails for a retry when the blocked keys cannot be read", async () => {
     .toEqual(err({ code: "EVENT_BUS_UNAVAILABLE", message: "down", retryable: true }));
 });
 
-test("registers the stock deduction recovery every minute with a stately one-shot policy", async () => {
+test("registers the stock deduction recovery every minute with a no-retry policy", async () => {
   const bus = createInMemoryEventBus();
   await registerScheduledJobs(bus, scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] }, async () => ok(undefined)));
   expect(bus.scheduled()).toContainEqual(expect.objectContaining({ name: "recover-due-stock-deductions", cron: "* * * * *",
-    policy: { retryLimit: 0, expireInSeconds: 58, queuePolicy: "stately" } }));
+    policy: { retryLimit: 0, expireInSeconds: 58, queuePolicy: "standard" } }));
 });

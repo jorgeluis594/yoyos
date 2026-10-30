@@ -16,7 +16,7 @@ async function cleanup(pool: pg.Pool, name: string) {
   await pool.end();
 }
 
-it("creates the recovery queue as stately with no retry and a 58 s expiry", async () => {
+it("creates the recovery queue with no retry and a 58 s expiry", async () => {
   const name = `recovery-policy-${randomUUID().slice(0, 8)}`;
   const provider = worker();
   const pool = new pg.Pool({ connectionString });
@@ -24,46 +24,34 @@ it("creates the recovery queue as stately with no retry and a 58 s expiry", asyn
     await provider.start();
     expect((await provider.schedule(name, "* * * * *", async () => ok(undefined), { tz: "America/Lima", policy: stockDeductionRecoveryPolicy })).success).toBe(true);
     const queue = await pool.query("SELECT policy, retry_limit, expire_seconds FROM pgboss.queue WHERE name = $1", [name]);
-    expect(queue.rows).toEqual([{ policy: "stately", retry_limit: 0, expire_seconds: 58 }]);
+    expect(queue.rows).toEqual([{ policy: "standard", retry_limit: 0, expire_seconds: 58 }]);
   } finally {
     await provider.stop();
     await cleanup(pool, name);
   }
 });
 
-it("the recovery job never runs twice at once across two workers", async () => {
-  const name = `recovery-single-${randomUUID().slice(0, 8)}`;
-  const first = worker();
-  const second = worker();
+it("the recovery job starts within seconds when it is created after a long run", async () => {
+  const name = `recovery-latency-${randomUUID().slice(0, 8)}`;
+  const provider = worker();
   const sender = new PgBoss({ connectionString, schema: "pgboss", migrate: false, createSchema: false, reindex: false, schedule: false, supervise: false });
   const pool = new pg.Pool({ connectionString });
-  let active = 0;
-  let maxActive = 0;
-  let runs = 0;
-  let release!: () => void;
-  const gate = new Promise<void>((resolve) => { release = resolve; });
-  const handler = vi.fn(async () => { runs += 1; active += 1; maxActive = Math.max(maxActive, active); await gate; active -= 1; return ok(undefined); });
+  const startedAt: number[] = [];
+  const handler = vi.fn(async () => { startedAt.push(Date.now()); await new Promise((resolve) => setTimeout(resolve, 1500)); return ok(undefined); });
   try {
-    await Promise.all([first.start(), second.start(), sender.start()]);
-    await first.schedule(name, "* * * * *", handler, { tz: "America/Lima", policy: stockDeductionRecoveryPolicy });
-    await second.schedule(name, "* * * * *", handler, { tz: "America/Lima", policy: stockDeductionRecoveryPolicy });
-    // Several sends while one run is active: stately keeps one active and one queued.
+    await Promise.all([provider.start(), sender.start()]);
+    await provider.schedule(name, "* * * * *", handler, { tz: "America/Lima", policy: stockDeductionRecoveryPolicy });
     await sender.send(name, null);
     await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(1), { timeout: 15_000, interval: 100 });
-    const extra = await Promise.all([sender.send(name, null), sender.send(name, null), sender.send(name, null)]);
-    expect(extra.filter((id) => id !== null).length).toBeLessThanOrEqual(1);
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    expect(maxActive).toBe(1);
-    release();
-    await vi.waitFor(() => expect(active).toBe(0), { timeout: 15_000, interval: 100 });
-    await new Promise((resolve) => setTimeout(resolve, 1500));
-    expect(maxActive).toBe(1);
-    expect(runs).toBeLessThanOrEqual(2);
+    await new Promise((resolve) => setTimeout(resolve, 3500));
+    const sentAt = Date.now();
+    await sender.send(name, null);
+    await vi.waitFor(() => expect(handler).toHaveBeenCalledTimes(2), { timeout: 15_000, interval: 100 });
+    // The recovery bound of a minute depends on a fresh cron job starting promptly.
+    expect(startedAt[1]! - sentAt).toBeLessThan(5000);
   } finally {
-    release();
     await sender.stop({ graceful: false });
-    await first.stop();
-    await second.stop();
+    await provider.stop();
     await cleanup(pool, name);
   }
 }, 60_000);

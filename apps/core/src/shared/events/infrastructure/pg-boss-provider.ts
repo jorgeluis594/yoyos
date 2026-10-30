@@ -340,7 +340,9 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
         await boss.createQueue(name, { ...policy, ...(jobPolicy && jobPolicy.queuePolicy !== "standard" ? { policy: jobPolicy.queuePolicy } : {}) });
         await boss.updateQueue(name, policy);
         await boss.schedule(name, cron, null, { tz, missed: "once" });
-        const workId = await boss.work(name, async jobs => {
+        // A job with its own policy is latency-bound (the stock recovery): without this, an idle worker relies on NOTIFY with a 30 s backstop poll and starts a fresh cron job up to 30 s late.
+        const pollEvery = jobPolicy ? { pollingIntervalSeconds: 2, notifyPollingIntervalSeconds: 2 } : {};
+        const workId = await boss.work(name, pollEvery, async jobs => {
           for (const job of jobs) {
             const result = await handler({ signal: job.signal, attempt: job.retryCount + 1 });
             if (!result.success) throw new Error(result.error.message);
