@@ -396,3 +396,87 @@ test("Pasar a Entrega a domicilio keeps a district covered by home and quotes it
   expect(values()).toEqual(["Lima", "Lima", "Miraflores"]);
   expect(calls().at(-1)).toEqual(["150122", "automatic"]);
 });
+
+const arequipaAndCusco = places({ districtCodes: ["040126", "080101"] });
+const motorizado = { id: "00000000-0000-4000-8000-0000000000a1", optionId: "00000000-0000-4000-8000-0000000000a2", name: "Motorizado", zoneName: "Canta",
+  price: { amount: 10, currency: "PEN" as const }, method: "home" as const };
+
+test("a store covering the whole department Lima lists its 10 provinces with none preselected and quotes Motorizado S/ 10.00 for Canta → Huamantanga", async () => {
+  requests.mockResolvedValue(ok({ rates: [motorizado] } as never));
+  await mount(optionsOf(places({ departmentCodes: ["15"] }), null));
+  expect(values()).toEqual(["Lima", "", ""]);
+  await open(input("province"));
+  expect(optionTexts()).toHaveLength(10);
+  await choose(input("province"), "canta");
+  expect(notice()).toBe("");
+  await choose(input("district"), "huamantanga");
+  expect(calls()).toEqual([["150403", "picked"]]);
+  const rates = document.querySelector<HTMLSelectElement>("#delivery-rate")!;
+  expect(rates.textContent).toContain("Motorizado");
+  expect(rates.textContent).toMatch(/10[.,]00/);
+});
+
+test("a catalog order whose buyer is outside the covered place has no saved delivery, no contact control and no confirmable delivery until a covered place is picked", async () => {
+  const onChange = vi.fn();
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  mounted.push(() => root.unmount());
+  await act(async () => root.render(<I18nextProvider i18n={instances.es}><CheckoutDeliveryFields orderId="00000000-0000-4000-8000-000000000001"
+    checkout={checkout} options={optionsOf(lima, null)} recipient={{ name: "Ana", phone: "+51977909427" }} onChange={onChange} /></I18nextProvider>));
+  expect(values()).toEqual(["Lima", "Lima", ""]);
+  expect(container.querySelectorAll("a")).toHaveLength(0);
+  expect([...container.querySelectorAll("button")].map(button => button.textContent).join(" ")).not.toMatch(/contact|chat|whatsapp/i);
+  expect(onChange.mock.calls.at(-1)).toEqual([null]);
+  await choose(input("district"), "miraflores");
+  expect(onChange.mock.calls.at(-1)).toEqual([null]);
+});
+
+test("the Portuguese checkout shows every cleared message that asks to pick another district and the department empty text", async () => {
+  await mount(optionsOf(lima, arequipaAndCusco), checkout, "pt");
+  await choose(input("district"), "miraflores");
+  await pickMethod("agency");
+  expect(notice()).toBe("Envio para agência não chega a Miraflores. Escolha outro distrito.");
+  await typed(input("department"), "zzzz");
+  expect(document.body.textContent).toContain("Nenhum departamento da lista corresponde. Confira como você escreveu.");
+});
+
+test("the Portuguese checkout shows the district empty text", async () => {
+  await mount(optionsOf(lima, null), checkout, "pt");
+  await typed(input("district"), "zzzz");
+  expect(document.body.textContent).toContain("Nenhum distrito da lista corresponde. Confira como você escreveu.");
+});
+
+test("the Portuguese checkout shows the complete cleared message when every level has a single choice", async () => {
+  await mount(optionsOf(lima, places({ districtCodes: ["040126"] })), checkout, "pt");
+  await choose(input("district"), "miraflores");
+  await pickMethod("agency");
+  expect(notice()).toBe("Envio para agência não chega a Miraflores. Preenchemos os campos que têm uma só opção.");
+});
+
+test("the Spanish checkout shows the cleared message that asks to pick another district when nothing could be preselected", async () => {
+  await mount(optionsOf(lima, arequipaAndCusco));
+  await choose(input("district"), "miraflores");
+  await pickMethod("agency");
+  expect(notice()).toBe("Envío a agencia no llega a Miraflores. Elige otro distrito.");
+});
+
+test("typing Cuzco in Provincia under the whole department Lima shows the Spanish no-province text", async () => {
+  await mount(optionsOf(places({ departmentCodes: ["15"] }), null));
+  await typed(input("province"), "Cuzco");
+  expect(document.body.textContent).toContain("Ninguna provincia de la lista coincide. Revisa cómo lo escribiste.");
+});
+
+test("the preselection-only message has the same look as the group hint and the empty notice region adds no blank gap", async () => {
+  await mount(optionsOf(lima, null));
+  const hint = document.querySelector("legend + p")!;
+  const message = regions()[0]!.querySelector("p")!;
+  const looks = (item: Element) => item.className.split(" ").filter(name => /^(text-|mb-)/.test(name) && name !== "mb-4").sort();
+  expect(looks(message)).toEqual(looks(hint));
+  await choose(input("district"), "miraflores");
+  const empty = regions()[0]!;
+  expect(empty.children).toHaveLength(0);
+  expect(empty.textContent).toBe("");
+  // The empty region pulls up by the fieldset gap it would otherwise add, so no blank row separates methods and fields.
+  expect(empty.className).toContain("-mb-4");
+});
