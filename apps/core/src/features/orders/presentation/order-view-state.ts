@@ -154,10 +154,10 @@ export function unsavedParts(state: OrderViewState): readonly OrderPart[] {
 // ---------------------------------------------------------------------------------------------------------------------
 // Customer
 
-/** While «Igual que el cliente» is checked, the recipient mirrors the customer. A locked delivery never mirrors. */
+/** While «Igual que el cliente» is checked, the recipient mirrors the customer. A locked delivery never mirrors, whatever the box says. */
 export function setCustomer(state: OrderViewState, customer: CustomerDraft): OrderViewState {
   const { delivery } = state.draft;
-  const next = delivery.sameAsCustomer ? { ...delivery, fields: { ...delivery.fields, name: customer.name, phone: customer.phone } } : delivery;
+  const next = delivery.sameAsCustomer && screenLocks(state).delivery === null ? { ...delivery, fields: { ...delivery.fields, name: customer.name, phone: customer.phone } } : delivery;
   return { ...state, draft: { ...state.draft, customer, delivery: next } };
 }
 
@@ -257,7 +257,7 @@ export function estimate(state: OrderViewState): Result<Estimate, MoneyError> {
 // ---------------------------------------------------------------------------------------------------------------------
 // Invalid fields
 
-export type InvalidReason = "quantity_required" | "quantity_max" | "currency_mismatch" | "too_many_lines" | "amount_invalid"
+export type InvalidReason = "quantity_required" | "quantity_max" | "currency_mismatch" | "too_many_lines" | "lines_required" | "amount_invalid"
   | "customer_incomplete" | "customer_invalid" | "delivery_incomplete" | "deliver_needs_payment";
 /** A field the save refuses, in screen order. `id` names the line (its variant) or the draft payment. */
 export type InvalidField = Readonly<{ section: "items" | "payments" | "customer" | "delivery"; field: string; id?: string; reason: InvalidReason }>;
@@ -272,6 +272,7 @@ function invalidItems(state: OrderViewState): readonly InvalidField[] {
     }
   }
   if (state.base !== null && state.draft.items.length > maxOrderLines) marks.push({ section: "items", field: "lines", reason: "too_many_lines" });
+  if (state.base !== null && state.draft.items.length === 0) marks.push({ section: "items", field: "lines", reason: "lines_required" });
   return marks;
 }
 
@@ -411,16 +412,22 @@ function pin(state: OrderViewState, fresh: LoadedOrder, takeFresh: (part: OrderP
     const entry = fresh.lineCatalog === null ? undefined : fresh.lineCatalog[line.variantId];
     return { ...line, stock: entry?.stock ?? null, sellable: fresh.lineCatalog === null || entry !== undefined };
   });
+  // A kept delivery draft stops mirroring once the fresh order locks the delivery; a fresh one keeps the box the seller left while the customer draft is kept.
+  const delivery = take.has("delivery") ? { ...saved.delivery, sameAsCustomer: take.has("customer") ? saved.delivery.sameAsCustomer : !deliveryLocked(fresh.order) && state.draft.delivery.sameAsCustomer }
+    : { ...state.draft.delivery, sameAsCustomer: !deliveryLocked(fresh.order) && state.draft.delivery.sameAsCustomer };
   return { loaded: fresh, base: {
     items: take.has("items") ? freshBase.items : base.items, customer: take.has("customer") ? freshBase.customer : base.customer,
     delivery: take.has("delivery") ? freshBase.delivery : base.delivery },
   draft: { ...state.draft, items: take.has("items") ? saved.items : kept, customer: take.has("customer") ? saved.customer : state.draft.customer,
-    delivery: take.has("delivery") ? saved.delivery : state.draft.delivery } };
+    delivery } };
 }
 
-/** After a payment action or any revalidation: a part without unsaved edits takes the fresh state and revision; an edited part keeps both. */
+/**
+ * After a payment action or any revalidation: a part without unsaved edits, or whose draft already equals the fresh state (an in-doubt save that went through),
+ * takes the fresh state and revision; any other edited part keeps both.
+ */
 export function refreshFromLoader(state: OrderViewState, fresh: LoadedOrder): OrderViewState {
-  return pin(state, fresh, (_part, edited) => !edited);
+  return pin(state, fresh, (_part, edited, sameAsFresh) => !edited || sameAsFresh);
 }
 
 /** After a successful **Guardar cambios**: every part is pinned again, except one with edits that were not sent. */

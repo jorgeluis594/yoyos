@@ -207,6 +207,11 @@ describe("invalid fields", () => {
     expect(invalidFields({ ...start, draft: { ...start.draft, items: many } })).toMatchObject([{ section: "items", field: "lines", reason: "too_many_lines" }]);
   });
 
+  test("marks a saved order left without lines", () => {
+    const start = savedState();
+    expect(invalidFields({ ...start, draft: { ...start.draft, items: [] } })).toMatchObject([{ section: "items", field: "lines", reason: "lines_required" }]);
+  });
+
   test("refuses to remove a saved delivery", () => {
     const state = withDelivery(savedState(), { tab: "none" });
     expect(invalidFields(state)).toMatchObject([{ section: "delivery", field: "tab", reason: "delivery_incomplete" }]);
@@ -332,6 +337,40 @@ describe("pinned base", () => {
     expect(estimate(refreshed)).toMatchObject({ data: { paid: pen(0), balance: pen(418) } });
     expect(refreshed.draft.items[2]).toMatchObject({ quantityText: "2", stock: 1 });
     expect(lineWarnings(refreshed, refreshed.draft.items[2]!).availableStock).toBe(1);
+  });
+
+  test("re-pins a part whose draft equals the fresh state, as after an in-doubt save that went through", () => {
+    const edited = typeQuantity(savedState(), deadpoolM, "2");
+    const reread = order1042({ items: [order1042().items[0]!, order1042().items[1]!, item("00000000-0000-4000-8000-000000000003", deadpoolM, "Disfraz de Deadpool", "M", 120, 2)] });
+    const refreshed = refreshFromLoader(edited, { order: reread, revisions: { ...revisions, items: revision("D") }, lineCatalog: catalog });
+    expect(refreshed.base?.items.revision).toBe(revision("D"));
+    expect(unsavedParts(refreshed)).toEqual([]);
+    expect(expectRequest(buildEditRequest(typeQuantity(refreshed, deadpoolM, "3"))).items?.base).toBe(revision("D"));
+  });
+
+  test("stops mirroring the customer into the recipient when a refresh brings a shipped delivery", () => {
+    const edited = setCustomer(savedState(), { name: "Ana Pérez", phone: "+51977909427" });
+    expect(unsavedParts(edited)).toEqual(["customer", "delivery"]);
+    const shipped = order1042({ deliveryStatus: "shipped", shippedAt: "2026-10-31T10:00:00.000Z", stockDeducted: true });
+    const refreshed = refreshFromLoader(edited, { order: shipped, revisions, lineCatalog: catalog });
+    expect(refreshed.draft.delivery.sameAsCustomer).toBe(false);
+    const renamed = setCustomer(refreshed, { name: "Ana P", phone: "+51977909427" });
+    expect(renamed.draft.delivery.fields.name).toBe("Ana Pérez");
+  });
+
+  test("does not mirror into a locked delivery even if the box is still checked", () => {
+    const shipped = savedState({ order: order1042({ deliveryStatus: "shipped", shippedAt: "2026-10-31T10:00:00.000Z", stockDeducted: true }) });
+    const checked = { ...shipped, draft: { ...shipped.draft, delivery: { ...shipped.draft.delivery, sameAsCustomer: true } } };
+    expect(setCustomer(checked, { name: "Ana", phone: "+51988111222" }).draft.delivery.fields.name).toBe("Jorge Gonzalez");
+  });
+
+  test("keeps Igual que el cliente unchecked when a refresh takes the fresh delivery and the customer is kept", () => {
+    const edited = setCustomer(unmirrored(savedState()), { name: "Ana", phone: "+51977909427" });
+    const voided = order1042({ payments: [{ ...yape, status: "voided", data: { ...yape.data, voidedAt: "2026-10-30T11:00:00.000Z", voidedBy: "user-1" } }], paidAmount: pen(0), balanceDue: pen(298) });
+    const refreshed = refreshFromLoader(edited, { order: voided, revisions, lineCatalog: catalog });
+    expect(refreshed.draft.delivery.sameAsCustomer).toBe(false);
+    const typing = setCustomer(refreshed, { name: "Ana P", phone: "+51977909427" });
+    expect(unsavedParts(typing)).toEqual(["customer"]);
   });
 
   test("keeps the customer and delivery base revisions when products are reset after ITEMS_LOCKED", () => {
