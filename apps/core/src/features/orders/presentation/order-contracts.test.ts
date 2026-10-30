@@ -5,7 +5,7 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
 import { buildPendingOrder, parseRatedDeliverySelection, parseDeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
 import { expect, test } from "vitest";
-import { orderSchema, orderBuyerSchema, orderCustomerSchema, completeOrderSchema, deliverySnapshotSchema, ratedDeliverySelectionSchema, setRatedOrderDeliverySchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema, stockOutcomeSchema } from "@shared/contracts/orders";
+import { orderSchema, orderBuyerSchema, orderCustomerSchema, completeOrderSchema, deliverySnapshotSchema, ratedDeliverySelectionSchema, setRatedOrderDeliverySchema, listOrdersSchema, orderApiErrorSchema, registerPaymentSchema } from "@shared/contracts/orders";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 
 test("a Lima calendar day has its own UTC bounds across an offset change", () => {
@@ -44,7 +44,6 @@ test("payment and delivery contracts reject invented fields and incomplete agenc
   expect(deliverySnapshotSchema.safeParse(documented).success).toBe(true);
   for (const change of [{ agency: "Lima" }, { courier: null }, { agency: null }, { courier: null, agency: null }, { agency: { ...agency.agency, location: undefined } }])
     expect(deliverySnapshotSchema.safeParse({ ...documented, ...change }).success).toBe(false);
-  expect(stockOutcomeSchema.safeParse({ kind: "pending", reason: "INSUFFICIENT_STOCK" }).success).toBe(false);
 });
 
 test("delivery selections cannot supply authority or resolved destinations", () => {
@@ -157,7 +156,7 @@ test("serializes the order source and defaults to manual", () => {
     customer: { kind: "general_public" }, createdAt: new Date("2026-10-01"), items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId,
       productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: { amount: 10, currency: "PEN" } }] });
   if (!built.success) throw new Error("Invalid fixture");
-  expect(toOrderAggregateJson({ ...built.data, chatId: id(5) as ChatId }).source).toBe("whatsapp");
-  expect(toOrderAggregateJson(built.data).source).toBe("manual");
+  expect(toOrderAggregateJson({ ...built.data, chatId: id(5) as ChatId }, null).source).toBe("whatsapp");
+  expect(toOrderAggregateJson(built.data, null).source).toBe("manual");
   expect(orderSchema.shape.source.safeParse("telegram").success).toBe(false);
 });

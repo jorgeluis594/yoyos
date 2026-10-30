@@ -360,7 +360,7 @@ test("a restarted rated attempt with a real HTTP price conflict saves a fresh ra
 }, 20000);
 
 
-test("restarted stock rejection keeps the paid attempt editable and resends its original identities", async () => {
+test("restarted stock rejection of a paid delivered sale keeps the attempt editable and resends its original identities", async () => {
   const companyId = process.env.ORDER_JOURNEY_COMPANY!;
   const catalog = await mockOrders.searchOrderCatalog("Journey product");
   if (!catalog.success || !catalog.data[0]?.variants[0]) throw new Error("Missing catalog fixture");
@@ -368,7 +368,7 @@ test("restarted stock rejection keeps the paid attempt editable and resends its 
   const orderId = randomUUID();
   const paymentId = randomUUID();
   const pending = { version: 2, companyId, id: orderId, shownTotal: { amount: 40, currency: "PEN" },
-    request: { id: orderId, items: [{ variantId, quantity: 4 }],
+    request: { id: orderId, items: [{ variantId, quantity: 4 }], deliverImmediately: true,
       payments: [{ paymentId, amount: { amount: 40, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: false }] } };
   writeFileSync(join(directory, `yoyos_pending_order_${companyId}`), JSON.stringify(pending));
   restartOperations();
@@ -384,7 +384,7 @@ test("restarted stock rejection keeps the paid attempt editable and resends its 
   fireEvent.press(screen.getByRole("button", { name: "Guardar otra vez" }));
   await waitFor(() => expect(mockReplace).toHaveBeenCalledWith(`/orders/${orderId}`), { timeout: 10000 });
   expect(await mockOrders.loadOrder(orderId)).toMatchObject({ success: true, data: {
-    total: { amount: 10, currency: "PEN" }, stockDeducted: true, overpaidAmount: { amount: 30, currency: "PEN" },
+    total: { amount: 10, currency: "PEN" }, stockDeducted: true, deliveryStatus: "delivered", overpaidAmount: { amount: 30, currency: "PEN" },
     payments: [expect.objectContaining({ id: paymentId, amount: { amount: 40, currency: "PEN" } })],
     items: [expect.objectContaining({ variantId, quantity: 1 })],
   } });

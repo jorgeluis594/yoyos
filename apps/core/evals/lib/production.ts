@@ -19,11 +19,12 @@ import { reportPayment } from "@core/src/features/orders/application/report-paym
 import { registerPayment } from "@core/src/features/orders/application/register-payment";
 import { voidPayment } from "@core/src/features/orders/application/void-payment";
 import type { ImageId as PaymentImageId } from "@core/src/features/orders/domain/payment";
-import { deductProductStock } from "@core/src/features/products";
+import { findVariantStock } from "@core/src/features/products";
+import { publishStockEvent } from "@core/src/features/orders/composition";
 import { minShowsProduct, type ImageBytes, type MatchConfidence, type VariantQrCode } from "@core/src/features/products/domain/image-identification";
 import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ApplyChatMessageOutcome, type ApplyChatMessageError } from "@core/src/features/orders/application/apply-chat-message";
 import { chatMessageDeadlineMs } from "@core/src/features/orders/application/chat-message-policy";
-import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, findOrderAggregate, findOrderForUpdate, recordProcessedMessage, saveCancellation, saveCompletion, saveItemChanges, savePayment, savePendingOrder, saveStockDeduction, updatePayment } from "@core/src/features/orders/infrastructure/order-repository";
+import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, findOrderAggregate, findOrderForUpdate, recordProcessedMessage, saveCancellation, saveCompletion, saveItemChanges, savePayment, savePendingOrder, updatePayment } from "@core/src/features/orders/infrastructure/order-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
@@ -442,7 +443,8 @@ async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clo
     const aggregate = await run(() => findOrderAggregate(orderId, access.companyId));
     if (!aggregate) throw new Error("Order not found");
     await run(() => registerPayment({ orderId, paymentId: id as PaymentId, source, amount: partial ? { ...aggregate.total, amount: Math.floor(Math.round(aggregate.total.amount * 100) / 2) / 100 } : aggregate.total, method: "digital_wallet", deductStockIfPartial: false },
-      access, { transaction, findOrderForUpdate, savePayment, updatePayment, saveCompletion, deductProductStock, saveStockDeduction, clock }));
+      access, { transaction, findOrderForUpdate, savePayment, updatePayment, saveCompletion,
+        publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock }));
   };
   switch (step.event) {
     case "cancel_order":

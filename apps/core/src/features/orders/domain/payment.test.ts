@@ -10,7 +10,7 @@ const seller = "seller" as UserId;
 const reportedAt = new Date("2026-10-05T10:00:00Z");
 const confirmedAt = new Date("2026-10-05T11:00:00Z");
 const input = { id: paymentId, orderId, source: "buyer_report" as const, amount: { amount: 10.25, currency: "PEN" as const },
-  method: "bank_transfer" as const, confirmedBy: seller, confirmedAt };
+  method: "bank_transfer" as const, deductStockIfPartial: false, confirmedBy: seller, confirmedAt };
 
 test("report preserves evidence across retries and confirmation", () => {
   const reported = reportPayment({ id: paymentId, orderId, currency: "PEN", receiptImageId: imageId, reportedAt }, null);

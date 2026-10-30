@@ -607,6 +607,7 @@ model Payment {
   currency String
   method String?
   walletProvider String?
+  deductStockIfPartial Boolean @default(false)
   data Json
 
   @@unique([companyId, id])

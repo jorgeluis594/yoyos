@@ -32,7 +32,7 @@ const initialOrder: OrderAggregateResponse = { id: mockId, companyId: "00000000-
   number: 1001, buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, deliveredAt: "2026-09-29T12:00:00.000Z", createdAt: "2026-09-29T11:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
   balanceDue: { amount: 0, currency: "PEN" }, overpaidAmount: { amount: 0, currency: "PEN" }, cancelled: false,
-  delivery: null, deliveryStatus: "delivered", stockDeducted: true, itemsTotal: { amount: 12, currency: "PEN" },
+  delivery: null, deliveryStatus: "delivered", stockDeducted: true, stockDue: null, itemsTotal: { amount: 12, currency: "PEN" },
   deliveryCost: { amount: 0, currency: "PEN" }, deliveryCharge: { amount: 0, currency: "PEN" }, total: { amount: 12, currency: "PEN" },
   payments: [{ id: "00000000-0000-4000-8000-000000000006", orderId: mockId, amount: { amount: 12, currency: "PEN" },
     status: "confirmed", method: "digital_wallet", data: { confirmedAt: "2026-09-29T12:00:00.000Z", confirmedBy: { kind: "seller", userId: "seller" }, evidence: { kind: "manual" } } }],
@@ -75,6 +75,19 @@ test("recipient can differ from buyer; unavailable save preserves data and confi
   await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
   expect(save).toHaveBeenLastCalledWith(mockId, { delivery: { method: "store", recipient: { name: "Recipient", phone: "555002", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } });
 });
+test("saving a covering delivery with short stock returns to the detail without any stock message (the detail shows the notice)", async () => {
+  const waiting: OrderAggregateResponse = { ...pending, stockDeducted: false, paymentStatus: "paid",
+    stockDue: { kind: "waiting", shortItems: [{ variantId: pending.items[0]!.variantId, available: 0 }] },
+    delivery: { method: "store", recipient: { name: "Customer", phone: "555001", identity: { kind: "absent" } }, pickupPoint: point, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } } };
+  save.mockResolvedValueOnce(ok(waiting));
+  const screen = render(<OrderDeliveryScreen />);
+  await screen.findByText("Current address");
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
+  expect(screen.queryByText(/No hay stock suficiente/)).toBeNull();
+  expect(screen.queryByText(/Ya no hay stock suficiente/)).toBeNull();
+});
+
 test("validation requires recipient and selected document; values preserve leading zeros and language changes", async () => {
   save.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
   const screen = render(<OrderDeliveryScreen />);

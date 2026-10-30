@@ -123,7 +123,6 @@ export default function OrderDeliveryScreen() {
         : code === "RATE_UNAVAILABLE" || code === "INVALID_DELIVERY_RATE" ? "orderDeliveryRateUnavailable"
         : code === "DELIVERY_UNAVAILABLE" ? "orderDeliveryUnavailable"
         : code === "DELIVERY_METHOD_DISABLED" ? "orderDeliveryDisabled"
-        : code === "INSUFFICIENT_STOCK" ? "insufficientStock"
         : code === "DELIVERY_LOCKED" || code === "ORDER_CANCELLED" || code === "INVALID_TRANSITION" ? "orderDeliveryLocked"
         : code === "INVALID_INPUT" ? "invalidOrderDelivery" : "saveOrderDeliveryError");
     }

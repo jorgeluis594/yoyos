@@ -20,7 +20,7 @@ const order = (): OrderAggregate => ({
   itemsTotal: money(10), deliveryCost: money(0), deliveryCharge: money(0), total: money(10),
 });
 const payment = (n: number, amount: number): ConfirmedPayment => ({ id: id(n) as PaymentId, orderId: id(1) as OrderId,
-  status: "confirmed", amount: money(amount), method: "digital_wallet",
+  status: "confirmed", amount: money(amount), method: "digital_wallet", deductStockIfPartial: false,
   data: { confirmedAt: paymentAt, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
 const pricing = { quotationId: id(20), rateId: id(21), optionId: id(22), settingsVersion: 1 } as DeliveryPricing;
 const catalogAgency = { id: id(9), name: "Branch", address: "Av. Test 123", location: { country: "PE", districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" } } as unknown as Extract<DeliverySnapshot, { method: "agency" }>["agency"];

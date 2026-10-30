@@ -130,6 +130,55 @@ default of 10). The worker sets 24 in `compose.yaml`; the worker's connections
 (Prisma, pg-boss 10, publishing pool 10) plus the web server's must stay below
 PostgreSQL `max_connections`.
 
+## In-transaction events
+
+An explicit exception to "events after commit": a small synchronous publisher,
+`apps/core/src/shared/events/application/in-transaction-events.ts`, runs an
+event's handler **inside the producer's open transaction** and returns the
+handler's outcome to the producer. It does not use pg-boss, has no retry and
+persists nothing of its own; the producer's transaction is the unit of retry.
+
+Use it only when the handler:
+
+- writes to the **same database** as the producer, in the same transaction;
+- is **idempotent** under the row locks it takes (the guarded writes make a
+  repeated event harmless);
+- performs **no external I/O** (no network, no queue, no file).
+
+Everything else stays on pg-boss after commit. The first and only users are the
+stock events of orders: `payment_confirmed`, `order_delivery_changed`,
+`order_stock_deduction_overdue` and `product_stock_increased`, so a payment
+answers with the stock already deducted and a restock deducts the orders it
+covers in the same step ([Orders · Stock deduction](orders.md#stock-deduction)).
+
+How it works:
+
+- Events are declared by merging into `InTransactionEvents` (`{ [name]: { payload, outcome } }`).
+  There is exactly one handler per event, and the registry type makes a missing
+  or extra handler a compile error. The registry is built in the feature that
+  owns the handlers (`features/orders/composition.ts`) and handed to other
+  features as a function, so a producer in another feature never imports orders.
+- The publisher requires an active transaction of the payload's company, then
+  runs the handler inside a **savepoint** (`withinSavepoint` in
+  `shared/infrastructure/persistance.ts`) with statement and lock timeouts of
+  `min(1000, 4000 - elapsed)` ms, so a contended handler ends as a contained
+  timeout before Prisma's 5000 ms timer.
+- Failures are split by `classifyPersistenceFailure`. **Transaction-ending**
+  errors (Prisma's transaction timeout P2028, a lost connection) are returned and
+  the producer rolls back, so its retry is safe. **Everything else** (lock or
+  statement timeout, deadlock, any other database error, invalid stored data, an
+  unexpected row count) rolls back to the savepoint, is logged, and becomes a
+  `failed` outcome: the producer still commits.
+- On rollback to the savepoint the scope is restored: abort state back to what it
+  was and the after-commit observers registered inside discarded, so a
+  rolled-back deduction never logs a success. Timeouts the handler set are
+  restored to the producer's values whether the savepoint is released or rolled back.
+- Whatever a contained failure leaves undone is finished by a recovery job
+  (`recover-due-stock-deductions`, once a minute, three passes), not by an outbox.
+
+Producers that publish run their transaction with `lockTimeoutMs` 2000 and
+`statementTimeoutMs` 3000 under the 5000 ms Prisma timeout.
+
 ## Tenant isolation
 
 `companyId` comes from the authorized company context and must match the
@@ -157,7 +206,12 @@ infrastructure reachable only from backend processes; it does not justify
   pending jobs. Removing a handler or an incompatible payload change requires
   draining its pending jobs first. Compatible additions may keep the event name.
 - Scheduled (cron) jobs are registered only by the worker in
-  `apps/core/src/composition/scheduled-jobs.ts`.
+  `apps/core/src/composition/scheduled-jobs.ts`. A job may carry a queue policy
+  (`stately`, `retryLimit`, `expireInSeconds`); `recover-due-stock-deductions` runs
+  `* * * * *` on a standard queue with no retry and 58 s expiry (a `stately` queue was
+  measured to start a job up to 55 s late after a long run). pg-boss 12.35 sends at
+  most one cron job per 60-second slot, so its sub-minute cadence comes from three
+  passes inside one run, and the provider sets `cronMonitorIntervalSeconds: 10`.
 
 ## How to add an event and handler
 

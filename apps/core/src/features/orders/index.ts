@@ -15,7 +15,9 @@ export async function getOrderAggregateResponsesByIds(ids: readonly string[], co
   const found = await orders.getAggregatesByIds(ids as OrderId[], companyId as CompanyId);
   if (!found.success) return found;
   try {
-    return ok(found.data.map(toOrderAggregateJson));
+    const described = await orders.describeStockDue(found.data);
+    if (!described.success) return described;
+    return ok(found.data.map((order) => toOrderAggregateJson(order, described.data.get(order.id) ?? null)));
   } catch (cause) {
     log.error({ event: "order_aggregate_response_invalid", errorCode: "INVALID_ORDER", err: cause }, "order_aggregate_response_invalid");
     return err({ code: "INVALID_ORDER", message: "Invalid stored order" });

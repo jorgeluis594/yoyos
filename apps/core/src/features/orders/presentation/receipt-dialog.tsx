@@ -15,7 +15,7 @@ export type PaymentDialogKind = "receipt" | DecisionKind;
 type Step = "choose" | "approve" | "reject";
 
 type Props = Readonly<{ kind: PaymentDialogKind; paymentId: string; payment: Order["payments"][number] | null; order: Order; receiptUrl: string | null;
-  format: PaymentFormat; onClose: () => void; onDone: (paymentId: string) => void; onSubmitted: (paymentId: string) => void; onUncertain: (paymentId: string) => void; onCloseAutoFocus: (event: Event) => void }>;
+  format: PaymentFormat; onClose: () => void; onDone: (paymentId: string, result: PaymentDecisionResult) => void; onSubmitted: (paymentId: string) => void; onUncertain: (paymentId: string) => void; onCloseAutoFocus: (event: Event) => void }>;
 
 function ReceiptImage({ url, className }: { url: string; className: string }) {
   const { t } = useTranslation();
@@ -35,7 +35,7 @@ export function PaymentDialog({ kind, paymentId, payment, order, receiptUrl, for
     const result = fetcher.data;
     if (fetcher.state !== "idle" || !result || handled.current === result) return;
     handled.current = result;
-    if ("success" in result && result.success) onDone(paymentId);
+    if ("success" in result && result.success) onDone(paymentId, result);
     else if ("error" in result && result.error && paymentErrorKey(String(result.error)) === "orders.paymentUncertain") onUncertain(paymentId);
   }, [fetcher.state, fetcher.data, paymentId, onDone, onUncertain]);
   const answer = fetcher.state === "idle" && fetcher.data !== dismissed ? fetcher.data : undefined;

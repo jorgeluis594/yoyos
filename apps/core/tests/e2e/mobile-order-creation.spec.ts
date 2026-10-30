@@ -43,14 +43,16 @@ test("mobile creation screen integrates with real order API, database and persis
     await withTenantIsolation(tenantId, async () => {
       const saved = await prisma.order.findMany({ include: { payments: true } });
       expect(saved).toHaveLength(10);
-      expect(saved.filter(order => order.completedAt === null)).toHaveLength(9);
+      expect(saved.filter(order => order.completedAt === null)).toHaveLength(8);
       for (const pending of saved.filter(order => order.completedAt === null && order.payments.length === 0))
         expect(pending).toMatchObject({ payments: [], stockDeducted: false, deliveryStatus: "pending", cancelled: false });
-      expect(saved.find(order => order.completedAt !== null)).toMatchObject({ stockDeducted: true, deliveryStatus: "delivered", payments: [expect.any(Object)] });
+      expect(saved.filter(order => order.completedAt !== null)).toHaveLength(2);
+      for (const completed of saved.filter(order => order.completedAt !== null))
+        expect(completed).toMatchObject({ stockDeducted: true, deliveryStatus: "delivered", payments: [expect.any(Object)] });
       expect(saved.find(order => order.completedAt === null && order.payments.some(payment => String(payment.amount) === "18"))).toMatchObject({
         itemsTotal: expect.any(Object), stockDeducted: true, deliveryStatus: "pending", payments: [expect.any(Object)],
       });
-      expect(saved.find(order => order.payments.some(payment => String(payment.amount) === "40"))).toMatchObject({ stockDeducted: true, delivery: null });
+      expect(saved.find(order => order.payments.some(payment => String(payment.amount) === "40"))).toMatchObject({ stockDeducted: true, deliveryStatus: "delivered", delivery: null });
       expect(saved.find(order => order.payments.some(payment => String(payment.amount) === "4.5"))).toMatchObject({ stockDeducted: false });
       const rated = saved.filter(order => order.delivery !== null);
       expect(rated).toHaveLength(6);

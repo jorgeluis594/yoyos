@@ -67,7 +67,7 @@ const orderOf = (n: number, createdAt: Date, changes: Partial<OrderAggregate> = 
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false, stockDeductedAt: null,
   itemsTotal: money(10), deliveryCost: money(0), deliveryCharge: money(0), total: money(10), ...changes,
 });
-const confirmed = (order: OrderAggregate, paymentId: number, at: Date): ConfirmedPayment => ({ id: id(paymentId) as PaymentId, orderId: order.id, status: "confirmed", amount: money(4), method: "digital_wallet",
+const confirmed = (order: OrderAggregate, paymentId: number, at: Date): ConfirmedPayment => ({ id: id(paymentId) as PaymentId, orderId: order.id, status: "confirmed", amount: money(4), method: "digital_wallet", deductStockIfPartial: false,
   data: { confirmedAt: at, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
 const voided = (payment: ConfirmedPayment, at: Date): VoidedPayment => ({ ...payment, status: "voided", data: { ...payment.data, voidedAt: at, voidedBy: "seller" as UserId } });
 const reported = (order: OrderAggregate, paymentId: number, at: Date): ReportedPayment => ({ id: id(paymentId) as PaymentId, orderId: order.id, status: "reported", currency: "PEN", amount: null, method: null,

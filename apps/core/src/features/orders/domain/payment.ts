@@ -15,8 +15,10 @@ export type ConfirmationActor = Readonly<{ kind: "seller"; userId: UserId }> | R
 export type ConfirmationData = Readonly<{ confirmedAt: Date; confirmedBy: ConfirmationActor; evidence: PaymentEvidence }>;
 type PaymentIdentity = Readonly<{ id: PaymentId; orderId: OrderId }>;
 export type ReportedPayment = PaymentIdentity & Readonly<{ status: "reported"; currency: Currency; amount: null; method: null; walletProvider?: undefined; data: ReportData }>;
-export type ConfirmedPayment = PaymentIdentity & Readonly<{ status: "confirmed"; amount: Money; method: PaymentMethod; walletProvider?: WalletProvider; data: ConfirmationData }>;
-export type VoidedPayment = PaymentIdentity & Readonly<{ status: "voided"; amount: Money; method: PaymentMethod; walletProvider?: WalletProvider; data: ConfirmationData & Readonly<{ voidedAt: Date; voidedBy: UserId }> }>;
+export type ConfirmedPayment = PaymentIdentity & Readonly<{ status: "confirmed"; amount: Money; method: PaymentMethod; walletProvider?: WalletProvider;
+  /** The seller asked to deduct stock even if this payment leaves the order partially paid. */
+  deductStockIfPartial: boolean; data: ConfirmationData }>;
+export type VoidedPayment = PaymentIdentity & Readonly<{ status: "voided"; amount: Money; method: PaymentMethod; walletProvider?: WalletProvider; deductStockIfPartial: boolean; data: ConfirmationData & Readonly<{ voidedAt: Date; voidedBy: UserId }> }>;
 export type RejectionReason = string & { readonly __brand: "RejectionReason" };
 export type RejectedPayment = PaymentIdentity & Readonly<{ status: "rejected"; currency: Currency; amount: null; method: null; walletProvider?: undefined;
   data: Readonly<{ report: ReportData; rejectedAt: Date; rejectedBy: UserId; reason: RejectionReason | null }> }>;
@@ -38,10 +40,10 @@ const confirmation = z.strictObject({ confirmedAt: date, confirmedBy: actor, evi
 const identity = { id: uuid, orderId: uuid };
 const payment = z.discriminatedUnion("status", [
   z.strictObject({ ...identity, status: z.literal("reported"), currency: z.enum(currencies), amount: z.null(), method: z.null(), data: report }),
-  z.strictObject({ ...identity, status: z.literal("confirmed"), amount: money, method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(), data: confirmation })
+  z.strictObject({ ...identity, status: z.literal("confirmed"), amount: money, method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(), deductStockIfPartial: z.boolean(), data: confirmation })
     .refine(walletProviderFitsMethod),
   z.strictObject({ ...identity, status: z.literal("voided"), amount: money, method: z.enum(["digital_wallet", "bank_transfer"]),
-    walletProvider: walletProviderSchema.optional(), data: confirmation.extend({ voidedAt: date, voidedBy: z.string().min(1) }) })
+    walletProvider: walletProviderSchema.optional(), deductStockIfPartial: z.boolean(), data: confirmation.extend({ voidedAt: date, voidedBy: z.string().min(1) }) })
     .refine(walletProviderFitsMethod),
   z.strictObject({ ...identity, status: z.literal("rejected"), currency: z.enum(currencies), amount: z.null(), method: z.null(), data: rejectionDataSchema }),
 ]);
@@ -67,7 +69,7 @@ export function reportPayment(input: { id: PaymentId; orderId: OrderId; currency
 }
 
 export function confirmPayment(input: { id: PaymentId; orderId: OrderId; source: "manual" | "buyer_report";
-  amount: Money; method: PaymentMethod; walletProvider?: WalletProvider; confirmedBy: UserId; confirmedAt: Date }, existing: Payment | null): Result<ConfirmedPayment, PaymentError> {
+  amount: Money; method: PaymentMethod; walletProvider?: WalletProvider; deductStockIfPartial: boolean; confirmedBy: UserId; confirmedAt: Date }, existing: Payment | null): Result<ConfirmedPayment, PaymentError> {
   if (existing && (existing.id !== input.id || existing.orderId !== input.orderId)) return err({ code: "PAYMENT_CONFLICT", message: "Payment belongs to another order" });
   if (existing?.status === "voided") return err({ code: "INVALID_TRANSITION", message: "Voided payment cannot be confirmed" });
   if (existing?.status === "rejected") return err({ code: "PAYMENT_CONFLICT", message: "Rejected payment cannot be confirmed" });
@@ -81,7 +83,7 @@ export function confirmPayment(input: { id: PaymentId; orderId: OrderId; source:
     return err({ code: "PAYMENT_CONFLICT", message: "Payment ID has different confirmation" });
   }
   const candidate = { id: input.id, orderId: input.orderId, status: "confirmed", amount: input.amount, method: input.method,
-    ...(input.walletProvider ? { walletProvider: input.walletProvider } : {}), data: { confirmedAt: input.confirmedAt, confirmedBy: { kind: "seller", userId: input.confirmedBy },
+    ...(input.walletProvider ? { walletProvider: input.walletProvider } : {}), deductStockIfPartial: input.deductStockIfPartial, data: { confirmedAt: input.confirmedAt, confirmedBy: { kind: "seller", userId: input.confirmedBy },
       evidence: existing ? { kind: "buyer_report", report: existing.data } : { kind: "manual" } } };
   const parsed = parsePayment(candidate);
   return parsed.success && parsed.data.status === "confirmed" ? ok(parsed.data) : parsed.success

@@ -35,7 +35,7 @@ test("uses session access and an explicit reviewed pickup price", async () => {
     { companyId: access.company.id, userId: access.user.id });
 });
 
-test.each([["DELIVERY_LOCKED", "locked"], ["ORDER_CANCELLED", "locked"], ["DELIVERY_METHOD_DISABLED", "disabled"], ["INSUFFICIENT_STOCK", "stockError"]] as const)("maps %s to a recoverable message", async (code, message) => {
+test.each([["DELIVERY_LOCKED", "locked"], ["ORDER_CANCELLED", "locked"], ["DELIVERY_METHOD_DISABLED", "disabled"]] as const)("maps %s to a recoverable message", async (code, message) => {
   vi.spyOn(composition, "setConfiguredOrderDelivery").mockResolvedValue({ success: false, error: { code, message: "Internal detail" } });
   expect(await save(input)).toMatchObject({ error: message });
 });

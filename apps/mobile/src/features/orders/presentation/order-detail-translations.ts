@@ -16,6 +16,11 @@ export const orderDetailTranslations = {
 
     detailCourier: 'Courier', detailAgency: 'Agencia de destino',
  shippedOn: 'Despachado el {{date}}', noScheduledDispatch: 'Sin programar', scheduledSaveError: 'No se pudo guardar la fecha programada.',
+    stockWaitingTitle: 'Esperando stock', stockWaitingLine: '{{name}}: {{quantity}} en el pedido, hay {{available}}.',
+    stockWaitingHelp: 'Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede despachar ni entregar.',
+    stockDeductingTitle: 'Descontando stock', stockDeductingHelp: 'Ya hay stock para este pedido; se descontará en menos de un minuto.',
+    stockWaiting: 'Esperando stock', stockDeducting: 'Descontando stock', listAnd: 'y',
+    paymentRecorded: 'Pago registrado.', paymentRecordedWaiting: 'Pago registrado. El pedido queda esperando stock.',
     detailBuyer: 'Comprador', 
     detailReports_one: '{{count}} comprobante por revisar', detailReports_other: '{{count}} comprobantes por revisar',
     detailProducts_one: 'Productos · {{count}} unidad', detailProducts_other: 'Productos · {{count}} unidades',
@@ -49,6 +54,11 @@ export const orderDetailTranslations = {
 
     detailCourier: 'Transportadora', detailAgency: 'Agência de destino',
  shippedOn: 'Despachado em {{date}}', noScheduledDispatch: 'Sem programação', scheduledSaveError: 'Não foi possível salvar a data programada.',
+    stockWaitingTitle: 'Aguardando estoque', stockWaitingLine: '{{name}}: {{quantity}} no pedido, há {{available}}.',
+    stockWaitingHelp: 'Será descontado automaticamente quando houver estoque suficiente. Até lá, não é possível despachar nem entregar.',
+    stockDeductingTitle: 'Descontando estoque', stockDeductingHelp: 'O estoque deste pedido já está disponível; será descontado em menos de um minuto.',
+    stockWaiting: 'Aguardando estoque', stockDeducting: 'Descontando estoque', listAnd: 'e',
+    paymentRecorded: 'Pagamento registrado.', paymentRecordedWaiting: 'Pagamento registrado. O pedido fica aguardando estoque.',
     detailBuyer: 'Comprador', 
     detailReports_one: '{{count}} comprovante para revisar', detailReports_other: '{{count}} comprovantes para revisar',
     detailProducts_one: 'Produtos · {{count}} unidade', detailProducts_other: 'Produtos · {{count}} unidades',

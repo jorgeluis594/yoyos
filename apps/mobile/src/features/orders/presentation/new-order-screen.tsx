@@ -248,16 +248,11 @@ function CompanyOrderScreen() {
     } finally { saving.current = false; setSending(false); }
   };
   const send = (toSend: OrderDraft, thenPrint = false) => performSave(reviewingOrder ? () => orders.reviewPendingOrder(companyId, toSend) : () => orders.completeOrder(toSend, companyId), thenPrint, !!toSend.shipImmediately);
-  const savePending = (thenPrint = false) => send({ ...saveDraft, deferStockDeduction: true }, thenPrint);
-  // Shipping is exclusive with delivering and with deferring stock, so it never carries either flag.
-  const ship = () => { if (!shipBlock && !saveBlocked) void send({ ...saveDraft, shipImmediately: true, deliverImmediately: undefined, deferStockDeduction: undefined }); };
+  // Shipping is exclusive with delivering, so it never carries the delivered flag.
+  const ship = () => { if (!shipBlock && !saveBlocked) void send({ ...saveDraft, shipImmediately: true, deliverImmediately: undefined }); };
   const complete = (thenPrint = false) => {
     if (!deliveryReady || !prepared.success || unavailableVariants.length) return;
-    if (!paymentNeedsStock) return send(saveDraft, thenPrint);
-    const lines = draft.items.filter(item => item.quantity > item.shownStock)
-      .map(item => t('stockShortItem', { name: item.productName, quantity: item.quantity, stock: item.shownStock }));
-    showConfirmation({ title: t('stockShortTitle'), description: `${lines.join("\n")}\n\n${t('stockShortAdvice')}`,
-      confirmLabel: t('saveAsPending'), cancelLabel: t('stockShortBack'), onConfirm: () => void savePending(thenPrint) });
+    return send(saveDraft, thenPrint);
   };
   const startNewSale = () => {
     leaveAllowed.current = true;
