@@ -72,9 +72,9 @@ describe("resolveAssistantAccess", () => {
   });
 
   test("reads the connection inside the store's tenant", async () => {
-    const inTenant = vi.fn(<T,>(_company: CompanyId, work: () => Promise<T>) => work());
-    await resolveAssistantAccess(token, dependencies({ inTenant }));
-    expect(inTenant).toHaveBeenCalledWith(companyId, expect.any(Function));
+    const tenants: CompanyId[] = [];
+    await resolveAssistantAccess(token, dependencies({ inTenant: (company, work) => { tenants.push(company); return work(); } }));
+    expect(tenants).toEqual([companyId]);
   });
 
   test("passes a persistence failure through instead of refusing the token", async () => {
