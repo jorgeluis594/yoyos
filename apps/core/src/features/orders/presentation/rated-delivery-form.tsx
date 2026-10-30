@@ -121,19 +121,24 @@ export type QuotedPlace = Readonly<{ districtCode: string | null; rateId: string
  * The place half of a delivery, controlled by the order view: district, quoted rate, agency and, for a home delivery, the address.
  * It quotes again whenever the district changes and reports the chosen rate's price with the rate, so the view can send it as the expected price.
  */
-export function QuotedPlaceFields({ method, place, settings, disabled, invalid, idPrefix, onChange }: Readonly<{
+export function QuotedPlaceFields({ method, place, settings, disabled, invalid, idPrefix, onChange, quoting = true }: Readonly<{
   method: "home" | "agency" | "store"; place: QuotedPlace; settings: DeliverySettingsResponse; disabled: boolean; invalid: ReadonlySet<string>; idPrefix: string;
   onChange: (place: QuotedPlace) => void;
+  /** False while the place is the saved one: nothing is quoted and no rate is offered until the seller changes the district. */
+  quoting?: boolean;
 }>) {
   const { t, i18n } = useTranslation();
   const ready = useClientReady();
   const [retry, setRetry] = useState(0);
   const [received, setReceived] = useState<{ key: string; quotation: QuotationResponse | null } | null>(null);
   const key = JSON.stringify([method, place.districtCode, retry, settings.version]);
-  const current = received?.key === key ? received : null;
+  const current = quoting && received?.key === key ? received : null;
   const rates = current?.quotation?.rates.filter(rate => rate.method === method) ?? [];
   const agencies = rates.find(rate => rate.id === place.rateId)?.method === "agency" ? (rates.find(rate => rate.id === place.rateId) as Extract<typeof rates[number], { method: "agency" }>).agencies : [];
-  const quotes = method !== "store" && place.districtCode !== null && !disabled;
+  const quotes = quoting && method !== "store" && place.districtCode !== null && !disabled;
+  // A new quotation carries new rate ids: a rate chosen from an older one is no longer valid, so it is cleared instead of sent stale.
+  const staleRate = current?.quotation != null && place.rateId !== "" && !rates.some(item => item.id === place.rateId);
+  useEffect(() => { if (staleRate) onChange({ ...place, rateId: "", agencyId: "", ratePrice: null }); }, [staleRate, place, onChange]);
   useEffect(() => {
     if (current || !quotes || !place.districtCode) return;
     const controller = new AbortController();
@@ -150,8 +155,9 @@ export function QuotedPlaceFields({ method, place, settings, disabled, invalid, 
   const pickup = settings.store.pickupPoint;
   if (method === "store") return pickup ? <p>{pickup.name} · {pickup.address}{pickup.instructions && <> · {pickup.instructions}</>}</p> : null;
   return <FieldSet disabled={disabled || !ready} className="flex min-w-0 flex-col gap-4">
-    <PeruDistrictSelect value={place.districtCode ? getPeruDistrict(place.districtCode)?.code ?? null : null} disabled={disabled}
-      onChange={code => onChange({ ...place, districtCode: code, rateId: "", agencyId: "", ratePrice: null })} />
+    <Field data-invalid={invalid.has("districtCode")}><div id={`${idPrefix}-districtCode`} tabIndex={-1} className="min-w-0 outline-none">
+      <PeruDistrictSelect value={place.districtCode ? getPeruDistrict(place.districtCode)?.code ?? null : null} disabled={disabled}
+        onChange={code => onChange({ ...place, districtCode: code, rateId: "", agencyId: "", ratePrice: null })} /></div></Field>
     {quotes && !current && <Alert><AlertDescription>{t("orderDelivery.quoting")}</AlertDescription></Alert>}
     {current && !current.quotation && <Alert variant="destructive"><AlertDescription>{t("orderDelivery.quoteError")}</AlertDescription>
       <Button type="button" variant="outline" onClick={() => setRetry(value => value + 1)}>{t("orderDelivery.retryRates")}</Button></Alert>}
@@ -162,6 +168,8 @@ export function QuotedPlaceFields({ method, place, settings, disabled, invalid, 
         onChange({ ...place, rateId: String(value ?? ""), ratePrice: chosen?.price ?? null, agencyId: chosen?.method === "agency" && chosen.agencies.length === 1 ? chosen.agencies[0].id : "" });
       }}><SelectTrigger id={`${idPrefix}-rateId`} aria-invalid={invalid.has("rateId")}><SelectValue placeholder={t("orderDelivery.chooseRate")} /></SelectTrigger>
         <SelectContent>{rateItems.map(item => <SelectItem key={item.value} value={item.value}>{item.label}</SelectItem>)}</SelectContent></Select></Field>}
+    {rates.length === 0 && quoting && invalid.has("rateId") && <Field data-invalid><FieldLabel htmlFor={`${idPrefix}-rateId`}>{t("orderDelivery.rate")}</FieldLabel>
+      <div id={`${idPrefix}-rateId`} tabIndex={-1} className="text-sm text-muted-foreground outline-none">{t("orderDelivery.chooseRate")}</div></Field>}
     {agencies.length > 0 && <Field data-invalid={invalid.has("agencyId")}><FieldLabel htmlFor={`${idPrefix}-agencyId`}>{t("orderDelivery.agency")}</FieldLabel>
       <Select items={agencyItems} value={agencies.some(item => item.id === place.agencyId) ? place.agencyId : null} onValueChange={value => onChange({ ...place, agencyId: String(value ?? "") })}>
         <SelectTrigger id={`${idPrefix}-agencyId`} aria-invalid={invalid.has("agencyId")}><SelectValue placeholder={t("orderDelivery.chooseAgency")} /></SelectTrigger>

@@ -11,7 +11,7 @@ import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settin
 import { ok } from "@shared/functional";
 import { OrderDeliveryCard } from "@core/src/features/orders/presentation/order-delivery-card";
 import {
-  buildEditRequest, clearCustomer, initialDraft, invalidFields, setCustomer, type DeliveryDraft, type OrderViewState,
+  buildCreateRequest, clearCustomer, initialDraft, invalidFields, setCustomer, type DeliveryDraft, type OrderViewState,
 } from "@core/src/features/orders/presentation/order-view-state";
 
 vi.mock("@core/src/features/delivery-settings/infrastructure/quotation-api", () => ({ requestDeliveryQuotation: vi.fn() }));
@@ -32,6 +32,13 @@ const homeDelivery = {
   method: "home" as const, recipient,
   destination: { address: "Av. Lima 123", district: "Miraflores", instructions: null, country: "PE" as const, districtCode: "150122", province: "Lima", department: "Lima" },
   pricing: { quotationId: "00000000-0000-4000-8000-0000000000f1", rateId, optionId: "00000000-0000-4000-8000-0000000000f2", settingsVersion: 1 },
+  recordedBy: { kind: "seller" as const, userId: "user-1" },
+};
+const agencyDelivery = {
+  method: "agency" as const, recipient: { ...recipient, identity: { kind: "document" as const, documentType: "national_id" as const, document: "12345678" } },
+  destination: { country: "PE" as const, districtCode: "150122", district: "Miraflores", province: "Lima", department: "Lima" },
+  pricing: homeDelivery.pricing, courier: { id: "00000000-0000-4000-8000-0000000000c1", name: "Olva Courier" },
+  agency: { id: "00000000-0000-4000-8000-0000000000c2", name: "Agencia Centro", address: "Jr. Callao 456", location: { country: "PE" as const, districtCode: "150101", district: "Lima", province: "Lima", department: "Lima" } },
   recordedBy: { kind: "seller" as const, userId: "user-1" },
 };
 const order = (patch: Partial<OrderAggregateResponse> = {}) => ({
@@ -87,7 +94,10 @@ describe("OrderDeliveryCard", () => {
     await choose("Por definir");
     expect(latest.draft.delivery.tab).toBe("none");
     expect(latest.draft.delivery.fields.address).toBe("");
-    expect(buildEditRequest(latest).success).toBe(false);
+    const line = { variantId: "00000000-0000-4000-8000-0000000000a1", productName: "Corona", attributes: {}, sku: null, unitPrice: pen(35), quantityText: "1", stock: 5, sellable: true };
+    await act(async () => setState(state => ({ ...state, draft: { ...state.draft, items: [line] } })));
+    const request = buildCreateRequest(latest);
+    expect(request.success && request.data.delivery).toBeFalsy();
     expect(invalidFields(latest)).toEqual([]);
   });
 
@@ -185,5 +195,86 @@ describe("OrderDeliveryCard", () => {
     await mount(newState(), { ...settings, home: { enabled: false }, store: { enabled: false, pickupPoint: null } } as DeliverySettingsResponse);
     expect(document.body.textContent).toContain("Configurar modalidades de entrega");
     expect(document.querySelector("a")?.getAttribute("href")).toBe("/pe/settings/delivery");
+  });
+
+  test("shows the saved agency, courier and rate of a saved order without asking for a quotation", async () => {
+    await mount(savedState({ delivery: agencyDelivery as never }), { ...settings, agency: { enabled: true } } as DeliverySettingsResponse);
+    const saved = document.querySelector("[data-testid=saved-delivery]")!;
+    expect(saved.textContent).toContain("Olva Courier · Agencia Centro · Jr. Callao 456 · Lima, Lima");
+    expect(saved.textContent).toContain("Miraflores, Lima");
+    expect(saved.textContent).toContain("S/");
+    expect(document.getElementById("order-delivery-rateId")).toBeNull();
+    expect(requestDeliveryQuotation).not.toHaveBeenCalled();
+  });
+
+  test("opening a saved home order does not quote; changing the district does", async () => {
+    await mount(savedState());
+    expect(document.querySelector("[data-testid=saved-delivery]")!.textContent).toContain("Miraflores, Lima");
+    expect(requestDeliveryQuotation).not.toHaveBeenCalled();
+    await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=district]")!.click(); });
+    expect(requestDeliveryQuotation).toHaveBeenCalledTimes(1);
+    expect(document.querySelector("[data-testid=saved-delivery]")).toBeNull();
+  });
+
+  test("shows the saved rate and the district of a locked home order", async () => {
+    await mount(savedState({ deliveryStatus: "delivered" }));
+    expect(document.querySelector("[data-testid=saved-delivery]")!.textContent).toContain("Miraflores, Lima");
+    expect(document.querySelector("[data-testid=saved-delivery]")!.textContent).toContain("S/");
+    expect(requestDeliveryQuotation).not.toHaveBeenCalled();
+  });
+
+  test("disables everything on a cancelled order and keeps showing its delivery", async () => {
+    await mount(savedState({ cancelled: true }));
+    expect(field("name").matches(":disabled")).toBe(true);
+    expect(tab("Domicilio").disabled).toBe(true);
+    expect(document.querySelector("[data-testid=saved-delivery]")).not.toBeNull();
+  });
+
+  test("keeps the locked recipient when the customer changes", async () => {
+    await mount(savedState({ deliveryStatus: "shipped" }));
+    await act(async () => setState(state => setCustomer(state, { name: "Ana", phone: "+51922222222" })));
+    expect(field("name").value).toBe("Jorge Gonzalez");
+  });
+
+  test("keeps the internal cost while only the reference of a saved delivery is amended", async () => {
+    await mount(savedState());
+    await type("instructions", "Portón verde");
+    expect(latest.draft.delivery.fields.rateId).toBe(rateId);
+    expect(document.body.textContent).toContain("Costo de entrega (interno): S/");
+  });
+
+  test("marks the district and gives it a focus target when Domicilio has nothing filled", async () => {
+    await mount(newState());
+    await choose("Domicilio");
+    const target = document.getElementById("order-delivery-districtCode")!;
+    expect(target).not.toBeNull();
+    expect(target.parentElement!.getAttribute("data-invalid")).toBe("true");
+    expect(invalidFields(latest)[0]).toMatchObject({ section: "delivery", field: "districtCode" });
+  });
+
+  test("marks the rate with a focus target when the district is chosen but no rate is", async () => {
+    vi.mocked(requestDeliveryQuotation).mockResolvedValue(ok({ rates: [] } as never));
+    await mount(newState());
+    await choose("Domicilio");
+    await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=district]")!.click(); });
+    const target = document.getElementById("order-delivery-rateId")!;
+    expect(target.parentElement!.getAttribute("data-invalid")).toBe("true");
+    expect(invalidFields(latest).map(mark => mark.field)).toContain("rateId");
+  });
+
+  test("keeps the saved method as a disabled tab when settings no longer offer it", async () => {
+    await mount(savedState(), { ...settings, home: { enabled: false } } as DeliverySettingsResponse);
+    expect(tab("Domicilio")).toBeDefined();
+    expect(tab("Domicilio").getAttribute("aria-selected")).toBe("true");
+  });
+
+  test("brings the saved place back when the seller returns to the saved method", async () => {
+    await mount(savedState());
+    await choose("Recojo en tienda");
+    expect(latest.draft.delivery.fields.districtCode).toBeNull();
+    await choose("Domicilio");
+    expect(latest.draft.delivery.fields.districtCode).toBe("150122");
+    expect(latest.draft.delivery.fields.rateId).toBe(rateId);
+    expect(latest.draft.delivery.fields.address).toBe("Av. Lima 123");
   });
 });
