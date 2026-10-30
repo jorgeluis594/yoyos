@@ -186,7 +186,7 @@ function completePending(set: ChatPendings, pending: ChatPending, request: Advan
     [{ kind: "pending_updated", pendingId: pending.id }], [add]);
 }
 
-export type PendingQuantityChange = Readonly<{ pendingId: ChatPendingId; mode: "increase" | "set" | "decrease"; quantity: number }>;
+export type PendingQuantityChange = Readonly<{ pendingId: ChatPendingId; mode: "increase" | "set" | "decrease"; quantity: number; price?: PendingPrice | null }>;
 
 /**
  * Sets, raises or lowers a pending's quantity, keeping its values and price. Exactly 0 ends it as declined (the buyer resolved it);
@@ -202,7 +202,7 @@ export function changePendingQuantity(set: ChatPendings, change: PendingQuantity
     const productId = pending.subject.kind === "variant" ? pending.subject.productId : pending.subject.candidates[0];
     return stepOf(set, [{ kind: "quantity_above_limit", productId, identification: null }]);
   }
-  return stepOf({ ...set, pendings: replace(set, { ...pending, quantity: quantity as PositiveInteger, lastChangedAt: env.now }) }, [{ kind: "pending_updated", pendingId: pending.id }]);
+  return stepOf({ ...set, pendings: replace(set, { ...pending, quantity: quantity as PositiveInteger, price: change.price ?? pending.price, lastChangedAt: env.now }) }, [{ kind: "pending_updated", pendingId: pending.id }]);
 }
 
 /** The products a set of pendings still waits for, named once, and how many cannot be named (doubtful or deleted). */

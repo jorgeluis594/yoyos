@@ -1,7 +1,7 @@
 import type { Money } from "@shared/money";
 import type { ChatMessageOutcome, ProductIdentification } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { ItemTarget, ReportOutcome, ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
-import { maxPendingCandidates, type ChatPending, type ChatPendingId, type PhotoLeft } from "@core/src/features/orders/domain/chat-pendings";
+import { maxPendingCandidates, type ChatPending, type ChatPendingId, type PendingPrice, type PhotoLeft } from "@core/src/features/orders/domain/chat-pendings";
 import { mentionedPriceOf, type StatedPrice } from "@core/src/features/orders/domain/mentioned-price";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import { conflictsWithKnown, describePendings, normalizeValue, pendingPriceOf, resolveVariant, type AdvanceRequest, type AttributeChoice } from "@core/src/features/orders/domain/pending-transitions";
@@ -182,10 +182,11 @@ function withShownProducts(answer: ActionsAnswer, context: ChatReadingContext): 
   const onlyExtras = answer.actions.every((action) => action.kind === "payment_request" || action.kind === "not_allowed" || action.kind === "ready" || isUnnamedChange(action));
   if (fixed.kind !== "actions" || !onlyExtras) return answer;
   const [shown, ...otherShown] = fixed.actions;
-  const total = fixed.actions.length === 1 ? answer.actions.findIndex((action) => isUnnamedChange(action) && action.mode === "set") : -1;
+  // A total of 0 is no quantity for the shown product: it keeps its fixed add (×1) and the 0 is reported.
+  const total = fixed.actions.length === 1 ? answer.actions.findIndex((action) => isUnnamedChange(action) && action.mode === "set" && action.quantity >= 1) : -1;
   const totalAction = answer.actions[total];
   const first = shown.kind === "add" && totalAction?.kind === "change_quantity" ? { ...shown, quantity: totalAction.quantity } : shown;
-  const extras = answer.actions.flatMap((action, index): ReaderAction[] => (index === total ? [] : isUnnamedChange(action) ? [{ kind: "add", product: { kind: "unnamed" }, attributes: [], quantity: null, price: null }] : [action]));
+  const extras = answer.actions.flatMap((action, index): ReaderAction[] => (index === total ? [] : isUnnamedChange(action) && !(action.mode === "set" && action.quantity === 0) ? [{ kind: "add", product: { kind: "unnamed" }, attributes: [], quantity: null, price: null }] : [action]));
   return { kind: "actions", actions: [first, ...otherShown, ...extras], moreActions: answer.moreActions };
 }
 
@@ -295,9 +296,11 @@ function changeQuantity(action: Extract<ReaderAction, { kind: "change_quantity" 
   }
   if (target.kind === "unnamed") {
     // A product photo's caption never reaches the only-item rule: its unnamed total was given to the shown product before.
-    if (world.context.kind === "photo_product") return [unnamedAdd()];
+    if (world.context.kind === "photo_product") return [mode === "set" && quantity === 0 ? invalid("quantity_not_whole") : unnamedAdd()];
     const left = photoLeftOf(world);
-    if (left) return mode === "set" ? [markedQuantity(left, quantity)] : [unnamedAdd()];
+    if (left) return mode === "set" ? [markedQuantity(left, quantity, null, world)] : [unnamedAdd()];
+    // A text with no marker and no listed item has no line to set: the total is what the buyer wants of an unnamed product.
+    if (mode === "set" && world.context.kind === "text" && world.context.items.length === 0) return [unnamedAdd()];
   }
   const lineTarget = itemTarget(target, world);
   if (mode === "increase") return [{ kind: "increase_quantity", target: lineTarget, quantity: quantity as PositiveInteger }];
@@ -306,9 +309,17 @@ function changeQuantity(action: Extract<ReaderAction, { kind: "change_quantity" 
 }
 
 /** The quantity of what the photo just sent left, which falls back to an unnamed add when it is no longer that. */
-const markedQuantity = (left: PhotoLeft, quantity: number): ResolvedChatAction => left.kind === "pending"
-  ? { kind: "change_pending_quantity", pendingId: left.pendingId, mode: "set", quantity, otherwise: unnamedAdd() }
+const markedQuantity = (left: PhotoLeft, quantity: number, price: StatedPrice | null, world: World): ResolvedChatAction => left.kind === "pending"
+  ? { kind: "change_pending_quantity", pendingId: left.pendingId, mode: "set", quantity, price: markedPendingPrice(left.pendingId, quantity, price, world), otherwise: unnamedAdd() }
   : { kind: "set_marked_item_quantity", orderId: left.orderId, variantId: left.variantId, expectedQuantity: left.quantity, quantity, otherwise: unnamedAdd() };
+
+/** The stated price of a quantity-only answer, kept with the marked pending as its mentioned price. */
+function markedPendingPrice(pendingId: ChatPendingId, quantity: number, price: StatedPrice | null, world: World): PendingPrice | null {
+  const pending = [...world.pendings.values()].find((candidate) => candidate.id === pendingId);
+  const productId = pending ? (pending.subject.kind === "variant" ? pending.subject.productId : pending.subject.candidates[0]) : undefined;
+  const product = productId === undefined ? undefined : world.byProductId.get(productId);
+  return price && product ? pendingPriceOf(price, quantity, product) : null;
+}
 
 function changeVariant(action: Extract<ReaderAction, { kind: "change_variant" }>, world: World): readonly ResolvedChatAction[] {
   const item = readingItem(action.item, world);
@@ -378,7 +389,7 @@ function completePending(action: Extract<ReaderAction, { kind: "complete_pending
   if (action.product === null && action.attributes.length === 0 && action.quantity !== null) {
     // Only a quantity: the units of what the photo just sent left, otherwise an unnamed add that never grows a pending.
     const left = photoLeftOf(world);
-    return [left?.kind === "pending" && left.pendingId === pending.id ? markedQuantity(left, action.quantity) : unnamedAdd()];
+    return [left?.kind === "pending" && left.pendingId === pending.id ? markedQuantity(left, action.quantity, action.price, world) : unnamedAdd()];
   }
   const named = action.product === null ? undefined : world.products.get(action.product);
   if (action.product !== null && !named) return [invalid("unknown_reference")];

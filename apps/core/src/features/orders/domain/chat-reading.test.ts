@@ -462,6 +462,26 @@ describe("checkReaderAnswer: the photo just sent", () => {
     return { pending, chat: createChat({ pendings: [pending] }), left: { kind: "pending", pendingId: pending.id } as const };
   };
 
+  test("an unnamed set of 0 in a product photo's caption keeps the shown add at ×1 and reports the quantity", () => {
+    const chat = createChat();
+    const said = chat.say(say(reader.change("unnamed", "set", 0)), { shown: [["snapback"]] });
+    expect(said.kinds).toEqual(["added", "invalid_action"]);
+    expect(said.outcomes[1]).toMatchObject({ kind: "invalid_action", reason: "quantity_not_whole" });
+    expect(chat.items()).toEqual(["Gorra snapback · Azul · ×1"]);
+  });
+
+  test("an unnamed set in a text with no photo marker and no listed item is an unnamed add", () => {
+    const chat = createChat();
+    expect(chat.say(say(reader.change("unnamed", "set", 3))).kinds).toEqual(["unnamed_add"]);
+    expect(chat.order).toBeNull();
+  });
+
+  test("a price stated with the quantity of the photo just sent is kept on the pending", () => {
+    const { chat, left } = afterPhotoOfPolo();
+    expect(chat.say(say(reader.complete(1, undefined, 3, null, stated("90"))), { photoJustSent: left }).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendings.pendings[0]).toMatchObject({ quantity: 3, price: { amount: { amount: 90 }, forQuantity: 3 } });
+  });
+
   test("an unnamed set right after a photo that left a pending sets that pending", () => {
     const { chat, left } = afterPhotoOfPolo();
     expect(chat.say(say(reader.change("unnamed", "set", 3)), { photoJustSent: left }).kinds).toEqual(["pending_updated"]);

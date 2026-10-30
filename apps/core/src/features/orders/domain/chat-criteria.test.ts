@@ -340,15 +340,23 @@ describe("product criteria (message to order without silent losses)", () => {
 
   test("criteria 5 to 9 and 34: payment requests, method questions, embedded instructions and pendings left", () => {
     const open = createChat({ items: [["polo", M_NEGRO, 1]] });
-    expect(paymentOf(open.say(say(reader.payment)))).toMatchObject({ order: { kind: "open", orderId: open.order!.id }, productIds: [], unnamed: 0 });
+    const openSaid = open.say(say(reader.payment));
+    expect(openSaid.kinds).toEqual(["payment_requested"]);
+    expect(paymentOf(openSaid)).toMatchObject({ order: { kind: "open", orderId: open.order!.id }, productIds: [], unnamed: 0 });
+    expect(open.items()).toEqual(["Polo básico · M · Negro · ×1"]);
+    expect(open.order!.payments).toEqual([]);
     const none = createChat();
-    expect(paymentOf(none.say(say(reader.payment)))).toMatchObject({ order: { kind: "none" } });
+    const noneSaid = none.say(say(reader.payment));
+    expect(noneSaid.kinds).toEqual(["payment_requested"]);
+    expect(paymentOf(noneSaid)).toMatchObject({ order: { kind: "none" } });
     expect(none.order).toBeNull();
     const paid = createChat({ items: [["polo", M_NEGRO, 1]] });
     pay(paid, t0);
     const paidSaid = paid.say(say(reader.payment));
+    expect(paidSaid.kinds).toEqual(["payment_requested"]);
     expect(paymentOf(paidSaid)).toMatchObject({ order: { kind: "closed", orderId: paid.order!.id } });
     expect(paid.order!.payments).toHaveLength(1);
+    expect(paid.items()).toEqual(["Polo básico · M · Negro · ×1"]);
     expect(createChat({ items: [["polo", M_NEGRO, 1]] }).say({ kind: "no_intent" }).kinds).toEqual(["no_intent"]);
 
     const withGorra = createChat({ items: [["polo", M_NEGRO, 1]] });
@@ -379,9 +387,12 @@ describe("product criteria (message to order without silent losses)", () => {
 
   test("criteria 10 to 14: set, lower and one more on named items and pendings", () => {
     const chat = createChat({ items: [["polo", M_NEGRO, 2], ["gorra", { Color: "Negro" }, 2]] });
-    const kinds = [chat.say(say(change("I1", "set", 3))), chat.say(say(change("I2", "decrease", 1))), chat.say(say(change("I2", "increase", 1)))].flatMap((said) => said.kinds);
-    expect(kinds).toEqual(["quantity_changed", "quantity_lowered", "quantity_changed"]);
-    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×3", "Gorra trucker · Negro · ×2"]);
+    expect(chat.say(say(change("I1", "set", 3))).kinds).toEqual(["quantity_changed"]);
+    expect(chat.say(say(change("I2", "decrease", 1))).kinds).toEqual(["quantity_lowered"]);
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×3", "Gorra trucker · Negro · ×1"]);
+    expect(chat.say(say(change("I2", "increase", 2))).kinds).toEqual(["quantity_changed"]);
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×3", "Gorra trucker · Negro · ×3"]);
+    chat.say(say(change("I2", "set", 2)));
     expect(chat.say(say(change("I2", "decrease", 3))).outcomes).toMatchObject([{ kind: "invalid_action", reason: "quantity_below_zero" }]);
     expect(chat.say(say(change("I2", "decrease", 2))).kinds).toEqual(["removed"]);
     const only = createChat({ items: [["gorra", { Color: "Negro" }, 2]] });
@@ -443,7 +454,9 @@ describe("product criteria (message to order without silent losses)", () => {
     const closed = createChat({ items: [["polo", M_NEGRO, 1]] });
     pay(closed, t0);
     const newOrder = closed.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } }), reader.payment));
+    expect(newOrder.kinds).toEqual(["new_order_after_closed", "added", "payment_requested"]);
     expect(paymentOf(newOrder)).toMatchObject({ order: { kind: "open", orderId: id(900) } });
+    expect(closed.items()).toEqual(["Gorra trucker · Rojo · ×1"]);
     expect(paymentOf(closed.say(say(reader.payment)))).toMatchObject({ order: { kind: "open", orderId: id(900) } });
     const paidOnly = createChat({ items: [["polo", M_NEGRO, 1]] });
     pay(paidOnly, t0);

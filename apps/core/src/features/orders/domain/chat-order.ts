@@ -2,7 +2,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { buildPendingOrder, orderStateMachine, type OrderAggregate, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order-target";
-import type { ChatPending, ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
+import type { ChatPending, ChatPendingId, ChatPendings, PendingPrice } from "@core/src/features/orders/domain/chat-pendings";
 import { advancePending, attachOrderless, changePendingQuantity, declinePending, describePendings, draftPending, type AdvanceRequest, type PendingDraft, type PendingStep, type TransitionEnv } from "@core/src/features/orders/domain/pending-transitions";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
@@ -43,7 +43,7 @@ export type ResolvedChatAction =
   /** Lowers an item: above 0 a lowered quantity, exactly 0 a removal, below 0 nothing changes. */
   | Readonly<{ kind: "lower_quantity"; target: ItemTarget; quantity: PositiveInteger }>
   /** A quantity change on a pending; `otherwise` applies when the pending is gone by the time it runs. */
-  | Readonly<{ kind: "change_pending_quantity"; pendingId: ChatPendingId; mode: "increase" | "set" | "decrease"; quantity: number; otherwise: ResolvedChatAction }>
+  | Readonly<{ kind: "change_pending_quantity"; pendingId: ChatPendingId; mode: "increase" | "set" | "decrease"; quantity: number; price?: PendingPrice | null; otherwise: ResolvedChatAction }>
   /** Sets the item the photo just sent left, only while the open order still is `orderId` and the item still has `expectedQuantity`. */
   | Readonly<{ kind: "set_marked_item_quantity"; orderId: OrderId; variantId: VariantId; expectedQuantity: PositiveInteger; quantity: number; otherwise: ResolvedChatAction }>
   /** A product with no open pending before the message becomes one. */
@@ -125,7 +125,7 @@ function applyAction(state: State, action: ResolvedChatAction, ids: ChatOrderIds
       if (left < 0) { state.outcomes.push({ kind: "invalid_action", orderId: order.id, reason: "quantity_below_zero" }); return done; }
       return left === 0 ? removeFromOrder(state, order, item, named) : changeQuantity(state, order, item, left, named, "quantity_lowered", limits);
     });
-    case "change_pending_quantity": return changePendingsQuantity(state, action, ids, now, limits, seed);
+    case "change_pending_quantity": return applyPendingQuantityChange(state, action, ids, now, limits, seed);
     case "set_marked_item_quantity": return setMarkedItem(state, action, ids, now, limits, seed);
     case "draft_pending": return draft(state, action.draft, ids, now, limits, seed);
     case "advance_pending": return advance(state, action, ids, now, limits, seed);
@@ -234,7 +234,7 @@ function advance(state: State, action: Extract<ResolvedChatAction, { kind: "adva
 }
 
 /** Applies the quantity change when its pending is alive, else `otherwise`. Reaching 0 is the buyer declining it. */
-function changePendingsQuantity(state: State, action: Extract<ResolvedChatAction, { kind: "change_pending_quantity" }>, ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Step {
+function applyPendingQuantityChange(state: State, action: Extract<ResolvedChatAction, { kind: "change_pending_quantity" }>, ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Step {
   if (!state.pendings.pendings.some((pending) => pending.id === action.pendingId)) return applyAction(state, action.otherwise, ids, now, limits, seed);
   const step = changePendingQuantity(state.pendings, action, transitionEnv(state, ids, now, limits, seed));
   const open = state.original.kind === "open" ? state.original.order.id : null;
