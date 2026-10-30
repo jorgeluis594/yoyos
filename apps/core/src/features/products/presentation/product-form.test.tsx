@@ -190,7 +190,7 @@ test("a selection of saved variants has no Quitar and cannot edit stock", () => 
 
 test("the consolidated variants table has its own heading section, apart from the options and holding the selection chips and the counter", () => {
   mount({ draft: draftFromProduct(product(false)) });
-  const heading = [...container.querySelectorAll("h3")].find((candidate) => candidate.textContent === "Variantes del producto")!;
+  const heading = [...container.querySelectorAll("h4")].find((candidate) => candidate.textContent === "Variantes del producto")!;
   const section = heading.closest("section")!;
   expect(section.getAttribute("aria-labelledby")).toBe(heading.id);
   expect(section.textContent).toContain("2 de 100 variantes");

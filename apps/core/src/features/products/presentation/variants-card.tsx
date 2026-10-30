@@ -185,7 +185,7 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
           <div><Button type="button" variant="outline" onClick={() => open(newOptionBuffer(crypto.randomUUID()))}>{t("productEditor.addOptions")}</Button></div>
           <p className="text-sm text-muted-foreground">{t("productEditor.addOptionsHelp")}</p>
         </div>}
-        {(hasOptions || editing) && <ul className={`grid divide-y divide-border${hasOptions ? " border-b border-border pb-4" : ""}`}>
+        {(hasOptions || editing) && <ul className={`grid divide-y divide-border${hasOptions && !editing ? " border-b border-border pb-4" : ""}`}>
           {draft.options.map((option, index) => editing && editing.optionId === option.id
             ? <li key={option.id} className={itemClass}><OptionEditor draft={draft} buffer={editing} issues={optionIssues(draft, editing)} originalNames={originalNames} notice={notices[option.id] ?? targets.options[option.id]} valueNotices={{ ...valueNotices, ...targets.values }}
                 onChange={setEditing} onDone={done} onDelete={() => remove(editing)} onRemoveValue={removeFromEditor} onUndoValue={(id) => edit((current) => undoRemoveValue(current, id))} /></li>
@@ -201,7 +201,7 @@ export function VariantsCard({ draft, setDraft, variantHref, currency, originalN
         {noneActive && <Alert variant="warning"><AlertDescription>{t("productEditor.noActive")}</AlertDescription></Alert>}
         {hasOptions && <section aria-labelledby="variants-table-heading" className="grid gap-4 border-t border-border pt-4">
           <div className="grid gap-1">
-            <h3 id="variants-table-heading" className="text-sm font-semibold">{t("productEditor.variantsTable")}</h3>
+            <h4 id="variants-table-heading" className="text-sm font-semibold">{t("productEditor.variantsTable")}</h4>
             <p className="text-sm text-muted-foreground" aria-live="polite">{t("productEditor.counter", { count: counter.count, max: counter.maximum })}{counter.inactive > 0 && ` · ${t("productEditor.counterInactive", { count: counter.inactive })}`}</p>
           </div>
           {stockNotice !== null && <Alert variant="info"><AlertDescription>{t("productEditor.stockCopied", { count: stockNotice })}</AlertDescription></Alert>}
