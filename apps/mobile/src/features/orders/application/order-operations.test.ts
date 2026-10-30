@@ -194,6 +194,22 @@ test("a sale core already has completes with the amount first shown and leaves t
   }
 });
 
+test("a sale queued with the old deferral option is re-sent unchanged", async () => {
+  const order = completed();
+  const store = storage();
+  const request = { id: id(3), items: [{ variantId: id(2), quantity: 1 }], deferStockDeduction: true,
+    payments: [{ paymentId: id(8), amount: { amount: 12, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }] };
+  await store.save({ version: 2, companyId, id: id(3), shownTotal: { amount: 12, currency: "PEN" }, request });
+  const bodies: unknown[] = [];
+  const api = createOrderApi(async (path, init) => {
+    if (init?.method === "POST" && path === "/api/orders") { bodies.push(JSON.parse(String(init.body))); return ok(order); }
+    return missing();
+  });
+  expect(await createOrderOperations(api, store).syncPendingOrders(companyId)).toEqual({ waiting: 0 });
+  expect(bodies).toEqual([request]);
+  expect(await store.list(companyId)).toEqual(ok([]));
+});
+
 test("an attempt saved in an older format is never sent and can be discarded", async () => {
   const values = new Map([[`yoyos_pending_order_${companyId}`, JSON.stringify({ companyId, id: id(3), shownTotal: { amount: 10, currency: "PEN" } })]]);
   const store = createPendingOrderConfirmationStore({ getItemAsync: async (key) => values.get(key) ?? null,
