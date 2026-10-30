@@ -1,6 +1,7 @@
 import { findVariant, type CatalogScope, type ProductKey } from "@core/evals/fixtures/catalog";
 import type { FinalLine, ImageExpectation, MessageExpectation, OrderLine, OutcomeKind } from "@core/evals/cases/schema";
 import type { SellerNoticeKind } from "@core/src/features/orders/domain/seller-notice";
+import { shippedExpectations, type ShippedFeatures } from "@core/evals/lib/shipped-expectations";
 
 /**
  * Exact-match scorers. Each field scores true, false, or null when the expectation does not state it. A case passes when every
@@ -121,7 +122,9 @@ const statusOf = (fields: FieldScores, actual: MessageActual, expectation: Messa
   expectedSilent: expectation.notice === null,
 });
 
-export function scoreMessage(actual: MessageActual, expectations: readonly MessageExpectation[], initial: readonly OrderLine[], scope: CatalogScope = "eval"): MessageScored {
+/** Scores against the expectations as the shipped reader features rewrite them (lib/shipped-expectations.ts); `features` defaults to what ships. */
+export function scoreMessage(actual: MessageActual, cases: readonly MessageExpectation[], initial: readonly OrderLine[], scope: CatalogScope = "eval", features?: ShippedFeatures): MessageScored {
+  const expectations = shippedExpectations(cases, features);
   const scored = best(expectations, (expectation) => scoreMessageFields(actual, expectation, initial));
   // Price integrity is checked on every message, whatever the expectation.
   const unitPrice = unitPricesIntact(actual.order, scope);

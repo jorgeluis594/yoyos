@@ -3,6 +3,8 @@
  * and the Claude client are measured without changing their code. Installed before any client is created.
  */
 
+import { priceOf } from "@core/src/shared/infrastructure/model-prices";
+
 export type ModelProvider = "openai" | "anthropic";
 /** What a call was for: the system under test, or one of Claude's eval roles. */
 export type CallRole = "system" | "judge" | "classifier" | "generator";
@@ -22,20 +24,19 @@ export type ModelCall = Readonly<{
 }>;
 
 /**
- * USD per million tokens, as published by each provider. Checked on 2026-10-23: Claude Sonnet 5.5 from Anthropic's model table;
- * gpt-6-luna from third-party listings of OpenAI's price page (verify on developers.openai.com/api/docs/pricing). Embeddings by the
- * local SigLIP model cost nothing. A model missing here is reported with an unknown cost, never as free.
+ * USD per million tokens of Claude, the eval's judge, classifier and paraphrase generator, checked on 2026-10-23 from Anthropic's model table.
+ * The models of the system under test (gpt-6-luna, text-embedding-3-small) are priced in `src/shared/infrastructure/model-prices.ts`, the one
+ * table production reads too. Embeddings by the local SigLIP model cost nothing. A model missing from both is reported with an unknown cost,
+ * never as free.
  */
-export const modelPrices: Readonly<Record<string, Readonly<{ input: number; output: number }>>> = {
+export const claudePrices: Readonly<Record<string, Readonly<{ input: number; output: number }>>> = {
   "claude-sonnet-5-5": { input: 2, output: 10 },
   "claude-opus-5-5": { input: 4, output: 20 },
-  "gpt-6-luna": { input: 0.1, output: 0.5 },
-  "text-embedding-3-small": { input: 0.02, output: 0 },
 };
 
 /** Estimated cost of a call in USD, or null when the model has no configured price. */
 export function costOf(call: Pick<ModelCall, "model" | "inputTokens" | "outputTokens">): number | null {
-  const price = modelPrices[call.model];
+  const price = priceOf(call.model) ?? (Object.hasOwn(claudePrices, call.model) ? claudePrices[call.model]! : null);
   return price ? (call.inputTokens * price.input + call.outputTokens * price.output) / 1_000_000 : null;
 }
 
