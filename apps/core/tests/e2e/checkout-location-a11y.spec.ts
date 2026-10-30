@@ -14,7 +14,8 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 // Criteria 23, 24 and 33 of the checkout location feature (docs/checkout.md, «Delivery choice»), which PR #281 left as manual checks.
-const shotsDir = "/tmp/claude-1000/-home-jorge-orca-workspaces-yoyos-checkout-mostrar-solo-departamentos-prov-a11y/d181e09e-8f7a-47b0-a7d6-3b09bf765d53/scratchpad/auto-shots";
+/** Screenshots are saved only when CHECKOUT_A11Y_SHOTS_DIR names a directory; they are never committed. */
+const shotsDir = process.env.CHECKOUT_A11Y_SHOTS_DIR;
 const preselected = "Completamos automáticamente los campos que tienen una sola opción.";
 const cleared = /Envío a agencia no llega a Miraflores\./;
 const loading = "Consultando opciones de envío…";
@@ -186,10 +187,10 @@ function expectContiguous(layout: Layout, moment: string) {
 const viewports = [{ name: "390", width: 390, height: 844 }, { name: "1280", width: 1280, height: 900 }] as const;
 
 for (const viewport of viewports) {
-  const shot = (page: Page, flow: string, moment: string) => page.screenshot({ path: `${shotsDir}/${viewport.name}-${flow}-${moment}.png`, fullPage: true });
+  const shot = async (page: Page, flow: string, moment: string) => { if (shotsDir) await page.screenshot({ path: `${shotsDir}/${viewport.name}-${flow}-${moment}.png`, fullPage: true }); };
 
   test(`no blank gap or jump around the location notice and quotation status at ${viewport.width}x${viewport.height}`, async ({ page }) => {
-    mkdirSync(shotsDir, { recursive: true });
+    if (shotsDir) mkdirSync(shotsDir, { recursive: true });
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
     await withStore(async (f) => {
       // Before: the server render, without scripts, so neither region has been filled.
