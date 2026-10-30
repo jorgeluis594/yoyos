@@ -2,13 +2,14 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { deleteConfiguredExpiredCatalogOrders } from "@core/src/features/orders/composition";
+import { STOCK_DEDUCTION_RECOVERY_CRON } from "@core/src/features/orders/application/recover-due-stock-deductions";
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { log } from "@core/src/shared/infrastructure/logger";
 import type {
-  AnyEventSubscription, BlockedKeysReader, EventBusError, JobScheduler, ScheduledJobHandler, Unsubscribe,
+  AnyEventSubscription, BlockedKeysReader, EventBusError, JobScheduler, ScheduledJobHandler, ScheduledJobPolicy, Unsubscribe,
 } from "@core/src/shared/events/application/contracts";
 
-export type ScheduledJob = Readonly<{ name: string; cron: string; tz: string; handler: ScheduledJobHandler }>;
+export type ScheduledJob = Readonly<{ name: string; cron: string; tz: string; handler: ScheduledJobHandler; policy?: ScheduledJobPolicy }>;
 
 const dayMs = 24 * 60 * 60 * 1000;
 
@@ -58,15 +59,24 @@ export function reportBlockedChatKeysJob(reader: BlockedKeysReader, handlerIds: 
   };
 }
 
+/**
+ * Recovery runs once a minute with three passes inside the run (pg-boss sends at most one cron job per minute).
+ * `stately`: one active and one queued run across every worker, no retry (the next minute is the retry), expiry below the slot.
+ */
+export const stockDeductionRecoveryPolicy: ScheduledJobPolicy = { retryLimit: 0, expireInSeconds: 58, queuePolicy: "stately" };
+
 export function scheduledJobs(
   catalogOrderTtl: number,
   blockedKeys: Readonly<{ reader: BlockedKeysReader; handlerIds: readonly string[] }>,
+  recoverStockDeductions: ScheduledJobHandler,
 ): readonly ScheduledJob[] {
   return [
     { name: "delete-expired-catalog-orders", cron: "0 4 * * *", tz: "America/Lima",
       handler: deleteExpiredCatalogOrdersJob(catalogOrderTtl) },
     { name: "report-blocked-chat-keys", cron: "*/5 * * * *", tz: "America/Lima",
       handler: reportBlockedChatKeysJob(blockedKeys.reader, blockedKeys.handlerIds) },
+    { name: "recover-due-stock-deductions", cron: STOCK_DEDUCTION_RECOVERY_CRON, tz: "America/Lima",
+      handler: recoverStockDeductions, policy: stockDeductionRecoveryPolicy },
   ];
 }
 
@@ -81,7 +91,7 @@ export async function registerScheduledJobs(
     return results.find(result => !result.success) ?? ok(undefined);
   };
   for (const job of jobs) {
-    const registered = await scheduler.schedule(job.name, job.cron, job.handler, { tz: job.tz });
+    const registered = await scheduler.schedule(job.name, job.cron, job.handler, { tz: job.tz, ...(job.policy ? { policy: job.policy } : {}) });
     if (!registered.success) {
       await cleanup();
       return registered;

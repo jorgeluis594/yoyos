@@ -19,7 +19,7 @@ vi.mock("@core/src/features/orders/infrastructure/checkout-repository", () => ({
 }));
 vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
   allocateOrderNumber: async () => ok(1001 as OrderNumber), orderExists: async () => ok(false), savePendingOrder: async () => ok(null), savePayment: async () => ok(null),
-  saveStockDeduction: async () => ok(null), loadStockOrders: vi.fn(), lockOrdersSkipLocked: vi.fn(), saveStockDeductions: vi.fn(), listWaitingOrderIds: vi.fn(), findOrders: vi.fn(), findOrderForUpdate: vi.fn(), findOrderAggregate: vi.fn(), saveFulfillment: async () => ok(null),
+  saveStockDeduction: async () => ok(null), loadStockOrders: vi.fn(), listCompaniesWithOverdueStockDeductions: vi.fn(), listOverdueOrderIds: vi.fn(), lockOrdersSkipLocked: vi.fn(), saveStockDeductions: vi.fn(), listWaitingOrderIds: vi.fn(), findOrders: vi.fn(), findOrderForUpdate: vi.fn(), findOrderAggregate: vi.fn(), saveFulfillment: async () => ok(null),
   findOpenChatOrderCandidate: vi.fn(), findChatOrderTargetForUpdate: vi.fn(), saveItemChanges: vi.fn(), recordProcessedMessage: vi.fn(), saveCancellation: vi.fn(),
 }));
 vi.mock("@core/src/features/products", () => ({

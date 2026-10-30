@@ -1,5 +1,5 @@
 import { applicationEventBus } from "@core/src/composition/event-bus";
-import type { EventBusError } from "@core/src/shared/events/application/contracts";
+import type { EventBusError, ScheduledJobHandler } from "@core/src/shared/events/application/contracts";
 import { createCompleteOrder, type CreateCompleteOrderInput } from "@core/src/features/orders/application/create-complete-order";
 import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type CheckoutPhotoError, type GetOrderCheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrder, findCheckoutOrderForUpdate as findAnyCheckoutOrderForUpdate, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
@@ -9,10 +9,11 @@ import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logge
 import { randomUUID } from "node:crypto";
 import { isPersistenceFailure, type TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
 import { createInTransactionPublisher, type InTransactionRegistry } from "@core/src/shared/events/application/in-transaction-events";
-import { containedDeductionOutcome, containedServeOutcome, deductDueOrderStock, serveWaitingOrders, type DeductDueStockDependencies, type StockEvent } from "@core/src/features/orders/application/deduct-due-stock";
+import { recoverDueStockDeductions, STOCK_DEDUCTION_FAILURE_QUARANTINE_MINUTES, STOCK_DEDUCTION_RECOVERY_LAST_PASS_START_MS, STOCK_DEDUCTION_RECOVERY_PASS_BUDGET, STOCK_DEDUCTION_RECOVERY_PASS_OFFSETS_MS, type RecoverDueStockDeductionsDependencies } from "@core/src/features/orders/application/recover-due-stock-deductions";
+import { containedDeductionOutcome, containedServeOutcome, deductDueOrderStock, serveWaitingOrders, type DeductDueStockDependencies, type DeductionOutcome, type StockEvent } from "@core/src/features/orders/application/deduct-due-stock";
 import { describeOrderStockDue } from "@core/src/features/orders/application/describe-order-stock-due";
 import type { StockDue } from "@core/src/features/orders/domain/stock-deduction";
-import { listWaitingOrderIds, loadStockOrders, lockOrdersSkipLocked, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
+import { listCompaniesWithOverdueStockDeductions, listOverdueOrderIds, listWaitingOrderIds, loadStockOrders, lockOrdersSkipLocked, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
 import { err, map, ok } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, requireActiveTransaction, requireNoActiveTransaction, setLocalTimeouts, withinReadSnapshot, withinSavepoint, withinTransaction, withTenantIsolation, type TransactionOptions } from "@core/src/shared/infrastructure/persistance";
@@ -142,6 +143,48 @@ export const publishStockEvent = createInTransactionPublisher(stockRegistry, {
   }) as never,
   onTransactionEnding: (name, error) => log.warn({ event: "stock_deduction_rolled_back", event_name: name, errorCode: error.code }, "stock_deduction_rolled_back"),
 });
+
+// --- Recovery of due orders that stayed undeducted (worker only) ---
+const recoveryTransaction: TransactionOptions = { timeout: 3000, lockTimeoutMs: 1000, statementTimeoutMs: 1000 };
+const quarantinedUntil = new Map<OrderId, number>();
+const quarantineMs = STOCK_DEDUCTION_FAILURE_QUARANTINE_MINUTES * 60_000;
+const unavailable = (message: string) => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message });
+const waitFor = (ms: number, signal: AbortSignal) => new Promise<"elapsed" | "aborted">((resolve) => {
+  if (signal.aborted) return resolve("aborted");
+  const done = () => { clearTimeout(timer); signal.removeEventListener("abort", onAbort); };
+  const onAbort = () => { done(); resolve("aborted"); };
+  const timer = setTimeout(() => { done(); resolve("elapsed"); }, ms);
+  signal.addEventListener("abort", onAbort, { once: true });
+});
+let recoveryPassSequence = 0;
+
+const recoveryDependencies: RecoverDueStockDeductionsDependencies = {
+  listCompaniesWithOverdueStockDeductions,
+  listOverdueOrderIds: (companyId, limit, exclude) => withTenantIsolation(companyId, () => orderTransaction(() => listOverdueOrderIds(companyId, limit, exclude), undefined, recoveryTransaction)),
+  // The order is locked first and skipped when a seller operation holds it, so recovery never waits while holding anything.
+  publishOverdueInOwnTransaction: (companyId, orderId) => withTenantIsolation(companyId, () => orderTransaction(async () => {
+    const locked = await lockOrdersSkipLocked([orderId], companyId);
+    if (!locked.success) return unavailable(locked.error.message);
+    if (locked.data.length === 0) return ok<DeductionOutcome>({ kind: "skipped_locked" });
+    const published = await publishStockEvent("order_stock_deduction_overdue", { companyId, orderId });
+    return published.success ? published : unavailable(published.error.message);
+  }, undefined, recoveryTransaction)),
+  quarantine: {
+    list: (now) => { for (const [id, until] of quarantinedUntil) if (until <= now.getTime()) quarantinedUntil.delete(id); return [...quarantinedUntil.keys()]; },
+    add: (id, now) => { const fresh = (quarantinedUntil.get(id) ?? 0) <= now.getTime(); quarantinedUntil.set(id, now.getTime() + quarantineMs); return fresh; },
+  },
+  wait: waitFor,
+  passSequence: () => recoveryPassSequence++,
+  log: (level, event, fields) => log[level]({ event, ...fields }, event),
+  passOffsetsMs: STOCK_DEDUCTION_RECOVERY_PASS_OFFSETS_MS, lastPassStartMs: STOCK_DEDUCTION_RECOVERY_LAST_PASS_START_MS,
+  passBudget: STOCK_DEDUCTION_RECOVERY_PASS_BUDGET, clock: () => new Date(),
+};
+
+/** The scheduled job: one run per minute, up to three passes. A failed company listing fails the run; the next minute is its retry. */
+export const recoverStockDeductionsJob: ScheduledJobHandler = async ({ signal }) => {
+  const result = await recoverDueStockDeductions(signal, recoveryDependencies);
+  return result.success ? ok(undefined) : err({ ...result.error, retryable: false });
+};
 
 /** Stock rows of these variants, read without lock; the quantities are validated by whoever uses them. */
 const readStock = findVariantStock;

@@ -57,7 +57,9 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
   const boss = new PgBoss({ connectionString: options.connectionString, schema: "pgboss",
     migrate: false, createSchema: false, reindex: false, schedule: options.consume === true,
     // Expiry and heartbeat failures run in the monitor step of a supervise pass, which waits for both intervals.
-    superviseIntervalSeconds: options.superviseIntervalSeconds ?? 10, monitorIntervalSeconds: options.superviseIntervalSeconds ?? 10 });
+    superviseIntervalSeconds: options.superviseIntervalSeconds ?? 10, monitorIntervalSeconds: options.superviseIntervalSeconds ?? 10,
+    // pg-boss sends at most one cron job per 60-second slot; a 10 s monitor keeps the job from starting up to 30 s late.
+    cronMonitorIntervalSeconds: 10 });
   const pool = new pg.Pool({ connectionString: options.connectionString });
   const subscriptions = new Map<string, Subscription<Events>>();
   const consumers = new Map<string, string>();
@@ -325,14 +327,17 @@ export function createPgBossProvider<Events extends object>(options: Options<Eve
   };
   const scheduler: JobScheduler = {
     /** Worker only: pg-boss sends the cron job, and a missed run (worker down at that time) is sent once on restart. */
-    async schedule(name, cron, handler, { tz }) {
+    async schedule(name, cron, handler, { tz, policy: jobPolicy }) {
       if (!started || !options.consume) return err({ code: "EVENT_BUS_UNAVAILABLE", message: "Worker is not ready" });
       if (!/^[a-z][a-z0-9-]*$/.test(name) || subscriptions.has(name) || consumers.has(name)) {
         return err({ code: "INVALID_SUBSCRIPTION", message: "Unknown or duplicate scheduled job" });
       }
       try {
-        const policy = { retryLimit: 3, retryDelay: 300, retryBackoff: false };
-        await boss.createQueue(name, policy);
+        const policy = jobPolicy
+          ? { retryLimit: jobPolicy.retryLimit, retryDelay: 0, retryBackoff: false, expireInSeconds: jobPolicy.expireInSeconds }
+          : { retryLimit: 3, retryDelay: 300, retryBackoff: false };
+        // The queue policy is fixed when the queue is created.
+        await boss.createQueue(name, { ...policy, ...(jobPolicy && jobPolicy.queuePolicy !== "standard" ? { policy: jobPolicy.queuePolicy } : {}) });
         await boss.updateQueue(name, policy);
         await boss.schedule(name, cron, null, { tz, missed: "once" });
         const workId = await boss.work(name, async jobs => {

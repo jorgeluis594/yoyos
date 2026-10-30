@@ -9,7 +9,7 @@ const context = { signal: new AbortController().signal, attempt: 1 };
 
 test("registers the daily catalog cleanup at 04:00 Lima and releases it on cleanup", async () => {
   const bus = createInMemoryEventBus();
-  const registered = await registerScheduledJobs(bus, scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] }));
+  const registered = await registerScheduledJobs(bus, scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] }, async () => ok(undefined)));
   expect(bus.scheduled()).toContainEqual(expect.objectContaining({ name: "delete-expired-catalog-orders", cron: "0 4 * * *", tz: "America/Lima" }));
   if (registered.success) await registered.data();
   expect(bus.scheduled()).toEqual([]);
@@ -17,7 +17,7 @@ test("registers the daily catalog cleanup at 04:00 Lima and releases it on clean
 
 test("releases already registered jobs when a later job cannot be scheduled", async () => {
   const bus = createInMemoryEventBus();
-  const [job] = scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] });
+  const [job] = scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] }, async () => ok(undefined));
   expect(await registerScheduledJobs(bus, [job, job])).toMatchObject({ success: false, error: { code: "INVALID_SUBSCRIPTION" } });
   expect(bus.scheduled()).toEqual([]);
 });
@@ -48,7 +48,7 @@ test("cleanup job deletes before the ttl cutoff and fails for a retry when the l
 
 test("registers the blocked chat keys check every five minutes", async () => {
   const bus = createInMemoryEventBus();
-  await registerScheduledJobs(bus, scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] }));
+  await registerScheduledJobs(bus, scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] }, async () => ok(undefined)));
   expect(bus.scheduled()).toContainEqual(expect.objectContaining({ name: "report-blocked-chat-keys", cron: "*/5 * * * *" }));
 });
 
@@ -74,4 +74,11 @@ test("fails for a retry when the blocked keys cannot be read", async () => {
   const reader = { listBlockedKeys: async () => err({ code: "EVENT_BUS_UNAVAILABLE" as const, message: "down" }) };
   expect(await reportBlockedChatKeysJob(reader, ["apply-chat-message"])(context))
     .toEqual(err({ code: "EVENT_BUS_UNAVAILABLE", message: "down", retryable: true }));
+});
+
+test("registers the stock deduction recovery every minute with a stately one-shot policy", async () => {
+  const bus = createInMemoryEventBus();
+  await registerScheduledJobs(bus, scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] }, async () => ok(undefined)));
+  expect(bus.scheduled()).toContainEqual(expect.objectContaining({ name: "recover-due-stock-deductions", cron: "* * * * *",
+    policy: { retryLimit: 0, expireInSeconds: 58, queuePolicy: "stately" } }));
 });
