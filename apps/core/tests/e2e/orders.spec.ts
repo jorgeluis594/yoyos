@@ -51,9 +51,8 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
     await browserExpect(page.getByText("Venta completada", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Entrega por definir", { exact: true })).toHaveCount(0);
-    await browserExpect(page.getByRole("button", { name: "Guardar entrega" })).toHaveCount(0);
-    await browserExpect(page.getByText("Público general")).toBeVisible();
-    await browserExpect(page.getByRole("region", { name: "Pagos" }).getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.58, "PEN", "es"), { exact: true })).toBeVisible();
+    await browserExpect(page.getByLabel("Nombre", { exact: true }).first()).toHaveValue("");
+    await browserExpect(orderTotal(page)).toHaveText(formatCurrency(0.58, "PEN", "es"));
     const immediateId = page.url().split("/").at(-1)!;
     expect(await (await page.request.get(`/api/orders/${immediateId}/aggregate`)).json()).toMatchObject({
       status: "completed", paymentStatus: "paid", deliveryStatus: "delivered", stockDeducted: true,
@@ -83,7 +82,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await browserExpect(orderTotal(page)).toHaveText(formatCurrency(0.29, "PEN", "es"));
     await page.getByRole("button", { name: "Guardar venta" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
-    await browserExpect(page.getByRole("region", { name: "Pagos" }).getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.30, "PEN", "es"), { exact: true })).toBeVisible();
+    await browserExpect(orderTotal(page)).toHaveText(formatCurrency(0.30, "PEN", "es"));
     const completedUrl = page.url();
     await page.getByRole("link", { name: "Ver ventas" }).click();
     await page.getByRole("button", { name: "Filtros" }).click();
@@ -208,17 +207,17 @@ test("pending order remains active when paid before delivery", async ({ page }) 
     await browserExpect(page.getByRole("table", { name: "Órdenes" }).locator('summary[aria-label^="Estado del pago: Pago pendiente:"]')).toBeVisible();
     await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/orders/${orderId}$`));
-    await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
-    await browserExpect(page.getByRole("region", { name: "Pagos" }).getByText("Pendiente", { exact: true }).locator("..").getByText(formatCurrency(10, "PEN", "es"), { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("group", { name: "Estado del pago: Pago pendiente" })).toBeVisible();
+    await browserExpect(page.getByText("Sin pagos · necesario para despachar")).toBeVisible();
+    await browserExpect(page.getByText("Saldo pendiente").locator("xpath=following-sibling::dd")).toHaveText(formatCurrency(10, "PEN", "es"));
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(2n);
     const paymentId = crypto.randomUUID();
     const paid = await page.request.post(`/api/orders/${orderId}/payments`, { data: { paymentId,
       amount: { amount: 10, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false } });
     expect(paid.status()).toBe(200);
     await page.reload();
-    await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Cubierto")).toBeVisible();
-    await browserExpect(page.getByText("Entrega: Pendiente", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("group", { name: "Estado del pago: Pagada" })).toBeVisible();
+    await browserExpect(page.getByRole("group", { name: "Estado de la entrega: Entrega pendiente" })).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(1n);
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId } }))).toBe(1);
   } finally {

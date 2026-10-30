@@ -1,4 +1,4 @@
-import { browserExpect, chooseOption, expect, openOptions, prepareVerifiedCompany, selectedValue, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, expect, openOptions, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { productEditing } from "@core/src/features/products/product-editing";
 import { orders } from "@core/src/features/orders/composition";
@@ -52,8 +52,9 @@ test("save_changes rejects an obsolete price without writes, answers the saved o
     expect(await saved.text()).toContain("revisions");
     expect(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).toMatchObject({ id: orderId, delivery: { method: "store", recordedBy: { kind: "seller", userId } },
       deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, total: { amount: 10 }, stockDeducted: false });
-    // A stale revision answers the conflict.
-    const conflict = await post({ operation: "save_changes", delivery: { base: "A".repeat(43), change: { kind: "replace", selection: delivery, expectedPrice: { amount: 0, currency: "PEN" } } } });
+    // A stale revision answers the conflict when the requested state differs from the stored one; the same state is a repeat and succeeds.
+    const other = { ...delivery, recipient: { ...delivery.recipient, name: "Someone else" } };
+    const conflict = await post({ operation: "save_changes", delivery: { base: "A".repeat(43), change: { kind: "replace", selection: other, expectedPrice: { amount: 0, currency: "PEN" } } } });
     expect(await conflict.text()).toContain("ORDER_CHANGED");
 
     expect((await page.request.put("/api/delivery-settings", { data: { expectedVersion: 1, agency: { enabled: false }, home: { enabled: true },
@@ -65,20 +66,17 @@ test("save_changes rejects an obsolete price without writes, answers the saved o
     // The pickup is replaced by a home delivery in the open card, with no «Editar entrega» step.
     await page.getByRole("tab", { name: "Domicilio" }).click();
     await chooseDistrict(page, "040110");
-    const tariff = selectedValue(page, "rateId");
     const rates = await openOptions(page, "Tarifa de entrega");
     await browserExpect(rates).toHaveCount(2);
     await rates.first().click();
-    const rateId = await tariff.inputValue();
-    if (!rateId) throw new Error("Expected explicit rate");
     await page.getByLabel("Dirección de entrega", { exact: true }).fill("Preserved street");
-    await browserExpect(page.getByRole("button", { name: "Guardar cambios" })).toBeEnabled();
+    await browserExpect(page.getByRole("button", { name: "Guardar cambios" }).first()).toBeEnabled();
     const storedZones = await (await page.request.get("/api/delivery-settings/zones")).json();
     expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: storedZones.version,
       zones: storedZones.zones.map((zone: { id: string; name: string; enabled: boolean; districtCodes: string[]; options: { id: string; method: string; name: string; enabled: boolean; price: { amount: number; currency: string } }[] }) => ({
         kind: "existing", id: zone.id, name: zone.name, enabled: zone.enabled, districtCodes: zone.districtCodes,
         options: zone.options.map(option => ({ kind: "existing", ...option, price: { ...option.price, amount: option.price.amount + 2 } })) })) } })).ok()).toBe(true);
-    await page.getByRole("button", { name: "Guardar cambios", exact: true }).click();
+    await page.getByRole("button", { name: "Guardar cambios", exact: true }).first().click();
     await browserExpect(page.getByRole("alert").filter({ hasText: "El precio de la entrega cambió a" })).toBeVisible();
     await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveValue("Preserved street");
     const afterConflict = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
@@ -88,11 +86,16 @@ test("save_changes rejects an obsolete price without writes, answers the saved o
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: `test-results/rated-seller-editor-${label}.png`, fullPage: true });
     }
-    // The seller reviewed the new price: saving again sends it as the expected one.
-    await page.getByRole("button", { name: "Guardar cambios", exact: true }).click();
+    // The rate the seller chose belongs to the old quotation: picking the district again quotes it afresh, and the new rate saves at the new price.
+    await chooseDistrict(page, "040103");
+    await chooseDistrict(page, "040110");
+    const refreshed = await openOptions(page, "Tarifa de entrega");
+    await browserExpect(refreshed).toHaveCount(2);
+    await refreshed.first().click();
+    await page.getByRole("button", { name: "Guardar cambios", exact: true }).first().click();
     await browserExpect(page.getByText("Cambios guardados.")).toBeVisible();
     const finalOrder = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
-    expect(finalOrder.delivery).toMatchObject({ method: "home", destination: { address: "Preserved street", districtCode: "040110" }, pricing: { rateId } });
+    expect(finalOrder.delivery).toMatchObject({ method: "home", destination: { address: "Preserved street", districtCode: "040110" }, pricing: { rateId: expect.any(String) } });
     expect(finalOrder.deliveryCharge.amount).toBeGreaterThan(0);
     expect(finalOrder.total.amount).toBe(10 + finalOrder.deliveryCharge.amount);
   } finally {

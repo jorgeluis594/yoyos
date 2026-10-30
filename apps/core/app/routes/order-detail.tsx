@@ -402,8 +402,11 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
 
   // A confirmed cancellation answers with the cancelled order: every part loads it, and the edits (blocked while there were any) are gone.
   const cancelledOrder = cancellation?.outcome.kind === "confirmed" ? cancellation.outcome.order : cancellation?.outcome.kind === "failed" ? cancellation.outcome.order : undefined;
-  if (cancelledOrder && state.loaded && state.loaded.order !== cancelledOrder && cancelledOrder.cancelled && !state.loaded.order.cancelled)
-    setState(reloadAll(state, { order: cancelledOrder, revisions: state.loaded.revisions, lineCatalog: null }));
+  // A failed one that found the order moved on (shipped meanwhile) answers the order it read: the parts without edits take it.
+  if (cancelledOrder && state.loaded && state.loaded.order !== cancelledOrder) {
+    const fresh = { order: cancelledOrder, revisions: state.loaded.revisions, lineCatalog: cancelledOrder.cancelled ? null : state.loaded.lineCatalog };
+    setState(cancelledOrder.cancelled ? reloadAll(state, fresh) : refreshFromLoader(state, fresh));
+  }
 
   function edit(next: OrderViewState) {
     setState(next);
