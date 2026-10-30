@@ -112,6 +112,14 @@ test("web list counts units across product lines and shows the remaining balance
   expect(result.list.items[0]).toMatchObject({ itemCount: 5, balanceDue: money(30), total: money(50) });
 });
 
+test("list pages make no stock read", async () => {
+  const describe = vi.spyOn(orders, "describeStockDue");
+  vi.spyOn(orders, "listAggregates").mockResolvedValue({ success: true, data: { items: [], page: 1, pageSize: 20, total: 0 } });
+  const result = await loader(args("http://localhost/es-PE/orders"));
+  expect(describe).not.toHaveBeenCalled();
+  expect(JSON.stringify(result.list)).not.toContain("stockDue");
+});
+
 test("order list shows «Desde el catálogo» for catalog orders only", async () => {
   const i18n = createInstance();
   await i18n.init({ lng: "es", resources });
