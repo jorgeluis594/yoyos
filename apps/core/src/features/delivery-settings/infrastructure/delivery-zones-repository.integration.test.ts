@@ -3,6 +3,8 @@ import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/
 import { expect, test } from "vitest";
 import { ok } from "@shared/functional";
 import type { CompanyId } from "@shared/identity";
+import type { PeruDistrictCode } from "@shared/peru-geography";
+import type { DeliveryAgencyId } from "@core/src/features/delivery-settings/domain/delivery-agency";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import { readDeliveryConfiguration, writeDeliveryZones } from "@core/src/features/delivery-settings/infrastructure/delivery-zones-repository";
@@ -287,9 +289,74 @@ test("checkout delivery options read real zones and report coverage lost when th
         .toMatchObject({ success: true });
       const agencyOption = { kind: "new" as const, method: "agency" as const, name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" as const }, agencyIds: [branch] };
       expect(await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", ...fields, options: [agencyOption] }] }, f.context)).toMatchObject({ success: true });
-      expect(await deliverySettings.getCheckoutDeliveryOptions(f.companyId)).toMatchObject({ success: true, data: { settings: { agency: { enabled: true } }, agencyCovered: true } });
+      expect(await deliverySettings.getCheckoutDeliveryOptions(f.companyId)).toMatchObject({ success: true, data: { settings: { agency: { enabled: true } }, coverage: { agency: { districtCodes: ["150122"] } } } });
       await prisma.companyCourier.updateMany({ data: { enabled: false } });
-      expect(await deliverySettings.getCheckoutDeliveryOptions(f.companyId)).toMatchObject({ success: true, data: { settings: { agency: { enabled: true } }, agencyCovered: false } });
+      expect(await deliverySettings.getCheckoutDeliveryOptions(f.companyId)).toMatchObject({ success: true, data: { settings: { agency: { enabled: true } }, coverage: { agency: null } } });
     });
   } finally { await f.cleanup(); await deleteAgencies([branch]); }
+});
+
+const emptyPlaces = { departmentCodes: [], provinceCodes: [], districtCodes: [] };
+
+test("checkout delivery options apply the department bound with agencies read from the catalog", async () => {
+  const courier = await seededCourier();
+  const arequipa = await insertAgency({ courierId: courier.id, name: "Arequipa branch", districtCode: "040101" });
+  const cusco = await insertAgency({ courierId: courier.id, name: "Cusco branch", districtCode: "080101" });
+  const coverageOf = async (departmentCodes: string[], agencyId: string) => {
+    const f = await fixture();
+    try {
+      return await f.run(async () => {
+        expect(await deliverySettings.save({ expectedVersion: 0, home: { enabled: true }, agency: { enabled: true }, store: { enabled: false, pickupPoint: null } }, f.context))
+          .toMatchObject({ success: true });
+        const home = { kind: "new" as const, method: "home" as const, name: "Home", enabled: true, price: { amount: 4, currency: "PEN" as const } };
+        const agency = { kind: "new" as const, method: "agency" as const, name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" as const }, agencyIds: [agencyId] };
+        expect(await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", name: "Sur", enabled: true, departmentCodes, provinceCodes: [], districtCodes: [], options: [home, agency] }] }, f.context))
+          .toMatchObject({ success: true });
+        const loaded = await deliverySettings.getCheckoutDeliveryOptions(f.companyId);
+        if (!loaded.success) throw new Error(loaded.error.message);
+        return loaded.data.coverage;
+      });
+    } finally { await f.cleanup(); }
+  };
+  try {
+    expect(await coverageOf(["04", "08", "21"], arequipa)).toEqual({ home: { ...emptyPlaces, departmentCodes: ["04", "08", "21"] }, agency: { ...emptyPlaces, departmentCodes: ["04"] } });
+    expect(await coverageOf(["08"], arequipa)).toEqual({ home: { ...emptyPlaces, departmentCodes: ["08"] }, agency: null });
+    expect(await coverageOf(["08"], cusco)).toEqual({ home: { ...emptyPlaces, departmentCodes: ["08"] }, agency: { ...emptyPlaces, departmentCodes: ["08"] } });
+  } finally { await deleteAgencies([arequipa, cusco]); }
+});
+
+test("a direct buyer quotation of an uncovered agency department still returns the option rate and confirms as today", async () => {
+  const f = await fixture();
+  const courier = await seededCourier();
+  const arequipa = await insertAgency({ courierId: courier.id, name: "Arequipa branch", districtCode: "040101" });
+  try {
+    await f.run(async () => {
+      expect(await deliverySettings.save({ expectedVersion: 0, home: { enabled: false }, agency: { enabled: true }, store: { enabled: false, pickupPoint: null } }, f.context)).toMatchObject({ success: true });
+      const agencyOption = { kind: "new" as const, method: "agency" as const, name: "Agency", enabled: true, price: { amount: 5, currency: "PEN" as const }, agencyIds: [arequipa] };
+      expect(await deliverySettings.saveZones({ expectedVersion: 1, zones: [{ kind: "new", name: "Cusco", enabled: true, districtCodes: ["080101"], options: [agencyOption] }] }, f.context)).toMatchObject({ success: true });
+      expect(await deliverySettings.getCheckoutDeliveryOptions(f.companyId)).toMatchObject({ success: true, data: { coverage: { agency: null } } });
+      const quote = await deliverySettings.createQuotation({ companyId: f.companyId as CompanyId, country: "PE", districtCode: "080101", address: null, instructions: null });
+      if (!quote.success) throw new Error(quote.error.message);
+      expect(quote.data.rates).toHaveLength(1);
+      const { rate } = quote.data.rates[0];
+      expect(await deliverySettings.resolveSelectedDeliveryRate({ companyId: f.companyId as CompanyId, rateId: rate.id, method: "agency", districtCode: rate.districtCode, agencyId: arequipa as DeliveryAgencyId }))
+        .toMatchObject({ success: true, data: { price: { amount: 5, currency: "PEN" } } });
+    });
+  } finally { await f.cleanup(); await deleteAgencies([arequipa]); }
+});
+
+test("a direct buyer quotation of an uncovered home district gets no home rate and its confirmation is rejected", async () => {
+  const f = await fixture();
+  try {
+    await f.run(async () => {
+      expect((await deliverySettings.saveZones({ expectedVersion: 0, zones: [{ ...zonaSur, departmentCodes: [], provinceCodes: [], districtCodes: ["150122"] }] }, f.context)).success).toBe(true);
+      expect((await deliverySettings.save({ expectedVersion: 1, ...enableHome }, f.context)).success).toBe(true);
+      const quote = (districtCode: string) => deliverySettings.createQuotation({ companyId: f.companyId as CompanyId, country: "PE", districtCode, address: null, instructions: null });
+      const covered = await quote("150122");
+      if (!covered.success) throw new Error(covered.error.message);
+      expect(await quote("150101")).toMatchObject({ success: true, data: { rates: [] } });
+      expect(await deliverySettings.resolveSelectedDeliveryRate({ companyId: f.companyId as CompanyId, rateId: covered.data.rates[0].rate.id, method: "home", districtCode: "150101" as PeruDistrictCode }))
+        .toMatchObject({ success: false });
+    });
+  } finally { await f.cleanup(); }
 });

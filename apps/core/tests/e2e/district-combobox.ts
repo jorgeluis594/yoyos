@@ -13,6 +13,8 @@ function names(districtCode: string) {
 
 async function choose(page: Page, label: string, name: string) {
   const input = page.getByRole("combobox", { name: label, exact: true });
+  // The checkout preselects the levels that have a single offered choice; typing the same value again would find no option.
+  if (await input.inputValue() === name) return;
   await input.click();
   await input.fill(name);
   await page.getByRole("option", { name, exact: true }).click();
