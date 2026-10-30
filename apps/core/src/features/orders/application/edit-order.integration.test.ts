@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { expect, test, vi } from "vitest";
+import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { orders, publishStockEvent } from "@core/src/features/orders/composition";
 import { editOrder, type EditOrderDependencies, type EditOrderInput } from "@core/src/features/orders/application/edit-order";
 import { findOrderAggregate, findOrderForUpdate, saveDelivery, saveItemChanges, saveOrderCustomer } from "@core/src/features/orders/infrastructure/order-repository";
@@ -276,6 +278,28 @@ test("clears the customer of a confirmed checkout order and reads it back in the
   });
 });
 
+test("answers VARIANT_NOT_FOUND when a new variant is deleted between the lookup and the insert", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.deadpool, 1]]);
+    const doomed = await s.run(() => seedProduct({ name: "Efimero", variants: [{ attributes: { Talla: "L" }, salePrice: 50, stock: 3 }] }));
+    const variantId = doomed.variantIds[0] as VariantId;
+    const { revisions } = await s.load(id);
+    const deps: EditOrderDependencies = { transaction: (_companyId, work) => withinTransaction(work), findOrderForUpdate: (orderId, companyId) => findOrderForUpdate(orderId, companyId, "edit_order"),
+      findSellableVariants: async (ids) => {
+        const found = await findSellableVariants(ids);
+        await prisma.productStock.deleteMany({ where: { variantId } });
+        await prisma.productVariant.delete({ where: { id: variantId } });
+        return found.success ? found : err({ code: "PERSISTENCE_UNAVAILABLE", message: found.error.message });
+      },
+      resolveRatedDelivery: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "unused" }),
+      saveItemChanges, saveOrderCustomer, saveDelivery, publishStockEvent: (payload) => publishStockEvent("order_edited", payload),
+      findVariantStock, newItemId: () => randomUUID() as OrderItemId };
+    const result = await s.run(() => editOrder({ orderId: id, items: { base: revisions.items, lines: s.lines([s.deadpool, 1], [variantId, 1]).lines as never } }, s.context, deps));
+    expect(result).toMatchObject({ success: false, error: { code: "VARIANT_NOT_FOUND", variantId } });
+    expect((await s.load(id)).order.items).toHaveLength(1);
+  });
+});
+
 test("answers VARIANT_NOT_FOUND for a new deactivated variant and writes nothing", async () => {
   await inShop(async (s) => {
     const id = await s.create([[s.deadpool, 1]]);
@@ -283,6 +307,35 @@ test("answers VARIANT_NOT_FOUND for a new deactivated variant and writes nothing
     const variantId = inactive.variantIds[0] as VariantId;
     expect(await s.edit(id, { items: s.lines([s.deadpool, 1], [variantId, 1]) })).toMatchObject({ success: false, error: { code: "VARIANT_NOT_FOUND", variantId } });
     expect((await s.load(id)).order.items).toHaveLength(1);
+  });
+});
+
+test("answers the stock of sellable lines, leaves out an unsellable one and answers null without a query when the products are locked", async () => {
+  await inShop(async (s) => {
+    const id = await s.create();
+    const { order } = await s.load(id);
+    const inactive = await s.run(() => seedProduct({ name: "Viejo", variants: [{ attributes: { Talla: "L" }, stock: 3, status: "inactive" }] }));
+    const withInactive = { ...order, items: [...order.items, { ...order.items[0]!, variantId: inactive.variantIds[0] as VariantId }] };
+    expect(await s.run(() => orders.lineCatalog(withInactive as never, "detail_loader"))).toEqual({ [s.trajeS]: { stock: 5 }, [s.trajeM]: { stock: 5 }, [s.deadpool]: { stock: 4 } });
+    const query = vi.spyOn(prisma, "$queryRaw");
+    try {
+      expect(await s.run(() => orders.lineCatalog({ ...order, cancelled: true }, "save_result"))).toBeNull();
+      expect(await s.run(() => orders.lineCatalog({ ...order, stockDeducted: true }, "save_result"))).toBeNull();
+      expect(await s.run(() => orders.lineCatalog({ ...order, deliveryStatus: "shipped" }, "save_result"))).toBeNull();
+      expect(query).not.toHaveBeenCalled();
+    } finally { query.mockRestore(); }
+  });
+});
+
+test("answers null and warns when the stock read fails", async () => {
+  await inShop(async (s) => {
+    const { order } = await s.load(await s.create());
+    const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
+    const query = vi.spyOn(prisma, "$queryRaw").mockRejectedValueOnce(new Prisma.PrismaClientKnownRequestError("database unavailable", { code: "P1001", clientVersion: "7.10.0" }));
+    try {
+      expect(await s.run(() => orders.lineCatalog(order, "detail_loader"))).toBeNull();
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ event: "order_line_catalog_unavailable", orderId: order.id, entryPoint: "detail_loader", errorCode: "PERSISTENCE_UNAVAILABLE", variantCount: 3 }), "order_line_catalog_unavailable");
+    } finally { query.mockRestore(); warn.mockRestore(); }
   });
 });
 
