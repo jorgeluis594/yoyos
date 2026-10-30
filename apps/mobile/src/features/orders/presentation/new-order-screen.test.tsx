@@ -300,6 +300,7 @@ test("keeps blocking a delivered sale with short stock", async () => {
   advance(screen, "40");
   markDelivered(screen);
   expect(screen.getAllByRole("alert").filter(node => /cantidad/.test(String(node.props.children)))).toHaveLength(1);
+  expect(screen.queryByText(/Falta stock:/)).toBeNull();
   expect(screen.getByText(/Reduce la cantidad para guardarlo como entregado\./)).toBeTruthy();
   expect(screen.queryByText(/deja el pago como pendiente/)).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();

@@ -75,7 +75,7 @@ test("recipient can differ from buyer; unavailable save preserves data and confi
   await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
   expect(save).toHaveBeenLastCalledWith(mockId, { delivery: { method: "store", recipient: { name: "Recipient", phone: "555002", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } });
 });
-test("saving a covering delivery with short stock returns to the detail, which shows the waiting notice", async () => {
+test("saving a covering delivery with short stock returns to the detail without any stock message (the detail shows the notice)", async () => {
   const waiting: OrderAggregateResponse = { ...pending, stockDeducted: false, paymentStatus: "paid",
     stockDue: { kind: "waiting", shortItems: [{ variantId: pending.items[0]!.variantId, available: 0 }] },
     delivery: { method: "store", recipient: { name: "Customer", phone: "555001", identity: { kind: "absent" } }, pickupPoint: point, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } } };

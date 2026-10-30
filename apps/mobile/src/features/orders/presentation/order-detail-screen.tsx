@@ -121,6 +121,8 @@ export default function OrderDetailScreen() {
     else if (!silent) setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
   }, [id, scope]);
+  // The status line belongs to the screen: it clears when the seller really leaves it, not when the order reloads.
+  useFocusEffect(useCallback(() => () => setPaymentLine(null), []));
   // A notice tapped while this very order is open navigates to the same route; its `noticeAt` is the only change.
   const handledNoticeAt = useRef(noticeAt);
   useFocusEffect(useCallback(() => {
@@ -226,7 +228,6 @@ export default function OrderDetailScreen() {
     if (companyId) void reload();
     return () => {
       checkoutGeneration.current += 1;
-      setPaymentLine(null);
       if (notice?.id === id && loaded.current) clear();
     };
   }, [companyId, id, notice, clear, reload]));
@@ -234,6 +235,8 @@ export default function OrderDetailScreen() {
   // The link is a read of the order's current brand-host URL, so it loads with the screen and again on every return (a subdomain may have been chosen meanwhile).
   const linkOrderId = order?.id;
   const linkCancelled = order?.cancelled ?? false;
+  // The live region is Android-only, so VoiceOver gets the same text announced once when the line appears.
+  useEffect(() => { if (paymentLine) AccessibilityInfo.announceForAccessibility(translations.t(paymentLine === "waiting" ? "paymentRecordedWaiting" : "paymentRecorded")); }, [paymentLine]);
   useEffect(() => { if (copied) AccessibilityInfo.announceForAccessibility(translations.t("checkoutCopied")); }, [copied]);
   useEffect(() => {
     if (!linkOrderId || linkCancelled) return;
@@ -320,7 +323,7 @@ export default function OrderDetailScreen() {
   const shortLines = shortStockLines(order);
   const nextReason = nextBlock && ["PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "STOCK_WAITING", "STOCK_DEDUCTING"].includes(nextBlock.code) ? nextBlock.code : null;
   const nextReasonText = !nextReason || !nextOperation ? null
-    : nextReason === "STOCK_WAITING" ? t(`orderFulfillment.STOCK_WAITING_${nextOperation === "ship" ? "SHIP" : "DELIVER"}`, { items: joinLabels(shortLines.map(line => line.label), t("listAnd")) })
+    : nextReason === "STOCK_WAITING" ? t(`orderFulfillment.STOCK_WAITING_${nextOperation === "ship" ? "SHIP" : "DELIVER"}${shortLines.length ? "" : "_GENERIC"}`, { items: joinLabels(shortLines.map(line => line.label), t("listAnd")) })
     : t(`orderFulfillment.${fulfillmentKey(nextOperation, nextReason)}`);
   const stockLine = order.stockDeducted ? t("stockDeducted") : order.stockDue?.kind === "waiting" ? t("stockWaiting") : order.stockDue?.kind === "deducting" ? t("stockDeducting") : t("stockPending");
   const cardStyle = { backgroundColor: theme.backgroundElement, borderColor: theme.border };
@@ -402,7 +405,7 @@ export default function OrderDetailScreen() {
             <PaymentBadge status={paymentBadgeStatus(order.paidAmount.amount, order.balanceDue.amount)} />
           </View>
           <PaymentSummary total={format(order.total)} paid={format(order.paidAmount)} balance={format(order.balanceDue)} showPaid={hasPaid} />
-          {paymentLine ? <ThemedText accessibilityLiveRegion="polite" style={{ color: theme.success }}>{t(paymentLine === "waiting" ? "paymentRecordedWaiting" : "paymentRecorded")}</ThemedText> : null}
+          {paymentLine ? <ThemedText accessibilityLiveRegion="polite" style={paymentLine === "recorded" ? { color: theme.success } : undefined}>{t(paymentLine === "waiting" ? "paymentRecordedWaiting" : "paymentRecorded")}</ThemedText> : null}
           {reports.length > 0 && !order.cancelled ? <ThemedText type="small" style={{ color: theme.warning }}>{t('paymentToReview')}</ThemedText> : null}
           {order.overpaidAmount.amount > 0 ? <ThemedText type="small" style={{ color: theme.warning }}>{t('overpaid', { amount: format(order.overpaidAmount) })}</ThemedText> : null}
           {order.payments.map((payment) => {

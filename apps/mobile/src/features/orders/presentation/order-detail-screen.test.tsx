@@ -954,6 +954,27 @@ test("shows the waiting notice after the heading block with each short item", as
   expect(screen.getByText("Polo (Talla: L · Color: Azul): 2 en el pedido, hay 0.")).toBeTruthy();
   expect(screen.getByText("Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede despachar ni entregar.")).toBeTruthy();
   expect(screen.queryByRole("alert", { name: /Esperando stock/ })).toBeNull();
+  const headers = screen.getAllByRole("header").map(node => String(node.props.children));
+  expect(headers.indexOf("Esperando stock")).toBeGreaterThan(headers.indexOf("Pedido #1001"));
+  expect(headers.indexOf("Esperando stock")).toBeLessThan(headers.findIndex(text => text.startsWith("Productos")));
+});
+
+test("a short item without a matching order item leaves no empty line nor an empty reason", async () => {
+  mockOrder = waitingOrder({ stockDue: { kind: "waiting", shortItems: [{ variantId: "00000000-0000-4000-8000-0000000000ff", available: 0 }] } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByRole("header", { name: "Esperando stock" });
+  expect(screen.queryByText(/en el pedido, hay/)).toBeNull();
+  expect(screen.getByText("Para despachar falta stock.")).toBeTruthy();
+  expect(screen.queryByText(/falta stock de \./)).toBeNull();
+});
+
+test("the Portuguese blocked-ship reason reads like the new-sale one", async () => {
+  await i18n.changeLanguage("pt-BR");
+  mockOrder = waitingOrder({ items: [{ ...initialOrder.items[0]!, quantity: 4 }],
+    stockDue: { kind: "waiting", shortItems: [{ variantId: camisaId, available: 3 }] } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Falta estoque de Camisa (Talla: M) para despachar.");
+  await i18n.changeLanguage("es");
 });
 
 test("lists only the items that are short, and a product without options by its name", async () => {
@@ -1089,7 +1110,7 @@ test("shows the notice in Portuguese", async () => {
 const managerOrder = () => reportedOrder({ items: [{ ...initialOrder.items[0]!, quantity: 4 }] });
 test("announces the payment status line once and clears it on the next action", async () => {
   mockOrder = managerOrder();
-  const covered = { ...mockOrder, paymentStatus: "paid" as const, paidAmount: { amount: 12, currency: "PEN" }, balanceDue: { amount: 0, currency: "PEN" },
+  const covered: OrderAggregateResponse = { ...mockOrder, paymentStatus: "paid" as const, paidAmount: { amount: 12, currency: "PEN" }, balanceDue: { amount: 0, currency: "PEN" },
     stockDue: { kind: "waiting" as const, shortItems: [{ variantId: camisaId, available: 3 }] } };
   mockRegisterPayment.mockResolvedValue({ success: true, data: { order: covered } });
   const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => undefined);
@@ -1099,6 +1120,18 @@ test("announces the payment status line once and clears it on the next action", 
   fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
   const line = await screen.findByText("Pago registrado. El pedido queda esperando stock.");
   expect(line.props.accessibilityLiveRegion).toBe("polite");
+  expect(announce).toHaveBeenCalledTimes(1);
+  expect(announce).toHaveBeenCalledWith("Pago registrado. El pedido queda esperando stock.");
+  // The waiting variant is not painted as a success.
+  const plain = StyleSheet.flatten(screen.getByText("Pagos").props.style)?.color;
+  expect(StyleSheet.flatten(line.props.style)?.color).toBe(plain);
+  // A refreshed order does not clear it; only leaving the screen or another action does.
+  mockOrder = covered;
+  jest.useFakeTimers();
+  act(() => { mockArrival({}); });
+  await act(async () => { jest.advanceTimersByTime(2000); });
+  jest.useRealTimers();
+  expect(screen.getByText("Pago registrado. El pedido queda esperando stock.")).toBeTruthy();
   expect(screen.getAllByText("Pago registrado. El pedido queda esperando stock.")).toHaveLength(1);
   expect(screen.queryByText(/No hay stock suficiente/)).toBeNull();
   expect(screen.getByRole("header", { name: "Esperando stock" })).toBeTruthy();
