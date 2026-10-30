@@ -331,29 +331,34 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
   // The sale this view came from announces itself once; the mark is not read again.
   useEffect(() => { clearSaleSaved(loaded.order.id); }, [loaded.order.id]);
 
-  // A new loader answer (a payment action, a fulfillment, a reload the seller asked for) moves only what has no unsaved edits, unless the seller chose otherwise.
-  if (seenLoaded !== loaded) {
-    const fresh = loadedOf(loaded);
-    setSeenLoaded(loaded);
-    setState(onLoad === "reloadAll" ? reloadAll(state, fresh) : onLoad === "resetProducts" ? resetProducts(state, fresh) : refreshFromLoader(state, fresh));
-    setOnLoad("refresh");
-    setCatalogEpoch(catalogEpoch + 1);
-  }
-
-  // Each answer of the action is read once, when it arrives.
-  if (rawAction !== seenAction) {
-    setSeenAction(rawAction);
-    if (isSaveResult(rawAction)) {
-      const outcome = saveChangesOutcome(state, rawAction, saveContext);
-      setState(outcome.state);
-      setNotice(outcome.notice);
-      setUnavailableVariantId(outcome.unavailableVariantId);
-      setDoubt(outcome.check ? "checking" : null);
-      if (outcome.focusHeading) setHeadingFocus(headingFocus + 1);
-      if (outcome.bumpCatalog) setCatalogEpoch(catalogEpoch + 1);
-      if (outcome.resetProducts) setOnLoad("resetProducts");
-      if (outcome.state !== state && "applied" in rawAction) setAttempts(0);
+  // Both the action's answer and a revalidation can arrive in the same render, the answer first: a refusal that asks for a reset says how the loader's data is taken.
+  if (rawAction !== seenAction || seenLoaded !== loaded) {
+    let next = state;
+    let mode = onLoad;
+    if (rawAction !== seenAction) {
+      setSeenAction(rawAction);
+      if (isSaveResult(rawAction)) {
+        const outcome = saveChangesOutcome(state, rawAction, saveContext);
+        next = outcome.state;
+        setNotice(outcome.notice);
+        setUnavailableVariantId(outcome.unavailableVariantId);
+        setDoubt(outcome.check ? "checking" : null);
+        if (outcome.focusHeading) setHeadingFocus(headingFocus + 1);
+        if (outcome.bumpCatalog) setCatalogEpoch(catalogEpoch + 1);
+        if (outcome.resetProducts) mode = "resetProducts";
+        if ("applied" in rawAction) setAttempts(0);
+      }
     }
+    // A new loader answer (a payment action, a fulfillment, a reload the seller asked for) moves only what has no unsaved edits, unless the seller chose otherwise.
+    if (seenLoaded !== loaded) {
+      const fresh = loadedOf(loaded);
+      setSeenLoaded(loaded);
+      next = mode === "reloadAll" ? reloadAll(next, fresh) : mode === "resetProducts" ? resetProducts(next, fresh) : refreshFromLoader(next, fresh);
+      mode = "refresh";
+      setCatalogEpoch(catalogEpoch + 1);
+    }
+    setOnLoad(mode);
+    if (next !== state) setState(next);
   }
 
   // A lost answer is resolved by reading the order and comparing it with what was sent.
@@ -485,7 +490,7 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
 
   return <OrderView state={state} onStateChange={edit} settings={settings}
     links={{ sales: base, deliverySettings: settingsPath, createProduct: base.replace(/\/orders$/, "/products") + "/new" }}
-    catalogEpoch={catalogEpoch} guard={guard} saving={saving} notice={notice} attempts={attempts} headingFocus={headingFocus}
+    catalogEpoch={catalogEpoch} guard={guard} saving={saving} notice={doubt ? { kind: "doubt", checking: doubt === "checking" } : notice} attempts={attempts} headingFocus={headingFocus}
     unavailableVariantId={unavailableVariantId} coverRequired={false} format={{ amount: money, date }}
     newPaymentId={() => crypto.randomUUID()} onSave={save} onCheckAgain={() => setDoubt("checking")}
     saved={{ link, receiptUrls, manualPaymentId, voidResult, actionBusy: blocked && !saving && doubt === null, underHeader, fulfillment: fulfillmentSlot,
