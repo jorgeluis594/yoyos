@@ -44,18 +44,20 @@ const placeIsSaved = (delivery: DeliveryDraft, saved: DeliveryDraft | null): boo
 type Money = OrderAggregateResponse["deliveryCost"];
 
 /** What the order has stored, read from the snapshot so it needs no quotation and survives changes in the delivery configuration. */
-function SavedDelivery({ order }: Readonly<{ order: OrderAggregateResponse }>) {
+/** `fieldsShown`: the district and the rate already show in the fields and the internal cost, so only what they lack is repeated. */
+function SavedDelivery({ order, fieldsShown }: Readonly<{ order: OrderAggregateResponse; fieldsShown: boolean }>) {
   const { t, i18n } = useTranslation();
   const { delivery } = order;
   const price = (money: Money) => money.amount === 0 ? t("deliveryZones.free") : formatCurrency(money.amount, money.currency, i18n.language);
   if (!delivery) return null;
   if (delivery.method === "store") return <p className="text-sm">{delivery.pickupPoint.name} · {delivery.pickupPoint.address}{delivery.pickupPoint.instructions && <> · {delivery.pickupPoint.instructions}</>}</p>;
   const agency = delivery.method === "agency" ? delivery : null;
+  if (fieldsShown && !agency) return null;
   return <dl className="flex flex-col gap-1 text-sm" data-testid="saved-delivery">
-    <div><dt className="text-muted-foreground">{t("orderDelivery.district")}</dt><dd>{delivery.destination.district}, {delivery.destination.province}</dd></div>
+    {!fieldsShown && <div><dt className="text-muted-foreground">{t("orderDelivery.district")}</dt><dd>{delivery.destination.district}, {delivery.destination.province}</dd></div>}
     {agency && <div><dt className="text-muted-foreground">{t("orderDelivery.agency")}</dt>
       <dd>{agency.courier.name} · {agency.agency.name} · {agency.agency.address} · {agency.agency.location.district}, {agency.agency.location.province}</dd></div>}
-    <div><dt className="text-muted-foreground">{t("orderDelivery.rate")}</dt><dd>{price(order.deliveryCost)}</dd></div>
+    {!fieldsShown && <div><dt className="text-muted-foreground">{t("orderDelivery.rate")}</dt><dd>{price(order.deliveryCost)}</dd></div>}
   </dl>;
 }
 
@@ -76,7 +78,7 @@ export function OrderDeliveryCard({ state, settings, invalid, settingsHref, onCh
   const marks = invalid.filter(mark => mark.section === "delivery");
   const marked = new Set(marks.filter(mark => mark.reason === "delivery_incomplete").map(mark => mark.field));
   const coverMark = marks.some(mark => mark.reason === "deliver_needs_payment");
-  const methods = (["store", "home", "agency"] as const).filter(method => method === savedMethod || (settings !== null && settings[method].enabled));
+  const methods = (["home", "agency", "store"] as const).filter(method => method === savedMethod || (settings !== null && settings[method].enabled));
   const tabs: readonly { value: DeliveryTab; label: string; disabled: boolean }[] = [
     { value: "none", label: t("orderView.delivery.pending"), disabled: savedHasDelivery },
     ...methods.map(method => ({ value: method, label: t(`orderView.delivery.${method === "store" ? "pickup" : method}`), disabled: settings === null || !settings[method].enabled })),
@@ -104,12 +106,12 @@ export function OrderDeliveryCard({ state, settings, invalid, settingsHref, onCh
           <TextLink asChild><Link to={settingsHref}>{t("orderDelivery.configure")}</Link></TextLink></div>
         : <FieldSet disabled={lock !== null} className="flex min-w-0 flex-col gap-4">
           <Tabs value={tab} onValueChange={value => { if (value !== tab) onChange(withTab(delivery, value as DeliveryTab, customer, saved)); }}>
-            <TabsList className="h-auto flex-wrap">{tabs.map(item => <TabsTrigger key={item.value} value={item.value} disabled={item.disabled || lock !== null}>{item.label}</TabsTrigger>)}</TabsList>
+            <TabsList className="h-auto w-full flex-wrap">{tabs.map(item => <TabsTrigger key={item.value} value={item.value} className="min-h-touch" disabled={item.disabled || lock !== null}>{item.label}</TabsTrigger>)}</TabsList>
           </Tabs>
-          {savedHasDelivery && <p className="text-sm text-muted-foreground">{t("orderView.delivery.cannotClear")}</p>}
+          {savedHasDelivery && lock === null && <p className="text-sm text-muted-foreground">{t("orderView.delivery.cannotClear")}</p>}
           {recordedByBuyer && <p className="text-sm text-muted-foreground">{t("orderView.delivery.chosenByBuyer")}</p>}
           {tab === "none" ? <p className="text-sm text-muted-foreground">{t("orderView.delivery.pendingHint")}</p> : <>
-            {showSaved && loaded && <SavedDelivery order={loaded.order} />}
+            {showSaved && loaded && <SavedDelivery order={loaded.order} fieldsShown={settings !== null && tab !== "store"} />}
             {settings && !(showSaved && tab === "store") && <QuotedPlaceFields method={tab} place={fields} settings={settings} disabled={lock !== null} invalid={marked} idPrefix={idPrefix} quoting={!untouched} requote={state.quoteEpoch} onChange={place => set(place)} />}
             <h3 className="text-sm font-medium">{t("orderView.delivery.recipient")}</h3>
             <Field orientation="horizontal" className="min-h-touch items-center">
