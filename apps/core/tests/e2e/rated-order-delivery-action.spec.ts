@@ -79,6 +79,8 @@ test("save_changes rejects an obsolete price without writes, answers the saved o
     await page.getByRole("button", { name: "Guardar cambios", exact: true }).first().click();
     await browserExpect(page.getByRole("alert").filter({ hasText: "El precio de la entrega cambió a" })).toBeVisible();
     await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveValue("Preserved street");
+    // The stale rate is cleared and the place quotes again by itself: the district stays, the save waits for a rate chosen with the new price.
+    await browserExpect(page.locator("#order-delivery-rateId")).toContainText("Selecciona una tarifa");
     const afterConflict = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
     expect(afterConflict).toMatchObject({ delivery: { method: "store" }, total: { amount: 10 } });
     for (const [width, height, label] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
@@ -86,9 +88,7 @@ test("save_changes rejects an obsolete price without writes, answers the saved o
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
       await page.screenshot({ path: `test-results/rated-seller-editor-${label}.png`, fullPage: true });
     }
-    // The rate the seller chose belongs to the old quotation: picking the district again quotes it afresh, and the new rate saves at the new price.
-    await chooseDistrict(page, "040103");
-    await chooseDistrict(page, "040110");
+    // The rate the seller chose belongs to the old quotation: the view quotes again without choosing the district again, and the new rate saves at the new price.
     const refreshed = await openOptions(page, "Tarifa de entrega");
     await browserExpect(refreshed).toHaveCount(2);
     await refreshed.first().click();

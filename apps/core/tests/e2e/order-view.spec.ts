@@ -191,6 +191,8 @@ test("asks before leaving a saved order with unsaved changes", async ({ page }) 
     await page.getByRole("button", { name: "Seguir editando" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/es-PE/orders/${orderId}$`));
     await browserExpect(page.getByLabel("Cantidad: Disfraz de Deadpool, M")).toHaveValue("3");
+    // The guard dialog also has a «Descartar cambios»: wait until it is gone before reaching for the one of the page.
+    await browserExpect(page.getByRole("dialog")).toHaveCount(0);
 
     await page.getByRole("button", { name: "Descartar cambios" }).first().click();
     await browserExpect(page.getByText("¿Descartar los cambios?")).toBeVisible();
