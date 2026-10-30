@@ -204,7 +204,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
       payments: [], stockDeducted: false, deliveredAt: null, completedAt: null });
     expect(await withTenantIsolation(tenantId, async () => await prisma.payment.count({ where: { orderId } }))).toBe(0);
     await page.goto("/es-PE/orders");
-    await browserExpect(page.getByRole("table", { name: "Órdenes" }).locator('summary[aria-label^="Por cobrar:"]')).toBeVisible();
+    await browserExpect(page.getByRole("table", { name: "Órdenes" }).locator('summary[aria-label^="Estado del pago: Pago pendiente:"]')).toBeVisible();
     await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/orders/${orderId}$`));
     await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
