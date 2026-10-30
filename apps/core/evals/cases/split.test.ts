@@ -8,12 +8,12 @@ test("a case's split is a stable hash of its base id", () => {
   expect(new Set(["int-greeting", "int-thanks", "txt-chompa", "hold-plin", "int-ready"].map(splitOf)).size).toBe(2);
 });
 
-test("about 30% of the base cases are in the frozen test split, in every pass with message or text cases", () => {
+test("about 30% of the base cases are in the frozen test split, in the interpretation pass", () => {
   const share = (cases: readonly { id: string }[]) => cases.filter(({ id }) => splitOf(id) === "test").length / cases.length;
 
   expect(share(baseCases)).toBeGreaterThan(0.2);
   expect(share(baseCases)).toBeLessThan(0.4);
-  for (const pass of ["interpretation", "text"]) expect(share(baseCases.filter((testCase) => testCase.pass === pass))).toBeGreaterThan(0.15);
+  for (const pass of ["interpretation"]) expect(share(baseCases.filter((testCase) => testCase.pass === pass))).toBeGreaterThan(0.15);
 });
 
 test("a paraphrase follows its base case", () => {
@@ -36,4 +36,11 @@ test("EVAL_SPLIT runs every split unless dev or test is asked for", () => {
   expect(readEvalEnv({}).EVAL_SPLIT).toBe("all");
   expect(readEvalEnv({ EVAL_SPLIT: "dev" }).EVAL_SPLIT).toBe("dev");
   expect(() => readEvalEnv({ EVAL_SPLIT: "holdout" })).toThrow();
+});
+
+test("splits a conversation by the hash of its id", () => {
+  const ids = ["conv-photo-size", "conv-cancel-reorder", "conv-late-payment", "conv-two-photos", "conv-void"];
+
+  for (const id of ids) expect(splitOfCase({ id })).toBe(splitOf(id));
+  expect(new Set(ids.map((id) => splitOfCase({ id }))).size).toBe(2);
 });

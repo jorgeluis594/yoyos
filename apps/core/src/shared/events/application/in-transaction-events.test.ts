@@ -8,7 +8,7 @@ import { createInTransactionPublisher, type InTransactionRegistry } from "@core/
 type Ending = { code: string; message: string };
 const company = "00000000-0000-4000-8000-000000000001" as CompanyId;
 const event = { companyId: company, orderId: "00000000-0000-4000-8000-000000000002" as OrderId, paymentId: "00000000-0000-4000-8000-000000000003" as PaymentId };
-const deducted: DeductionOutcome = { kind: "deducted", stock: new Map() };
+const deducted: DeductionOutcome = { kind: "deducted", stock: new Map(), deductedAt: new Date("2026-09-30T12:00:00Z") };
 const failed: DeductionOutcome = { kind: "failed", stage: "lock_stock", errorCode: "STATEMENT_TIMEOUT" };
 const registryOf = (handler: () => Promise<ReturnType<typeof ok<DeductionOutcome>> | ReturnType<typeof err<Ending>>>): InTransactionRegistry<Ending> => ({
   payment_confirmed: handler, order_delivery_changed: handler, order_stock_deduction_overdue: handler,

@@ -14,13 +14,13 @@ export type FulfillOrderDependencies = Readonly<{
   /** Stock capabilities of products: lock the rows (waiting), then one guarded statement that decrements every line or none. */
   lockVariantStock: (variantIds: readonly VariantId[], mode: "wait") => Promise<Result<ReadonlyMap<VariantId, unknown>, FulfillOrderError>>;
   deductStockBulk: (lines: readonly StockLine[]) => Promise<Result<number, FulfillOrderError>>;
-  saveStockDeduction: (id: OrderId, companyId: CompanyId) => Promise<Result<null, FulfillOrderError>>;
+  saveStockDeduction: (id: OrderId, companyId: CompanyId, stockDeductedAt: Date) => Promise<Result<null, FulfillOrderError>>;
   clock: () => Date;
 }>;
 
 /** Shipping deducts the stock when it is still pending; short stock fails and the surrounding transaction persists nothing. */
 export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
-  const plan = orderStateMachine.planStockDeduction(order, true);
+  const plan = orderStateMachine.planStockDeduction(order, true, shippedAt);
   if (!plan.success) return plan;
   if (plan.data.kind === "deduct") {
     const variantIds = order.items.map((item) => item.variantId).sort();
@@ -35,7 +35,7 @@ export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: Fu
     const deducted = await deps.deductStockBulk(lines);
     if (!deducted.success) return deducted;
     if (deducted.data !== lines.length) return err({ code: "INSUFFICIENT_STOCK", message: "Not enough stock", variantId: lines[0]!.variantId });
-    const saved = await deps.saveStockDeduction(order.id, order.companyId);
+    const saved = await deps.saveStockDeduction(order.id, order.companyId, shippedAt);
     if (!saved.success) return saved;
   }
   return orderStateMachine.registerShipment(plan.data.nextOrder, shippedAt);

@@ -7,6 +7,8 @@ import { sellerNoticeTarget, type SellerNotice } from "@core/src/features/orders
 import type { NoticeContext, NoticeLocale, RenderedSellerNotice } from "@core/src/features/orders/application/describe-chat-message-notice";
 
 type Text = Readonly<{ title: string; body: string }>;
+/** The products of a list: up to three names and how many more there are, counting the ones with no name. */
+type ProductList = Readonly<{ names: readonly string[]; more: number }>;
 /** What a locale needs to write a notice; the cases that name an order have a variant for an order that no longer exists. */
 type Texts = Readonly<{
   notRecognized: (source: "photo" | "text") => Text;
@@ -24,6 +26,11 @@ type Texts = Readonly<{
   onlyItemKept: (orderNumber: number | null) => Text;
   ready: (orderNumber: number | null) => Text;
   newOrder: (orderNumber: number | null, previous: number | null) => Text;
+  notApplied: (orderNumber: number | null) => Text;
+  captionNotApplied: (name: string | null, orderNumber: number | null) => Text;
+  productNotAvailable: (name: string | null) => Text;
+  readyWithPendings: (orderNumber: number | null, missing: ProductList) => Text;
+  variantForSeveralPendings: (missing: ProductList) => Text;
   newOrderNote: (orderNumber: number) => string;
 }>;
 
@@ -51,6 +58,13 @@ const es: Texts = {
   onlyItemKept: (number) => ({ title: `Revisa el pedido${ref(number)}`, body: "Un cliente pidió quitar el único producto del pedido." }),
   ready: (number) => ({ title: number === null ? "Pedido listo" : `Pedido #${number} listo`, body: "Un cliente dice que terminó su pedido. Revísalo y obtén el enlace." }),
   newOrder: (number, previous) => ({ title: `Pedido nuevo${ref(number)}`, body: `Un cliente pidió más productos después de cerrar ${previous === null ? "el pedido anterior" : `el pedido #${previous}`}.` }),
+  notApplied: (number) => ({ title: "Revisa el chat", body: number === null
+    ? "Un cliente escribió algo que no pudimos aplicar a un pedido."
+    : `Un cliente escribió algo sobre el pedido #${number} que no pudimos aplicar.` }),
+  captionNotApplied: (name, number) => ({ title: "Revisa el chat", body: `Un cliente envió una foto de ${name ?? "un producto"} y la agregamos ${number === null ? "a un pedido" : `al pedido #${number}`}, pero no pudimos aplicar lo que escribió.` }),
+  productNotAvailable: (name) => ({ title: "Producto no disponible", body: `Un cliente pidió ${name === null ? "un producto" : name}${name === null ? "" : ","} que ya no está a la venta. Revisa el chat.` }),
+  readyWithPendings: (number, { names, more }) => ({ title: "Revisa el chat", body: `Un cliente dice que terminó ${number === null ? "su pedido" : `el pedido #${number}`}, pero falta completar ${names.length ? listWithMore(names, more, " y ", (n) => `${n} más`) : more === 1 ? "un producto" : `${more} productos`}.` }),
+  variantForSeveralPendings: ({ names, more }) => ({ title: "Revisa el chat", body: `Un cliente mencionó una variante sin decir de cuál ${names.length ? `producto: ${listWithMore(names, more, " y ", (n) => `${n} más`)}` : `de ${more} productos`}.` }),
   newOrderNote: (number) => `Se creó el pedido nuevo #${number}.`,
 };
 
@@ -76,6 +90,13 @@ const pt: Texts = {
   onlyItemKept: (number) => ({ title: `Revise o pedido${ref(number)}`, body: "Um cliente pediu para remover o único produto do pedido." }),
   ready: (number) => ({ title: number === null ? "Pedido pronto" : `Pedido #${number} pronto`, body: "Um cliente diz que terminou o pedido. Revise e obtenha o link." }),
   newOrder: (number, previous) => ({ title: `Novo pedido${ref(number)}`, body: `Um cliente pediu mais produtos depois do fechamento d${previous === null ? "o pedido anterior" : `o pedido #${previous}`}.` }),
+  notApplied: (number) => ({ title: "Veja o chat", body: number === null
+    ? "Um cliente escreveu algo que não conseguimos aplicar a um pedido."
+    : `Um cliente escreveu algo sobre o pedido #${number} que não conseguimos aplicar.` }),
+  captionNotApplied: (name, number) => ({ title: "Veja o chat", body: `Um cliente enviou uma foto de ${name ?? "um produto"} e a adicionamos ${number === null ? "a um pedido" : `ao pedido #${number}`}, mas não conseguimos aplicar o que escreveu.` }),
+  productNotAvailable: (name) => ({ title: "Produto indisponível", body: `Um cliente pediu ${name ?? "um produto"}${name === null ? "" : ","} que não está mais à venda. Veja o chat.` }),
+  readyWithPendings: (number, { names, more }) => ({ title: "Veja o chat", body: `Um cliente diz que terminou o pedido${number === null ? "" : ` #${number}`}, mas falta completar ${names.length ? listWithMore(names, more, " e ", (n) => `mais ${n}`) : more === 1 ? "um produto" : `${more} produtos`}.` }),
+  variantForSeveralPendings: ({ names, more }) => ({ title: "Veja o chat", body: `Um cliente mencionou uma variante sem dizer de qual ${names.length ? `produto: ${listWithMore(names, more, " e ", (n) => `mais ${n}`)}` : `de ${more} produtos`}.` }),
   newOrderNote: (number) => `Foi criado o novo pedido #${number}.`,
 };
 
@@ -89,11 +110,21 @@ function joinList(items: readonly string[], conjunction: string) {
   return items.length < 2 ? items.join("") : `${items.slice(0, -1).join(", ")}${conjunction}${items.at(-1)}`;
 }
 
+/** «A, B y C», or «A, B y 2 más» when names are left over: the rest is counted, never written. */
+function listWithMore(names: readonly string[], more: number, conjunction: string, rest: (count: number) => string) {
+  return more === 0 ? joinList(names, conjunction) : `${names.join(", ")}${conjunction}${rest(more)}`;
+}
+
 function textOf(notice: SellerNotice, texts: Texts, { names }: NoticeContext): Text {
   const orderNumber = (id: OrderId | null) => (id === null ? null : names.orderNumbers.get(id) ?? null);
   const product = (id: ProductId) => names.products.get(id);
   const productName = (id: ProductId) => product(id)?.name ?? null;
   const namesOf = (ids: readonly ProductId[]) => ids.flatMap((id) => productName(id) ?? []);
+  /** Up to three names; pendings with no name (doubtful or deleted product) and the names past the third are counted. */
+  const listOf = (ids: readonly ProductId[], unnamed: number): ProductList => {
+    const named = namesOf(ids);
+    return { names: named.slice(0, maxNamedProducts), more: unnamed + (ids.length - named.length) + Math.max(0, named.length - maxNamedProducts) };
+  };
   switch (notice.kind) {
     case "not_identified": return texts.notRecognized(notice.source);
     case "not_clear": {
@@ -115,6 +146,11 @@ function textOf(notice: SellerNotice, texts: Texts, { names }: NoticeContext): T
       return texts.severalProblems(notice.problemCount, named, notice.problemCount - named.length);
     }
     case "failed": return texts.failed;
+    case "not_applied": return texts.notApplied(orderNumber(notice.orderId));
+    case "caption_not_applied": return texts.captionNotApplied(productName(notice.productId), orderNumber(notice.orderId));
+    case "product_not_available": return texts.productNotAvailable(notice.productId === null ? null : productName(notice.productId));
+    case "ready_with_pendings": return texts.readyWithPendings(orderNumber(notice.orderId), listOf(notice.productIds, notice.unnamed));
+    case "variant_for_several_pendings": return texts.variantForSeveralPendings(listOf(notice.productIds, notice.unnamed));
     case "only_item_kept": return texts.onlyItemKept(orderNumber(notice.orderId));
     case "ready": return texts.ready(orderNumber(notice.orderId));
     case "new_order": return texts.newOrder(orderNumber(notice.orderId), orderNumber(notice.previousOrderId));

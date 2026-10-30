@@ -7,7 +7,7 @@ import { STOCK_DEDUCTION_RECOVERY_CRON, STOCK_DEDUCTION_RECOVERY_LAST_PASS_START
 
 const company = (n: number) => `00000000-0000-4000-8000-0000000009${String(n).padStart(2, "0")}` as CompanyId;
 const order = (n: number) => `00000000-0000-4000-8000-0000000001${String(n).padStart(2, "0")}` as OrderId;
-const deducted: DeductionOutcome = { kind: "deducted", stock: new Map() };
+const deducted: DeductionOutcome = { kind: "deducted", stock: new Map(), deductedAt: new Date("2026-09-30T12:00:00Z") };
 
 function fixture(overdue: Record<string, OrderId[]>, outcomes: (companyId: CompanyId, orderId: OrderId) => DeductionOutcome = () => deducted, options: Partial<RecoverDueStockDeductionsDependencies> = {}) {
   let now = 0;

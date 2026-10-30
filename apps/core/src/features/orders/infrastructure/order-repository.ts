@@ -153,8 +153,8 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
     buyer: row.buyer ? { contactId: row.buyer.contactId as ContactId | null, name: row.buyer.name, phone: row.buyer.phone } : null,
     ...(row.chatId ? { chatId: row.chatId as ChatId } : {}),
     checkoutEnabledAt: row.checkoutEnabledAt, checkoutConfirmedAt: row.checkoutConfirmedAt,
-    createdAt: row.createdAt, scheduledDispatchDate, shippedAt: row.shippedAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, items, payments,
-    delivery: delivery === null ? null : delivery.data, deliveryStatus: row.deliveryStatus, stockDeducted: row.stockDeducted,
+    createdAt: row.createdAt, scheduledDispatchDate, shippedAt: row.shippedAt, deliveredAt: row.deliveredAt, completedAt: row.completedAt, cancelled: row.cancelled, cancelledAt: row.cancelledAt, items, payments,
+    delivery: delivery === null ? null : delivery.data, deliveryStatus: row.deliveryStatus, stockDeducted: row.stockDeducted, stockDeductedAt: row.stockDeductedAt,
     itemsTotal: { amount: row.itemsTotal.toNumber(), currency: row.currency },
     deliveryCost: { amount: row.deliveryCost.toNumber(), currency: row.currency },
     deliveryCharge: { amount: row.deliveryCharge.toNumber(), currency: row.currency },
@@ -200,7 +200,7 @@ export async function savePendingOrder(order: OrderAggregate, source?: OrderChat
       deliveryCost: new Prisma.Decimal(order.deliveryCost.amount.toString()),
       deliveryCharge: new Prisma.Decimal(order.deliveryCharge.amount.toString()),
       delivery: Prisma.JsonNull,
-      deliveryStatus: order.deliveryStatus, stockDeducted: order.stockDeducted, cancelled: order.cancelled,
+      deliveryStatus: order.deliveryStatus, stockDeducted: order.stockDeducted, stockDeductedAt: order.stockDeductedAt, cancelled: order.cancelled, cancelledAt: order.cancelledAt,
       createdAt: order.createdAt, scheduledDispatchDate: order.scheduledDispatchDate && new Date(order.scheduledDispatchDate), shippedAt: order.shippedAt, deliveredAt: order.deliveredAt, completedAt: order.completedAt,
 
     } });
@@ -312,11 +312,13 @@ export async function findOrderForUpdate(id: OrderId, companyId: CompanyId, oper
   }
 }
 
-export async function saveStockDeduction(id: OrderId, companyId: CompanyId, operation?: string) {
+/** The deduction time is written once: a time already stored (the first deduction) is never moved. */
+export async function saveStockDeduction(id: OrderId, companyId: CompanyId, stockDeductedAt: Date, operation?: string) {
   requireActiveTransaction(companyId);
   try {
-    const updated = await prisma.order.updateMany({ where: { id, companyId, stockDeducted: false }, data: { stockDeducted: true } });
-    if (updated.count !== 1) throw new Error("Locked order was not available for stock deduction");
+    const updated = await prisma.$executeRaw`UPDATE "Order" SET "stockDeducted" = true, "stockDeductedAt" = COALESCE("stockDeductedAt", ${stockDeductedAt}::timestamptz)
+      WHERE id = ${id}::uuid AND "companyId" = ${companyId}::uuid AND "stockDeducted" = false`;
+    if (updated !== 1) throw new Error("Locked order was not available for stock deduction");
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
@@ -398,11 +400,11 @@ export async function saveFulfillment(id: OrderId, companyId: CompanyId, change:
   }
 }
 
-export async function saveCancellation(id: OrderId, companyId: CompanyId) {
+export async function saveCancellation(id: OrderId, companyId: CompanyId, cancelledAt: Date) {
   requireActiveTransaction(companyId);
   try {
     const updated = await prisma.order.updateMany({ where: { id, companyId, deliveryStatus: "pending", cancelled: false, completedAt: null },
-      data: { cancelled: true } });
+      data: { cancelled: true, cancelledAt } });
     if (updated.count !== 1) throw new Error("Locked order was not available for cancellation");
     return ok<null>(null);
   } catch (cause) {
@@ -600,22 +602,63 @@ type FindProductIds = (variantIds: readonly VariantId[]) => Promise<Result<Reado
  * The state of the chat's order under lock: the open order with the product of every item, or why there is none.
  * `findProductIds` is the products capability that names the product of each item's variant.
  */
-export async function findChatOrderTargetForUpdate(chatId: ChatId, findProductIds: FindProductIds) {
+export function findChatOrderTargetForUpdate(chatId: ChatId, findProductIds: FindProductIds) {
+  return readChatOrderTarget(chatId, findProductIds, true);
+}
+
+/** The same target without locks: what the reader sees. The transaction reads it again under lock. */
+export function findChatOrderTarget(chatId: ChatId, findProductIds: FindProductIds) {
+  return readChatOrderTarget(chatId, findProductIds, false);
+}
+
+async function readChatOrderTarget(chatId: ChatId, findProductIds: FindProductIds, lock: boolean) {
   const companyId = getCompanyId();
   const candidate = await findOpenChatOrderCandidate(chatId);
   if (!candidate.success) return candidate;
   if (candidate.data) {
-    const locked = await findOrderForUpdate(candidate.data, companyId as CompanyId);
-    if (!locked.success) return locked.error.code === "PERSISTENCE_UNAVAILABLE" ? err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: locked.error.message })
+    const found = lock ? await findOrderForUpdate(candidate.data, companyId as CompanyId) : await findOrderAggregate(candidate.data, companyId as CompanyId, "apply_chat_message");
+    if (!found.success) return found.error.code === "PERSISTENCE_UNAVAILABLE" ? err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: found.error.message })
       : err<InvalidStoredData>({ code: "INVALID_STORED_DATA", message: "Invalid stored chat order" });
-    if (locked.data && isOpenForMessageItems(locked.data, chatId)) {
-      const productIds = await findProductIds(locked.data.items.map((item) => item.variantId));
+    if (found.data && isOpenForMessageItems(found.data, chatId)) {
+      const productIds = await findProductIds(found.data.items.map((item) => item.variantId));
       if (!productIds.success) return productIds;
-      if (locked.data.items.some((item) => !productIds.data.has(item.variantId))) return err<InvalidStoredData>({ code: "INVALID_STORED_DATA", message: "Order item without product" });
-      return ok<ChatOrderTarget>({ kind: "open", order: locked.data, productIds: productIds.data });
+      if (found.data.items.some((item) => !productIds.data.has(item.variantId))) return err<InvalidStoredData>({ code: "INVALID_STORED_DATA", message: "Order item without product" });
+      return ok<ChatOrderTarget>({ kind: "open", order: found.data, productIds: productIds.data });
     }
   }
   return findLatestChatOrderState(chatId, companyId as CompanyId);
+}
+
+/** At most this many orders come back from `findChatOrdersOpenedSince`: the earliest ones, which are the ones a pending joins. */
+const maxOrdersOpenedSince = 20;
+
+/**
+ * The aggregates of the chat's orders that may have opened for messages after `since`: created after it, or with a payment voided after it.
+ * The earliest `maxOrdersOpenedSince` by that time come back, ordered by it, because a pending joins the earliest interval that starts after its last change.
+ */
+export async function findChatOrdersOpenedSince(chatId: ChatId, since: Date) {
+  const companyId = getCompanyId();
+  try {
+    const rows = await prisma.$queryRaw<Array<{ id: string }>>`SELECT o.id FROM "Order" o
+      CROSS JOIN LATERAL (SELECT LEAST(
+        CASE WHEN o."createdAt" > ${since} THEN o."createdAt" END,
+        (SELECT min((p.data->>'voidedAt')::timestamptz) FROM "Payment" p
+          WHERE p."companyId" = o."companyId" AND p."orderId" = o.id AND p.status = 'voided' AND (p.data->>'voidedAt')::timestamptz > ${since})
+      ) AS "openedAt") opened
+      WHERE o."companyId" = ${companyId}::uuid AND o."chatId" = ${chatId}::uuid AND opened."openedAt" IS NOT NULL
+      ORDER BY opened."openedAt", o.id LIMIT ${maxOrdersOpenedSince + 1}`;
+    if (rows.length > maxOrdersOpenedSince) log.warn({ event: "chat_orders_opened_since_capped", companyId, chatId, count: rows.length - 1 }, "chat_orders_opened_since_capped");
+    const ids = rows.slice(0, maxOrdersOpenedSince).map(({ id }) => id as OrderId);
+    if (!ids.length) return ok<readonly OrderAggregate[]>([]);
+    const found = await prisma.order.findMany({ where: { companyId, id: { in: ids } }, include: aggregateInclude });
+    const byId = new Map(found.map((row) => [row.id, row]));
+    return ok<readonly OrderAggregate[]>(ids.flatMap((id) => { const row = byId.get(id); return row ? [mapAggregate(row, "apply_chat_message")] : []; }));
+  } catch (cause) {
+    if (cause instanceof InvalidStoredOrderError) return err<InvalidStoredData>({ code: "INVALID_STORED_DATA", message: "Invalid stored chat order" });
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_find_chat_orders_opened_since", companyId, chatId, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_find_chat_orders_opened_since");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to find chat orders opened since" });
+  }
 }
 
 async function findLatestChatOrderState(chatId: ChatId, companyId: CompanyId) {
@@ -719,11 +762,12 @@ export async function lockOrdersSkipLocked(ids: readonly OrderId[], companyId: C
   } catch (cause) { return err(persistenceFailureResult(cause, "Unable to lock orders")); }
 }
 
-/** One statement; returns how many orders it marked (those still undeducted). */
-export async function saveStockDeductions(ids: readonly OrderId[], companyId: CompanyId): Promise<Result<number, TransactionEndingError | ContainedFailure>> {
+/** One statement; returns how many orders it marked (those still undeducted). A deduction time already stored (the first deduction) is never moved. */
+export async function saveStockDeductions(ids: readonly OrderId[], companyId: CompanyId, stockDeductedAt: Date): Promise<Result<number, TransactionEndingError | ContainedFailure>> {
   requireActiveTransaction(companyId);
   try {
-    return ok(await prisma.$executeRaw`UPDATE "Order" SET "stockDeducted" = true WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[]) AND NOT "stockDeducted"`);
+    return ok(await prisma.$executeRaw`UPDATE "Order" SET "stockDeducted" = true, "stockDeductedAt" = COALESCE("stockDeductedAt", ${stockDeductedAt}::timestamptz)
+      WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[]) AND NOT "stockDeducted"`);
   } catch (cause) { return err(persistenceFailureResult(cause, "Unable to save stock deductions")); }
 }
 

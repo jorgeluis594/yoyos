@@ -432,7 +432,7 @@ test("orders HTTP combines Lima-day UTC bounds with stable pages", async () => {
   const ids = Array.from({ length: 21 }, (_, index) => `00000000-0000-4000-8000-${String(index + 1).padStart(12, "0")}`);
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.createMany({ data: ids.map((id, index) => ({ number: BigInt(1001 + index), id, sellerId: seller.userId, currency: "PEN", total: 10, itemsTotal: 10,
-      deliveryStatus: "delivered", stockDeducted: true,
+      deliveryStatus: "delivered", stockDeducted: true, stockDeductedAt: new Date("2026-09-28T12:00:00.000Z"),
       completedAt: new Date("2026-09-28T12:00:00.000Z"), createdAt: new Date("2026-09-28T12:00:00.000Z") })) });
     await prisma.orderBuyer.createMany({ data: ids.map((orderId) => ({ orderId, contactId: seller.contactId, name: "Ana", phone: "+51999999999" })) });
   });
@@ -460,14 +460,14 @@ test("orders HTTP filters by dispatch status, courier, scheduled and shipped dat
     destination: location, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
     courier: { id: courierId, name: "Shalom" }, agency: { id: randomUUID(), name: "Agencia", address: "Av. 1", location },
     recordedBy: { kind: "seller", userId: seller.userId } };
-  const base = { currency: "PEN", total: 10, itemsTotal: 10, stockDeducted: true, createdAt: new Date("2026-09-28T12:00:00.000Z") };
+  const base = { currency: "PEN", total: 10, itemsTotal: 10, stockDeducted: true, stockDeductedAt: new Date("2026-09-28T12:00:00.000Z"), createdAt: new Date("2026-09-28T12:00:00.000Z") };
   const ids = Array.from({ length: 5 }, () => randomUUID());
   const [pendingScheduled, pendingUnscheduled, cancelledPending, shipped, otherTenant] = ids;
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.createMany({ data: [
       { ...base, number: 1001n, id: pendingScheduled, sellerId: seller.userId, scheduledDispatchDate: new Date("2026-10-05"), delivery },
       { ...base, number: 1002n, id: pendingUnscheduled, sellerId: seller.userId },
-      { ...base, number: 1003n, id: cancelledPending, sellerId: seller.userId, cancelled: true, scheduledDispatchDate: new Date("2026-10-05") },
+      { ...base, number: 1003n, id: cancelledPending, sellerId: seller.userId, cancelled: true, cancelledAt: new Date("2026-09-28T12:00:00.000Z"), scheduledDispatchDate: new Date("2026-10-05") },
       { ...base, number: 1004n, id: shipped, sellerId: seller.userId, deliveryStatus: "shipped", shippedAt: new Date("2026-10-06T15:00:00.000Z"), scheduledDispatchDate: new Date("2026-10-06") },
     ] });
     await prisma.orderItem.createMany({ data: [pendingScheduled, pendingUnscheduled, cancelledPending, shipped].map((orderId) => ({ orderId, variantId: seller.variantId,
@@ -627,7 +627,7 @@ test("checkout-link HTTP requires the seller company and returns a stable UUID U
   expect(created.checkoutEnabledAt).toEqual(created.createdAt);
   expect(await (await call(path, owner.cookie, {})).json()).toEqual(link);
   expect(await stored()).toEqual(created);
-  await withTenantIsolation(owner.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true } }));
+  await withTenantIsolation(owner.companyId, async () => await prisma.order.update({ where: { id }, data: { cancelled: true, cancelledAt: new Date() } }));
   expect((await call(path, owner.cookie, {})).status).toBe(409);
 });
 
@@ -741,7 +741,7 @@ test("quotation HTTP uses the checkout order tenant even with a foreign seller s
     expect(await prisma.deliveryRate.count()).toBe(0);
   });
   expect(await (await call(`/api/orders/${orderId}/aggregate`, seller.cookie)).json()).toEqual(orderBefore);
-  await withTenantIsolation(seller.companyId, async () => await prisma.order.update({ where: { id: orderId }, data: { cancelled: true } }));
+  await withTenantIsolation(seller.companyId, async () => await prisma.order.update({ where: { id: orderId }, data: { cancelled: true, cancelledAt: new Date() } }));
   const cancelled = await buyer(sellerHost);
   expect(cancelled.status).toBe(422);
   expect(await cancelled.json()).toMatchObject({ code: "ORDER_CANCELLED" });
@@ -1121,14 +1121,14 @@ test("reading mixed orders for label preparation never changes states, payments 
     destination: location, pricing: { quotationId: randomUUID(), rateId: randomUUID(), optionId: randomUUID(), settingsVersion: 1 },
     courier: { id: shalomId, name: "Shalom" }, agency: { id: randomUUID(), name: "Agencia", address: "Av. 1", location },
     recordedBy: { kind: "seller", userId: seller.userId } };
-  const base = { currency: "PEN", total: 10, itemsTotal: 10, stockDeducted: true, sellerId: seller.userId, createdAt: new Date("2026-09-28T12:00:00.000Z") };
+  const base = { currency: "PEN", total: 10, itemsTotal: 10, stockDeducted: true, stockDeductedAt: new Date("2026-09-28T12:00:00.000Z"), sellerId: seller.userId, createdAt: new Date("2026-09-28T12:00:00.000Z") };
   const [complete, incomplete, shipped, cancelled] = [1, 2, 3, 4].map(() => randomUUID());
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.order.createMany({ data: [
       { ...base, id: complete, number: 2001n, scheduledDispatchDate: new Date("2026-10-05"), delivery: agency },
       { ...base, id: incomplete, number: 2002n },
       { ...base, id: shipped, number: 2003n, deliveryStatus: "shipped", shippedAt: new Date("2026-10-06T15:00:00.000Z"), delivery: agency },
-      { ...base, id: cancelled, number: 2004n, cancelled: true, delivery: agency },
+      { ...base, id: cancelled, number: 2004n, cancelled: true, cancelledAt: new Date("2026-09-28T12:00:00.000Z"), delivery: agency },
     ] });
     await prisma.orderItem.createMany({ data: [complete, incomplete, shipped, cancelled].map((orderId) => ({ orderId, variantId: seller.variantId,
       productName: "Sample product", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 })) });

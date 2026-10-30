@@ -51,7 +51,7 @@ test("records a covering payment with short stock and returns the waiting order"
 });
 
 test("records a covering payment with enough stock and returns the deducted order", async () => {
-  const f = fixture({ kind: "deducted", stock: new Map() });
+  const f = fixture({ kind: "deducted", stock: new Map(), deductedAt: new Date("2026-09-30T12:00:00Z") });
   expect(await registerPayment(input, context, f.deps)).toMatchObject({ success: true, data: { order: { stockDeducted: true }, stockDue: null } });
 });
 

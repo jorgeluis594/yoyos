@@ -25,6 +25,7 @@ function order(): OrderAggregate {
 }
 const payment = (amount: number): Payment => ({ id: id(5) as PaymentId, orderId: id(2) as OrderId,
   amount: money(amount), status: "confirmed", method: "digital_wallet", deductStockIfPartial: false, data: { confirmedAt: new Date("2026-10-02"), confirmedBy: { kind: "seller", userId: context.userId }, evidence: { kind: "manual" } } });
+const stockTime = new Date("2026-10-03T09:00:00Z");
 function dependencies(current: OrderAggregate | null, amount = 3) {
   const saveDelivery = vi.fn<SetDeliveryDependencies["saveDelivery"]>(async () => ok(null));
   const publishStockEvent = vi.fn<SetDeliveryDependencies["publishStockEvent"]>(async () => ok({ kind: "not_due" }));
@@ -63,9 +64,9 @@ test("assigns and replaces the current snapshot with seller authorship and a com
 
 test("rejects missing, cancelled and fulfilled orders before resolving delivery", async () => {
   for (const [current, code] of [
-    [null, "ORDER_NOT_FOUND"], [{ ...order(), cancelled: true }, "ORDER_CANCELLED"],
-    [{ ...order(), payments: [payment(10)], stockDeducted: true, deliveryStatus: "shipped" as const }, "DELIVERY_LOCKED"],
-    [{ ...order(), payments: [payment(10)], stockDeducted: true, deliveredAt: new Date("2026-10-02"), deliveryStatus: "delivered" as const, completedAt: new Date("2026-10-03") }, "DELIVERY_LOCKED"],
+    [null, "ORDER_NOT_FOUND"], [{ ...order(), cancelled: true, cancelledAt: stockTime }, "ORDER_CANCELLED"],
+    [{ ...order(), payments: [payment(10)], stockDeducted: true, stockDeductedAt: stockTime, deliveryStatus: "shipped" as const }, "DELIVERY_LOCKED"],
+    [{ ...order(), payments: [payment(10)], stockDeducted: true, stockDeductedAt: stockTime, deliveredAt: new Date("2026-10-02"), deliveryStatus: "delivered" as const, completedAt: new Date("2026-10-03") }, "DELIVERY_LOCKED"],
   ] as const) {
     const f = dependencies(current);
     expect(await setOrderDelivery(input, context, f.deps)).toMatchObject({ success: false, error: { code } });
@@ -78,7 +79,7 @@ test("rejects missing, cancelled and fulfilled orders before resolving delivery"
 test.each([12, 13, 15])("publishes the delivery change and answers the outcome with existing payment of %s", async (paid) => {
   const current = { ...order(), payments: [payment(paid)] };
   const f = dependencies(current);
-  f.publishStockEvent.mockResolvedValue(ok(paid >= 13 ? { kind: "deducted", stock: new Map() } : { kind: "not_due" }));
+  f.publishStockEvent.mockResolvedValue(ok(paid >= 13 ? { kind: "deducted", stock: new Map(), deductedAt: new Date("2026-09-30T12:00:00Z") } : { kind: "not_due" }));
   const result = await setOrderDelivery(input, context, f.deps);
   expect(result).toMatchObject({ success: true, data: { order: { stockDeducted: paid >= 13, payments: current.payments }, stockDue: null } });
   expect(f.publishStockEvent).toHaveBeenCalledWith({ companyId: context.companyId, orderId: id(2) });
@@ -121,7 +122,7 @@ test("rated assignments charge the validated price and publish the delivery chan
       recordedBy: { kind: 'seller', userId: context.userId } }, cost: money(0),
   }));
   const rated = { orderId: input.orderId, delivery, expectedPrice: money(0) };
-  f.publishStockEvent.mockResolvedValue(ok({ kind: "deducted", stock: new Map() }));
+  f.publishStockEvent.mockResolvedValue(ok({ kind: "deducted", stock: new Map(), deductedAt: new Date("2026-09-30T12:00:00Z") }));
   expect(await setOrderDelivery(rated, context, { ...f.deps, resolveRatedDelivery })).toMatchObject({ success: true, data: { order: {
     stockDeducted: true, deliveryCost: money(0), deliveryCharge: money(0), total: money(10),
   } } });

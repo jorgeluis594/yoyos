@@ -37,7 +37,7 @@ export async function registerImmediateSale(input: CreateOrderInput, context: Or
     if (outcome.data.kind !== "deducted")
       return err(stockRefusalOf(outcome.data) ?? { code: "INVALID_STORED_DATA", message: "Immediate sale was not deducted" });
     const completedAt = deps.clock();
-    const delivered = orderStateMachine.registerDelivery({ ...paid.data, stockDeducted: true }, completedAt);
+    const delivered = orderStateMachine.registerDelivery({ ...paid.data, stockDeducted: true, stockDeductedAt: outcome.data.deductedAt }, completedAt);
     if (!delivered.success) return delivered;
     const fulfilled = await deps.saveFulfillment(input.id, context.companyId, delivered.data);
     return fulfilled.success ? ok(delivered.data) : fulfilled;

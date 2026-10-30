@@ -3,11 +3,11 @@ import { join } from "node:path";
 import { loadEnv } from "vite";
 import type { TestProject } from "vitest/node";
 import { imagesDirOf, localImagesDirOf, readImageManifest } from "@core/evals/fixtures/image-manifest";
-import { readRecords, resultsDir, runDir } from "@core/evals/lib/case-record";
+import { readRecords, resultsDirOf, runDir } from "@core/evals/lib/case-record";
 import { createClaude, type ErrorGroups } from "@core/evals/lib/claude";
 import { modelSuitesBlocker, readEvalEnv } from "@core/evals/lib/eval-env";
 import { installModelMeter, metered, type ModelCall } from "@core/evals/lib/model-meter";
-import { buildReport, formatSummary, type EvalReport } from "@core/evals/lib/report";
+import { buildReport, formatGateSummary, formatSummary, type EvalReport } from "@core/evals/lib/report";
 
 declare module "vitest" {
   export interface ProvidedContext {
@@ -39,23 +39,27 @@ export default function setup(project: TestProject) {
   installModelMeter();
 
   return async () => {
-    const records = await readRecords(runId);
-    if (!records.length) return;
+    // The workers get `.env` through the config's `env`, so the shell and `.env` decide here too.
     const shellAndFile = { ...loadEnv("evals", process.cwd(), ""), ...process.env };
+    const resultsDir = resultsDirOf(shellAndFile);
+    const records = await readRecords(runId, resultsDir);
+    if (!records.length) return;
     const env = readEvalEnv(shellAndFile);
     const imagesDir = imagesDirOf(shellAndFile);
     const meta = { runId, startedAt: startedAt.toISOString(), finishedAt: new Date().toISOString(),
       settings: { claudeModel: env.EVAL_CLAUDE_MODEL, maxCases: env.EVAL_MAX_CASES ?? "all", cases: env.EVAL_CASES ?? "all", repeats: env.EVAL_REPEATS,
-        skipParaphrases: env.EVAL_SKIP_PARAPHRASES === "1", split: env.EVAL_SPLIT, imagesDir, photoManifest: readImageManifest(imagesDir) !== null,
+        skipParaphrases: env.EVAL_SKIP_PARAPHRASES === "1", split: env.EVAL_SPLIT, repeatTags: env.EVAL_REPEAT_TAGS, privateRun: Boolean(shellAndFile.EVAL_PRIVATE_DIR), imagesDir, photoManifest: readImageManifest(imagesDir) !== null,
         localPhotos: readImageManifest(localImagesDirOf(shellAndFile))?.entries.length ?? 0, blocker: modelSuitesBlocker(env) } };
     const draft = buildReport(records, meta);
     const classified = await classify(draft.failures, env);
     const report = buildReport(records, meta, classified.calls, classified.groups);
+    // A private run (EVAL_PRIVATE_DIR) keeps everything in `<dir>/runs/` and prints aggregate lines only.
+    const privateRun = Boolean(shellAndFile.EVAL_PRIVATE_DIR);
     await mkdir(resultsDir, { recursive: true });
     const path = join(resultsDir, `${runId}.json`);
     // The classifier's calls are kept so the report can be rebuilt from the file (lib/rebuild.ts).
     await writeFile(path, `${JSON.stringify({ report, records, extraCalls: classified.calls }, null, 2)}\n`);
-    await rm(runDir(runId), { recursive: true, force: true });
-    console.log(`\n${formatSummary(report, path)}`);
+    await rm(runDir(runId, resultsDir), { recursive: true, force: true });
+    console.log(`\n${privateRun ? formatGateSummary(report) : formatSummary(report, path)}`);
   };
 }

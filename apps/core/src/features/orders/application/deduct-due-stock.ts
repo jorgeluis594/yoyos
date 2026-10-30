@@ -12,7 +12,8 @@ export type DeductionStage = "load_order" | "lock_stock" | "deduct_stock" | "sav
 export type DeductionErrorCode = ContainedFailureCode;
 export type DeductionOutcome =
   | Readonly<{ kind: "not_due" }>
-  | Readonly<{ kind: "deducted"; stock: VariantStock }>
+  /** `deductedAt` is the time stored as the order's stockDeductedAt when it had none. */
+  | Readonly<{ kind: "deducted"; stock: VariantStock; deductedAt: Date }>
   | Readonly<{ kind: "short"; shortItems: readonly [ShortItem, ...ShortItem[]] }>
   /** Only for order_stock_deduction_overdue: a stock row was held elsewhere. */
   | Readonly<{ kind: "skipped_locked" }>
@@ -37,8 +38,8 @@ export type DeductDueStockDependencies = Readonly<{
   lockVariantStock: (variantIds: readonly VariantId[], mode: "wait" | "skip_locked") => Promise<Result<ReadonlyMap<VariantId, unknown>, Failure>>;
   /** One guarded statement: decrements every row or none; returns the updated row count. */
   deductStockBulk: (lines: readonly StockLine[]) => Promise<Result<number, Failure>>;
-  /** One statement: sets stockDeducted where still false; returns the updated count. */
-  saveStockDeductions: (ids: readonly OrderId[], companyId: CompanyId) => Promise<Result<number, Failure>>;
+  /** One statement: sets stockDeducted where still false, and stockDeductedAt where still unset; returns the updated count. */
+  saveStockDeductions: (ids: readonly OrderId[], companyId: CompanyId, stockDeductedAt: Date) => Promise<Result<number, Failure>>;
   /** Full due rule and "every item fits" in SQL, driven by the partial index; createdAt, id order. */
   listWaitingOrderIds: (companyId: CompanyId, variantIds: readonly VariantId[], limit: number) => Promise<Result<readonly OrderId[], Failure>>;
   /** Sets the transaction-local statement and lock timeouts for the statements that follow. */
@@ -103,13 +104,14 @@ export function deductDueOrderStock(trigger: OrderStockTrigger, deps: DeductDueS
     const count = await step("deduct_stock", () => deps.deductStockBulk(plan.lines));
     if (!count.success) return count;
     if (count.data !== plan.lines.length) return err(fault("UNEXPECTED_ROW_COUNT", "deduct_stock"));
-    const saved = await step("save_deduction", () => deps.saveStockDeductions([order.id], payload.companyId));
+    const deductedAt = deps.clock();
+    const saved = await step("save_deduction", () => deps.saveStockDeductions([order.id], payload.companyId, deductedAt));
     if (!saved.success) return saved;
     if (saved.data !== 1) return err(fault("UNEXPECTED_ROW_COUNT", "save_deduction"));
     const after = new Map(stock);
     for (const line of plan.lines) after.set(line.variantId, ((after.get(line.variantId) ?? 0) - line.quantity) as NonNegativeInteger);
     deps.emit({ kind: "deducted", companyId: payload.companyId, orderId: order.id, trigger, itemCount: order.items.length, durationMs: deps.clock().getTime() - started });
-    return ok({ kind: "deducted", stock: after });
+    return ok({ kind: "deducted", stock: after, deductedAt });
   };
 }
 
@@ -198,7 +200,7 @@ export function serveWaitingOrders(deps: DeductDueStockDependencies):
     const count = await budgeted("deduct_stock", () => deps.deductStockBulk(lines));
     if (!count.success) return count;
     if (count.data !== lines.length) return err(fault("UNEXPECTED_ROW_COUNT", "deduct_stock", listed));
-    const saved = await budgeted("save_deduction", () => deps.saveStockDeductions(planned.map((order) => order.id), payload.companyId));
+    const saved = await budgeted("save_deduction", () => deps.saveStockDeductions(planned.map((order) => order.id), payload.companyId, deps.clock()));
     if (!saved.success) return saved;
     if (saved.data !== planned.length) return err(fault("UNEXPECTED_ROW_COUNT", "save_deduction", listed));
     return ok(outcome({ ...skipped, deducted: planned.length }));

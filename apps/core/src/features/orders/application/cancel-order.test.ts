@@ -10,6 +10,7 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")
 const companyId = id(1) as CompanyId;
 const orderId = id(2) as OrderId;
 const context = { companyId, userId: "seller" as UserId };
+const cancelledAt = new Date("2026-09-30T10:00:00Z");
 function pendingOrder() {
   const built = buildPendingOrder({ number: 1001 as OrderNumber, id: orderId, companyId, sellerId: context.userId, customer: { kind: "general_public" },
     createdAt: new Date("2026-09-29T12:00:00Z"), items: [{ id: id(4) as OrderItemId, variantId: id(5) as VariantId,
@@ -22,21 +23,24 @@ function pendingOrder() {
 function dependencies(order = pendingOrder()) {
   let committed = false;
   let saved = 0;
+  const savedAt: Date[] = [];
   const events: unknown[] = [];
   const deps: CancelOrderDependencies = {
     transaction: async (_company, work) => { const result = await work(); committed = result.success; return result; },
     findOrderForUpdate: async () => ok(order),
-    saveCancellation: async () => { saved++; return ok(null); },
+    saveCancellation: async (_id, _company, at) => { saved++; savedAt.push(at); return ok(null); },
     publishOrderCancelled: async payload => { expect(committed).toBe(true); events.push(payload); return ok(undefined); },
+    clock: () => cancelledAt,
   };
-  return { deps, events, saved: () => saved };
+  return { deps, events, saved: () => saved, savedAt: () => savedAt };
 }
 
 test.each([false, true])("publishes once after commit while retaining stock %s", async stockDeducted => {
-  const order = { ...pendingOrder(), stockDeducted };
+  const order = { ...pendingOrder(), stockDeducted, stockDeductedAt: stockDeducted ? new Date("2026-09-29T13:00:00Z") : null };
   const f = dependencies(order);
   const result = await cancelOrder(orderId, context, f.deps);
-  expect(result).toMatchObject({ success: true, data: { cancelled: true, deliveryStatus: "pending", deliveredAt: null, completedAt: null, stockDeducted } });
+  expect(result).toMatchObject({ success: true, data: { cancelled: true, cancelledAt, deliveryStatus: "pending", deliveredAt: null, completedAt: null, stockDeducted } });
+  expect(f.savedAt()).toEqual([cancelledAt]);
   expect(f.events).toEqual([{ orderId, companyId }]);
   expect(f.saved()).toBe(1);
   if (!result.success) throw new Error("Expected cancellation");
@@ -68,8 +72,8 @@ test("returns the committed cancellation after a publication failure", async () 
 });
 
 test("cancelled result narrows dates and state without forcing stock restoration", () => {
-  const cancelled: CancelledOrder = { ...pendingOrder(), cancelled: true, deliveryStatus: "pending", deliveredAt: null, completedAt: null };
-  const waiting: CancelledOrder = { ...cancelled, stockDeducted: true };
+  const cancelled: CancelledOrder = { ...pendingOrder(), cancelled: true, cancelledAt, deliveryStatus: "pending", deliveredAt: null, completedAt: null };
+  const waiting: CancelledOrder = { ...cancelled, stockDeducted: true, stockDeductedAt: cancelledAt };
   // @ts-expect-error Cancellation cannot describe a dispatched order.
   const invalid: CancelledOrder = { ...cancelled, deliveryStatus: "shipped" };
   // @ts-expect-error Cancellation must preserve the cancellation fact.

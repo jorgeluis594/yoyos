@@ -24,7 +24,8 @@ async function scenario<T>(stocks: number[], work: (ctx: { companyId: CompanyId;
     const seed = async (order: SeedOrder) => {
       const id = randomUUID();
       await prisma.order.create({ data: { id, number: BigInt(numbers++), currency: "PEN", total: new Prisma.Decimal(order.total), itemsTotal: new Prisma.Decimal(order.total),
-        createdAt: order.createdAt ?? new Date(), stockDeducted: order.stockDeducted ?? false, cancelled: order.cancelled ?? false, deliveryStatus: order.deliveryStatus ?? "pending",
+        createdAt: order.createdAt ?? new Date(), stockDeducted: order.stockDeducted ?? false, stockDeductedAt: order.stockDeducted ? order.createdAt ?? new Date() : null,
+        cancelled: order.cancelled ?? false, cancelledAt: order.cancelled ? order.createdAt ?? new Date() : null, deliveryStatus: order.deliveryStatus ?? "pending",
         fromCatalog: false, sellerId } });
       for (const [variant, quantity] of order.items) await prisma.orderItem.create({ data: { orderId: id, variantId: variants[variant]!, productName: "Camisa", variantAttributes: {},
         quantity: BigInt(quantity), unitPrice: new Prisma.Decimal(1), subtotal: new Prisma.Decimal(quantity) } });
@@ -76,8 +77,10 @@ test("locks a set of orders in one statement and skips those held elsewhere", as
       expect(data(await tx(() => lockOrdersSkipLocked([second, first], companyId)))).toEqual([second]);
     } finally { release(); await holder; }
     expect(data(await tx(() => lockOrdersSkipLocked([second, first], companyId)))).toEqual([first, second]);
-    expect(data(await tx(() => saveStockDeductions([first, second], companyId)))).toBe(2);
-    expect(data(await tx(() => saveStockDeductions([first, second], companyId)))).toBe(0);
+    const deductedAt = new Date("2026-10-30T10:00:00Z");
+    expect(data(await tx(() => saveStockDeductions([first, second], companyId, deductedAt)))).toBe(2);
+    expect(data(await tx(() => saveStockDeductions([first, second], companyId, new Date("2026-10-30T11:00:00Z"))))).toBe(0);
+    expect((await prisma.order.findMany({ where: { id: { in: [first, second] } } })).map((order) => order.stockDeductedAt)).toEqual([deductedAt, deductedAt]);
   });
 });
 

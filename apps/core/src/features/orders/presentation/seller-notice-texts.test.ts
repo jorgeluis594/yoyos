@@ -101,3 +101,62 @@ describe("renderSellerNotice", () => {
       .toMatchObject({ success: false, error: { code: "INVALID_NOTICE_DATA", retryable: false } });
   });
 });
+
+describe("renderSellerNotice with the single reader", () => {
+  const ready = (orderId: OrderId | null, productIds: readonly ProductId[], unnamed: number): SellerNotice => ({ kind: "ready_with_pendings", orderId, productIds, unnamed });
+  const several = (productIds: readonly ProductId[], unnamed: number): SellerNotice => ({ kind: "variant_for_several_pendings", productIds, unnamed, newOrderId: null });
+
+  test("writes «falta completar Polo básico y 1 más» with one named and one doubtful pending", () => {
+    expect(es(ready(order(1), [product(1)], 1))).toMatchObject({
+      title: "Revisa el chat", body: "Un cliente dice que terminó el pedido #1023, pero falta completar Polo básico y 1 más.", data: { target: "message" } });
+    expect(pt(ready(order(1), [product(1)], 1))).toMatchObject({
+      title: "Veja o chat", body: "Um cliente diz que terminou o pedido #1023, mas falta completar Polo básico e mais 1." });
+    expect(es(ready(null, [product(1)], 0)).body).toBe("Un cliente dice que terminó su pedido, pero falta completar Polo básico.");
+    expect(pt(ready(null, [product(1)], 0)).body).toBe("Um cliente diz que terminou o pedido, mas falta completar Polo básico.");
+    expect(es(ready(order(9), [product(1), product(2)], 0)).body).toBe("Un cliente dice que terminó su pedido, pero falta completar Polo básico y Polo premium.");
+  });
+
+  test("writes «falta completar 2 productos» when no pending has a name", () => {
+    expect(es(ready(order(1), [], 1)).body).toBe("Un cliente dice que terminó el pedido #1023, pero falta completar un producto.");
+    expect(es(ready(order(1), [], 2)).body).toBe("Un cliente dice que terminó el pedido #1023, pero falta completar 2 productos.");
+    expect(pt(ready(order(1), [], 1)).body).toBe("Um cliente diz que terminou o pedido #1023, mas falta completar um produto.");
+    expect(pt(ready(order(1), [], 2)).body).toBe("Um cliente diz que terminou o pedido #1023, mas falta completar 2 produtos.");
+    // A product deleted since the message has no name either.
+    expect(es(ready(order(1), [product(99)], 1)).body).toBe("Un cliente dice que terminó el pedido #1023, pero falta completar 2 productos.");
+  });
+
+  test("writes the several-pendings variant text with up to three names", () => {
+    expect(es(several([product(1), product(2)], 0))).toMatchObject({
+      title: "Revisa el chat", body: "Un cliente mencionó una variante sin decir de cuál producto: Polo básico y Polo premium.", data: { target: "message" } });
+    expect(pt(several([product(1), product(2)], 0)).body).toBe("Um cliente mencionou uma variante sem dizer de qual produto: Polo básico e Polo premium.");
+    expect(es(several([product(1), product(2), product(3), product(4)], 0)).body).toBe("Un cliente mencionó una variante sin decir de cuál producto: Polo básico, Polo premium, Gorra y 1 más.");
+    expect(es(several([product(1), product(2)], 2)).body).toBe("Un cliente mencionó una variante sin decir de cuál producto: Polo básico, Polo premium y 2 más.");
+    expect(es(several([], 3)).body).toBe("Un cliente mencionó una variante sin decir de cuál de 3 productos.");
+    expect(pt(several([], 3)).body).toBe("Um cliente mencionou uma variante sem dizer de qual de 3 produtos.");
+  });
+
+  test("writes the product-not-available text without a name for a deleted product", () => {
+    const notice = (productId: ProductId | null): SellerNotice => ({ kind: "product_not_available", productId, newOrderId: null });
+    expect(es(notice(product(1)))).toMatchObject({ title: "Producto no disponible", body: "Un cliente pidió Polo básico, que ya no está a la venta. Revisa el chat.", data: { target: "message" } });
+    expect(pt(notice(product(1)))).toMatchObject({ title: "Produto indisponível", body: "Um cliente pediu Polo básico, que não está mais à venda. Veja o chat." });
+    expect(es(notice(null)).body).toBe("Un cliente pidió un producto que ya no está a la venta. Revisa el chat.");
+    expect(es(notice(product(99))).body).toBe("Un cliente pidió un producto que ya no está a la venta. Revisa el chat.");
+    expect(pt(notice(null)).body).toBe("Um cliente pediu um produto que não está mais à venda. Veja o chat.");
+  });
+
+  test("writes the photo-added text with the product and order number in es and pt-BR", () => {
+    const notice = (orderId: OrderId | null): SellerNotice => ({ kind: "caption_not_applied", productId: product(3), orderId, newOrderId: null });
+    expect(es(notice(order(1)))).toMatchObject({ title: "Revisa el chat", body: "Un cliente envió una foto de Gorra y la agregamos al pedido #1023, pero no pudimos aplicar lo que escribió." });
+    expect(pt(notice(order(1)))).toMatchObject({ title: "Veja o chat", body: "Um cliente enviou uma foto de Gorra e a adicionamos ao pedido #1023, mas não conseguimos aplicar o que escreveu." });
+    expect(es(notice(null)).body).toBe("Un cliente envió una foto de Gorra y la agregamos a un pedido, pero no pudimos aplicar lo que escribió.");
+    expect(pt(notice(null)).body).toBe("Um cliente enviou uma foto de Gorra e a adicionamos a um pedido, mas não conseguimos aplicar o que escreveu.");
+  });
+
+  test("writes the generic not-applied text with and without an order number", () => {
+    const notice = (orderId: OrderId | null): SellerNotice => ({ kind: "not_applied", orderId, newOrderId: null });
+    expect(es(notice(order(1)))).toMatchObject({ title: "Revisa el chat", body: "Un cliente escribió algo sobre el pedido #1023 que no pudimos aplicar.", data: { target: "message" } });
+    expect(pt(notice(order(1)))).toMatchObject({ title: "Veja o chat", body: "Um cliente escreveu algo sobre o pedido #1023 que não conseguimos aplicar." });
+    expect(es(notice(null)).body).toBe("Un cliente escribió algo que no pudimos aplicar a un pedido.");
+    expect(pt(notice(order(9))).body).toBe("Um cliente escreveu algo que não conseguimos aplicar a um pedido.");
+  });
+});

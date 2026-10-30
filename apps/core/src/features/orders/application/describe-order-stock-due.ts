@@ -28,7 +28,7 @@ function describeWith(order: OrderAggregate, rows: ReadonlyMap<VariantId, unknow
  */
 export async function orderWithStockDue(order: OrderAggregate, outcome: DeductionOutcome, readStock: StockReader): Promise<Result<StockEventResult, TransactionEndingError>> {
   switch (outcome.kind) {
-    case "deducted": return ok({ order: { ...order, stockDeducted: true }, stockDue: null, outcome });
+    case "deducted": return ok({ order: { ...order, stockDeducted: true, stockDeductedAt: order.stockDeductedAt ?? outcome.deductedAt }, stockDue: null, outcome });
     case "not_due": return ok({ order, stockDue: null, outcome });
     case "short": return ok({ order, stockDue: { kind: "waiting", shortItems: outcome.shortItems }, outcome });
     case "skipped_locked":

@@ -9,7 +9,6 @@ import type { Result } from "@shared/result";
 import { loadAttributesOfProducts, loadAttributesOfVariants, savedVariantOrder, type VariantAttributes } from "@core/src/features/products/infrastructure/variant-combinations";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
-import type { ProductWithSellableVariants } from "@core/src/features/products/domain/text-identification";
 
 function knownFailure(cause: unknown) {
   return cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError;
@@ -140,34 +139,6 @@ export async function searchSaleCatalog(search: string, variantIds?: readonly st
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_search_sale_catalog", err: cause }, "unable_to_search_sale_catalog");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to search catalog" });
-  }
-}
-
-/** Active variants of active products, grouped by product, in one query; products without a sellable variant are omitted. */
-export async function loadSellableVariants(productIds: readonly ProductId[]) {
-  try {
-    const { rows, attributes } = await withinReadSnapshot(async () => {
-      const rows = await prisma.productVariant.findMany({ where: { productId: { in: [...productIds] }, status: "active", product: { status: "active" } },
-        include: { product: true }, orderBy: [{ productId: "asc" }, { id: "asc" }] });
-      const bySavedOrder = await savedVariantOrder(productIds);
-      return { rows: [...rows].sort((left, right) => left.productId < right.productId ? -1 : left.productId > right.productId ? 1 : bySavedOrder(left, right)),
-        attributes: await loadAttributesOfVariants(rows.map((row) => row.id)) };
-    });
-    const grouped = new Map<ProductId, { productId: ProductId; name: string; variants: CatalogItem[] }>();
-    for (const row of rows) {
-      const item = toCatalogItem(row, attributes);
-      // A corrupt variant is skipped as if it did not exist, like the other readers.
-      if (!item) { log.error({ event: "invalid_stored_sale_variant", variantId: row.id }, "invalid_stored_sale_variant"); continue; }
-      const productId = row.productId as ProductId;
-      const entry = grouped.get(productId) ?? { productId, name: row.product.name, variants: [] };
-      entry.variants.push(item);
-      grouped.set(productId, entry);
-    }
-    return ok<readonly ProductWithSellableVariants[]>([...grouped.values()]);
-  } catch (cause) {
-    if (!knownFailure(cause)) throw cause;
-    log.error({ event: "unable_to_load_sellable_variants", err: cause }, "unable_to_load_sellable_variants");
-    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
   }
 }
 
