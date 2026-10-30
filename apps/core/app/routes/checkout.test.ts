@@ -431,3 +431,17 @@ describe("checkout theme tag and color scheme", () => {
     expect(handle.colorScheme({ checkout: null, message: "x" })).toBe("system");
   });
 });
+
+test("serves the checkout of a confirmed order whose customer was cleared with empty details", async () => {
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page({ ...view, buyer: null, state: { kind: "confirmed" as const, confirmedAt: new Date("2026-10-05T00:00:00Z") } })));
+  vi.spyOn(orders, "getBuyerPaymentView").mockResolvedValue(ok(paymentView));
+  expect(await loader({ params, context } as unknown as LoaderFunctionArgs)).toMatchObject({
+    data: { checkout: { buyer: null, state: { kind: "confirmed" } }, payment: paymentView } });
+});
+
+test("serves the checkout of a confirmed WhatsApp order whose name and phone were emptied", async () => {
+  vi.spyOn(orders, "getCheckout").mockResolvedValue(ok(page({ ...view, buyer: { name: null, phone: null }, state: { kind: "confirmed" as const, confirmedAt: new Date("2026-10-05T00:00:00Z") } })));
+  vi.spyOn(orders, "getBuyerPaymentView").mockResolvedValue(ok(paymentView));
+  expect(await loader({ params, context } as unknown as LoaderFunctionArgs)).toMatchObject({
+    data: { checkout: { buyer: { name: null, phone: null }, state: { kind: "confirmed" } }, payment: paymentView } });
+});
