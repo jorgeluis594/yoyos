@@ -6,8 +6,8 @@ import resources from "@core/app/locales";
 import { act, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, expect, test } from "vitest";
-import { PeruDistrictSelect } from "@core/app/components/peru-district-select";
-import { filterPeruDistricts, getPeruDistrict, getPeruDistricts } from "@shared/peru-geography";
+import { PeruDistrictSelect, PeruLocationFields } from "@core/app/components/peru-district-select";
+import { filterPeruDistricts, getPeruDistrict, getPeruDistricts, type PeruArea, type PeruProvinceCode } from "@shared/peru-geography";
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -120,4 +120,85 @@ test("choosing the current department or province again keeps the children", asy
   await choose(fields.province(), "lima");
   expect(changes).toEqual([]);
   expect(fields.district().value).toBe("Miraflores");
+});
+
+const lima = { kind: "district", code: "150122" } as PeruArea;
+const optionTexts = () => [...document.querySelectorAll('[role="option"]')].map(option => option.textContent);
+const open = (input: HTMLInputElement) => act(async () => {
+  input.focus();
+  input.dispatchEvent(new KeyboardEvent("keydown", { key: "ArrowDown", bubbles: true, cancelable: true }));
+});
+// Types a text that matches nothing so the popup opens on its empty text.
+const typeOnly = (input: HTMLInputElement, text: string) => act(async () => {
+  input.focus();
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")!.set!.call(input, text);
+  input.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text }));
+});
+async function mountFields(initial: PeruArea | null, props: Partial<React.ComponentProps<typeof PeruLocationFields>>, changes: [PeruArea | null, string][] = []) {
+  function Harness() {
+    const [area, setArea] = useState<PeruArea | null>(initial);
+    return withI18n(<PeruLocationFields value={area} onChange={(next, level) => { changes.push([next, level]); setArea(next); }} {...props} />);
+  }
+  const container = document.createElement("div");
+  document.body.append(container);
+  const root = createRoot(container);
+  await act(async () => root.render(<Harness />));
+  mounted.push(() => root.unmount());
+  const input = (label: string) => document.querySelector<HTMLInputElement>(`input[id$="-${label}"]`)!;
+  return { department: () => input("department"), province: () => input("province"), district: () => input("district") };
+}
+const texts = { groupHint: "Solo mostramos donde llega la tienda.", noResults: { department: "Sin departamentos", province: "Sin provincias", district: "Sin distritos" } };
+
+test("location fields list only the given places and the whole country without them", async () => {
+  const places = { departmentCodes: [], provinceCodes: ["1501" as PeruProvinceCode], districtCodes: [] };
+  const limited = await mountFields({ kind: "province", code: "1501" as PeruProvinceCode }, { places });
+  await open(limited.department());
+  expect(optionTexts()).toEqual(["Lima"]);
+  await open(limited.province());
+  expect(optionTexts()).toEqual(["Lima"]);
+  await open(limited.district());
+  const districts = optionTexts();
+  expect(districts).toHaveLength(43);
+  expect(districts).not.toContain("Huamantanga");
+  mounted.splice(0).forEach(unmount => unmount());
+  const whole = await mountFields(null, {});
+  await open(whole.department());
+  expect(optionTexts()).toHaveLength(25);
+});
+
+test("location fields with checkout texts show the group hint as the description of Departamento only and the checkout empty texts per level", async () => {
+  const fields = await mountFields(lima, { texts });
+  const hint = document.querySelector("legend + p")!;
+  expect(hint.textContent).toBe(texts.groupHint);
+  expect(fields.department().getAttribute("aria-describedby")).toBe(hint.id);
+  expect(fields.province().getAttribute("aria-describedby")).toBeNull();
+  expect(fields.district().getAttribute("aria-describedby")).toBeNull();
+  expect(document.body.textContent).not.toContain("Escribe para buscar y elige tu distrito");
+  await typeOnly(fields.district(), "zzzz");
+  expect(document.body.textContent).toContain("Sin distritos");
+});
+
+test("seller district select keeps its hint, its empty text and the 25 departments", async () => {
+  const fields = await mount(null, []);
+  expect(fields.department().getAttribute("aria-describedby")).toBeNull();
+  expect(document.body.textContent).toContain("Escribe para buscar y elige tu distrito en la misma lista.");
+  await open(fields.department());
+  expect(optionTexts()).toHaveLength(25);
+  await typeOnly(fields.department(), "zzzz");
+  expect(document.body.textContent).toContain("No hay resultados. Prueba con otro nombre.");
+});
+
+test("location fields report the changed level and clear the levels below", async () => {
+  const changes: [PeruArea | null, string][] = [];
+  const fields = await mountFields(lima, {}, changes);
+  await choose(fields.department(), "arequipa");
+  expect(changes.at(-1)).toEqual([{ kind: "department", code: "04" }, "department"]);
+  expect(fields.province().value).toBe("");
+  await choose(fields.province(), "caylloma");
+  expect(changes.at(-1)).toEqual([{ kind: "province", code: "0405" }, "province"]);
+  await choose(fields.district(), "chivay");
+  expect(changes.at(-1)).toEqual([{ kind: "district", code: "040501" }, "district"]);
+  await choose(fields.province(), "");
+  expect(changes.at(-1)).toEqual([{ kind: "department", code: "04" }, "province"]);
+  expect(fields.district().value).toBe("");
 });
