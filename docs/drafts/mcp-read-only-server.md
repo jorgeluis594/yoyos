@@ -56,7 +56,7 @@ Alternative paths:
 
 - The owner taps **No permitir**: Yoyos shows «No diste acceso. Ya puedes volver a tu asistente.» and sends the browser back to the agent with access denied; nothing is created.
 - The owner is signed in with another account: **Usar otra cuenta** signs out and shows the sign-in, then returns to the authorization screen.
-- The account has no store yet, or its email is not verified: the authorization screen explains it and does not offer **Permitir acceso** (see Screens).
+- The account has no store yet: the authorization screen explains it and does not offer **Permitir acceso**. Its email is not verified: Yoyos does not let it sign in, so the sign-in of the connection explains it and does not offer **Permitir acceso** (see Screens).
 - The owner closes the window midway: nothing is created; they start again from the agent.
 - The owner disconnects an agent from «Asistentes de IA»: its next tool call is refused as not authorized (see «When something fails»).
 
@@ -84,7 +84,7 @@ Both web screens follow the interface language like every other page (Spanish an
   - Main action **Permitir acceso**; secondary **No permitir**.
 - Accessibility: the title is the page heading and is read as one sentence with the domain line; each list has its own heading and is a real list, not distinguished by color alone; **Usar otra cuenta**, **Permitir acceso** and **No permitir** have at least the touch target size of the navigation links on a phone and a visible focus ring; contrast follows the design system.
 - Not signed in: the existing Yoyos sign-in, with the line «Inicia sesión para conectar tu asistente.»; on success it returns to this screen with the same request. «Crear cuenta» keeps working; a new account goes through email verification and store creation, and then the owner starts the connection again from the agent.
-- Email not verified: «Verifica tu correo para conectar tu asistente. Después vuelve a tu asistente y conecta de nuevo.» with **Reenviar correo de verificación**, which opens the existing verification screen (check-email). No **Permitir acceso**.
+- Email not verified (shown at the sign-in step of the connection, because an unverified account cannot sign in): when the owner signs in from an agent's request and the email is not verified, the sign-in shows «Verifica tu correo para conectar tu asistente. Después vuelve a tu asistente y conecta de nuevo.» with **Reenviar correo de verificación**, which opens the existing verification screen (check-email). No **Permitir acceso**.
 - Account without a store: «Primero crea tu tienda en Yoyos. Después vuelve a tu asistente y conecta de nuevo.» with **Crear mi tienda** (the existing registration step). No **Permitir acceso**.
 - Invalid or incomplete request (opened by hand, altered, unknown agent): «Este enlace de conexión no es válido. Vuelve a tu asistente y conecta de nuevo.»
 - Request expired (more than 10 minutes on this screen, initial value, adjustable): «Esta solicitud venció. Vuelve a tu asistente y conecta de nuevo.»
@@ -255,7 +255,7 @@ Protection and the risk it closes:
 
 1. Rosa, signed in to Yoyos web, copies the address from «Asistentes de IA», adds it as a custom connector in Claude, taps **Permitir acceso** for «Tienda Rosa», sees «Listo. Ya puedes volver a tu asistente.», asks «¿qué pedidos tengo por cobrar?» and gets her unpaid orders with the balance of each and the total owed; back on the open «Asistentes de IA» tab, the list shows «Claude», «Conectado el 30/10/2026» without reloading.
 2. Rosa is not signed in: the connector opens the Yoyos sign-in with «Inicia sesión para conectar tu asistente.»; after signing in she lands on the authorization screen without starting over.
-3. An account with an unverified email or without a store sees the matching message and no **Permitir acceso**.
+3. An account with an unverified email sees the matching message at the sign-in of the connection, and an account without a store sees it on the authorization screen; neither gets **Permitir acceso**.
 4. Rosa taps **No permitir**: she sees «No diste acceso. Ya puedes volver a tu asistente.», the agent reports it could not connect and no row appears in «Asistentes conectados».
 5. Rosa leaves the authorization screen open for 11 minutes and taps **Permitir acceso**: «Esta solicitud venció. Vuelve a tu asistente y conecta de nuevo.» and no connection is created. An authorization link with an altered parameter shows «Este enlace de conexión no es válido. Vuelve a tu asistente y conecta de nuevo.».
 6. Rosa double-clicks **Permitir acceso**: exactly one row appears in «Asistentes conectados».
