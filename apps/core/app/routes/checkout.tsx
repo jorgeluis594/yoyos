@@ -19,6 +19,7 @@ import type { CheckoutDeliveryChange, CheckoutPage } from "@core/src/features/or
 import type { Money } from "@shared/money";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import type { DeliveryCoverage } from "@shared/delivery-coverage";
 import { bindCompanyToRequest, bindRequestOperation, log } from "@core/src/shared/infrastructure/logger";
 import { buyerPaymentViewSchema, type BuyerPaymentView } from "@shared/contracts/orders";
 import { storeAppearance } from "@core/src/features/store-appearance/composition";
@@ -121,9 +122,12 @@ export async function loader({ params, context }: LoaderFunctionArgs) {
     bindRequestOperation({ outcome: "technical_failure" });
     throw new Response(retry, { status: 503, headers: privacyHeaders });
   }
+  const offered = (places: DeliveryCoverage["home"]) => places ? { offered: true, places } : { offered: false };
   const options = checkoutDeliveryOptionsSchema.safeParse({
-    home: settings.data.settings.home, agency: { enabled: settings.data.settings.agency.enabled, covered: settings.data.agencyCovered }, store: settings.data.settings.store });
+    home: offered(settings.data.coverage.home), agency: offered(settings.data.coverage.agency), store: settings.data.settings.store });
   if (!options.success) {
+    const issue = options.error.issues[0];
+    log.error({ event: "checkout_delivery_options_invalid", field: issue.path.join("."), issueCode: issue.code }, "Invalid checkout delivery options");
     bindRequestOperation({ outcome: "technical_failure" });
     throw new Response(retry, { status: 503, headers: privacyHeaders });
   }

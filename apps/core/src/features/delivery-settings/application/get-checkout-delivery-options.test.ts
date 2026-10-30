@@ -19,11 +19,12 @@ const configuration = (withAgency: boolean): DeliveryConfiguration => {
     zones: [zone.data], agencies: withAgency ? [agency] : [] };
 };
 
-test("returns the stored settings with agency coverage computed from the configuration", async () => {
+test("checkout delivery options return settings and per-method coverage from the shared configuration read", async () => {
   for (const withAgency of [true, false]) {
     const config = configuration(withAgency);
     const result = await getCheckoutDeliveryOptions({ companyId }, { readConfigurationForShare: async id => { expect(id).toBe(companyId); return ok(config); } });
-    expect(result).toEqual(ok({ settings: config.settings, agencyCovered: withAgency }));
+    expect(result).toEqual(ok({ settings: config.settings, coverage: { home: null,
+      agency: withAgency ? { departmentCodes: [], provinceCodes: [], districtCodes: ["150122"] } : null } }));
   }
 });
 

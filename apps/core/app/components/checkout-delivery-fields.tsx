@@ -34,8 +34,8 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, recipient, 
   const { t, i18n } = useTranslation();
   const ready = useClientReady();
   const saved = checkout.delivery;
-  const homeEnabled = options.home.enabled;
-  const agencyEnabled = options.agency.enabled && options.agency.covered;
+  const homeEnabled = options.home.offered;
+  const agencyEnabled = options.agency.offered;
   const districtRef = useRef<HTMLDivElement>(null);
   const form = useForm<Draft>({ resolver: zodResolver(draftSchema), defaultValues: {
     mode: saved ? "keep" : homeEnabled ? "home" : agencyEnabled ? "agency" : options.store.enabled ? "store" : "", districtCode: saved && "destination" in saved && "districtCode" in saved.destination ? saved.destination.districtCode : null,
