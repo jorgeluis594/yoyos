@@ -457,7 +457,7 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
     {!order.cancelled && order.status === "active" && order.deliveryStatus === "pending" && <div className="flex flex-col gap-1 self-start">
       <Button type="button" variant="destructive" aria-disabled={unsaved || blocked || undefined} aria-describedby={unsaved ? "cancel-unsaved-note" : undefined}
         onClick={() => { if (!unsaved && !blocked) setCancelOpen(true); }}>{t("orderCancellation.cancel")}</Button>
-      {unsaved && <p id="cancel-unsaved-note" className="text-sm text-muted-foreground">{t("orderView.status.saveFirst")}</p>}
+      {unsaved && <p id="cancel-unsaved-note" className="sr-only">{t("orderView.status.saveFirst")}</p>}
     </div>}
     <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
       <DialogContent>
@@ -483,11 +483,12 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
       const block = orderFulfillmentBlock(order, operation);
       const reason = block && fulfillmentReason(block, operation, order, i18n.language);
       const waiting = unsaved || blocked;
-      const note = unsaved ? t("orderView.status.saveFirst") : reason ? t(reason.key, { items: reason.items }) : null;
+      const done = block?.code === "INVALID_TRANSITION";
+      const note = unsaved ? t("orderView.status.saveFirst") : done ? t(`orderFulfillment.already_${order.deliveryStatus === "delivered" ? "delivered" : "shipped"}`) : reason ? t(reason.key, { items: reason.items }) : null;
       return <Form key={operation} method="post" className="flex flex-col gap-1" onSubmit={event => { if (reason || waiting) event.preventDefault(); }}>
         <input type="hidden" name="operation" value={operation} />
         <Button type="submit" variant="outline" aria-disabled={!!reason || waiting || undefined} aria-describedby={note ? `fulfillment-${operation}-reason` : undefined}>{t(`orderFulfillment.${operation}`)}</Button>
-        {note && <p id={`fulfillment-${operation}-reason`} className="text-sm text-muted-foreground">{note}</p>}
+        {note && <p id={`fulfillment-${operation}-reason`} className={unsaved ? "sr-only" : "text-sm text-muted-foreground"}>{note}</p>}
       </Form>;
     })}
     {fulfillment?.error && <Alert variant="destructive"><AlertDescription>{t(`orderFulfillment.${fulfillment.operation === "ship" && fulfillment.error === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : fulfillment.error}`, { defaultValue: t("orderFulfillment.saveError") })}</AlertDescription></Alert>}

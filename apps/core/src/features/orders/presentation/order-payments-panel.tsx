@@ -82,7 +82,7 @@ function ActionButtons({ choices, blockedNote, disabled, onPick }: { choices: re
         aria-disabled={blocked ? true : undefined} aria-describedby={blocked ? noteId : undefined}
         onClick={event => { if (!blocked) onPick(choice, event.currentTarget); }}>{label}</Button>;
     })}</div>
-    {blockedNote && <p id={noteId} className="text-sm text-muted-foreground">{blockedNote}</p>}
+    {blockedNote && <p id={noteId} className="sr-only">{blockedNote}</p>}
   </div>;
 }
 
@@ -215,7 +215,7 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
   return <Card role="region" aria-labelledby="order-payments-title" className="min-w-0">
     <CardHeader><CardTitle id="order-payments-title">{t("orderView.payments.title")}</CardTitle></CardHeader>
     <CardContent className="flex flex-col gap-4">
-      <Summary totals={totals} reviewPending={reviewPending} format={format} />
+      {!order.cancelled && <Summary totals={totals} reviewPending={reviewPending} format={format} />}
       {visibleVoid?.error && <Alert variant="destructive"><AlertDescription>{t(paymentErrorKey(visibleVoid.error))}</AlertDescription></Alert>}
       {((saved && !visibleVoid?.error) || visibleVoid?.success) && <Alert variant="success"><AlertDescription role="status">{t(visibleVoid?.success ? "orders.paymentSaved" : saved ?? "orders.paymentSaved")}</AlertDescription></Alert>}
       {history.length === 0 ? <p className="text-sm text-muted-foreground">{t(hasProducts ? "orderView.payments.empty" : "orderView.payments.needProducts")}</p>
@@ -252,7 +252,7 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
             </div>
           </li>;
         })}</ul>}
-      {blockedNote && history.some(payment => rowActions(payment, order).approve) && <p id={approveNoteId} className="text-sm text-muted-foreground">{blockedNote}</p>}
+      {blockedNote && history.some(payment => rowActions(payment, order).approve) && <p id={approveNoteId} className="sr-only">{blockedNote}</p>}
       {canAdd && <ActionButtons choices={paymentChoices} blockedNote={blockedNote} disabled={!idle}
         onPick={(choice, element) => open("register", manualPaymentId, element, choice)} />}
     </CardContent>

@@ -36,7 +36,7 @@ export function SavedHeader({ order, salesHref, format, headerRef, unsaved, busy
   return <div ref={headerRef} className="flex flex-col gap-3">
     <nav aria-label={t("orderView.header.breadcrumb")}>
       <ol className="flex items-center gap-1 text-sm text-muted-foreground">
-        <li><Link to={salesHref} className="hover:underline">{t("orderView.header.sales")}</Link></li>
+        <li><Link to={salesHref} className="inline-flex min-h-touch items-center hover:underline">{t("orderView.header.sales")}</Link></li>
         <li aria-hidden="true"><ChevronRight className="size-icon-inline" /></li>
         <li aria-current="page" className="text-foreground">{title}</li>
       </ol>
@@ -48,10 +48,13 @@ export function SavedHeader({ order, salesHref, format, headerRef, unsaved, busy
         <PageHeader.Description>{subtitle}</PageHeader.Description>
       </PageHeader.Heading>
       <PageHeader.Actions>
+        {unsaved && <p className="basis-full text-sm text-muted-foreground xl:basis-auto xl:self-center">{t("orderView.status.unsavedChanges")} {t("orderView.status.saveFirst")}</p>}
         <PrintButton blocked={unsaved} onPrint={onPrint} />
         <Button asChild variant="ghost" className="text-muted-foreground"><Link to={salesHref}>{t("orderView.header.viewSales")}</Link></Button>
-        <Button type="button" variant="outline" disabled={!unsaved || busy} onClick={onDiscard}>{t("orderView.header.discardChanges")}</Button>
-        <Button type="button" disabled={!unsaved || busy} aria-busy={saving || undefined} onClick={onSave}>{t(saving ? "orderView.header.saving" : "orderView.header.saveChanges")}</Button>
+        {!order.cancelled && <>
+          <Button type="button" variant="outline" disabled={!unsaved || busy} onClick={onDiscard}>{t("orderView.header.discardChanges")}</Button>
+          <Button type="button" disabled={!unsaved || busy} aria-busy={saving || undefined} onClick={onSave}>{t(saving ? "orderView.header.saving" : "orderView.header.saveChanges")}</Button>
+        </>}
       </PageHeader.Actions>
     </PageHeader>
   </div>;

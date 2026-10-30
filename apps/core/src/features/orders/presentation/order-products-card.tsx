@@ -162,7 +162,7 @@ export function OrderProductsCard({ state, onChange, search, pickerOpen, onPicke
         {totalRow(t("orderView.products.total"), totals.data.total.amount, totals.data.total.currency, true)}
         {totals.data.excess.amount > 0
           ? <p className="pt-1">{t("orderView.products.excess", { amount: money(totals.data.excess.amount, totals.data.excess.currency) })}</p>
-          : totals.data.balance.amount > 0 && totalRow(t("orderView.products.balance"), totals.data.balance.amount, totals.data.balance.currency)}
+          : totals.data.balance.amount > 0 && !order?.cancelled && totalRow(t("orderView.products.balance"), totals.data.balance.amount, totals.data.balance.currency)}
         {isEstimate && <p className="pt-1 text-muted-foreground">{t("orderView.products.estimate")}</p>}
       </dl>}
     </CardContent>
