@@ -11,15 +11,14 @@ let root: Root | undefined;
 let container: HTMLDivElement;
 afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove(); });
 
-function Page({ dirty, inDoubt = false }: Readonly<{ dirty: boolean; inDoubt?: boolean }>) {
-  const guard = useUnsavedChangesGuard({ dirty, inDoubt });
+function Page({ dirty, inDoubt = false, allowedPath }: Readonly<{ dirty: boolean; inDoubt?: boolean; allowedPath?: string }>) {
+  const guard = useUnsavedChangesGuard({ dirty, inDoubt, allowedPath });
   return <div><Link to="/sales">Ver ventas</Link>
-    <button type="button" onClick={guard.allowLeaving}>allow</button>
     {guard.blocked && <div role="dialog" data-mode={guard.mode}><button type="button" onClick={guard.stay}>stay</button><button type="button" onClick={guard.leave}>leave</button></div>}</div>;
 }
 
 async function mount(page: React.ReactNode) {
-  const router = createMemoryRouter([{ path: "/orders/new", element: page }, { path: "/sales", element: <p>Ventas</p> }], { initialEntries: ["/orders/new"] });
+  const router = createMemoryRouter([{ path: "/orders/new", element: page }, { path: "/sales", element: <p>Ventas</p> }, { path: "/orders/o1", element: <p>Pedido</p> }], { initialEntries: ["/orders/new"] });
   container = document.body.appendChild(document.createElement("div"));
   root = createRoot(container);
   await act(async () => root!.render(<RouterProvider router={router} />));
@@ -51,11 +50,14 @@ test("leaves after the seller confirms and asks the other question while a save 
   expect(router.state.location.pathname).toBe("/sales");
 });
 
-test("does not hold the navigation of the save itself once leaving is allowed", async () => {
-  const router = await mount(<Page dirty />);
-  await click("allow");
+test("keeps holding other navigations while a save is in flight and lets only the saved order's own through", async () => {
+  const router = await mount(<Page dirty allowedPath="/orders/o1" />);
   await click("Ver ventas");
-  expect(router.state.location.pathname).toBe("/sales");
+  expect(router.state.location.pathname).toBe("/orders/new");
+  expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+  await click("stay");
+  await act(async () => { await router.navigate("/orders/o1", { replace: true }); });
+  expect(router.state.location.pathname).toBe("/orders/o1");
 });
 
 test("asks the browser to warn on reload only while there is something to lose", async () => {

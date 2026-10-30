@@ -1,13 +1,12 @@
 import type { TFunction } from "i18next";
 import type { Money } from "@shared/money";
-import type { LostResponse } from "@core/app/routes/lost-response";
 import type { ViewNotice } from "@core/src/features/orders/presentation/order-view";
 import type { DeliveryFields, OrderViewState } from "@core/src/features/orders/presentation/order-view-state";
 
 /** What «Nueva venta» gets back from its action: a known refusal of core, or the lost answer of the client action. */
 export type SaleActionResult =
   | Readonly<{ code: string; error: string; currentPrice?: Money; variantId?: string }>
-  | Readonly<{ lost: LostResponse }>;
+  | Readonly<{ lost: "offline" | "in-doubt" }>;
 
 /** What the screen shows and does after a refused or lost save; the draft itself stays as the seller left it, except for the delivery rate. */
 export type SaleOutcome = Readonly<{
@@ -53,4 +52,20 @@ export function applyRateRecovery(state: OrderViewState, rate: SaleOutcome["rate
   const { delivery } = state.draft;
   const fields: DeliveryFields = rate === "clear" ? { ...delivery.fields, rateId: "", agencyId: "", ratePrice: null } : { ...delivery.fields, ratePrice: rate.price };
   return { ...state, draft: { ...state.draft, delivery: { ...delivery, fields } } };
+}
+
+const savedMarkKey = "order-view-saved";
+
+/** A new sale that was saved lands on the saved view, which announces «Venta guardada.»: the mark survives the navigation, which can be the action's own redirect. */
+export function markSaleSaved(orderId: string): void {
+  try { sessionStorage.setItem(savedMarkKey, orderId); } catch { /* storage is optional: the view then only skips the announcement */ }
+}
+
+/** Whether the saved view of this order was reached from its own **Guardar venta**; the mark is read once. */
+export function takeSaleSaved(orderId: string): boolean {
+  try {
+    const marked = sessionStorage.getItem(savedMarkKey) === orderId;
+    if (marked) sessionStorage.removeItem(savedMarkKey);
+    return marked;
+  } catch { return false; }
 }

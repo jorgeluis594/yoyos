@@ -19,7 +19,7 @@ const variantId = "00000000-0000-4000-8000-0000000000a1";
 const empty = () => initialDraft({ kind: "new", orderId: "00000000-0000-4000-8000-000000001042", currency: "PEN" });
 const withLine = (state: OrderViewState): OrderViewState => ({ ...state, draft: { ...state.draft, items: [{ variantId, productName: "Corona de Príncipe", attributes: {}, sku: null,
   unitPrice: { amount: 45, currency: "PEN" }, quantityText: "2", stock: 12, sellable: true }] } });
-const guard = (patch: Partial<LeaveGuard> = {}): LeaveGuard => ({ blocked: false, mode: "changes", stay: vi.fn(), leave: vi.fn(), allowLeaving: vi.fn(), holdLeaving: vi.fn(), ...patch });
+const guard = (patch: Partial<LeaveGuard> = {}): LeaveGuard => ({ blocked: false, mode: "changes", stay: vi.fn(), leave: vi.fn(), ...patch });
 
 let root: Root | undefined;
 let container: HTMLDivElement;
