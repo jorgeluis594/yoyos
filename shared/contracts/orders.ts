@@ -112,11 +112,17 @@ export const paymentSchema = z.discriminatedUnion("status", [
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("rejected"), currency: z.enum(currencies),
     amount: z.null(), method: z.null(), data: rejectionDataSchema }),
 ]);
+export const orderStockDueSchema = z.discriminatedUnion("kind", [
+  z.strictObject({ kind: z.literal("waiting"), shortItems: z.array(z.strictObject({
+    variantId: z.uuid(), available: z.number().int().nonnegative().safe() })).min(1) }),
+  z.strictObject({ kind: z.literal("deducting") }),
+]);
+export type OrderStockDue = z.infer<typeof orderStockDueSchema>;
 export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string().nullable(), buyer: orderBuyerSchema.nullable(), source: orderSourceSchema,
   createdAt: z.iso.datetime(), scheduledDispatchDate: dispatchDateSchema.nullable(), shippedAt: z.iso.datetime().nullable(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
   paymentStatus: z.enum(["pending", "paid"]), paidAmount: moneySchema, balanceDue: moneySchema, overpaidAmount: moneySchema,
   cancelled: z.boolean(), delivery: deliverySnapshotSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
-  stockDeducted: z.boolean(), items: z.array(z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(),
+  stockDeducted: z.boolean(), stockDue: orderStockDueSchema.nullable(), items: z.array(z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(),
     variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(),
     unitPrice: moneySchema, subtotal: moneySchema, mentionedPrice: mentionedPriceSchema.nullable() })).min(1), payments: z.array(paymentSchema),
   itemsTotal: moneySchema, deliveryCost: moneySchema, deliveryCharge: moneySchema, total: moneySchema });
@@ -153,10 +159,7 @@ export const registerPaymentSchema = z.strictObject({ paymentId: z.uuid(), sourc
   amount: moneySchema, method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(), deductStockIfPartial: z.boolean() })
   .refine(walletProviderFitsMethod, { message: "Only a digital wallet has a provider" });
 export type RegisterPaymentRequest = z.infer<typeof registerPaymentSchema>;
-export const stockOutcomeSchema = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("deducted") }), z.strictObject({ kind: z.literal("not_requested") }),
-]);
-export const registerPaymentResponseSchema = z.strictObject({ order: orderAggregateSchema, stock: stockOutcomeSchema });
+export const registerPaymentResponseSchema = z.strictObject({ order: orderAggregateSchema });
 export type RegisterPaymentResponse = z.infer<typeof registerPaymentResponseSchema>;
 export const rejectPaymentSchema = z.strictObject({ reason: z.string().max(1000).nullable() });
 export type RejectPaymentRequest = z.infer<typeof rejectPaymentSchema>;
