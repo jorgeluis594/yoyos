@@ -25,7 +25,15 @@ import {
 /** What the status line says besides the invalid-fields alert: a refused save or the in-doubt check of a lost answer. */
 export type ViewNotice =
   | Readonly<{ kind: "alert"; text: string; link?: Readonly<{ to: string; label: string }>; focus?: string }>
-  | Readonly<{ kind: "doubt"; checking: boolean }>;
+  | Readonly<{ kind: "doubt"; checking: boolean }>
+  /** The result of the last save of a saved order, announced politely until the next edit. */
+  | Readonly<{ kind: "success"; text: string }>
+  /** A part changed elsewhere while the seller edited: the edits stay until **Recargar pedido**. */
+  | Readonly<{ kind: "conflict" }>
+  /** The order shipped, was delivered or was cancelled meanwhile; the text follows the order the view shows. */
+  | Readonly<{ kind: "locked"; code: "DELIVERY_LOCKED" | "ORDER_CANCELLED" }>
+  /** The stock was deducted meanwhile: the products went back to the saved ones. */
+  | Readonly<{ kind: "itemsLocked" }>;
 
 export type OrderViewLinks = Readonly<{ sales: string; deliverySettings: string; createProduct: string }>;
 
