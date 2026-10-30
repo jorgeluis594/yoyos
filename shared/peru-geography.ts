@@ -152,3 +152,138 @@ export function peruAreaEntries(selection: PeruAreaSelection): readonly (PeruAre
     ...selection.districtCodes.map(code => ({ kind: "district" as const, code, name: getPeruDistrict(code)?.name ?? code })).sort(byName),
   ];
 }
+
+const provincesByDepartment = new Map<string, PeruProvince[]>();
+for (const province of provinces) {
+  const list = provincesByDepartment.get(province.departmentCode);
+  if (list) list.push(province); else provincesByDepartment.set(province.departmentCode, [province]);
+}
+const districtsByProvince = new Map<string, PeruDistrict[]>();
+for (const district of districts.values()) {
+  const list = districtsByProvince.get(district.provinceCode);
+  if (list) list.push(district); else districtsByProvince.set(district.provinceCode, [district]);
+}
+const departmentCodeSet: ReadonlySet<string> = new Set(peruDepartments.map(department => department.code));
+const provinceByCode = new Map<string, PeruProvince>(provinces.map(province => [province.code, province]));
+
+/** Codes as callers hold them (core zones, contract zones); nothing is assumed to be canonical or in the catalog. */
+export type LoosePeruCodes = Readonly<{
+  departmentCodes: Iterable<string>; provinceCodes: Iterable<string>; districtCodes: Iterable<string>;
+}>;
+
+/** The district's department, or null when the district is not in the catalog. */
+export function peruDepartmentOfDistrict(code: string): PeruDepartmentCode | null {
+  return districts.get(code)?.departmentCode ?? null;
+}
+
+/** Keeps the entries whose department is in `departments`; unknown codes are dropped. */
+export function peruCodesWithinDepartments(codes: LoosePeruCodes, departments: ReadonlySet<string>): LoosePeruCodes {
+  const departmentCodes: string[] = [];
+  const provinceCodes: string[] = [];
+  const districtCodes: string[] = [];
+  for (const code of codes.departmentCodes) if (departmentCodeSet.has(code) && departments.has(code)) departmentCodes.push(code);
+  for (const code of codes.provinceCodes) if (provinceByCode.has(code) && departments.has(code.slice(0, 2))) provinceCodes.push(code);
+  for (const code of codes.districtCodes) if (districts.has(code) && departments.has(code.slice(0, 2))) districtCodes.push(code);
+  return { departmentCodes, provinceCodes, districtCodes };
+}
+
+/** Drops unknown codes and duplicates and removes every entry inside a whole parent; linear in the codes received. */
+export function canonicalPeruArea(codes: LoosePeruCodes): PeruAreaSelection {
+  const departmentSet = new Set<string>();
+  for (const code of codes.departmentCodes) if (departmentCodeSet.has(code)) departmentSet.add(code);
+  const provinceSet = new Set<string>();
+  for (const code of codes.provinceCodes) if (provinceByCode.has(code) && !departmentSet.has(code.slice(0, 2))) provinceSet.add(code);
+  const districtSet = new Set<string>();
+  for (const code of codes.districtCodes) {
+    if (districts.has(code) && !departmentSet.has(code.slice(0, 2)) && !provinceSet.has(code.slice(0, 4))) districtSet.add(code);
+  }
+  const sorted = (set: Set<string>) => [...set].sort();
+  return {
+    departmentCodes: sorted(departmentSet) as PeruDepartmentCode[],
+    provinceCodes: sorted(provinceSet) as PeruProvinceCode[],
+    districtCodes: sorted(districtSet) as PeruDistrictCode[],
+  };
+}
+
+type AreaSets = Readonly<{
+  departments: ReadonlySet<string>; provinces: ReadonlySet<string>; districts: ReadonlySet<string>;
+  touchedDepartments: ReadonlySet<string>; touchedProvinces: ReadonlySet<string>;
+}>;
+const areaSetsCache = new WeakMap<PeruAreaSelection, AreaSets>();
+
+/** Sets built once per area object, so every later check is O(1) even in unmemoized event handlers. */
+function areaSets(area: PeruAreaSelection): AreaSets {
+  const cached = areaSetsCache.get(area);
+  if (cached) return cached;
+  const departments = new Set<string>(area.departmentCodes);
+  const provinceSet = new Set<string>(area.provinceCodes);
+  const districtSet = new Set<string>(area.districtCodes);
+  const touchedDepartments = new Set<string>(departments);
+  const touchedProvinces = new Set<string>(provinceSet);
+  for (const code of provinceSet) touchedDepartments.add(code.slice(0, 2));
+  for (const code of districtSet) { touchedDepartments.add(code.slice(0, 2)); touchedProvinces.add(code.slice(0, 4)); }
+  for (const department of departments) for (const province of provincesByDepartment.get(department) ?? []) touchedProvinces.add(province.code);
+  const sets = { departments, provinces: provinceSet, districts: districtSet, touchedDepartments, touchedProvinces };
+  areaSetsCache.set(area, sets);
+  return sets;
+}
+
+/** Departments with at least one covered district, in catalog order. */
+export function offeredPeruDepartments(area: PeruAreaSelection): readonly PeruDepartment[] {
+  const { touchedDepartments } = areaSets(area);
+  return peruDepartments.filter(department => touchedDepartments.has(department.code));
+}
+
+/** Provinces of a department with at least one covered district, in catalog order. */
+export function offeredPeruProvinces(area: PeruAreaSelection, departmentCode: string): readonly PeruProvince[] {
+  const { touchedProvinces } = areaSets(area);
+  return (provincesByDepartment.get(departmentCode) ?? []).filter(province => touchedProvinces.has(province.code));
+}
+
+/** Covered districts of a province, in catalog order. */
+export function offeredPeruDistricts(area: PeruAreaSelection, provinceCode: string): readonly PeruDistrict[] {
+  const { departments, provinces: provinceSet, districts: districtSet } = areaSets(area);
+  const whole = provinceSet.has(provinceCode) || departments.has(provinceCode.slice(0, 2));
+  return (districtsByProvince.get(provinceCode) ?? []).filter(district => whole || districtSet.has(district.code));
+}
+
+/** Walks up from `place` (itself, then each parent) and returns the first place the area covers, or null. */
+export function keepCoveredPeruPlace(area: PeruAreaSelection, place: PeruArea): PeruArea | null {
+  const { departments, provinces: provinceSet, districts: districtSet, touchedDepartments, touchedProvinces } = areaSets(area);
+  if (place.kind === "district") {
+    if (districtSet.has(place.code) || provinceSet.has(place.code.slice(0, 4)) || departments.has(place.code.slice(0, 2))) return place;
+    return keepCoveredPeruPlace(area, { kind: "province", code: place.code.slice(0, 4) as PeruProvinceCode });
+  }
+  if (place.kind === "province") {
+    if (touchedProvinces.has(place.code)) return place;
+    return keepCoveredPeruPlace(area, { kind: "department", code: place.code.slice(0, 2) as PeruDepartmentCode });
+  }
+  return touchedDepartments.has(place.code) ? place : null;
+}
+
+/** True when the place is at the last level of the hierarchy (district). */
+export function isCompletePeruLocation(place: PeruArea): boolean {
+  return place.kind === "district";
+}
+
+/** Below the deepest level set, fills each level with a single offered choice, top-down, and stops at the first with several. */
+export function settlePeruLocation(area: PeruAreaSelection, location: PeruArea | null):
+  Readonly<{ location: PeruArea | null; filled: "none" | "partial" | "complete" }> {
+  let current = location;
+  let filled = false;
+  for (;;) {
+    const next: PeruArea | null | undefined =
+      current === null ? single(offeredPeruDepartments(area), "department")
+      : current.kind === "department" ? single(offeredPeruProvinces(area, current.code), "province")
+      : current.kind === "province" ? single(offeredPeruDistricts(area, current.code), "district")
+      : null;
+    if (!next) break;
+    current = next;
+    filled = true;
+  }
+  return { location: current, filled: !filled ? "none" : current && isCompletePeruLocation(current) ? "complete" : "partial" };
+}
+
+function single(options: readonly { code: string }[], kind: PeruArea["kind"]): PeruArea | null {
+  return options.length === 1 ? { kind, code: options[0]!.code } as PeruArea : null;
+}
