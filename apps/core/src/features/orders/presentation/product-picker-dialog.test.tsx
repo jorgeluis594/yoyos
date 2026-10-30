@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createInstance } from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
@@ -135,6 +135,31 @@ describe("ProductPickerDialog", () => {
     expect(onAdd).toHaveBeenCalledWith({ product: suit, variant: suit.variants[2] });
   });
 
+  test("walks product criterion 2: Enter twice leaves one M line with 2 units and Listo · 1 agregado", async () => {
+    const lines = new Map<string, number>();
+    const onAdd = vi.fn();
+    const state = search();
+    function Harness() {
+      const [quantities, setQuantities] = useState<ReadonlyMap<string, number>>(new Map());
+      return <ProductPickerDialog search={state} quantities={quantities} createProductHref="/pe/products/new" onClose={vi.fn()}
+        onAdd={(choice) => { onAdd(choice); lines.set(choice.variant.id, (lines.get(choice.variant.id) ?? 0) + 1); setQuantities(new Map(lines)); }} />;
+    }
+    root = createRoot(document.body.appendChild(document.createElement("div")));
+    await act(async () => root!.render(<I18nextProvider i18n={i18n}><Harness /></I18nextProvider>));
+    await press("ArrowDown"); await press("ArrowRight"); await press("ArrowRight");
+    await press("Enter");
+    expect(bodyText()).toContain("Agregado: Traje de Príncipe Azul, M. 1 en el pedido.");
+    await press("Enter");
+    expect(onAdd).toHaveBeenCalledTimes(2);
+    expect(onAdd).toHaveBeenNthCalledWith(2, { product: suit, variant: suit.variants[1] });
+    const chip = button("M, 5 en stock, 2 en el pedido")!;
+    expect(chip.textContent).toContain("✓ 2");
+    expect(document.querySelector("[role=status]")!.textContent).toBe("Agregado: Traje de Príncipe Azul, M. 2 en el pedido.");
+    expect(button("Listo · 1 agregado")).toBeDefined();
+    await act(async () => { button("Agregar")!.click(); });
+    expect(button("Listo · 2 agregados")).toBeDefined();
+  });
+
   test("counts the additions in Listo and closes with it", async () => {
     const onClose = vi.fn();
     await mount({ onClose });
@@ -190,6 +215,39 @@ describe("ProductPickerDialog", () => {
     expect(input().value).toBe("prín");
     await act(async () => { button("Reintentar")!.click(); });
     expect(state.retry).toHaveBeenCalledTimes(1);
+  });
+
+  test("cannot add a hidden stale result from the keyboard while the catalog failed", async () => {
+    const onAdd = vi.fn();
+    await mount({ onAdd, search: search({ status: "error", text: "pr" }) });
+    expect(document.querySelector("[role=listbox]")).toBeNull();
+    await press("ArrowDown"); await press("Enter");
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(input().getAttribute("aria-activedescendant")).toBeNull();
+    expect(input().getAttribute("aria-expanded")).toBe("false");
+    expect(input().getAttribute("aria-controls")).toBeNull();
+  });
+
+  test("keeps interactive controls out of options and points the combobox at an option", async () => {
+    await mount();
+    const list = document.querySelector("[role=listbox]")!;
+    expect(input().getAttribute("aria-expanded")).toBe("true");
+    expect(input().getAttribute("aria-controls")).toBe(list.id);
+    expect(document.querySelectorAll("[role=group]")).toHaveLength(2);
+    for (const option of list.querySelectorAll("[role=option]")) expect(option.querySelector("button, a, input")).toBeNull();
+    for (const group of list.querySelectorAll("[role=group]")) expect(document.getElementById(group.getAttribute("aria-labelledby")!)?.textContent).toMatch(/Príncipe/);
+    await press("ArrowDown"); await press("ArrowRight");
+    expect(active()?.getAttribute("role")).toBe("option");
+    expect(active()?.getAttribute("aria-selected")).toBe("true");
+    await press("ArrowDown");
+    expect(active()?.getAttribute("role")).toBe("option");
+    expect(active()?.textContent).toBe("Agregar");
+  });
+
+  test("hides the results counter while the first load runs", async () => {
+    await mount({ search: search({ status: "loading", products: [] }) });
+    expect(bodyText()).not.toContain("resultados");
+    expect(input().getAttribute("aria-expanded")).toBe("false");
   });
 
   test("shows initials instead of photos", async () => {

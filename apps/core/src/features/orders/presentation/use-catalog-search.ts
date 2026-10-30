@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { z } from "zod";
 import { orderCatalogSchema } from "@shared/contracts/orders";
+import { catalogResultLimit } from "@shared/catalog-search";
 
 export type CatalogProduct = z.infer<typeof orderCatalogSchema>[number];
 export type CatalogVariant = CatalogProduct["variants"][number];
@@ -13,8 +14,7 @@ export type CatalogSearch = Readonly<{
 }>;
 
 export const catalogSearchDebounceMs = 250;
-/** The server answers at most this many products for a text search. */
-export const catalogResultLimit = 20;
+export { catalogResultLimit };
 
 async function readCatalog(text: string, inStock: boolean, signal: AbortSignal): Promise<readonly CatalogProduct[] | null> {
   const query = new URLSearchParams({ search: text, ...(inStock ? { inStock: "true" } : {}) });
@@ -38,6 +38,8 @@ export function useCatalogSearch({ catalogEpoch, debounceMs = catalogSearchDebou
   const controller = useRef<AbortController | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const latest = useRef(0);
+  // Bumped by an epoch change: a reply that started before it must not reach the cache.
+  const generation = useRef(0);
   const isOpen = useRef(false);
   // The latest text and filter for the callbacks; written only in the handlers that change them.
   const current = useRef({ text: "", inStock: false });
@@ -58,12 +60,13 @@ export function useCatalogSearch({ catalogEpoch, debounceMs = catalogSearchDebou
     const request = new AbortController();
     controller.current = request;
     const ticket = latest.current;
+    const startedIn = generation.current;
     setStatus("loading");
     const result = await readCatalog(query, nextInStock, request.signal).catch(() => null);
     if (request.signal.aborted || ticket !== latest.current) return;
     controller.current = null;
     if (!result) { setStatus("error"); return; }
-    if (query === "") cache.current.set(nextInStock, result);
+    if (query === "" && startedIn === generation.current) cache.current.set(nextInStock, result);
     setProducts(result);
     setStatus("ready");
   }, [cancel]);
@@ -95,6 +98,7 @@ export function useCatalogSearch({ catalogEpoch, debounceMs = catalogSearchDebou
   useEffect(() => {
     if (epoch.current === catalogEpoch) return;
     epoch.current = catalogEpoch;
+    generation.current += 1;
     cache.current.clear();
     if (!isOpen.current) { setProducts([]); setStatus("idle"); }
   }, [catalogEpoch]);

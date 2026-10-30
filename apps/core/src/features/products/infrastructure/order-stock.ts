@@ -1,5 +1,6 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
+import { catalogResultLimit } from "@shared/catalog-search";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
 import { prisma, requireActiveTransaction, getCompanyId, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
@@ -124,7 +125,7 @@ export async function searchSaleCatalog(search: string, variantIds?: readonly st
       const rows = await prisma.product.findMany({ where: { status: "active", variants: { some: productVariantFilter }, ...(variantIds
         ? {}
         : { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" as const } }) },
-        orderBy: { name: "asc" }, ...(variantIds ? {} : { take: 20 }),
+        orderBy: { name: "asc" }, ...(variantIds ? {} : { take: catalogResultLimit }),
         include: { variants: { where: variantFilter, include: { stock: true } } } });
       const productIds = rows.map((row) => row.id);
       const bySavedOrder = await savedVariantOrder(productIds);

@@ -150,6 +150,18 @@ describe("useCatalogSearch", () => {
     expect(names()).toEqual(["Corona nueva"]);
   });
 
+  test("does not cache an empty-query reply that was in flight when the catalog epoch changed", async () => {
+    await render(0);
+    await settle(() => latest.open());
+    await render(1);
+    await settle(() => pending[0].resolve(["Corona vieja"]));
+    await settle(() => latest.close());
+    await settle(() => latest.open());
+    expect(pending).toHaveLength(2);
+    await settle(() => pending[1].resolve(["Corona nueva"]));
+    expect(names()).toEqual(["Corona nueva"]);
+  });
+
   test("reports a failed catalog read and fetches again on retry keeping the text", async () => {
     await render(0);
     await settle(() => latest.open());

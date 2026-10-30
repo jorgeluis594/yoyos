@@ -162,6 +162,13 @@ test("rejects more than 100 variant ids in the catalog query", async () => {
   expect(search).not.toHaveBeenCalled();
 });
 
+test("accepts exactly 100 variant ids in the catalog query", async () => {
+  const search = vi.spyOn(orders, "searchProducts").mockResolvedValue({ success: true, data: [] });
+  const ids = Array.from({ length: 100 }, (_, index) => `00000000-0000-4000-8000-${String(index).padStart(12, "0")}`);
+  expect(await request(`/catalog?variantIds=${ids.join(",")}`)).toMatchObject({ status: 200, body: [] });
+  expect(search).toHaveBeenCalledWith("", ids, { inStock: false });
+});
+
 test("passes the in-stock flag to the catalog search and rejects other values", async () => {
   const search = vi.spyOn(orders, "searchProducts").mockResolvedValue({ success: true, data: [] });
   expect(await request("/catalog?search=pr&inStock=true")).toMatchObject({ status: 200, body: [] });

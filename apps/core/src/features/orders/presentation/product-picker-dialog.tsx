@@ -35,7 +35,8 @@ export function ProductPickerDialog({ search, quantities, createProductHref, onA
   const listId = `${baseId}-list`;
   const inputRef = useRef<HTMLInputElement>(null);
   const [highlight, setHighlight] = useState<PickerHighlight>(null);
-  const [added, setAdded] = useState(0);
+  // The distinct variants added during this opening: «Listo · n agregados» counts them, not the clicks.
+  const [added, setAdded] = useState<ReadonlySet<string>>(new Set());
   const [announcement, setAnnouncement] = useState("");
   const { products, text, inStock, status } = search;
   const { open, close } = search;
@@ -44,24 +45,27 @@ export function ProductPickerDialog({ search, quantities, createProductHref, onA
   const [shown, setShown] = useState({ products, text, inStock });
   if (shown.products !== products || shown.text !== text || shown.inStock !== inStock) { setShown({ products, text, inStock }); setHighlight(null); }
 
-  const rows = useMemo(() => products.map((product) => ({ variantCount: product.variants.length, hasOptions: hasOptions(product) })), [products]);
+  const failed = status === "error";
+  // The previous results stay in memory while a search fails but are not shown, so the keyboard must not reach them.
+  const listShown = !failed && products.length > 0;
+  const rows = useMemo(() => (listShown ? products : []).map((product) => ({ variantCount: product.variants.length, hasOptions: hasOptions(product) })), [products, listShown]);
   const money = (amount: number, currency: string) => formatCurrency(amount, currency, i18n.language);
   const stockText = (stock: number) => stock > 0 ? t("orderView.picker.inStock", { stock }) : t("orderView.picker.noStock");
   const productId = (index: number) => `${baseId}-p${index}`;
   const chipId = (index: number, chip: number) => `${baseId}-p${index}-c${chip}`;
-  const activeId = highlight ? highlight.chip === null ? productId(highlight.product) : chipId(highlight.product, highlight.chip) : undefined;
+  const activeId = listShown && highlight ? highlight.chip === null ? productId(highlight.product) : chipId(highlight.product, highlight.chip) : undefined;
   useEffect(() => { if (activeId) document.getElementById(activeId)?.scrollIntoView?.({ block: "nearest" }); }, [activeId]);
 
   const add = (product: CatalogProduct, variant: CatalogVariant) => {
     const count = (quantities.get(variant.id) ?? 0) + 1;
     const label = attributesLabel(variant.attributes);
     onAdd({ product, variant });
-    setAdded((previous) => previous + 1);
+    setAdded((previous) => new Set(previous).add(variant.id));
     setAnnouncement(t("orderView.picker.added", { name: label ? `${product.name}, ${label}` : product.name, count }));
   };
   const onKeyDown = (event: ReactKeyboardEvent<HTMLInputElement>) => {
     if (!isPickerKey(event.key) || event.nativeEvent.isComposing) return;
-    const outcome = pickerKey(event.key, highlight, rows);
+    const outcome = pickerKey(event.key, listShown ? highlight : null, rows);
     if (outcome.preventDefault) event.preventDefault();
     setHighlight(outcome.highlight);
     if (outcome.add) add(products[outcome.add.product]!, products[outcome.add.product]!.variants[outcome.add.variant]!);
@@ -70,7 +74,6 @@ export function ProductPickerDialog({ search, quantities, createProductHref, onA
   const changeFilter = (next: boolean) => { setHighlight(null); search.setInStock(next); };
 
   const loadingFirst = (status === "loading" || status === "idle") && products.length === 0;
-  const failed = status === "error";
   const empty = !failed && !loadingFirst && products.length === 0;
   const filterButton = (value: boolean, label: string) =>
     <Button type="button" size="sm" variant={inStock === value ? "default" : "outline"} aria-pressed={inStock === value} onClick={() => changeFilter(value)}>{label}</Button>;
@@ -83,13 +86,13 @@ export function ProductPickerDialog({ search, quantities, createProductHref, onA
       <div className="grid gap-3">
         <div className="grid gap-1.5">
           <label htmlFor={`${baseId}-search`} className="sr-only">{t("orderView.picker.searchLabel")}</label>
-          <Input id={`${baseId}-search`} ref={inputRef} type="text" role="combobox" autoComplete="off" aria-autocomplete="list" aria-expanded="true"
-            aria-controls={listId} aria-activedescendant={activeId} placeholder={t("orderView.picker.searchLabel")}
+          <Input id={`${baseId}-search`} ref={inputRef} type="text" role="combobox" autoComplete="off" aria-autocomplete="list" aria-expanded={listShown}
+            aria-controls={listShown ? listId : undefined} aria-activedescendant={activeId} placeholder={t("orderView.picker.searchLabel")}
             value={text} onChange={(event) => changeText(event.target.value)} onKeyDown={onKeyDown} />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {filterButton(false, t("orderView.picker.filterAll"))}{filterButton(true, t("orderView.picker.filterInStock"))}
-          <span className="ml-auto text-sm text-muted-foreground">{t("orderView.picker.results", { count: products.length })}</span>
+          {!loadingFirst && <span className="ml-auto text-sm text-muted-foreground">{t("orderView.picker.results", { count: products.length })}</span>}
         </div>
       </div>
       <div className="min-h-0 overflow-y-auto">
@@ -100,18 +103,21 @@ export function ProductPickerDialog({ search, quantities, createProductHref, onA
           <p className="font-medium">{text.trim() ? t("orderView.picker.noResults", { query: text.trim() }) : t("orderView.picker.emptyCatalog")}</p>
           {text.trim() && <p className="text-muted-foreground">{t("orderView.picker.noResultsHint")}</p>}
           <TextLink href={createProductHref} target="_blank" rel="noopener noreferrer">{t("orderView.picker.createTab")}</TextLink></div>}
-        {!failed && products.length > 0 && <ul id={listId} role="listbox" aria-label={t("orderView.picker.searchLabel")} aria-busy={status === "loading"} className="grid gap-2">
+        {listShown && <ul id={listId} role="listbox" aria-label={t("orderView.picker.searchLabel")} aria-busy={status === "loading"} className="grid gap-2">
           {products.map((product, index) => {
             const options = hasOptions(product);
             const differs = isDifferentPrice(product);
             const first = product.variants[0]!;
             const selected = highlight?.product === index && highlight.chip === null;
-            return <li key={product.id} id={productId(index)} role="option" aria-selected={selected} aria-labelledby={`${productId(index)}-name`}
-              className={cn("grid gap-2 rounded-[var(--radius-control)] border p-3", selected && "ring-2 ring-ring")}>
-              <div className="flex items-center gap-3">
+            const nameId = `${productId(index)}-name`;
+            const ring = "ring-2 ring-ring";
+            // Each product is a group named by its name. Its highlightable parts are options: the summary row, or «Agregar» when there are no variants to choose.
+            return <li key={product.id} role="group" aria-labelledby={nameId} className="grid gap-2 rounded-[var(--radius-control)] border p-3">
+              <div id={options ? productId(index) : undefined} role={options ? "option" : undefined} aria-selected={options ? selected : undefined}
+                className={cn("flex items-center gap-3 rounded-[var(--radius-control)]", options && selected && ring)}>
                 <span aria-hidden="true" className="flex size-10 shrink-0 items-center justify-center rounded-md bg-muted text-sm font-semibold text-muted-foreground">{initialsOf(product.name)}</span>
                 <div className="min-w-0 flex-1">
-                  <p id={`${productId(index)}-name`} className="truncate font-medium">{product.name}</p>
+                  <p id={nameId} className="truncate font-medium">{product.name}</p>
                   <p className="text-sm text-muted-foreground">{options
                     ? t("orderView.picker.variantCount", { count: product.variants.length })
                     : t("orderView.picker.singleVariant", { stock: first.stock })}</p>
@@ -119,7 +125,8 @@ export function ProductPickerDialog({ search, quantities, createProductHref, onA
                 <span className="shrink-0 text-sm font-semibold tabular-nums">{differs
                   ? t("orderView.picker.priceFrom", { price: money(Math.min(...product.variants.map((variant) => variant.price)), product.currency) })
                   : money(first.price, product.currency)}</span>
-                {!options && <Button type="button" size="sm" variant="outline" aria-describedby={`${productId(index)}-name`} onClick={() => add(product, first)}>{t("orderView.picker.add")}</Button>}
+                {!options && <Button id={productId(index)} role="option" aria-selected={selected} type="button" size="sm" variant="outline" aria-describedby={nameId}
+                  className={cn(selected && ring)} onClick={() => add(product, first)}>{t("orderView.picker.add")}</Button>}
               </div>
               {options && <div className="flex flex-wrap gap-2">
                 {product.variants.map((variant, chip) => {
@@ -129,7 +136,7 @@ export function ProductPickerDialog({ search, quantities, createProductHref, onA
                   const base = inOrder > 0 ? t("orderView.picker.chipNameInOrder", { variant: label, stock, count: inOrder }) : t("orderView.picker.chipName", { variant: label, stock });
                   const name = differs ? t("orderView.picker.chipNameWithPrice", { name: base, price: money(variant.price, product.currency) }) : base;
                   const chipHighlighted = highlight?.product === index && highlight.chip === chip;
-                  return <button key={variant.id} id={chipId(index, chip)} type="button" aria-label={name} onClick={() => add(product, variant)}
+                  return <button key={variant.id} id={chipId(index, chip)} type="button" role="option" aria-selected={chipHighlighted} aria-label={name} onClick={() => add(product, variant)}
                     className={cn("min-h-touch rounded-[var(--radius-control)] border bg-background px-3 py-1.5 text-left text-sm outline-none hover:bg-muted focus-visible:ring-2 focus-visible:ring-ring", chipHighlighted && "ring-2 ring-ring")}>
                     <span className="font-medium">{label}</span>{" "}
                     <span className={variant.stock > 0 ? "text-muted-foreground" : "text-destructive"}>{stock}</span>
@@ -141,11 +148,11 @@ export function ProductPickerDialog({ search, quantities, createProductHref, onA
             </li>;
           })}
         </ul>}
-        {products.length >= catalogResultLimit && !failed && <p className="pt-3 text-sm text-muted-foreground">{t("orderView.picker.tooMany", { count: catalogResultLimit })}</p>}
+        {listShown && products.length >= catalogResultLimit && <p className="pt-3 text-sm text-muted-foreground">{t("orderView.picker.tooMany", { count: catalogResultLimit })}</p>}
       </div>
       <div className="flex items-center justify-between gap-3 border-t pt-3">
         <p className="hidden text-xs text-muted-foreground [@media(any-pointer:fine)]:block">{t("orderView.picker.keyHints")}</p>
-        <Button type="button" className="ml-auto" onClick={onClose}>{added > 0 ? t("orderView.picker.done", { count: added }) : t("orderView.picker.done")}</Button>
+        <Button type="button" className="ml-auto" onClick={onClose}>{added.size > 0 ? t("orderView.picker.done", { count: added.size }) : t("orderView.picker.done")}</Button>
       </div>
       <div role="status" aria-live="polite" className="sr-only">{announcement}</div>
     </DialogContent>
