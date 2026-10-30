@@ -38,8 +38,10 @@ The state is derived from `Order.checkoutEnabledAt`, `Order.checkoutConfirmedAt`
 | --- | --- |
 | Not enabled | Only an order without an enabled date, which no order has after creation and the migration. No public access; the seller read answers "not available". |
 | Pending | Shows products and amounts; the buyer can complete or correct their details and delivery, then confirm. |
-| Confirmed | Read-only details; shows payment instructions and receipt upload. Repeating the confirmation returns the existing result without overwriting anything. |
+| Confirmed | Read-only details; the page then shows one of the [payment screens](#payment-screens). Repeating the confirmation returns the existing result without overwriting anything. Confirming shows no success block: arriving at the payment step is the feedback. Reason: a success message about confirming pulls attention from the amount to pay on the very screen where the buyer pays; changes are asked for in the chat the buyer already uses. |
 | Cancelled | Takes precedence over the other states without clearing their dates; confirmation is blocked. |
+
+The order title is always followed by «Revisa los productos y el total de tu pedido.». The slot under it holds the «Pedido cancelado» block when cancelled and the [closing card](#payment-screens) while a receipt is pending, and is empty in every other state.
 
 ### Confirmation
 
@@ -81,18 +83,45 @@ The state is derived from `Order.checkoutEnabledAt`, `Order.checkoutConfirmedAt`
 
 ### Amounts
 
-- The checkout shows `itemsTotal` (products) and `total` (what the buyer pays, including delivery). It never recalculates the total in the browser nor labels the subtotal as total.
+- The checkout shows `itemsTotal` (products) and `total` (the order total, including delivery). It never recalculates the total in the browser nor labels the subtotal as total; `paidAmount` and `balanceDue` come from core.
 - Other modules update the authoritative order total; payments change the balance, not the total.
+- **Summary card:** «Subtotal de productos», «Entrega» and the total row. Before confirming the total reads «Total a pagar»; in every confirmed state it reads «Total del pedido» (also the section's accessible name). Reason: the page never shows two different amounts labelled as «to pay»; the only amount due is in the payment box. The card is visible on phones below the main column in the confirmed states (sticky only on a computer) because it is the only place that shows the delivery charge.
+- **Amount rows**, in the payment box and in the separate amounts card, depend only on whether something was confirmed, never on the delivery charge (there is no «Incluye entrega» row):
+  - Nothing confirmed: one row. «Monto a pagar» (the balance, equal to the total) in the payment box; «Total del pedido» in the amounts card, where nothing can be paid.
+  - Something confirmed: three rows that read as a subtraction: «Total del pedido», «Pagado», «Saldo pendiente» (emphasized in the payment box). An overpayment shows the real «Pagado» and a «Saldo pendiente» of S/ 0.00, with no notice for the buyer.
+  - «Pagado» counts only payments the seller confirmed (an approved receipt or a recorded payment); pending, rejected and voided ones do not. Reason: two equal amounts plus a delivery line read like a wrong sum; three rows read as a subtraction.
 
 ### Payment
 
-- Payment is only available once the checkout is confirmed and the order is not cancelled. The buyer payment API (`/api/buyer/orders/:orderId/...`) rejects orders that are not enabled, pending or cancelled.
+- Payment is only available once the checkout is confirmed and the order is not cancelled. The buyer payment API (`/api/buyer/orders/:orderId/...`) rejects orders that are not enabled, pending or cancelled. Its view carries, per payment, the report date (`reportedAt`, `null` only for a manual payment).
 - The company's offered payment methods are shown: bank transfer, with its image when uploaded, and a digital wallet with provider, holder and its payment QR. A wallet is offered only when its QR passed the check of [Payment methods](#payment-methods) and its image URL resolves; otherwise it is left out instead of failing the page. Without any offered method the buyer sees the no-settings text.
 - "Ya pagué" requires a JPG, PNG or WEBP receipt up to 10 MB. The report is idempotent on retry and stays pending review; only the seller's approval records the amount received ([Orders · Payments](orders.md#payments)).
-- The upload block is hidden while a report is pending, and the pending notice replaces it. Reason: one report under review at a time keeps the seller's list readable.
+- While a report is pending the page shows the [closing screen](#payment-screens) instead of the payment step and offers no upload. Reason: one report under review at a time keeps the seller's list readable, and the buyer cannot pay twice by mistake. A wrong screenshot is solved in chat: the seller rejects it and the buyer sends another. A receipt never changes the balance or «Pagado»; only the seller records money received.
 - When no report is pending, the balance is above zero and the buyer's most recent report was rejected, the upload block returns with «Tu comprobante fue rechazado», «Motivo: …» when the seller gave a reason, and «Envía otro comprobante para que la tienda lo revise.» as its first part, always expanded with the block. Sending another receipt creates a new report and replaces the notice with the pending one. A retried «Ya pagué» of the rejected report shows the rejection, never a false pending state, because the page always shows the refreshed buyer view. Reason: the buyer learns what to fix without another chat message.
-- «Comprobantes enviados» lists every receipt as «Ver captura · <estado>» (Pendiente, Confirmado, Rechazado, Anulado), with the reason below a rejected one.
+- «Comprobantes enviados» lists every receipt as «Ver captura · <estado>» (Pendiente, Confirmado, Rechazado, Anulado), with the reason below a rejected one. It appears in the payment step, the paid state and the not-available card, not in the closing screen. A receipt still pending when the order became paid keeps «Pendiente».
 - The buyer is not notified of a rejection outside the checkout; the seller tells them in chat.
+
+### Payment screens
+
+One pure function (`checkoutScreen`, `apps/core/src/features/orders/presentation/buyer-checkout-screen.ts`) derives the screen from the checkout state and the buyer payment view; no part of the page decides it again. No new state is stored. Precedence:
+
+1. Cancelled → «Pedido cancelado» only.
+2. Payment not available (delivery awaiting a quote) → the not-available card. Dormant today: the buyer view always reports payment as available, and it keeps its place only to preserve the branch.
+3. Paid (confirmed payments cover the total, overpayment included) → «Pedido pagado» / «El pago de este pedido ya está confirmado.» with the amounts card and «Comprobantes enviados». A pending receipt or a manual payment covering the total wins over the closing screen.
+4. A receipt pending review → closing screen.
+5. Otherwise → payment step, with the rejection notice when the latest report was rejected.
+
+**Closing screen** (shown on the same order link, with no URL of its own, so a reload or another device shows it while the receipt is pending): the card sits under the order title on every width, followed by the products, «Datos del comprador» and the summary. Reason: a buyer reopening the link on a phone reads the reassurance first. The card uses the theme's information colors with a clock icon, never success styling or approval wording. Reason: success on an unreviewed receipt reads as «paid». It shows «Recibimos tu comprobante», «La tienda revisará tu pago y te confirmará cuando lo reciba. No necesitas hacer nada más por ahora.» and «Si enviaste una captura equivocada, escríbele a la tienda por donde hiciste tu pedido.», then **Ver captura** for every pending receipt, newest first.
+
+- **Ver captura** opens the receipt in a new tab, with an external-link icon, a touch target of at least 44 × 44 px and the accessible hint «(se abre en una pestaña nueva)». With more than one pending receipt each carries its send date and time in the store's zone (America/Lima, the seller's), whatever the buyer's device zone, formatted with the order list's medium date and short time («Ver captura · 30 oct. 2026, 6:42 p. m.»; Portuguese «30 de out. de 2026, 18:42»). Reason: buyer and seller name the same time for the same receipt. A pending receipt whose image does not resolve is listed as plain text (dated when there are several; nothing for a single one) and the closing screen still shows, since it depends on the receipt being pending, not on its image.
+- The main column keeps only «Datos del comprador»: no payment methods, upload, pending notice, «Comprobantes enviados», «Monto a pagar», «Pagado» or «Saldo pendiente», even with earlier confirmed payments. Reason: the receipt does not change what is owed, and an unchanged balance reads as «your payment did not count».
+- It ends when the seller approves or rejects the last pending receipt, or the order becomes paid, not available or cancelled. Rejected → payment step with «Tu comprobante fue rechazado». Approved below the balance → payment step with the three rows and the upload block, with no special notice. A void while a receipt is pending keeps the closing screen. Voiding the payment of a paid order brings back the payment step.
+
+**Focus after «Ya pagué».** The screen shown always comes from the refreshed order state, never from the send response alone, so resending an already rejected report shows the rejection. Only on that transition focus moves to one heading of the refreshed page: «Recibimos tu comprobante», «Tu comprobante fue rechazado», «Pedido pagado» or «Pedido cancelado» (the block under the order title). The card holding that heading is not also a live region, so it is announced once. Opening or reloading the link moves no focus.
+
+**Failures of «Ya pagué».** A failed or unanswered send keeps the buyer on the payment step with the screenshot ready and «No se pudo enviar el aviso. Tu captura sigue lista; vuelve a intentarlo.»; the retry reuses the same report and never creates two. A `409 ORDER_CANCELLED` from the send or from the follow-up read refreshes the page and shows «Pedido cancelado» with focus. If the report was recorded but the follow-up read of the buyer view fails, the upload block is replaced by «Enviamos tu comprobante, pero no pudimos actualizar la página. Recárgala para ver el estado de tu pago.» with **Recargar página**, focused and announced once; **Ya pagué** is not offered again. Reason: the route's error page would otherwise hide that the report arrived.
+
+The buyer is not notified outside the page when the seller decides, and the closing screen offers no way to replace or withdraw the receipt. The mobile app has no buyer checkout and is unaffected.
 
 ### Payment methods
 
@@ -106,7 +135,7 @@ The seller configures the methods in web settings, «Medios de cobro»: a digita
 - **Wallets saved before the QR requirement** are read as unchecked: not offered to buyers until the seller saves them and their image passes the save check. There is no install-time check or data migration. Reason: a one-time check would run in the release, which has no image storage and could stop every deploy, and no business operates in production. The panel says «Tus compradores no ven esta billetera hasta que la guardes con un QR válido.» (with image, save enabled) or «… hasta que subas un QR válido.» (without image, save disabled until a QR is uploaded or the wallet is unticked).
 - The page disables **Guardar cambios** while an offered wallet has no QR, while the chosen image is not a QR, and while the image uploads or is being checked; it stays enabled when the choose-time check could not run, since the save check decides. Every error keeps what the seller typed.
 - The [checkout preview](#preview) lists payment methods under the same offered rule, so the seller never sees a wallet buyers do not see.
-- **Compact layout:** the payment methods' radios sit in one row; only the selected method's details are shown, in one block with its QR (about 136 px) beside the data, which are only the fields that exist (wallet: provider and holder; transfer: bank, holder, account and CCI with their copy buttons), and the amounts with «Monto a pagar» under them. «Adjunta tu comprobante» is one dashed row on a computer (the file goes to a second line on a phone) with the chosen file's name, its size and a button to remove it. The separate amounts card appears only when there is nothing to pay with (no payment available yet, or already paid). Every action and route stays the same in the five themes and in the «Apariencia de la tienda» preview. Reason: the payment step is much shorter on a phone (rejected: adding a wallet «Número» or renaming «Ya pagué» to «Enviar comprobante», which change the payment methods model or copy without a decision behind them).
+- **Compact layout:** the payment methods' radios sit in one row; only the selected method's details are shown, in one block with its QR (about 136 px) beside the data, which are only the fields that exist (wallet: provider and holder; transfer: bank, holder, account and CCI with their copy buttons), and the [amount rows](#amounts) under them. «Adjunta tu comprobante» is one dashed row on a computer (the file goes to a second line on a phone) with the chosen file's name, its size and a button to remove it. The separate amounts card appears only in the paid and not-available screens, where there is nothing to pay with. Every action and route stays the same in the five themes and in the «Apariencia de la tienda» preview. Reason: the payment step is much shorter on a phone (rejected: adding a wallet «Número» or renaming «Ya pagué» to «Enviar comprobante», which change the payment methods model or copy without a decision behind them).
 - In the payment step, «Datos del comprador» shows two lines: name · phone, then the delivery method and where it goes (address and district, pickup address, or agency name and address).
 
 ### Order number
@@ -154,6 +183,7 @@ The theme names are proper names, shown the same in every language. The interfac
 ### Contrast floor
 
 - In all five themes: text at least 4.5:1 against its surface (background, every stop of Suave's gradient, cards, fields, selected options); borders of fields and controls, the selected option, radio dots, invalid-field borders and the keyboard focus at least 3:1 against card, background and field surface. Decorative borders, separators and shadows only need to be visible.
+- Text styled as muted or secondary (including the closing card's receipt entries over the information surface) must still meet the 4.5:1 floor on its surface: no reduced opacity on text, since it lowers contrast below what the theme tokens were verified for. The closing card's information colors meet the floor in all five themes.
 - The payment method chips' own border is decorative in Boutique and Noche: each chip holds a radio whose border passes 3:1, and the selected chip adds its outline. In the other themes the chip border is a control border.
 - A unit test checks every pair for every theme.
 - When an approved reference value failed the floor, the floor won: only that value moved, keeping hue and chroma (OKLCH) and changing lightness until it passed. Each adjusted value carries its original in a comment in the themes file. Reason: keeps each approved look while meeting the floor, with no large-text exception for buttons.
@@ -198,8 +228,8 @@ Clásico is the default: a company that never saved an appearance is on Clásico
 ### Preview
 
 - An iframe renders the real catalog and checkout components with the draft logo and theme. A selector **Catálogo** | **Checkout** (accessible name «Vista previa», touch targets of at least 44 px) chooses the surface; it opens on **Catálogo** every time the editor loads, because the catalog is what the buyer sees first. Switching keeps the draft and the device choice, and does not reload the iframe.
-- One label names the active view: the theme and the origin of the data, «Tema Boutique · Tus productos» or «Tema Boutique · Datos de ejemplo». The checkout view always uses sample data.
-- The phone/desktop switch applies to both views; the review/payment switch exists only in **Checkout**. There is no light/dark switch: each theme's mode is fixed, so the preview shows it as the buyer sees it. Reason for the iframe: it has its own viewport, so the real breakpoints apply without rewriting the pages.
+- One label names the active view: the theme and the origin of the data, «Tema Boutique · Tus productos» or «Tema Boutique · Datos de ejemplo». The checkout view always uses sample data and shows the payment step (never the confirmed block or the closing screen); its payment state shows «Monto a pagar» and the summary ends in «Total del pedido».
+- The phone/desktop switch applies to both views; the review/payment switch exists only in **Checkout**, which has no closing-screen state. There is no light/dark switch: each theme's mode is fixed, so the preview shows it as the buyer sees it. Reason for the iframe: it has its own viewport, so the real breakpoints apply without rewriting the pages.
 - **Catálogo** view: a short catalog with header (logo plate and store name), search field, the first three products in the catalog's own order (only products the catalog would show), each card with its product's primary photo, and the floating cart button.
   - The products are read once per editor visit, also while the catalog is hidden: it previews the look, not the publication. Saves, publication changes and **Reintentar** never re-read them.
   - While they load, the view shows the header and three empty card placeholders in the draft theme with «Cargando productos»; it never shows samples first and swaps them for real ones.
@@ -236,7 +266,7 @@ The mobile app reads and saves the appearance through `GET` and `PUT /api/store-
 
 ### Buyer view
 
-- The theme applies to the whole checkout in every state: pending, delivery choice, confirmed with payment instructions and receipt upload, cancelled, and the total-changed and rate-error notices. The catalog's themed screens are listed in [Public catalog · Theme](public-catalog.md#theme).
+- The theme applies to the whole checkout in every state: pending, delivery choice, the payment step, the closing screen, paid, cancelled, and the total-changed and rate-error notices. The closing card, summary label and amount rows are themed like the rest. The catalog's themed screens are listed in [Public catalog · Theme](public-catalog.md#theme).
 - The appearance is read only after the order access is authorized; «Enlace no disponible» keeps the unbranded Yoyos look and follows the buyer's system preference.
 - Opening or reloading a link shows the latest published theme and logo, including links shared before and historical orders; no per-order or per-cart copy is kept.
 - Without a saved appearance, or if reading it fails, the checkout uses Clásico without logo and the order can still be confirmed and paid. Reason: a visual failure must never block a sale.

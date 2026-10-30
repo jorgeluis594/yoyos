@@ -258,7 +258,7 @@ test.describe("buyer checkout with appearance", () => {
       await page.getByLabel("Captura del pago").setInputFiles({ name: "pago.png", mimeType: "image/png", buffer: png });
       await browserExpect(page.getByText("Captura lista para enviar.")).toBeVisible();
       await page.getByRole("button", { name: "Ya pagué" }).click();
-      await browserExpect(page.getByRole("heading", { name: "Pago pendiente de revisión" })).toBeVisible();
+      await browserExpect(page.getByRole("heading", { name: "Recibimos tu comprobante" })).toBeVisible();
       await browserExpect.poll(() => primary(page)).toBe(boutique.colors.primary.toUpperCase());
       const stored = await f.read();
       expect(stored.deliveryCharge.toNumber()).toBe(8);

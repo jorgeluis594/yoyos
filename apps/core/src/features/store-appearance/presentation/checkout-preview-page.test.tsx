@@ -74,12 +74,20 @@ describe("CheckoutPreviewPage", () => {
 
   test("renders the confirmed checkout's own sections in the payment state", async () => {
     const container = await mount("payment", own);
-    expect(container.textContent).toContain("Para solicitar cambios");
     const details = [...container.querySelectorAll("h2")].find((heading) => heading.textContent === "Datos del comprador")?.parentElement;
     expect(details?.textContent).toContain("Ana Pérez");
     expect(container.querySelector("section[aria-label='Pago del pedido']")).not.toBeNull();
     expect(container.querySelector("header")?.textContent).toContain("Lima Studio");
     expect(container.querySelector("header")?.textContent).toContain("Pedido #1001");
+  });
+
+  test("payment preview shows no confirmed block, «Monto a pagar» and «Total del pedido»", async () => {
+    const container = await mount("payment", own);
+    expect(container.textContent).not.toContain("Pedido confirmado");
+    expect(container.textContent).not.toContain("Incluye entrega");
+    const row = (label: string) => [...container.querySelectorAll("dt")].find((term) => term.textContent === label)?.nextElementSibling?.textContent;
+    expect(row("Monto a pagar")).toContain("128");
+    expect(row("Total del pedido")).toContain("128");
   });
 
   test("enables confirmation once the sample delivery is selected, as the checkout does", async () => {
@@ -119,7 +127,7 @@ describe("CheckoutPreviewPage", () => {
 
   test.each(storeThemeIds)("paints the receipts link and the copy buttons with the %s theme's link color", async (theme) => {
     const bank: PreviewPaymentMethod = { method: "bank_transfer", bank: "Banco de ejemplo", holder: "Lima Studio", accountNumber: "000-1", cci: "00000000000000000001", imageUrl: null };
-    const view: BuyerPaymentView = { ...previewPaymentView([bank]), payments: [{ id: "00000000-0000-4000-8000-000000000001", status: "reported", amount: null, method: null, receiptImageUrl: "https://cdn.example/recibo.png", rejectionReason: null }] };
+    const view: BuyerPaymentView = { ...previewPaymentView([bank]), payments: [{ id: "00000000-0000-4000-8000-000000000001", status: "rejected", amount: null, method: null, receiptImageUrl: "https://cdn.example/recibo.png", rejectionReason: null, reportedAt: "2026-10-30T23:42:00.000Z" }] };
     const Stub = createRoutesStub([{ path: "/", Component: () =>
       <CheckoutShell appearance={{ logoUrl: null, theme }} checkout={previewCheckout("Lima Studio", "payment")}><CheckoutPayment view={view} /></CheckoutShell> }]);
     const container = document.body.appendChild(document.createElement("div"));

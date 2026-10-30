@@ -8,6 +8,7 @@ import { createRoutesStub } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import resources from "@core/app/locales";
 import { BuyerPaymentContent } from "@core/src/features/orders/presentation/buyer-payment-content";
+import { checkoutScreen } from "@core/src/features/orders/presentation/buyer-checkout-screen";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -27,7 +28,9 @@ describe("BuyerPaymentContent", () => {
   afterEach(() => { act(() => root?.unmount()); root = undefined; document.body.innerHTML = ""; vi.restoreAllMocks(); });
 
   async function mount(view: BuyerPaymentView) {
-    const Stub = createRoutesStub([{ path: "/", Component: () => <BuyerPaymentContent view={view} /> }]);
+    const screen = checkoutScreen({ state: "confirmed", view });
+    if (screen.kind !== "payment" && screen.kind !== "paid" && screen.kind !== "payment_unavailable") throw new Error(`No payment content for ${screen.kind}`);
+    const Stub = createRoutesStub([{ path: "/", Component: () => <BuyerPaymentContent screen={screen} /> }]);
     const container = document.body.appendChild(document.createElement("div"));
     root = createRoot(container);
     await act(async () => root!.render(<I18nextProvider i18n={i18n}><Stub /></I18nextProvider>));
@@ -62,9 +65,10 @@ describe("BuyerPaymentContent", () => {
     const row = (label: string) => [...details.querySelectorAll("dt")].find((term) => term.textContent === label)?.nextElementSibling?.textContent;
     expect(row("Proveedor")).toBe("Plin");
     expect(row("Titular")).toBe("Jorge");
-    expect(row("Total del pedido")).toContain("70");
-    expect(row("Incluye entrega")).toContain("10");
-    expect(row("Saldo pendiente")).toContain("70");
+    expect(row("Monto a pagar")).toContain("70");
+    expect(row("Total del pedido")).toBeUndefined();
+    expect(row("Incluye entrega")).toBeUndefined();
+    expect(row("Saldo pendiente")).toBeUndefined();
   });
 
   test("switches the method and copies the account and CCI", async () => {
@@ -101,9 +105,10 @@ describe("BuyerPaymentContent", () => {
     expect(chosen.textContent).toContain("248 KB");
     expect(container.textContent).toContain("Captura lista para enviar.");
     expect(submit.disabled).toBe(false);
-    fetchSpy.mockResolvedValue(new Response(JSON.stringify({ paymentId: orderId, status: "reported" }), { status: 201 }));
+    fetchSpy.mockImplementation(async (url) => String(url).endsWith("/reports") ? new Response(JSON.stringify({ paymentId: orderId, status: "reported" }), { status: 201 })
+      : new Response(JSON.stringify(base), { status: 200 }));
     await act(async () => submit.click());
-    expect(fetchSpy).toHaveBeenLastCalledWith(`/api/buyer/orders/${orderId}/reports`, expect.objectContaining({ method: "POST" }));
+    expect(fetchSpy).toHaveBeenCalledWith(`/api/buyer/orders/${orderId}/reports`, expect.objectContaining({ method: "POST" }));
     // The pending notice comes from the refreshed view, not from the report answer: here only the sent file is cleared.
     expect(container.querySelector("[data-testid=receipt-file]")).toBeNull();
     expect(container.querySelector("[role=alert]")).toBeNull();
@@ -134,9 +139,10 @@ describe("BuyerPaymentContent", () => {
   });
 
   test("keeps the amounts card and no payment form when the order is paid or unavailable", async () => {
-    for (const view of [{ ...base, paymentStatus: "paid" as const }, { ...base, availability: "cancelled" as const }]) {
+    for (const view of [{ ...base, paymentStatus: "paid" as const, paidAmount: pen(70), balanceDue: pen(0) }, { ...base, availability: "checkout_pending" as const }]) {
       const container = await mount(view);
-      expect(container.querySelector("section[aria-label='Resumen del pedido']")?.textContent).toContain("Saldo pendiente");
+      const summary = container.querySelector("section[aria-label='Resumen del pedido']")?.textContent;
+      expect(summary).toContain(view.paymentStatus === "paid" ? "Saldo pendiente" : "Total del pedido");
       expect(container.querySelector("input[type=file]")).toBeNull();
       act(() => root?.unmount());
     }
@@ -155,7 +161,8 @@ describe("BuyerPaymentContent", () => {
   });
 
   test("keeps the amounts and the sent receipts when there is nothing to pay or no way to pay", async () => {
-    const withReceipt = { ...base, settings: [], payments: [{ id: imageId, status: "confirmed" as const, amount: pen(70), method: null, receiptImageUrl: "https://cdn.example/r.png" }] };
+    const withReceipt = { ...base, settings: [], paidAmount: pen(20), balanceDue: pen(50),
+      payments: [{ id: imageId, status: "confirmed" as const, amount: pen(20), method: null, receiptImageUrl: "https://cdn.example/r.png", reportedAt: null }] };
     const container = await mount(withReceipt);
     expect(container.textContent).toContain("El negocio aún no ha configurado sus datos de cobro");
     expect(container.textContent).toContain("Saldo pendiente");
