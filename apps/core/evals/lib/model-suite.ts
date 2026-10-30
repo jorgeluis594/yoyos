@@ -8,7 +8,7 @@ import { labelledRuns, redacted, summaryOf } from "@core/evals/lib/suite-output"
 import type { EvalCase, EvalPass } from "@core/evals/cases/schema";
 import type { CaseRecord } from "@core/evals/lib/case-record";
 import { createClaude } from "@core/evals/lib/claude";
-import { modelSuitesBlocker, readEvalEnv } from "@core/evals/lib/eval-env";
+import { diagnosticsOn, modelSuitesBlocker, readEvalEnv } from "@core/evals/lib/eval-env";
 import { evalCompanyId, privateCompanyId, seedEvalCatalog } from "@core/evals/lib/eval-catalog";
 import { installModelMeter } from "@core/evals/lib/model-meter";
 import { createProductionPath } from "@core/evals/lib/production";
@@ -68,10 +68,11 @@ export function defineModelSuite<Pass extends EvalPass>(name: string, pass: Pass
   describeEval(name, { harness, judges: [CaseJudge], judgeThreshold: null, skipIf: () => blocker !== null || cases.length === 0 }, (it) => {
     beforeAll(async () => {
       installModelMeter();
-      const path = createProductionPath(process.env);
+      const diagnostics = diagnosticsOn(env);
+      const path = createProductionPath(process.env, { diagnostics });
       if (privateData) await seedEvalCatalog(privateData.catalog, privateCompanyId, null);
       else await seedEvalCatalog(committedCatalog, evalCompanyId, options.indexPhotos ? path.embedder : null);
-      context = { runId: inject("evalRunId"), path, scope: privateData ? "private" : "eval", claude: createClaude({ apiKey: env.CLAUDE_API_KEY!, model: env.EVAL_CLAUDE_MODEL }) };
+      context = { runId: inject("evalRunId"), path, scope: privateData ? "private" : "eval", claude: createClaude({ apiKey: env.CLAUDE_API_KEY!, model: env.EVAL_CLAUDE_MODEL }), diagnostics };
     }, 600_000);
 
     it.for(runs)("$label", async (caseRun, { run }) => {
