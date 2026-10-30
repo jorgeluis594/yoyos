@@ -26,7 +26,7 @@ test("rejects inverted real dispatch interval before reading", async () => {
 });
 
 test("paid and unpaid views exclude cancelled orders even when cancelled orders are included", async () => {
-  const find = vi.fn(async (_criteria: AggregateCriteria, _companyId: CompanyId) => ok({ items: [], page: 1, pageSize: 20 as const, total: 0 }));
+  const find = vi.fn<(criteria: AggregateCriteria, companyId: CompanyId) => Promise<ReturnType<typeof ok<{ items: never[]; page: number; pageSize: 20; total: number }>>>>(async () => ok({ items: [], page: 1, pageSize: 20 as const, total: 0 }));
   const context = { companyId: "c" as CompanyId } as Parameters<typeof listOrderAggregates>[1];
   const base = { page: 1, customer: { kind: "all" } } as const;
   await listOrderAggregates({ ...base, view: "paid" }, context, find);

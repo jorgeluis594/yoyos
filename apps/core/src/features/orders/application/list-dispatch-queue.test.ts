@@ -23,10 +23,10 @@ const aggregateOf = (id: OrderId) => ({ id, number: Number(id.slice(-12)) }) as 
 function dependencies(candidates: readonly DispatchCandidate[] | "too_many", overrides: Partial<ListDispatchQueueDependencies> = {}) {
   const spies = {
     inSnapshot: vi.fn(),
-    findDispatchCandidates: vi.fn(async (..._args: Parameters<ListDispatchQueueDependencies["findDispatchCandidates"]>) => ok(candidates)),
-    readStock: vi.fn(async (..._args: Parameters<ListDispatchQueueDependencies["readStock"]>) => ok(new Map([[camisaM, 10]]) as unknown as VariantStock)),
-    findAggregatesByIds: vi.fn(async (ids: readonly OrderId[], _companyId: CompanyId) => ok(ids.map(aggregateOf))),
-    countUndatedPending: vi.fn(async (..._args: Parameters<ListDispatchQueueDependencies["countUndatedPending"]>) => ok(1)),
+    findDispatchCandidates: vi.fn<ListDispatchQueueDependencies["findDispatchCandidates"]>(async () => ok(candidates)),
+    readStock: vi.fn<ListDispatchQueueDependencies["readStock"]>(async () => ok(new Map([[camisaM, 10]]) as unknown as VariantStock)),
+    findAggregatesByIds: vi.fn<ListDispatchQueueDependencies["findAggregatesByIds"]>(async (ids) => ok(ids.map(aggregateOf))),
+    countUndatedPending: vi.fn<ListDispatchQueueDependencies["countUndatedPending"]>(async () => ok(1)),
   };
   const deps: ListDispatchQueueDependencies = { ...spies, maxCandidates: 5000, ...overrides,
     inSnapshot: (read) => { spies.inSnapshot(); return read(); } };
@@ -36,7 +36,7 @@ function dependencies(candidates: readonly DispatchCandidate[] | "too_many", ove
 test("counts overdue and today orders and their ready ones on every page", async () => {
   const members = [...Array.from({ length: 3 }, (_, index) => candidate(1001 + index, "2026-10-28")),
     ...Array.from({ length: 25 }, (_, index) => candidate(1100 + index, "2026-10-30", index < 20 ? {} : { confirmedPayments: [] }))];
-  const { deps, spies } = dependencies(members);
+  const { deps } = dependencies(members);
   const first = await listDispatchQueue({ today, page: 1 }, access, deps);
   const second = await listDispatchQueue({ today, page: 2 }, access, deps);
   if (!first.success || !second.success) throw new Error("expected success");
