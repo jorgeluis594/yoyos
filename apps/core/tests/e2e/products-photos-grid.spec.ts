@@ -135,3 +135,29 @@ for (const language of ["es", "pt"] as const) {
     } finally { await cleanup(email); }
   });
 }
+
+test("clicking a photo opens it in a viewer that steps with the arrows and closes without saving the form", async ({ page }) => {
+  const email = `viewer-${crypto.randomUUID()}@example.test`;
+  try {
+    await page.setViewportSize({ width: 1280, height: 1000 });
+    await mockImages(page);
+    await prepareVerifiedCompany(page, { email, name: "Ana Foto", companyName: "Empresa Foto", country: "PE" });
+    await page.goto("/es-PE/products/new");
+    await page.locator("#name").fill("Polo visor");
+    await page.locator("#salePrice").fill("30");
+    await page.locator("input[type=file]").setInputFiles(photos(3));
+    await browserExpect(page.getByRole("button", { name: "Ver la foto 3 de 3" })).toBeVisible();
+    await page.getByRole("button", { name: "Ver la foto 2 de 3" }).click();
+    const viewer = page.getByRole("dialog");
+    await browserExpect(viewer.getByRole("heading", { name: "Foto 2 de 3" })).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await browserExpect(viewer.getByRole("heading", { name: "Foto 3 de 3" })).toBeVisible();
+    await page.setViewportSize({ width: 375, height: 700 });
+    const shown = await viewer.locator("img").evaluate((node) => Math.round(node.parentElement!.getBoundingClientRect().width));
+    browserExpect(shown).toBeGreaterThan(200);
+    await viewer.getByRole("button", { name: "Cerrar foto" }).click();
+    await browserExpect(viewer).toHaveCount(0);
+    await browserExpect(page).toHaveURL(/\/products\/new$/);
+    await browserExpect(page.locator("[data-photo]")).toHaveCount(3);
+  } finally { await cleanup(email); }
+});
