@@ -50,3 +50,22 @@ test("prints only aggregate lines with opaque labels in a private run", () => {
 test("a public run keeps the case ids as labels", () => {
   expect(labelledRuns(runsOf([{ id: "int-a", tags: [] }], 1, []), false).map(({ label }) => label)).toEqual(["int-a"]);
 });
+
+test("a private run's stdout carries the new aggregate lines and no case id", () => {
+  const outcome = { actual: { notice: "several_problems", outcomes: ["payment_requested", "variant_missing"], noticeProducts: ["taza-roja"], order: [] } };
+  const records = [
+    messageRecord({ caseId: "pv-secret-case", baseId: "pv-secret-case", kind: "photo-size", photoCase: true, tags: ["question-caption"], signature: "a", ...outcome }),
+    messageRecord({ caseId: "pv-secret-case", baseId: "pv-secret-case", kind: "photo-size", photoCase: true, repeat: 1, signature: "b", ...outcome }),
+    messageRecord({ caseId: "pv-other", baseId: "pv-other", kind: "text-size", signature: "a", ...outcome }),
+  ];
+  const text = formatGateSummary(buildReport(records, meta));
+
+  expect(text).toContain("without photo cases: right 0 of 1 scored messages");
+  expect(text).toContain("photo cases: right 0 of 1 scored messages");
+  expect(text).toContain("Consistency: 0 of 1 repeated cases gave one result over 2 runs (0.0%)");
+  expect(text).toContain("Silent adds on question captions: 0 of 1 messages");
+  expect(text).toContain("Payment requests inside a several-problems count: 2 of 2");
+  expect(text).toContain("Notices by kind: several_problems 2");
+  expect(text).toContain("Reader features scored: payment request on, closed-order line on");
+  for (const leaked of ["pv-secret-case", "pv-other", "taza"]) expect(text).not.toContain(leaked);
+});

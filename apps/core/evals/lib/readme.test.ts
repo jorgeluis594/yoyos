@@ -30,3 +30,14 @@ test("keeps examples out of the private files format section of the README", () 
 test("lists every notice and outcome kind in the private files format", () => {
   for (const kind of [...sellerNoticeKinds, ...outcomeKinds]) expect(section, kind).toContain(`\`${kind}\``);
 });
+
+test("states the payment-fallback scoring rule in Scoring and the new report parts in Report", () => {
+  const part = (title: string) => readme.slice(readme.indexOf(`## ${title}`) + title.length).split(/\n## /)[0]!;
+  const scoring = part("Scoring");
+
+  for (const word of ["shippedReaderFeatures", "payment_request", "request_not_allowed", "not_applied", "order_closed", "judge"]) expect(scoring, word).toContain(word);
+  const report = part("Report");
+  for (const word of ["photo cases", "consistency", "question-caption", "noticesByKind", "readerAnswer", "invalidReasons"]) expect(report, word).toContain(word);
+  expect(section).toContain("`not_found`");
+  expect(readme).toContain("check-private.ts");
+});

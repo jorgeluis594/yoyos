@@ -22,6 +22,7 @@ export type CaseRecord = Readonly<{
   passed: boolean;
   exactPassed: boolean;
   fields: FieldScores;
+  /** May point past `expected` when a shipped-features alternative matched (lib/shipped-expectations.ts). */
   expectationIndex: number;
   judge: JudgeVerdict | null;
   /** What the message was, for the reader calls the design allows it (technical design §8); null outside message passes. */
@@ -37,6 +38,11 @@ export type CaseRecord = Readonly<{
   /** The products the message's notice names; a conversation checks that no product is named by two notices. */
   noticeProducts: readonly string[];
   expectsRepeatNotice: boolean;
+  /** A photo message, or a message of a conversation with a photo in any of its steps (a conversation's records all count as photo case); always set. */
+  photoCase: boolean;
+  /** Diagnostics, only in a dev-split run that is not private (lib/eval-env.ts `diagnosticsOn`), else null: the reader's raw answer and the reasons of the invalid actions. */
+  readerAnswer: unknown | null;
+  invalidReasons: readonly string[] | null;
   /** The chat's order before the message, so a rebuild can rescore. */
   previousOrder: readonly Readonly<{ product: string; variant: Readonly<Record<string, string>>; quantity: number }>[];
   input: string;

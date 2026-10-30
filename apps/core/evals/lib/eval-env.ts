@@ -11,7 +11,7 @@ const evalEnvSchema = z.object({
   EVAL_CASES: z.string().optional(),
   /** How many times each repeated case runs; 1 turns the repeats off. */
   EVAL_REPEATS: z.coerce.number().int().min(1).max(5).default(3),
-  /** Comma-separated tags: the cases with any of them run `EVAL_REPEATS` times (the first repetition is the one scored). */
+  /** Comma-separated tags: the cases with any of them run `EVAL_REPEATS` times (the first repetition is the one scored); `all` repeats every case. */
   EVAL_REPEAT_TAGS: z.string().default("consistency").transform((tags) => tags.split(",").map((tag) => tag.trim()).filter(Boolean)),
   /**
    * Absolute path of a folder outside the repository with `catalog.json` and `cases.json` (evals/README.md «Private files format»).
@@ -26,6 +26,12 @@ const evalEnvSchema = z.object({
 });
 
 export type EvalEnv = z.output<typeof evalEnvSchema>;
+
+/**
+ * Whether records keep the reader's raw answer and the invalid action reasons: only a dev-split run that is not private, so tuning can read
+ * why a case failed while the frozen test split and the private holdouts keep no model output.
+ */
+export const diagnosticsOn = (env: Pick<EvalEnv, "EVAL_SPLIT" | "EVAL_PRIVATE_DIR">): boolean => env.EVAL_SPLIT === "dev" && env.EVAL_PRIVATE_DIR === undefined;
 
 export function readEvalEnv(env: Readonly<Record<string, string | undefined>> = process.env): EvalEnv {
   return evalEnvSchema.parse(Object.fromEntries(Object.entries(env).filter(([, value]) => value !== "")));

@@ -1,10 +1,11 @@
 import { chooseSellerNotice } from "@core/src/features/orders/domain/seller-notice";
 import { productById, describeVariantId, type CatalogScope } from "@core/evals/fixtures/catalog";
-import { isMessageStep, needsJudge, type ConversationCase, type EvalCase, type ImageCase, type MessageCase, type MessageInput, type OrderLine, type OutcomeKind } from "@core/evals/cases/schema";
+import { isMessageStep, isPhotoCase, needsJudge, type ConversationCase, type EvalCase, type ImageCase, type MessageCase, type MessageInput, type OrderLine, type OutcomeKind } from "@core/evals/cases/schema";
 import type { Claude, JudgeVerdict } from "@core/evals/lib/claude";
 import { appendRecord, type CaseRecord } from "@core/evals/lib/case-record";
 import { metered, type ModelCall } from "@core/evals/lib/model-meter";
 import { observing, type AppliedMessage, type Observation, type ProductionPath } from "@core/evals/lib/production";
+import { diagnosticsOf } from "@core/evals/lib/diagnostics";
 import { readFixtureImage } from "@core/evals/lib/eval-catalog";
 import { scoreImage, scoreMessage, type ImageActual, type MessageActual, type MessageScored, type Scored } from "@core/evals/lib/scorers";
 
@@ -55,6 +56,8 @@ type Evaluated = Readonly<{
   actual: unknown; scored: Scored | MessageScored; signature: string; error: string | null;
   /** The scored model step alone (setup excluded), and the attempts it took. */
   latencyMs: number; attempts: number;
+  /** What the message returned, for the diagnostics of a dev run; absent outside message passes. */
+  applied?: Pick<AppliedMessage, "result">;
   /** Set for message passes and conversation messages. */
   message?: Readonly<{ kind: NonNullable<CaseRecord["messageKind"]>; noticeProducts: readonly string[]; previousOrder: readonly OrderLine[]; expectsRepeatNotice: boolean;
     conversationId: string | null; step: number | null; expected: unknown; input: string }>;
@@ -78,12 +81,13 @@ function judgePrompt(testCase: Exclude<EvalCase, ConversationCase>, actual: unkn
   }, null, 2);
 }
 
-export type RunCaseContext = Readonly<{ runId: string; path: ProductionPath; claude: Claude; scope: CatalogScope }>;
+/** `diagnostics`: records keep the reader's raw answer and the invalid action reasons (lib/eval-env.ts `diagnosticsOn`). */
+export type RunCaseContext = Readonly<{ runId: string; path: ProductionPath; claude: Claude; scope: CatalogScope; diagnostics?: boolean }>;
 
 const isMessageScored = (scored: Scored | MessageScored): scored is MessageScored => "ignoredActions" in scored;
 
-function entryOf(testCase: Readonly<{ id: string; kind: string; tags: readonly string[]; pass: CaseRecord["pass"]; paraphraseOf?: string }>, criterion: number, repeat: number,
-  evaluated: Evaluated, observation: Observation, calls: readonly ModelCall[], judge: JudgeVerdict | null, passed: boolean, caseId = testCase.id): CaseRecord {
+function entryOf(testCase: EvalCase, criterion: number, repeat: number, evaluated: Evaluated, observation: Observation, diagnostics: boolean,
+  calls: readonly ModelCall[], judge: JudgeVerdict | null, passed: boolean, caseId = testCase.id): CaseRecord {
   const { scored, message } = evaluated;
   const flags = isMessageScored(scored) ? scored : null;
   return {
@@ -91,6 +95,7 @@ function entryOf(testCase: Readonly<{ id: string; kind: string; tags: readonly s
     passed, exactPassed: scored.passed, fields: scored.fields, expectationIndex: scored.expectationIndex, judge,
     messageKind: message?.kind ?? null, conversationId: message?.conversationId ?? null, step: message?.step ?? null,
     ignoredActions: flags?.ignoredActions ?? 0, wrongSilentChange: flags?.wrongSilentChange ?? false, extraNotice: flags?.extraNotice ?? false, expectedSilent: flags?.expectedSilent ?? false,
+    photoCase: isPhotoCase(testCase), ...diagnosticsOf(diagnostics, evaluated.applied ?? null, observation),
     noticeProducts: message?.noticeProducts ?? [], expectsRepeatNotice: message?.expectsRepeatNotice ?? false, previousOrder: message?.previousOrder ?? [],
     input: message?.input ?? "", expected: message?.expected ?? null, actual: evaluated.actual, signature: evaluated.signature,
     certainties: observation.certainties, latencyMs: evaluated.latencyMs, retries: evaluated.attempts - 1, calls, error: evaluated.error,
@@ -117,7 +122,7 @@ async function record(context: RunCaseContext, testCase: Exclude<EvalCase, Conve
   // A case marked ambiguous passes when the exact match or the judge accepts it; a plain set of acceptable answers needs the exact match.
   const ambiguous = "ambiguous" in testCase ? testCase.ambiguous : undefined;
   const passed = evaluated.scored.passed || (ambiguous !== undefined && judge?.pass === true && evaluated.scored.fields.unitPrice !== false);
-  const entry = entryOf(testCase, testCase.criterion, repeat, evaluated, observed.observation, [...calls, ...judgeCalls], judge, passed);
+  const entry = entryOf(testCase, testCase.criterion, repeat, evaluated, observed.observation, context.diagnostics === true, [...calls, ...judgeCalls], judge, passed);
   const complete = evaluated.message ? entry : { ...entry, input: describeInput(testCase), expected: testCase.expected };
   await appendRecord(context.runId, complete);
   return complete;
@@ -131,7 +136,7 @@ export function runMessageCase(context: RunCaseContext, testCase: MessageCase, r
     const applied = await context.path.applyMessage(testCase.input, testCase.pass === "interpretation" ? "fixed" : "real", context.scope);
     const actual = messageActualOf(applied);
     const scored = scoreMessage(actual, testCase.expected, testCase.input.order, context.scope);
-    return { actual: { ...actual, attempts: applied.attempts }, scored, signature: messageSignature(actual), error: actual.error, latencyMs: applied.latencyMs, attempts: applied.attempts,
+    return { actual: { ...actual, attempts: applied.attempts }, scored, signature: messageSignature(actual), error: actual.error, latencyMs: applied.latencyMs, attempts: applied.attempts, applied,
       message: { kind: messageKindOf(testCase.input), noticeProducts: actual.noticeProducts, previousOrder: testCase.input.order, expectsRepeatNotice: false,
         conversationId: null, step: null, expected: testCase.expected, input: describeInput(testCase) } };
   });
@@ -152,15 +157,15 @@ export async function runConversationCase(context: RunCaseContext, testCase: Con
     const base = { conversationId: testCase.id, step: number, expected: [step.expected], input: describeMessage(step.input), kind: messageKindOf(step.input), expectsRepeatNotice: step.expectsRepeatNotice === true };
     if (!done) {
       const evaluated = failedEvaluation(error ?? new Error("The conversation stopped before this message"), performance.now());
-      records.push(entryOf({ ...testCase, id: testCase.id }, 0, repeat, { ...evaluated, message: { ...base, noticeProducts: [], previousOrder: [] } }, { certainties: [] }, [], null, false, caseId));
+      records.push(entryOf({ ...testCase, id: testCase.id }, 0, repeat, { ...evaluated, message: { ...base, noticeProducts: [], previousOrder: [] } }, { certainties: [], readerAnswers: [] }, false, [], null, false, caseId));
     } else {
       const { applied, previousOrder, observation, calls } = done.result;
       const actual = messageActualOf(applied);
       const before = previousOrder.map(lineOf);
       const scored = scoreMessage(actual, [step.expected], before, context.scope);
       const evaluated: Evaluated = { actual: { ...actual, attempts: applied.attempts }, scored, signature: messageSignature(actual), error: actual.error, latencyMs: applied.latencyMs,
-        attempts: applied.attempts, message: { ...base, noticeProducts: actual.noticeProducts, previousOrder: before } };
-      records.push(entryOf(testCase, 0, repeat, evaluated, observation, calls, null, scored.passed, caseId));
+        attempts: applied.attempts, applied, message: { ...base, noticeProducts: actual.noticeProducts, previousOrder: before } };
+      records.push(entryOf(testCase, 0, repeat, evaluated, observation, context.diagnostics === true, calls, null, scored.passed, caseId));
     }
   }
   for (const entry of records) await appendRecord(context.runId, entry);

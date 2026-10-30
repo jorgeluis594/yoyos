@@ -57,13 +57,14 @@ export type CertaintySource = "visual" | "visual_none" | "shows_product";
 /** `pick` is the model's own answer, independent of what the gate then decided: the product key chosen for a photo (null for «none»). */
 export type Certainty = Readonly<{ source: CertaintySource; confidence: number; gate: number; pick?: string | null; detail?: string }>;
 
-/** What the models decided while one case ran. */
-export type Observation = { certainties: Certainty[] };
+/** What the models decided while one case ran: the visual certainties and, when diagnostics are on, the reader's raw answers (one per call). */
+export type Observation = { certainties: Certainty[]; readerAnswers: unknown[] };
 
-const newObservation = (): Observation => ({ certainties: [] });
+const newObservation = (): Observation => ({ certainties: [], readerAnswers: [] });
 const observed = new AsyncLocalStorage<Observation>();
 const current = () => observed.getStore();
 const observe = (certainty: Certainty) => current()?.certainties.push(certainty);
+const observeReaderAnswer = (answer: unknown) => current()?.readerAnswers.push(answer);
 
 /** Runs `work` and returns what the models decided during it. */
 export async function observing<T>(work: () => Promise<T>): Promise<Readonly<{ value: T; observation: Observation }>> {
@@ -92,8 +93,9 @@ type Env = Readonly<Record<string, string | undefined>>;
 export type ProductionPath = ReturnType<typeof createProductionPath>;
 
 /** Builds the real clients from the env once per suite; throws when the providers are not configured. */
-export function createProductionPath(env: Env) {
-  const readChatMessage = createChatReaderFromEnv(env);
+export function createProductionPath(env: Env, options: Readonly<{ diagnostics?: boolean }> = {}) {
+  // The reader's raw answers are observed only when diagnostics are on (dev split, not private): the production reader is otherwise untouched.
+  const readChatMessage = createChatReaderFromEnv(env, options.diagnostics ? { observe: observeReaderAnswer } : {});
   const visualSetup = createVisualSearch(env);
   if (!readChatMessage || !visualSetup.visual || !visualSetup.embedder) throw new Error("The production path needs OPENAI_API_KEY");
   const visual = { ...visualSetup.visual, readImage: readRegisteredImage, chooseProduct: async (input: Parameters<NonNullable<typeof visualSetup.visual>["chooseProduct"]>[0], signal?: AbortSignal) => {
@@ -327,6 +329,7 @@ async function chatOrderLines(chatId: string, company: EvalCompany): Promise<rea
 async function photoIdentification(photo: NonNullable<MessageInput["photo"]>, wiring: Wiring, company: EvalCompany): Promise<ApplyChatMessageDependencies["identifyProductsInImage"]> {
   if ("file" in photo) return (image, signal) => identifyProductsInImage(image, wiring.imageIdentification, signal);
   if (photo.shows === "not_product") return fixed({ kind: "not_product" });
+  if (photo.shows === "not_found") return fixed({ kind: "not_found", reason: "no_visual_match" });
   if ("label" in photo && photo.label) return fixed(await labelIdentification(photo.shows, photo.label, company));
   return fixed({ kind: "found", method: "visual", productId: productIdOf(photo.shows, company.scope) as ProductId, confidence: 0.95 as MatchConfidence, candidates: 1, topDistance: 0 });
 }
