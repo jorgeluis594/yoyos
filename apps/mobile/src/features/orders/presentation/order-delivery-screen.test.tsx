@@ -75,6 +75,19 @@ test("recipient can differ from buyer; unavailable save preserves data and confi
   await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
   expect(save).toHaveBeenLastCalledWith(mockId, { delivery: { method: "store", recipient: { name: "Recipient", phone: "555002", identity: { kind: "absent" } } }, expectedPrice: { amount: 0, currency: "PEN" } });
 });
+test("saving a covering delivery with short stock returns to the detail without any stock message (the detail shows the notice)", async () => {
+  const waiting: OrderAggregateResponse = { ...pending, stockDeducted: false, paymentStatus: "paid",
+    stockDue: { kind: "waiting", shortItems: [{ variantId: pending.items[0]!.variantId, available: 0 }] },
+    delivery: { method: "store", recipient: { name: "Customer", phone: "555001", identity: { kind: "absent" } }, pickupPoint: point, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } } };
+  save.mockResolvedValueOnce(ok(waiting));
+  const screen = render(<OrderDeliveryScreen />);
+  await screen.findByText("Current address");
+  fireEvent.press(screen.getByText("Guardar entrega"));
+  await waitFor(() => expect(mockBack).toHaveBeenCalledTimes(1));
+  expect(screen.queryByText(/No hay stock suficiente/)).toBeNull();
+  expect(screen.queryByText(/Ya no hay stock suficiente/)).toBeNull();
+});
+
 test("validation requires recipient and selected document; values preserve leading zeros and language changes", async () => {
   save.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
   const screen = render(<OrderDeliveryScreen />);

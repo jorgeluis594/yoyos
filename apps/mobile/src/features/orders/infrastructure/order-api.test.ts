@@ -88,12 +88,11 @@ test("order API reads mixed summaries and validates complete aggregate states", 
     .toMatchObject({ success: true, data: { status: "active" } });
   expect(await api.registerPayment(id(1), { paymentId: id(5), amount: total, method: "digital_wallet", deductStockIfPartial: false }))
     .toMatchObject({ success: true, data: { order: { stockDue: null } } });
-  expect(await api.deductStock(id(1))).toMatchObject({ success: true, data: { id: id(1) } });
   expect(paths).toEqual(["/api/orders/mixed?page=1&customer=all", `/api/orders/${id(1)}/aggregate`,
-    "/api/orders", `/api/orders/${id(1)}/payments`, `/api/orders/${id(1)}/deduct-stock`]);
+    "/api/orders", `/api/orders/${id(1)}/payments`]);
   expect(await api.registerPayment(id(1), { paymentId: "bad", amount: total, method: "digital_wallet", deductStockIfPartial: false }))
     .toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
-  expect(paths).toHaveLength(5);
+  expect(paths).toHaveLength(4);
   const bad = createOrderApi(async () => ok({ ...order, stockDeducted: "yes" }));
   expect(await bad.getAggregate(id(1))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
 });

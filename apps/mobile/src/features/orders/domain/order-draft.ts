@@ -20,7 +20,7 @@ export type OrderDraftItem = Readonly<{
 
 export type DraftPayment = Readonly<{ paymentId: string; amount: string; method: "digital_wallet" | "bank_transfer"; walletProvider?: WalletProvider; deductStockIfPartial: boolean }>;
 export type DraftCustomer = NewOrderCustomer;
-type DraftOptions = Readonly<{ customer?: DraftCustomer; payments?: readonly DraftPayment[]; ratedDelivery?: RatedDeliveryAssignment; deliverImmediately?: boolean; shipImmediately?: boolean; deferStockDeduction?: boolean; scheduledDispatchDate?: string }>;
+type DraftOptions = Readonly<{ customer?: DraftCustomer; payments?: readonly DraftPayment[]; ratedDelivery?: RatedDeliveryAssignment; deliverImmediately?: boolean; shipImmediately?: boolean; scheduledDispatchDate?: string }>;
 const identity = z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("absent") }),
   z.strictObject({ kind: z.literal("document"), documentType: z.enum(["national_id", "passport", "foreign_id"]), document: z.string().trim().min(1) })]);
 const recipient = z.strictObject({ name: z.string().trim().min(1), phone: z.string().trim().min(1), identity });
@@ -44,7 +44,6 @@ const submissionSchema = z.strictObject({ id: z.uuid(), customer: newOrderCustom
   delivery: ratedDeliveryAssignmentSchema.optional(),
   deliverImmediately: z.boolean().optional(),
   shipImmediately: z.boolean().optional(),
-  deferStockDeduction: z.boolean().optional(),
   scheduledDispatchDate: dispatchDateSchema.optional(),
 });
 export type OrderSubmission = z.infer<typeof submissionSchema>;
@@ -88,7 +87,6 @@ export function prepareOrder(draft: OrderDraft): Result<{ request: OrderSubmissi
     ...(ratedDelivery?.success ? { delivery: ratedDelivery.data } : {}),
     ...(draft.deliverImmediately !== undefined ? { deliverImmediately: draft.deliverImmediately } : {}),
     ...(draft.shipImmediately !== undefined ? { shipImmediately: draft.shipImmediately } : {}),
-    ...(draft.deferStockDeduction !== undefined ? { deferStockDeduction: draft.deferStockDeduction } : {}),
     ...(draft.scheduledDispatchDate ? { scheduledDispatchDate: draft.scheduledDispatchDate } : {}),
     items: draft.items.map(({ variantId, quantity }) => ({ variantId, quantity })) });
   return parsed.success && total ? ok({ request: parsed.data, shownTotal: total }) : invalid();

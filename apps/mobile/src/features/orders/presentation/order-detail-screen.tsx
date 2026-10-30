@@ -8,7 +8,7 @@
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { choiceOfPayment, defaultPaymentChoice, paymentFromChoice, type PaymentMethodAndProvider } from "@shared/wallet-providers";
 import type { CancellationRequestError, CancellationRecoveryError } from "@mobile/features/orders/application/cancel-order";
-import { fulfillmentBlock } from "@shared/orders-fulfillment";
+import { orderFulfillmentBlock } from "@shared/orders-fulfillment";
 import { mentionedPriceNote } from "@shared/mentioned-price";
 import { PaymentFields, type PaymentFieldsValue } from "@mobile/features/orders/presentation/payment-fields";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -39,6 +39,7 @@ import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { useCopyLink } from "@mobile/features/catalog/presentation/use-copy-link";
 import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
+import { joinLabels, shortStockLines } from "@mobile/features/orders/presentation/order-stock";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
 import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
@@ -81,6 +82,8 @@ export default function OrderDetailScreen() {
   const linkRequest = useRef(0);
   const checkoutGeneration = useRef(0);
   const [paymentError, setPaymentError] = useState("");
+  // What the last recorded payment left behind; it stays until the seller starts another payment, delivery or fulfillment action.
+  const [paymentLine, setPaymentLine] = useState<"recorded" | "waiting" | null>(null);
   const [savingPayment, setSavingPayment] = useState<string | null>(null);
   const [fulfilling, setFulfilling] = useState<"ship" | "deliver" | null>(null);
   const [rescheduling, setRescheduling] = useState(false);
@@ -118,6 +121,8 @@ export default function OrderDetailScreen() {
     else if (!silent) setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
   }, [id, scope]);
+  // The status line belongs to the screen: it clears when the seller really leaves it, not when the order reloads.
+  useFocusEffect(useCallback(() => () => setPaymentLine(null), []));
   // A notice tapped while this very order is open navigates to the same route; its `noticeAt` is the only change.
   const handledNoticeAt = useRef(noticeAt);
   useFocusEffect(useCallback(() => {
@@ -148,16 +153,17 @@ export default function OrderDetailScreen() {
     if (!Number.isFinite(amount) || amount <= 0 || !/^\d+(?:[.,]\d{1,2})?$/.test(amountText.trim())) {
       setPaymentError(t("invalidPaymentAmount")); return;
     }
-    setSavingPayment(paymentId); setPaymentError("");
+    setSavingPayment(paymentId); setPaymentError(""); setPaymentLine(null);
     const result = await orders.registerPayment(order.id, { paymentId, source, amount: { amount, currency: order.total.currency },
       ...method, deductStockIfPartial });
     if (result.success) {
       setOrder(result.data.order); setEditor(null);
+      setPaymentLine(result.data.order.stockDue?.kind === "waiting" ? "waiting" : "recorded");
       if (source === "manual") manualPaymentId.current = null;
     }
     else {
       const failure = confirmPaymentFailure(result.error.code);
-      setPaymentError(result.error.code === "INSUFFICIENT_STOCK" ? t("paymentStockError") : failure === "already_reviewed" ? t("paymentAlreadyReviewed")
+      setPaymentError(failure === "already_reviewed" ? t("paymentAlreadyReviewed")
         : failure === "unknown" ? t("paymentUnknownResult") : t("paymentSaveError"));
       if (failure !== "failed") { const refreshed = await orders.loadOrderAggregate(order.id); if (refreshed.success) setOrder(refreshed.data); }
     }
@@ -167,7 +173,7 @@ export default function OrderDetailScreen() {
     if (!order || cancellationLock.current || writeBusy || order.cancelled) return;
     const trimmed = reason.trim();
     if (trimmed.length > 200) { setPaymentError(t("rejectReasonTooLong")); return; }
-    setSavingPayment(paymentId); setPaymentError("");
+    setSavingPayment(paymentId); setPaymentError(""); setPaymentLine(null);
     const outcome = await orders.rejectPayment(order.id, paymentId, trimmed || null);
     if (outcome.kind === "rejected") { setOrder(outcome.order); setEditor(null); setRejection(null); }
     else {
@@ -179,25 +185,29 @@ export default function OrderDetailScreen() {
   }
   async function voidPayment(paymentId: string) {
     if (!order || cancellationLock.current || writeBusy || order.cancelled) return;
-    setSavingPayment(paymentId); setPaymentError("");
+    setSavingPayment(paymentId); setPaymentError(""); setPaymentLine(null);
     const result = await orders.voidPayment(order.id, paymentId);
     if (result.success) setOrder(result.data);
     else setPaymentError(t("paymentSaveError"));
     setSavingPayment(null);
   }
   async function fulfill(operation: "ship" | "deliver") {
-    if (!order || cancellationLock.current || writeBusy || fulfillmentBlock(order, operation)) return;
-    setFulfilling(operation); setFulfillmentError(""); setFulfillmentMessage("");
+    if (!order || cancellationLock.current || writeBusy || orderFulfillmentBlock(order, operation)) return;
+    setFulfilling(operation); setFulfillmentError(""); setFulfillmentMessage(""); setPaymentLine(null);
     try {
       const result = await orders[operation](order.id);
       if (result.success) { setOrder(result.data); setFulfillmentMessage(t(`orderFulfillment.${operation}Saved`)); }
-      else setFulfillmentError(t(`orderFulfillment.${fulfillmentKey(operation, result.error.code)}`, { defaultValue: t("orderFulfillment.saveError") }));
+      else {
+        setFulfillmentError(t(`orderFulfillment.${fulfillmentKey(operation, result.error.code)}`, { defaultValue: t("orderFulfillment.saveError") }));
+        // The stock changed after the screen loaded: show the order as it is now.
+        if (result.error.code === "INSUFFICIENT_STOCK") await reload(true);
+      }
     } catch { setFulfillmentError(t("orderFulfillment.saveError")); }
     finally { setFulfilling(null); }
   }
   async function reschedule(day: string) {
     if (!order || cancellationLock.current || writeBusy) return;
-    setRescheduling(true); setFulfillmentError(""); setFulfillmentMessage("");
+    setRescheduling(true); setFulfillmentError(""); setFulfillmentMessage(""); setPaymentLine(null);
     try {
       const result = await orders.updateOrderShipping(order.id, { scheduledDispatchDate: day || null });
       if (result.success) setOrder(result.data);
@@ -225,6 +235,8 @@ export default function OrderDetailScreen() {
   // The link is a read of the order's current brand-host URL, so it loads with the screen and again on every return (a subdomain may have been chosen meanwhile).
   const linkOrderId = order?.id;
   const linkCancelled = order?.cancelled ?? false;
+  // The live region is Android-only, so VoiceOver gets the same text announced once when the line appears.
+  useEffect(() => { if (paymentLine) AccessibilityInfo.announceForAccessibility(translations.t(paymentLine === "waiting" ? "paymentRecordedWaiting" : "paymentRecorded")); }, [paymentLine]);
   useEffect(() => { if (copied) AccessibilityInfo.announceForAccessibility(translations.t("checkoutCopied")); }, [copied]);
   useEffect(() => {
     if (!linkOrderId || linkCancelled) return;
@@ -303,12 +315,17 @@ export default function OrderDetailScreen() {
     scroll.current?.scrollTo({ y: paymentPosition.current, animated: false });
   };
   const review = editor && editor !== "manual" ? editor : null;
-  const openEditor = (value: NonNullable<typeof editor>) => { if (cancellationLock.current || writeBusy || order.cancelled) return; setPaymentError(""); setRejection(null); setEditor(value); };
+  const openEditor = (value: NonNullable<typeof editor>) => { if (cancellationLock.current || writeBusy || order.cancelled) return; setPaymentError(""); setPaymentLine(null); setRejection(null); setEditor(value); };
   const closeEditor = () => { if (!savingPayment) { setEditor(null); setRejection(null); setPaymentError(""); } };
   // The one main action is the next valid transition; when it is blocked the button stays disabled and says why.
   const nextOperation = order.deliveryStatus === "pending" ? (order.delivery?.method === "store" ? "deliver" : "ship") : order.deliveryStatus === "shipped" ? "deliver" : null;
-  const nextBlock = nextOperation ? fulfillmentBlock(order, nextOperation) : null;
-  const nextReason = nextBlock === "PAYMENT_REQUIRED" || nextBlock === "STOCK_NOT_DEDUCTED" ? nextBlock : null;
+  const nextBlock = nextOperation ? orderFulfillmentBlock(order, nextOperation) : null;
+  const shortLines = shortStockLines(order);
+  const nextReason = nextBlock && ["PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "STOCK_WAITING", "STOCK_DEDUCTING"].includes(nextBlock.code) ? nextBlock.code : null;
+  const nextReasonText = !nextReason || !nextOperation ? null
+    : nextReason === "STOCK_WAITING" ? t(`orderFulfillment.STOCK_WAITING_${nextOperation === "ship" ? "SHIP" : "DELIVER"}${shortLines.length ? "" : "_GENERIC"}`, { items: joinLabels(shortLines.map(line => line.label), t("listAnd")) })
+    : t(`orderFulfillment.${fulfillmentKey(nextOperation, nextReason)}`);
+  const stockLine = order.stockDeducted ? t("stockDeducted") : order.stockDue?.kind === "waiting" ? t("stockWaiting") : order.stockDue?.kind === "deducting" ? t("stockDeducting") : t("stockPending");
   const cardStyle = { backgroundColor: theme.backgroundElement, borderColor: theme.border };
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <View style={styles.container}>
@@ -343,6 +360,15 @@ export default function OrderDetailScreen() {
           <ThemedText style={[styles.flex, { color: theme.warning }]}>{t('detailReports', { count: reports.length })}</ThemedText>
           <SymbolView name={{ ios: "chevron.right", android: "chevron_right" }} size={20} tintColor={theme.warning} />
         </Pressable> : null}
+        {!order.cancelled && order.stockDue ? <View style={[styles.stockNotice, { backgroundColor: theme.warningSurface, borderColor: theme.border }]}>
+          <SymbolView name={{ ios: "shippingbox", android: "inventory_2" }} size={24} tintColor={theme.warning} />
+          <View style={styles.flex}>
+            <ThemedText accessibilityRole="header" style={[styles.semibold, { color: theme.warning }]}>{order.stockDue.kind === "waiting" ? t("stockWaitingTitle") : t("stockDeductingTitle")}</ThemedText>
+            {order.stockDue.kind === "waiting" ? shortLines.map(line => <ThemedText key={line.variantId} type="small" style={{ color: theme.warning }}>
+              {t("stockWaitingLine", { name: line.label, quantity: line.quantity, available: line.available })}</ThemedText>) : null}
+            <ThemedText type="small" style={{ color: theme.warning }}>{order.stockDue.kind === "waiting" ? t("stockWaitingHelp") : t("stockDeductingHelp")}</ThemedText>
+          </View>
+        </View> : null}
         {changed && original ? <View style={[styles.card, styles.section, { backgroundColor: theme.warningSurface, borderColor: theme.border }]}>
           <ThemedText type="subtitle" accessibilityRole="header">{t('reviewCharge')}</ThemedText>
           <ThemedText>{t('shownAtConfirmation', { amount: money(original.amount, original.currency, locale) })}</ThemedText>
@@ -379,6 +405,7 @@ export default function OrderDetailScreen() {
             <PaymentBadge status={paymentBadgeStatus(order.paidAmount.amount, order.balanceDue.amount)} />
           </View>
           <PaymentSummary total={format(order.total)} paid={format(order.paidAmount)} balance={format(order.balanceDue)} showPaid={hasPaid} />
+          {paymentLine ? <ThemedText accessibilityLiveRegion="polite" style={paymentLine === "recorded" ? { color: theme.success } : undefined}>{t(paymentLine === "waiting" ? "paymentRecordedWaiting" : "paymentRecorded")}</ThemedText> : null}
           {reports.length > 0 && !order.cancelled ? <ThemedText type="small" style={{ color: theme.warning }}>{t('paymentToReview')}</ThemedText> : null}
           {order.overpaidAmount.amount > 0 ? <ThemedText type="small" style={{ color: theme.warning }}>{t('overpaid', { amount: format(order.overpaidAmount) })}</ThemedText> : null}
           {order.payments.map((payment) => {
@@ -419,7 +446,7 @@ export default function OrderDetailScreen() {
             : canEditDelivery ? <ThemedText themeColor="textSecondary">{t('orderDeliveryUndefined')}</ThemedText> : null}
           {!order.cancelled && Platform.OS === "android" && order.delivery && order.delivery.method !== "store"
             ? <><View style={[styles.divider, { borderColor: theme.border }]} /><LabelRow id={order.id} number={order.number} /></> : null}
-          {canEditDelivery ? <Button disabled={writeBusy} variant="ghost" onPress={() => router.push({ pathname: "/orders/delivery", params: { id: order.id } })}>{t(order.delivery ? 'editOrderDeliveryData' : 'assignOrderDeliveryData')}</Button> : null}
+          {canEditDelivery ? <Button disabled={writeBusy} variant="ghost" onPress={() => { setPaymentLine(null); router.push({ pathname: "/orders/delivery", params: { id: order.id } }); }}>{t(order.delivery ? 'editOrderDeliveryData' : 'assignOrderDeliveryData')}</Button> : null}
           {canEditDelivery && order.paymentStatus === "pending" ? <ThemedText type="small" themeColor="textSecondary">{t('manualDeliveryWithoutPayment')}</ThemedText> : null}
           {order.delivery ? <>
             {deliveryOpen ? <View style={styles.section}>
@@ -449,7 +476,7 @@ export default function OrderDetailScreen() {
           {!order.cancelled ? <View style={styles.section}>
             {order.shippedAt ? <ThemedText type="small" themeColor="textSecondary">{t('shippedOn', { date: date(order.shippedAt, locale) })}</ThemedText> : null}
             {nextOperation && (!nextBlock || nextReason) ? <Button disabled={writeBusy || !!nextBlock} loading={fulfilling === nextOperation} onPress={() => void fulfill(nextOperation)}>{t(`orderFulfillment.${nextOperation}`)}</Button> : null}
-            {nextReason ? <ThemedText type="small" themeColor="textSecondary" style={styles.center}>{t(`orderFulfillment.${fulfillmentKey(nextOperation, nextReason)}`)}</ThemedText> : null}
+            {nextReasonText ? <ThemedText type="small" themeColor="textSecondary" style={styles.center}>{nextReasonText}</ThemedText> : null}
             {fulfillmentError ? <ThemedText style={{ color: theme.error }} accessibilityRole="alert">{fulfillmentError}</ThemedText> : null}
             {fulfillmentMessage ? <ThemedText accessibilityRole="alert">{fulfillmentMessage}</ThemedText> : null}
           </View> : null}
@@ -480,7 +507,7 @@ export default function OrderDetailScreen() {
         <View style={[styles.card, styles.section, cardStyle]}>
           <Disclosure label={t('detailInternal')} open={internalOpen} onPress={() => setInternalOpen(!internalOpen)} />
           {internalOpen ? <>
-            <ThemedText type="small">{order.stockDeducted ? t('stockDeducted') : t('stockPending')}</ThemedText>
+            <ThemedText type="small">{stockLine}</ThemedText>
             {order.sellerId ? <ThemedText type="small" themeColor="textSecondary" selectable>{t('detailSeller', { id: order.sellerId })}</ThemedText> : null}
             {order.completedAt ? <ThemedText type="small" themeColor="textSecondary">{t('completedOn', { date: date(order.completedAt, locale) })}</ThemedText> : null}
             {order.delivery ? <>
@@ -571,6 +598,7 @@ const styles = StyleSheet.create({
   paymentSummary: { gap: 8, paddingTop: 12, borderTopWidth: StyleSheet.hairlineWidth },
   center: { textAlign: "center" },
   linkLoading: { minHeight: 48, flexDirection: "row", alignItems: "center", gap: 12 },
+  stockNotice: { flexDirection: "row", alignItems: "flex-start", gap: 12, padding: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   receiptNotice: { minHeight: 56, flexDirection: "row", alignItems: "center", gap: 12, padding: 12, borderRadius: 8, borderWidth: StyleSheet.hairlineWidth },
   section: { gap: 10 },
   product: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8, paddingVertical: 12 },

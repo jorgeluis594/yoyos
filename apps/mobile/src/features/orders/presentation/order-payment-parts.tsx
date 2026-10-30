@@ -165,8 +165,8 @@ function SheetBody({ balance, currency, format, busy, error, amountError = "", s
       </View>
     </View>
     {offer.offered ? <View style={styles.toggle}>
-      <ThemedText style={styles.flex}>{t('deductStockNow')}</ThemedText>
-      <Switch disabled={busy} value={deduct} onValueChange={setDeduct} accessibilityLabel={t('deductStockNow')} />
+      <ThemedText style={styles.flex}>{t('deductStockIfPartial')}</ThemedText>
+      <Switch disabled={busy} value={deduct} onValueChange={setDeduct} accessibilityLabel={t('deductStockIfPartial')} />
     </View> : mode === "other" && offer.reason ? <ThemedText type="small" themeColor="textSecondary">{offer.reason}</ThemedText> : null}
     {error ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{error}</ThemedText> : null}
     <Button disabled={busy || (mode === "other" && !(amount !== null && amount > 0))} loading={busy}
