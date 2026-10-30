@@ -9,7 +9,7 @@ import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/feat
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { chooseDistrict, chooseDistrictInProvince } from "@core/tests/e2e/district-combobox";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
-import { addToOrder } from "@core/tests/e2e/order-view-helpers";
+import { addToOrder, orderTotal } from "@core/tests/e2e/order-view-helpers";
 
 test("seller completes a wallet sale and sees backend totals and stock", async ({ page, request }) => {
   // The browser's own leave warning on reload and close is accepted: this test reloads and navigates with a sale started.
@@ -31,7 +31,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.getByRole("link", { name: "Nueva venta" }).click();
     await browserExpect(page.getByRole("heading", { name: "Nueva venta" })).toBeVisible();
     await addToOrder(page, "Cuaderno POS", "M");
-    await browserExpect(page.getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.29, "PEN", "es"))).toBeVisible();
+    await browserExpect(orderTotal(page)).toHaveText(formatCurrency(0.29, "PEN", "es"));
     await page.setViewportSize({ width: 390, height: 844 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.setViewportSize({ width: 390, height: 500 });
@@ -43,7 +43,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(0);
     await addToOrder(page, "Cuaderno POS", "M");
     await addToOrder(page, "Cuaderno POS", "M");
-    await browserExpect(page.getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.58, "PEN", "es"))).toBeVisible();
+    await browserExpect(orderTotal(page)).toHaveText(formatCurrency(0.58, "PEN", "es"));
     await page.getByRole("button", { name: "Agregar Yape" }).click();
     await page.getByLabel("Importe recibido").fill("0.58");
     await page.getByLabel("Marcar como entregado al guardar").check();
@@ -80,7 +80,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.getByLabel(/^Cantidad: Cuaderno POS/).fill("1");
     await page.getByLabel("Importe recibido").fill("0.30");
     await withTenantIsolation(tenantId, async () => await prisma.productVariant.update({ where: { id: stock.variantId }, data: { salePrice: 0.3 } }));
-    await browserExpect(page.getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.29, "PEN", "es"))).toBeVisible();
+    await browserExpect(orderTotal(page)).toHaveText(formatCurrency(0.29, "PEN", "es"));
     await page.getByRole("button", { name: "Guardar venta" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
     await browserExpect(page.getByRole("region", { name: "Pagos" }).getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.30, "PEN", "es"), { exact: true })).toBeVisible();
@@ -252,7 +252,7 @@ test("new order saves partial payments, paid pending delivery and configured del
       if (scenario === "no-stock") await withTenantIsolation(companyId, async () => await prisma.productStock.updateMany({ data: { quantity: 0n } }));
       await page.goto("/es-PE/orders/new");
       await addToOrder(page, "Agenda");
-      const total = (amount: number) => browserExpect(page.getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(amount, "PEN", "es"))).toBeVisible();
+      const total = (amount: number) => browserExpect(orderTotal(page)).toHaveText(formatCurrency(amount, "PEN", "es"));
       if (scenario !== "no-stock") {
         await page.getByRole("button", { name: "Agregar Yape" }).click();
         await page.getByLabel("Importe recibido").fill(scenario === "partial" ? "0.1" : "10");
@@ -263,8 +263,6 @@ test("new order saves partial payments, paid pending delivery and configured del
         await browserExpect(page.getByText(`Pago parcial · falta ${formatCurrency(9.2, "PEN", "es")}`, { exact: true })).toBeVisible();
       }
       if (scenario === "delivery") {
-        await page.getByRole("button", { name: "Agregar Yape" }).click();
-        await page.getByLabel("Importe recibido").nth(1).fill("3");
         await page.getByRole("tab", { name: "Domicilio" }).click();
         await page.getByLabel("Dirección de entrega", { exact: true }).fill("Av. Lima 123");
         await chooseDistrict(page, "040110");
@@ -288,6 +286,9 @@ test("new order saves partial payments, paid pending delivery and configured del
         await page.getByLabel("Nombre del destinatario").fill("Ana");
         await page.getByLabel("Teléfono del destinatario").fill("999001");
         await total(13);
+        // The first payment covered the products, so the balance is the delivery: only now is another payment offered.
+        await page.getByRole("button", { name: "Agregar Yape" }).click();
+        await page.getByLabel("Importe recibido").nth(1).fill("3");
         const countBefore = await withTenantIsolation(companyId, async () => await prisma.order.count());
         const stateBefore = await (await page.request.get("/api/delivery-settings/zones")).json();
         expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: stateBefore.version,
@@ -298,6 +299,9 @@ test("new order saves partial payments, paid pending delivery and configured del
         expect(await withTenantIsolation(companyId, async () => await prisma.order.count())).toBe(countBefore);
         await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveValue("Av. Lima 123");
         await browserExpect(page.getByLabel("Importe recibido").nth(1)).toHaveValue("3");
+        // The quotation was renewed with the new price, so the old rate is gone from the card: the seller picks the current one.
+        const refreshedRate = await chooseRate();
+        expect(refreshedRate).toContain(formatCurrency(4, "PEN", "es"));
         await page.getByLabel("Importe recibido").nth(1).fill("4");
         await total(14);
         await page.setViewportSize({ width: 1280, height: 900 });

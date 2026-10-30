@@ -14,17 +14,19 @@ test("creates a sale with the picker, a Yape advance and a customer, then opens 
       await seedProduct({ name: "Traje de Príncipe Azul", variants: [
         { attributes: { Talla: "S" }, salePrice: 89, stock: 3 }, { attributes: { Talla: "M" }, salePrice: 89, stock: 5 }, { attributes: { Talla: "L" }, salePrice: 99, stock: 0 },
       ] });
-      await seedProduct({ name: "Corona de Príncipe", variants: [{ attributes: {}, salePrice: 25, stock: 12 }] });
+      await seedProduct({ name: "Varita de Príncipe", variants: [{ attributes: {}, salePrice: 25, stock: 12 }] });
     });
     page.on("dialog", (dialog) => void dialog.accept());
 
-    await page.goto("/es-PE/orders/new");
+    await page.goto("/es-PE/orders");
+    await page.getByRole("link", { name: "Nueva venta" }).click();
     await browserExpect(page.getByRole("heading", { name: "Nueva venta" })).toBeVisible();
     await browserExpect(page.getByText("Sin guardar", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Disponible al guardar")).toBeVisible();
     await browserExpect(page.getByRole("button", { name: "Descartar", exact: true })).toBeDisabled();
     await browserExpect(page.getByRole("button", { name: "Guardar venta" })).toBeDisabled();
-    await browserExpect(page.getByText("Entrega por definir. Puedes guardar sin entrega y elegirla después.")).toBeVisible();
+    // No delivery method is enabled for this company: the card says so and guides to its settings.
+    await browserExpect(page.getByRole("link", { name: "Configurar modalidades de entrega" })).toBeVisible();
 
     // «/» opens the picker with the search focused; ← and → edit the text, ↓ and → choose the chip, Enter adds it twice.
     await page.locator("body").press("/");
@@ -41,7 +43,7 @@ test("creates a sale with the picker, a Yape advance and a customer, then opens 
     await search.press("Enter");
     await browserExpect(page.getByRole("option", { name: "M, 5 en stock, 2 en el pedido" })).toBeVisible();
     await browserExpect(page.getByText("Agregado: Traje de Príncipe Azul, M. 2 en el pedido.")).toBeAttached();
-    await page.getByRole("group", { name: "Corona de Príncipe" }).getByRole("option", { name: "Agregar", exact: true }).click();
+    await page.getByRole("group", { name: "Varita de Príncipe" }).getByRole("option", { name: "Agregar", exact: true }).click();
     await page.getByRole("button", { name: "Listo · 2 agregados" }).click();
     await browserExpect(page.getByRole("button", { name: "Agregar producto" })).toBeFocused();
     await browserExpect(page.getByText("2 productos · 3 unidades")).toBeVisible();

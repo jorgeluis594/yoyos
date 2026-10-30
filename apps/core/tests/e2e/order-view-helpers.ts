@@ -10,3 +10,6 @@ export async function addToOrder(page: Page, productName: string, variant?: stri
   await picker.getByRole("button", { name: /^Listo/ }).click();
   await picker.waitFor({ state: "hidden" });
 }
+
+/** The «Total» amount of the totals under the products, not the one the sticky bar repeats. */
+export const orderTotal = (page: Page) => page.locator("dl dt", { hasText: /^Total$/ }).locator("xpath=following-sibling::dd");
