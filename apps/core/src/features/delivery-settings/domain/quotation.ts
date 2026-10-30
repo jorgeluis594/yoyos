@@ -3,6 +3,7 @@ import { err, ok } from "@shared/functional";
 import type { CompanyId } from "@shared/identity";
 import { compare, type Currency, type Money } from "@shared/money";
 import { parsePeruDistrictCode, type PeruDistrictCode } from "@shared/peru-geography";
+import { deliveryCoverage, eligibleCoverageAgencies, type DeliveryCoverage } from "@shared/delivery-coverage";
 import type { Result } from "@shared/result";
 import { parseDeliverySettings, type Courier, type DeliverySettings } from "@core/src/features/delivery-settings/domain/delivery-settings";
 import { parseDeliveryZone, zoneCoversDistrict, type AgencyDeliveryOption, type DeliveryMethodWithRate, type DeliveryOptionId, type DeliveryZone,
@@ -105,9 +106,14 @@ function eligibleAgencies(configuration: DeliveryConfiguration, option: AgencyDe
   });
 }
 
-export function hasAgencyCoverage(configuration: DeliveryConfiguration): boolean {
-  return configuration.zones.some(zone => zone.enabled && zone.options.some(option =>
-    option.enabled && option.method === "agency" && eligibleAgencies(configuration, option).length > 0));
+/** Places each method offers the buyer: enabled switch plus department-bounded coverage. */
+export function checkoutCoverage(configuration: DeliveryConfiguration): DeliveryCoverage {
+  const { settings } = configuration;
+  const eligible = eligibleCoverageAgencies(configuration.agencies.map(agency => ({ id: agency.id, courierId: agency.courierId,
+    districtCode: agency.districtCode, enabled: agency.enabled && agency.courierEnabled })),
+  settings.couriers.filter(courier => courier.enabled && courier.catalogEnabled).map(courier => courier.catalogId));
+  const coverage = deliveryCoverage({ zones: configuration.zones, agencies: eligible });
+  return { home: settings.home.enabled ? coverage.home : null, agency: settings.agency.enabled ? coverage.agency : null };
 }
 
 export function applicableDeliveryOptions(configuration: DeliveryConfiguration, districtCode: PeruDistrictCode): readonly ApplicableDeliveryOption[] {

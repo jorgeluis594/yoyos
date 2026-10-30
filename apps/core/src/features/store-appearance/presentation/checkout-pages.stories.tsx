@@ -6,6 +6,7 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import resources from "@core/app/locales";
 import { CheckoutDeliveryFields } from "@core/app/components/checkout-delivery-fields";
 import { CheckoutBuyerDetails, CheckoutOrderSummary, CheckoutShell, checkoutCard } from "@core/app/components/checkout-sections";
+import type { PeruAreaSelection } from "@shared/peru-geography";
 import { storeThemes, type StoreThemeId } from "@shared/store-themes";
 import { CheckoutPreviewPage } from "@core/src/features/store-appearance/presentation/checkout-preview-page";
 import { previewCheckout, previewOrderId, type PreviewState } from "@core/src/features/store-appearance/presentation/preview-fixtures";
@@ -19,7 +20,7 @@ type PageProps = Readonly<{ theme: StoreThemeId; state: PreviewState | "cancelle
 const longLogo = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="1280" height="160"><rect width="1280" height="160" fill="#1F5A8C"/><text x="640" y="112" font-family="Arial" font-size="104" font-weight="700" fill="#fff" text-anchor="middle">LIMA STUDIO</text></svg>')}`;
 
 /** Home and agency delivery offered, so the district, recipient and agency fields show (the rates need the server). */
-const deliveryOptions = { home: { enabled: true }, agency: { enabled: true, covered: true }, store: { enabled: false as const, pickupPoint: null } };
+const deliveryOptions = { home: { offered: true as const, places: { departmentCodes: ["15"], provinceCodes: [], districtCodes: [] } as unknown as PeruAreaSelection }, agency: { offered: false as const }, store: { enabled: false as const, pickupPoint: null } };
 
 /** The real checkout sections of every state a buyer sees, with the preview fixtures. */
 function CheckoutPage({ theme, state, logoUrl = null }: PageProps) {

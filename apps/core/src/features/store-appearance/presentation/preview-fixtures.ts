@@ -27,7 +27,7 @@ export const sampleCatalogCards: readonly SampleCatalogCard[] = [
 ];
 
 export const previewDeliveryOptions: CheckoutDeliveryOptions = {
-  home: { enabled: false }, agency: { enabled: false, covered: false },
+  home: { offered: false }, agency: { offered: false },
   store: { enabled: true, pickupPoint: { name: "Tienda de ejemplo", address: "Av. Ejemplo 123, Lima", instructions: null } },
 };
 
