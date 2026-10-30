@@ -13,7 +13,7 @@ const M_NEGRO = { Talla: "M", Color: "Negro" } as const;
 const ref = (n: number) => ({ kind: "ref", ref: `I${n}` }) as const;
 const noticesOf = (kinds: readonly string[]) => kinds.filter((kind) => !kind.startsWith("pending_") && kind !== "added" && kind !== "removed");
 const countKind = (all: readonly ChatMessageOutcome[], kind: string) => all.filter((outcome) => outcome.kind === kind).length;
-const confirmed = (order: OrderAggregate, at: Date): ConfirmedPayment => ({ id: id(60) as PaymentId, orderId: order.id, status: "confirmed", amount: { amount: 4, currency: "PEN" }, method: "digital_wallet",
+const confirmed = (order: OrderAggregate, at: Date): ConfirmedPayment => ({ id: id(60) as PaymentId, orderId: order.id, status: "confirmed", amount: { amount: 4, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false,
   data: { confirmedAt: at, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "buyer_report", report: { receiptImageId: id(70) as never, reportedAt: at } } } });
 const voidedAt = (payment: ConfirmedPayment, at: Date): VoidedPayment => ({ ...payment, status: "voided", data: { ...payment.data, voidedAt: at, voidedBy: "seller" as UserId } });
 const pay = (chat: Chat, at: Date) => chat.mutate((order) => ({ ...order, payments: [...order.payments, confirmed(order, at)] }));

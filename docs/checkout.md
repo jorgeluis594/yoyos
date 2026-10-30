@@ -51,6 +51,7 @@ The order title is always followed by «Revisa los productos y el total de tu pe
 - The buyer sends the total they saw (`expectedTotal`). It is compared with the current total under the order lock; if it differs, nothing is saved, the form keeps its values and the new total is shown for a new confirmation. Reason: the buyer never confirms an amount they did not see; the sent value is never used as a price.
 - Buyer, delivery change and confirmation date are saved in one transaction that locks the order. Concurrent confirmations are serialized; only the first one writes.
 - Confirming expresses purchase intent. It does not register a payment.
+- A delivery change that makes existing payments cover the total never fails for stock: the order may be left waiting for stock, which the buyer never sees ([Orders · Stock deduction](orders.md#stock-deduction)).
 - Confirming does not touch the catalog's cart, which lives on the brand host's origin. The catalog asks core whether its continued order was confirmed and empties the cart itself ([Public catalog · Buyer](public-catalog.md#buyer)).
 - The buyer is stored in `OrderBuyer`, a per-order copy (see `apps/core/prisma/schema.prisma`). Editing it never updates the global Contact. `contactId` comes from the server, never from the public form.
 

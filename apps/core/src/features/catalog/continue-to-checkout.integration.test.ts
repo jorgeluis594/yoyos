@@ -307,7 +307,7 @@ test("an unconfirmed catalog order with a variant deactivated later can be confi
   const seller = { companyId, userId: randomUUID() as UserId };
   await withTenantIsolation(companyId, async () => {
     expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as never, amount: created.data.total, method: "digital_wallet", deductStockIfPartial: false }, seller))
-      .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+      .toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
     expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: black } })).quantity).toBe(1n);
   });
 });
@@ -327,7 +327,7 @@ test("a catalog purchase of M / Negro reaches checkout, deducts stock when paid 
   expect(await stock()).toBe(3n);
   await withTenantIsolation(companyId, async () => {
     expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as never, amount: created.data.total, method: "digital_wallet", deductStockIfPartial: false }, seller))
-      .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+      .toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
   });
   expect(await stock()).toBe(1n);
   await withTenantIsolation(companyId, async () => expect(await orders.cancel(orderId, seller)).toMatchObject({ success: true, data: { cancelled: true } }));

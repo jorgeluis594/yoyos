@@ -204,7 +204,6 @@ export async function action({ request, params, context }: ActionFunctionArgs) {
     }
     if (["RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "INVALID_DISTRICT", "DELIVERY_METHOD_DISABLED", "INVALID_CHECKOUT", "INVALID_ORDER", "DELIVERY_LOCKED"].includes(result.error.code))
       return response({ checkout: null, code: result.error.code, message: "Revisa la entrega y vuelve a confirmar." }, 422);
-    if (result.error.code === "INSUFFICIENT_STOCK") return response({ checkout: null, code: result.error.code, message: "No hay stock suficiente. Contacta al vendedor." }, 409);
     return response({ checkout: null, message: retry }, 503);
   } catch (cause) {
     if (cause instanceof Response) return response({ checkout: null, message: retry }, cause.status);

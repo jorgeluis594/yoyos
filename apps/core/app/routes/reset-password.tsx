@@ -9,7 +9,7 @@ import { AuthLayout, AuthLayoutDescription, AuthLayoutHeader, AuthLayoutTitle } 
 import { TextLink } from "@core/app/components/ui/text-link";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
-import { Input } from "@core/app/components/ui/input";
+import { PasswordInput } from "@core/app/components/ui/password-input";
 
 const passwordSchema = z.string().min(8).max(128);
 const resetResponseSchema = z.object({ status: z.literal(true) });
@@ -46,7 +46,7 @@ export default function ResetPassword() {
     {invalidLink ? <TextLink asChild><Link to={path("/forgot-password")}>{t("auth.requestAnotherLink")}</Link></TextLink>
       : completed ? <TextLink asChild><Link to={path("/login")}>{t("common.login")}</Link></TextLink>
       : <form onSubmit={submit} className="flex flex-col gap-4">
-        <Field><FieldLabel htmlFor="password">{t("auth.newPassword")}</FieldLabel><Input id="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} maxLength={128} required /></Field>
+        <Field><FieldLabel htmlFor="password">{t("auth.newPassword")}</FieldLabel><PasswordInput id="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} minLength={8} maxLength={128} required /></Field>
         {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
         <Button type="submit" disabled={pending}>{pending ? t("auth.saving") : t("auth.changePassword")}</Button>
       </form>}

@@ -18,7 +18,7 @@ const open = (): OrderAggregate => ({
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false, stockDeductedAt: null,
   itemsTotal: money(10), deliveryCost: money(0), deliveryCharge: money(0), total: money(10),
 });
-const confirmed: ConfirmedPayment = { id: id(60) as PaymentId, orderId: id(1) as OrderId, status: "confirmed", amount: money(4), method: "digital_wallet",
+const confirmed: ConfirmedPayment = { id: id(60) as PaymentId, orderId: id(1) as OrderId, status: "confirmed", amount: money(4), method: "digital_wallet", deductStockIfPartial: false,
   data: { confirmedAt: at, confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } };
 const reported: ReportedPayment = { id: id(61) as PaymentId, orderId: id(1) as OrderId, status: "reported", currency: "PEN", amount: null, method: null,
   data: { receiptImageId: id(70) as never, reportedAt: at } };

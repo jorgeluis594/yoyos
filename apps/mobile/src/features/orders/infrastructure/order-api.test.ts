@@ -73,27 +73,26 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   const summary = { number: 1001, id: id(1), buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, sellerId: "seller",
     createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
     deliveryStatus: "pending", stockDeducted: false, total };
-  const order = { ...summary, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
+  const order = { ...summary, stockDue: null, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null,
       quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
   const paths: string[] = [];
   const api = createOrderApi(async (path) => { paths.push(path); return ok(path.includes("/mixed?")
     ? { items: [summary], page: 1, pageSize: 20, total: 1 }
-    : path.endsWith("/payments") ? { order, stock: { kind: "not_requested" } } : order); });
+    : path.endsWith("/payments") ? { order } : order); });
   expect(await api.listAggregates({ page: 1, customer: "all" })).toMatchObject({ success: true,
     data: { items: [{ id: id(1), status: "active" }] } });
   expect(await api.getAggregate(id(1))).toMatchObject({ success: true, data: { id: id(1), payments: [] } });
   expect(await api.create({ id: id(1), items: [{ variantId: id(4), quantity: 1 }] }))
     .toMatchObject({ success: true, data: { status: "active" } });
   expect(await api.registerPayment(id(1), { paymentId: id(5), amount: total, method: "digital_wallet", deductStockIfPartial: false }))
-    .toMatchObject({ success: true, data: { stock: { kind: "not_requested" } } });
-  expect(await api.deductStock(id(1))).toMatchObject({ success: true, data: { id: id(1) } });
+    .toMatchObject({ success: true, data: { order: { stockDue: null } } });
   expect(paths).toEqual(["/api/orders/mixed?page=1&customer=all", `/api/orders/${id(1)}/aggregate`,
-    "/api/orders", `/api/orders/${id(1)}/payments`, `/api/orders/${id(1)}/deduct-stock`]);
+    "/api/orders", `/api/orders/${id(1)}/payments`]);
   expect(await api.registerPayment(id(1), { paymentId: "bad", amount: total, method: "digital_wallet", deductStockIfPartial: false }))
     .toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
-  expect(paths).toHaveLength(5);
+  expect(paths).toHaveLength(4);
   const bad = createOrderApi(async () => ok({ ...order, stockDeducted: "yes" }));
   expect(await bad.getAggregate(id(1))).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
 });
@@ -124,7 +123,7 @@ test("delivery API validates the complete authored snapshot and updated aggregat
     pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller" as const, userId: "current-editor" } };
   const input = { delivery: { method: "store" as const, recipient: delivery.recipient }, expectedPrice: zero };
   const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null,
-    status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
+    status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, stockDue: null, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
   expect(await createOrderApi(async () => ok(order)).get(id(1))).toMatchObject({ success: true, data: { delivery, total } });
@@ -236,7 +235,7 @@ function cancellationFixture() {
   return { id: id(1), companyId: id(2), sellerId: "seller", number: 1001, buyer: null, source: "manual",
     checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null,
     createdAt: "2026-10-05T12:00:00.000Z", status: "cancelled", paymentStatus: "pending",
-    deliveryStatus: "pending", cancelled: true, stockDeducted: true, delivery: null, payments: [],
+    deliveryStatus: "pending", cancelled: true, stockDeducted: true, stockDue: null, delivery: null, payments: [],
     total, paidAmount: zero, balanceDue: total, overpaidAmount: zero, itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
 }
@@ -335,7 +334,7 @@ test("an order response keeps variantAttributes in option order after parsing", 
   const zero = { amount: 0, currency: "PEN" as const };
   const order = { number: 1001, id: id(1), companyId: id(2), buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
     sellerId: "seller", createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending",
-    stockDeducted: false, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero, cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
+    stockDeducted: false, stockDue: null, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero, cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Polo", variantAttributes: { Talla: "L", Color: "Azul", Manga: "Larga" }, sku: null, quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
   const result = await createOrderApi(async () => ok(order)).getAggregate(id(1));
   expect(result.success && Object.entries(result.data.items[0].variantAttributes)).toEqual([["Talla", "L"], ["Color", "Azul"], ["Manga", "Larga"]]);

@@ -162,7 +162,7 @@ const total = { amount: 12, currency: "PEN" as const };
 const completed = (): OrderAggregateResponse => ({ number: 1001, id: id(3), companyId, sellerId: "seller", buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
   createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
   status: "completed", paymentStatus: "paid", paidAmount: total, balanceDue: zero, overpaidAmount: zero,
-  cancelled: false, delivery: null, deliveryStatus: "delivered", stockDeducted: true,
+  cancelled: false, delivery: null, deliveryStatus: "delivered", stockDeducted: true, stockDue: null,
   itemsTotal: total, deliveryCost: zero, deliveryCharge: zero, total,
   payments: [{ id: id(6), orderId: id(3), amount: total, method: "digital_wallet", status: "confirmed", data: { confirmedAt: "2026-09-29T12:00:00.000Z", confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } }],
   items: [{ id: id(5), variantId: id(2), productName: "Sample", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] });
@@ -192,6 +192,22 @@ test("a sale core already has completes with the amount first shown and leaves t
       .toMatchObject({ success: true, data: { kind: "completed", shownTotal: { amount: 10, currency: "PEN" }, order: { id: id(3), status: found.status } } });
     expect(await conflictStore.list(companyId)).toEqual(ok([]));
   }
+});
+
+test("a sale queued with the old deferral option is re-sent unchanged", async () => {
+  const order = completed();
+  const store = storage();
+  const request = { id: id(3), items: [{ variantId: id(2), quantity: 1 }], deferStockDeduction: true,
+    payments: [{ paymentId: id(8), amount: { amount: 12, currency: "PEN" as const }, method: "bank_transfer" as const, deductStockIfPartial: false }] };
+  await store.save({ version: 2, companyId, id: id(3), shownTotal: { amount: 12, currency: "PEN" }, request });
+  const bodies: unknown[] = [];
+  const api = createOrderApi(async (path, init) => {
+    if (init?.method === "POST" && path === "/api/orders") { bodies.push(JSON.parse(String(init.body))); return ok(order); }
+    return missing();
+  });
+  expect(await createOrderOperations(api, store).syncPendingOrders(companyId)).toEqual({ waiting: 0 });
+  expect(bodies).toEqual([request]);
+  expect(await store.list(companyId)).toEqual(ok([]));
 });
 
 test("an attempt saved in an older format is never sent and can be discarded", async () => {

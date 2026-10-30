@@ -363,7 +363,7 @@ test("orders HTTP rejects invalid input and stock without partial sale", async (
     (await prisma.productStock.findUniqueOrThrow({ where: { variantId: seller.variantId } })).quantity)).toBe(3n);
 });
 
-test("orders HTTP rejects payment without stock and allows retry with company isolation", async () => {
+test("orders HTTP records payment with short stock as waiting, ship still refuses it, and the order ships once stock arrives with company isolation", async () => {
   const seller = await fixture("PE");
   const other = await fixture("CL");
   const id = randomUUID();
@@ -377,15 +377,19 @@ test("orders HTTP rejects payment without stock and allows retry with company is
   expect((await call(`/api/orders/${id}/aggregate`, other.cookie)).status).toBe(404);
   const payment = { paymentId, amount: { amount: 40, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false };
   const recorded = await call(`/api/orders/${id}/payments`, seller.cookie, payment, "POST");
-  expect(recorded.status).toBe(409);
-  expect(await recorded.json()).toMatchObject({ code: "INSUFFICIENT_STOCK" });
-  expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(409);
+  expect(recorded.status).toBe(200);
+  expect(await recorded.json()).toMatchObject({ order: { paymentStatus: "paid", stockDeducted: false, payments: [{ id: paymentId }],
+    stockDue: { kind: "waiting", shortItems: [{ variantId: seller.variantId, available: 3 }] } } });
+  const refused = await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST");
+  expect(refused.status).toBe(409);
+  expect(await refused.json()).toMatchObject({ code: "INSUFFICIENT_STOCK" });
   await withTenantIsolation(seller.companyId, async () => {
     await prisma.productStock.update({ where: { variantId: seller.variantId }, data: { quantity: { increment: 1n } } });
   });
   const retried = await call(`/api/orders/${id}/payments`, seller.cookie, payment, "POST");
   expect(retried.status).toBe(200);
-  expect(await retried.json()).toMatchObject({ stock: { kind: "deducted" }, order: { stockDeducted: true, payments: [{ id: paymentId }] } });
+  // A replay publishes nothing: the stock now fits and the order waits for the recovery job, so it reads as being deducted.
+  expect(await retried.json()).toMatchObject({ order: { stockDeducted: false, stockDue: { kind: "deducting" }, payments: [{ id: paymentId }] } });
   expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(200);
   const delivered = await call(`/api/orders/${id}/deliver`, seller.cookie, undefined, "POST");
   expect(delivered.status).toBe(200);
@@ -1429,4 +1433,38 @@ test("repeating a manual payment after a lost response keeps a single payment", 
   await withTenantIsolation(seller.companyId, async () => {
     expect(await prisma.payment.count({ where: { orderId: id } })).toBe(1);
   });
+});
+
+test("the deduct-stock route no longer exists", async () => {
+  const seller = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders", seller.cookie, { id, items: [{ variantId: seller.variantId, quantity: 1 }] }, "POST")).status).toBe(201);
+  expect((await call(`/api/orders/${id}/deduct-stock`, seller.cookie, undefined, "POST")).status).toBe(404);
+});
+
+test("every order detail response carries stockDue with the current available units", async () => {
+  const seller = await fixture("PE");
+  const id = randomUUID();
+  expect((await call("/api/orders", seller.cookie, { id, items: [{ variantId: seller.variantId, quantity: 4 }] }, "POST")).status).toBe(201);
+  expect(await (await call(`/api/orders/${id}/aggregate`, seller.cookie)).json()).toMatchObject({ stockDeducted: false, stockDue: null });
+  const recorded = await call(`/api/orders/${id}/payments`, seller.cookie, { paymentId: randomUUID(), amount: { amount: 40, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, "POST");
+  expect(recorded.status).toBe(200);
+  const waiting = { kind: "waiting", shortItems: [{ variantId: seller.variantId, available: 3 }] };
+  expect(await (await call(`/api/orders/${id}/aggregate`, seller.cookie)).json()).toMatchObject({ stockDeducted: false, stockDue: waiting });
+  await withTenantIsolation(seller.companyId, async () => {
+    await prisma.productStock.update({ where: { variantId: seller.variantId }, data: { quantity: 2n } });
+  });
+  expect(await (await call(`/api/orders/${id}/aggregate`, seller.cookie)).json()).toMatchObject({ stockDue: { kind: "waiting", shortItems: [{ available: 2 }] } });
+  // The paid list summary never exposes it and never reads stock.
+  const list = await (await call("/api/orders/mixed", seller.cookie)).json();
+  expect(list.items.flatMap((item: object) => Object.keys(item))).not.toContain("stockDue");
+});
+
+test("a queued sale with the old deferral option is saved as a plain save", async () => {
+  const seller = await fixture("PE");
+  const id = randomUUID();
+  const created = await call("/api/orders", seller.cookie, { id, items: [{ variantId: seller.variantId, quantity: 4 }], deferStockDeduction: true,
+    payments: [{ paymentId: randomUUID(), amount: { amount: 40, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] }, "POST");
+  expect(created.status).toBe(201);
+  expect(await created.json()).toMatchObject({ id, paymentStatus: "paid", stockDeducted: false, stockDue: { kind: "waiting", shortItems: [{ available: 3 }] } });
 });

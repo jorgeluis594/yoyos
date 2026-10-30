@@ -301,12 +301,63 @@
     "product_photo": "Message kind: caption of a product photo\nOrder items:\nThe chat has no open order.\nPendings:\nThe chat has no pendings.\nThe photo shows P1 Polo básico, variant Talla M · Color Negro.\nProducts:\nP1 Polo básico — for sale\n  Talla: S, M\n  Color: Negro, Blanco\n  Prices in PEN:\n  40.00: Talla S · Color Negro; Talla M · Color Negro\n  42.00: Talla M · Color Blanco\n  Not sold: Talla S · Color Blanco\nBuyer's message:\nme interesa 3",
     "non_product_photo": "Message kind: caption of a photo that shows no catalog product\nOrder items:\nThe chat has no open order.\nPendings:\nThe chat has no pendings.\nThe photo shows no catalog product.\nProducts:\nNo products are listed.\nBuyer's message:\nasí lo quiero"
   },
-  "worstCase": {
-    "method": "characters / 3, an estimate until a live count replaces it",
+  "size": {
+    "tokenizer": "o200k_base (gpt-tokenizer 4.0.3, as for gpt-5.6-luna; no tokenizer is published for gpt-6-luna)",
     "maxProducts": 24,
-    "estimatedInputTokens": 24984,
     "inputTokenLimit": 25000,
     "answerTokens": 1000,
-    "estimatedCostUsd": 0.003
+    "costBoundUsd": 0.003,
+    "worstCase": {
+      "tokens": {
+        "instructions": 1136,
+        "schema": 968,
+        "catalog": 25267,
+        "orderAndPendings": 1951,
+        "message": 501,
+        "framing": 37,
+        "total": 29860,
+        "costUsd": 0.003486,
+        "marginUsd": -0.000486,
+        "withinBound": false
+      },
+      "charactersOver3": {
+        "instructions": 1693,
+        "schema": 1372,
+        "catalog": 19434,
+        "orderAndPendings": 1766,
+        "message": 667,
+        "framing": 52,
+        "total": 24984,
+        "costUsd": 0.002998,
+        "marginUsd": 0.000002,
+        "withinBound": true
+      }
+    },
+    "realistic": {
+      "tokens": {
+        "instructions": 1136,
+        "schema": 968,
+        "catalog": 355,
+        "orderAndPendings": 92,
+        "message": 15,
+        "framing": 37,
+        "total": 2603,
+        "costUsd": 0.00076,
+        "marginUsd": 0.00224,
+        "withinBound": true
+      },
+      "charactersOver3": {
+        "instructions": 1693,
+        "schema": 1372,
+        "catalog": 307,
+        "orderAndPendings": 80,
+        "message": 16,
+        "framing": 52,
+        "total": 3520,
+        "costUsd": 0.000852,
+        "marginUsd": 0.002148,
+        "withinBound": true
+      }
+    }
   }
 }

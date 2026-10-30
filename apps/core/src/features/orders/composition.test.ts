@@ -8,7 +8,7 @@ import type { VariantId } from "@core/src/features/products/domain/product";
 
 const { withinTransaction } = vi.hoisted(() => ({ withinTransaction: vi.fn() }));
 vi.mock("@core/src/shared/infrastructure/persistance", () => ({ withinTransaction,
-  requireNoActiveTransaction: () => undefined,
+  requireNoActiveTransaction: () => undefined, requireActiveTransaction: () => undefined, setLocalTimeouts: vi.fn(), withinReadSnapshot: (read: () => unknown) => read(), withinSavepoint: async () => ({ success: true, data: { kind: "deducted", stock: new Map(), deductedAt: new Date("2026-09-30T12:00:00Z") } }),
   withTenantIsolation: (_company: string, work: () => unknown) => work(),
   getCompanyId: () => "00000000-0000-4000-8000-000000000003" }));
 vi.mock("@core/src/features/delivery-settings", () => ({ deliverySettings: { get: async () => ok({ version: 0, home: { enabled: false }, agency: { enabled: false }, couriers: [], store: { enabled: false, pickupPoint: null } }) } }));
@@ -19,12 +19,12 @@ vi.mock("@core/src/features/orders/infrastructure/checkout-repository", () => ({
 }));
 vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
   allocateOrderNumber: async () => ok(1001 as OrderNumber), orderExists: async () => ok(false), savePendingOrder: async () => ok(null), savePayment: async () => ok(null),
-  saveStockDeduction: async () => ok(null), findOrders: vi.fn(), findOrderForUpdate: vi.fn(), findOrderAggregate: vi.fn(), saveFulfillment: async () => ok(null),
+  saveStockDeduction: async () => ok(null), loadStockOrders: vi.fn(), listCompaniesWithOverdueStockDeductions: vi.fn(), listOverdueOrderIds: vi.fn(), lockOrdersSkipLocked: vi.fn(), saveStockDeductions: vi.fn(), listWaitingOrderIds: vi.fn(), findOrders: vi.fn(), findOrderForUpdate: vi.fn(), findOrderAggregate: vi.fn(), saveFulfillment: async () => ok(null),
   findChatOrderTarget: vi.fn(), findChatOrdersOpenedSince: vi.fn(), findChatOrderTargetForUpdate: vi.fn(), saveItemChanges: vi.fn(), recordProcessedMessage: vi.fn(), saveCancellation: vi.fn(),
 }));
 vi.mock("@core/src/features/products", () => ({
   findSellableVariants: async (variantIds: readonly string[]) => ok(variantIds.map((variantId) => ({ variantId, productName: "Product", variantAttributes: {}, sku: null,
-    unitPrice: { amount: 1, currency: "PEN" } }))), deductProductStock: async () => ok(null), searchSaleCatalog: vi.fn(),
+    unitPrice: { amount: 1, currency: "PEN" } }))), lockVariantStock: vi.fn(), deductStockBulk: vi.fn(), findVariantStock: vi.fn(), searchSaleCatalog: vi.fn(),
 }));
 vi.mock("@core/src/features/products/composition", () => ({ products: { identifyProductsInImage: vi.fn(), findVariantPhotos: vi.fn() } }));
 vi.mock("@core/src/features/orders/infrastructure/chat-pending-repository", () => ({ findChatPendings: vi.fn(), findChatPendingsForUpdate: vi.fn(), saveChatPendings: vi.fn() }));

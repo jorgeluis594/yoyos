@@ -24,7 +24,7 @@ function pendingOrder(): OrderAggregate {
 }
 function readyOrder(): OrderAggregate {
   const order = pendingOrder();
-  const payment = confirmPayment({ id: id(6) as PaymentId, orderId, source: "manual", amount: order.total, method: "digital_wallet", confirmedBy: context.userId, confirmedAt: now }, null);
+  const payment = confirmPayment({ id: id(6) as PaymentId, orderId, source: "manual", amount: order.total, method: "digital_wallet", deductStockIfPartial: false, confirmedBy: context.userId, confirmedAt: now }, null);
   if (!payment.success) throw new Error("Invalid test payment");
   const paid = orderStateMachine.registerPayment(order, payment.data);
   if (!paid.success) throw new Error("Invalid test payment");
@@ -39,7 +39,7 @@ function setup(order: OrderAggregate, failFulfillment = false) {
     findOrderForUpdate: async () => ok(stored),
     saveDispatchSchedule: async (_id, _company, change) => { stored = { ...stored, ...change }; return ok(null); },
     saveFulfillment: async (_id, _company, change) => failFulfillment ? err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) : (stored = { ...stored, ...change }, ok(null)),
-    deductProductStock: async () => ok(null), saveStockDeduction: async () => ok(null),
+    lockVariantStock: async () => ok(new Map()), deductStockBulk: async () => ok(0), saveStockDeduction: async () => ok(null),
     clock: () => now,
   };
   return { deps, stored: () => stored, committed: () => committed };

@@ -72,7 +72,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
     result.error.code === "VARIANT_NOT_FOUND" ? "Uno de los productos ya no está disponible." :
     result.error.code === "CURRENCY_MISMATCH" ? "Los productos deben tener la misma moneda." :
     result.error.code === "PERSISTENCE_UNAVAILABLE" ? "No se pudo completar la venta. Inténtalo de nuevo." : "Revisa los datos de la venta." });
-  return Response.redirect(new URL(companyPath(new URL(request.url).pathname, access.company.country, `/orders/${result.data.id}`), request.url));
+  return Response.redirect(new URL(companyPath(new URL(request.url).pathname, access.company.country, `/orders/${result.data.order.id}`), request.url));
 }
 
 type CartItem = { variantId: string; productName: string; label: string; combination: string; price: number; currency: string; quantity: number; stock: number };

@@ -246,8 +246,6 @@ test("delivery business failures do not redirect or falsely confirm", async () =
     confirm.mockResolvedValue(err(error));
     expect(await action(args({ ...body, delivery: { kind: "keep" } }))).toMatchObject({ init: { status: 422 }, data: { checkout: null, code } });
   }
-  confirm.mockResolvedValue(err({ code: "INSUFFICIENT_STOCK", message: "Private reason" }));
-  expect(await action(args({ ...body, delivery: { kind: "keep" } }))).toMatchObject({ init: { status: 409 }, data: { checkout: null } });
 });
 
 test("delivery form accepts exactly four fields and rejects repeated delivery values", async () => {

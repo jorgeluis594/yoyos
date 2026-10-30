@@ -10,14 +10,14 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { expect, test, vi } from "vitest";
 import { ok, err } from "@shared/functional";
-import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
+import { orders, createConfiguredOrder, publishStockEvent } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildPendingOrder, orderStateMachine, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, recordProcessedMessage, saveItemChanges, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
+import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, recordProcessedMessage, saveItemChanges, saveDelivery, savePendingOrder, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
 import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
-import { deductProductStock, findProductIdsOfVariants } from "@core/src/features/products";
+import { findProductIdsOfVariants, findVariantStock } from "@core/src/features/products";
 import * as products from "@core/src/features/products";
 import { restoreCancelledStock } from "@core/src/composition/event-handlers";
 import { applyChatActions, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
@@ -199,13 +199,6 @@ test("persists a pending order without payment or stock effects", async () => {
       expect(await withinTransaction(() => findOrderForUpdate(input.id, context.companyId))).toMatchObject({ success: true,
         data: { id: orderId, stockDeducted: false } });
       await expect(findOrderForUpdate(input.id, context.companyId)).rejects.toThrow("active transaction");
-      expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: false } });
-      await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 0.2, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
-      expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
-      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
-      expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
-      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
     });
   } finally { await f.cleanup(); }
 });
@@ -227,7 +220,7 @@ test("reports incompatible stored payments instead of returning an invalid aggre
   } finally { await f.cleanup(); }
 });
 
-test("keeps all stock when a pending order cannot deduct every item", async () => {
+test("records the payment and keeps all stock when an order cannot deduct every item", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
@@ -237,16 +230,15 @@ test("keeps all stock when a pending order cannot deduct every item", async () =
         { variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger },
         { variantId: f.variantIds[1] as VariantId, quantity: 4 as PositiveInteger },
       ] }, context)).toMatchObject({ success: true });
-      await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 1, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
-      expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+      const paid = await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 1, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context);
+      expect(paid).toMatchObject({ success: true, data: { order: { stockDeducted: false }, stockDue: { kind: "waiting", shortItems: [{ variantId: f.variantIds[1], available: 3 }] } } });
       expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeducted).toBe(false);
       expect((await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).map((stock) => stock.quantity)).toEqual([3n, 3n]);
     });
   } finally { await f.cleanup(); }
 });
 
-test("rolls back payment when stock is short and retries its ID after replenishment", async () => {
+test("records a payment with short stock as waiting and a retry of its ID records nothing more", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
@@ -256,17 +248,15 @@ test("rolls back payment when stock is short and retries its ID after replenishm
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 4 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       const input = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.4, currency: "PEN" as const },
         method: "digital_wallet" as const, deductStockIfPartial: false };
-      expect(await orders.registerPayment(input, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
-      expect(await prisma.payment.count({ where: { orderId } })).toBe(0);
-      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
-      await prisma.productStock.update({ where: { variantId: f.variantIds[0] }, data: { quantity: { increment: 1n } } });
       expect(await orders.registerPayment(input, context)).toMatchObject({ success: true,
-        data: { stock: { kind: "deducted" }, order: { stockDeducted: true } } });
-      expect(await orders.registerPayment(input, context)).toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+        data: { order: { stockDeducted: false }, stockDue: { kind: "waiting", shortItems: [{ variantId: f.variantIds[0], available: 3 }] } } });
+      expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+      expect(await orders.registerPayment(input, context)).toMatchObject({ success: true, data: { order: { stockDeducted: false }, stockDue: { kind: "waiting" } } });
       expect(await orders.registerPayment({ ...input, amount: { amount: 0.3, currency: "PEN" } }, context))
         .toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
       expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
-      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(0n);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
     });
   } finally { await f.cleanup(); }
 });
@@ -320,10 +310,10 @@ test("keeps stock after an unrequested partial payment and deducts it when payme
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       const payment = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" as const },
         method: "digital_wallet" as const, deductStockIfPartial: false };
-      expect(await orders.registerPayment(payment, context)).toMatchObject({ success: true, data: { stock: { kind: "not_requested" } } });
+      expect(await orders.registerPayment(payment, context)).toMatchObject({ success: true, data: { order: { stockDeducted: false } } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
       expect(await orders.registerPayment({ ...payment, paymentId: randomUUID() as PaymentId }, context))
-        .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+        .toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
       expect(await prisma.payment.count({ where: { orderId } })).toBe(2);
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
     });
@@ -375,7 +365,7 @@ test("cancelling before dispatch retains deducted stock for deferred restoration
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
         amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
-        .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+        .toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
       const before = await findOrderAggregate(orderId, context.companyId);
       expect(before.success).toBe(true);
@@ -388,7 +378,6 @@ test("cancelling before dispatch retains deducted stock for deferred restoration
       expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true, cancelledAt: expect.any(Date) } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
       expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
-      expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
       for (const operation of [orders.ship, orders.deliver])
         expect(await operation(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
     });
@@ -407,7 +396,7 @@ test("ships and completes only a paid order with deducted stock", async () => {
       expect(await orders.deliver(orderId, context)).toMatchObject({ success: false, error: { code: "PAYMENT_REQUIRED" } });
       expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
         amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
-        .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+        .toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
       expect(await orders.ship(orderId, context)).toMatchObject({ success: true,
         data: { deliveryStatus: "shipped", completedAt: null } });
       expect(await orders.ship(orderId, context)).toMatchObject({ success: false, error: { code: "INVALID_TRANSITION" } });
@@ -449,22 +438,26 @@ test.each([2, 4])("replaces a paid delivery with a free rate atomically for quan
       expect(await orders.create({ id: orderId, 
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: quantity as PositiveInteger }] }, context)).toMatchObject({ success: true });
       expect(await orders.setDelivery({ orderId, delivery: selection(0.1, "Original"), expectedPrice: { amount: 0.1, currency: "PEN" } }, context))
-        .toMatchObject({ success: true, data: { stockDeducted: false, deliveryCost: { amount: 0.1 }, deliveryCharge: { amount: 0.1 } } });
+        .toMatchObject({ success: true, data: { order: { stockDeducted: false, deliveryCost: { amount: 0.1 }, deliveryCharge: { amount: 0.1 } } } });
       expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
         amount: { amount: quantity === 2 ? 0.2 : 0.4, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
-        .toMatchObject({ success: true, data: { stock: { kind: "not_requested" } } });
+        .toMatchObject({ success: true, data: { order: { stockDeducted: false } } });
       const before = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
       const replacement = await orders.setDelivery({ orderId, delivery: selection(0, "Changed"), expectedPrice: { amount: 0, currency: "PEN" } }, context);
       const saved = await prisma.order.findUniqueOrThrow({ where: { id: orderId }, include: { payments: true } });
       if (quantity === 2) {
-        expect(replacement).toMatchObject({ success: true, data: { total: { amount: 0.2 }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: true } });
+        expect(replacement).toMatchObject({ success: true, data: { order: { total: { amount: 0.2 }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: true } } });
         expect(saved.total.toNumber()).toBe(0.2);
         expect(saved.delivery).toMatchObject({ destination: { address: "Changed" }, pricing: { quotationId: quote.data.quotation.id } });
         expect(saved.stockDeducted).toBe(true);
         expect(saved.payments).toEqual(before.payments);
       } else {
-        expect(replacement).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
-        expect(saved).toEqual(before);
+        // Short stock never refuses the delivery: the order is covered and waits.
+        expect(replacement).toMatchObject({ success: true, data: { order: { total: { amount: 0.4 }, stockDeducted: false },
+          stockDue: { kind: "waiting", shortItems: [{ variantId: f.variantIds[0], available: 3 }] } } });
+        expect(saved.total.toNumber()).toBe(0.4);
+        expect(saved.stockDeducted).toBe(false);
+        expect(saved.payments).toEqual(before.payments);
       }
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(quantity === 2 ? 1n : 3n);
     });
@@ -691,17 +684,18 @@ test("rolls back earlier stock deductions and the configured snapshot when a lat
         { variantId: second as VariantId, quantity: 4 as PositiveInteger },
       ] }, context)).toMatchObject({ success: true });
       expect(await orders.setDelivery({ orderId, delivery: home.data, expectedPrice: { amount: 1, currency: "PEN" } }, context))
-        .toMatchObject({ success: true, data: { deliveryCost: { amount: 1 }, deliveryCharge: { amount: 1 } } });
+        .toMatchObject({ success: true, data: { order: { deliveryCost: { amount: 1 }, deliveryCharge: { amount: 1 } } } });
       const input = { orderId, delivery: store.data, expectedPrice: { amount: 0, currency: "PEN" as const } };
       const before = await orderDetail(orderId, f);
       if (!before.success) throw new Error("Expected order");
       expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId,
         amount: before.data.itemsTotal, method: "digital_wallet", deductStockIfPartial: false }, context)).toMatchObject({ success: true });
-      const paid = await orderDetail(orderId, f);
       expect(await orders.setDelivery(input, context))
-        .toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK", variantId: second } });
-      expect(await orderDetail(orderId, f)).toEqual(paid);
+        .toMatchObject({ success: true, data: { order: { stockDeducted: false }, stockDue: { kind: "waiting", shortItems: [{ variantId: second, available: 3 }] } } });
       expect((await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).map(row => row.quantity)).toEqual([3n, 3n]);
+      // Back to the paid home delivery, so the next step starts from the same order the failed write must leave untouched.
+      expect(await orders.setDelivery({ orderId, delivery: home.data, expectedPrice: { amount: 1, currency: "PEN" } }, context)).toMatchObject({ success: true });
+      const paid = await orderDetail(orderId, f);
       await prisma.productStock.update({ where: { variantId: second }, data: { quantity: 5n } });
       const adminUrl = new URL(process.env.DATABASE_URL!);
       adminUrl.username = "core";
@@ -763,7 +757,7 @@ test("store assignment and disabling configuration serialize in both orders", as
     const disableInput = { expectedVersion: 1, home: { enabled: false }, store: { ...configured.data.store, enabled: false as const }, agency: { enabled: false } };
     const disable = run(() => deliverySettings.save(disableInput, context));
     try { await waitForDeliveryLock(); } finally { release(); }
-    expect(await assignment).toMatchObject({ success: true, data: { delivery: { pickupPoint: { address: "Original address" } } } });
+    expect(await assignment).toMatchObject({ success: true, data: { order: { delivery: { pickupPoint: { address: "Original address" } } } } });
     expect(await disable).toMatchObject({ success: true, data: { version: 2 } });
     const before = await run(() => orderDetail(orderId, f));
     expect(await run(() => orders.setDelivery(input, context))).toMatchObject({ success: false, error: { code: "DELIVERY_METHOD_DISABLED" } });
@@ -821,7 +815,7 @@ test.each(["ship", "cancel"] as const)("delivery editing and %s serialize withou
           arrived(); await hold; return result;
         }));
         await locked;
-        const second = run(assignmentFirst ? finish : assign);
+        const second = run((assignmentFirst ? finish : assign) as () => Promise<unknown>);
         try { await waitForDeliveryLock(); } finally { release(); }
         expect(await first).toMatchObject({ success: true });
         expect(await second).toMatchObject(assignmentFirst ? { success: true } : { success: false, error: { code: "DELIVERY_LOCKED" } });
@@ -1000,12 +994,12 @@ test("concurrent delivery assignment and stock deduction consume stock once", as
       arrived(); await hold; return result;
     }));
     await protectedOrder;
-    const deduct = run(() => orders.deductStock(orderId, context));
+    const extraPayment = run(() => orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context));
     try { await waitForDeliveryLock(); } finally { release(); }
-    expect(await assign).toMatchObject({ success: true, data: { delivery: { method: "store", pickupPoint: { address: "Address" } }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: true } });
-    expect(await deduct).toMatchObject({ success: true, data: { stockDeducted: true } });
+    expect(await assign).toMatchObject({ success: true, data: { order: { delivery: { method: "store", pickupPoint: { address: "Address" } }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: true } } });
+    expect(await extraPayment).toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
     await run(async () => {
-      expect(await orderDetail(orderId, f)).toMatchObject({ success: true, data: { total: { amount: 0.1 }, payments: [{ amount: { amount: 0.1 } }], stockDeducted: true } });
+      expect(await orderDetail(orderId, f)).toMatchObject({ success: true, data: { total: { amount: 0.1 }, payments: [{ amount: { amount: 0.1 } }, { amount: { amount: 0.1 } }], stockDeducted: true } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(2n);
     });
   } finally { release?.(); await f.cleanup(); }
@@ -1051,10 +1045,10 @@ test("two delivery edits serialize complete snapshots, authors and amounts", asy
     await resolving;
     const second = run(() => orders.setDelivery({ orderId, delivery: secondSelection, expectedPrice: { amount: 4, currency: "PEN" } }, { ...context, userId: nextAuthor }));
     try { await waitForDeliveryLock(); } finally { release(); }
-    expect(await first).toMatchObject({ success: true, data: { delivery: { pricing: { quotationId: quote.data.quotation.id }, recipient: { name: "First" }, recordedBy: { userId: f.sellerId } }, total: { amount: 3.1 }, deliveryCharge: { amount: 3 } } });
+    expect(await first).toMatchObject({ success: true, data: { order: { delivery: { pricing: { quotationId: quote.data.quotation.id }, recipient: { name: "First" }, recordedBy: { userId: f.sellerId } }, total: { amount: 3.1 }, deliveryCharge: { amount: 3 } } } });
     const confirmed = await second;
-    expect(confirmed).toMatchObject({ success: true, data: { delivery: { pricing: { quotationId: quote.data.quotation.id }, recipient: { name: "Second" }, destination: { address: "Second" }, recordedBy: { userId: nextAuthor } }, total: { amount: 4.1 }, deliveryCost: { amount: 4 }, deliveryCharge: { amount: 4 }, stockDeducted: false } });
-    expect(await run(() => orderDetail(orderId, f))).toEqual(confirmed);
+    expect(confirmed).toMatchObject({ success: true, data: { order: { delivery: { pricing: { quotationId: quote.data.quotation.id }, recipient: { name: "Second" }, destination: { address: "Second" }, recordedBy: { userId: nextAuthor } }, total: { amount: 4.1 }, deliveryCost: { amount: 4 }, deliveryCharge: { amount: 4 }, stockDeducted: false } } });
+    expect(await run(() => orderDetail(orderId, f))).toEqual({ success: true, data: confirmed.success ? confirmed.data.order : null });
   } finally { release?.(); await f.cleanup(); }
 });
 
@@ -1367,10 +1361,10 @@ test.each([
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }],
         payments: amount === null ? [] : [{ paymentId, amount: { amount, currency: "PEN" }, method: "bank_transfer", deductStockIfPartial: partial }],
         deliverImmediately: immediate }, context);
-      expect(result).toMatchObject({ success: true, data: { stockDeducted: deducted,
-        deliveryStatus: immediate ? "delivered" : "pending", completedAt: immediate ? expect.any(Date) : null } });
+      expect(result).toMatchObject({ success: true, data: { order: { stockDeducted: deducted,
+        deliveryStatus: immediate ? "delivered" : "pending", completedAt: immediate ? expect.any(Date) : null } } });
       const saved = await findOrderAggregate(id, context.companyId);
-      expect(saved).toMatchObject(result);
+      expect(saved).toMatchObject({ success: true, data: result.success ? result.data.order : null });
       expect(saved.success && saved.data?.chatId).toBeUndefined();
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(deducted ? 1n : 3n);
       expect(await prisma.payment.count()).toBe(amount === null ? 0 : 1);
@@ -1416,11 +1410,11 @@ test("complete creation resolves delivery charge before coverage and retains its
         delivery: { delivery, expectedPrice: { amount: 0.1, currency: "PEN" } },
         payments: [{ paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] },
       context);
-      expect(result).toMatchObject({ success: true, data: { delivery: { method: "home", destination: { districtCode: "150122", address: "Av. Lima 123" },
+      expect(result).toMatchObject({ success: true, data: { order: { delivery: { method: "home", destination: { districtCode: "150122", address: "Av. Lima 123" },
         pricing: { rateId: quote.data.rates[0].rate.id, quotationId: quote.data.quotation.id } }, deliveryCost: { amount: 0.1 }, deliveryCharge: { amount: 0.1 },
-        total: { amount: 0.3 }, stockDeducted: false, completedAt: null } });
+        total: { amount: 0.3 }, stockDeducted: false, completedAt: null } } });
       const saved = await findOrderAggregate(id, context.companyId);
-      expect(saved).toMatchObject(result);
+      expect(saved).toMatchObject({ success: true, data: result.success ? result.data.order : null });
       expect(saved.success && saved.data?.chatId).toBeUndefined();
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
     });
@@ -1438,7 +1432,7 @@ test.each(["payment", "stock", "delivery", "fulfillment"] as const)("complete cr
           method: "digital_wallet" as const, deductStockIfPartial: true },
         ...(failure === "payment" ? [{ paymentId: randomUUID() as PaymentId, amount: { amount: -1, currency: "PEN" as const },
           method: "bank_transfer" as const, deductStockIfPartial: false }] : [])],
-        deliverImmediately: failure === "fulfillment",
+        deliverImmediately: failure === "fulfillment" || failure === "stock",
         ...(failure === "delivery" ? { delivery: { delivery: { method: "store" as const,
           recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } }, expectedPrice: { amount: 0, currency: "PEN" as const } } } : {}) };
       expect(await createConfiguredOrder(input, context)).toMatchObject({ success: false });
@@ -1495,8 +1489,8 @@ test("rated assignment and initial creation persist prices atomically and deduct
       await prisma.payment.create({ data: { id: randomUUID(), orderId, status: "confirmed", currency: "PEN", amount: 0.2, method: "digital_wallet",
         data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "seller", userId: f.sellerId }, evidence: { kind: "manual" } } } });
       expect(await orders.setDelivery({ orderId, delivery: selection(8), expectedPrice: { amount: 8, currency: "PEN" } }, context))
-        .toMatchObject({ success: true, data: { total: { amount: 8.2 }, deliveryCost: { amount: 8 }, deliveryCharge: { amount: 8 }, stockDeducted: false,
-          delivery: { pricing: { quotationId: quote.data.quotation.id, settingsVersion: 2 }, recordedBy: { kind: "seller", userId: f.sellerId } } } });
+        .toMatchObject({ success: true, data: { order: { total: { amount: 8.2 }, deliveryCost: { amount: 8 }, deliveryCharge: { amount: 8 }, stockDeducted: false,
+          delivery: { pricing: { quotationId: quote.data.quotation.id, settingsVersion: 2 }, recordedBy: { kind: "seller", userId: f.sellerId } } } } });
       const before = await orderDetail(orderId, f);
       const changed = await deliverySettings.saveZones({ expectedVersion: 2, zones: saved.data.zones.map(zone => existingZone(zone, { amount: zone.options[0].price.amount === 8 ? 10 : 0 })) }, context);
       expect(changed.success).toBe(true);
@@ -1510,8 +1504,8 @@ test("rated assignment and initial creation persist prices atomically and deduct
         .toMatchObject({ success: false, error: { code: "TOTAL_CHANGED" } });
       expect(await prisma.order.findUnique({ where: { id: rejectedId } })).toBeNull();
       const free = { orderId, delivery: selection(0), expectedPrice: { amount: 0, currency: "PEN" as const } };
-      expect(await orders.setDelivery(free, context)).toMatchObject({ success: true, data: { total: { amount: 0.2 }, deliveryCost: { amount: 0 },
-        deliveryCharge: { amount: 0 }, stockDeducted: true } });
+      expect(await orders.setDelivery(free, context)).toMatchObject({ success: true, data: { order: { total: { amount: 0.2 }, deliveryCost: { amount: 0 },
+        deliveryCharge: { amount: 0 }, stockDeducted: true } } });
       expect((await prisma.productStock.findUnique({ where: { variantId: f.variantIds[0] } }))?.quantity).toBe(1n);
       expect((await orders.setDelivery(free, context)).success).toBe(true);
       expect((await prisma.productStock.findUnique({ where: { variantId: f.variantIds[0] } }))?.quantity).toBe(1n);
@@ -1519,14 +1513,14 @@ test("rated assignment and initial creation persist prices atomically and deduct
       expect(await createConfiguredOrder({ id: failedId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }],
         delivery: { delivery: selection(0), expectedPrice: { amount: 0, currency: "PEN" } },
         payments: [{ paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] }, context))
-        .toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
-      expect(await prisma.order.findUnique({ where: { id: failedId } })).toBeNull();
-      expect(await prisma.payment.count()).toBe(1);
+        .toMatchObject({ success: true, data: { order: { stockDeducted: false }, stockDue: { kind: "waiting" } } });
+      expect(await prisma.order.findUnique({ where: { id: failedId } })).toMatchObject({ stockDeducted: false });
+      expect(await prisma.payment.count()).toBe(2);
       const newId = randomUUID() as OrderId;
       expect(await createConfiguredOrder({ id: newId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 1 as PositiveInteger }],
         delivery: { delivery: selection(0), expectedPrice: { amount: 0, currency: "PEN" } },
         payments: [{ paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] }, context))
-        .toMatchObject({ success: true, data: { total: { amount: 0.1 }, stockDeducted: true, delivery: { pricing: { quotationId: quote.data.quotation.id } } } });
+        .toMatchObject({ success: true, data: { order: { total: { amount: 0.1 }, stockDeducted: true, delivery: { pricing: { quotationId: quote.data.quotation.id } } } } });
       expect((await prisma.productStock.findUnique({ where: { variantId: f.variantIds[0] } }))?.quantity).toBe(0n);
       expect(await prisma.deliveryRate.count()).toBe(2);
     });
@@ -1573,16 +1567,17 @@ test("checkout delivery, buyer, confirmation and covered stock commit together a
       expect(await prisma.payment.count()).toBe(1);
     });
     const insufficient = await create(2);
-    expect(await orders.confirmCheckoutDelivery(input, insufficient)).toMatchObject({ error: { code: "INSUFFICIENT_STOCK" } });
+    // Short stock never refuses the buyer: the order is confirmed and waits for stock.
+    expect(await orders.confirmCheckoutDelivery(input, insufficient)).toMatchObject({ success: true });
     await withTenantIsolation(f.companyId, async () => {
-      expect(await prisma.order.findUnique({ where: { id: insufficient.orderId } })).toMatchObject({ delivery: null, checkoutConfirmedAt: null, stockDeducted: false });
-      expect(await prisma.orderBuyer.findUnique({ where: { orderId: insufficient.orderId } })).toBeNull();
+      expect(await prisma.order.findUnique({ where: { id: insufficient.orderId } })).toMatchObject({ delivery: { recordedBy: { kind: "buyer" } }, checkoutConfirmedAt: expect.any(Date), stockDeducted: false });
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
     });
     const failed = await create(1);
     await withTenantIsolation(f.companyId, async () => {
       expect(await confirmCheckoutDelivery({ ...input, expectedTotal: { amount: 0.1, currency: "PEN" } }, failed, new Date(), {
         transaction: (_company, work) => withinTransaction(work), findOrderForUpdate: findCheckoutOrderForUpdate,
-        saveDelivery, deductProductStock, saveStockDeduction, saveBuyer: saveCheckoutBuyer,
+        saveDelivery, publishStockEvent: (payload) => publishStockEvent("order_delivery_changed", payload), findVariantStock, saveBuyer: saveCheckoutBuyer,
         saveConfirmed: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "Confirmation failed" }),
         getStoreSettings: deliverySettings.getForCompany, resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
       })).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
@@ -2004,7 +1999,7 @@ test("derives source whatsapp for chat orders and manual otherwise", async () =>
       for (const id of [chatOrder, manualOrder])
         expect(await findOrderAggregate(id as OrderId, context.companyId)).toMatchObject({ success: true, data: { id } });
       const stored = await Promise.all([chatOrder, manualOrder].map((id) => findOrderAggregate(id as OrderId, context.companyId)));
-      expect(stored.map((found) => found.success && found.data && toOrderAggregateJson(found.data).source)).toEqual(["whatsapp", "manual"]);
+      expect(stored.map((found) => found.success && found.data && toOrderAggregateJson(found.data, null).source)).toEqual(["whatsapp", "manual"]);
       const aggregates = await findOrderAggregates({ page: 1, customer: { kind: "all" } }, context.companyId);
       const summaries = await findOrders({ page: 1, customer: { kind: "all" } });
       if (!aggregates.success || !summaries.success) throw new Error("Unable to list orders");
@@ -2096,7 +2091,7 @@ test("an existing order with an inactive variant is paid with stock deduction an
       await prisma.productVariant.update({ where: { id: variantId }, data: { status: "inactive" } });
       const stock = async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity;
       expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.4, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
-        .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+        .toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
       expect(await stock()).toBe(1n);
       expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true, stockDeducted: true } });
       expect(await restoreCancelledStock.handler({ orderId, companyId: f.companyId } as never, {} as never, {} as never)).toMatchObject({ success: true });
@@ -2110,7 +2105,7 @@ async function paidOrderWithDeductedStock(f: Awaited<ReturnType<typeof fixture>>
   const context = { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId };
   expect(await orders.create({ id: orderId, items: [{ variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger }] }, context)).toMatchObject({ success: true });
   expect(await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.2, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context))
-    .toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+    .toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
   return { orderId, context };
 }
 
@@ -2146,13 +2141,15 @@ test("a cancelled order whose stock was restored still parses and keeps its dedu
   } finally { await f.cleanup(); }
 });
 
-test("a second stock deduction call keeps the first deduction time", async () => {
+test("deducting a restored order again keeps the first deduction time", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
       const { orderId, context } = await paidOrderWithDeductedStock(f);
       const first = (await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeductedAt;
-      expect(await orders.deductStock(orderId, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
+      expect(await orders.cancel(orderId, context)).toMatchObject({ success: true });
+      expect(await restoreCancelledStock.handler({ orderId, companyId: f.companyId } as never, {} as never, {} as never)).toMatchObject({ success: true });
+      expect(await withinTransaction(() => saveStockDeductions([orderId], context.companyId, new Date(Date.now() + 60_000)))).toMatchObject({ success: true, data: 1 });
       expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeductedAt).toEqual(first);
     });
   } finally { await f.cleanup(); }

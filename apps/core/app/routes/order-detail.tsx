@@ -4,10 +4,12 @@ import type { OrderAggregate } from "@core/src/features/orders/domain/order-stat
 import { isOrderId } from "@core/src/features/orders/domain/order";
 import { readCancellationOrder, verifyCancellation, cancellationMessage, type CancelOrderActionError, type CancellationClientResult, type CancellationUiState } from "@core/src/features/orders/presentation/cancellation-client";
 import { cancelOrderResponseSchema, type CancelOrderResponse } from "@shared/contracts/orders";
-import { fulfillmentBlock } from "@shared/orders-fulfillment";
+import { orderFulfillmentBlock } from "@shared/orders-fulfillment";
 import { mentionedPriceNote } from "@shared/mentioned-price";
 import type { PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
 import { OrderPaymentsCard } from "@core/src/features/orders/presentation/order-payments-card";
+import { StockDueNotice } from "@core/src/features/orders/presentation/stock-due-notice";
+import { deliverySavedKey, fulfillmentReason, stockLineKey } from "@core/src/features/orders/presentation/stock-due";
 import { useMemo, useState } from "react";
 import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-label";
 import { ArrowLeft, ChevronDown, CircleCheck, CircleX, CreditCard, Printer, Truck } from "lucide-react";
@@ -46,6 +48,9 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
   const result = await orders.getAggregate((params.orderId ?? "") as OrderId,
     { companyId: access.company.id, userId: access.user.id });
   if (!result.success) throw new Response(result.error.message, { status: result.error.code === "ORDER_NOT_FOUND" ? 404 : result.error.code === "INVALID_ORDER" ? 400 : 503 });
+  const described = await orders.describeStockDue([result.data]);
+  if (!described.success) throw new Response(described.error.message, { status: 503 });
+  const stockDue = described.data.get(result.data.id) ?? null;
   const receiptIds = new Map<string, string>();
   for (const payment of result.data.payments) {
     const imageId = payment.status === "reported" ? payment.data.receiptImageId : payment.status === "rejected" ? payment.data.report.receiptImageId
@@ -61,7 +66,7 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
   }
   const settings = await deliverySettings.get({ companyId: access.company.id, userId: access.user.id });
   const pathname = new URL(request.url).pathname;
-  return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(result.data), base: companyPath(pathname, access.company.country, "/orders"),
+  return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(result.data, stockDue), base: companyPath(pathname, access.company.country, "/orders"),
     manualPaymentId: randomUUID(), receiptUrls }),
     settings: settings.success ? toDeliverySettingsResponse(settings.data) : null,
     settingsPath: companyPath(pathname, access.company.country, "/settings/delivery"),
@@ -90,13 +95,12 @@ async function deliveryAction({ params, request, context }: ActionFunctionArgs) 
     const selection = parseRatedDeliverySelection(parsed.data.delivery);
     if (!selection.success) return { operation: "delivery" as const, url: null, success: false, error: "invalid" as const };
     const result = await setConfiguredOrderDelivery({ orderId: id.data as OrderId, delivery: selection.data, expectedPrice: parsed.data.expectedPrice }, seller);
-    if (result.success) return { operation: "delivery" as const, url: null, success: false, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data)) };
+    if (result.success) return { operation: "delivery" as const, url: null, success: false, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data.order, result.data.stockDue)) };
     if (result.error.code === "TOTAL_CHANGED") return { operation: "delivery" as const, url: null, success: false, error: "priceChanged" as const, currentPrice: result.error.currentPrice };
     return { operation: "delivery" as const, url: null, success: false, error: result.error.code === "RATE_UNAVAILABLE" ? "rateUnavailable" as const
       : result.error.code === "DELIVERY_METHOD_DISABLED" ? "disabled" as const
       : result.error.code === "DELIVERY_UNAVAILABLE" ? "unavailable" as const
       : result.error.code === "DELIVERY_LOCKED" || result.error.code === "ORDER_CANCELLED" ? "locked" as const
-      : result.error.code === "INSUFFICIENT_STOCK" ? "stockError" as const
       : result.error.code === "INVALID_ORDER" ? "invalid" as const : "saveError" as const };
   } catch (cause) {
     log.error({ event: "order_delivery_request_failed", operation: "set_order_delivery", entryPoint: "web_action", orderId: id.data,
@@ -146,6 +150,9 @@ export async function clientAction({ request, params, serverAction }: ClientActi
 }
 
 export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { actionResult: unknown; defaultShouldRevalidate: boolean }) {
+  // A tap that meets short stock means the screen was stale: the order reloads to show the notice and the disabled buttons.
+  if (actionResult && typeof actionResult === "object" && "operation" in actionResult && (actionResult.operation === "ship" || actionResult.operation === "deliver")
+    && "error" in actionResult && actionResult.error === "INSUFFICIENT_STOCK") return true;
   // Cancellation already reads the detail once; retain confirmed/uncertain evidence if that read fails.
   return actionResult && typeof actionResult === "object" && "operation" in actionResult && actionResult.operation === "cancellation"
     ? false : defaultShouldRevalidate;
@@ -162,7 +169,7 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
     if (!isOrderId(orderId)) return { operation: "cancel", result: err({ code: "INVALID_INPUT", message: "Invalid order ID" }) } satisfies CancelOrderActionResult;
     try {
       const result = await orders.cancel(orderId, { companyId: access.company.id, userId: access.user.id });
-      return { operation: "cancel", result: result.success ? ok(cancelOrderResponseSchema.parse(toOrderAggregateJson(result.data))) : result } satisfies CancelOrderActionResult;
+      return { operation: "cancel", result: result.success ? ok(cancelOrderResponseSchema.parse(toOrderAggregateJson(result.data, null))) : result } satisfies CancelOrderActionResult;
     } catch (cause) {
       log.error({ event: "order_cancellation_request_failed", orderId, err: cause }, "Unable to cancel order");
       return { operation: "cancel", result: err({ code: "INTERNAL_ERROR", message: "Cancellation could not be confirmed" }) } satisfies CancelOrderActionResult;
@@ -194,8 +201,10 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
         const reason = z.string().max(1000).nullable().safeParse(fields.get("reason"));
         if (!reason.success) return { url: null, success: false, error: "INVALID_INPUT" };
         const result = await orders.rejectPayment({ orderId: id.data as OrderId, paymentId: paymentId.data as PaymentId, reason: reason.data }, seller);
-        return result.success ? { url: null, success: true, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data.order)) }
-          : { url: null, success: false, error: paymentErrorCode(result.error.code) };
+        if (!result.success) return { url: null, success: false, error: paymentErrorCode(result.error.code) };
+        const described = await orders.describeStockDue([result.data.order]);
+        if (!described.success) return { url: null, success: false, error: paymentErrorCode(described.error.code) };
+        return { url: null, success: true, error: false, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data.order, described.data.get(result.data.order.id) ?? null)) };
       }
       const parsed = registerPaymentSchema.safeParse({ paymentId: paymentId.data, source: fields.get("source"),
         amount: { amount: Number(fields.get("amount")), currency: fields.get("currency") }, method: fields.get("method"), walletProvider: fields.get("walletProvider") ?? undefined,
@@ -203,7 +212,8 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
       if (!parsed.success) return { url: null, success: false, error: "INVALID_INPUT" };
       const result = await orders.registerPayment({ ...parsed.data, orderId: id.data as OrderId,
         paymentId: parsed.data.paymentId as PaymentId }, seller);
-      return result.success ? { url: null, success: true, error: false } : { url: null, success: false, error: paymentErrorCode(result.error.code) };
+      if (!result.success) return { url: null, success: false, error: paymentErrorCode(result.error.code) };
+      return { url: null, success: true, error: false, recorded: true, order: orderAggregateSchema.parse(toOrderAggregateJson(result.data.order, result.data.stockDue)) };
     } catch (cause) {
       log.error({ event: "order_payment_request_failed", operation, orderId: id.data, userId: access.user.id, errorCode: "INTERNAL_ERROR", err: cause }, "Unable to handle payment decision");
       return { url: null, success: false, error: "INTERNAL_ERROR" };
@@ -262,6 +272,7 @@ export default function OrderDetail() {
         </PageHeader.Actions>
       </PageHeader>
       <DispatchLabelPrintDialog open={printOpen} onOpenChange={setPrintOpen} orderIds={[order.id]} orderNumber={order.number} />
+      {!order.cancelled && <StockDueNotice order={order} />}
       {!order.cancelled && order.status === "active" && order.deliveryStatus === "pending" && <Button type="button" variant="destructive" className="self-start" disabled={blocked} onClick={() => setCancelOpen(true)}>{t("orderCancellation.cancel")}</Button>}
       <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
         <DialogContent>
@@ -315,11 +326,12 @@ export default function OrderDetail() {
           <CardContent className="flex flex-col gap-4">
             <div className="flex flex-col gap-3">
               {!order.cancelled && (["ship", "deliver"] as const).map(operation => {
-                const blocked = fulfillmentBlock(order, operation);
+                const block = orderFulfillmentBlock(order, operation);
+                const blocked = block && fulfillmentReason(block, operation, order, i18n.language);
                 return <Form key={operation} method="post" className="flex flex-col gap-1">
                   <input type="hidden" name="operation" value={operation} />
                   <Button type="submit" variant="outline" disabled={!!blocked || navigation.state !== "idle"} aria-describedby={blocked ? `fulfillment-${operation}-reason` : undefined}>{t(`orderFulfillment.${operation}`)}</Button>
-                  {blocked && <p id={`fulfillment-${operation}-reason`} className="text-sm text-muted-foreground">{t(`orderFulfillment.${operation === "ship" && blocked === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : blocked}`)}</p>}
+                  {blocked && <p id={`fulfillment-${operation}-reason`} className="text-sm text-muted-foreground">{t(blocked.key, { items: blocked.items })}</p>}
                 </Form>;
               })}
               {fulfillment?.error && <Alert variant="destructive"><AlertDescription>{t(`orderFulfillment.${fulfillment.operation === "ship" && fulfillment.error === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : fulfillment.error}`, { defaultValue: t("orderFulfillment.saveError") })}</AlertDescription></Alert>}
@@ -336,14 +348,14 @@ export default function OrderDetail() {
               <dl className="border-t pt-4 text-sm"><div className="flex justify-between gap-4"><dt className="text-muted-foreground">{t("orderDetail.internalDeliveryCost")}</dt><dd className="shrink-0 tabular-nums">{amount(order.deliveryCost)}</dd></div></dl>
             </> : editable && <p className="text-sm text-muted-foreground">{t("orderDelivery.undefined")}</p>}
             {result && typeof result.error === "string" && <Alert variant="destructive"><AlertDescription>{t(`orderDelivery.${result.error}`)}</AlertDescription></Alert>}
-            {result && "order" in result && result.order && <Alert variant="success"><AlertDescription>{t("orderDelivery.saved")}</AlertDescription></Alert>}
+            {result && "order" in result && result.order && <Alert variant="success"><AlertDescription>{t(deliverySavedKey(result.order))}</AlertDescription></Alert>}
             {editable ? settings && (settings.store.enabled || settings.home.enabled || settings.agency.enabled || editingDelivery) ? <div id="delivery-editor" hidden={!editingDelivery} className="border-t pt-4"><RatedDeliveryForm active={editingDelivery} recovery={result?.error ? result : undefined} key={JSON.stringify(order.delivery)} order={order} settings={settings} pending={navigation.state !== "idle"} /></div>
               : <div className="flex flex-col gap-2 text-sm"><p className="text-muted-foreground">{t(settings ? "orderDelivery.disabled" : "deliverySettings.loadError")}</p><TextLink asChild><Link to={settingsPath}>{t("orderDelivery.configure")}</Link></TextLink></div>
               : <p className="text-sm text-muted-foreground">{t("orderDelivery.locked")}</p>}
           </CardContent>
         </Card>
 
-        <Card className="min-w-0 max-xl:order-6"><details className="group p-4"><summary className="flex min-h-control cursor-pointer list-none items-center justify-between gap-3 rounded-sm text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch [&::-webkit-details-marker]:hidden">{t("orderDetail.internalDetails")}<ChevronDown className="size-icon-inline shrink-0 group-open:rotate-180" aria-hidden="true" /></summary><dl className="mt-3 flex flex-col gap-3 border-t pt-4 text-sm"><div><dt className="text-muted-foreground">{t("orders.stock")}</dt><dd>{t(order.stockDeducted ? "orders.stockDeducted" : "orders.stockPending")}</dd></div>{order.sellerId && <div><dt className="text-muted-foreground">{t("orders.seller")}</dt><dd className="break-all">{order.sellerId}</dd></div>}{order.delivery && <div><dt className="text-muted-foreground">{t("orderDelivery.recordedBy")}</dt><dd className="break-all">{order.delivery.recordedBy.kind === "seller" ? order.delivery.recordedBy.userId : t("orderDelivery.buyer")}</dd></div>}</dl></details></Card>
+        <Card className="min-w-0 max-xl:order-6"><details className="group p-4"><summary className="flex min-h-control cursor-pointer list-none items-center justify-between gap-3 rounded-sm text-sm font-semibold focus-visible:outline-2 focus-visible:outline-ring max-md:min-h-touch [&::-webkit-details-marker]:hidden">{t("orderDetail.internalDetails")}<ChevronDown className="size-icon-inline shrink-0 group-open:rotate-180" aria-hidden="true" /></summary><dl className="mt-3 flex flex-col gap-3 border-t pt-4 text-sm"><div><dt className="text-muted-foreground">{t("orders.stock")}</dt><dd>{t(stockLineKey(order))}</dd></div>{order.sellerId && <div><dt className="text-muted-foreground">{t("orders.seller")}</dt><dd className="break-all">{order.sellerId}</dd></div>}{order.delivery && <div><dt className="text-muted-foreground">{t("orderDelivery.recordedBy")}</dt><dd className="break-all">{order.delivery.recordedBy.kind === "seller" ? order.delivery.recordedBy.userId : t("orderDelivery.buyer")}</dd></div>}</dl></details></Card>
       </div>
     </fieldset>
   </section>;

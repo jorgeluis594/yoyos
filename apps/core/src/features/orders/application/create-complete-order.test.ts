@@ -5,6 +5,7 @@ import { createOrder } from "@core/src/features/orders/application/create-order"
 import { buildPendingOrder } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -23,17 +24,18 @@ function fixture() {
     transaction: async (_companyId, work) => work(), orderExists: async () => ok(false), 
     findVariants: async () => ok([order.items[0]]), allocateNumber: async () => ok(order.number),
     saveOrder: async () => ok(null), newItemId: () => order.items[0].id, clock: () => order.createdAt }));
-  const registerPayment = vi.fn(async () => ok({ order, stock: { kind: "not_requested" as const } }));
+  const registerPayment = vi.fn(async (): Promise<Awaited<ReturnType<CreateCompleteOrderDependencies["registerPayment"]>>> =>
+    ok({ order, stockDue: null, outcome: { kind: "not_due" } }));
   const deliver = vi.fn(async () => ok(order));
   const transaction = vi.fn();
   const deps: CreateCompleteOrderDependencies = { transaction: async (_companyId, work) => { transaction(); return work(); }, create,
-    setDelivery: async () => ok(order), registerPayment, ship: async () => ok(order), deliver };
+    setDelivery: async () => ok({ order }), registerPayment, ship: async () => ok(order), deliver };
   return { deps, transaction, create, registerPayment, deliver, order };
 }
 
 test("optional creation data does not turn a pending order into an immediate sale", async () => {
   const f = fixture();
-  expect(await createCompleteOrder({ ...input, payments: [], deliverImmediately: false }, context, f.deps)).toEqual(ok(f.order));
+  expect(await createCompleteOrder({ ...input, payments: [], deliverImmediately: false }, context, f.deps)).toEqual(ok({ order: f.order, stockDue: null }));
   expect(f.registerPayment).not.toHaveBeenCalled();
   expect(f.deliver).not.toHaveBeenCalled();
 });
@@ -65,4 +67,49 @@ test("initial delivery without a reviewed price is rejected before opening a tra
   expect(f.create).not.toHaveBeenCalled();
   expect(f.registerPayment).not.toHaveBeenCalled();
   expect(f.deliver).not.toHaveBeenCalled();
+});
+
+const paidWith = (f: ReturnType<typeof fixture>, outcome: DeductionOutcome, stockDue: Awaited<ReturnType<typeof f.registerPayment>> extends infer R ? R extends { success: true; data: { stockDue: infer S } } ? S : never : never = null) =>
+  f.registerPayment.mockResolvedValue(ok({ order: f.order, stockDue, outcome }));
+const waiting = (variantId: string) => ({ kind: "waiting" as const, shortItems: [{ variantId: variantId as VariantId, available: 0 as never }] as const });
+
+test("creates an order with covering payments and short stock as waiting", async () => {
+  const f = fixture();
+  const variantId = f.order.items[0].variantId;
+  paidWith(f, { kind: "short", shortItems: [{ variantId, available: 0 as never }] }, waiting(variantId));
+  expect(await createCompleteOrder({ ...input, payments: [payment] }, context, f.deps)).toEqual(ok({ order: f.order, stockDue: waiting(variantId) }));
+  expect(f.deliver).not.toHaveBeenCalled();
+});
+
+test("refuses delivering immediately with short stock, names the short variant and persists nothing", async () => {
+  const f = fixture();
+  const variantId = f.order.items[0].variantId;
+  paidWith(f, { kind: "short", shortItems: [{ variantId, available: 0 as never }] }, waiting(variantId));
+  expect(await createCompleteOrder({ ...input, payments: [payment], deliverImmediately: true }, context, f.deps))
+    .toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK", variantId } });
+  expect(f.deliver).not.toHaveBeenCalled();
+});
+
+test("answers a data fault while delivering immediately as INVALID_STORED_DATA, never as insufficient stock", async () => {
+  const f = fixture();
+  paidWith(f, { kind: "failed", stage: "lock_stock", errorCode: "INVALID_STORED_DATA" });
+  expect(await createCompleteOrder({ ...input, payments: [payment], deliverImmediately: true }, context, f.deps))
+    .toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+  paidWith(f, { kind: "failed", stage: "deduct_stock", errorCode: "UNEXPECTED_ROW_COUNT" });
+  expect(await createCompleteOrder({ ...input, payments: [payment], deliverImmediately: true }, context, f.deps))
+    .toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+});
+
+test("answers a contended deduction while delivering immediately as PERSISTENCE_UNAVAILABLE", async () => {
+  const f = fixture();
+  paidWith(f, { kind: "failed", stage: "lock_stock", errorCode: "LOCK_TIMEOUT" });
+  expect(await createCompleteOrder({ ...input, payments: [payment], deliverImmediately: true }, context, f.deps))
+    .toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+});
+
+test("ignores the old deferral option", async () => {
+  const f = fixture();
+  const result = await createCompleteOrder({ ...input, payments: [payment], deferStockDeduction: true } as unknown as CreateCompleteOrderInput, context, f.deps);
+  expect(result.success).toBe(true);
+  expect(f.registerPayment).toHaveBeenCalledWith(expect.not.objectContaining({ deferStockDeduction: expect.anything() }), context);
 });

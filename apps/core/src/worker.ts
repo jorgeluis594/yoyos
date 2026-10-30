@@ -1,4 +1,5 @@
 import { createEventBusRuntime } from "@core/src/composition/event-bus";
+import { recoverStockDeductionsJob } from "@core/src/features/orders/composition";
 import { bootstrapEventHandlers, eventHandlers } from "@core/src/composition/event-handlers";
 import { catalogOrderTtlDays, orderedHandlerIds, registerScheduledJobs, scheduledJobs } from "@core/src/composition/scheduled-jobs";
 
@@ -12,7 +13,7 @@ if (!registered.success) {
   await provider.stop();
   throw new Error(registered.error.message);
 }
-const scheduled = await registerScheduledJobs(provider, scheduledJobs(ttlDays.data, { reader: provider, handlerIds: orderedHandlerIds(eventHandlers) }));
+const scheduled = await registerScheduledJobs(provider, scheduledJobs(ttlDays.data, { reader: provider, handlerIds: orderedHandlerIds(eventHandlers) }, recoverStockDeductionsJob));
 if (!scheduled.success) {
   await registered.data();
   await provider.stop();

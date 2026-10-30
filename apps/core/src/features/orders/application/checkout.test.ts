@@ -1,4 +1,5 @@
 import { parseDeliverySnapshot } from "@core/src/features/orders/domain/order-state-machine";
+import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
 import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { confirmCheckoutDelivery, type ConfirmCheckoutDeliveryDependencies, confirmOrderCheckout, enableOrderCheckout, getOrderCheckout, type CheckoutDependencies, type GetOrderCheckoutDependencies } from "@core/src/features/orders/application/checkout";
@@ -167,8 +168,8 @@ function deliveryFixture() {
     getStoreSettings: vi.fn(async () => ok({ version: 2, home: { enabled: false }, agency: { enabled: false }, couriers: [],
       store: { enabled: true, pickupPoint: { name: "Shop", address: "Street", instructions: null } } })),
     resolveSelectedDeliveryRate: vi.fn(async () => err({ code: "RATE_UNAVAILABLE" as const, message: "Unavailable" })),
-    saveDelivery: vi.fn(async () => ok(null)), deductProductStock: vi.fn(async () => ok(null)),
-    saveStockDeduction: vi.fn(async () => ok(null)), saveBuyer: vi.fn(async () => ok(null)), saveConfirmed: vi.fn(async () => ok(null)),
+    saveDelivery: vi.fn(async () => ok(null)), publishStockEvent: vi.fn(async () => ok({ kind: "not_due" as const })),
+    findVariantStock: vi.fn(async () => ok(new Map())), saveBuyer: vi.fn(async () => ok(null)), saveConfirmed: vi.fn(async () => ok(null)),
   };
   const input = { buyer, expectedTotal: order.total, delivery: { kind: "replace" as const,
     selection: { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } } },
@@ -185,7 +186,7 @@ test("checkout pickup uses buyer authority and validates price separately from t
     .toMatchObject({ error: { code: "TOTAL_CHANGED" } });
   expect(f.deps.saveBuyer).not.toHaveBeenCalled();
   expect(f.deps.saveConfirmed).not.toHaveBeenCalled();
-  expect(f.deps.deductProductStock).not.toHaveBeenCalled();
+  expect(f.deps.publishStockEvent).not.toHaveBeenCalled();
   expect(await confirmCheckoutDelivery(f.input, access, now, f.deps)).toMatchObject({ data: { changed: true, checkout: { total: { amount: 100 } } } });
   expect(f.deps.saveDelivery).toHaveBeenCalledWith(access.orderId, access.companyId,
     expect.objectContaining({ delivery: expect.objectContaining({ recordedBy: { kind: "buyer" }, settingsVersion: 2 }), deliveryCharge: { amount: 0, currency: "PEN" } }));
@@ -268,4 +269,21 @@ test("checkout exposes the saved delivery and customer charge without seller ide
   expect(result.data.checkout.delivery).not.toHaveProperty("recordedBy");
   expect(result.data.checkout).not.toHaveProperty("deliveryCost");
   expect(f.writes).toEqual([]);
+});
+
+test("the buyer confirms a cheaper delivery with short stock", async () => {
+  const f = deliveryFixture();
+  const paid = { id: "00000000-0000-4000-8000-0000000000a1", orderId: access.orderId, status: "confirmed" as const, amount: { amount: 100, currency: "PEN" as const },
+    method: "digital_wallet" as const, deductStockIfPartial: false, data: { confirmedAt: now, confirmedBy: { kind: "legacy" as const }, evidence: { kind: "manual" as const } } };
+  const priced = { ...f.order, payments: [paid], deliveryCost: { amount: 30, currency: "PEN" as const }, deliveryCharge: { amount: 30, currency: "PEN" as const },
+    total: { amount: 130, currency: "PEN" as const },
+    delivery: { method: "home" as const, recipient: f.input.delivery.selection.recipient, destination: { address: "Old street", country: "PE" as const, districtCode: "150101", district: "Old district", province: "Lima", department: "Lima", instructions: null },
+      pricing: { quotationId: "00000000-0000-4000-8000-000000000020", rateId: "00000000-0000-4000-8000-000000000021", optionId: "00000000-0000-4000-8000-000000000022", settingsVersion: 1 },
+      recordedBy: { kind: "seller" as const, userId: seller.userId } } } as unknown as typeof f.order;
+  f.deps = { ...f.deps, findOrderForUpdate: async () => ok(priced),
+    publishStockEvent: vi.fn(async () => ok<DeductionOutcome>({ kind: "short", shortItems: [{ variantId: priced.items[0].variantId, available: 0 as never }] })) };
+  expect(await confirmCheckoutDelivery(f.input, access, now, f.deps)).toMatchObject({ success: true, data: { changed: true } });
+  expect(f.deps.saveDelivery).toHaveBeenCalledTimes(1);
+  expect(f.deps.publishStockEvent).toHaveBeenCalledWith({ companyId: access.companyId, orderId: access.orderId });
+  expect(f.deps.saveConfirmed).toHaveBeenCalled();
 });
