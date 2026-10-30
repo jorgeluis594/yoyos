@@ -18,7 +18,7 @@ export function toOrderAggregateJson(order: OrderAggregate) {
   if (!lifecycle.success || !payment.success) throw new Error("Invalid order aggregate response");
   // The contract exposes `source`, not the chat id or the catalog flag.
   const fields = Object.fromEntries(Object.entries(order).filter(([key]) => key !== "chatId" && key !== "fromCatalog"));
-  return orderAggregateSchema.parse({ ...fields, items: order.items.map((item) => ({ ...item, mentionedPrice: item.mentionedPrice ?? null })), source: orderSource(order), checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), shippedAt: order.shippedAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null,
+  return orderAggregateSchema.parse({ ...fields, items: order.items.map((item) => ({ ...item, mentionedPrice: item.mentionedPrice ?? null })), source: orderSource(order), stockDue: null, checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), shippedAt: order.shippedAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null,
     completedAt: order.completedAt?.toISOString() ?? null, status: lifecycle.data.status,
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,

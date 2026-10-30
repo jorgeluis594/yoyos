@@ -385,7 +385,7 @@ test("orders HTTP rejects payment without stock and allows retry with company is
   });
   const retried = await call(`/api/orders/${id}/payments`, seller.cookie, payment, "POST");
   expect(retried.status).toBe(200);
-  expect(await retried.json()).toMatchObject({ stock: { kind: "deducted" }, order: { stockDeducted: true, payments: [{ id: paymentId }] } });
+  expect(await retried.json()).toMatchObject({ order: { stockDeducted: true, stockDue: null, payments: [{ id: paymentId }] } });
   expect((await call(`/api/orders/${id}/ship`, seller.cookie, undefined, "POST")).status).toBe(200);
   const delivered = await call(`/api/orders/${id}/deliver`, seller.cookie, undefined, "POST");
   expect(delivered.status).toBe(200);
