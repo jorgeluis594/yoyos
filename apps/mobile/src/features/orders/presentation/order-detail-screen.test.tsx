@@ -113,7 +113,7 @@ test("seller confirms a reported partial amount from the mobile order", async ()
     deliveryStatus: "pending", stockDeducted: false,
     payments: [{ id: reportId, orderId: mockId, status: "reported", currency: "PEN", amount: null, method: null,
       data: { receiptImageId: "00000000-0000-4000-8000-000000000098", reportedAt: "2026-09-29T11:30:00.000Z" } }] };
-  mockRegisterPayment.mockResolvedValue({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+  mockRegisterPayment.mockResolvedValue({ success: true, data: { order: { ...mockOrder, paidAmount: { amount: 4.5, currency: "PEN" } } } });
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("1 comprobante por revisar");
   expect(screen.queryByLabelText(/Importe recibido/)).toBeNull();
@@ -126,7 +126,8 @@ test("seller confirms a reported partial amount from the mobile order", async ()
     paymentId: reportId, source: "buyer_report", amount: { amount: 4.5, currency: "PEN" },
     method: "digital_wallet", walletProvider: "yape", deductStockIfPartial: false,
   }));
-  expect(screen.getByText("No hay stock suficiente para confirmar el pago.")).toBeTruthy();
+  await screen.findByText("Pago registrado.");
+  expect(screen.queryByText(/No hay stock suficiente/)).toBeNull();
 });
 
 test("never labels a rejected payment as confirmed", async () => {
@@ -933,4 +934,200 @@ test("the copy confirmation is also announced for VoiceOver", async () => {
   await act(async () => fireEvent.press(screen.getByRole("button", { name: "Copiar enlace" })));
   expect(announce).toHaveBeenCalledWith("Enlace copiado");
   announce.mockRestore();
+});
+
+const shortItem: OrderAggregateResponse["items"][number] = { id: "00000000-0000-4000-8000-000000000015", variantId: "00000000-0000-4000-8000-000000000012", productName: "Polo",
+  variantAttributes: { Talla: "L", Color: "Azul" }, sku: null, quantity: 2, unitPrice: { amount: 12, currency: "PEN" }, subtotal: { amount: 24, currency: "PEN" }, mentionedPrice: null };
+const camisaId = initialOrder.items[0]!.variantId;
+const waitingOrder = (overrides: Partial<OrderAggregateResponse> = {}): OrderAggregateResponse => ({ ...initialOrder, status: "active", completedAt: null, deliveredAt: null,
+  deliveryStatus: "pending", stockDeducted: false, items: [{ ...initialOrder.items[0]!, quantity: 4 }, shortItem],
+  stockDue: { kind: "waiting", shortItems: [{ variantId: camisaId, available: 3 }, { variantId: shortItem.variantId, available: 0 }] }, ...overrides });
+const storePickup = { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Store", address: "Lima", instructions: null },
+  settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } } as unknown as OrderAggregateResponse["delivery"];
+
+test("shows the waiting notice after the heading block with each short item", async () => {
+  mockOrder = waitingOrder();
+  const screen = render(<OrderDetailScreen />);
+  const title = await screen.findByRole("header", { name: "Esperando stock" });
+  expect(title).toBeTruthy();
+  expect(screen.getByText("Camisa (Talla: M): 4 en el pedido, hay 3.")).toBeTruthy();
+  expect(screen.getByText("Polo (Talla: L · Color: Azul): 2 en el pedido, hay 0.")).toBeTruthy();
+  expect(screen.getByText("Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede despachar ni entregar.")).toBeTruthy();
+  expect(screen.queryByRole("alert", { name: /Esperando stock/ })).toBeNull();
+});
+
+test("lists only the items that are short, and a product without options by its name", async () => {
+  mockOrder = waitingOrder({ items: [{ ...initialOrder.items[0]!, variantAttributes: {}, quantity: 4 }, shortItem],
+    stockDue: { kind: "waiting", shortItems: [{ variantId: camisaId, available: 1 }] } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Camisa: 4 en el pedido, hay 1.");
+  expect(screen.queryByText(/Polo \(/)).toBeNull();
+});
+
+test("shows the deducting notice when every item fits", async () => {
+  mockOrder = waitingOrder({ stockDue: { kind: "deducting" } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByRole("header", { name: "Descontando stock" });
+  expect(screen.getByText("Ya hay stock para este pedido; se descontará en menos de un minuto.")).toBeTruthy();
+  expect(screen.queryByText(/en el pedido, hay/)).toBeNull();
+});
+
+test("shows no notice for deducted or not due orders", async () => {
+  mockOrder = waitingOrder({ stockDue: null, stockDeducted: true });
+  const deducted = render(<OrderDetailScreen />);
+  await deducted.findByText("Orden activa");
+  expect(deducted.queryByRole("header", { name: "Esperando stock" })).toBeNull();
+  expect(deducted.queryByRole("header", { name: "Descontando stock" })).toBeNull();
+  deducted.unmount();
+  mockOrder = waitingOrder({ stockDue: null, paidAmount: { amount: 0, currency: "PEN" }, paymentStatus: "pending" });
+  const notDue = render(<OrderDetailScreen />);
+  await notDue.findByText("Orden activa");
+  expect(notDue.queryByRole("header", { name: "Esperando stock" })).toBeNull();
+});
+
+test("shows the four internal stock line values", async () => {
+  const cases: [Partial<OrderAggregateResponse>, string][] = [
+    [{ stockDeducted: true, stockDue: null }, "Stock descontado"],
+    [{ stockDue: { kind: "waiting", shortItems: [{ variantId: camisaId, available: 3 }] } }, "Esperando stock"],
+    [{ stockDue: { kind: "deducting" } }, "Descontando stock"],
+    [{ stockDue: null }, "Stock pendiente"],
+  ];
+  for (const [overrides, label] of cases) {
+    mockOrder = waitingOrder(overrides);
+    const screen = render(<OrderDetailScreen />);
+    await screen.findByText("Orden activa");
+    fireEvent.press(screen.getByRole("button", { name: "Detalles internos" }));
+    expect(screen.getAllByText(label).filter(node => node.props.accessibilityRole !== "header").length).toBeGreaterThan(0);
+    screen.unmount();
+  }
+});
+
+test("disables the next fulfillment action with the short items", async () => {
+  mockOrder = waitingOrder();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  expect(screen.getByRole("button", { name: "Marcar como despachado" })).toBeDisabled();
+  expect(screen.getByText("Para despachar falta stock de Camisa (Talla: M) y Polo (Talla: L · Color: Azul).")).toBeTruthy();
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como despachado" }));
+  expect(mockShip).not.toHaveBeenCalled();
+});
+
+test("joins three short items as a list", async () => {
+  const third = { ...shortItem, id: "00000000-0000-4000-8000-000000000016", variantId: "00000000-0000-4000-8000-000000000017", productName: "Short", variantAttributes: { Talla: "S" } };
+  mockOrder = waitingOrder({ items: [{ ...initialOrder.items[0]!, quantity: 4 }, shortItem, third],
+    stockDue: { kind: "waiting", shortItems: [{ variantId: camisaId, available: 3 }, { variantId: shortItem.variantId, available: 0 }, { variantId: third.variantId, available: 0 }] } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Para despachar falta stock de Camisa (Talla: M), Polo (Talla: L · Color: Azul) y Short (Talla: S).");
+});
+
+test("a store-pickup order being deducted shows «Marcar como entregado» disabled with the deducting reason", async () => {
+  mockOrder = waitingOrder({ delivery: storePickup, stockDue: { kind: "deducting" } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  expect(screen.getByRole("button", { name: "Marcar como entregado" })).toBeDisabled();
+  expect(screen.getByText("El stock se está descontando; podrás entregarlo en menos de un minuto.")).toBeTruthy();
+});
+
+test("a waiting store-pickup order explains the short item for delivering", async () => {
+  mockOrder = waitingOrder({ delivery: storePickup, items: [{ ...initialOrder.items[0]!, quantity: 4 }],
+    stockDue: { kind: "waiting", shortItems: [{ variantId: camisaId, available: 3 }] } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  expect(screen.getByRole("button", { name: "Marcar como entregado" })).toBeDisabled();
+  expect(screen.getByText("Para entregar falta stock de Camisa (Talla: M).")).toBeTruthy();
+});
+
+test("an order being deducted keeps shipping enabled", async () => {
+  mockOrder = waitingOrder({ stockDue: { kind: "deducting" } });
+  mockShip.mockResolvedValue({ success: true, data: { ...mockOrder, deliveryStatus: "shipped", stockDeducted: true, stockDue: null } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  expect(screen.getByRole("button", { name: "Marcar como despachado" })).toBeEnabled();
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como despachado" }));
+  await waitFor(() => expect(mockShip).toHaveBeenCalledWith(mockId));
+});
+
+test("reloads the order when dispatching meets short stock", async () => {
+  mockOrder = waitingOrder({ stockDue: null, paymentStatus: "pending", paidAmount: { amount: 4, currency: "PEN" }, balanceDue: { amount: 8, currency: "PEN" } });
+  mockShip.mockResolvedValue({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  const loads = mockLoads;
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como despachado" }));
+  await screen.findByText("No hay stock suficiente para despachar este pedido.");
+  await waitFor(() => expect(mockLoads).toBeGreaterThan(loads));
+});
+
+test("a partially paid order with short stock shows no notice and ships as before", async () => {
+  mockOrder = waitingOrder({ stockDue: null, paymentStatus: "pending", paidAmount: { amount: 4, currency: "PEN" }, balanceDue: { amount: 8, currency: "PEN" } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  expect(screen.queryByRole("header", { name: "Esperando stock" })).toBeNull();
+  expect(screen.getByRole("button", { name: "Marcar como despachado" })).toBeEnabled();
+});
+
+test("a catalog order's notice never says pediste", async () => {
+  mockOrder = waitingOrder({ source: "catalog", sellerId: null });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByRole("header", { name: "Esperando stock" });
+  expect(screen.queryByText(/pediste/i)).toBeNull();
+  await i18n.changeLanguage("pt-BR");
+  expect(screen.queryByText(/pediu/i)).toBeNull();
+  await i18n.changeLanguage("es");
+});
+
+test("shows the notice in Portuguese", async () => {
+  await i18n.changeLanguage("pt-BR");
+  mockOrder = waitingOrder();
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByRole("header", { name: "Aguardando estoque" });
+  expect(screen.getByText("Camisa (Talla: M): 4 no pedido, há 3.")).toBeTruthy();
+  expect(screen.getByText("Será descontado automaticamente quando houver estoque suficiente. Até lá, não é possível despachar nem entregar.")).toBeTruthy();
+  await i18n.changeLanguage("es");
+});
+
+const managerOrder = () => reportedOrder({ items: [{ ...initialOrder.items[0]!, quantity: 4 }] });
+test("announces the payment status line once and clears it on the next action", async () => {
+  mockOrder = managerOrder();
+  const covered = { ...mockOrder, paymentStatus: "paid" as const, paidAmount: { amount: 12, currency: "PEN" }, balanceDue: { amount: 0, currency: "PEN" },
+    stockDue: { kind: "waiting" as const, shortItems: [{ variantId: camisaId, available: 3 }] } };
+  mockRegisterPayment.mockResolvedValue({ success: true, data: { order: covered } });
+  const announce = jest.spyOn(AccessibilityInfo, "announceForAccessibility").mockImplementation(() => undefined);
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  const line = await screen.findByText("Pago registrado. El pedido queda esperando stock.");
+  expect(line.props.accessibilityLiveRegion).toBe("polite");
+  expect(screen.getAllByText("Pago registrado. El pedido queda esperando stock.")).toHaveLength(1);
+  expect(screen.queryByText(/No hay stock suficiente/)).toBeNull();
+  expect(screen.getByRole("header", { name: "Esperando stock" })).toBeTruthy();
+  // Starting another action clears it.
+  mockUpdateShipping.mockResolvedValue({ success: true, data: covered });
+  fireEvent.press(screen.getByText("pick"));
+  await waitFor(() => expect(screen.queryByText("Pago registrado. El pedido queda esperando stock.")).toBeNull());
+  announce.mockRestore();
+});
+
+test("says only «Pago registrado.» when the order ends deducted", async () => {
+  mockOrder = managerOrder();
+  mockRegisterPayment.mockResolvedValue({ success: true, data: { order: { ...mockOrder, paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
+    balanceDue: { amount: 0, currency: "PEN" }, stockDeducted: true, stockDue: null } } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("1 comprobante por revisar");
+  fireEvent.press(screen.getByRole("button", { name: "Revisar comprobante" }));
+  fireEvent.press(screen.getByRole("button", { name: "Confirmar pago" }));
+  await screen.findByText("Pago registrado.");
+  expect(screen.queryByText(/esperando stock\./)).toBeNull();
+});
+
+test("labels the partial deduction box «Descontar stock con abono parcial» in the register sheet", async () => {
+  mockOrder = reportedOrder({ payments: [] });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  fireEvent.press(screen.getByRole("button", { name: "Registrar pago" }));
+  fireEvent.press(screen.getByRole("radio", { name: /Otro monto/ }));
+  fireEvent.changeText(screen.getByLabelText(/Monto/), "4.50");
+  expect(screen.getByLabelText("Descontar stock con abono parcial")).toBeTruthy();
+  expect(screen.queryByLabelText("Descontar stock ahora")).toBeNull();
 });
