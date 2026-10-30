@@ -4,6 +4,7 @@ import { peruDeliveryDistrictSchema } from "@shared/contracts/peru-location";
 
 export const createQuotationRequestSchema = z.strictObject({
   orderId: z.uuid().optional(),
+  trigger: z.enum(["picked", "automatic"]).optional(),
   destination: z.strictObject({
     country: z.string(), districtCode: z.string(),
     address: z.string().nullable().optional(), instructions: z.string().nullable().optional(),
