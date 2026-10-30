@@ -1,6 +1,7 @@
 import { describe, expect, test } from "vitest";
+import type { OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import { checkReaderAnswer, fixedShownAnswer, type ReaderAction, type ReaderItem } from "@core/src/features/orders/domain/chat-reading";
-import { catalog, createChat, doubtfulPendingOf, pendingOf, productId, reader, stated, type ProductKey } from "@core/src/features/orders/domain/chat-reading-fixtures";
+import { catalog, createChat, doubtfulPendingOf, id, pendingOf, productId, reader, stated, variantOf, type ProductKey } from "@core/src/features/orders/domain/chat-reading-fixtures";
 
 const { add, say } = reader;
 const noProduct = (kind: "not_in_catalog" | "unnamed"): ReaderAction => ({ kind: "add", product: { kind }, attributes: [], quantity: null, price: null });
@@ -110,23 +111,6 @@ describe("checkReaderAnswer: adds and variants", () => {
   });
 });
 
-describe("checkReaderAnswer: actions the domain rules have not reached yet", () => {
-  test("reports a payment request as a request not allowed", () => {
-    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]] });
-    expect(chat.say(say({ kind: "payment_request" })).kinds).toEqual(["request_not_allowed"]);
-    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×1"]);
-  });
-
-  test("reports a quantity change on a pending and a decrease as malformed and changes nothing", () => {
-    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 2]], pendings: [pendingOf("polo")] });
-    const pending = chat.say(say({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" }, mode: "set", quantity: 3 }));
-    expect(pending.outcomes).toEqual([{ kind: "invalid_action", orderId: expect.any(String), reason: "malformed" }]);
-    const decrease = chat.say(say({ kind: "change_quantity", target: item("I1"), mode: "decrease", quantity: 1 }));
-    expect(decrease.outcomes).toEqual([{ kind: "invalid_action", orderId: expect.any(String), reason: "malformed" }]);
-    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×2"]);
-  });
-});
-
 describe("checkReaderAnswer: items", () => {
   const withGorraAndPolo = () => createChat({ items: [["gorra", { Color: "Negro" }, 1], ["polo", { Talla: "M", Color: "Negro" }, 1]] });
 
@@ -194,7 +178,7 @@ describe("checkReaderAnswer: the answer as a whole", () => {
     expect(orderId).toBeDefined();
     expect(chat.say({ kind: "doubt" }).outcomes).toEqual([{ kind: "reader_doubt", orderId }]);
     expect(chat.say(say({ kind: "not_allowed" })).outcomes).toEqual([{ kind: "request_not_allowed", orderId }]);
-    expect(chat.say(say({ kind: "malformed" })).outcomes).toEqual([{ kind: "invalid_action", orderId, reason: "unknown_reference" }]);
+    expect(chat.say(say({ kind: "malformed" })).outcomes).toEqual([{ kind: "invalid_action", orderId, reason: "malformed" }]);
     expect(createChat().say({ kind: "doubt" }).outcomes).toEqual([{ kind: "reader_doubt", orderId: null }]);
   });
 
@@ -328,5 +312,272 @@ describe("price", () => {
     const chat = createChat();
     chat.say(say(add({ product: "snapback", quantity: 2, price: stated("70") })));
     expect(chat.order?.items[0]?.mentionedPrice).toEqual({ amount: { amount: 70, currency: "PEN" }, units: 2 });
+  });
+});
+
+const M_NEGRO = { Talla: "M", Color: "Negro" } as const;
+const outcomeOf = (said: { outcomes: readonly { kind: string }[] }, kind: string) => said.outcomes.find((outcome) => outcome.kind === kind);
+
+describe("checkReaderAnswer: photo captions", () => {
+  test("a product photo whose caption the reader reads as no intent adds the shown single-variant product like a photo without caption", () => {
+    const chat = createChat();
+    expect(chat.say({ kind: "no_intent" }, { shown: [["snapback"]] }).kinds).toEqual(["added"]);
+    expect(chat.items()).toEqual(["Gorra snapback · Azul · ×1"]);
+  });
+
+  test("a product photo whose caption the reader reads as no intent leaves the shown product pending with variant missing when it has several variants", () => {
+    const chat = createChat();
+    expect(chat.say({ kind: "no_intent" }, { shown: [["polo"]] }).kinds).toEqual(["pending_created", "variant_missing"]);
+    expect(chat.order).toBeNull();
+  });
+
+  test("a no-intent caption on a photo of a product already pending replaces that pending without a notice", () => {
+    const chat = createChat({ pendings: [pendingOf("polo")] });
+    expect(chat.say({ kind: "no_intent" }, { shown: [["polo"]] }).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendings.pendings).toHaveLength(1);
+  });
+
+  test("a no-intent answer on a text or a photo without a shown product is still no intent", () => {
+    expect(createChat().say({ kind: "no_intent" }).kinds).toEqual(["no_intent"]);
+    expect(createChat().say({ kind: "no_intent" }, { kind: "photo_product" }).kinds).toEqual(["no_intent"]);
+  });
+
+  test("a photo whose caption only asks to pay still adds the shown product and reports the payment request", () => {
+    const chat = createChat({ items: [["polo", M_NEGRO, 1]] });
+    const said = chat.say(say(reader.payment), { shown: [["snapback"]] });
+    expect(said.kinds).toEqual(["added", "payment_requested"]);
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1", "Gorra snapback · Azul · ×1"]);
+  });
+
+  test("a photo whose caption only carries an instruction to the system still adds the shown product and reports a request not allowed", () => {
+    const chat = createChat();
+    expect(chat.say(say(reader.notAllowed), { shown: [["snapback"]] }).kinds).toEqual(["added", "request_not_allowed"]);
+  });
+
+  test("a photo whose caption is listo and a payment request still adds the shown product and reports the payment request", () => {
+    const chat = createChat();
+    const said = chat.say(say(reader.ready, reader.payment), { shown: [["snapback"]] });
+    expect(said.kinds).toEqual(expect.arrayContaining(["added", "payment_requested", "ready"]));
+    expect(chat.items()).toEqual(["Gorra snapback · Azul · ×1"]);
+  });
+
+  test("a declining caption still keeps the shown product out", () => {
+    const chat = createChat();
+    expect(chat.say(say({ kind: "decline_shown" }), { shown: [["snapback"]] }).kinds).toEqual(["no_intent"]);
+    expect(chat.order).toBeNull();
+  });
+
+  test("an unnamed set in a product photo's caption gives the shown product that quantity and leaves the only item of the order unchanged", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]] });
+    const said = chat.say(say(reader.change("unnamed", "set", 3)), { shown: [["polo"]] });
+    expect(said.kinds).toEqual(["pending_created", "variant_missing"]);
+    expect(chat.pendingLines()).toEqual(["Polo básico ×3 {}"]);
+    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×1"]);
+  });
+
+  test("an unnamed set in the caption of a single-variant product photo adds that product with the quantity", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]] });
+    expect(chat.say(say(reader.change("unnamed", "set", 3)), { shown: [["snapback"]] }).kinds).toEqual(["added"]);
+    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×1", "Gorra snapback · Azul · ×3"]);
+  });
+
+  test("an unnamed increase in a product photo's caption still adds the shown product and reports an unnamed add", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]] });
+    const said = chat.say(say(reader.change("unnamed", "increase", 1)), { shown: [["snapback"]] });
+    expect(said.kinds).toEqual(["added", "unnamed_add"]);
+    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×1", "Gorra snapback · Azul · ×1"]);
+  });
+
+  test("an unnamed set beside an add of the shown product in a photo caption reports an unnamed add", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]] });
+    const said = chat.say(say(add({ product: "snapback" }), reader.change("unnamed", "set", 3)), { shown: [["snapback"]] });
+    expect(said.kinds).toEqual(["added", "unnamed_add"]);
+    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×1", "Gorra snapback · Azul · ×1"]);
+  });
+});
+
+describe("checkReaderAnswer: payment requests and malformed actions", () => {
+  test("a payment request becomes a payment_requested report and changes nothing", () => {
+    const chat = createChat({ items: [["polo", M_NEGRO, 1]] });
+    const said = chat.say(say(reader.payment));
+    expect(said.kinds).toEqual(["payment_requested"]);
+    expect(outcomeOf(said, "payment_requested")).toMatchObject({ order: { kind: "open" }, productIds: [], unnamed: 0 });
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1"]);
+  });
+
+  test("an add and a not_allowed in one answer apply the add and report the request", () => {
+    const chat = createChat();
+    expect(chat.say(say(add({ product: "snapback" }), reader.notAllowed)).kinds).toEqual(["added", "request_not_allowed"]);
+  });
+
+  test("a malformed action reports invalid_action malformed and the rest of the answer applies", () => {
+    const chat = createChat();
+    const said = chat.say(say(add({ product: "snapback" }), { kind: "malformed" }));
+    expect(said.kinds).toEqual(["added", "invalid_action"]);
+    expect(outcomeOf(said, "invalid_action")).toMatchObject({ reason: "malformed" });
+  });
+});
+
+describe("checkReaderAnswer: quantity changes", () => {
+  test("a quantity change on a pending reference resolves to a pending quantity change", () => {
+    const pending = pendingOf("polo");
+    const chat = createChat({ pendings: [pending] });
+    const [action] = checkReaderAnswer(say(reader.change("Q1", "decrease", 1)), chat.context(), { captionDoubt: false });
+    expect(action).toMatchObject({ kind: "change_pending_quantity", pendingId: pending.id, mode: "decrease", quantity: 1, otherwise: { kind: "report", outcome: { kind: "unclear_item" } } });
+  });
+
+  test("an unknown pending reference in a quantity change reports invalid_action unknown_reference", () => {
+    const chat = createChat({ pendings: [pendingOf("polo")] });
+    expect(outcomeOf(chat.say(say(reader.change("Q9", "set", 3))), "invalid_action")).toMatchObject({ reason: "unknown_reference" });
+  });
+
+  test("a quantity change that is not whole reports invalid_action quantity_not_whole", () => {
+    const chat = createChat({ pendings: [pendingOf("polo")], items: [["gorra", { Color: "Negro" }, 2]] });
+    expect(outcomeOf(chat.say(say(reader.change("Q1", "set", 2.5))), "invalid_action")).toMatchObject({ reason: "quantity_not_whole" });
+    expect(outcomeOf(chat.say(say(reader.change("I1", "decrease", 0))), "invalid_action")).toMatchObject({ reason: "quantity_not_whole" });
+  });
+
+  test("a named decrease on an item resolves to a lower_quantity", () => {
+    const chat = createChat({ items: [["polo", M_NEGRO, 3]] });
+    const [action] = checkReaderAnswer(say(reader.change("I1", "decrease", 1)), chat.context(), { captionDoubt: false });
+    expect(action).toMatchObject({ kind: "lower_quantity", target: { kind: "variant" }, quantity: 1 });
+  });
+
+  test("an unnamed decrease with no photo just sent lowers the only item", () => {
+    const chat = createChat({ items: [["polo", M_NEGRO, 3]] });
+    expect(chat.say(say(reader.change("unnamed", "decrease", 1))).kinds).toEqual(["quantity_lowered"]);
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×2"]);
+  });
+
+  test("an unnamed set with no photo just sent changes the only item as before", () => {
+    const chat = createChat({ items: [["polo", M_NEGRO, 1]] });
+    expect(chat.say(say(reader.change("unnamed", "set", 3))).kinds).toEqual(["quantity_changed"]);
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×3"]);
+  });
+});
+
+describe("checkReaderAnswer: the photo just sent", () => {
+  const afterPhotoOfPolo = () => {
+    const pending = pendingOf("polo");
+    return { pending, chat: createChat({ pendings: [pending] }), left: { kind: "pending", pendingId: pending.id } as const };
+  };
+
+  test("an unnamed set of 0 in a product photo's caption keeps the shown add at ×1 and reports the quantity", () => {
+    const chat = createChat();
+    const said = chat.say(say(reader.change("unnamed", "set", 0)), { shown: [["snapback"]] });
+    expect(said.kinds).toEqual(["added", "invalid_action"]);
+    expect(said.outcomes[1]).toMatchObject({ kind: "invalid_action", reason: "quantity_not_whole" });
+    expect(chat.items()).toEqual(["Gorra snapback · Azul · ×1"]);
+  });
+
+  test("an unnamed set in a text with no photo marker and no listed item is an unnamed add", () => {
+    const chat = createChat();
+    expect(chat.say(say(reader.change("unnamed", "set", 3))).kinds).toEqual(["unnamed_add"]);
+    expect(chat.order).toBeNull();
+  });
+
+  test("a price stated with the quantity of the photo just sent is kept on the pending", () => {
+    const { chat, left } = afterPhotoOfPolo();
+    expect(chat.say(say(reader.complete(1, undefined, 3, null, stated("90"))), { photoJustSent: left }).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendings.pendings[0]).toMatchObject({ quantity: 3, price: { amount: { amount: 90 }, forQuantity: 3 } });
+  });
+
+  test("an unnamed set right after a photo that left a pending sets that pending", () => {
+    const { chat, left } = afterPhotoOfPolo();
+    expect(chat.say(say(reader.change("unnamed", "set", 3)), { photoJustSent: left }).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendingLines()).toEqual(["Polo básico ×3 {}"]);
+  });
+
+  test("an unnamed set right after a photo that grew an item sets that item even when the order has another single item", () => {
+    const chat = createChat({ items: [["polo", M_NEGRO, 1], ["snapback", {}, 2]] });
+    const left = { kind: "item", orderId: id(1) as OrderId, variantId: variantOf("snapback").variantId, quantity: 2 as PositiveInteger } as const;
+    expect(chat.say(say(reader.change("unnamed", "set", 3)), { photoJustSent: left }).kinds).toEqual(["quantity_changed"]);
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1", "Gorra snapback · Azul · ×3"]);
+  });
+
+  test("an unnamed set right after a photo that grew an item past the listed items sets that item", () => {
+    const chat = createChat({ items: [["polo", M_NEGRO, 1], ["snapback", {}, 2]] });
+    const left = { kind: "item", orderId: id(1) as OrderId, variantId: variantOf("snapback").variantId, quantity: 2 as PositiveInteger } as const;
+    const context = { ...chat.context({ photoJustSent: left }), items: [] };
+    const [action] = checkReaderAnswer(say(reader.change("unnamed", "set", 3)), context, { captionDoubt: false });
+    expect(action).toMatchObject({ kind: "set_marked_item_quantity", orderId: id(1), variantId: left.variantId, expectedQuantity: 2, quantity: 3, otherwise: { kind: "report", outcome: { kind: "unnamed_add" } } });
+  });
+
+  test("an unnamed increase right after a photo is an unnamed add", () => {
+    const { chat, left } = afterPhotoOfPolo();
+    expect(chat.say(say(reader.change("unnamed", "increase", 2)), { photoJustSent: left }).kinds).toEqual(["unnamed_add"]);
+    expect(chat.pendingLines()).toEqual(["Polo básico ×1 {}"]);
+  });
+
+  test("an unnamed add of a product right after a photo is an unnamed add", () => {
+    const { chat, left } = afterPhotoOfPolo();
+    const unnamedAdd: ReaderAction = { kind: "add", product: { kind: "unnamed" }, attributes: [], quantity: 2, price: null };
+    expect(chat.say(say(unnamedAdd), { photoJustSent: left }).kinds).toEqual(["unnamed_add"]);
+    expect(chat.pendingLines()).toEqual(["Polo básico ×1 {}"]);
+  });
+
+  test("a quantity-only pending completion on the photo's pending sets it", () => {
+    const { chat, left } = afterPhotoOfPolo();
+    expect(chat.say(say(reader.complete(1, undefined, 3)), { photoJustSent: left }).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendingLines()).toEqual(["Polo básico ×3 {}"]);
+  });
+
+  test("a quantity-only pending completion with no photo just sent is an unnamed add", () => {
+    const { chat } = afterPhotoOfPolo();
+    expect(chat.say(say(reader.complete(1, undefined, 3))).kinds).toEqual(["unnamed_add"]);
+    expect(chat.pendingLines()).toEqual(["Polo básico ×1 {}"]);
+  });
+
+  test("a pending completion with values right after a photo completes the pending with the stated quantity", () => {
+    const { chat, left } = afterPhotoOfPolo();
+    expect(chat.say(say(reader.complete(1, M_NEGRO, 3)), { photoJustSent: left }).kinds).toEqual(["pending_completed", "added"]);
+    expect(chat.items()).toEqual(["Polo básico · M · Negro · ×3"]);
+  });
+
+  test("a photo context never resolves an unnamed set onto a marker, even if one is supplied", () => {
+    const gorra = pendingOf("gorra");
+    const chat = createChat({ pendings: [gorra] });
+    const said = chat.say(say(reader.change("unnamed", "set", 3)), { shown: [["polo"]], photoJustSent: { kind: "pending", pendingId: gorra.id } });
+    expect(said.kinds).toEqual(["pending_created", "variant_missing"]);
+    expect(chat.pendingLines()).toEqual(["Gorra trucker ×1 {}", "Polo básico ×3 {}"]);
+  });
+
+  test("a marker on a context that is not a text is ignored for a quantity-only completion too", () => {
+    const { chat, left } = afterPhotoOfPolo();
+    const said = chat.say(say(reader.complete(1, undefined, 3)), { kind: "photo_not_product", photoJustSent: left });
+    expect(said.kinds).toEqual(["image_with_request"]);
+    expect(chat.pendingLines()).toEqual(["Polo básico ×1 {}"]);
+  });
+});
+
+describe("checkReaderAnswer: products with the same name", () => {
+  const twinsOf = (notSellableName: string) => {
+    const chat = createChat();
+    const context = chat.context();
+    return { ...context, products: context.products.map((product) => (product.ref === catalog.oversize.ref ? { ...product, name: notSellableName, sellable: false } : product)) };
+  };
+  const choose = (context: ReturnType<typeof twinsOf>) => checkReaderAnswer(say(reader.oneOf(["polo", "oversize"], M_NEGRO)), context, { captionDoubt: false });
+
+  test("a one_of between a sellable product and a not-sellable one with the same name chooses the sellable one", () => {
+    expect(choose(twinsOf("Polo básico"))).toMatchObject([{ kind: "add", item: { productName: "Polo básico" } }]);
+  });
+
+  test("a one_of between a sellable product and a not-sellable one named the same up to accents and case chooses the sellable one", () => {
+    expect(choose(twinsOf("POLO BASICO"))).toMatchObject([{ kind: "add", item: { productName: "Polo básico" } }]);
+  });
+
+  test("a one_of between two sellable products or two differently named ones is still a doubt", () => {
+    expect(choose(twinsOf("Polo oversize"))[0]).toMatchObject({ kind: "draft_pending" });
+    const twoSellable = { ...twinsOf("Polo básico"), products: twinsOf("Polo básico").products.map((product) => ({ ...product, sellable: true })) };
+    expect(choose(twoSellable)[0]).toMatchObject({ kind: "draft_pending" });
+  });
+});
+
+describe("checkReaderAnswer: products not available", () => {
+  test("an add of a listed not-sellable product reports product_not_available", () => {
+    const chat = createChat({ unsellable: ["gorra"] });
+    const said = chat.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } })));
+    expect(said.kinds).toEqual(["product_not_available"]);
+    expect(chat.order).toBeNull();
   });
 });

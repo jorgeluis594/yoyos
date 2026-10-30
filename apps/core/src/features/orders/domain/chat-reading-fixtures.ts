@@ -1,7 +1,7 @@
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
 import { applyChatActions, type ChatOrderLimits, type ChatOrderTarget, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
-import { pendingLife } from "@core/src/features/orders/domain/chat-pendings";
+import { pendingLife, type PhotoLeft } from "@core/src/features/orders/domain/chat-pendings";
 import { checkReaderAnswer, type ChatReadingContext, type ReaderAction, type ReaderAnswer, type ReadingItem, type ReadingProduct } from "@core/src/features/orders/domain/chat-reading";
 import type { ChatPending, ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
@@ -69,6 +69,11 @@ export const reader = {
     ({ kind: "complete_pending", pending: `Q${pending}`, product: product ? catalog[product].ref : null, attributes: choices(attributes), quantity, price }),
   decline: (pending: number): ReaderAction => ({ kind: "decline_pending", pending: `Q${pending}` }),
   ready: { kind: "ready" } as ReaderAction,
+  payment: { kind: "payment_request" } as ReaderAction,
+  notAllowed: { kind: "not_allowed" } as ReaderAction,
+  /** A quantity change on an item (`I1…`), a pending (`Q1…`) or no named line. */
+  change: (target: `I${number}` | `Q${number}` | "unnamed" | "not_in_order", mode: "increase" | "set" | "decrease", quantity: number): ReaderAction => ({ kind: "change_quantity", mode, quantity,
+    target: target === "unnamed" || target === "not_in_order" ? { kind: target } : target.startsWith("Q") ? { kind: "pending", ref: target } : { kind: "ref", ref: target } }),
   say: (...actions: ReaderAction[]): ReaderAnswer => {
     const [first, ...rest] = actions;
     if (!first) throw new Error("An answer needs an action");
@@ -78,6 +83,8 @@ export const reader = {
 export const stated = (amount: string, per: StatedPrice["per"] = "not_explicit"): StatedPrice => ({ amount, currency: "not_named", per });
 
 export type Reading = Readonly<{ kind?: ChatReadingContext["kind"]; shown?: readonly (readonly [ProductKey, Readonly<Record<string, string>>?])[]; captionDoubt?: boolean; after?: number;
+  /** What the photo just sent left, as the use case would give it to the reader. */
+  photoJustSent?: PhotoLeft | null;
   /** The pendings the transaction finds under the lock, when they differ from the ones the reader saw. */
   underLock?: ChatPendings }>;
 export type Said = Readonly<{ outcomes: readonly ChatMessageOutcome[]; kinds: readonly ChatMessageOutcome["kind"][]; actions: readonly ResolvedChatAction[] }>;
@@ -126,7 +133,7 @@ export function createChat(start: ChatStart = {}) {
     get now() { return now; },
     advance(ms: number) { now = new Date(now.getTime() + ms); },
     context(reading: Reading = {}): ChatReadingContext {
-      return { kind: reading.kind ?? (reading.shown ? "photo_product" : "text"), text: "message", latestOrder: latest() === null ? "none" : "open", items: readingItems(), photoJustSent: null, products: productsFor(reading), truncated: false,
+      return { kind: reading.kind ?? (reading.shown ? "photo_product" : "text"), text: "message", latestOrder: target().kind === "open" ? "open" : target().kind === "closed" ? "closed" : "none", items: readingItems(), photoJustSent: reading.photoJustSent ?? null, products: productsFor(reading), truncated: false,
         pendings: pendings.pendings.map((pending, index) => ({ ref: `Q${index + 1}`, pending, photoJustSent: false })) };
     },
     say(answer: ReaderAnswer, reading: Reading = {}): Said {
