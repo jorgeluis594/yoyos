@@ -8,6 +8,7 @@ import { TextLink } from "@core/app/components/ui/text-link";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
+import { PasswordInput } from "@core/app/components/ui/password-input";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectTrigger, SelectValue } from "@core/app/components/ui/select";
 import { countries } from "@shared/country";
 import { createCompanyRequestSchema } from "@shared/contracts/registration";
@@ -76,7 +77,7 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
       {isRegister && <Field><FieldLabel htmlFor="name">{t("common.name")}</FieldLabel><Input id="name" name="name" autoComplete="name" required /></Field>}
       {!pendingCompany && <>
         <Field><FieldLabel htmlFor="email">{t("common.email")}</FieldLabel><Input id="email" name="email" type="email" autoComplete="email" required /></Field>
-        <Field><FieldLabel htmlFor="password">{t("common.password")}</FieldLabel><Input id="password" name="password" type="password" autoComplete={isRegister ? "new-password" : "current-password"} minLength={isRegister ? 8 : undefined} maxLength={isRegister ? 128 : undefined} required /></Field>
+        <Field><FieldLabel htmlFor="password">{t("common.password")}</FieldLabel><PasswordInput id="password" name="password" autoComplete={isRegister ? "new-password" : "current-password"} minLength={isRegister ? 8 : undefined} maxLength={isRegister ? 128 : undefined} required /></Field>
       </>}
       {pendingCompany && <>
         <Field><FieldLabel htmlFor="companyName">{t("auth.companyName")}</FieldLabel><Input id="companyName" name="companyName" required maxLength={120} /></Field>
