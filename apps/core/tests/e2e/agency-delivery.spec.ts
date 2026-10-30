@@ -123,7 +123,7 @@ test("rated agency requires a document and a catalog agency, preserves its snaps
     expect((await page.request.post(`/api/orders/${cancelledId}/cancel`)).ok()).toBe(true);
     await page.goto(`/es-PE/orders/${cancelledId}`);
     await browserExpect(page.getByText("Pedido cancelado", { exact: true }).first()).toBeVisible();
-    await browserExpect(page.getByRole("button", { name: "Guardar cambios" }).first()).toBeDisabled();
+    await browserExpect(page.getByRole("button", { name: "Guardar cambios" })).toHaveCount(0);
     await browserExpect(page.getByText("Entrega por definir", { exact: true })).toHaveCount(0);
   } finally {
     await page.goto("about:blank");

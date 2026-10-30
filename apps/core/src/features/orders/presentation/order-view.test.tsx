@@ -289,6 +289,54 @@ describe("OrderView (saved order)", () => {
     expect(bar().textContent).toMatch(/S\/\s418\.00/);
   });
 
+  test("lets the sticky bar wrap so Guardar cambios never leaves the screen", async () => {
+    let notify: (entries: { isIntersecting: boolean }[]) => void = () => {};
+    vi.stubGlobal("IntersectionObserver", class { constructor(callback: typeof notify) { notify = callback; } observe() {} disconnect() {} });
+    await mountSaved(edited());
+    await act(async () => notify([{ isIntersecting: false }]));
+    const bar = container.querySelector<HTMLElement>(".fixed")!;
+    expect(bar.className).toContain("flex-wrap");
+    expect(bar.firstElementChild!.className).toContain("min-w-0");
+    expect(bar.lastElementChild!.className).toContain("basis-full");
+  });
+
+  test("says once, next to the actions, that there are unsaved changes and keeps the per-control reasons for assistive technology only", async () => {
+    await mountSaved(edited());
+    const visible = [...container.querySelectorAll("p, span")].filter((element) => element.textContent === "Guarda o descarta los cambios primero." && !element.classList.contains("sr-only"));
+    expect(visible).toEqual([]);
+    const notice = [...container.querySelectorAll("p")].filter((element) => element.textContent?.startsWith("Tienes cambios sin guardar."));
+    expect(notice).toHaveLength(1);
+    expect(notice[0]!.closest('[data-slot="page-header"]')).not.toBeNull();
+    expect(button("Agregar Yape")!.getAttribute("aria-describedby")).toBeTruthy();
+  });
+
+  test("shows a cancelled order as read-only: only Pedido cancelado, no balance and no save actions", async () => {
+    await mountSaved(savedState({ order: order1042({ status: "cancelled", cancelled: true }) }), { notice: { kind: "success", text: "Venta guardada." } });
+    expect(button("Guardar cambios")).toBeUndefined();
+    expect(button("Descartar cambios")).toBeUndefined();
+    expect(container.textContent).not.toContain("Saldo pendiente");
+    expect(container.textContent).not.toContain("Pago parcial");
+    expect(container.textContent).not.toContain("Pago pendiente");
+    expect(container.textContent).not.toContain("Venta guardada.");
+    expect(container.textContent).not.toContain("Una entrega guardada se puede cambiar");
+  });
+
+  test("keeps a cancelled order read-only in the header and the sticky bar when it was cancelled while the edits were kept", async () => {
+    await mountSaved(typeQuantity(savedState({ order: order1042({ status: "cancelled", cancelled: true }) }), deadpoolM, "2"), { notice: { kind: "locked", code: "ORDER_CANCELLED" } });
+    expect(button("Guardar cambios")).toBeUndefined();
+    expect(button("Descartar cambios")).toBeUndefined();
+    expect(container.textContent).not.toContain("Tienes cambios sin guardar.");
+    expect(container.textContent).not.toContain("Cambios sin guardar");
+    expect(document.body.textContent).toContain("El pedido está cancelado; no se guardaron los cambios.");
+  });
+
+  test("asks for touch targets of at least 44 px on every control of the view, also with a mouse", async () => {
+    await mountSaved();
+    expect(container.querySelector("section")!.className).toContain("[&_[data-slot=button]]:min-h-touch");
+    expect(container.querySelector("section")!.className).toContain("[&_[data-slot=tabs-trigger]]:min-h-touch");
+    expect(container.querySelector<HTMLElement>('nav a[href="/es-PE/orders"]')!.className).toContain("min-h-touch");
+  });
+
   test("shows the conflict alert with Recargar pedido, which asks before discarding the edits", async () => {
     const onReload = vi.fn();
     await mountSaved(edited(), { notice: { kind: "conflict" } }, { onReload });

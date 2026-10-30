@@ -80,6 +80,7 @@ const es = {
     PAYMENT_REQUIRED: "Se requiere el pago completo antes de entregar.", SHIP_PAYMENT_REQUIRED: "Se requiere al menos un pago para despachar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de entregar.", INSUFFICIENT_STOCK: "No hay stock suficiente para despachar este pedido.",
     STOCK_WAITING_ship: "Para despachar falta stock de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta stock de {{items}}.", STOCK_DEDUCTING: "El stock se está descontando; podrás entregarlo en menos de un minuto.",
     ORDER_CANCELLED: "El pedido está cancelado; no se puede enviar ni entregar.", INVALID_TRANSITION: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado.",
+    already_shipped: "El pedido ya está marcado como enviado.", already_delivered: "El pedido ya está marcado como entregado.",
     saveError: "No se pudo actualizar el pedido. Inténtalo de nuevo.",
   },
   orderDelivery: {
@@ -464,6 +465,7 @@ const pt = {
     PAYMENT_REQUIRED: "É necessário o pagamento completo antes de entregar.", SHIP_PAYMENT_REQUIRED: "É necessário pelo menos um pagamento para despachar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de entregar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para despachar este pedido.",
     STOCK_WAITING_ship: "Para despachar falta estoque de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta estoque de {{items}}.", STOCK_DEDUCTING: "O estoque está sendo descontado; você poderá entregá-lo em menos de um minuto.",
     ORDER_CANCELLED: "O pedido está cancelado; não pode ser enviado nem entregue.", INVALID_TRANSITION: "Só é possível enviar pedidos pendentes e entregar pedidos pendentes ou enviados.",
+    already_shipped: "O pedido já está marcado como enviado.", already_delivered: "O pedido já está marcado como entregue.",
     saveError: "Não foi possível atualizar o pedido. Tente novamente.",
   },
   orderDelivery: {

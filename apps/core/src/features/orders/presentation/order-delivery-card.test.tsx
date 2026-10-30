@@ -197,29 +197,27 @@ describe("OrderDeliveryCard", () => {
     expect(document.querySelector("a")?.getAttribute("href")).toBe("/pe/settings/delivery");
   });
 
-  test("shows the saved agency, courier and rate of a saved order without asking for a quotation", async () => {
+  test("shows the saved agency and courier of a saved order without asking for a quotation and without repeating the district or the rate", async () => {
     await mount(savedState({ delivery: agencyDelivery as never }), { ...settings, agency: { enabled: true } } as DeliverySettingsResponse);
     const saved = document.querySelector("[data-testid=saved-delivery]")!;
     expect(saved.textContent).toContain("Olva Courier · Agencia Centro · Jr. Callao 456 · Lima, Lima");
-    expect(saved.textContent).toContain("Miraflores, Lima");
-    expect(saved.textContent).toContain("S/");
+    expect(saved.textContent).not.toContain("Miraflores");
+    expect(saved.textContent).not.toContain("Tarifa de entrega");
     expect(document.getElementById("order-delivery-rateId")).toBeNull();
     expect(requestDeliveryQuotation).not.toHaveBeenCalled();
   });
 
   test("opening a saved home order does not quote; changing the district does", async () => {
     await mount(savedState());
-    expect(document.querySelector("[data-testid=saved-delivery]")!.textContent).toContain("Miraflores, Lima");
     expect(requestDeliveryQuotation).not.toHaveBeenCalled();
     await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=district]")!.click(); });
     expect(requestDeliveryQuotation).toHaveBeenCalledTimes(1);
     expect(document.querySelector("[data-testid=saved-delivery]")).toBeNull();
   });
 
-  test("shows the saved rate and the district of a locked home order", async () => {
+  test("shows the saved rate of a locked home order as the internal cost", async () => {
     await mount(savedState({ deliveryStatus: "delivered" }));
-    expect(document.querySelector("[data-testid=saved-delivery]")!.textContent).toContain("Miraflores, Lima");
-    expect(document.querySelector("[data-testid=saved-delivery]")!.textContent).toContain("S/");
+    expect(document.body.textContent).toContain("Costo de entrega (interno): S/");
     expect(requestDeliveryQuotation).not.toHaveBeenCalled();
   });
 
@@ -227,7 +225,35 @@ describe("OrderDeliveryCard", () => {
     await mount(savedState({ cancelled: true }));
     expect(field("name").matches(":disabled")).toBe(true);
     expect(tab("Domicilio").disabled).toBe(true);
-    expect(document.querySelector("[data-testid=saved-delivery]")).not.toBeNull();
+    expect(document.body.textContent).toContain("Costo de entrega (interno)");
+  });
+
+  test("explains a locked delivery once, without the note about clearing a saved delivery", async () => {
+    await mount(savedState({ deliveryStatus: "shipped" }));
+    expect(document.body.textContent).toContain("La entrega ya salió; no se puede cambiar.");
+    expect(document.body.textContent).not.toContain("Una entrega guardada se puede cambiar, pero no quitar.");
+    act(() => root!.unmount());
+    await mount(savedState({ deliveryStatus: "delivered" }));
+    expect(document.body.textContent).toContain("El pedido ya se entregó; la entrega no se puede cambiar.");
+    expect(document.body.textContent).not.toContain("Una entrega guardada se puede cambiar, pero no quitar.");
+  });
+
+  test("a cancelled order shows its delivery read-only without notes about changing it", async () => {
+    await mount(savedState({ cancelled: true }));
+    expect(document.body.textContent).not.toContain("Una entrega guardada se puede cambiar, pero no quitar.");
+  });
+
+  test("lists the methods as full-width tabs with Domicilio before Recojo en tienda", async () => {
+    await mount(newState(), { ...settings, agency: { enabled: true } } as DeliverySettingsResponse);
+    expect([...document.querySelectorAll("[role=tab]")].map(node => node.textContent)).toEqual(["Por definir", "Domicilio", "Agencia", "Recojo en tienda"]);
+    expect(document.querySelector("[role=tablist]")!.className).toContain("w-full");
+    expect(document.querySelector("[role=tab]")!.className).toContain("min-h-touch");
+  });
+
+  test("does not repeat the district and the rate of a home delivery the fields and the internal cost already show", async () => {
+    await mount(savedState());
+    expect(document.querySelector("[data-testid=saved-delivery]")).toBeNull();
+    expect(document.body.textContent).toContain("Costo de entrega (interno)");
   });
 
   test("keeps the locked recipient when the customer changes", async () => {

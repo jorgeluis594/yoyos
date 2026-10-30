@@ -53,6 +53,14 @@ describe("ProductPickerDialog", () => {
     expect(bodyText()).not.toContain("Desde S/ 120.00");
   });
 
+  test("keeps the list inside the dialog so a narrow screen never clips the price or Agregar", async () => {
+    await mount();
+    const dialog = document.querySelector<HTMLElement>("[role=dialog]")!;
+    expect(dialog.className).toContain("grid-cols-[minmax(0,1fr)]");
+    expect(document.querySelector("[role=listbox]")!.parentElement!.className).toContain("overflow-x-hidden");
+    expect(dialog.className).toContain("[&_[data-slot=button]]:min-h-touch");
+  });
+
   test("opens the search when mounted and closes it when unmounted", async () => {
     const state = search();
     await mount({ search: state });

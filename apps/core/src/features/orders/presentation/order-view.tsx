@@ -10,11 +10,13 @@ import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "
 import { PageHeader } from "@core/app/components/ui/page-header";
 import { OrderLinkCard, orderLinkState, type OrderLink } from "@core/app/components/order-link-card";
 import { formatCurrency } from "@core/app/format-currency";
+import { cn } from "@core/app/lib/utils";
 import { OrderCustomerCard, customerFieldId } from "@core/src/features/orders/presentation/order-customer-card";
 import { OrderDeliveryCard } from "@core/src/features/orders/presentation/order-delivery-card";
 import { OrderPaymentsPanel } from "@core/src/features/orders/presentation/order-payments-panel";
 import { OrderProductsCard } from "@core/src/features/orders/presentation/order-products-card";
 import type { PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
+import { touchTargets } from "@core/src/features/orders/presentation/touch-targets";
 import { SavedHeader, SavedNotices } from "@core/src/features/orders/presentation/order-view-saved";
 import type { PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
 import { useCatalogSearch } from "@core/src/features/orders/presentation/use-catalog-search";
@@ -199,20 +201,20 @@ export function OrderView(props: OrderViewProps) {
   const paymentTotals = totals.success ? totals.data : { total: zero, paid: zero, balance: zero, excess: zero };
   const discardTitle = saved ? "orderView.discard.leaveTitle" : "orderView.discard.saleTitle";
   const discardConfirm = saved ? "orderView.discard.leaveConfirm" : "orderView.discard.saleConfirm";
-  const stickyLabel = inDoubt ? "orderView.status.stickyVerifying" : notice?.kind === "success" ? "orderView.status.stickySaved" : saved && unsaved ? "orderView.status.stickyUnsaved" : "orderView.products.total";
+  const stickyLabel = inDoubt ? "orderView.status.stickyVerifying" : notice?.kind === "success" ? "orderView.status.stickySaved" : saved && unsaved && !order?.cancelled ? "orderView.status.stickyUnsaved" : "orderView.products.total";
   const confirmDiscard = () => { setDiscarding(false); if (saved) saved.onDiscardChanges(); else props.onDiscard?.(); };
-  const stickyActions = saved ? unsaved && <>
+  const stickyActions = saved ? unsaved && !order?.cancelled && <>
     <Button type="button" variant="outline" disabled={busy} onClick={() => setDiscarding(true)}>{t("orderView.header.discardChanges")}</Button>
     <Button type="button" disabled={!canSave} onClick={props.onSave}>{saveLabel}</Button></>
     : hasProducts && <Button type="button" disabled={!canSave} onClick={props.onSave}>{saveLabel}</Button>;
 
-  return <section className="flex flex-col gap-6 pb-24 xl:pb-0" aria-labelledby="order-view-title">
+  return <section className={cn("flex flex-col gap-6 pb-24 xl:pb-0", touchTargets)} aria-labelledby="order-view-title">
     {saved && order ? <SavedHeader order={order} salesHref={links.sales} format={format} headerRef={headerRef} unsaved={unsaved} busy={busy} saving={saving}
       onPrint={saved.onPrint} onDiscard={() => setDiscarding(true)} onSave={props.onSave} />
       : <div ref={headerRef} className="flex flex-col gap-3">
         <nav aria-label={t("orderView.header.breadcrumb")}>
           <ol className="flex items-center gap-1 text-sm text-muted-foreground">
-            <li><Link to={links.sales} className="hover:underline">{t("orderView.header.sales")}</Link></li>
+            <li><Link to={links.sales} className="inline-flex min-h-touch items-center hover:underline">{t("orderView.header.sales")}</Link></li>
             <li aria-hidden="true"><ChevronRight className="size-icon-inline" /></li>
             <li aria-current="page" className="text-foreground">{t("orderView.header.newSale")}</li>
           </ol>
@@ -233,14 +235,13 @@ export function OrderView(props: OrderViewProps) {
 
     {saved?.underHeader}
     <div className="grid gap-2" data-testid="order-view-status">
-      {saved && unsaved && <p className="text-sm text-muted-foreground">{t("orderView.status.unsavedChanges")}</p>}
       {notice?.kind === "doubt" && <div role="status" className="flex flex-wrap items-center gap-3 text-sm">
         <p>{t(notice.checking ? (saved ? "orderView.failure.changesInDoubt" : "orderView.failure.saleInDoubt") : "orderView.failure.checkFailed")}</p>
         {!notice.checking && <Button type="button" variant="outline" onClick={props.onCheckAgain}>{t("orderView.failure.checkAgain")}</Button>}
       </div>}
       {notice?.kind === "alert" && <Alert ref={noticeRef} variant="destructive" tabIndex={-1} className="outline-none">
         <AlertDescription>{notice.text}{notice.link && <> <Link to={notice.link.to} className="font-medium underline underline-offset-4">{notice.link.label}</Link></>}</AlertDescription></Alert>}
-      {saved && order && notice && (notice.kind === "success" || notice.kind === "conflict" || notice.kind === "locked" || notice.kind === "itemsLocked")
+      {saved && order && notice && !(order.cancelled && notice.kind === "success") && (notice.kind === "success" || notice.kind === "conflict" || notice.kind === "locked" || notice.kind === "itemsLocked")
         && <SavedNotices notice={notice} order={order} hasCustomerEdit={edits.includes("customer")} hasOtherEdit={unsaved} alertRef={noticeRef}
           onReload={() => setReloading(true)} onSaveCustomerOnly={saved.onSaveCustomerOnly} />}
       {marks.length > 0 && <Alert variant="destructive"><AlertDescription>
@@ -276,10 +277,10 @@ export function OrderView(props: OrderViewProps) {
       </div>
     </div>
 
-    {headerOutOfView && <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t bg-background px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] xl:hidden">
-      <div><p className="text-xs text-muted-foreground">{t(stickyLabel)}</p>
+    {headerOutOfView && <div className="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t bg-background px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] xl:hidden">
+      <div className="min-w-0"><p className="text-xs text-muted-foreground">{t(stickyLabel)}</p>
         <p className="font-semibold tabular-nums">{total}</p></div>
-      <div className="flex items-center gap-2">{stickyActions}</div>
+      <div className="flex min-w-0 basis-full items-center justify-end gap-2 empty:hidden sm:basis-auto">{stickyActions}</div>
     </div>}
 
     <Dialog open={discarding} onOpenChange={(open) => { if (!open) setDiscarding(false); }}>
