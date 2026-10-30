@@ -1,5 +1,5 @@
 import { formatCurrency } from "@core/app/format-currency";
-import { browserExpect, chooseOption, expect, openOptions, prepareVerifiedCompany, selectedValue, test } from "@core/tests/e2e/fixtures";
+import { browserExpect, chooseOption, expect, openOptions, prepareVerifiedCompany, test } from "@core/tests/e2e/fixtures";
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { productEditing } from "@core/src/features/products/product-editing";
@@ -9,8 +9,11 @@ import type { CompanyId, OrderId, PositiveInteger, UserId } from "@core/src/feat
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { chooseDistrict, chooseDistrictInProvince } from "@core/tests/e2e/district-combobox";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
+import { addToOrder } from "@core/tests/e2e/order-view-helpers";
 
 test("seller completes a wallet sale and sees backend totals and stock", async ({ page, request }) => {
+  // The browser's own leave warning on reload and close is accepted: this test reloads and navigates with a sale started.
+  page.on("dialog", (dialog) => void dialog.accept());
   const email = `orders-${crypto.randomUUID()}@example.test`;
   const otherEmail = `orders-other-${crypto.randomUUID()}@example.test`;
   let companyId: string | undefined;
@@ -27,28 +30,24 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     await page.getByRole("complementary").getByRole("link", { name: "Ventas" }).click();
     await page.getByRole("link", { name: "Nueva venta" }).click();
     await browserExpect(page.getByRole("heading", { name: "Nueva venta" })).toBeVisible();
-    await page.getByRole("searchbox", { name: "Buscar productos por nombre" }).fill("cuad");
-    await page.getByRole("button", { name: "Buscar", exact: true }).first().click();
-    await browserExpect(page.getByText("Cuaderno POS")).toBeVisible();
-    await page.getByRole("button", { name: "Agregar Cuaderno POS" }).click();
-    await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(0.29, "PEN", "es"));
+    await addToOrder(page, "Cuaderno POS", "M");
+    await browserExpect(page.getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.29, "PEN", "es"))).toBeVisible();
     await page.setViewportSize({ width: 390, height: 844 });
-    await browserExpect(page.getByRole("link", { name: "Revisar venta" })).toBeHidden();
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     await page.setViewportSize({ width: 390, height: 500 });
-    await page.getByRole("link", { name: "Revisar venta" }).click();
-    await browserExpect(page.locator("#resumen")).toBeInViewport();
+    await page.evaluate(() => window.scrollTo(0, document.body.scrollHeight));
+    await browserExpect(page.locator("div.fixed").getByRole("button", { name: "Guardar venta" })).toBeVisible();
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.reload();
-    await browserExpect(page.getByText("Agrega productos para comenzar.")).toBeVisible();
+    await browserExpect(page.getByText("Aún no hay productos")).toBeVisible();
     expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(0);
-    await page.getByRole("button", { name: "Agregar Cuaderno POS" }).click();
-    await page.getByRole("button", { name: "Agregar Cuaderno POS" }).click();
-    await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(0.58, "PEN", "es"));
-    await page.getByRole("button", { name: "Agregar pago" }).click();
+    await addToOrder(page, "Cuaderno POS", "M");
+    await addToOrder(page, "Cuaderno POS", "M");
+    await browserExpect(page.getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.58, "PEN", "es"))).toBeVisible();
+    await page.getByRole("button", { name: "Agregar Yape" }).click();
     await page.getByLabel("Importe recibido").fill("0.58");
     await page.getByLabel("Marcar como entregado al guardar").check();
-    await page.getByRole("button", { name: "Guardar pedido" }).click();
+    await page.getByRole("button", { name: "Guardar venta" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
     await browserExpect(page.getByText("Venta completada", { exact: true })).toBeVisible();
     await browserExpect(page.getByText("Entrega por definir", { exact: true })).toHaveCount(0);
@@ -67,20 +66,22 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     expect(stock.quantity).toBe(1n);
 
     await page.getByRole("link", { name: "Nueva venta" }).click();
-    await browserExpect(page.getByText(/Stock: 1/)).toBeVisible();
-    await page.getByRole("button", { name: "Agregar Cuaderno POS" }).click();
-    await page.getByRole("button", { name: "Agregar Cuaderno POS" }).click();
-    await page.getByRole("button", { name: "Agregar pago" }).click();
+    await page.getByRole("button", { name: "Agregar producto" }).click();
+    await browserExpect(page.getByRole("option", { name: "M, 1 en stock" })).toBeVisible();
+    await page.getByRole("button", { name: /^Listo/ }).click();
+    await addToOrder(page, "Cuaderno POS", "M");
+    await addToOrder(page, "Cuaderno POS", "M");
+    await page.getByRole("button", { name: "Agregar Yape" }).click();
     await page.getByLabel("Importe recibido").fill("0.58");
     await page.getByLabel("Marcar como entregado al guardar").check();
-    await page.getByRole("button", { name: "Guardar pedido" }).click();
+    await page.getByRole("button", { name: "Guardar venta" }).click();
     await browserExpect(page.getByRole("alert")).toContainText("No hay stock suficiente");
     expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(1);
-    await page.getByLabel("Cantidad").fill("1");
+    await page.getByLabel(/^Cantidad: Cuaderno POS/).fill("1");
     await page.getByLabel("Importe recibido").fill("0.30");
     await withTenantIsolation(tenantId, async () => await prisma.productVariant.update({ where: { id: stock.variantId }, data: { salePrice: 0.3 } }));
-    await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(0.29, "PEN", "es"));
-    await page.getByRole("button", { name: "Guardar pedido" }).click();
+    await browserExpect(page.getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.29, "PEN", "es"))).toBeVisible();
+    await page.getByRole("button", { name: "Guardar venta" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
     await browserExpect(page.getByRole("region", { name: "Pagos" }).getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(0.30, "PEN", "es"), { exact: true })).toBeVisible();
     const completedUrl = page.url();
@@ -99,8 +100,8 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
 
     await withTenantIsolation(tenantId, async () => await prisma.productStock.update({ where: { variantId: stock.variantId }, data: { quantity: 1n } }));
     await page.goto("/es-PE/orders/new");
-    await page.getByRole("button", { name: "Agregar Cuaderno POS" }).click();
-    await page.getByRole("button", { name: "Agregar pago" }).click();
+    await addToOrder(page, "Cuaderno POS", "M");
+    await page.getByRole("button", { name: "Agregar Yape" }).click();
     await page.getByLabel("Importe recibido").fill("0.30");
     await page.getByLabel("Marcar como entregado al guardar").check();
     const adminUrl = new URL(process.env.DATABASE_URL!);
@@ -111,7 +112,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
     try {
       await admin.$executeRawUnsafe(`CREATE FUNCTION public.${triggerName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN IF OLD."companyId" = '${tenantId}'::uuid THEN RAISE EXCEPTION 'test stock outage'; END IF; RETURN NEW; END $$`);
       await admin.$executeRawUnsafe(`CREATE TRIGGER ${triggerName} BEFORE UPDATE ON "ProductStock" FOR EACH ROW EXECUTE FUNCTION public.${triggerName}()`);
-      await page.getByRole("button", { name: "Guardar pedido" }).click();
+      await page.getByRole("button", { name: "Guardar venta" }).click();
       await browserExpect(page.getByRole("alert")).toContainText("No se pudo completar la venta");
       expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(2);
     } finally {
@@ -119,7 +120,7 @@ test("seller completes a wallet sale and sees backend totals and stock", async (
       await admin.$executeRawUnsafe(`DROP FUNCTION IF EXISTS public.${triggerName}()`);
       await admin.$disconnect();
     }
-    await page.getByRole("button", { name: "Guardar pedido" }).click();
+    await page.getByRole("button", { name: "Guardar venta" }).click();
     await browserExpect(page).toHaveURL(/\/es-PE\/orders\/[0-9a-f-]+$/);
     const recoveredId = page.url().split("/").at(-1)!;
     expect(await withTenantIsolation(tenantId, async () => await prisma.order.count())).toBe(3);
@@ -195,8 +196,8 @@ test("pending order remains active when paid before delivery", async ({ page }) 
     if (!product.success) return;
     const variantId = await withTenantIsolation(tenantId, async () => (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id);
     await page.goto("/es-PE/orders/new");
-    await page.getByRole("button", { name: "Agregar Producto pendiente" }).click();
-    await page.getByRole("button", { name: "Guardar pedido" }).click();
+    await addToOrder(page, "Producto pendiente");
+    await page.getByRole("button", { name: "Guardar venta" }).click();
     await browserExpect(page).toHaveURL(/\/orders\/[0-9a-f-]+$/);
     const orderId = page.url().split("/").at(-1)!;
     const pending = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
@@ -250,69 +251,63 @@ test("new order saves partial payments, paid pending delivery and configured del
     for (const scenario of ["partial", "paid", "delivery", "no-stock"] as const) {
       if (scenario === "no-stock") await withTenantIsolation(companyId, async () => await prisma.productStock.updateMany({ data: { quantity: 0n } }));
       await page.goto("/es-PE/orders/new");
-      await page.getByRole("button", { name: "Agregar Agenda" }).click();
+      await addToOrder(page, "Agenda");
+      const total = (amount: number) => browserExpect(page.getByText("Total", { exact: true }).locator("..").getByText(formatCurrency(amount, "PEN", "es"))).toBeVisible();
       if (scenario !== "no-stock") {
-        await page.getByRole("button", { name: "Agregar pago" }).click();
+        await page.getByRole("button", { name: "Agregar Yape" }).click();
         await page.getByLabel("Importe recibido").fill(scenario === "partial" ? "0.1" : "10");
       } else await browserExpect(page.getByText(/Disponible: 0/)).toBeVisible();
       if (scenario === "partial") {
-        await page.getByRole("button", { name: "Agregar pago" }).click();
+        await page.getByRole("button", { name: "Agregar Yape" }).click();
         await page.getByLabel("Importe recibido").nth(1).fill("0.7");
-        await browserExpect(page.getByText(`Saldo referencial: ${formatCurrency(9.2, "PEN", "es")}`, { exact: true })).toBeVisible();
+        await browserExpect(page.getByText(`Pago parcial · falta ${formatCurrency(9.2, "PEN", "es")}`, { exact: true })).toBeVisible();
       }
       if (scenario === "delivery") {
-        await page.getByRole("button", { name: "Agregar pago" }).click();
+        await page.getByRole("button", { name: "Agregar Yape" }).click();
         await page.getByLabel("Importe recibido").nth(1).fill("3");
-        await page.getByLabel("Configurar datos de entrega").check();
+        await page.getByRole("tab", { name: "Domicilio" }).click();
         await page.getByLabel("Dirección de entrega", { exact: true }).fill("Av. Lima 123");
         await chooseDistrict(page, "040110");
-        const tariff = selectedValue(page, "rateId");
+        const tariff = page.locator("#order-delivery-rateId");
         const chooseRate = async () => {
           const rates = await openOptions(page, "Tarifa de entrega");
           await browserExpect(rates).toHaveCount(1);
           await rates.first().click();
-          return await tariff.inputValue();
+          return await tariff.innerText();
         };
-        let rateId = await chooseRate();
-        if (!rateId) throw new Error("Expected delivery rate");
+        const rate = await chooseRate();
+        expect(rate).toContain(formatCurrency(3, "PEN", "es"));
         await chooseDistrictInProvince(page, "040101");
         await browserExpect(page.getByRole("status").filter({ hasText: "No hay tarifas para esta modalidad y distrito." })).toBeVisible();
-        await browserExpect(page.locator("#resumen strong")).toHaveText("—");
-        await browserExpect(page.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
+        await page.getByRole("button", { name: "Guardar venta" }).click();
+        await browserExpect(page.getByText(/No se guardó: revisa \d+ campos? marcados?\./)).toBeVisible();
         await chooseDistrictInProvince(page, "040110");
-        await browserExpect(tariff).toHaveValue("");
-        const reselectedRate = await chooseRate();
-        if (!reselectedRate) throw new Error("Expected new quotation after district change");
-        expect(reselectedRate).not.toBe(rateId);
-        rateId = reselectedRate;
+        await browserExpect(tariff).not.toContainText(formatCurrency(3, "PEN", "es"));
+        await chooseRate();
         await page.getByLabel("Indicaciones de entrega (opcional)").fill("Puerta 2");
         await page.getByLabel("Nombre del destinatario").fill("Ana");
         await page.getByLabel("Teléfono del destinatario").fill("999001");
-        await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(13, "PEN", "es"));
+        await total(13);
         const countBefore = await withTenantIsolation(companyId, async () => await prisma.order.count());
         const stateBefore = await (await page.request.get("/api/delivery-settings/zones")).json();
         expect((await page.request.put("/api/delivery-settings/zones", { data: { expectedVersion: stateBefore.version,
           zones: stateBefore.zones.map((zone: { id: string; name: string; enabled: boolean; districtCodes: string[]; options: { price: unknown }[] }) => ({ ...zone, kind: "existing",
             options: zone.options.map(option => ({ ...option, kind: "existing", price: { amount: 4, currency: "PEN" } })) })) } })).ok()).toBe(true);
-        await page.getByRole("button", { name: "Guardar pedido" }).click();
-        await browserExpect(page.getByRole("alert")).toContainText("La tarifa cambió");
+        await page.getByRole("button", { name: "Guardar venta" }).click();
+        await browserExpect(page.getByRole("alert")).toContainText(`El precio de la entrega cambió a ${formatCurrency(4, "PEN", "es")}. Revísalo y guarda de nuevo.`);
         expect(await withTenantIsolation(companyId, async () => await prisma.order.count())).toBe(countBefore);
         await browserExpect(page.getByLabel("Dirección de entrega", { exact: true })).toHaveValue("Av. Lima 123");
         await browserExpect(page.getByLabel("Importe recibido").nth(1)).toHaveValue("3");
-        await browserExpect(tariff).toHaveValue("");
-        await browserExpect(page.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
-        const refreshedRate = await chooseRate();
-        if (!refreshedRate) throw new Error("Expected refreshed rate");
-        expect(refreshedRate).not.toBe(rateId);
         await page.getByLabel("Importe recibido").nth(1).fill("4");
-        await browserExpect(page.locator("#resumen strong")).toHaveText(formatCurrency(14, "PEN", "es"));
+        await total(14);
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.screenshot({ path: "test-results/order-new-desktop.png", fullPage: true });
         await page.setViewportSize({ width: 390, height: 844 });
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
         await page.screenshot({ path: "test-results/order-new-mobile.png", fullPage: true });
+        await page.setViewportSize({ width: 1280, height: 900 });
       }
-      await page.getByRole("button", { name: "Guardar pedido" }).click();
+      await page.getByRole("button", { name: "Guardar venta" }).first().click();
       await browserExpect(page).toHaveURL(/\/orders\/[0-9a-f-]+$/);
       const id = page.url().split("/").at(-1)!;
       const order = await (await page.request.get(`/api/orders/${id}/aggregate`)).json();
