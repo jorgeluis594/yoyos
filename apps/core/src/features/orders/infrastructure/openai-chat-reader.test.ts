@@ -1,5 +1,8 @@
 import OpenAI from "openai";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import { log } from "@core/src/shared/infrastructure/logger";
+import { countRequestTokens } from "@core/src/features/orders/infrastructure/chat-reader-budget";
+import { describeReadingContext } from "@core/src/features/orders/infrastructure/chat-reader-context-text";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { CompanyId } from "@core/src/features/orders/domain/order";
@@ -116,6 +119,23 @@ describe("createOpenAiChatReader", () => {
     expect(body.reasoning).toEqual({ effort: readerRequestSettings.reasoningEffort });
     expect(body.max_output_tokens).toBe(readerRequestSettings.maxOutputTokens);
     expect(body.text).toMatchObject({ format: { type: "json_schema", strict: true, name: "chat_reader_answer" } });
+  });
+
+  test("limits the answer to 1,000 tokens", async () => {
+    const { sent } = await readWith(() => answerResponse(strictAnswer));
+    expect(readerRequestSettings.maxOutputTokens).toBe(1000);
+    expect(sent[0]!.body.max_output_tokens).toBe(1000);
+  });
+
+  test("logs the tokens it counted for the request beside the billed ones, so their ratio is measurable", async () => {
+    const info = vi.spyOn(log, "info");
+    try {
+      await readWith(() => answerResponse(strictAnswer));
+      const completedLog = info.mock.calls.map(([fields]) => fields as Record<string, unknown>).find((fields) => fields.event === "chat_reader_completed");
+      expect(completedLog).toMatchObject({ inputTokens: 5200, countedInputTokens: countRequestTokens(describeReadingContext(context)) });
+    } finally {
+      info.mockRestore();
+    }
   });
 
   test("maps a timeout, a 429 and a 5xx to provider unavailable", async () => {
