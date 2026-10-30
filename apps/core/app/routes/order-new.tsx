@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { companyPath } from "@core/app/locale";
 import { formatCurrency } from "@core/app/format-currency";
 import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { data, useActionData, useLoaderData, useNavigate, useNavigation, useSubmit, type ActionFunctionArgs, type ClientActionFunctionArgs, type LoaderFunctionArgs } from "react-router";
 import { countryCurrencies, type Country } from "@shared/country";
 import { completeOrderSchema, newOrderLoaderSchema, orderActionErrorSchema } from "@shared/contracts/orders";
@@ -98,30 +98,25 @@ export default function OrderNew() {
   }, [loaded]);
 
   // A lost answer is resolved by reading the order with the same id: found, the sale was saved; missing, the form is intact and saving again can never make a second order.
-  async function checkSaved() {
-    setDoubt("checking");
-    try {
-      const response = await fetch(`/api/orders/${state.draft.orderId}/aggregate`, { headers: { accept: "application/json" } });
-      if (response.ok) { guard.allowLeaving(); navigate(orderPath, { replace: true }); return; }
-      if (response.status === 404) { setDoubt(null); setOutcome(null); return; }
-    } catch { /* The check itself got no answer. */ }
+  const { allowLeaving, holdLeaving } = guard;
+  const readOrder = useCallback(() => fetch(`/api/orders/${state.draft.orderId}/aggregate`, { headers: { accept: "application/json" } }).then((response) => {
+    if (response.ok) { allowLeaving(); navigate(orderPath, { replace: true }); return; }
+    if (response.status === 404) { setDoubt(null); setOutcome(null); return; }
     setDoubt("failed");
-  }
-  const checkRef = useRef(checkSaved);
-  checkRef.current = checkSaved;
+  // The check itself got no answer.
+  }, () => setDoubt("failed")), [allowLeaving, navigate, orderPath, state.draft.orderId]);
+  useEffect(() => { if (doubt === "checking") void readOrder(); }, [doubt, readOrder]);
 
-  const resultSeen = useRef<SaleActionResult | undefined>(undefined);
-  useEffect(() => {
-    if (!result || resultSeen.current === result) return;
-    resultSeen.current = result;
+  // Each answer of the action is read once, when it arrives: the outcome belongs to the answer that produced it.
+  const [answered, setAnswered] = useState<SaleActionResult | undefined>(undefined);
+  if (result !== undefined && result !== answered) {
     const next = saleOutcome(result, { t, formatMoney: money, orderPath });
-    guard.holdLeaving();
+    setAnswered(result);
     setOutcome(next);
-    setState((current) => applyRateRecovery(current, next.rate));
-    if (next.check) void checkRef.current();
-  // The outcome belongs to the answer that produced it; only a new answer recomputes it.
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [result]);
+    setState(applyRateRecovery(state, next.rate));
+    setDoubt(next.check ? "checking" : null);
+  }
+  useEffect(() => { if (result !== undefined) holdLeaving(); }, [result, holdLeaving]);
 
   function save() {
     const request = buildCreateRequest(state);
@@ -143,7 +138,7 @@ export default function OrderNew() {
     catalogEpoch={catalogEpoch} guard={guard} saving={saving} notice={notice} attempts={attempts}
     unavailableVariantId={outcome?.unavailableVariantId ?? null} coverRequired={outcome?.coverRequired ?? false}
     format={{ amount: money, date: (iso) => new Intl.DateTimeFormat(i18n.language, { dateStyle: "medium" }).format(new Date(iso)) }}
-    newPaymentId={() => crypto.randomUUID()} onSave={save} onCheckAgain={() => void checkSaved()} onDiscard={discard} />;
+    newPaymentId={() => crypto.randomUUID()} onSave={save} onCheckAgain={() => setDoubt("checking")} onDiscard={discard} />;
 }
 
 export function ErrorBoundary() {

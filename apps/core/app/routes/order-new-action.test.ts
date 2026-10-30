@@ -72,7 +72,7 @@ test("a delivery saved on a waiting order says so and the new-sale note promises
   expect(deliverySavedKey({ stockDue: { kind: "waiting", shortItems: [{ variantId: orderId, available: 0 }] } })).toBe("orderDelivery.savedWaiting");
   for (const stockDue of [null, { kind: "deducting" } as const]) expect(deliverySavedKey({ stockDue })).toBe("orderDelivery.saved");
   expect(resources.es.translation.orderDelivery.savedWaiting).toBe("Entrega guardada. El pedido queda esperando stock.");
-  expect(resources.es.translation.orders.stockWarning.replace("{{stock}}", "3")).toBe("Disponible: 3. Si lo cobras, el pedido quedará esperando stock.");
+  expect(resources.es.translation.orderView.products.stockWarning.replace("{{stock}}", "3")).toBe("Disponible: 3. Si lo cobras, el pedido quedará esperando stock.");
   expect(resources.pt.translation.orderDelivery.savedWaiting).toBeTruthy();
 });
 

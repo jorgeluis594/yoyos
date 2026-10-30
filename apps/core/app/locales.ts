@@ -147,12 +147,12 @@ const es = {
     unavailable: "No se pudo obtener el enlace. Inténtalo de nuevo.", retry: "Reintentar",
   },
   orders: {
-    estimatedBalance: "Saldo referencial", deliveryChargePending: "El cargo de entrega se calculará y añadirá al guardar.",
-    creationHint: "Completa los productos, cliente, pagos y entrega en un solo guardado.", saveOrder: "Guardar pedido", savingOrder: "Guardando pedido…",
-    noInitialPayments: "Sin pagos registrados. El pedido quedará pendiente de pago.", initialPayment: "Pago {{number}}", addPayment: "Agregar pago",
-    configureInitialDelivery: "Configurar datos de entrega", deliverImmediately: "Marcar como entregado al guardar",
-    immediateRequirements: "Para marcar entregado, los pagos deben cubrir el total y debe haber stock suficiente.",
-    creationSummary: "Resumen", initialPaid: "Pagos ingresados", stockWarning: "Disponible: {{stock}}. Si lo cobras, el pedido quedará esperando stock.",
+    deliveryChargePending: "El cargo de entrega se calculará y añadirá al guardar.",
+    
+    
+    
+    
+    
     orderNumber: "Pedido #{{number}}",
     checkoutPending: "Pendiente de confirmación", checkoutConfirmed: "Confirmado por el comprador", checkoutCancelled: "Pedido cancelado",
     status: {"active": "Orden activa", "cancelled": "Orden cancelada", "completed": "Venta completada"},
@@ -194,8 +194,8 @@ const es = {
     stockPending: "Pendiente",
     deliveryCharge: "Cargo de entrega: {{amount}}",
     overpaid: "Exceso recibido: {{amount}}",
-    title: "Ventas", new: "Nueva venta", view: "Ver ventas", completed: "Venta completada", instant: "Cobro y entrega en el momento", addProducts: "Agrega productos", addDescription: "Busca un producto y añádelo a la venta.", searchProducts: "Buscar productos por nombre", productName: "Nombre del producto", search: "Buscar", uniqueVariant: "Variante única", stock: "Stock", add: "Agregar", addNamed: "Agregar {{name}}", noProduct: "No encontramos ese producto", noProducts: "Todavía no hay productos", tryAnother: "Prueba con otro nombre o crea el producto para venderlo.", createFirst: "Crea el primero para comenzar a vender.", missingCatalog: "¿No está en el catálogo? ", createOtherTab: "Crear producto en otra pestaña", current: "Venta actual", itemCount_one: "{{count}} producto", itemCount_other: "{{count}} productos", empty: "Tu venta está vacía", emptyHint: "Agrega productos para comenzar.", quantity: "Cantidad", remove: "Quitar", shownTotal: "Total mostrado", currencyMismatch: "Los productos deben tener la misma moneda.", customer: "Cliente", generalPublic: "Público general", fromCatalog: "Desde el catálogo", finalPriceHint: "El servidor calculará el precio final y el saldo con los precios vigentes al guardar.", completing: "Completando…", complete: "Confirmar cobro y completar venta", review: "Revisar venta", pointOfSaleError: "No se pudo cargar el punto de venta",
-    invalidOrder: "Revisa los datos de la venta.", insufficientStock: "No hay stock suficiente para uno de los productos.", alreadyExists: "Esta venta ya se registró. Revisa el historial antes de intentar otra.", variantMissing: "Uno de los productos ya no está disponible.", itemUnavailable: "{{item}} ya no está disponible. Quítalo para continuar.", saveError: "No se pudo completar la venta. Inténtalo de nuevo.",
+    title: "Ventas", new: "Nueva venta", view: "Ver ventas", completed: "Venta completada", instant: "Cobro y entrega en el momento", uniqueVariant: "Variante única", stock: "Stock", addNamed: "Agregar {{name}}", itemCount_one: "{{count}} producto", itemCount_other: "{{count}} productos", quantity: "Cantidad", currencyMismatch: "Los productos deben tener la misma moneda.", customer: "Cliente", generalPublic: "Público general", fromCatalog: "Desde el catálogo", completing: "Completando…", complete: "Confirmar cobro y completar venta", pointOfSaleError: "No se pudo cargar el punto de venta",
+    invalidOrder: "Revisa los datos de la venta.", alreadyExists: "Esta venta ya se registró. Revisa el historial antes de intentar otra.", variantMissing: "Uno de los productos ya no está disponible.", saveError: "No se pudo completar la venta. Inténtalo de nuevo.",
     dateTime: "Fecha y hora", total: "Total", completedSales: "Ventas completadas", emptyFiltered: "No hay órdenes para estos filtros.", pages: "Páginas de ventas", page: "Página {{page}}", previous: "Anterior", next: "Siguiente", searchContactFilter: "Buscar contacto para filtrar", searchContact: "Buscar contacto", filters: "Filtros", activeFilter_one: "{{count}} filtro activo", activeFilter_other: "{{count}} filtros activos", filterTitle: "Filtros de ventas", filterDescription: "Refina las ventas por cliente y fecha.", allCustomers: "Todos los clientes", saleDate: "Fecha de venta", from: "Desde", before: "Antes de", clear: "Limpiar", apply: "Aplicar filtros", invalidFilters: "Filtros no válidos", listError: "No se pudieron cargar las ventas", invalidFiltersHint: "Revisa los filtros e inténtalo de nuevo.", backSales: "Volver a ventas",
     payment: "Pago", paymentConfirmed: "Billetera digital, confirmado", phoneAtSale: "Teléfono al vender", seller: "Vendedor", missing: "Venta no encontrada", loadError: "No se pudo cargar la venta", missingHint: "La venta no está disponible en esta empresa.",
   },
@@ -539,12 +539,12 @@ const pt = {
     unavailable: "Não foi possível obter o link. Tente novamente.", retry: "Tentar novamente",
   },
   orders: {
-    estimatedBalance: "Saldo estimado", deliveryChargePending: "O valor da entrega será calculado e adicionado ao salvar.",
-    creationHint: "Preencha produtos, cliente, pagamentos e entrega em um único salvamento.", saveOrder: "Salvar pedido", savingOrder: "Salvando pedido…",
-    noInitialPayments: "Sem pagamentos registrados. O pedido ficará pendente de pagamento.", initialPayment: "Pagamento {{number}}", addPayment: "Adicionar pagamento",
-    configureInitialDelivery: "Configurar dados de entrega", deliverImmediately: "Marcar como entregue ao salvar",
-    immediateRequirements: "Para marcar entregue, os pagamentos devem cobrir o total e deve haver estoque suficiente.",
-    creationSummary: "Resumo", initialPaid: "Pagamentos informados", stockWarning: "Disponível: {{stock}}. Se você cobrar, o pedido ficará aguardando estoque.",
+    deliveryChargePending: "O valor da entrega será calculado e adicionado ao salvar.",
+    
+    
+    
+    
+    
     orderNumber: "Pedido #{{number}}",
     checkoutPending: "Aguardando confirmação", checkoutConfirmed: "Confirmado pelo comprador", checkoutCancelled: "Pedido cancelado",
     status: {"active": "Pedido ativo", "cancelled": "Pedido cancelado", "completed": "Venda concluída"},
@@ -586,8 +586,8 @@ const pt = {
     stockPending: "Pendente",
     deliveryCharge: "Taxa de entrega: {{amount}}",
     overpaid: "Valor recebido a mais: {{amount}}",
-    title: "Vendas", new: "Nova venda", view: "Ver vendas", completed: "Venda concluída", instant: "Pagamento e entrega na hora", addProducts: "Adicione produtos", addDescription: "Busque um produto e adicione-o à venda.", searchProducts: "Buscar produtos por nome", productName: "Nome do produto", search: "Buscar", uniqueVariant: "Variante única", stock: "Estoque", add: "Adicionar", addNamed: "Adicionar {{name}}", noProduct: "Não encontramos esse produto", noProducts: "Ainda não há produtos", tryAnother: "Tente outro nome ou crie o produto para vendê-lo.", createFirst: "Crie o primeiro para começar a vender.", missingCatalog: "Não está no catálogo? ", createOtherTab: "Criar produto em outra aba", current: "Venda atual", itemCount_one: "{{count}} produto", itemCount_other: "{{count}} produtos", empty: "Sua venda está vazia", emptyHint: "Adicione produtos para começar.", quantity: "Quantidade", remove: "Remover", shownTotal: "Total exibido", currencyMismatch: "Os produtos devem ter a mesma moeda.", customer: "Cliente", generalPublic: "Público geral", fromCatalog: "Do catálogo", finalPriceHint: "O servidor calculará o preço final e o saldo com os preços vigentes ao salvar.", completing: "Concluindo…", complete: "Confirmar pagamento e concluir venda", review: "Revisar venda", pointOfSaleError: "Não foi possível carregar o ponto de venda",
-    invalidOrder: "Confira os dados da venda.", insufficientStock: "Estoque insuficiente para um dos produtos.", alreadyExists: "Esta venda já foi registrada. Confira o histórico antes de tentar outra.", variantMissing: "Um dos produtos não está mais disponível.", itemUnavailable: "{{item}} não está mais disponível. Remova-o para continuar.", saveError: "Não foi possível concluir a venda. Tente novamente.",
+    title: "Vendas", new: "Nova venda", view: "Ver vendas", completed: "Venda concluída", instant: "Pagamento e entrega na hora", uniqueVariant: "Variante única", stock: "Estoque", addNamed: "Adicionar {{name}}", itemCount_one: "{{count}} produto", itemCount_other: "{{count}} produtos", quantity: "Quantidade", currencyMismatch: "Os produtos devem ter a mesma moeda.", customer: "Cliente", generalPublic: "Público geral", fromCatalog: "Do catálogo", completing: "Concluindo…", complete: "Confirmar pagamento e concluir venda", pointOfSaleError: "Não foi possível carregar o ponto de venda",
+    invalidOrder: "Confira os dados da venda.", alreadyExists: "Esta venda já foi registrada. Confira o histórico antes de tentar outra.", variantMissing: "Um dos produtos não está mais disponível.", saveError: "Não foi possível concluir a venda. Tente novamente.",
     dateTime: "Data e hora", total: "Total", completedSales: "Vendas concluídas", emptyFiltered: "Não há pedidos para esses filtros.", pages: "Páginas de vendas", page: "Página {{page}}", previous: "Anterior", next: "Próxima", searchContactFilter: "Buscar contato para filtrar", searchContact: "Buscar contato", filters: "Filtros", activeFilter_one: "{{count}} filtro ativo", activeFilter_other: "{{count}} filtros ativos", filterTitle: "Filtros de vendas", filterDescription: "Refine as vendas por cliente e data.", allCustomers: "Todos os clientes", saleDate: "Data da venda", from: "Desde", before: "Antes de", clear: "Limpar", apply: "Aplicar filtros", invalidFilters: "Filtros inválidos", listError: "Não foi possível carregar as vendas", invalidFiltersHint: "Confira os filtros e tente novamente.", backSales: "Voltar às vendas",
     payment: "Pagamento", paymentConfirmed: "Carteira digital, confirmado", phoneAtSale: "Telefone no momento da venda", seller: "Vendedor", missing: "Venda não encontrada", loadError: "Não foi possível carregar a venda", missingHint: "A venda não está disponível nesta empresa.",
   },

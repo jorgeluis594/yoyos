@@ -90,7 +90,7 @@ function useHeaderOutOfView() {
     observer.observe(header);
     return () => observer.disconnect();
   }, []);
-  return { ref, outOfView };
+  return [ref, outOfView] as const;
 }
 
 const isTypingTarget = (target: EventTarget | null) =>
@@ -117,7 +117,7 @@ export function OrderView(props: OrderViewProps) {
   const [pickerOpen, setPickerOpen] = useState(false);
   const [discarding, setDiscarding] = useState(false);
   const search = useCatalogSearch({ catalogEpoch: props.catalogEpoch });
-  const header = useHeaderOutOfView();
+  const [headerRef, headerOutOfView] = useHeaderOutOfView();
   const noticeRef = useRef<HTMLDivElement>(null);
   const firstMarkTarget = useRef<string | null>(null);
   const { draft } = state;
@@ -133,7 +133,7 @@ export function OrderView(props: OrderViewProps) {
   const deliveryMarks = [...marksOf("delivery"), ...(coverRequired && !marks.some((mark) => mark.reason === "deliver_needs_payment") ? [syntheticCoverMark] : [])];
   const firstMark = marks[0];
   const firstTarget = firstMark ? markTargetId(firstMark) : null;
-  firstMarkTarget.current = firstTarget;
+  useEffect(() => { firstMarkTarget.current = firstTarget; });
 
   useSlashShortcut(productsEditable && !pickerOpen && !discarding && !guard.blocked, () => setPickerOpen(true));
 
@@ -157,7 +157,7 @@ export function OrderView(props: OrderViewProps) {
   const paymentTotals = totals.success ? totals.data : { total: zero, paid: zero, balance: zero, excess: zero };
 
   return <section className="flex flex-col gap-6 pb-24 xl:pb-0" aria-labelledby="order-view-title">
-    <div ref={header.ref} className="flex flex-col gap-3">
+    <div ref={headerRef} className="flex flex-col gap-3">
       <nav aria-label={t("orderView.header.breadcrumb")}>
         <ol className="flex items-center gap-1 text-sm text-muted-foreground">
           <li><Link to={links.sales} className="hover:underline">{t("orderView.header.sales")}</Link></li>
@@ -216,7 +216,7 @@ export function OrderView(props: OrderViewProps) {
       </div>
     </div>
 
-    {header.outOfView && <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t bg-background px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] xl:hidden">
+    {headerOutOfView && <div className="fixed inset-x-0 bottom-0 z-40 flex items-center justify-between gap-3 border-t bg-background px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] xl:hidden">
       <div><p className="text-xs text-muted-foreground">{inDoubt ? t("orderView.status.stickyVerifying") : t("orderView.products.total")}</p>
         <p className="font-semibold tabular-nums">{total}</p></div>
       {hasProducts && <Button type="button" disabled={!canSave} onClick={props.onSave}>{saveLabel}</Button>}
