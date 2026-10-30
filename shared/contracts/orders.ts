@@ -4,6 +4,8 @@ import { moneySchema } from "@shared/contracts/money";
 import { peruDeliveryDistrictSchema, peruDistrictCodeSchema } from "@shared/contracts/peru-location";
 import { pickupPointSchema } from "@shared/contracts/delivery-settings";
 import { parseDispatchDate } from "@shared/dispatch-date";
+import { internationalPhonePattern } from "@shared/phone";
+import { walletProviderFitsMethod, walletProviderSchema } from "@shared/wallet-providers";
 
 export const dispatchDateSchema = z.string().refine((value) => parseDispatchDate(value).success, { message: "Invalid dispatch date" });
 
@@ -50,11 +52,18 @@ export const setRatedOrderDeliverySchema = z.strictObject({ delivery: ratedDeliv
 export type RatedDeliverySelectionRequest = z.infer<typeof ratedDeliverySelectionSchema>;
 export type SetRatedOrderDeliveryRequest = z.infer<typeof setRatedOrderDeliverySchema>;
 
+/** The customer a seller types by hand when creating an order; saved as the order buyer. */
+export const newOrderCustomerSchema = z.strictObject({ name: z.string().trim().min(1).max(120), phone: z.string().regex(internationalPhonePattern) });
+export type NewOrderCustomer = z.infer<typeof newOrderCustomerSchema>;
+
 export const completeOrderSchema = orderSelectionSchema.extend({
+  customer: newOrderCustomerSchema.optional(),
   payments: z.array(z.strictObject({ paymentId: z.uuid(), amount: moneySchema,
-    method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() })).optional(),
+    method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(), deductStockIfPartial: z.boolean() })
+    .refine(walletProviderFitsMethod, { message: "Only a digital wallet has a provider" })).optional(),
   delivery: setRatedOrderDeliverySchema.optional(),
   deliverImmediately: z.boolean().optional(),
+  shipImmediately: z.boolean().optional(),
   deferStockDeduction: z.boolean().optional(),
   scheduledDispatchDate: dispatchDateSchema.optional(),
 });
@@ -94,9 +103,12 @@ export const paymentSchema = z.discriminatedUnion("status", [
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("reported"), currency: z.enum(currencies),
     amount: z.null(), method: z.null(), data: reportDataSchema }),
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("confirmed"), amount: moneySchema,
-    method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema }),
+    method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(), data: confirmationDataSchema })
+    .refine(walletProviderFitsMethod, { message: "Only a digital wallet has a provider" }),
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("voided"), amount: moneySchema,
-    method: z.enum(["digital_wallet", "bank_transfer"]), data: confirmationDataSchema.extend({ voidedAt: z.iso.datetime(), voidedBy: z.string().min(1) }) }),
+    method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(),
+    data: confirmationDataSchema.extend({ voidedAt: z.iso.datetime(), voidedBy: z.string().min(1) }) })
+    .refine(walletProviderFitsMethod, { message: "Only a digital wallet has a provider" }),
   z.strictObject({ ...paymentIdentitySchema, status: z.literal("rejected"), currency: z.enum(currencies),
     amount: z.null(), method: z.null(), data: rejectionDataSchema }),
 ]);
@@ -138,7 +150,8 @@ export const updateOrderShippingSchema = z.strictObject({
   { message: "At least one field is required" });
 export type UpdateOrderShippingRequest = z.infer<typeof updateOrderShippingSchema>;
 export const registerPaymentSchema = z.strictObject({ paymentId: z.uuid(), source: z.enum(["manual", "buyer_report"]).optional(),
-  amount: moneySchema, method: z.enum(["digital_wallet", "bank_transfer"]), deductStockIfPartial: z.boolean() });
+  amount: moneySchema, method: z.enum(["digital_wallet", "bank_transfer"]), walletProvider: walletProviderSchema.optional(), deductStockIfPartial: z.boolean() })
+  .refine(walletProviderFitsMethod, { message: "Only a digital wallet has a provider" });
 export type RegisterPaymentRequest = z.infer<typeof registerPaymentSchema>;
 export const stockOutcomeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("deducted") }), z.strictObject({ kind: z.literal("not_requested") }),

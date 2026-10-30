@@ -1,7 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
-import { orderStateMachine, type OrderAggregate, type OrderDomainError, type StockDeductionPlan, type Payment, type PaymentMethod } from "@core/src/features/orders/domain/order-state-machine";
+import { orderStateMachine, type OrderAggregate, type OrderDomainError, type StockDeductionPlan, type Payment, type PaymentMethod, type WalletProvider } from "@core/src/features/orders/domain/order-state-machine";
 import { confirmPayment } from "@core/src/features/orders/domain/payment";
 import type { PaymentError } from "@core/src/features/orders/domain/payment";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
@@ -9,7 +9,7 @@ import type { CompanyId, OrderId, PaymentId, PositiveInteger } from "@core/src/f
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 export type RegisterPaymentInput = Readonly<{ orderId: OrderId; paymentId: PaymentId; source?: "manual" | "buyer_report";
-  amount: Money; method: PaymentMethod; deductStockIfPartial: boolean; deferStockDeduction?: boolean }>;
+  amount: Money; method: PaymentMethod; walletProvider?: WalletProvider; deductStockIfPartial: boolean; deferStockDeduction?: boolean }>;
 export type StockOutcome = Readonly<{ kind: "deducted" | "not_requested" }>;
 export type RegisterPaymentOutput = Readonly<{ order: OrderAggregate; stock: StockOutcome }>;
 export type RegisterPaymentError = OrderDomainError | PaymentError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE" | "PAYMENT_CONFLICT"; message: string; variantId?: string }>;
@@ -32,7 +32,7 @@ export async function registerPayment(input: RegisterPaymentInput, context: Orde
     const existing = found.data.payments.find((item) => item.id === input.paymentId) ?? null;
     const now = deps.clock();
     const confirmed = confirmPayment({ id: input.paymentId, orderId: input.orderId, source: input.source ?? "manual", amount: input.amount,
-      method: input.method, confirmedBy: context.userId, confirmedAt: now }, existing);
+      method: input.method, walletProvider: input.walletProvider, confirmedBy: context.userId, confirmedAt: now }, existing);
     if (!confirmed.success) return confirmed;
     const payment = confirmed.data;
     const next = orderStateMachine.registerPayment(found.data, payment);

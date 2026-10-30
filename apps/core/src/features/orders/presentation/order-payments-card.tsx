@@ -4,6 +4,7 @@ import { useTranslation } from "react-i18next";
 import type { TFunction } from "i18next";
 import { Search } from "lucide-react";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
+import { walletProviderLabel } from "@shared/wallet-providers";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
@@ -104,7 +105,7 @@ export function OrderPaymentsCard({ order, receiptUrls, manualPaymentId, format,
           const actions = paymentRowActions(payment, order);
           const receipt = receiptUrls[payment.id];
           const blocked = paymentRowBlocked(payment.id, uncertain, order, idle);
-          const method = payment.method ? t(payment.method === "digital_wallet" ? "orders.wallet" : "orders.bankTransfer") : null;
+          const method = payment.method ? payment.walletProvider ? walletProviderLabel(payment.walletProvider) : t(payment.method === "digital_wallet" ? "orders.wallet" : "orders.bankTransfer") : null;
           const title = payment.status === "reported" ? t("orders.paymentReported")
             : payment.status === "rejected" ? t("orders.paymentRowRejected", { date: when }) : `${format.amount(payment.amount)} · ${method}`;
           const detail = payment.status === "reported" ? t("orders.reportedByBuyer", { date: when })

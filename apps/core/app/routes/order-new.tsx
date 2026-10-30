@@ -1,4 +1,5 @@
 import type { RatedSetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
+import { defaultPaymentChoice, paymentFromChoice } from "@shared/wallet-providers";
 import { PaymentFields, type PaymentDraft } from "@core/src/features/orders/presentation/payment-fields";
 import { RatedDeliveryForm, type RatedDeliveryReview } from "@core/src/features/orders/presentation/rated-delivery-form";
 import { add as addMoney, multiply, subtract, isCurrency, type Money, type MoneyError } from "@shared/money";
@@ -58,7 +59,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
     if (!selected.success) return orderActionErrorSchema.parse({ code: "INVALID_ORDER", error: "Revisa la entrega." });
     delivery = { delivery: selected.data, expectedPrice: input.expectedPrice };
   }
-  const result = await createConfiguredOrder({ id: parsed.data.id as OrderId,
+  const result = await createConfiguredOrder({ id: parsed.data.id as OrderId, customer: parsed.data.customer,
     items: [item(first), ...rest.map(item)],
     payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })),
     delivery,
@@ -168,7 +169,7 @@ export default function OrderNew() {
               <PaymentFields value={payment} onChange={value => setPayments(current => current.map(row => row.paymentId === payment.paymentId ? { ...value, paymentId: row.paymentId } : row))} />
               <Button type="button" variant="ghost" className="justify-self-start" onClick={() => setPayments(current => current.filter(row => row.paymentId !== payment.paymentId))}>{t("orders.remove")}</Button>
             </fieldset>)}
-            <Button type="button" variant="outline" className="self-start" onClick={() => setPayments(current => [...current, { paymentId: crypto.randomUUID(), amount: "", method: "digital_wallet", deductStockIfPartial: false }])}>{t("orders.addPayment")}</Button>
+            <Button type="button" variant="outline" className="self-start" onClick={() => setPayments(current => [...current, { paymentId: crypto.randomUUID(), amount: "", ...paymentFromChoice(defaultPaymentChoice), deductStockIfPartial: false }])}>{t("orders.addPayment")}</Button>
           </CardContent></Card>
           <Card role="region" aria-labelledby="new-delivery-title"><CardContent className="flex flex-col gap-3 p-4">
             <CardTitle id="new-delivery-title" className="text-lg font-semibold">{t("orders.delivery")}</CardTitle>

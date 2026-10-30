@@ -1,14 +1,17 @@
 import { OrderItemsCard } from "@mobile/features/orders/presentation/order-items-card";
+import { ProductPickerSheet } from "@mobile/features/orders/presentation/product-picker-sheet";
+import { OrderCustomerCard } from "@mobile/features/orders/presentation/order-customer-card";
 import { OrderPaymentCard } from "@mobile/features/orders/presentation/order-payment-card";
 import { usePendingOrders } from "@mobile/features/orders/presentation/pending-order-sync-provider";
-import { OptionSelector } from "@mobile/components/ui/option-selector";
-import { Field, FieldLabel } from "@mobile/components/ui/field";
-import { DeliveryFields, deliveryDraftFromOrder } from "@mobile/features/orders/presentation/delivery-fields";
+import { DeliveryFields, deliveryDraftFromOrder, recipientPhoneInvalid } from "@mobile/features/orders/presentation/delivery-fields";
 import { deliverySettings } from "@mobile/features/delivery-settings";
 import type { DeliveryQuotation } from "@mobile/features/delivery-settings";
 import { orderDeliveryFormSchema, type OrderDeliveryFormValues } from "@mobile/features/orders/presentation/order-delivery-form";
 import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
-import { orderLanguage } from "@mobile/features/orders/presentation/order-labels";
+import { savedPhoneForForm } from "@shared/phone";
+import { deliveryStatusLabel, orderLanguage } from "@mobile/features/orders/presentation/order-labels";
+import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-print-review";
+import { DeliveryBadge, DeliveryRow, OptionSheet, deliveryRowSymbols, useShippingSummary } from "@mobile/features/orders/presentation/order-delivery-parts";
 import type { Result } from "@shared/result";
 import { add, subtract, type Money, type MoneyError } from "@shared/money";
 import { andThen, ok } from "@shared/functional";
@@ -27,10 +30,7 @@ import { orders } from "@mobile/features/orders/composition";
 import { ThemedText } from "@mobile/components/themed-text";
 import { ThemedView } from "@mobile/components/themed-view";
 import { Button } from "@mobile/components/ui/button";
-import { Input } from "@mobile/components/ui/input";
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
-import { ListRow } from "@mobile/components/ui/list-row";
-import { ScreenState } from "@mobile/components/ui/screen-state";
 import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
 import { addDraftItem, changeDraftQuantity, emptyOrderDraft, exceedsShownStock, paymentsDeductStock, prepareOrder, removeDraftItem, type RatedDeliveryAssignment,
@@ -68,20 +68,23 @@ function CompanyOrderScreen() {
   const { state } = useAccess();
   const { dirty, setDirty, discardVersion } = useOrderDraft();
   const { show } = useOrderResult();
+  const { open: openPrint } = useDispatchPrint();
   const [draft, setDraft] = useState<OrderDraft>(emptyOrderDraft);
   const [stage, setStage] = useState<"products" | "review">("products");
-  const [paidPaymentId, setPaidPaymentId] = useState<string | null>(null);
   const [search, setSearch] = useState("");
   const [catalog, setCatalog] = useState<Catalog>([]);
   const [catalogLoading, setCatalogLoading] = useState(true);
   const [selected, setSelected] = useState<Catalog[number] | null>(null);
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const [statusOpen, setStatusOpen] = useState(false);
+  const [shippingCollapsed, setShippingCollapsed] = useState(false);
   const { pending, refresh: refreshPending, trigger: syncPending } = usePendingOrders();
   const [reviewingOrder, setReviewingOrder] = useState(false);
   const [unavailableVariants, setUnavailableVariants] = useState<readonly string[]>([]);
   const [unavailableLabels, setUnavailableLabels] = useState<Readonly<Record<string, string>>>({});
   const [checking, setChecking] = useState(false);
-  const [queuedNotice, setQueuedNotice] = useState(false);
-  const [sending, setSending] = useState(false);
+  const [queuedNotice, setQueuedNotice] = useState<false | "sale" | "label">(false);
+  const [sending, setSending] = useState<false | "save" | "ship" | "label">(false);
   const [settings, setSettings] = useState<DeliverySettingsResponse | null>(null);
   const [initialDelivery, setInitialDelivery] = useState<OrderDeliveryFormValues | null>(null);
   const [quoteResult, setQuoteResult] = useState<{ key: string; quotation: DeliveryQuotation | null; error: boolean } | null>(null);
@@ -111,8 +114,9 @@ function CompanyOrderScreen() {
     price: selectedRate?.price ?? null,
   }) : null;
   const agencyChosen = selectedRate?.method === "agency" && selectedRate.agencies.some(agency => agency.id === initialDelivery?.agencyId);
-  const ratedDelivery = deliveryEnabled && !quoting && deliverySelection?.success && (method === "store" || (selectedRate && (method !== "agency" || agencyChosen))) ? deliverySelection.data : undefined;
-  const saveDraft = { ...draft, ratedDelivery };
+  const ratedDelivery = deliveryEnabled && !quoting && deliverySelection?.success && !(initialDelivery && recipientPhoneInvalid(initialDelivery)) && (method === "store" || (selectedRate && (method !== "agency" || agencyChosen))) ? deliverySelection.data : undefined;
+  // Only the explicit ship action sends shipImmediately; a draft restored from a refused sale never carries it.
+  const saveDraft = { ...draft, ratedDelivery, shipImmediately: undefined };
   const prepared = prepareOrder(saveDraft);
   const deliveryReady = !initialDelivery || !!ratedDelivery;
   const reviewedPrice = initialDelivery && deliveryEnabled && productTotal.success
@@ -131,12 +135,25 @@ function CompanyOrderScreen() {
   ) : null;
   const currency = productTotal.success ? productTotal.data.shownTotal.currency : "";
   const orderTotal = reviewedTotal?.success ? reviewedTotal.data : productTotal.success ? productTotal.data.shownTotal : null;
+  const language = orderLanguage(state.status === "ready" ? state.company.country : "PE", i18n.language);
+  const deliveryState = draft.deliverImmediately ? "delivered" : "pending";
+  const shippingSummary = useShippingSummary();
+  const shippingChoice = !initialDelivery?.method ? null : initialDelivery.method === "store" ? { method: "store" as const } : { method: initialDelivery.method, districtCode: initialDelivery.districtCode };
   const card = { backgroundColor: theme.backgroundElement, borderColor: theme.border };
   const stockShort = exceedsShownStock(draft.items);
   const paymentNeedsStock = stockShort && !draft.deliverImmediately
     && paymentsDeductStock(draft.payments ?? [], initialDelivery ? (reviewedTotal?.success ? reviewedTotal.data : null) : orderTotal);
   const stockBlocked = stockShort && !!draft.deliverImmediately;
   const balance = paidAmount?.success && reviewedTotal?.success ? subtract(paidAmount.data)(reviewedTotal.data) : null;
+  const saveBlocked = !prepared.success || !deliveryReady || offline || !!unavailableVariants.length || !!(draft.deliverImmediately && balance?.success && balance.data.amount > 0) || stockBlocked;
+  // Labels and shipping do not apply to store pickup; with home delivery or agency they wait for complete, rated shipping data.
+  const dispatchApplies = initialDelivery?.method !== "store";
+  const dispatchable = !!ratedDelivery && ratedDelivery.delivery.method !== "store";
+  const hasPayment = prepared.success && !!prepared.data.request.payments?.length;
+  const shortItems = draft.items.filter(item => item.quantity > item.shownStock)
+    .map(item => t('shipItemShort', { name: item.productName, quantity: item.quantity, stock: item.shownStock }));
+  const shipBlock = !dispatchable ? t('shipNeedsShipping') : draft.deliverImmediately ? t('shipExcludesDelivered')
+    : stockShort ? t('shipNeedsStock', { items: shortItems.join(", ") }) : !hasPayment ? t('shipNeedsPayment') : null;
 
   useEffect(() => {
     if (error && stage === "review") scroll.current?.scrollToEnd({ animated: false });
@@ -165,7 +182,7 @@ function CompanyOrderScreen() {
     version.current = discardVersion;
     leaveAllowed.current = true;
     setDraft(emptyOrderDraft());
-    setStage("products"); setPaidPaymentId(null);
+    setStage("products");
     setInitialDelivery(null);
     setReviewingOrder(false); setUnavailableVariants([]);
     setQuoteAttempt(value => value + 1);
@@ -178,7 +195,7 @@ function CompanyOrderScreen() {
   });
 
   useEffect(() => {
-    if (!companyId || stage !== "products") return;
+    if (!companyId || !pickerOpen) return;
     let active = true;
     const timer = setTimeout(() => { void orders.searchOrderCatalog(search.trim()).then((result) => {
       if (!active) return;
@@ -187,18 +204,19 @@ function CompanyOrderScreen() {
       else setError(translations.t('searchProductsError'));
     }); }, 250);
     return () => { active = false; clearTimeout(timer); };
-  }, [companyId, search, stage]);
+  }, [companyId, search, pickerOpen]);
 
-  const openCompleted = (outcome: Extract<ConfirmOrderOutcome, { kind: "completed" }>) => {
+  const openCompleted = (outcome: Extract<ConfirmOrderOutcome, { kind: "completed" }>, thenPrint = false) => {
     leaveAllowed.current = true;
     setDirty(false);
     show({ id: outcome.order.id, shownTotal: outcome.shownTotal });
+    if (thenPrint) openPrint([{ id: outcome.order.id, number: outcome.order.number }]);
     router.replace(`/orders/${outcome.order.id}`);
   };
-  const performSave = async (work: () => Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>>) => {
+  const performSave = async (work: () => Promise<Result<ConfirmOrderOutcome, ConfirmOrderError>>, thenPrint = false, shipping = false) => {
     if (saving.current) return;
     saving.current = true;
-    setSending(true);
+    setSending(shipping ? "ship" : thenPrint ? "label" : "save");
     try {
       const connection = await Network.getNetworkStateAsync().catch(() => null);
       if (connection?.isConnected === false || connection?.isInternetReachable === false) { setError(t('offlineDraftSaved')); return; }
@@ -209,6 +227,7 @@ function CompanyOrderScreen() {
         const missing = result.error.code === "VARIANT_NOT_FOUND" ? draft.items.find(item => item.variantId === failingVariantId) : undefined;
         setError(missing
           ? translations.t('itemNoLongerAvailable', { name: Object.values(missing.variantAttributes).join(" / ") || missing.productName })
+          : shipping && result.error.code === "PAYMENT_REQUIRED" ? translations.t('shipNeedsPayment')
           : translations.t(errorKeys[result.error.code] ?? 'confirmOrderError'));
         if (["TOTAL_CHANGED", "RATE_UNAVAILABLE", "INVALID_DELIVERY_RATE", "INVALID_DISTRICT", "DELIVERY_METHOD_DISABLED"].includes(result.error.code)) {
           setQuoteResult(null);
@@ -222,31 +241,33 @@ function CompanyOrderScreen() {
         void refreshPending();
         return;
       }
-      if (result.data.kind === "completed") { openCompleted(result.data); return; }
+      if (result.data.kind === "completed") { openCompleted(result.data, thenPrint); return; }
       // Core may not have it yet: the sale waits on the phone under its own ID and the sync sends it, so it never duplicates.
-      startNewSale(); setQueuedNotice(true);
+      startNewSale(); setQueuedNotice(thenPrint ? "label" : "sale");
       void refreshPending(); syncPending();
     } finally { saving.current = false; setSending(false); }
   };
-  const send = (toSend: typeof saveDraft) => performSave(reviewingOrder ? () => orders.reviewPendingOrder(companyId, toSend) : () => orders.completeOrder(toSend, companyId));
-  const savePending = () => send({ ...saveDraft, deferStockDeduction: true });
-  const complete = () => {
+  const send = (toSend: OrderDraft, thenPrint = false) => performSave(reviewingOrder ? () => orders.reviewPendingOrder(companyId, toSend) : () => orders.completeOrder(toSend, companyId), thenPrint, !!toSend.shipImmediately);
+  const savePending = (thenPrint = false) => send({ ...saveDraft, deferStockDeduction: true }, thenPrint);
+  // Shipping is exclusive with delivering and with deferring stock, so it never carries either flag.
+  const ship = () => { if (!shipBlock && !saveBlocked) void send({ ...saveDraft, shipImmediately: true, deliverImmediately: undefined, deferStockDeduction: undefined }); };
+  const complete = (thenPrint = false) => {
     if (!deliveryReady || !prepared.success || unavailableVariants.length) return;
-    if (!paymentNeedsStock) return send(saveDraft);
+    if (!paymentNeedsStock) return send(saveDraft, thenPrint);
     const lines = draft.items.filter(item => item.quantity > item.shownStock)
       .map(item => t('stockShortItem', { name: item.productName, quantity: item.quantity, stock: item.shownStock }));
     showConfirmation({ title: t('stockShortTitle'), description: `${lines.join("\n")}\n\n${t('stockShortAdvice')}`,
-      confirmLabel: t('saveAsPending'), cancelLabel: t('stockShortBack'), onConfirm: () => void savePending() });
+      confirmLabel: t('saveAsPending'), cancelLabel: t('stockShortBack'), onConfirm: () => void savePending(thenPrint) });
   };
   const startNewSale = () => {
     leaveAllowed.current = true;
-    setDraft(emptyOrderDraft()); setStage("products"); setPaidPaymentId(null); setInitialDelivery(null);
+    setDraft(emptyOrderDraft()); setStage("products"); setInitialDelivery(null);
     setReviewingOrder(false); setUnavailableVariants([]); setUnavailableLabels({}); setError(""); setProblemVariantId(null); setProblemCode(null);
     scroll.current?.scrollTo({ y: 0, animated: true });
   };
   const restoreDelivery = (selection: RatedDeliveryAssignment["delivery"], currency: Money["currency"]) => {
     const recipient = selection.recipient;
-    setInitialDelivery({ method: selection.method, name: recipient.name, phone: recipient.phone,
+    setInitialDelivery({ method: selection.method, name: recipient.name, phone: selection.method === "store" ? recipient.phone : savedPhoneForForm(recipient.phone),
       documentType: recipient.identity.kind === "document" ? recipient.identity.documentType : "absent",
       document: recipient.identity.kind === "document" ? recipient.identity.document : "",
       address: selection.method === "home" ? selection.destination.address : "",
@@ -265,7 +286,7 @@ function CompanyOrderScreen() {
     if (result.data.kind !== "review") return;
     setDraft(result.data.draft); setQueuedNotice(false);
     setUnavailableVariants(result.data.unavailableVariantIds); setUnavailableLabels(result.data.unavailableLabels ?? {});
-    setReviewingOrder(true); setStage("review"); setPaidPaymentId(null); setError("");
+    setReviewingOrder(true); setStage("review"); setError("");
     const delivery = result.data.pending.request.delivery?.delivery;
     if (delivery) restoreDelivery(delivery, result.data.pending.shownTotal.currency);
     else setInitialDelivery(null);
@@ -274,7 +295,7 @@ function CompanyOrderScreen() {
     const result = addDraftItem(draft, { variantId: variant.id, productName: product.name, variantAttributes: variant.attributes,
       sku: variant.sku, shownUnitPrice: { amount: variant.price, currency: product.currency }, shownStock: variant.stock, quantity: 1 },
       () => Crypto.randomUUID());
-    if (result.success) { setDraft(result.data); setSelected(null); setError(""); setQueuedNotice(false); }
+    if (result.success) { setDraft(result.data); setSelected(null); setPickerOpen(false); setError(""); setQueuedNotice(false); }
     else setError(variant.stock === 0 ? t('outOfStock') : t('variantAlreadyAdded'));
   };
   const changeQuantity = (variantId: string, quantity: number) => {
@@ -288,13 +309,22 @@ function CompanyOrderScreen() {
   const showDeliveryFields = () => {
     if (!settings) return;
     const { name, phone, documentType, document, method, address, instructions } = deliveryDraftFromOrder({ delivery: null,
-      buyer: null,
+      buyer: draft.customer ? { contactId: null, name: draft.customer.name, phone: draft.customer.phone } : null,
       deliveryCharge: { amount: 0, currency: "PEN" } }, settings);
     setInitialDelivery({ name, phone, documentType, document, method, address, instructions, rateId: "", agencyId: "", price: null, districtCode: "",
       currency: productTotal.success ? productTotal.data.shownTotal.currency : "PEN" });
     setQuoteAttempt(value => value + 1);
   };
 
+  // The recipient follows the customer until the seller edits it; an edited recipient is kept and the customer never changes.
+  // Removing the customer keeps the recipient as it is (screen state only).
+  const changeCustomer = (customer: OrderDraft["customer"]) => {
+    const previous = draft.customer;
+    setDraft(current => ({ ...current, customer }));
+    if (!customer) return;
+    setInitialDelivery(current => current && (!current.name && !current.phone || current.name === (previous?.name ?? "") && current.phone === (previous?.phone ?? ""))
+      ? { ...current, name: customer.name, phone: customer.phone } : current);
+  };
   const rejected = pending?.success ? pending.data.filter(sale => sale.rejection) : [];
   const discardUnreadable = () => { void orders.discardPendingOrderConfirmation(companyId).then((result) => {
     if (result.success) { void refreshPending(); syncPending(); setError(""); }
@@ -310,7 +340,7 @@ function CompanyOrderScreen() {
       keyboardDismissMode="on-drag" contentInsetAdjustmentBehavior="never">
       <View style={styles.heading}><Button variant="ghost" onPress={stage === "review" ? backToProducts : () => router.back()}>{t(stage === "review" ? 'editProducts' : 'backToOrders')}</Button>
         <ThemedText type="title" accessibilityRole="header">{t('newOrder')}</ThemedText></View>
-      {queuedNotice ? <ThemedText type="small" accessibilityRole="alert" accessibilityLiveRegion="polite">{t('saleQueued')}</ThemedText> : null}
+      {queuedNotice ? <ThemedText type="small" accessibilityRole="alert" accessibilityLiveRegion="polite">{t(queuedNotice === "label" ? 'labelQueued' : 'saleQueued')}</ThemedText> : null}
       {pending && !pending.success ? <View style={[styles.card, card]}>
           <ThemedText type="smallBold" accessibilityRole="header">{t('pendingReadError')}</ThemedText>
           {pending.error.code === "INVALID_PENDING_DATA" ? <>
@@ -325,22 +355,11 @@ function CompanyOrderScreen() {
             : translations.t(errorKeys[sale.rejection?.code ?? ""] ?? 'confirmOrderError')}</ThemedText>
           <View style={styles.amountRow}><ThemedText>{t('itemCount', { count: sale.request.items.reduce((count, item) => count + item.quantity, 0) })}</ThemedText>
             <ThemedText style={styles.amount}>{money(sale.shownTotal.amount, sale.shownTotal.currency, locale)}</ThemedText></View>
-          <Button variant="secondary" loading={checking} disabled={sending || draft.kind === "items"} onPress={() => void reviewSavedOrder(sale.id)}>{t('reviewRejectedSale')}</Button>
+          <Button variant="secondary" loading={checking} disabled={!!sending || draft.kind === "items"} onPress={() => void reviewSavedOrder(sale.id)}>{t('reviewRejectedSale')}</Button>
         </View>) : null}
-      {stage === "products" ? <View style={styles.section}>
-            <Input value={search} onChangeText={(value) => { setCatalogLoading(true); setSearch(value); }} accessibilityLabel={t('searchProductsByName')} placeholder={t('searchProductsByName')} />
-            {catalogLoading ? <ScreenState status="loading" title={t('searchingProducts')} /> : selected ? <View style={styles.section}>
-              <Button variant="ghost" onPress={() => setSelected(null)}>{t('backToProducts')}</Button>
-              <ThemedText type="subtitle">{selected.name}</ThemedText>
-              {selected.variants.map((variant) => <View key={variant.id} style={styles.item}>
-                <ThemedText type="smallBold">{Object.entries(variant.attributes).map(([key, value]) => `${key}: ${value}`).join(" · ") || variant.sku || t('variant')}</ThemedText>
-                <ThemedText>{money(variant.price, selected.currency, locale)} · {t('stockCount', { count: variant.stock })}</ThemedText>
-                <Button variant="secondary" disabled={draft.items.some((item) => item.variantId === variant.id)} onPress={() => addVariant(selected, variant)}>{t('add')}</Button>
-              </View>)}
-            </View> : catalog.length ? catalog.map((product) => <ListRow key={product.id} title={product.name}
-              description={t('variantCount', { count: product.variants.length })} onPress={() => setSelected(product)} />)
-              : <ScreenState status={search ? "no-results" : "empty"} title={search ? t('noProductsFound') : t('noProductsAvailable')} />}
-            <ThemedText type="subtitle" accessibilityRole="header" style={[styles.sectionHeading, { borderColor: theme.border }]}>{t('items')}</ThemedText>
+      <OrderCustomerCard customer={draft.customer} busy={!!sending} onChange={changeCustomer} />
+      {stage === "products" ? <View style={[styles.card, card]}>
+            <ThemedText type="subtitle" accessibilityRole="header">{t('items')}</ThemedText>
             {unavailableVariants.map((variantId, index) => <View key={variantId} style={styles.item}>
               <ThemedText accessibilityRole="alert">{unavailableLabels[variantId] ? t('itemNoLongerAvailable', { name: unavailableLabels[variantId] }) : t('savedProductUnavailable', { number: index + 1 })}</ThemedText>
               <Button variant="ghost" onPress={() => setUnavailableVariants(current => current.filter(id => id !== variantId))}>{t('removeUnavailableProduct', { number: index + 1 })}</Button>
@@ -357,40 +376,58 @@ function CompanyOrderScreen() {
                 <Button variant="secondary" onPress={() => changeQuantity(item.variantId, item.quantity + 1)}>+</Button>
                 <Button variant="ghost" onPress={() => setDraft(removeDraftItem(draft, item.variantId))}>{t('remove')}</Button></View>
             </View>)}
-            {productTotal.success ? <View style={styles.amountRow}><ThemedText>{t('estimatedProductsLabel')}</ThemedText><ThemedText style={styles.amount}>{money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale)}</ThemedText></View> : null}
-            <Button disabled={draft.kind === "empty" || !!unavailableVariants.length} onPress={() => { setStage("review"); setError(""); scroll.current?.scrollTo({ y: 0, animated: false }); }}>{t('continueOrder')}</Button>
-          </View> : <View style={styles.section}>
+            <Button variant="secondary" onPress={() => { setSelected(null); setCatalogLoading(true); setPickerOpen(true); }}>{t('addProducts')}</Button>
+          </View> : null}
+      {stage === "products" ? null : <View style={styles.section}>
             <OrderItemsCard items={draft.items} total={productTotal.success ? money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale) : null}
-              format={(amount, currency) => money(amount, currency, locale)} onEdit={backToProducts} />
+              format={(amount, currency) => money(amount, currency, locale)} onEdit={backToProducts} collapsible />
             {unavailableVariants.length ? <ThemedText accessibilityRole="alert">{t('savedProductsNeedReview')}</ThemedText> : null}
-            <OrderPaymentCard payments={draft.payments ?? []} paidPaymentId={paidPaymentId} onPaidChange={setPaidPaymentId}
-              currency={currency} busy={sending} newId={() => Crypto.randomUUID()} format={amount => money(amount, currency, locale)}
-              total={orderTotal ? orderTotal.amount : null} balance={orderTotal ? money(orderTotal.amount, orderTotal.currency, locale) : null}
+            <OrderPaymentCard payments={draft.payments ?? []} currency={currency} busy={!!sending} newId={() => Crypto.randomUUID()} format={amount => money(amount, currency, locale)}
+              total={orderTotal ? orderTotal.amount : null} totalConfirmed={!!reviewedTotal?.success}
               onPaymentsChange={update => setDraft(current => ({ ...current, payments: update(current.payments ?? []) }))} />
             {paymentNeedsStock ? <ThemedText accessibilityRole="alert" style={{ color: theme.warning }}>{t('paymentNeedsStock')}</ThemedText> : null}
             <View style={[styles.card, card]}>
-            <ThemedText type="subtitle" accessibilityRole="header">{t('delivery')}</ThemedText>
-            <Field disabled={sending}><FieldLabel>{t('deliveryStatus')}</FieldLabel><OptionSelector testID="delivery-status" value={draft.deliverImmediately ? "delivered" : "pending"}
-              options={[{ value: "pending", label: t('deliveryPending') }, { value: "delivered", label: t('deliveryDelivered') }]}
-              onValueChange={value => setDraft(current => ({ ...current, deliverImmediately: value === "delivered" }))} /></Field>
-            <OrderDayField label={t('scheduledDispatch')} value={draft.scheduledDispatchDate ?? ""}
+            <View style={styles.cardHeader}>
+              <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('delivery')}</ThemedText>
+              <DeliveryBadge status={deliveryState} language={language} />
+            </View>
+            <DeliveryRow symbol={deliveryRowSymbols.status} label={t('rowDeliveryStatus')} value={deliveryStatusLabel(deliveryState, language)} disabled={!!sending} onPress={() => setStatusOpen(true)} />
+            <View style={[styles.divider, { borderColor: theme.border }]} />
+            <OrderDayField row label={t('rowDispatch')} value={draft.scheduledDispatchDate ?? ""}
               onChange={day => setDraft(current => ({ ...current, scheduledDispatchDate: day || undefined }))} />
+            <View style={[styles.divider, { borderColor: theme.border }]} />
             {settings && (initialDelivery || settings.home.enabled || settings.store.enabled || settings.agency.enabled) ? <>
-              <Button variant="ghost" disabled={sending} onPress={() => {
-                if (initialDelivery) { setInitialDelivery(null); setQuoteAttempt(value => value + 1); }
-                else showDeliveryFields();
-              }}>{t(initialDelivery ? 'removeShippingDetails' : 'shippingDetails')}</Button>
-              {initialDelivery ? <DeliveryFields value={initialDelivery} onChange={next => {
-                if (next.method !== initialDelivery.method || next.districtCode !== initialDelivery.districtCode) setQuoteAttempt(value => value + 1);
-                setInitialDelivery(next);
-              }} settings={settings} busy={sending} language={orderLanguage(state.company.country, i18n.language)}
-                rates={rates} quoting={quoting} quoteError={quoteError} onRetry={retryQuotation} /> : null}
+              <DeliveryRow symbol={deliveryRowSymbols.shipping} label={t('rowShipping')} value={shippingSummary(shippingChoice)}
+                muted={!initialDelivery} disabled={!!sending} expanded={initialDelivery ? !shippingCollapsed : undefined} onPress={() => {
+                  if (!initialDelivery) { setShippingCollapsed(false); showDeliveryFields(); }
+                  else setShippingCollapsed(value => !value);
+                }} />
+              {initialDelivery && !shippingCollapsed ? <>
+                <DeliveryFields value={initialDelivery} onChange={next => {
+                  if (next.method !== initialDelivery.method || next.districtCode !== initialDelivery.districtCode) setQuoteAttempt(value => value + 1);
+                  setInitialDelivery(next);
+                }} settings={settings} busy={!!sending} language={language}
+                  rates={rates} quoting={quoting} quoteError={quoteError} onRetry={retryQuotation} />
+                <Button variant="ghost" disabled={!!sending} onPress={() => { setInitialDelivery(null); setShippingCollapsed(false); setQuoteAttempt(value => value + 1); }}>{t('removeShippingDetails')}</Button>
+              </> : null}
             </> : <ThemedText themeColor="textSecondary">{t(settings ? 'orderDeliveryDisabled' : 'loadOrderDeliveryError')}</ThemedText>}
+            {dispatchApplies && Platform.OS === "android" ? <>
+              <View style={[styles.divider, { borderColor: theme.border }]} />
+              <DeliveryRow symbol={deliveryRowSymbols.label} label={t('rowLabel')} value={sending === "label" ? t('dispatchPreparing') : t('rowLabelPrint')}
+                muted={!dispatchable} disabled={!!sending || !dispatchable || saveBlocked} onPress={() => complete(true)} />
+            </> : null}
             {draft.deliverImmediately && balance?.success && balance.data.amount > 0
               ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('deliveryNeedsPayment')}</ThemedText> : null}
             {draft.deliverImmediately && stockShort
               ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('deliveryNeedsStock')}</ThemedText> : null}
+            {dispatchApplies ? <>
+              <Button variant="secondary" loading={sending === "ship"} disabled={!!shipBlock || saveBlocked || !!sending} onPress={ship}>{t('shipOrder')}</Button>
+              {shipBlock ? <ThemedText type="small" themeColor="textSecondary" accessibilityLiveRegion="polite">{shipBlock}</ThemedText> : null}
+            </> : null}
             </View>
+            <OptionSheet visible={statusOpen} title={t('rowDeliveryStatus')} value={deliveryState} onClose={() => setStatusOpen(false)}
+              options={(["pending", "delivered"] as const).map(value => ({ value, label: deliveryStatusLabel(value, language) }))}
+              onSelect={value => setDraft(current => ({ ...current, deliverImmediately: value === "delivered" }))} />
             <View style={[styles.card, card]}>
             <ThemedText type="subtitle" accessibilityRole="header">{t('creationSummary')}</ThemedText>
             {productTotal.success ? <View style={styles.amountRow}><ThemedText>{t('estimatedProductsLabel')}</ThemedText><ThemedText style={styles.amount}>{money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale)}</ThemedText></View> : null}
@@ -399,19 +436,34 @@ function CompanyOrderScreen() {
             {paidAmount?.success ? <View style={styles.amountRow}><ThemedText>{t('initialPaid')}</ThemedText><ThemedText style={styles.amount}>{money(paidAmount.data.amount, paidAmount.data.currency, locale)}</ThemedText></View> : null}
             {balance?.success ? <View style={styles.amountRow}><ThemedText>{t('estimatedBalance')}</ThemedText><ThemedText style={styles.amount}>{money(Math.max(0, balance.data.amount), balance.data.currency, locale)}</ThemedText></View> : null}
             <ThemedText themeColor="textSecondary">{t('creationPriceHint')}</ThemedText>
-            <Button disabled={!prepared.success || !deliveryReady || offline || !!unavailableVariants.length || !!(draft.deliverImmediately && balance?.success && balance.data.amount > 0) || stockBlocked} loading={sending} onPress={() => void complete()}>{t(reviewingOrder ? 'saveReviewedOrder' : 'saveOrder')}</Button>
+            <Button disabled={saveBlocked || !!sending} loading={sending === "save"} onPress={() => void complete()}>{t(reviewingOrder ? 'saveReviewedOrder' : 'saveOrder')}</Button>
             {offline ? <ThemedText type="small" accessibilityRole="alert">{t('offlineEditing')}</ThemedText> : null}
             </View>
           </View>}
-      {error ? <ThemedText accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.error, { color: theme.error }]}>{error}</ThemedText> : null}
+      {error && !pickerOpen ? <ThemedText accessibilityRole="alert" accessibilityLiveRegion="polite" style={[styles.error, { color: theme.error }]}>{error}</ThemedText> : null}
     </ScrollView>
+    {stage === "products" ? <View style={[styles.footer, { backgroundColor: theme.background, borderColor: theme.border }]}>
+      <View style={styles.footerTotal}>
+        <ThemedText type="small" themeColor="textSecondary">{t('estimatedProductsLabel')}</ThemedText>
+        <ThemedText style={styles.amount}>{productTotal.success ? money(productTotal.data.shownTotal.amount, productTotal.data.shownTotal.currency, locale) : "—"}</ThemedText>
+      </View>
+      <View style={styles.footerAction}>
+        <Button disabled={draft.kind === "empty" || !!unavailableVariants.length} onPress={() => { setStage("review"); setError(""); scroll.current?.scrollTo({ y: 0, animated: false }); }}>{t('continueOrder')}</Button>
+      </View>
+    </View> : null}
+    <ProductPickerSheet visible={pickerOpen} search={search} loading={catalogLoading} catalog={catalog} selected={selected}
+      addedVariantIds={draft.items.map(item => item.variantId)} error={error} format={(amount, currency) => money(amount, currency, locale)}
+      onSearchChange={value => { setCatalogLoading(true); setSearch(value); }} onSelect={setSelected} onAdd={addVariant}
+      onClose={() => { setPickerOpen(false); setSelected(null); setError(""); }} />
     </View></KeyboardAvoidingView>
   </SafeAreaView></ThemedView>;
 }
 
 const styles = StyleSheet.create({ page: { flex: 1 }, content: { gap: 16, padding: 16, paddingBottom: 24, maxWidth: 640, width: "100%", alignSelf: "center" },
-  heading: { gap: 4 }, sectionHeading: { borderTopWidth: 1, paddingTop: 16, marginTop: 4 },
+  heading: { gap: 4 }, cardHeader: { flexDirection: "row", alignItems: "center", gap: 8 }, flex: { flex: 1 }, divider: { borderTopWidth: 1 },
   card: { borderWidth: 1, borderRadius: 8, padding: 16, gap: 12 },
   amountRow: { flexDirection: "row", flexWrap: "wrap", alignItems: "center", justifyContent: "space-between", gap: 8 },
   amount: { fontVariant: ["tabular-nums"], textAlign: "right", flexShrink: 1 }, section: { gap: 12 }, item: { gap: 8, paddingVertical: 12 }, row: { flexDirection: "row", flexWrap: "wrap", gap: 8 }, error: { padding: 12 },
+  footer: { flexDirection: "row", alignItems: "center", gap: 16, padding: 16, borderTopWidth: 1 },
+  footerTotal: { flex: 1 }, footerAction: { flex: 1 },
   note: { flexDirection: "row", alignItems: "flex-start", gap: 8, padding: 12, borderRadius: 8 }, noteText: { flex: 1 } });

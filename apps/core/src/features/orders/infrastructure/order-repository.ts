@@ -85,6 +85,7 @@ function mapPaymentUnsafe(row: DbAggregate["payments"][number]): Payment {
       report: { receiptImageId: parsed.data.evidence.report.receiptImageId, reportedAt: new Date(parsed.data.evidence.report.reportedAt) } };
     candidate = { id: row.id, orderId: row.orderId, status: row.status,
       amount: { amount: row.amount.toNumber(), currency: row.currency }, method: row.method,
+      ...(row.walletProvider === null ? {} : { walletProvider: row.walletProvider }),
       data: { confirmedAt: new Date(parsed.data.confirmedAt), confirmedBy: parsed.data.confirmedBy, evidence,
         ...(voided?.success ? { voidedAt: new Date(voided.data.voidedAt), voidedBy: voided.data.voidedBy } : {}) } };
   } else throw new InvalidStoredOrderError("Invalid stored payment status");
@@ -328,7 +329,7 @@ export async function savePayment(payment: Payment, companyId: CompanyId) {
     await prisma.payment.create({ data: { id: payment.id, companyId, orderId: payment.orderId,
       status: payment.status, amount: payment.amount ? new Prisma.Decimal(payment.amount.amount.toString()) : null,
       currency: payment.amount ? payment.amount.currency : payment.currency,
-      method: payment.method, data: paymentDataJson(payment) } });
+      method: payment.method, walletProvider: payment.walletProvider ?? null, data: paymentDataJson(payment) } });
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
@@ -344,7 +345,7 @@ export async function updatePayment(payment: Payment, companyId: CompanyId, expe
   try {
     const updated = await prisma.payment.updateMany({ where: { id: payment.id, orderId: payment.orderId, companyId, status: expectedStatus },
       data: { status: payment.status, amount: payment.amount ? new Prisma.Decimal(payment.amount.amount.toString()) : null,
-        method: payment.method, data: paymentDataJson(payment) } });
+        method: payment.method, walletProvider: payment.walletProvider ?? null, data: paymentDataJson(payment) } });
     return updated.count === 1 ? ok<null>(null) : err({ code: "PAYMENT_CONFLICT" as const, message: "Payment changed during update" });
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;

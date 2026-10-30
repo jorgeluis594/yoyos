@@ -98,8 +98,11 @@ const rejectTransaction: RejectPaymentDependencies["transaction"] = scopedOrderT
 const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = scopedOrderTransaction;
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
+// Shipping deducts pending stock, so the deduction logs under its own operation like set_order_delivery does.
 const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
-  saveFulfillment, clock: () => new Date() };
+  saveFulfillment, clock: () => new Date(),
+  deductProductStock: (variantId, quantity, orderId) => deductProductStock(variantId, quantity, { operation: "ship_order", orderId }),
+  saveStockDeduction: (id, companyId, at) => saveStockDeduction(id, companyId, at, "ship_order") };
 
 export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess) {
   const started = performance.now();
@@ -160,6 +163,7 @@ export function createConfiguredOrder(input: CreateCompleteOrderInput, context: 
     setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access),
     registerPayment: (payment, access) => registerPayment(payment, access, { transaction: paymentTransaction,
       findOrderForUpdate, savePayment, updatePayment, saveCompletion, deductProductStock, saveStockDeduction, clock: () => new Date() }),
+    ship: orders.ship,
     deliver: orders.deliver,
   });
 }

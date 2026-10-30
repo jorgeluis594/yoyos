@@ -198,7 +198,7 @@ export async function action({ params, context, request }: ActionFunctionArgs) {
           : { url: null, success: false, error: paymentErrorCode(result.error.code) };
       }
       const parsed = registerPaymentSchema.safeParse({ paymentId: paymentId.data, source: fields.get("source"),
-        amount: { amount: Number(fields.get("amount")), currency: fields.get("currency") }, method: fields.get("method"),
+        amount: { amount: Number(fields.get("amount")), currency: fields.get("currency") }, method: fields.get("method"), walletProvider: fields.get("walletProvider") ?? undefined,
         deductStockIfPartial: fields.get("deductStockIfPartial") === "on" });
       if (!parsed.success) return { url: null, success: false, error: "INVALID_INPUT" };
       const result = await orders.registerPayment({ ...parsed.data, orderId: id.data as OrderId,
@@ -319,10 +319,10 @@ export default function OrderDetail() {
                 return <Form key={operation} method="post" className="flex flex-col gap-1">
                   <input type="hidden" name="operation" value={operation} />
                   <Button type="submit" variant="outline" disabled={!!blocked || navigation.state !== "idle"} aria-describedby={blocked ? `fulfillment-${operation}-reason` : undefined}>{t(`orderFulfillment.${operation}`)}</Button>
-                  {blocked && <p id={`fulfillment-${operation}-reason`} className="text-sm text-muted-foreground">{t(`orderFulfillment.${blocked}`)}</p>}
+                  {blocked && <p id={`fulfillment-${operation}-reason`} className="text-sm text-muted-foreground">{t(`orderFulfillment.${operation === "ship" && blocked === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : blocked}`)}</p>}
                 </Form>;
               })}
-              {fulfillment?.error && <Alert variant="destructive"><AlertDescription>{t(`orderFulfillment.${fulfillment.error}`, { defaultValue: t("orderFulfillment.saveError") })}</AlertDescription></Alert>}
+              {fulfillment?.error && <Alert variant="destructive"><AlertDescription>{t(`orderFulfillment.${fulfillment.operation === "ship" && fulfillment.error === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : fulfillment.error}`, { defaultValue: t("orderFulfillment.saveError") })}</AlertDescription></Alert>}
               {fulfillment?.success && <Alert variant="success"><AlertDescription>{t(`orderFulfillment.${fulfillment.operation}Saved`)}</AlertDescription></Alert>}
             </div>
             {order.delivery ? <>

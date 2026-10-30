@@ -14,7 +14,7 @@ import type { ChatId } from "@core/src/features/orders/domain/message-order";
 export type OrderStatus = "active" | "cancelled" | "completed";
 export type PaymentStatus = "pending" | "paid";
 export type DeliveryStatus = "pending" | "shipped" | "delivered";
-export type { Payment, PaymentMethod } from "@core/src/features/orders/domain/payment";
+export type { Payment, PaymentMethod, WalletProvider } from "@core/src/features/orders/domain/payment";
 export type DocumentType = "national_id" | "passport" | "foreign_id";
 export type Recipient = Readonly<{ name: string; phone: string; identity: { kind: "absent" } | { kind: "document"; documentType: DocumentType; document: string } }>;
 export type AgencyRecipient = Readonly<Omit<Recipient, "identity"> & { identity: Extract<Recipient["identity"], { kind: "document" }> }>;
@@ -109,7 +109,8 @@ function newPendingOrder(input: BuildOrderInput & Pick<BuildPendingOrderInput, "
   const snapshot = built.data;
   const zero: Money = { amount: 0, currency: snapshot.total.currency };
   return ok({ number: input.number, id: snapshot.id, companyId: snapshot.companyId, sellerId: snapshot.sellerId,
-    buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
+    buyer: snapshot.customer.kind === "contact" ? { contactId: snapshot.customer.contactId, name: snapshot.customer.name, phone: snapshot.customer.phone }
+      : snapshot.customer.kind === "buyer" ? { contactId: null, name: snapshot.customer.name, phone: snapshot.customer.phone } : null,
     fromCatalog, checkoutEnabledAt: new Date(input.createdAt), checkoutConfirmedAt: null, items: snapshot.items, total: snapshot.total,
     createdAt: new Date(input.createdAt), scheduledDispatchDate: input.scheduledDispatchDate ?? null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false, cancelledAt: null,
     payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false, stockDeductedAt: null,
@@ -428,19 +429,20 @@ function planStockDeduction(order: OrderAggregate, requestedIfPartial: boolean, 
   return ok({ kind: "deduct", nextOrder: { ...order, stockDeducted: true, stockDeductedAt: new Date(now) } });
 }
 
-function requireFulfillment(order: OrderAggregate): Result<null, OrderDomainError> {
+function requireFulfillment(order: OrderAggregate, requirePaid: boolean): Result<null, OrderDomainError> {
   const state = lifecycle(order);
   if (!state.success) return state;
   if (state.data.status === "cancelled") return failure("ORDER_CANCELLED", "Order is cancelled");
   const summary = paymentSummary(order);
   if (!summary.success) return summary;
-  if (summary.data.status !== "paid") return failure("PAYMENT_REQUIRED", "Order payment is not covered");
+  if (requirePaid ? summary.data.status !== "paid" : summary.data.paidAmount.amount === 0) return failure("PAYMENT_REQUIRED", "Order payment is not covered");
   if (!order.stockDeducted) return failure("STOCK_NOT_DEDUCTED", "Order stock is not deducted");
   return ok(null);
 }
 
+/** Shipping needs a confirmed payment, partial or full, and deducted stock; the caller deducts stock first. */
 function registerShipment(order: OrderAggregate, shippedAt: Date): Result<OrderAggregate, OrderDomainError> {
-  const allowed = requireFulfillment(order);
+  const allowed = requireFulfillment(order, false);
   if (!allowed.success) return allowed;
   if (!validDate(shippedAt)) return failure("INVALID_TRANSITION", "Invalid shipment date");
   return order.deliveryStatus === "pending" ? ok({ ...order, deliveryStatus: "shipped", shippedAt: new Date(shippedAt) }) : failure("INVALID_TRANSITION", "Delivery is not pending");
@@ -453,7 +455,7 @@ function scheduleDispatch(order: OrderAggregate, scheduledDispatchDate: Dispatch
 }
 
 function registerDelivery(order: OrderAggregate, completedAt: Date): Result<OrderAggregate, OrderDomainError> {
-  const allowed = requireFulfillment(order);
+  const allowed = requireFulfillment(order, true);
   if (!allowed.success) return allowed;
   if (!validDate(completedAt)) return failure("INVALID_TRANSITION", "Invalid completion date");
   return order.deliveryStatus === "pending" || order.deliveryStatus === "shipped"

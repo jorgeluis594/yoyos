@@ -606,6 +606,7 @@ model Payment {
   amount Decimal? @db.Decimal(15, 2)
   currency String
   method String?
+  walletProvider String?
   data Json
 
   @@unique([companyId, id])

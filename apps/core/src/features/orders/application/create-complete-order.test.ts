@@ -27,7 +27,7 @@ function fixture() {
   const deliver = vi.fn(async () => ok(order));
   const transaction = vi.fn();
   const deps: CreateCompleteOrderDependencies = { transaction: async (_companyId, work) => { transaction(); return work(); }, create,
-    setDelivery: async () => ok(order), registerPayment, deliver };
+    setDelivery: async () => ok(order), registerPayment, ship: async () => ok(order), deliver };
   return { deps, transaction, create, registerPayment, deliver, order };
 }
 
