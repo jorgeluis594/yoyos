@@ -8,12 +8,12 @@ import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel, controlClass } from "@core/app/components/ui/field";
 import { PeruLocationFields } from "@core/app/components/peru-district-select";
 import { titleCase } from "@core/app/components/zone-entries";
-import { chooseUpperLevel, enterLocationMethod, isNewUpperLevel, type LocationNotice, type LocationStep } from "@core/app/components/checkout-location";
+import { chooseUpperLevel, enterLocationMethod, type LocationNotice, type LocationStep } from "@core/app/components/checkout-location";
 import { formatCurrency } from "@core/app/format-currency";
 import { useClientReady } from "@core/app/use-client-ready";
 import { CheckoutAgencyDestination } from "@core/app/components/checkout-agency-destination";
 import { agencyChoices, chosenAgency } from "@core/app/checkout-agency-choices";
-import { getPeruDistrict, peruDeliveryDistrict, type PeruArea } from "@shared/peru-geography";
+import { getPeruDistrict, isNewUpperPeruPlace, peruDeliveryDistrict, type PeruArea } from "@shared/peru-geography";
 import type { Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import { checkoutDeliveryChangeSchema, type CheckoutDeliveryOptions, type ConfirmCheckoutDeliveryRequest, type PublicCheckoutResponse } from "@shared/contracts/order-checkout";
@@ -122,7 +122,7 @@ export function CheckoutDeliveryFields({ orderId, checkout, options, recipient, 
     form.setValue("mode", mode); form.setValue("rateId", ""); form.setValue("agencyId", ""); setReceived(null);
   };
   const changeLocation = (next: PeruArea | null, level: "department" | "province" | "district") => {
-    if (places && next && isNewUpperLevel(form.getValues("location"), next, level)) applyStep(chooseUpperLevel(places, next));
+    if (places && next && isNewUpperPeruPlace(form.getValues("location"), next, level)) applyStep(chooseUpperLevel(places, next));
     else { form.setValue("location", next); form.setValue("districtSource", level === "district" && next?.kind === "district" ? "picked" : "automatic"); setNotice({ kind: "none" }); }
     form.setValue("rateId", ""); form.setValue("agencyId", "");
   };

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
 import { canonicalPeruArea, type PeruArea, type PeruAreaSelection } from "@shared/peru-geography";
-import { chooseUpperLevel, enterLocationMethod, isNewUpperLevel } from "@core/app/components/checkout-location";
+import { chooseUpperLevel, enterLocationMethod } from "@core/app/components/checkout-location";
 
 const area = (codes: Partial<{ departmentCodes: string[]; provinceCodes: string[]; districtCodes: string[] }>): PeruAreaSelection =>
   canonicalPeruArea({ departmentCodes: [], provinceCodes: [], districtCodes: [], ...codes });
@@ -59,14 +59,4 @@ test("choosing a new department preselects a single province and district and re
 test("choosing an upper level with several choices below reports no notice", () => {
   const step = chooseUpperLevel(area({ departmentCodes: ["15", "04"] }), { kind: "department", code: "04" } as PeruArea);
   expect(step).toEqual({ location: { kind: "department", code: "04" }, notice: { kind: "none" } });
-});
-
-test("only a new department or province value counts as an upper-level choice", () => {
-  const miraflores = district("150122");
-  expect(isNewUpperLevel(miraflores, { kind: "department", code: "04" } as PeruArea, "department")).toBe(true);
-  expect(isNewUpperLevel(miraflores, { kind: "department", code: "15" } as PeruArea, "department")).toBe(false);
-  expect(isNewUpperLevel(null, { kind: "province", code: "1501" } as PeruArea, "province")).toBe(true);
-  expect(isNewUpperLevel({ kind: "department", code: "15" } as PeruArea, { kind: "department", code: "15" } as PeruArea, "province")).toBe(false);
-  expect(isNewUpperLevel(miraflores, { kind: "department", code: "15" } as PeruArea, "province")).toBe(false);
-  expect(isNewUpperLevel(miraflores, district("150101"), "district")).toBe(false);
 });

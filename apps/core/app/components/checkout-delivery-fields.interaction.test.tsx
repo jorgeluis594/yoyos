@@ -7,11 +7,16 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import resources from "@core/app/locales";
 import { CheckoutDeliveryFields } from "@core/app/components/checkout-delivery-fields";
+import { enterLocationMethod } from "@core/app/components/checkout-location";
 import { requestDeliveryQuotation } from "@core/src/features/delivery-settings/infrastructure/quotation-api";
 import { err, ok } from "@shared/functional";
 import { canonicalPeruArea } from "@shared/peru-geography";
 import type { CheckoutDeliveryOptions, PublicCheckoutResponse } from "@shared/contracts/order-checkout";
 
+vi.mock("@core/app/components/checkout-location", async importOriginal => {
+  const actual = await importOriginal<typeof import("@core/app/components/checkout-location")>();
+  return { ...actual, enterLocationMethod: vi.fn(actual.enterLocationMethod) };
+});
 vi.mock("@core/src/features/delivery-settings/infrastructure/quotation-api", () => ({ requestDeliveryQuotation: vi.fn() }));
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -305,11 +310,20 @@ test("a store covering all departments shows the hint and preselects nothing", a
   expect(document.querySelector("legend + p")!.textContent).toContain("Solo aparecen los lugares donde la tienda entrega");
 });
 
-test("the server render already shows the preselected levels and computes the initial location once", () => {
-  const html = renderToString(element(optionsOf(places({ districtCodes: ["150122"] }), null)));
+test("the server render already shows the preselected levels and computes the initial location once, on the server and on the client", async () => {
+  const enter = vi.mocked(enterLocationMethod);
+  const tree = optionsOf(places({ districtCodes: ["150122"] }), places({ departmentCodes: ["04"] }));
+  enter.mockClear();
+  const html = renderToString(element(tree));
   expect(html).toContain('value="Lima"');
   expect(html).toContain('value="Miraflores"');
   expect(html).not.toContain("Completamos automáticamente");
+  expect(enter).toHaveBeenCalledTimes(1);
+  enter.mockClear();
+  await mount(tree);
+  // Hydration of the form, the quotation and its response re-render the component, none of which recomputes the initial location.
+  await act(async () => undefined);
+  expect(enter).toHaveBeenCalledTimes(1);
 });
 
 test("in a single-district store the server render has both status regions present and empty, and after hydration the notice text is inserted in an earlier update than the loading text", async () => {

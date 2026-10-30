@@ -20,11 +20,3 @@ export function chooseUpperLevel(places: PeruAreaSelection, next: PeruArea): Loc
   const { location, filled } = settlePeruLocation(places, next);
   return { location, notice: filled === "none" ? { kind: "none" } : { kind: "preselected" } };
 }
-
-/** True when the control reports a new value for the department or province, which is what runs preselection; a clear or the same value is not. */
-export function isNewUpperLevel(current: PeruArea | null, next: PeruArea | null, level: "department" | "province" | "district"): boolean {
-  if (level === "district" || next?.kind !== level) return false;
-  const prefix = level === "department" ? 2 : 4;
-  const kept = current && current.code.length >= prefix ? current.code.slice(0, prefix) : null;
-  return next.code !== kept;
-}
