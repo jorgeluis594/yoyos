@@ -1,4 +1,4 @@
-import { browserExpect, expect, test } from "./fixtures";
+import { browserExpect, expect, test, waitForReactHydration } from "./fixtures";
 import { prisma, systemPrisma, withTenantIsolation } from "../../src/shared/infrastructure/persistance";
 
 const mailpit = process.env.MAILPIT_URL ?? "http://127.0.0.1:8025";
@@ -134,7 +134,19 @@ test("company creation remains private without a session", async ({ request }) =
 });
 
 test("the password eye keeps focus and selection on pointer use and toggles with the keyboard", async ({ page }) => {
+  // Hold the animation frames so the caret restore of a pointer toggle can be released at an exact moment.
+  await page.addInitScript(() => {
+    const held: FrameRequestCallback[] = [];
+    let holding = false;
+    const raf = window.requestAnimationFrame.bind(window);
+    window.requestAnimationFrame = (callback) => holding ? held.push(callback) : raf(callback);
+    Object.assign(window, {
+      holdFrames: () => { holding = true; },
+      releaseFrames: () => { holding = false; held.splice(0).forEach((callback) => callback(performance.now())); },
+    });
+  });
   await page.goto("/login");
+  await waitForReactHydration(page, "#password");
   const password = page.getByLabel("Contraseña", { exact: true });
   const eye = page.getByRole("button", { name: "Mostrar contraseña" });
   await password.fill("secreto123");
@@ -144,12 +156,16 @@ test("the password eye keeps focus and selection on pointer use and toggles with
   await browserExpect(page.getByRole("button", { name: "Ocultar contraseña" })).toHaveAttribute("aria-pressed", "true");
   await browserExpect(password).toBeFocused();
   await browserExpect.poll(() => password.evaluate((input: HTMLInputElement) => [input.selectionStart, input.selectionEnd])).toEqual([2, 5]);
+  await page.evaluate(() => (window as unknown as { holdFrames(): void }).holdFrames());
   await page.getByRole("button", { name: "Ocultar contraseña" }).click();
   await browserExpect(password).toHaveAttribute("type", "password");
   await browserExpect(password).toBeFocused();
 
   await password.focus();
   await page.keyboard.press("Tab");
+  await browserExpect(eye).toBeFocused();
+  // The pending restore of the pointer toggle runs now: it must not pull focus away from the button.
+  await page.evaluate(() => (window as unknown as { releaseFrames(): void }).releaseFrames());
   await browserExpect(eye).toBeFocused();
   await page.keyboard.press("Space");
   await browserExpect(password).toHaveAttribute("type", "text");
