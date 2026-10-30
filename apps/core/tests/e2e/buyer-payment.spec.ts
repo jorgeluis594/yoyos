@@ -325,7 +325,7 @@ test("seller rejects a report with a reason and the buyer sees it and sends anot
     await review.getByLabel("Motivo (opcional, lo verá el comprador)").fill("Foto cortada");
     await review.getByRole("button", { name: "Rechazar comprobante" }).click();
     await browserExpect(review).toHaveCount(0);
-    await browserExpect(page.getByText("Pago registrado.", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Pago actualizado.", { exact: true })).toBeVisible();
     await browserExpect(page.getByRole("listitem").filter({ hasText: "Motivo: Foto cortada" })).toBeFocused();
     await browserExpect(page.getByRole("listitem").filter({ hasText: "Pago rechazado" })).toHaveCount(3);
     await browserExpect(page.getByText("Pago por revisar")).toHaveCount(0);

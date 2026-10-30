@@ -1,6 +1,8 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { RouterContextProvider, type ActionFunctionArgs } from "react-router";
 import { action } from "@core/app/routes/order-new";
+import resources from "@core/app/locales";
+import { deliverySavedKey } from "@core/src/features/orders/presentation/stock-due";
 import * as composition from "@core/src/features/orders/composition";
 import { privateUserContext } from "@core/app/private-user-context";
 import type { ReadyAccess } from "@core/src/features/users";
@@ -53,4 +55,22 @@ test("returns the variant of an item that is no longer available so the sale can
   const variantId = input.items[0].variantId;
   vi.spyOn(composition, "createConfiguredOrder").mockResolvedValue({ success: false, error: { code: "VARIANT_NOT_FOUND", message: "Variant is not available", variantId } });
   expect(await save(input)).toMatchObject({ code: "VARIANT_NOT_FOUND", variantId });
+});
+
+test("saves a new sale with payments and short stock and opens the order", async () => {
+  const paymentId = "00000000-0000-4000-8000-000000000005";
+  const create = vi.spyOn(composition, "createConfiguredOrder").mockResolvedValue({ success: true, data: { order: { id: orderId }, stockDue: { kind: "waiting", shortItems: [{ variantId: input.items[0].variantId, available: 3 }] } } } as never);
+  const response = await save({ id: orderId, items: [{ variantId: input.items[0].variantId, quantity: 4 }],
+    payments: [{ paymentId, amount: { amount: 120, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }] });
+  expect(response).toBeInstanceOf(Response);
+  expect((response as Response).headers.get("location")).toBe(`http://localhost/es-PE/orders/${orderId}`);
+  expect(create).toHaveBeenCalledWith(expect.objectContaining({ payments: [expect.objectContaining({ paymentId, amount: { amount: 120, currency: "PEN" } })] }), { companyId, userId: "seller" });
+});
+
+test("a delivery saved on a waiting order says so and the new-sale note promises the wait", () => {
+  expect(deliverySavedKey({ stockDue: { kind: "waiting", shortItems: [{ variantId: orderId, available: 0 }] } })).toBe("orderDelivery.savedWaiting");
+  for (const stockDue of [null, { kind: "deducting" } as const]) expect(deliverySavedKey({ stockDue })).toBe("orderDelivery.saved");
+  expect(resources.es.translation.orderDelivery.savedWaiting).toBe("Entrega guardada. El pedido queda esperando stock.");
+  expect(resources.es.translation.orders.stockWarning.replace("{{stock}}", "3")).toBe("Disponible: 3. Si lo cobras, el pedido quedará esperando stock.");
+  expect(resources.pt.translation.orderDelivery.savedWaiting).toBeTruthy();
 });
