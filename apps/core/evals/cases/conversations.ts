@@ -54,7 +54,7 @@ export const newDevConversationCases: readonly EvalCaseInput[] = [
     ] },
   { id: "conv-photo-set-new-single-variant", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
     { input: photo("chompa-tejida"), expected: { notice: null, order: [chompaTejida()] } },
-    { input: text("pásame 3 de esas"), expected: { notice: null, order: [chompaTejida(3)] } },
+    { input: text("mándame 3 de esas mismas"), expected: { notice: null, order: [chompaTejida(3)] } },
   ] },
   { id: "conv-photo-set-above-99", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
     { input: photo("chompa-tejida"), expected: { notice: null, order: [chompaTejida()] } },
