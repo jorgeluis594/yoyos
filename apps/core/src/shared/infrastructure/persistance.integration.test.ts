@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { ok } from "@shared/functional";
-import { prisma, systemPrisma, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { afterTransactionCommit, getCompanyId, prisma, requireActiveTransaction, systemPrisma, withinSavepoint, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 const company = () => randomUUID();
 
@@ -59,4 +59,102 @@ test("a repeatable read transaction keeps one snapshot between its queries", asy
   } finally {
     await withTenantIsolation(id, async () => await prisma.company.delete({ where: { id } }));
   }
+});
+
+async function withCompany<T>(work: (id: string) => Promise<T>): Promise<T> {
+  const id = company();
+  await withTenantIsolation(id, async () => await prisma.company.create({ data: { id, name: id, country: "PE" } }));
+  return withTenantIsolation(id, () => work(id));
+}
+const companyName = (id: string) => prisma.company.findUniqueOrThrow({ where: { id } }).then((row) => row.name);
+
+test("a savepoint rollback keeps the producer's writes", async () => {
+  await withCompany(async (id) => {
+    const result = await withinTransaction(async () => {
+      await prisma.company.update({ where: { id }, data: { name: "producer" } });
+      const inner = await withinSavepoint(async () => {
+        await prisma.company.update({ where: { id }, data: { name: "savepoint" } });
+        return { success: false as const, error: { code: "NOPE" } };
+      });
+      expect(inner).toEqual({ success: false, error: { code: "NOPE" } });
+      expect(await companyName(id)).toBe("producer");
+      return ok(null);
+    });
+    expect(result.success).toBe(true);
+    expect(await companyName(id)).toBe("producer");
+  });
+});
+
+test("a rolled-back savepoint discards its after-commit observers and restores the abort state", async () => {
+  await withCompany(async () => {
+    const seen: string[] = [];
+    const result = await withinTransaction(async () => {
+      afterTransactionCommit(() => seen.push("producer"));
+      await withinSavepoint(async () => {
+        afterTransactionCommit(() => seen.push("rolled back"));
+        return withinTransaction(async () => ({ success: false as const, error: { code: "NESTED" } }));
+      });
+      // The nested failed Result aborted the scope; the rollback must clear it.
+      expect(() => requireActiveTransaction(getCompanyId())).not.toThrow();
+      return ok(null);
+    });
+    expect(result.success).toBe(true);
+    expect(seen).toEqual(["producer"]);
+  });
+});
+
+test("a released savepoint runs its after-commit observers only when the outer transaction commits", async () => {
+  await withCompany(async () => {
+    const seen: string[] = [];
+    const committed = await withinTransaction(async () => {
+      await withinSavepoint(async () => { afterTransactionCommit(() => seen.push("released")); return ok(null); });
+      expect(seen).toEqual([]);
+      return ok(null);
+    });
+    expect(committed.success).toBe(true);
+    expect(seen).toEqual(["released"]);
+    const rolledBack: string[] = [];
+    await withinTransaction(async () => {
+      await withinSavepoint(async () => { afterTransactionCommit(() => rolledBack.push("released")); return ok(null); });
+      return { success: false as const, error: { code: "PRODUCER_FAILED" } };
+    });
+    expect(rolledBack).toEqual([]);
+  });
+});
+
+test("a statement timeout inside a savepoint is recovered and the outer transaction commits", async () => {
+  await withCompany(async (id) => {
+    const result = await withinTransaction(async () => {
+      await prisma.company.update({ where: { id }, data: { name: "producer" } });
+      const inner = await withinSavepoint(async () => {
+        await prisma.$queryRaw`SELECT pg_sleep(2)`;
+        return ok(null);
+      }, { limitMs: () => 100 });
+      expect(inner).toMatchObject({ success: false, error: { code: "CONTAINED_FAILURE", errorCode: "STATEMENT_TIMEOUT" } });
+      // The producer keeps working and its own timeouts are back.
+      expect(await setting("statement_timeout")).toBe("5s");
+      return ok(await companyName(id));
+    }, { statementTimeoutMs: 5000, lockTimeoutMs: 2000 });
+    expect(result).toEqual({ success: true, data: "producer" });
+    expect(await companyName(id)).toBe("producer");
+  });
+});
+
+test("restores the producer's timeouts after a released savepoint", async () => {
+  await withCompany(async () => {
+    const seen = await withinTransaction(async () => {
+      const inside = await withinSavepoint(async () => ok(await setting("lock_timeout")), { limitMs: () => 700 });
+      return ok({ inside, after: await setting("lock_timeout") });
+    }, { lockTimeoutMs: 2000 });
+    expect(seen).toEqual({ success: true, data: { inside: { success: true, data: "700ms" }, after: "2s" } });
+  });
+});
+
+test("rethrows an error that is not a statement-level database error and aborts the scope", async () => {
+  await withCompany(async () => {
+    await expect(withinTransaction(async () => {
+      await withinSavepoint(async () => { throw new Error("programming error"); });
+      return ok(null);
+    })).rejects.toThrow("programming error");
+  });
 });
