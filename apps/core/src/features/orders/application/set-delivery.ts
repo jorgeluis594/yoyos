@@ -3,25 +3,29 @@ import type { Currency, Money } from "@shared/money";
 import type { Result } from "@shared/result";
 import { orderStateMachine, parseRatedDeliverySelection, type RatedDeliverySelection, type OrderAggregate, type OrderDomainError, type ResolvedDelivery } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
-import type { CompanyId, OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
+import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 import type { ResolveRateError } from "@core/src/features/delivery-settings";
 import type { PeruDistrictError } from "@shared/peru-geography";
-import type { VariantId } from "@core/src/features/products/domain/product";
+import type { TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
+import type { OrderDeliveryChanged } from "@core/src/features/orders/application/events";
+import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
+import { describeOrderStockDue, orderWithStockDue, type StockEventResult, type StockReader } from "@core/src/features/orders/application/describe-order-stock-due";
 
 export type RatedSetDeliveryInput = Readonly<{ orderId: OrderId; delivery: RatedDeliverySelection; expectedPrice: Money }>;
 export type SetDeliveryInput = RatedSetDeliveryInput;
 export type InitialOrderDeliveryInput = Omit<RatedSetDeliveryInput, "orderId">;
-export type SetDeliveryError = OrderDomainError | ResolveRateError | PeruDistrictError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE" | "DELIVERY_UNAVAILABLE" | "DELIVERY_METHOD_DISABLED" | "INVALID_STORED_DATA"; message: string; variantId?: string; reason?: "resolver_not_integrated" | "availability_unconfirmed" }>;
+export type SetDeliveryError = OrderDomainError | ResolveRateError | PeruDistrictError | Readonly<{ code: "ORDER_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE" | "DELIVERY_UNAVAILABLE" | "DELIVERY_METHOD_DISABLED" | "INVALID_STORED_DATA"; message: string; reason?: "resolver_not_integrated" | "availability_unconfirmed" }>;
 export type SetDeliveryDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, SetDeliveryError>>) => Promise<Result<T, SetDeliveryError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, SetDeliveryError>>;
   resolveRatedDelivery: (selection: RatedDeliverySelection, context: OrderAccess, currency: Currency, expectedPrice: Money) => Promise<Result<ResolvedDelivery, SetDeliveryError>>;
   saveDelivery: (id: OrderId, companyId: CompanyId, change: Pick<OrderAggregate, "delivery" | "deliveryCost" | "deliveryCharge" | "total">) => Promise<Result<null, SetDeliveryError>>;
-  deductProductStock: (variantId: VariantId, quantity: PositiveInteger) => Promise<Result<null, SetDeliveryError>>;
-  saveStockDeduction: (id: OrderId, companyId: CompanyId) => Promise<Result<null, SetDeliveryError>>;
+  /** In-transaction event: the orders listener deducts the stock when the new delivery makes the order due and it fits. */
+  publishStockEvent: (payload: OrderDeliveryChanged) => Promise<Result<DeductionOutcome, TransactionEndingError>>;
+  findVariantStock: StockReader;
 }>;
 
-export async function setOrderDelivery(input: SetDeliveryInput, context: OrderAccess, deps: SetDeliveryDependencies): Promise<Result<OrderAggregate, SetDeliveryError>> {
+export async function setOrderDelivery(input: SetDeliveryInput, context: OrderAccess, deps: SetDeliveryDependencies): Promise<Result<StockEventResult, SetDeliveryError>> {
   if (!("expectedPrice" in input))
     return err({ code: "INVALID_ORDER", message: "Delivery requires a reviewed price" });
   const selection = parseRatedDeliverySelection(input.delivery);
@@ -40,24 +44,18 @@ export async function setOrderDelivery(input: SetDeliveryInput, context: OrderAc
   });
 }
 
+/** Saves the delivery and, when it changed, lets the orders listener deduct the stock the new total may have made due. A delivery is never refused because of stock. */
 export async function persistDeliveryChange(previous: OrderAggregate, changed: OrderAggregate,
-  deps: Pick<SetDeliveryDependencies, "saveDelivery" | "deductProductStock" | "saveStockDeduction">): Promise<Result<OrderAggregate, SetDeliveryError>> {
+  deps: Pick<SetDeliveryDependencies, "saveDelivery" | "publishStockEvent" | "findVariantStock">): Promise<Result<StockEventResult, SetDeliveryError>> {
   const after = orderStateMachine.getPaymentSummary(changed);
   if (!after.success) return after;
-  let next = changed;
-  if (after.data.status === "paid" && !previous.stockDeducted) {
-    const plan = orderStateMachine.planStockDeduction(changed, false);
-    if (!plan.success) return plan;
-    if (plan.data.kind !== "deduct") throw new Error("Covered order has no stock deduction plan");
-    for (const item of [...changed.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
-      const deducted = await deps.deductProductStock(item.variantId, item.quantity);
-      if (!deducted.success) return deducted;
-    }
-    const saved = await deps.saveStockDeduction(previous.id, previous.companyId);
-    if (!saved.success) return saved;
-    next = plan.data.nextOrder;
+  if (changed === previous) {
+    const described = await describeOrderStockDue([changed], { readStock: deps.findVariantStock, inSnapshot: (read) => read() });
+    return described.success ? ok({ order: changed, stockDue: described.data.get(changed.id) ?? null, outcome: null }) : described;
   }
-  if (changed === previous) return ok(next);
-  const saved = await deps.saveDelivery(previous.id, previous.companyId, next);
-  return saved.success ? ok(next) : saved;
+  const saved = await deps.saveDelivery(previous.id, previous.companyId, changed);
+  if (!saved.success) return saved;
+  const outcome = await deps.publishStockEvent({ companyId: previous.companyId, orderId: previous.id });
+  if (!outcome.success) return outcome;
+  return orderWithStockDue(changed, outcome.data, deps.findVariantStock);
 }

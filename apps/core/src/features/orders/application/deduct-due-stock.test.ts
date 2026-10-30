@@ -29,10 +29,10 @@ function fixture(orders: StockOrder[], stock: Record<number, unknown>, options: 
   const deps: DeductDueStockDependencies = {
     loadStockOrders: async (ids): Promise<Result<readonly StockOrderRow[], TransactionEndingError>> => {
       statements.push("load");
-      return ok(ids.flatMap((orderId) => {
+      return ok(ids.flatMap((orderId): StockOrderRow[] => {
         const found = orders.find((candidate) => candidate.id === orderId);
         if (!found) return [];
-        return options.invalid?.includes(Number(found.id.slice(-12))) ? [{ ok: false as const, id: found.id }] : [{ ok: true as const, order: found }];
+        return options.invalid?.includes(Number(found.id.slice(-12))) ? [{ ok: false, id: found.id }] : [{ ok: true, order: found }];
       }));
     },
     lockOrdersSkipLocked: async (ids) => { statements.push("lock_orders"); return ok(ids.filter((orderId) => !options.held?.includes(Number(orderId.slice(-12))))); },

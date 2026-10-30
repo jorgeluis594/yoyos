@@ -155,7 +155,7 @@ test("order detail shows «Desde el catálogo» and no seller for a catalog orde
   if (!catalog.success || !manual.success) throw new Error("expected orders");
   const render = (order: OrderAggregate) => {
     const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
-      hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order), base: "/es-PE/orders", manualPaymentId: id(5), receiptUrls: {},
+      hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order, null), base: "/es-PE/orders", manualPaymentId: id(5), receiptUrls: {},
         settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "ready", url: "https://fantasio.yoyos.lat/checkout/7bf00000-0000-4000-8000-000000000002" } } } } });
     try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
     finally { router.dispose(); }
@@ -178,7 +178,7 @@ test("order detail offers «Imprimir rótulo» for any order, cancelled included
   if (!built.success) throw new Error("expected order");
   const render = (order: OrderAggregate) => {
     const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
-      hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order), base: "/es-PE/orders", manualPaymentId: id(5), receiptUrls: {},
+      hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order, null), base: "/es-PE/orders", manualPaymentId: id(5), receiptUrls: {},
         settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" } } } } });
     try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
     finally { router.dispose(); }
@@ -220,7 +220,7 @@ test("order detail labels a rejected payment as Pago rechazado and never as conf
   const order = { ...built.data, payments: [{ id: id(6), orderId: id(2), status: "rejected", currency: "PEN", amount: null, method: null,
     data: { report: { receiptImageId: id(20), reportedAt: at }, rejectedAt: at, rejectedBy: "seller", reason: "No coincide" } }] } as unknown as OrderAggregate;
   const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
-    hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order), base: "/es-PE/orders", manualPaymentId: id(5),
+    hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order, null), base: "/es-PE/orders", manualPaymentId: id(5),
       receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" } } } } });
   try {
     const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));
@@ -273,7 +273,7 @@ test("receipt thumbnails load lazily with fixed dimensions", async () => {
   const withReport = { ...order, payments: [{ id: id(6), orderId: id(2), status: "reported", currency: "PEN", amount: null, method: null,
     data: { receiptImageId: id(20), reportedAt: at } }] } as unknown as OrderAggregate;
   const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
-    hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(withReport), base: "/es-PE/orders", manualPaymentId: id(5),
+    hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(withReport, null), base: "/es-PE/orders", manualPaymentId: id(5),
       receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" } } } } });
   try {
     const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));

@@ -1,36 +1,39 @@
 import { expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import type { CompanyId } from "@shared/identity";
+import type { OrderId, PaymentId } from "@core/src/features/orders/domain/order";
+import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
 import { createInTransactionPublisher, type InTransactionRegistry } from "@core/src/shared/events/application/in-transaction-events";
 
-declare module "@core/src/shared/events/application/in-transaction-events" {
-  interface InTransactionEvents { test_event: { payload: { companyId: CompanyId; value: number }; outcome: { doubled: number } | { failed: true } } }
-}
+type Ending = { code: string; message: string };
 const company = "00000000-0000-4000-8000-000000000001" as CompanyId;
-const passThrough = async <T, F>(work: () => Promise<T>) => work() as never;
-const base = { requireTransaction: () => undefined, withinSavepoint: passThrough as never,
-  containedOutcome: () => ({ failed: true as const }) };
+const event = { companyId: company, orderId: "00000000-0000-4000-8000-000000000002" as OrderId, paymentId: "00000000-0000-4000-8000-000000000003" as PaymentId };
+const deducted: DeductionOutcome = { kind: "deducted", stock: new Map() };
+const failed: DeductionOutcome = { kind: "failed", stage: "lock_stock", errorCode: "STATEMENT_TIMEOUT" };
+const registryOf = (handler: () => Promise<ReturnType<typeof ok<DeductionOutcome>> | ReturnType<typeof err<Ending>>>): InTransactionRegistry<Ending> => ({
+  payment_confirmed: handler, order_delivery_changed: handler, order_stock_deduction_overdue: handler,
+  product_stock_increased: async () => ok({ candidates: 0, deducted: 0, skippedLocked: 0, skippedInvalid: 0, budgetExhausted: false, failed: null }),
+}) as InTransactionRegistry<Ending>;
+const passThrough = async (work: () => Promise<unknown>) => work();
+const base = { requireTransaction: () => undefined, withinSavepoint: passThrough as never, containedOutcome: (() => failed) as never };
 
 test("runs the event's handler and returns its outcome", async () => {
-  const registry: InTransactionRegistry<{ code: string }> = { test_event: async ({ value }) => ok({ doubled: value * 2 }) };
-  const publish = createInTransactionPublisher(registry, base);
-  expect(await publish("test_event", { companyId: company, value: 4 })).toEqual(ok({ doubled: 8 }));
+  const publish = createInTransactionPublisher(registryOf(async () => ok(deducted)), base);
+  expect(await publish("payment_confirmed", event)).toEqual(ok(deducted));
 });
 
 test("refuses to publish outside a transaction of the payload company", async () => {
-  const registry: InTransactionRegistry<{ code: string }> = { test_event: async () => ok({ doubled: 0 }) };
-  const publish = createInTransactionPublisher(registry, { ...base, requireTransaction: (id) => { if (id !== company) throw new Error("An active transaction for this company is required"); } });
-  await expect(publish("test_event", { companyId: "other" as CompanyId, value: 1 })).rejects.toThrow("active transaction");
+  const publish = createInTransactionPublisher(registryOf(async () => ok(deducted)),
+    { ...base, requireTransaction: (id) => { if (id !== company) throw new Error("An active transaction for this company is required"); } });
+  await expect(publish("payment_confirmed", { ...event, companyId: "other" as CompanyId })).rejects.toThrow("active transaction");
 });
 
 test("turns a contained savepoint failure into the event's failed outcome and returns a transaction-ending error", async () => {
   const containedFailure = { code: "CONTAINED_FAILURE", errorCode: "STATEMENT_TIMEOUT", message: "x", cause: null };
-  const registry: InTransactionRegistry<{ code: string }> = { test_event: async () => err({ code: "ENDED" }) };
+  const contained = createInTransactionPublisher(registryOf(async () => ok(deducted)), { ...base, withinSavepoint: (async () => err(containedFailure)) as never });
+  expect(await contained("payment_confirmed", event)).toEqual(ok(failed));
   const seen: unknown[] = [];
-  const contained = createInTransactionPublisher(registry, { ...base, withinSavepoint: (async () => err(containedFailure)) as never });
-  expect(await contained("test_event", { companyId: company, value: 1 })).toEqual(ok({ failed: true }));
-  const ending = createInTransactionPublisher(registry, { ...base, onTransactionEnding: (name, error) => seen.push([name, error]),
-    withinSavepoint: (async (work: () => Promise<unknown>) => work()) as never });
-  expect(await ending("test_event", { companyId: company, value: 1 })).toEqual(err({ code: "ENDED" }));
-  expect(seen).toEqual([["test_event", { code: "ENDED" }]]);
+  const ending = createInTransactionPublisher(registryOf(async () => err({ code: "ENDED", message: "ended" })), { ...base, onTransactionEnding: (name, error) => seen.push([name, error]) });
+  expect(await ending("payment_confirmed", event)).toEqual(err({ code: "ENDED", message: "ended" }));
+  expect(seen).toEqual([["payment_confirmed", { code: "ENDED", message: "ended" }]]);
 });

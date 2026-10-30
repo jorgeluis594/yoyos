@@ -126,7 +126,7 @@ test("the SQL due-and-fit rule and isStockDeductionDue agree on zero totals, ove
       { total: 100, items: [[0, 1]], payments: [{ amount: 100 }], deliveryStatus: "shipped", stockDeducted: true },
       { total: 100, items: [[0, 1]], payments: [{ amount: 100 }], deliveryStatus: "delivered", stockDeducted: true },
     ];
-    const ids = [];
+    const ids: OrderId[] = [];
     for (const definition of cases) ids.push(await seed(definition));
     const loaded = data(await tx(() => loadStockOrders(ids, companyId)));
     const dueByDomain = new Set(loaded.flatMap((row) => row.ok && isStockDeductionDue(row.order) ? [row.order.id] : []));

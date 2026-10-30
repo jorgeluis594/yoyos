@@ -208,7 +208,7 @@ export type SavepointOptions = Readonly<{
  * when `work` returns a failed Result (returned as is) or throws a statement-level database error (returned as a ContainedFailure).
  * Errors that end the whole transaction (Prisma timeout, lost connection) and non-database errors mark the scope aborted and are rethrown.
  */
-export async function withinSavepoint<T, E>(work: () => Promise<Result<T, E>>, options: SavepointOptions = {}): Promise<Result<T, E | ContainedFailure>> {
+export async function withinSavepoint<T, E extends AppError>(work: () => Promise<Result<T, E>>, options: SavepointOptions = {}): Promise<Result<T, E | ContainedFailure>> {
   const companyId = getCompanyId();
   requireActiveTransaction(companyId);
   const scope = transactions.getStore()!;

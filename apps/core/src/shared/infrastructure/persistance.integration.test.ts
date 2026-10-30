@@ -74,9 +74,9 @@ test("a savepoint rollback keeps the producer's writes", async () => {
       await prisma.company.update({ where: { id }, data: { name: "producer" } });
       const inner = await withinSavepoint(async () => {
         await prisma.company.update({ where: { id }, data: { name: "savepoint" } });
-        return { success: false as const, error: { code: "NOPE" } };
+        return { success: false as const, error: { code: "NOPE", message: "no" } };
       });
-      expect(inner).toEqual({ success: false, error: { code: "NOPE" } });
+      expect(inner).toEqual({ success: false, error: { code: "NOPE", message: "no" } });
       expect(await companyName(id)).toBe("producer");
       return ok(null);
     });
@@ -92,7 +92,7 @@ test("a rolled-back savepoint discards its after-commit observers and restores t
       afterTransactionCommit(() => seen.push("producer"));
       await withinSavepoint(async () => {
         afterTransactionCommit(() => seen.push("rolled back"));
-        return withinTransaction(async () => ({ success: false as const, error: { code: "NESTED" } }));
+        return withinTransaction(async () => ({ success: false as const, error: { code: "NESTED", message: "no" } }));
       });
       // The nested failed Result aborted the scope; the rollback must clear it.
       expect(() => requireActiveTransaction(getCompanyId())).not.toThrow();
@@ -116,7 +116,7 @@ test("a released savepoint runs its after-commit observers only when the outer t
     const rolledBack: string[] = [];
     await withinTransaction(async () => {
       await withinSavepoint(async () => { afterTransactionCommit(() => rolledBack.push("released")); return ok(null); });
-      return { success: false as const, error: { code: "PRODUCER_FAILED" } };
+      return { success: false as const, error: { code: "PRODUCER_FAILED", message: "no" } };
     });
     expect(rolledBack).toEqual([]);
   });

@@ -1,6 +1,8 @@
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { expect, test } from "vitest";
-import { err, ok } from "@shared/functional";
+import { ok } from "@shared/functional";
+import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
+import type { Payment } from "@core/src/features/orders/domain/order-state-machine";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
 import { buildPendingOrder } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, OrderId, OrderItemId, PaymentId, UserId } from "@core/src/features/orders/domain/order";
@@ -21,37 +23,69 @@ function pendingOrder() {
   return built.data;
 }
 
-test("confirms payment and required stock in one transaction", async () => {
-  let transactions = 0;
-  let paymentSaved = false;
-  let stockSaved = false;
+const variantId = id(5) as VariantId;
+
+function fixture(outcome: DeductionOutcome, initial = pendingOrder(), stock: unknown = 3n) {
+  const events: unknown[] = [];
+  const saved: Payment[] = [];
+  const order: string[] = [];
   const deps: RegisterPaymentDependencies = {
-    transaction: async (_company, work) => { transactions++; return work(); },
-    findOrderForUpdate: async () => ok(pendingOrder()),
-    savePayment: async () => { paymentSaved = true; return ok(null); },
+    transaction: async (_company, work) => work(),
+    findOrderForUpdate: async () => ok(initial),
+    savePayment: async (payment) => { saved.push(payment); order.push("save"); return ok(null); },
     updatePayment: async () => { throw new Error("Manual payment must be created"); },
     saveCompletion: async () => { throw new Error("Undelivered order cannot be completed"); },
-    deductProductStock: async () => paymentSaved ? ok(null) : err({ code: "PERSISTENCE_UNAVAILABLE", message: "Payment missing" }),
-    saveStockDeduction: async () => { stockSaved = true; return ok(null); },
+    publishPaymentConfirmed: async (event) => { events.push(event); order.push("publish"); return ok(outcome); },
+    findVariantStock: async () => ok(new Map([[variantId, stock]])),
     clock: () => new Date("2026-09-30T12:00:00Z"),
   };
-  expect(await registerPayment(input, context, deps)).toMatchObject({ success: true,
-    data: { order: { stockDeducted: true, payments: [{ id: input.paymentId }] }, stock: { kind: "deducted" } } });
-  expect({ transactions, paymentSaved, stockSaved }).toEqual({ transactions: 1, paymentSaved: true, stockSaved: true });
+  return { deps, events, saved, order };
+}
+
+test("records a covering payment with short stock and returns the waiting order", async () => {
+  const f = fixture({ kind: "short", shortItems: [{ variantId, available: 0 as never }] });
+  expect(await registerPayment(input, context, f.deps)).toMatchObject({ success: true,
+    data: { order: { stockDeducted: false, payments: [{ id: input.paymentId }] }, stockDue: { kind: "waiting", shortItems: [{ variantId, available: 0 }] } } });
+  expect(f.order).toEqual(["save", "publish"]);
+  expect(f.events).toEqual([{ companyId, orderId, paymentId: input.paymentId }]);
 });
 
-test("returns stock failure instead of claiming a confirmed payment", async () => {
-  let transactions = 0;
-  const deps: RegisterPaymentDependencies = {
-    transaction: async (_company, work) => { transactions++; return work(); },
-    findOrderForUpdate: async () => ok(pendingOrder()),
-    savePayment: async () => ok(null),
-    updatePayment: async () => { throw new Error("Manual payment must be created"); },
-    saveCompletion: async () => { throw new Error("Undelivered order cannot be completed"); },
-    deductProductStock: async () => err({ code: "INSUFFICIENT_STOCK", message: "Stock unavailable" }),
-    saveStockDeduction: async () => { throw new Error("Stock flag must not be saved"); },
-    clock: () => new Date("2026-09-30T12:00:00Z"),
-  };
-  expect(await registerPayment(input, context, deps)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
-  expect(transactions).toBe(1);
+test("records a covering payment with enough stock and returns the deducted order", async () => {
+  const f = fixture({ kind: "deducted", stock: new Map() });
+  expect(await registerPayment(input, context, f.deps)).toMatchObject({ success: true, data: { order: { stockDeducted: true }, stockDue: null } });
+});
+
+test("records the payment when the deduction fails with invalid stock data", async () => {
+  const f = fixture({ kind: "failed", stage: "lock_stock", errorCode: "INVALID_STORED_DATA" }, pendingOrder(), -4n);
+  expect(await registerPayment(input, context, f.deps)).toMatchObject({ success: true, data: { order: { stockDeducted: false }, stockDue: { kind: "deducting" } } });
+  const contended = fixture({ kind: "failed", stage: "lock_stock", errorCode: "LOCK_TIMEOUT" }, pendingOrder(), 5n);
+  expect(await registerPayment(input, context, contended.deps)).toMatchObject({ success: true, data: { stockDue: { kind: "deducting" } } });
+  const short = fixture({ kind: "failed", stage: "deduct_stock", errorCode: "DEADLOCK" }, pendingOrder(), 0n);
+  expect(await registerPayment(input, context, short.deps)).toMatchObject({ success: true, data: { stockDue: { kind: "waiting", shortItems: [{ available: 0 }] } } });
+});
+
+test("stores the partial deduction request on the confirmation", async () => {
+  const f = fixture({ kind: "not_due" });
+  await registerPayment({ ...input, deductStockIfPartial: true }, context, f.deps);
+  expect(f.saved[0]).toMatchObject({ status: "confirmed", deductStockIfPartial: true });
+  const plain = fixture({ kind: "not_due" });
+  await registerPayment(input, context, plain.deps);
+  expect(plain.saved[0]).toMatchObject({ deductStockIfPartial: false });
+});
+
+test("a transaction-ending failure of the deduction fails the whole payment", async () => {
+  const f = fixture({ kind: "not_due" });
+  const ending = { code: "PERSISTENCE_UNAVAILABLE" as const, message: "closed", transactionEnding: true as const };
+  expect(await registerPayment(input, context, { ...f.deps, publishPaymentConfirmed: async () => ({ success: false, error: ending }) }))
+    .toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+});
+
+test("a repeated approval publishes nothing and returns the current order", async () => {
+  const first = fixture({ kind: "not_due" });
+  const created = await registerPayment(input, context, first.deps);
+  if (!created.success) throw new Error("setup");
+  const replay = fixture({ kind: "not_due" }, { ...created.data.order, stockDeducted: false });
+  expect(await registerPayment(input, context, replay.deps)).toMatchObject({ success: true, data: { order: { payments: [{ id: input.paymentId }] }, stockDue: { kind: "deducting" } } });
+  expect(replay.events).toEqual([]);
+  expect(replay.saved).toEqual([]);
 });

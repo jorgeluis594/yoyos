@@ -2,15 +2,18 @@ import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { orderStateMachine, type OrderAggregate, type FulfillmentChange, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
-import type { CompanyId, OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
+import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
+import { parseStockQuantity, type StockLine } from "@core/src/features/orders/domain/stock-deduction";
 
-export type FulfillOrderError = OrderDomainError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE"; message: string; variantId?: string }>;
+export type FulfillOrderError = OrderDomainError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string; variantId?: string }>;
 export type FulfillOrderDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, FulfillOrderError>>) => Promise<Result<T, FulfillOrderError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, FulfillOrderError>>;
   saveFulfillment: (id: OrderId, companyId: CompanyId, change: FulfillmentChange) => Promise<Result<null, FulfillOrderError>>;
-  deductProductStock: (variantId: VariantId, quantity: PositiveInteger, orderId: OrderId) => Promise<Result<null, FulfillOrderError>>;
+  /** Stock capabilities of products: lock the rows (waiting), then one guarded statement that decrements every line or none. */
+  lockVariantStock: (variantIds: readonly VariantId[], mode: "wait") => Promise<Result<ReadonlyMap<VariantId, unknown>, FulfillOrderError>>;
+  deductStockBulk: (lines: readonly StockLine[]) => Promise<Result<number, FulfillOrderError>>;
   saveStockDeduction: (id: OrderId, companyId: CompanyId) => Promise<Result<null, FulfillOrderError>>;
   clock: () => Date;
 }>;
@@ -20,10 +23,18 @@ export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: Fu
   const plan = orderStateMachine.planStockDeduction(order, true);
   if (!plan.success) return plan;
   if (plan.data.kind === "deduct") {
+    const variantIds = order.items.map((item) => item.variantId).sort();
+    const locked = await deps.lockVariantStock(variantIds, "wait");
+    if (!locked.success) return locked;
     for (const item of [...order.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
-      const deducted = await deps.deductProductStock(item.variantId, item.quantity, order.id);
-      if (!deducted.success) return deducted;
+      const available = parseStockQuantity(locked.data.get(item.variantId) ?? 0);
+      if (!available.success) return err({ code: "INVALID_STORED_DATA", message: available.error.message });
+      if (available.data < item.quantity) return err({ code: "INSUFFICIENT_STOCK", message: "Not enough stock", variantId: item.variantId });
     }
+    const lines = order.items.map((item): StockLine => ({ variantId: item.variantId, quantity: item.quantity }));
+    const deducted = await deps.deductStockBulk(lines);
+    if (!deducted.success) return deducted;
+    if (deducted.data !== lines.length) return err({ code: "INSUFFICIENT_STOCK", message: "Not enough stock", variantId: lines[0]!.variantId });
     const saved = await deps.saveStockDeduction(order.id, order.companyId);
     if (!saved.success) return saved;
   }

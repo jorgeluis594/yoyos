@@ -103,7 +103,7 @@ test("web list counts units across product lines and shows the remaining balance
   expect(built.success).toBe(true);
   if (!built.success) throw new Error(built.error.message);
   const paid = orderStateMachine.registerPayment(built.data, { id: id(7) as PaymentId, orderId: built.data.id,
-    status: "confirmed", amount: money(20), method: "digital_wallet", data: { confirmedAt: new Date("2026-09-28T12:00:00Z"),
+    status: "confirmed", amount: money(20), method: "digital_wallet", deductStockIfPartial: false, data: { confirmedAt: new Date("2026-09-28T12:00:00Z"),
       confirmedBy: { kind: "seller", userId: "seller" as UserId }, evidence: { kind: "manual" } } });
   expect(paid.success).toBe(true);
   if (!paid.success) throw new Error(paid.error.message);

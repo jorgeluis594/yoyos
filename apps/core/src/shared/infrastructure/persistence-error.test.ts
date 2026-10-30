@@ -13,7 +13,7 @@ test("recognizes Prisma and adapter database failures while preserving programmi
 });
 
 test("classifies Prisma timeouts and lost connections as transaction-ending and statement errors as contained", () => {
-  const known = (code: string, message: string, meta?: object) => new Prisma.PrismaClientKnownRequestError(message, { code, clientVersion: "7.10.0", meta });
+  const known = (code: string, message: string, meta?: Record<string, unknown>) => new Prisma.PrismaClientKnownRequestError(message, { code, clientVersion: "7.10.0", meta });
   expect(classifyPersistenceFailure(known("P2028", "Transaction API error: Transaction already closed"))).toEqual({ kind: "transaction_ending" });
   expect(classifyPersistenceFailure(Object.assign(new Error("Connection terminated unexpectedly"), { name: "DriverAdapterError", cause: { kind: "postgres" } }))).toEqual({ kind: "transaction_ending" });
   expect(classifyPersistenceFailure(known("P2010", "Raw query failed", { code: "55P03", message: "canceling statement due to lock timeout" }))).toEqual({ kind: "contained", errorCode: "LOCK_TIMEOUT" });

@@ -18,7 +18,7 @@ export type CheckoutDeliveryChange = Readonly<{ kind: "keep"; recipient?: Readon
 export type ConfirmCheckoutDeliveryInput = ConfirmOrderCheckoutInput & Readonly<{ delivery: CheckoutDeliveryChange }>;
 export type ConfirmCheckoutDeliveryError = CheckoutError | SetDeliveryError;
 export type ConfirmCheckoutDeliveryDependencies = Pick<CheckoutDependencies, "saveBuyer" | "saveConfirmed"> &
-  Pick<SetDeliveryDependencies, "saveDelivery" | "deductProductStock" | "saveStockDeduction"> & ResolveShippingDependencies & Readonly<{
+  Pick<SetDeliveryDependencies, "saveDelivery" | "publishStockEvent" | "findVariantStock"> & ResolveShippingDependencies & Readonly<{
     transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, ConfirmCheckoutDeliveryError>>) => Promise<Result<T, ConfirmCheckoutDeliveryError>>;
     findOrderForUpdate: (access: CheckoutAccess) => Promise<Result<(CheckoutOrder & OrderAggregate) | null, ConfirmCheckoutDeliveryError>>;
   }>;
@@ -140,7 +140,7 @@ export async function confirmCheckoutDelivery(input: ConfirmCheckoutDeliveryInpu
     if (!savedBuyer.success) return savedBuyer;
     const savedConfirmation = await deps.saveConfirmed(access, now);
     if (!savedConfirmation.success) return savedConfirmation;
-    const confirmed = checkoutView({ ...savedDelivery.data, companyName: order.companyName, buyer: snapshot, checkoutConfirmedAt: now });
+    const confirmed = checkoutView({ ...savedDelivery.data.order, companyName: order.companyName, buyer: snapshot, checkoutConfirmedAt: now });
     return confirmed.success ? ok({ checkout: confirmed.data, changed: true, fromCatalog: order.fromCatalog }) : confirmed;
   });
 }

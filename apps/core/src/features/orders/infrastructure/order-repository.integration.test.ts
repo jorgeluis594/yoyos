@@ -10,14 +10,14 @@ import { Prisma, PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import { expect, test, vi } from "vitest";
 import { ok, err } from "@shared/functional";
-import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
+import { orders, createConfiguredOrder, publishStockEvent } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildPendingOrder, orderStateMachine, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findChatOrderTargetForUpdate, recordProcessedMessage, saveItemChanges, saveDelivery, savePendingOrder, saveStockDeduction } from "@core/src/features/orders/infrastructure/order-repository";
+import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findChatOrderTargetForUpdate, recordProcessedMessage, saveItemChanges, saveDelivery, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
 import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
-import { deductProductStock, findProductIdsOfVariants } from "@core/src/features/products";
+import { findProductIdsOfVariants, findVariantStock } from "@core/src/features/products";
 import * as products from "@core/src/features/products";
 import { restoreCancelledStock } from "@core/src/composition/event-handlers";
 import { applyChatActions, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
@@ -199,13 +199,6 @@ test("persists a pending order without payment or stock effects", async () => {
       expect(await withinTransaction(() => findOrderForUpdate(input.id, context.companyId))).toMatchObject({ success: true,
         data: { id: orderId, stockDeducted: false } });
       await expect(findOrderForUpdate(input.id, context.companyId)).rejects.toThrow("active transaction");
-      expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: false } });
-      await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 0.2, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
-      expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
-      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
-      expect(await orders.deductStock(input.id, context)).toMatchObject({ success: true, data: { stockDeducted: true } });
-      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
     });
   } finally { await f.cleanup(); }
 });
@@ -227,7 +220,7 @@ test("reports incompatible stored payments instead of returning an invalid aggre
   } finally { await f.cleanup(); }
 });
 
-test("keeps all stock when a pending order cannot deduct every item", async () => {
+test("records the payment and keeps all stock when an order cannot deduct every item", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
@@ -237,16 +230,15 @@ test("keeps all stock when a pending order cannot deduct every item", async () =
         { variantId: f.variantIds[0] as VariantId, quantity: 2 as PositiveInteger },
         { variantId: f.variantIds[1] as VariantId, quantity: 4 as PositiveInteger },
       ] }, context)).toMatchObject({ success: true });
-      await prisma.payment.create({ data: { id: randomUUID(), orderId, companyId: f.companyId,
-        amount: 1, currency: "PEN", method: "digital_wallet", status: "confirmed", data: { confirmedAt: new Date().toISOString(), confirmedBy: { kind: "legacy" }, evidence: { kind: "manual" } } } });
-      expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+      const paid = await orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.6, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context);
+      expect(paid).toMatchObject({ success: true, data: { order: { stockDeducted: false }, stockDue: { kind: "waiting", shortItems: [{ variantId: f.variantIds[1], available: 3 }] } } });
       expect((await prisma.order.findUniqueOrThrow({ where: { id: orderId } })).stockDeducted).toBe(false);
       expect((await prisma.productStock.findMany({ orderBy: { variantId: "asc" } })).map((stock) => stock.quantity)).toEqual([3n, 3n]);
     });
   } finally { await f.cleanup(); }
 });
 
-test("rolls back payment when stock is short and retries its ID after replenishment", async () => {
+test("records a payment with short stock as waiting and a retry of its ID records nothing more", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
@@ -256,17 +248,15 @@ test("rolls back payment when stock is short and retries its ID after replenishm
         items: [{ variantId: f.variantIds[0] as VariantId, quantity: 4 as PositiveInteger }] }, context)).toMatchObject({ success: true });
       const input = { orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.4, currency: "PEN" as const },
         method: "digital_wallet" as const, deductStockIfPartial: false };
-      expect(await orders.registerPayment(input, context)).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
-      expect(await prisma.payment.count({ where: { orderId } })).toBe(0);
-      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
-      await prisma.productStock.update({ where: { variantId: f.variantIds[0] }, data: { quantity: { increment: 1n } } });
       expect(await orders.registerPayment(input, context)).toMatchObject({ success: true,
-        data: { stock: { kind: "deducted" }, order: { stockDeducted: true } } });
-      expect(await orders.registerPayment(input, context)).toMatchObject({ success: true, data: { stock: { kind: "deducted" } } });
+        data: { order: { stockDeducted: false }, stockDue: { kind: "waiting", shortItems: [{ variantId: f.variantIds[0], available: 3 }] } } });
+      expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
+      expect(await orders.registerPayment(input, context)).toMatchObject({ success: true, data: { order: { stockDeducted: false }, stockDue: { kind: "waiting" } } });
       expect(await orders.registerPayment({ ...input, amount: { amount: 0.3, currency: "PEN" } }, context))
         .toMatchObject({ success: false, error: { code: "PAYMENT_CONFLICT" } });
       expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
-      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(0n);
+      expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(3n);
     });
   } finally { await f.cleanup(); }
 });
@@ -388,7 +378,6 @@ test("cancelling before dispatch retains deducted stock for deferred restoration
       expect(await orders.cancel(orderId, context)).toMatchObject({ success: true, data: { cancelled: true } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(1n);
       expect(await prisma.payment.count({ where: { orderId } })).toBe(1);
-      expect(await orders.deductStock(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
       for (const operation of [orders.ship, orders.deliver])
         expect(await operation(orderId, context)).toMatchObject({ success: false, error: { code: "ORDER_CANCELLED" } });
     });
@@ -821,7 +810,7 @@ test.each(["ship", "cancel"] as const)("delivery editing and %s serialize withou
           arrived(); await hold; return result;
         }));
         await locked;
-        const second = run(assignmentFirst ? finish : assign);
+        const second = run((assignmentFirst ? finish : assign) as () => Promise<unknown>);
         try { await waitForDeliveryLock(); } finally { release(); }
         expect(await first).toMatchObject({ success: true });
         expect(await second).toMatchObject(assignmentFirst ? { success: true } : { success: false, error: { code: "DELIVERY_LOCKED" } });
@@ -1000,12 +989,12 @@ test("concurrent delivery assignment and stock deduction consume stock once", as
       arrived(); await hold; return result;
     }));
     await protectedOrder;
-    const deduct = run(() => orders.deductStock(orderId, context));
+    const extraPayment = run(() => orders.registerPayment({ orderId, paymentId: randomUUID() as PaymentId, amount: { amount: 0.1, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false }, context));
     try { await waitForDeliveryLock(); } finally { release(); }
-    expect(await assign).toMatchObject({ success: true, data: { delivery: { method: "store", pickupPoint: { address: "Address" } }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: true } });
-    expect(await deduct).toMatchObject({ success: true, data: { stockDeducted: true } });
+    expect(await assign).toMatchObject({ success: true, data: { order: { delivery: { method: "store", pickupPoint: { address: "Address" } }, deliveryCost: { amount: 0 }, deliveryCharge: { amount: 0 }, stockDeducted: true } } });
+    expect(await extraPayment).toMatchObject({ success: true, data: { order: { stockDeducted: true } } });
     await run(async () => {
-      expect(await orderDetail(orderId, f)).toMatchObject({ success: true, data: { total: { amount: 0.1 }, payments: [{ amount: { amount: 0.1 } }], stockDeducted: true } });
+      expect(await orderDetail(orderId, f)).toMatchObject({ success: true, data: { total: { amount: 0.1 }, payments: [{ amount: { amount: 0.1 } }, { amount: { amount: 0.1 } }], stockDeducted: true } });
       expect((await prisma.productStock.findUniqueOrThrow({ where: { variantId: f.variantIds[0] } })).quantity).toBe(2n);
     });
   } finally { release?.(); await f.cleanup(); }
@@ -1582,7 +1571,7 @@ test("checkout delivery, buyer, confirmation and covered stock commit together a
     await withTenantIsolation(f.companyId, async () => {
       expect(await confirmCheckoutDelivery({ ...input, expectedTotal: { amount: 0.1, currency: "PEN" } }, failed, new Date(), {
         transaction: (_company, work) => withinTransaction(work), findOrderForUpdate: findCheckoutOrderForUpdate,
-        saveDelivery, deductProductStock, saveStockDeduction, saveBuyer: saveCheckoutBuyer,
+        saveDelivery, publishStockEvent: (payload) => publishStockEvent("order_delivery_changed", payload), findVariantStock, saveBuyer: saveCheckoutBuyer,
         saveConfirmed: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "Confirmation failed" }),
         getStoreSettings: deliverySettings.getForCompany, resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
       })).toMatchObject({ error: { code: "PERSISTENCE_UNAVAILABLE" } });
@@ -1948,7 +1937,7 @@ test("derives source whatsapp for chat orders and manual otherwise", async () =>
       for (const id of [chatOrder, manualOrder])
         expect(await findOrderAggregate(id as OrderId, context.companyId)).toMatchObject({ success: true, data: { id } });
       const stored = await Promise.all([chatOrder, manualOrder].map((id) => findOrderAggregate(id as OrderId, context.companyId)));
-      expect(stored.map((found) => found.success && found.data && toOrderAggregateJson(found.data).source)).toEqual(["whatsapp", "manual"]);
+      expect(stored.map((found) => found.success && found.data && toOrderAggregateJson(found.data, null).source)).toEqual(["whatsapp", "manual"]);
       const aggregates = await findOrderAggregates({ page: 1, customer: { kind: "all" } }, context.companyId);
       const summaries = await findOrders({ page: 1, customer: { kind: "all" } });
       if (!aggregates.success || !summaries.success) throw new Error("Unable to list orders");

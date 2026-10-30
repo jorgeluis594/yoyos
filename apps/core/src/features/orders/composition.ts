@@ -1,16 +1,21 @@
 import { applicationEventBus } from "@core/src/composition/event-bus";
 import type { EventBusError } from "@core/src/shared/events/application/contracts";
-import { createCompleteOrder, type CreateCompleteOrderInput, type CreateCompleteOrderError } from "@core/src/features/orders/application/create-complete-order";
+import { createCompleteOrder, type CreateCompleteOrderInput } from "@core/src/features/orders/application/create-complete-order";
 import { enableOrderCheckout, getOrderCheckout, confirmOrderCheckout, confirmCheckoutDelivery, type CheckoutDependencies, type CheckoutPhotoError, type GetOrderCheckoutDependencies, type ConfirmOrderCheckoutInput, type ConfirmCheckoutDeliveryInput } from "@core/src/features/orders/application/checkout";
 import { findCheckoutOrder, findCheckoutOrderForUpdate as findAnyCheckoutOrderForUpdate, saveCheckoutBuyer, saveCheckoutConfirmed } from "@core/src/features/orders/infrastructure/checkout-repository";
 import { canAccessBuyerPayment, type CheckoutAccess, type CheckoutError } from "@core/src/features/orders/domain/checkout";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import { log, bindRequestOperation } from "@core/src/shared/infrastructure/logger";
 import { randomUUID } from "node:crypto";
-import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
+import { isPersistenceFailure, type TransactionEndingError } from "@core/src/shared/infrastructure/persistence-error";
+import { createInTransactionPublisher, type InTransactionRegistry } from "@core/src/shared/events/application/in-transaction-events";
+import { containedDeductionOutcome, containedServeOutcome, deductDueOrderStock, serveWaitingOrders, type DeductDueStockDependencies, type StockEvent } from "@core/src/features/orders/application/deduct-due-stock";
+import { describeOrderStockDue } from "@core/src/features/orders/application/describe-order-stock-due";
+import type { StockDue } from "@core/src/features/orders/domain/stock-deduction";
+import { listWaitingOrderIds, loadStockOrders, lockOrdersSkipLocked, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
 import { err, map, ok } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
-import { afterTransactionCommit, getCompanyId, requireNoActiveTransaction, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { afterTransactionCommit, getCompanyId, requireActiveTransaction, requireNoActiveTransaction, setLocalTimeouts, withinReadSnapshot, withinSavepoint, withinTransaction, withTenantIsolation, type TransactionOptions } from "@core/src/shared/infrastructure/persistance";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { setOrderDelivery, type SetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
 import { resolveShippingCost as resolveRatedShippingCost } from "@core/src/features/orders/application/resolve-delivery-selection";
@@ -23,7 +28,6 @@ import type { CatalogSubdomain } from "@shared/catalog-subdomain";
 import { createCatalogOrder, type CatalogOrderAccess, type CreateCatalogOrderError, type CreateCatalogOrderInput } from "@core/src/features/orders/application/create-catalog-order";
 import { z } from "zod";
 import { createOrder, type CreateOrderDependencies } from "@core/src/features/orders/application/create-order";
-import { deductStock, type DeductStockDependencies } from "@core/src/features/orders/application/deduct-stock";
 import { registerPayment, type RegisterPaymentDependencies } from "@core/src/features/orders/application/register-payment";
 import { reportPayment, type ReportPaymentDependencies } from "@core/src/features/orders/application/report-payment";
 import { rejectPayment, type RejectPaymentDependencies } from "@core/src/features/orders/application/reject-payment";
@@ -37,7 +41,7 @@ import { listOrderAggregates } from "@core/src/features/orders/application/list-
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
 import { allocateOrderNumber, findOrderNumbers, findOpenChatOrderCandidate, findChatOrderTargetForUpdate, saveItemChanges, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariants, findProductIdsOfVariants, findProductNoticeNames, deductProductStock, searchSaleCatalog } from "@core/src/features/products";
+import { findSellableVariants, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
@@ -67,9 +71,9 @@ import { orderStateMachine } from "@core/src/features/orders/domain/order-state-
 import type { BuyerPaymentView } from "@shared/contracts/orders";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 
-async function orderTransaction<T, E extends AppError>(callback: () => Promise<Result<T, E>>, deliveryContext?: Readonly<{ orderId: string; userId: string }>): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
+async function orderTransaction<T, E extends AppError>(callback: () => Promise<Result<T, E>>, deliveryContext?: Readonly<{ orderId: string; userId: string }>, options?: TransactionOptions): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
   try {
-    return await withinTransaction(callback);
+    return await withinTransaction(callback, options);
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
     log.error({ event: "unable_to_complete_order_transaction", errorCode: "PERSISTENCE_UNAVAILABLE", ...(deliveryContext ? { operation: "set_order_delivery",
@@ -86,24 +90,91 @@ function scopedOrderTransaction<T, E extends AppError>(companyId: string, callba
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
   return orderTransaction(callback);
 }
+/** Every transaction that publishes a stock event: lock and statement waits end below Prisma's 5000 ms timer, so a contended listener is a contained timeout, never P2028. */
+const producerOptions: TransactionOptions = { lockTimeoutMs: 2000, statementTimeoutMs: 3000 };
+function producerTransaction<T, E extends AppError>(companyId: string, callback: () => Promise<Result<T, E>>): Promise<Result<T, E | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
+  if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+  return orderTransaction(callback, undefined, producerOptions);
+}
+
+/** Serving waiting orders: at most this many candidates and this many milliseconds of work inside a restoration (initial values, adjustable). */
+export const WAITING_ORDERS_BATCH_SIZE = 100;
+export const WAITING_ORDERS_BUDGET_MS = 500;
+
+function emitStockEvent(event: StockEvent) {
+  switch (event.kind) {
+    case "deducted": return afterTransactionCommit(() => log.info({ event: "order_stock_deducted", companyId: event.companyId, orderId: event.orderId, trigger: event.trigger,
+      itemCount: event.itemCount, durationMs: event.durationMs }, "order_stock_deducted"));
+    case "waiting": return afterTransactionCommit(() => log.info({ event: "order_stock_waiting", companyId: event.companyId, orderId: event.orderId, trigger: event.trigger,
+      shortItemCount: event.shortItemCount }, "order_stock_waiting"));
+    case "served": return afterTransactionCommit(() => log.info({ event: "waiting_orders_served", companyId: event.companyId, variantCount: event.variantCount,
+      candidates: event.candidates, deducted: event.deducted, skippedLocked: event.skippedLocked, skippedInvalid: event.skippedInvalid,
+      budgetExhausted: event.budgetExhausted, durationMs: event.durationMs }, "waiting_orders_served"));
+    case "skipped_invalid": return log.error({ event: "stock_deduction_failed", companyId: event.companyId, orderId: event.orderId, trigger: "product_stock_increased",
+      stage: "load_order", errorCode: "INVALID_STORED_DATA" }, "stock_deduction_failed");
+  }
+}
+
+const deductDueStockDependencies: DeductDueStockDependencies = { loadStockOrders, lockOrdersSkipLocked, lockVariantStock, deductStockBulk, saveStockDeductions, listWaitingOrderIds,
+  limitStatementsToMs: (ms) => setLocalTimeouts({ statementTimeout: `${ms}ms`, lockTimeout: `${ms}ms` }),
+  emit: emitStockEvent, waitingOrdersBatchSize: WAITING_ORDERS_BATCH_SIZE, waitingOrdersBudgetMs: WAITING_ORDERS_BUDGET_MS, clock: () => new Date() };
+
+// The registry lives here because every handler belongs to orders; products receives the publisher by injection.
+const stockRegistry: InTransactionRegistry<TransactionEndingError> = {
+  payment_confirmed: deductDueOrderStock("payment_confirmed", deductDueStockDependencies),
+  order_delivery_changed: deductDueOrderStock("order_delivery_changed", deductDueStockDependencies),
+  order_stock_deduction_overdue: deductDueOrderStock("order_stock_deduction_overdue", deductDueStockDependencies),
+  product_stock_increased: serveWaitingOrders(deductDueStockDependencies),
+};
+
+export const publishStockEvent = createInTransactionPublisher(stockRegistry, {
+  requireTransaction: requireActiveTransaction,
+  withinSavepoint,
+  containedOutcome: ((name: string, payload: { companyId: string; orderId?: string }, failure: Parameters<typeof containedDeductionOutcome>[0]) => {
+    const contended = ["LOCK_TIMEOUT", "STATEMENT_TIMEOUT", "DEADLOCK"].includes(failure.errorCode);
+    // Recovery reports an order once, when it enters quarantine, so it does not log here.
+    if (name !== "order_stock_deduction_overdue" && !(name === "product_stock_increased" && contended && failure.errorCode !== "DEADLOCK")) {
+      const fields = { companyId: payload.companyId, orderId: payload.orderId, trigger: name, stage: failure.stage, errorCode: failure.errorCode };
+      if (contended) log.warn({ event: "stock_deduction_contended", ...fields }, "stock_deduction_contended");
+      else log.error({ event: "stock_deduction_failed", ...fields, err: failure.cause }, "stock_deduction_failed");
+    }
+    return name === "product_stock_increased" ? containedServeOutcome(failure) : containedDeductionOutcome(failure);
+  }) as never,
+  onTransactionEnding: (name, error) => log.warn({ event: "stock_deduction_rolled_back", event_name: name, errorCode: error.code }, "stock_deduction_rolled_back"),
+});
+
+/** Stock rows of these variants, read without lock; the quantities are validated by whoever uses them. */
+const readStock = findVariantStock;
+
+/** `stockDue` of orders returned after commit (void, reject, ship, deliver, cancel, aggregate reads): one stock read for all the due ones, none when nothing is due. */
+async function describeStockDue(found: readonly OrderAggregate[]): Promise<Result<ReadonlyMap<OrderId, StockDue | null>, Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> {
+  try {
+    const described = await describeOrderStockDue(found, { readStock, inSnapshot: withinReadSnapshot });
+    return described.success ? described : err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: described.error.message });
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    log.error({ event: "unable_to_describe_stock_due", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_describe_stock_due");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read stock" });
+  }
+}
+
 /** One batched lookup per order; an unreadable stored variant is a persistence failure for the sale. */
 const findSellableOrderVariants: CreateOrderDependencies["findVariants"] = async (ids) => {
   const found = await findSellableVariants(ids);
   return found.success ? found : err({ code: "PERSISTENCE_UNAVAILABLE", message: found.error.message });
 };
 const pendingTransaction: CreateOrderDependencies["transaction"] = scopedOrderTransaction;
-const stockTransaction: DeductStockDependencies["transaction"] = scopedOrderTransaction;
-const paymentTransaction: RegisterPaymentDependencies["transaction"] = scopedOrderTransaction;
+const paymentTransaction: RegisterPaymentDependencies["transaction"] = producerTransaction;
 const reportTransaction: ReportPaymentDependencies["transaction"] = scopedOrderTransaction;
 const voidTransaction: VoidPaymentDependencies["transaction"] = scopedOrderTransaction;
 const rejectTransaction: RejectPaymentDependencies["transaction"] = scopedOrderTransaction;
-const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = scopedOrderTransaction;
+const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = producerTransaction;
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
 // Shipping deducts pending stock, so the deduction logs under its own operation like set_order_delivery does.
 const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
   saveFulfillment, clock: () => new Date(),
-  deductProductStock: (variantId, quantity, orderId) => deductProductStock(variantId, quantity, { operation: "ship_order", orderId }),
+  lockVariantStock, deductStockBulk,
   saveStockDeduction: (id, companyId) => saveStockDeduction(id, companyId, "ship_order") };
 
 export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess) {
@@ -112,7 +183,7 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
   const result = await setOrderDelivery(input, context, {
     transaction: (companyId, work) => {
       if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
-      return orderTransaction(work, { orderId: input.orderId, userId: context.userId });
+      return orderTransaction(work, { orderId: input.orderId, userId: context.userId }, producerOptions);
     },
     findOrderForUpdate: async (id, companyId) => {
       const found = await findOrderForUpdate(id, companyId, "set_order_delivery");
@@ -135,8 +206,8 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
       return resolved;
     },
     saveDelivery: (id, companyId, change) => { observed.stage = "save_delivery"; return saveDelivery(id, companyId, change); },
-    deductProductStock: (variantId, quantity) => { observed.stage = "deduct_stock"; return deductProductStock(variantId, quantity, { operation: "set_order_delivery", orderId: input.orderId }); },
-    saveStockDeduction: (id, companyId) => { observed.stage = "save_stock_deduction"; return saveStockDeduction(id, companyId, "set_order_delivery"); },
+    publishStockEvent: (payload) => { observed.stage = "deduct_stock"; return publishStockEvent("order_delivery_changed", payload); },
+    findVariantStock,
   });
   const durationMs = Math.round(performance.now() - started);
   if (result.success) {
@@ -144,26 +215,25 @@ export async function setConfiguredOrderDelivery(input: SetDeliveryInput, contex
     afterTransactionCommit(() => log.info({ event: "order_delivery_saved", operation: "set_order_delivery", orderId: input.orderId,
       userId: context.userId, authorKind: "seller", changeKind: before?.delivery ? "replaced" : "assigned",
       courierId: observed.courierId, optionId: observed.optionId, agencyId: observed.agencyId, previousDeliveryMethod: before?.delivery?.method, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion,
-      totalChanged: before?.total.amount !== result.data.total.amount,
-      stockDeductionRequired: !before?.stockDeducted && result.data.stockDeducted, stockDeducted: result.data.stockDeducted,
+      totalChanged: before?.total.amount !== result.data.order.total.amount,
+      stockDeductionRequired: !before?.stockDeducted && result.data.order.stockDeducted, stockDeducted: result.data.order.stockDeducted,
       transactionOutcome: "committed", durationMs }, "Order delivery saved"));
   } else if (!["ORDER_NOT_FOUND", "PERSISTENCE_UNAVAILABLE", "INVALID_STORED_DATA", "INVALID_ORDER", "CURRENCY_MISMATCH"].includes(result.error.code)) {
     log.debug({ event: "order_delivery_rejected", operation: "set_order_delivery", orderId: input.orderId, userId: context.userId,
       courierId: observed.courierId, optionId: observed.optionId, agencyId: observed.agencyId, deliveryMethod: input.delivery.method, settingsVersion: observed.settingsVersion, deliveryStatus: observed.previous?.deliveryStatus, cancelled: observed.previous?.cancelled,
       errorCode: result.error.code, stage: observed.stage,
-      ...(result.error.code === "DELIVERY_UNAVAILABLE" ? { reason: result.error.reason } : {}),
-      ...(result.error.code === "INSUFFICIENT_STOCK" ? { variantId: result.error.variantId } : {}) }, "Order delivery rejected");
+      ...(result.error.code === "DELIVERY_UNAVAILABLE" ? { reason: result.error.reason } : {}) }, "Order delivery rejected");
   }
   return result;
 }
 
-export function createConfiguredOrder(input: CreateCompleteOrderInput, context: OrderAccess): Promise<Result<OrderAggregate, CreateCompleteOrderError>> {
+export function createConfiguredOrder(input: CreateCompleteOrderInput, context: OrderAccess) {
   return createCompleteOrder(input, context, {
-    transaction: scopedOrderTransaction,
+    transaction: producerTransaction,
     create: orders.create,
     setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access),
     registerPayment: (payment, access) => registerPayment(payment, access, { transaction: paymentTransaction,
-      findOrderForUpdate, savePayment, updatePayment, saveCompletion, deductProductStock, saveStockDeduction, clock: () => new Date() }),
+      findOrderForUpdate, savePayment, updatePayment, saveCompletion, publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock: () => new Date() }),
     ship: orders.ship,
     deliver: orders.deliver,
   });
@@ -323,9 +393,9 @@ export const orders = {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "confirm_checkout" });
     const result = await withTenantIsolation(access.companyId, () => confirmCheckoutDelivery(input, access, new Date(), {
-      transaction: scopedOrderTransaction, findOrderForUpdate: findAnyCheckoutOrderForUpdate,
+      transaction: producerTransaction, findOrderForUpdate: findAnyCheckoutOrderForUpdate,
       saveBuyer: saveCheckoutBuyer, saveConfirmed: saveCheckoutConfirmed,
-      saveDelivery, deductProductStock, saveStockDeduction,
+      saveDelivery, publishStockEvent: (payload) => publishStockEvent("order_delivery_changed", payload), findVariantStock,
       getStoreSettings: deliverySettings.getForCompany, resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
     }));
     if (!result.success) {
@@ -393,22 +463,22 @@ export const orders = {
   registerImmediateSale: (input: Parameters<typeof registerImmediateSale>[0], context: Parameters<typeof registerImmediateSale>[1]) =>
     registerImmediateSale(input, context, { transaction: immediateTransaction, orderExists,
       findVariants: findSellableOrderVariants, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,
-      savePayment, deductProductStock, saveStockDeduction, saveFulfillment,
+      savePayment, publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), saveFulfillment,
       newItemId: () => randomUUID() as OrderItemId, newPaymentId: () => randomUUID() as PaymentId, clock: () => new Date() }),
   registerPayment: async (input: Parameters<typeof registerPayment>[0], context: Parameters<typeof registerPayment>[1]) => {
     let applied = false;
     const markSaved: typeof savePayment = async (...args) => { const result = await savePayment(...args); if (result.success) applied = true; return result; };
     const markUpdated: typeof updatePayment = async (...args) => { const result = await updatePayment(...args); if (result.success) applied = true; return result; };
     const result = await registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate,
-      savePayment: markSaved, updatePayment: markUpdated, saveCompletion, deductProductStock, saveStockDeduction, clock: () => new Date() });
+      savePayment: markSaved, updatePayment: markUpdated, saveCompletion,
+      publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock: () => new Date() });
     if (result.success) {
+      const { order, stockDue } = result.data;
+      const stockStatus = order.stockDeducted ? "deducted" : stockDue?.kind ?? "not_due";
       if (applied) log.info({ event: "payment_confirmed", paymentId: input.paymentId, actorKind: "seller", userId: context.userId,
-        source: input.source ?? "manual", stockOutcome: result.data.stock.kind, transactionOutcome: "committed" }, "payment_confirmed");
+        source: input.source ?? "manual", stockStatus, transactionOutcome: "committed" }, "payment_confirmed");
       else log.debug({ event: "payment_operation_replayed", operation: "confirm", paymentId: input.paymentId }, "payment_operation_replayed");
-    } else if (result.error.code === "INSUFFICIENT_STOCK") log.warn({ event: "payment_confirmation_stock_rejected", paymentId: input.paymentId,
-      variantId: "variantId" in result.error ? result.error.variantId : undefined,
-      errorCode: result.error.code, transactionOutcome: "rolled_back" }, "payment_confirmation_stock_rejected");
-    else if (result.error.code === "PAYMENT_CONFLICT") log.debug({ event: "payment_operation_conflict", operation: "confirm",
+    } else if (result.error.code === "PAYMENT_CONFLICT") log.debug({ event: "payment_operation_conflict", operation: "confirm",
       paymentId: input.paymentId, errorCode: result.error.code }, "payment_operation_conflict");
     return result;
   },
@@ -447,8 +517,7 @@ export const orders = {
       paymentId: input.paymentId, errorCode: result.error.code }, "payment_operation_conflict");
     return result;
   },
-  deductStock: (id: Parameters<typeof deductStock>[0], context: Parameters<typeof deductStock>[1]) =>
-    deductStock(id, context, { transaction: stockTransaction, findOrderForUpdate, deductProductStock, saveStockDeduction }),
+  describeStockDue,
   create: (input: Parameters<typeof createOrder>[0], context: Parameters<typeof createOrder>[1]) =>
     createOrder(input, context, { transaction: pendingTransaction, orderExists,
       findVariants: findSellableOrderVariants, saveOrder: savePendingOrder, allocateNumber: allocateOrderNumber,

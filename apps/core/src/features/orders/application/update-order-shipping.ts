@@ -7,13 +7,14 @@ import type { OrderAccess } from "@core/src/features/orders/application/create-o
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 
 export type UpdateOrderShippingInput = Readonly<{ orderId: OrderId; scheduledDispatchDate?: DispatchDate | null; status?: "shipped" | "delivered" }>;
-export type UpdateOrderShippingError = OrderDomainError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE"; message: string; variantId?: string }>;
+export type UpdateOrderShippingError = OrderDomainError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string; variantId?: string }>;
 export type UpdateOrderShippingDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, UpdateOrderShippingError>>) => Promise<Result<T, UpdateOrderShippingError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, UpdateOrderShippingError>>;
   saveDispatchSchedule: (id: OrderId, companyId: CompanyId, change: DispatchScheduleChange) => Promise<Result<null, UpdateOrderShippingError>>;
   saveFulfillment: (id: OrderId, companyId: CompanyId, change: FulfillmentChange) => Promise<Result<null, UpdateOrderShippingError>>;
-  deductProductStock: FulfillOrderDependencies["deductProductStock"];
+  lockVariantStock: FulfillOrderDependencies["lockVariantStock"];
+  deductStockBulk: FulfillOrderDependencies["deductStockBulk"];
   saveStockDeduction: FulfillOrderDependencies["saveStockDeduction"];
   clock: () => Date;
 }>;

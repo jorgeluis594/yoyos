@@ -8,6 +8,7 @@ import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/ap
 import { orders, createConfiguredOrder } from "@core/src/features/orders/composition";
 import { toLegacyOrderJson, toOrderAggregateJson, toOrderAggregateListJson, toOrderListJson } from "@core/src/features/orders/presentation/order-json";
 import type { CreateOrderInput, OrderAccess } from "@core/src/features/orders/application/create-order";
+import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import { parseScheduledDispatchFilter } from "@core/src/features/orders/application/list-order-aggregates";
 import type { DispatchDate } from "@shared/dispatch-date";
@@ -72,6 +73,14 @@ function operationError(response: Response, error: { code: string; variantId?: s
 function unexpected(response: Response, error: unknown, context?: Readonly<{ operation: string; orderId: string; userId: string }>) {
   log.error({ event: "order_api_operation_failed", ...(context ? { operation: context.operation, orderId: context.orderId, userId: context.userId } : {}), err: error }, "order_api_operation_failed");
   return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
+}
+
+/** Answers an order with its `stockDue`: only due orders cost a stock read. */
+async function sendOrder(response: Response, order: OrderAggregate, options: Readonly<{ status?: number; parse?: (json: ReturnType<typeof toOrderAggregateJson>) => unknown }> = {}) {
+  const described = await orders.describeStockDue([order]);
+  if (!described.success) return operationError(response, described.error);
+  const json = toOrderAggregateJson(order, described.data.get(order.id) ?? null);
+  return response.status(options.status ?? 200).json(options.parse ? options.parse(json) : json);
 }
 
 export const orderRoutes = express.Router();
@@ -150,7 +159,7 @@ orderRoutes.get("/:id/aggregate", async (request, response: Response<unknown, Pr
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order ID");
   try {
     const result = await orders.getAggregate(parsed.data as OrderId, orderContext(response));
-    return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+    return result.success ? sendOrder(response, result.data) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 
@@ -160,7 +169,7 @@ orderRoutes.post("/pending", async (request, response: Response<unknown, Private
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
   try {
     const result = await orders.create(toCreateOrderInput(parsed.data), orderContext(response));
-    return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+    return result.success ? sendOrder(response, result.data, { status: 201 }) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 
@@ -170,7 +179,7 @@ orderRoutes.post("/immediate-sale", async (request, response: Response<unknown, 
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order input");
   try {
     const result = await orders.registerImmediateSale(toCreateOrderInput(parsed.data), orderContext(response));
-    return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+    return result.success ? sendOrder(response, result.data, { status: 201 }) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 
@@ -182,7 +191,7 @@ orderRoutes.post("/:id/payments", async (request, response: Response<unknown, Pr
   try {
     const input: RegisterPaymentInput = { ...parsed.data, orderId: parsedId.data as OrderId, paymentId: parsed.data.paymentId as PaymentId };
     const result = await orders.registerPayment(input, orderContext(response));
-    return result.success ? response.json(registerPaymentResponseSchema.parse({ order: toOrderAggregateJson(result.data.order) }))
+    return result.success ? response.json(registerPaymentResponseSchema.parse({ order: toOrderAggregateJson(result.data.order, result.data.stockDue) }))
       : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
@@ -197,7 +206,7 @@ orderRoutes.put("/:id/delivery", async (request, response: Response<unknown, Pri
     const selection = parseRatedDeliverySelection(parsed.data.delivery);
     if (!selection.success) return operationError(response, selection.error);
     const result = await orders.setDelivery({ orderId: parsedId.data as OrderId, delivery: selection.data, expectedPrice: parsed.data.expectedPrice }, context);
-    return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+    return result.success ? response.json(toOrderAggregateJson(result.data.order, result.data.stockDue)) : operationError(response, result.error);
   } catch (cause) { return unexpected(response, cause, { operation: "set_order_delivery", orderId: parsedId.data, userId: context.userId }); }
 });
 
@@ -207,7 +216,7 @@ orderRoutes.post("/:id/payments/:paymentId/void", async (request, response: Resp
   if (!parsedId.success || !parsedPaymentId.success) return apiError(response, 400, "INVALID_INPUT", "Invalid payment ID");
   try {
     const result = await orders.voidPayment({ orderId: parsedId.data as OrderId, paymentId: parsedPaymentId.data as PaymentId }, orderContext(response));
-    return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+    return result.success ? sendOrder(response, result.data) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 
@@ -220,19 +229,19 @@ orderRoutes.post("/:id/payments/:paymentId/reject", async (request, response: Re
   try {
     const result = await orders.rejectPayment({ orderId: parsedId.data as OrderId, paymentId: parsedPaymentId.data as PaymentId, reason: parsed.data.reason },
       orderContext(response));
-    return result.success ? response.json(toOrderAggregateJson(result.data.order)) : operationError(response, result.error);
+    return result.success ? sendOrder(response, result.data.order) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 
 for (const [path, operation] of [
-  ["deduct-stock", orders.deductStock], ["cancel", orders.cancel], ["ship", orders.ship], ["deliver", orders.deliver],
+  ["cancel", orders.cancel], ["ship", orders.ship], ["deliver", orders.deliver],
 ] as const) {
   orderRoutes.post(`/:id/${path}`, async (request, response: Response<unknown, PrivateLocals>) => {
     const parsed = orderId(request.params.id);
     if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid order ID");
     try {
       const result = await operation(parsed.data as OrderId, orderContext(response));
-      return result.success ? response.json(path === "cancel" ? cancelOrderResponseSchema.parse(toOrderAggregateJson(result.data)) : toOrderAggregateJson(result.data)) : operationError(response, result.error);
+      return result.success ? sendOrder(response, result.data, path === "cancel" ? { parse: (json) => cancelOrderResponseSchema.parse(json) } : {}) : operationError(response, result.error);
     } catch (error) { return unexpected(response, error); }
   });
 }
@@ -244,7 +253,7 @@ orderRoutes.patch("/:id/shipping", async (request, response: Response<unknown, P
   if (!parsedId.success || !parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid shipping input");
   try {
     const result = await orders.updateShipping({ ...parsed.data, orderId: parsedId.data as OrderId, scheduledDispatchDate: parsed.data.scheduledDispatchDate as DispatchDate | null | undefined }, orderContext(response));
-    return result.success ? response.json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+    return result.success ? sendOrder(response, result.data) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 
@@ -261,7 +270,7 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
     const context = orderContext(response);
     if ("payment" in parsed.data) {
       const result = await orders.registerImmediateSale(input, context);
-      return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+      return result.success ? sendOrder(response, result.data, { status: 201 }) : operationError(response, result.error);
     }
     let delivery: Omit<RatedSetDeliveryInput, "orderId"> | undefined;
     if (parsed.data.delivery) {
@@ -272,8 +281,8 @@ orderRoutes.post("/", async (request, response: Response<unknown, PrivateLocals>
     }
     const result = await createConfiguredOrder({ ...input,
       payments: parsed.data.payments?.map(payment => ({ ...payment, paymentId: payment.paymentId as PaymentId })), delivery,
-      deliverImmediately: parsed.data.deliverImmediately, shipImmediately: parsed.data.shipImmediately, deferStockDeduction: parsed.data.deferStockDeduction }, context);
-    return result.success ? response.status(201).json(toOrderAggregateJson(result.data)) : operationError(response, result.error);
+      deliverImmediately: parsed.data.deliverImmediately, shipImmediately: parsed.data.shipImmediately }, context);
+    return result.success ? response.status(201).json(toOrderAggregateJson(result.data.order, result.data.stockDue)) : operationError(response, result.error);
   } catch (error) { return unexpected(response, error); }
 });
 
