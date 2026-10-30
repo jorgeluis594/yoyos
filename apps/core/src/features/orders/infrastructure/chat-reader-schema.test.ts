@@ -60,7 +60,7 @@ describe("readerSchema", () => {
       [{ kind: "decline_pending", pending: "Q1" }, { kind: "decline_pending", pending: "Q1" }],
       [{ kind: "decline_shown" }, { kind: "decline_shown" }],
       [{ kind: "remove", item, amount: "one" }, { kind: "remove", item, amount: "one" }],
-      [{ kind: "change_quantity", item: nullRefItem("unnamed"), mode: "set", quantity: 3 }, { kind: "change_quantity", item: { kind: "unnamed" }, mode: "set", quantity: 3 }],
+      [{ kind: "change_quantity", item: nullRefItem("unnamed"), mode: "set", quantity: 3 }, { kind: "change_quantity", target: { kind: "unnamed" }, mode: "set", quantity: 3 }],
       [{ kind: "change_variant", item, attributes: [{ name: "Talla", value: "L" }], price: null }, { kind: "change_variant", item, attributes: [{ name: "Talla", value: "L" }], price: null }],
       [{ kind: "set_price", item: nullRefItem("not_in_order"), price }, { kind: "set_price", item: { kind: "not_in_order" }, price }],
       [{ kind: "variant_only" }, { kind: "variant_only" }],

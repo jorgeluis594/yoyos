@@ -71,10 +71,10 @@ describe("criteria 8–17: reading rules", () => {
 
   test("9. «uno más» adds one, «que sean 3» sets 3, «que sean 5» sets 5 and never 7", () => {
     const chat = createChat({ items: [["polo", M_NEGRO, 2]] });
-    chat.say(say({ kind: "change_quantity", item: ref(1), mode: "increase", quantity: 1 }));
-    chat.say(say({ kind: "change_quantity", item: ref(1), mode: "set", quantity: 3 }));
+    chat.say(say({ kind: "change_quantity", target: ref(1), mode: "increase", quantity: 1 }));
+    chat.say(say({ kind: "change_quantity", target: ref(1), mode: "set", quantity: 3 }));
     expect(chat.items()).toEqual(["Polo básico · M · Negro · ×3"]);
-    chat.say(say({ kind: "change_quantity", item: ref(1), mode: "set", quantity: 5 }));
+    chat.say(say({ kind: "change_quantity", target: ref(1), mode: "set", quantity: 5 }));
     expect(chat.items()).toEqual(["Polo básico · M · Negro · ×5"]);
   });
 
@@ -252,7 +252,7 @@ describe("criteria 32–40: replacing, partial completion, limits, price", () =>
 
   test("33. an item of a deactivated product is removed or changed, and a new add of it is not available", () => {
     const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1], ["polo", M_NEGRO, 1]], unsellable: ["gorra"] });
-    expect(chat.say(say({ kind: "change_quantity", item: ref(1), mode: "set", quantity: 2 })).kinds).toEqual(["quantity_changed"]);
+    expect(chat.say(say({ kind: "change_quantity", target: ref(1), mode: "set", quantity: 2 })).kinds).toEqual(["quantity_changed"]);
     expect(chat.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } }))).kinds).toEqual(["product_not_available"]);
     expect(chat.say(say({ kind: "remove", item: ref(1), amount: "all" })).kinds).toEqual(["removed"]);
   });

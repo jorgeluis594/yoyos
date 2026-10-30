@@ -648,13 +648,14 @@ model ChatMessageOutcome {
 }
 
 model ChatPendings {
-  companyId       String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
-  company         Company  @relation(fields: [companyId], references: [id])
-  chatId          String   @db.Uuid
-  chat            Chat     @relation(fields: [companyId, chatId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
-  pendings        Json
-  readyRemembered Boolean  @default(false)
-  updatedAt       DateTime @db.Timestamptz(3)
+  companyId         String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company           Company  @relation(fields: [companyId], references: [id])
+  chatId            String   @db.Uuid
+  chat              Chat     @relation(fields: [companyId, chatId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
+  pendings          Json
+  readyRemembered   Boolean  @default(false)
+  lastIncomingPhoto Json?
+  updatedAt         DateTime @db.Timestamptz(3)
 
   @@id([companyId, chatId])
 }

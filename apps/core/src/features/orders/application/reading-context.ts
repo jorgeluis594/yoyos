@@ -53,6 +53,9 @@ export function listedItems(target: ChatOrderTarget, maxItems: number) {
   return target.kind === "open" ? target.order.items.slice(0, maxItems).map((item) => ({ item, productId: target.productIds.get(item.variantId) ?? null })) : [];
 }
 
+/** The reader is told about the latest order only as open, closed or none: a cancelled order counts as none. */
+const latestOrderOf = (target: ChatOrderTarget): ChatReadingContext["latestOrder"] => (target.kind === "open" ? "open" : target.kind === "closed" ? "closed" : "none");
+
 /** Gives short refs (P1, I1, Q1) to what the reader is shown; they are valid for this reading only. */
 export function buildReadingContext(input: ReadingContextInput): ChatReadingContext {
   const byId = new Map(input.found.map((product) => [product.productId, product]));
@@ -64,7 +67,7 @@ export function buildReadingContext(input: ReadingContextInput): ChatReadingCont
     return [{ ...product, ref: "", shown: shown !== undefined, shownVariantId: shown?.preselectedVariantId ?? null, identification: shown?.identification ?? null }];
   }).map((product, index) => ({ ...product, ref: `P${index + 1}` }));
   const items = listedItems(input.target, input.maxItems).map(({ item, productId }, index) => ({ ref: `I${index + 1}`, variantId: item.variantId, productId,
-    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice }));
-  const pendings = input.pendings.map((pending, index) => ({ ref: `Q${index + 1}`, pending }));
-  return { kind: input.kind, text: input.text, items, pendings, products, truncated: input.truncated };
+    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice, photoJustSent: false }));
+  const pendings = input.pendings.map((pending, index) => ({ ref: `Q${index + 1}`, pending, photoJustSent: false }));
+  return { kind: input.kind, text: input.text, latestOrder: latestOrderOf(input.target), items, pendings, products, photoJustSent: null, truncated: input.truncated };
 }

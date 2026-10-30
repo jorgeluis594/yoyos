@@ -87,7 +87,7 @@ test("finds the products whose name appears in a whole message", async () => {
   const found = await candidates(company, "quiero el polo rojo M");
   expect(await namesOf(company, found.productIds)).toEqual(expect.arrayContaining(["Polo rojo", "Polo azul", "Polo rojo básico"]));
   expect((await namesOf(company, found.productIds))[0]).toBe("Polo rojo");
-  expect(found).toMatchObject({ timedOut: false, matchCount: expect.any(Number) });
+  expect(found).toMatchObject({ timedOut: false, matchCount: expect.any(Number), unavailableProductIds: [] });
   const nothing = await candidates(company, "hola");
   expect(nothing).toMatchObject({ productIds: [], matchCount: 0, timedOut: false });
   await dropCompany(company);

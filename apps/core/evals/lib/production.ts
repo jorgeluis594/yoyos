@@ -285,7 +285,7 @@ async function seedPendings(chat: Chat, pendings: readonly PendingSeed[], compan
       lastChangedAt: now, sourceMessageId: randomUUID() as ChatMessageId, requestId: id,
     };
   });
-  const saved = await inTenant(company, () => withinTransaction(() => saveChatPendings(chat.chatId as ChatId, { pendings: seeded, readyRemembered: false })));
+  const saved = await inTenant(company, () => withinTransaction(() => saveChatPendings(chat.chatId as ChatId, { pendings: seeded, readyRemembered: false, lastIncomingPhoto: null })));
   if (!saved.success) throw new Error(`Seeding the pendings failed: ${saved.error.code}`);
 }
 

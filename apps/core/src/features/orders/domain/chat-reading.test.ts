@@ -110,18 +110,35 @@ describe("checkReaderAnswer: adds and variants", () => {
   });
 });
 
+describe("checkReaderAnswer: actions the domain rules have not reached yet", () => {
+  test("reports a payment request as a request not allowed", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]] });
+    expect(chat.say(say({ kind: "payment_request" })).kinds).toEqual(["request_not_allowed"]);
+    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×1"]);
+  });
+
+  test("reports a quantity change on a pending and a decrease as malformed and changes nothing", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 2]], pendings: [pendingOf("polo")] });
+    const pending = chat.say(say({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" }, mode: "set", quantity: 3 }));
+    expect(pending.outcomes).toEqual([{ kind: "invalid_action", orderId: expect.any(String), reason: "malformed" }]);
+    const decrease = chat.say(say({ kind: "change_quantity", target: item("I1"), mode: "decrease", quantity: 1 }));
+    expect(decrease.outcomes).toEqual([{ kind: "invalid_action", orderId: expect.any(String), reason: "malformed" }]);
+    expect(chat.items()).toEqual(["Gorra trucker · Negro · ×2"]);
+  });
+});
+
 describe("checkReaderAnswer: items", () => {
   const withGorraAndPolo = () => createChat({ items: [["gorra", { Color: "Negro" }, 1], ["polo", { Talla: "M", Color: "Negro" }, 1]] });
 
   test("reads «set to 0» as a removal", () => {
     const chat = withGorraAndPolo();
-    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "set", quantity: 0 })).kinds).toEqual(["removed"]);
+    expect(chat.say(say({ kind: "change_quantity", target: item("I1"), mode: "set", quantity: 0 })).kinds).toEqual(["removed"]);
     expect(chat.items()).toEqual(["Polo básico · M · Negro · ×1"]);
   });
 
   test("lets removal and quantity change of an item whose product was deactivated through", () => {
     const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1], ["polo", { Talla: "M", Color: "Negro" }, 1]], unsellable: ["gorra"] });
-    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "set", quantity: 2 })).kinds).toEqual(["quantity_changed"]);
+    expect(chat.say(say({ kind: "change_quantity", target: item("I1"), mode: "set", quantity: 2 })).kinds).toEqual(["quantity_changed"]);
     expect(chat.say(say({ kind: "remove", item: item("I1"), amount: "all" })).kinds).toEqual(["removed"]);
   });
 
@@ -141,8 +158,8 @@ describe("checkReaderAnswer: items", () => {
 
   test("reports a negative or fractional set quantity as invalid", () => {
     const chat = withGorraAndPolo();
-    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "set", quantity: -2 })).outcomes).toEqual([{ kind: "invalid_action", orderId: chat.order?.id, reason: "quantity_not_whole" }]);
-    expect(chat.say(say({ kind: "change_quantity", item: item("I1"), mode: "increase", quantity: 1.5 })).outcomes).toEqual([{ kind: "invalid_action", orderId: chat.order?.id, reason: "quantity_not_whole" }]);
+    expect(chat.say(say({ kind: "change_quantity", target: item("I1"), mode: "set", quantity: -2 })).outcomes).toEqual([{ kind: "invalid_action", orderId: chat.order?.id, reason: "quantity_not_whole" }]);
+    expect(chat.say(say({ kind: "change_quantity", target: item("I1"), mode: "increase", quantity: 1.5 })).outcomes).toEqual([{ kind: "invalid_action", orderId: chat.order?.id, reason: "quantity_not_whole" }]);
   });
 });
 

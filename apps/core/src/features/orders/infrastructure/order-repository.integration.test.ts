@@ -1815,7 +1815,7 @@ test("a mentioned price with only an amount or only units is rejected by the dat
 });
 
 const findProductIds = findProductIdsOfVariants;
-const noPendings = { pendings: [], readyRemembered: false } as const;
+const noPendings = { pendings: [], readyRemembered: false, lastIncomingPhoto: null } as const;
 
 test("findChatOrderTargetForUpdate fills the product of every item of the open order", async () => {
   const f = await fixture();

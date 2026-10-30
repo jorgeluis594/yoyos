@@ -37,12 +37,12 @@ function worstCaseContext(maxProducts: number): ChatReadingContext {
   const products: ReadingProduct[] = Array.from({ length: maxProducts }, (_, index) => sellable(index + 1, `Polera con capucha modelo ${index + 1}`));
   const items: ReadingItem[] = Array.from({ length: 40 }, (_, index) => ({
     ref: `I${index + 1}`, variantId: id(9000 + index) as VariantId, productId: productId((index % maxProducts) + 1), productName: `Polera con capucha modelo ${(index % maxProducts) + 1}`,
-    variantAttributes: { Talla: sizes[index % sizes.length]!, Color: colors[index % colors.length]! }, quantity: 1 + (index % 4), unitPrice: { amount: 45.5, currency: "PEN" },
+    variantAttributes: { Talla: sizes[index % sizes.length]!, Color: colors[index % colors.length]! }, quantity: 1 + (index % 4), unitPrice: { amount: 45.5, currency: "PEN" }, photoJustSent: false,
   }));
   const pendings: ReadingPending[] = Array.from({ length: 10 }, (_, index) => ({
-    ref: `Q${index + 1}`, pending: pending(index + 1, { subject: { kind: "product", candidates: [productId(index + 1), productId(index + 2), productId(index + 3), productId(index + 4)] }, quantity: 2 as PositiveInteger }),
+    ref: `Q${index + 1}`, photoJustSent: false, pending: pending(index + 1, { subject: { kind: "product", candidates: [productId(index + 1), productId(index + 2), productId(index + 3), productId(index + 4)] }, quantity: 2 as PositiveInteger }),
   }));
-  return { kind: "text", text: "quiero la polera negra en M ".repeat(80).slice(0, 2000), items, pendings, products, truncated: false };
+  return { kind: "text", text: "quiero la polera negra en M ".repeat(80).slice(0, 2000), latestOrder: "open", items, pendings, products, photoJustSent: null, truncated: false };
 }
 
 /** Common catalog shapes: few combinations, one price a product. */
@@ -62,10 +62,10 @@ function realisticContext(): ChatReadingContext {
   const products = Array.from({ length: 12 }, (_, index) => realisticProduct(index + 1));
   const items: ReadingItem[] = [1, 2, 3].map((n) => ({
     ref: `I${n}`, variantId: products[n - 1]!.variants[0]!.variantId, productId: productId(n), productName: products[n - 1]!.name,
-    variantAttributes: products[n - 1]!.variants[0]!.variantAttributes, quantity: n as PositiveInteger, unitPrice: products[n - 1]!.variants[0]!.unitPrice,
+    variantAttributes: products[n - 1]!.variants[0]!.variantAttributes, quantity: n as PositiveInteger, unitPrice: products[n - 1]!.variants[0]!.unitPrice, photoJustSent: false,
   }));
-  const pendings: ReadingPending[] = [{ ref: "Q1", pending: pending(1, { subject: { kind: "variant", productId: productId(5) }, known: { Color: "Negro" } }) }];
-  return { kind: "text", text: "hola, me separas el negro en M y otra gorra porfa", items, pendings, products, truncated: false };
+  const pendings: ReadingPending[] = [{ ref: "Q1", photoJustSent: false, pending: pending(1, { subject: { kind: "variant", productId: productId(5) }, known: { Color: "Negro" } }) }];
+  return { kind: "text", text: "hola, me separas el negro en M y otra gorra porfa", latestOrder: "open", items, pendings, products, photoJustSent: null, truncated: false };
 }
 
 const requestText = (reading: ChatReadingContext) => [readerInstructions, JSON.stringify(readerJsonSchema), describeReadingContext(reading)].join("\n");
@@ -90,13 +90,13 @@ function breakdown(reading: ChatReadingContext, count: (text: string) => number)
 const polo = readingProduct(1, "Polo básico", [[{ Talla: "S", Color: "Negro" }, 40], [{ Talla: "M", Color: "Negro" }, 40], [{ Talla: "M", Color: "Blanco" }, 42]]);
 const gorra = readingProduct(2, "Gorra", [[{}, 15]]);
 const casaca = readingProduct(3, "Casaca", [[{ Talla: "S" }, 100], [{ Talla: "M" }, 120]], { sellable: false });
-const item = (ref: string, over: Partial<ReadingItem>): ReadingItem => ({ ref, variantId: id(1) as VariantId, productId: productId(3), productName: "Casaca", variantAttributes: { Talla: "M" }, quantity: 1, unitPrice: { amount: 120, currency: "PEN" }, ...over });
+const item = (ref: string, over: Partial<ReadingItem>): ReadingItem => ({ ref, variantId: id(1) as VariantId, productId: productId(3), productName: "Casaca", variantAttributes: { Talla: "M" }, quantity: 1, unitPrice: { amount: 120, currency: "PEN" }, photoJustSent: false, ...over });
 const contexts: Readonly<Record<string, ChatReadingContext>> = {
   text_without_order: context({ text: "hola, quiero 2 polos negros", products: [polo, gorra] }),
   text_with_items_and_pendings: context({
     text: "el segundo en M, y quita la casaca", products: [polo, gorra, casaca],
     items: [item("I1", {}), item("I2", { productId: productId(1), productName: "Polo básico", variantAttributes: { Talla: "S", Color: "Negro" }, quantity: 2, unitPrice: { amount: 40, currency: "PEN" } })],
-    pendings: [{ ref: "Q1", pending: pending(1, { known: { Color: "Negro" }, quantity: 2 as PositiveInteger }) }, { ref: "Q2", pending: pending(2, { subject: { kind: "product", candidates: [productId(1), productId(2)] } }) }],
+    pendings: [{ ref: "Q1", photoJustSent: false, pending: pending(1, { known: { Color: "Negro" }, quantity: 2 as PositiveInteger }) }, { ref: "Q2", photoJustSent: false, pending: pending(2, { subject: { kind: "product", candidates: [productId(1), productId(2)] } }) }],
   }),
   product_photo: context({ kind: "photo_product", text: "me interesa 3", products: [{ ...polo, shown: true, shownVariantId: polo.variants[1]!.variantId }] }),
   non_product_photo: context({ kind: "photo_not_product", text: "así lo quiero" }),

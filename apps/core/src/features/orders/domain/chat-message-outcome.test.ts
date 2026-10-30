@@ -40,6 +40,26 @@ describe("chatMessageOutcomesSchema", () => {
     expect(chatMessageOutcomesSchema.parse(outcomes)).toEqual(outcomes);
   });
 
+  test("accepts a payment request in each order state and the new invalid action reasons", () => {
+    const outcomes = [
+      { kind: "payment_requested", order: { kind: "open", orderId: id(4) }, productIds: [id(2)], unnamed: 1 },
+      { kind: "payment_requested", order: { kind: "closed", orderId: id(4) }, productIds: [], unnamed: 0 },
+      { kind: "payment_requested", order: { kind: "none" }, productIds: [], unnamed: 0 },
+      { kind: "invalid_action", orderId: null, reason: "malformed" },
+      { kind: "invalid_action", orderId: id(4), reason: "quantity_below_zero" },
+      { kind: "invalid_action", orderId: null, reason: "context_too_large" },
+    ];
+    expect(chatMessageOutcomesSchema.parse(outcomes)).toEqual(outcomes);
+  });
+
+  test("rejects a payment request with an unknown order state, a closed order without its id or an extra field", () => {
+    const base = { kind: "payment_requested", productIds: [], unnamed: 0 };
+    expect(chatMessageOutcomesSchema.safeParse([{ ...base, order: { kind: "cancelled", orderId: id(4) } }]).success).toBe(false);
+    expect(chatMessageOutcomesSchema.safeParse([{ ...base, order: { kind: "closed" } }]).success).toBe(false);
+    expect(chatMessageOutcomesSchema.safeParse([{ ...base, order: { kind: "none", orderId: id(4) } }]).success).toBe(false);
+    expect(chatMessageOutcomesSchema.safeParse([{ ...base, order: { kind: "none" }, extra: 1 }]).success).toBe(false);
+  });
+
   test("still reads the outcomes stored before pendings", () => {
     const outcomes = [{ kind: "no_intent" }, { kind: "ready", orderId: id(4) }];
     expect(chatMessageOutcomesSchema.parse(outcomes)).toEqual(outcomes);

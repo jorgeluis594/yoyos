@@ -47,7 +47,7 @@ export async function searchProductsByCoverage(words: readonly string[], limits:
       log.error({ event: "unable_to_find_message_candidates", companyId, errorCode: "PERSISTENCE_UNAVAILABLE" }, "unable_to_find_message_candidates");
       return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
     }
-    const candidates: MessageCandidates = { productIds: parsed.data.map(({ id }) => id as ProductId), matchCount: parsed.data[0]?.matches ?? 0,
+    const candidates: MessageCandidates = { productIds: parsed.data.map(({ id }) => id as ProductId), unavailableProductIds: [], matchCount: parsed.data[0]?.matches ?? 0,
       durationMs: Math.round(performance.now() - started), timedOut: false, wordsSearched: found.data.wordsSearched };
     log.info({ event: "message_candidates_found", companyId, wordCount: candidates.wordsSearched, matchCount: candidates.matchCount,
       candidateCount: candidates.productIds.length, durationMs: candidates.durationMs }, "message_candidates_found");
@@ -56,7 +56,7 @@ export async function searchProductsByCoverage(words: readonly string[], limits:
     if (isStatementTimeout(cause)) {
       const durationMs = Math.round(performance.now() - started);
       log.warn({ event: "message_candidates_timeout", companyId, wordCount: words.length, durationMs }, "message_candidates_timeout");
-      return ok<MessageCandidates>({ productIds: [], matchCount: 0, durationMs, timedOut: true, wordsSearched: 0 });
+      return ok<MessageCandidates>({ productIds: [], unavailableProductIds: [], matchCount: 0, durationMs, timedOut: true, wordsSearched: 0 });
     }
     if (!(cause instanceof Prisma.PrismaClientKnownRequestError || cause instanceof Prisma.PrismaClientUnknownRequestError || cause instanceof Prisma.PrismaClientInitializationError)) throw cause;
     return unavailable(cause);

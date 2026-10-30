@@ -1,7 +1,7 @@
 import type { Money } from "@shared/money";
 import type { ChatMessageOutcome, ProductIdentification } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { ItemTarget, ReportOutcome, ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
-import { maxPendingCandidates, type ChatPending, type ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
+import { maxPendingCandidates, type ChatPending, type ChatPendingId, type PhotoLeft } from "@core/src/features/orders/domain/chat-pendings";
 import { mentionedPriceOf, type StatedPrice } from "@core/src/features/orders/domain/mentioned-price";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import { conflictsWithKnown, describePendings, normalizeValue, pendingPriceOf, resolveVariant, type AdvanceRequest, type AttributeChoice } from "@core/src/features/orders/domain/pending-transitions";
@@ -26,16 +26,22 @@ export type ReadingItem = Readonly<{
   variantAttributes: Readonly<Record<string, string>>;
   quantity: number;
   unitPrice: Money;
+  /** True on the one line the photo just sent left; only tells the reader which line it is (the domain reads the context's `photoJustSent`). */
+  photoJustSent: boolean;
 }>;
-export type ReadingPending = Readonly<{ ref: ReadingRef; pending: ChatPending }>;
+export type ReadingPending = Readonly<{ ref: ReadingRef; pending: ChatPending; photoJustSent: boolean }>;
 
 export type ChatReadingContext = Readonly<{
   kind: "text" | "photo_product" | "photo_not_product";
   /** The buyer's words: the text, or the photo's caption. Only the reader adapter reads it; domain logic never does. */
   text: string | null;
+  /** The chat's latest order as the buyer sees it: a cancelled order counts as none. */
+  latestOrder: "open" | "closed" | "none";
   items: readonly ReadingItem[];
   pendings: readonly ReadingPending[];
   products: readonly ReadingProduct[];
+  /** What the photo just sent left, while it still is; always null when `kind` is not `text`. The domain reads this, not the line flags, so an unlisted item still counts. */
+  photoJustSent: PhotoLeft | null;
   /** True when the product ceiling cut some of the products the reading wanted. */
   truncated: boolean;
 }>;
@@ -47,6 +53,8 @@ export type ReaderProduct =
   | Readonly<{ kind: "not_in_catalog" }>
   | Readonly<{ kind: "unnamed" }>;
 export type ReaderItem = Readonly<{ kind: "ref"; ref: ReadingRef }> | Readonly<{ kind: "unnamed" }> | Readonly<{ kind: "not_in_order" }>;
+/** Where a quantity change points: an order item as before, or a pending by its reference. */
+export type ReaderQuantityTarget = ReaderItem | Readonly<{ kind: "pending"; ref: ReadingRef }>;
 
 export type ReaderAction =
   | Readonly<{ kind: "add"; product: ReaderProduct; attributes: readonly AttributeChoice[]; quantity: number | null; price: StatedPrice | null }>
@@ -54,13 +62,15 @@ export type ReaderAction =
   | Readonly<{ kind: "decline_pending"; pending: ReadingRef }>
   | Readonly<{ kind: "decline_shown" }>
   | Readonly<{ kind: "remove"; item: ReaderItem; amount: "all" | "one" }>
-  | Readonly<{ kind: "change_quantity"; item: ReaderItem; mode: "increase" | "set"; quantity: number }>
+  | Readonly<{ kind: "change_quantity"; target: ReaderQuantityTarget; mode: "increase" | "set" | "decrease"; quantity: number }>
   | Readonly<{ kind: "change_variant"; item: ReaderItem; attributes: readonly AttributeChoice[]; price: StatedPrice | null }>
   | Readonly<{ kind: "set_price"; item: ReaderItem; price: StatedPrice }>
   | Readonly<{ kind: "ready" }>
   | Readonly<{ kind: "variant_only" }>
   | Readonly<{ kind: "variant_for_pendings"; pendings: readonly [ReadingRef, ReadingRef, ...ReadingRef[]] }>
   | Readonly<{ kind: "not_allowed" }>
+  /** The buyer wants to pay now or asks to be sent something to pay. */
+  | Readonly<{ kind: "payment_request" }>
   /** An action the reader returned incomplete or inconsistent for its kind; the check reports it as `invalid_action` (`unknown_reference`) and the rest of the answer still applies. */
   | Readonly<{ kind: "malformed" }>;
 
@@ -199,6 +209,8 @@ function matchPendings(product: ReadingProduct, choices: readonly AttributeChoic
 
 function resolveAction(action: ReaderAction, target: PendingTarget, shared: boolean, world: World): readonly ResolvedChatAction[] {
   switch (action.kind) {
+    // Until the domain rules arrive, a payment request is a request the chat does not do.
+    case "payment_request":
     case "not_allowed": return [report({ kind: "request_not_allowed", orderId: null })];
     case "malformed": return [invalid("unknown_reference")];
     case "ready": return [{ kind: "ready" }];
@@ -236,7 +248,9 @@ const readingItem = (item: ReaderItem, world: World): ReadingItem | null =>
   item.kind === "ref" ? world.items.get(item.ref) ?? null : item.kind === "unnamed" && world.context.items.length === 1 ? world.context.items[0] ?? null : null;
 
 function changeQuantity(action: Extract<ReaderAction, { kind: "change_quantity" }>, world: World): readonly ResolvedChatAction[] {
-  const target = itemTarget(action.item, world);
+  // Until the domain rules arrive, a quantity change on a pending and a decrease are not applied.
+  if (action.target.kind === "pending" || action.mode === "decrease") return [invalid("malformed")];
+  const target = itemTarget(action.target, world);
   const whole = Number.isInteger(action.quantity);
   if (action.mode === "increase") return whole && action.quantity >= 1 ? [{ kind: "increase_quantity", target, quantity: action.quantity as PositiveInteger }] : [invalid("quantity_not_whole")];
   return whole && action.quantity >= 0 ? [{ kind: "set_quantity", target, quantity: action.quantity }] : [invalid("quantity_not_whole")];
