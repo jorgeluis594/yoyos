@@ -89,7 +89,7 @@ export type ChatStart = Readonly<{ items?: readonly (readonly [ProductKey, Reado
 export function createChat(start: ChatStart = {}) {
   let now = t0;
   let counter = 500;
-  let pendings: ChatPendings = { pendings: start.pendings ?? [], readyRemembered: start.readyRemembered ?? false };
+  let pendings: ChatPendings = { pendings: start.pendings ?? [], readyRemembered: start.readyRemembered ?? false, lastIncomingPhoto: null };
   /** Every order of the chat, oldest first; the last one is the chat's latest. */
   let orders: OrderAggregate[] = start.orders ? [...start.orders] : start.items?.length ? [orderOf(start.items)] : [];
   const unsellable = new Set(start.unsellable ?? []);

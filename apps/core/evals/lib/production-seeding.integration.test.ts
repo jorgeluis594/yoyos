@@ -57,7 +57,7 @@ describe("seeding the start of a case", () => {
     const state = await seen(chatId);
 
     expect(state.target).toEqual({ kind: "none" });
-    expect(state.stored).toEqual({ pendings: [], readyRemembered: false });
+    expect(state.stored).toEqual({ pendings: [], readyRemembered: false, lastIncomingPhoto: null });
   });
 
   test("an order is open with its lines and quantities", async () => {

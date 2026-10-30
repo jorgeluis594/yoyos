@@ -61,7 +61,7 @@ const openTarget = (order = existingOrder()): ChatOrderTarget => ({ kind: "open"
 
 const pendingOf = (n: number, over: Partial<ChatPending> = {}): ChatPending => ({ id: id(n) as ChatPendingId, subject: { kind: "variant", productId: productPolo }, known: {}, quantity: 1 as PositiveInteger,
   price: null, order: null, lastChangedAt: hourBefore, sourceMessageId: id(900 + n) as ChatMessageId, requestId: id(n) as ChatPendingId, ...over });
-const pendingSet = (...pendings: ChatPending[]): ChatPendings => ({ pendings, readyRemembered: false });
+const pendingSet = (...pendings: ChatPending[]): ChatPendings => ({ pendings, readyRemembered: false, lastIncomingPhoto: null });
 
 const zeroUsage = { inputTokens: 100, cachedInputTokens: 0, outputTokens: 20, reasoningTokens: 0 };
 const refOf = (context: ChatReadingContext, productId: ProductId) => context.products.find((product) => product.productId === productId)!.ref;
