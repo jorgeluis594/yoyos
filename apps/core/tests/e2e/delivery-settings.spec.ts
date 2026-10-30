@@ -4,7 +4,7 @@ import { browserExpect, expect, prepareVerifiedCompany, subdomainOf, test } from
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { productEditing } from "@core/src/features/products/product-editing";
 import { deleteAgencies, insertAgency, seededCourier } from "@core/src/features/delivery-settings/infrastructure/courier-catalog-fixture";
-import { chooseDistrict, chooseDistrictInProvince } from "@core/tests/e2e/district-combobox";
+import { chooseDistrict } from "@core/tests/e2e/district-combobox";
 
 test("seller toggles delivery methods and the pickup point without a save button and they persist after reload", async ({ page, request }) => {
   const email = `delivery-settings-${crypto.randomUUID()}@example.test`;
@@ -245,8 +245,9 @@ test("seller manages overlapping zones with delivery options and preserves an ed
     await browserExpect(buyerRates).toContainText(/Camión · S\/\s?12[.,]00/);
     await page.getByRole("button", { name: "Desactivar Cercana", exact: true }).click();
     await browserExpect(page.getByRole("button", { name: "Reactivar Cercana", exact: true })).toBeVisible();
-    await chooseDistrictInProvince(buyerPage, "150101");
-    await chooseDistrictInProvince(buyerPage, "150122");
+    // Only covered places are offered: move to the other covered district (Arequipa) and back to force a requote of Miraflores.
+    await chooseDistrict(buyerPage, "040110");
+    await chooseDistrict(buyerPage, "150122");
     await browserExpect(buyerRates.locator("option")).toHaveCount(2);
     await browserExpect(buyerRates).toContainText(/Camión/);
     await browserExpect(buyerRates).not.toContainText(/Moto/);
