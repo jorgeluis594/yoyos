@@ -90,6 +90,69 @@ describe("buildReport", () => {
     expect(report.pinnedMiss).toEqual([{ caseId: "b", repeats: [{ repeat: 0, ignoredActions: 0 }, { repeat: 1, ignoredActions: 1 }], ignoredInAnyRepeat: true }]);
   });
 
+  test("the gate is reported whole, without photo cases and for photo cases", () => {
+    const report = buildReport([
+      record({ caseId: "t1" }),
+      record({ caseId: "t2", passed: false, ignoredActions: 1 }),
+      record({ caseId: "p1", photoCase: true, messageKind: "photo", passed: false, wrongSilentChange: true }),
+      record({ caseId: "c#1", photoCase: true, conversationId: "c", step: 1 }),
+      record({ caseId: "c#2", photoCase: true, conversationId: "c", step: 2, passed: false, ignoredActions: 2 }),
+    ], meta);
+
+    expect(report.gate.whole).toMatchObject({ scored: 5, right: 2, ignoredActions: 3, wrongSilentChanges: 1 });
+    expect(report.gate.withoutPhoto).toMatchObject({ scored: 2, right: 1, rightPercent: 50, ignoredActions: 1, wrongSilentChanges: 0 });
+    expect(report.gate.photo).toMatchObject({ scored: 3, right: 1, ignoredActions: 2, wrongSilentChanges: 1 });
+  });
+
+  test("a conversation with a photo step counts all its records as photo case", () => {
+    const report = buildReport([
+      record({ caseId: "c#1", photoCase: true, conversationId: "c", step: 1, messageKind: "text" }),
+      record({ caseId: "c#2", photoCase: true, conversationId: "c", step: 2, messageKind: "text" }),
+      record({ caseId: "d#1", conversationId: "d", step: 1 }),
+    ], meta);
+
+    expect(report.gate.photo.scored).toBe(2);
+    expect(report.gate.withoutPhoto.scored).toBe(1);
+  });
+
+  test("consistency counts the repeated cases whose repetitions share one signature, whole and per family", () => {
+    const report = buildReport([
+      record({ caseId: "a", kind: "x", signature: "s1" }), record({ caseId: "a", kind: "x", repeat: 1, signature: "s1" }), record({ caseId: "a", kind: "x", repeat: 2, signature: "s1" }),
+      record({ caseId: "b", kind: "x", signature: "s1" }), record({ caseId: "b", kind: "x", repeat: 1, signature: "s2" }),
+      record({ caseId: "c", kind: "y", signature: "s1" }), record({ caseId: "c", kind: "y", repeat: 1, signature: "s1" }),
+      record({ caseId: "once", kind: "y" }),
+    ], meta);
+
+    expect(report.consistency).toMatchObject({ repeated: 3, consistent: 2, percent: 66.7, cases: 3, repeats: 3, flipped: [{ caseId: "b", signatures: ["s1", "s2"] }] });
+    expect(report.consistency.byFamily).toEqual({ x: { repeated: 2, consistent: 1, percent: 50 }, y: { repeated: 1, consistent: 1, percent: 100 } });
+    expect(buildReport([record()], meta).consistency).toMatchObject({ repeated: 0, consistent: 0, percent: 0 });
+  });
+
+  test("counts silent adds on question captions and payment requests inside a count", () => {
+    const outcome = (notice: string | null, outcomes: string[]) => ({ actual: { notice, outcomes, noticeProducts: [], order: [] } });
+    const report = buildReport([
+      record({ caseId: "q1", tags: ["question-caption"], ...outcome(null, ["added"]) }),
+      record({ caseId: "q2", tags: ["question-caption"], ...outcome("variant_missing", ["pending_created"]) }),
+      record({ caseId: "q3", tags: ["question-caption"], ...outcome(null, ["no_intent"]) }),
+      record({ caseId: "p1", ...outcome("payment_request", ["payment_requested"]) }),
+      record({ caseId: "p2", ...outcome("several_problems", ["payment_requested", "variant_missing"]) }),
+      record({ caseId: "n1", ...outcome("ready", ["ready"]) }),
+      record({ caseId: "q1", repeat: 1, tags: ["question-caption"], ...outcome(null, ["added"]) }),
+    ], meta);
+
+    expect(report.tagMetrics.questionCaptionSilentAdds).toEqual({ messages: 3, silentAdds: 1 });
+    expect(report.tagMetrics.paymentInCount).toEqual({ paymentRequests: 2, insideCount: 1 });
+    expect(report.tagMetrics.noticesByKind).toEqual({ none: 2, payment_request: 1, ready: 1, several_problems: 1, variant_missing: 1 });
+  });
+
+  test("the report header says which reader features were scored", () => {
+    const features = { paymentRequest: false, closedOrderLine: true };
+
+    expect(buildReport([record()], meta, [], [], features).shippedReaderFeatures).toEqual(features);
+    expect(buildReport([record()], meta).shippedReaderFeatures).toEqual({ paymentRequest: true, closedOrderLine: true });
+    expect(formatSummary(buildReport([record()], meta, [], [], features), "p")).toContain("payment request off, closed-order line on");
+  });
+
   test("cost per scored message counts cached and reasoning tokens, and latency p95 is per message", () => {
     const priced = call({ inputTokens: 10_000, outputTokens: 1000, cachedTokens: 4000, reasoningTokens: 200, durationMs: 800 });
     const report = buildReport([
