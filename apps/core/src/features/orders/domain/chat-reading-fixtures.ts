@@ -34,9 +34,12 @@ const combinations = (attributes: Attributes): readonly Readonly<Record<string, 
   Object.entries(attributes).reduce<readonly Readonly<Record<string, string>>[]>(
     (rows, [name, values]) => rows.flatMap((row) => values.map((value) => ({ ...row, [name]: value }))), [{}]);
 
+/** The key products supplies with a product: lower case without accents (the fixtures stand in for `productNameKey`). */
+export const nameKeyOf = (name: string) => name.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
 const buildProduct = (key: ProductKey, index: number): ReadingProduct => {
   const spec: ProductSpec = specs[key];
-  return { ref: `P${index + 1}`, shown: false, shownVariantId: null, identification: null, productId: id(100 + index) as ProductId, name: spec.name, sellable: true,
+  return { ref: `P${index + 1}`, shown: false, shownVariantId: null, identification: null, productId: id(100 + index) as ProductId, name: spec.name, nameKey: nameKeyOf(spec.name), sellable: true,
     attributes: Object.entries(spec.attributes).map(([name, values]) => ({ name, values })),
     variants: combinations(spec.attributes).map((variantAttributes, variant) => ({ variantId: id(1000 + index * 20 + variant) as VariantId, productName: spec.name,
       variantAttributes, sku: null, unitPrice: money(spec.price) })) };

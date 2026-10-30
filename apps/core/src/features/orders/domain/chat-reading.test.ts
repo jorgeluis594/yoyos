@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { productNameKey } from "@core/src/features/products/domain/product-name-key";
 import type { OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import { checkReaderAnswer, fixedShownAnswer, type ReaderAction, type ReaderItem } from "@core/src/features/orders/domain/chat-reading";
 import { catalog, createChat, doubtfulPendingOf, id, pendingOf, productId, reader, stated, variantOf, type ProductKey } from "@core/src/features/orders/domain/chat-reading-fixtures";
@@ -554,7 +555,7 @@ describe("checkReaderAnswer: products with the same name", () => {
   const twinsOf = (notSellableName: string) => {
     const chat = createChat();
     const context = chat.context();
-    return { ...context, products: context.products.map((product) => (product.ref === catalog.oversize.ref ? { ...product, name: notSellableName, sellable: false } : product)) };
+    return { ...context, products: context.products.map((product) => (product.ref === catalog.oversize.ref ? { ...product, name: notSellableName, nameKey: productNameKey(notSellableName), sellable: false } : product)) };
   };
   const choose = (context: ReturnType<typeof twinsOf>) => checkReaderAnswer(say(reader.oneOf(["polo", "oversize"], M_NEGRO)), context, { captionDoubt: false });
 

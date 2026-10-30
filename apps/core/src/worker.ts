@@ -1,8 +1,9 @@
 import { createEventBusRuntime } from "@core/src/composition/event-bus";
-import { recoverStockDeductionsJob } from "@core/src/features/orders/composition";
+import { assertChatMessageBudget, recoverStockDeductionsJob } from "@core/src/features/orders/composition";
 import { bootstrapEventHandlers, eventHandlers } from "@core/src/composition/event-handlers";
 import { catalogOrderTtlDays, orderedHandlerIds, registerScheduledJobs, scheduledJobs } from "@core/src/composition/scheduled-jobs";
 
+assertChatMessageBudget();
 const ttlDays = catalogOrderTtlDays();
 if (!ttlDays.success) throw new Error(ttlDays.error.message);
 const { provider } = createEventBusRuntime(true);

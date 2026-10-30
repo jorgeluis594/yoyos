@@ -1,6 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { ok } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { prisma, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createVisualSearch, products, type ImageEmbedder } from "@core/src/features/products/composition";
@@ -28,6 +28,8 @@ import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate,
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { createFitReadingContext, readerTokenBudget } from "@core/src/features/orders/infrastructure/chat-reader-budget";
+import { readChatReaderEnv } from "@core/src/features/orders/infrastructure/chat-reader-env";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPending, ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
@@ -120,7 +122,10 @@ export function createProductionPath(env: Env, options: Readonly<{ diagnostics?:
   };
   const readiness = { visualModel: visual.model, hasActiveProducts, hasIndexedProducts };
   const limits = readChatMessageLimits(env);
-  const wiring: Wiring = { readChatMessage, readiness, imageIdentification, limits };
+  // The same budget production derives: the reader model's prices and the photo stages' reserve at the configured bounds.
+  const fitToBudget = createFitReadingContext({ budget: readerTokenBudget({ photoStagesReserveUsd: visualSetup.photoStagesReserveUsd, model: readChatReaderEnv(env).AI_READER_MODEL }) });
+  const fitReadingContext: ApplyChatMessageDependencies["fitReadingContext"] = (context) => { const fitted = fitToBudget(context); return "code" in fitted ? err(fitted) : ok(fitted); };
+  const wiring: Wiring = { readChatMessage, readiness, imageIdentification, limits, fitReadingContext, photoStageTimeoutMs: visualSetup.photoStageTimeoutMs };
 
   return {
     /** The production gate of the visual search. */
@@ -145,10 +150,12 @@ type Wiring = Readonly<{
   readiness: Parameters<typeof catalogSearchReadiness>[0];
   imageIdentification: IdentifyProductsDependencies;
   limits: ApplyChatMessageDependencies["limits"];
+  fitReadingContext: ApplyChatMessageDependencies["fitReadingContext"];
+  photoStageTimeoutMs: number;
 }>;
 
 /** What seeding a start needs of the wiring: label photos pass through `applyChatMessage` with no reader, so no model is called. */
-type SeedWiring = Pick<Wiring, "readChatMessage" | "readiness" | "limits">;
+type SeedWiring = Pick<Wiring, "readChatMessage" | "readiness" | "limits" | "fitReadingContext" | "photoStageTimeoutMs">;
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
@@ -192,6 +199,8 @@ function dependencies(wiring: SeedWiring, identify: ApplyChatMessageDependencies
     newPendingId: () => randomUUID() as ChatPendingId,
     clock,
     limits: wiring.limits,
+    fitReadingContext: wiring.fitReadingContext,
+    photoStageTimeoutMs: wiring.photoStageTimeoutMs,
   };
 }
 
@@ -491,6 +500,8 @@ export async function seedChatStart(start: ChatStart, scope: CatalogScope = "eva
     readChatMessage: async () => { throw new Error("Seeding a start calls no model"); },
     readiness: { visualModel: "none" as never, hasActiveProducts, hasIndexedProducts },
     limits: readChatMessageLimits({}),
+    fitReadingContext: () => { throw new Error("Seeding a start calls no model"); },
+    photoStageTimeoutMs: 40_000,
   };
   const chat = await newChat(company);
   await seedStart(chat, start, wiring, company);

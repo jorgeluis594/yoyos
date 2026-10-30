@@ -24,7 +24,7 @@ describe("buildProductsForReading", () => {
   test("lists each attribute once in option order with its values in value order, and the variants in saved order", () => {
     const [read] = buildProductsForReading([product(1)], polo);
     expect(read).toEqual({
-      productId: product(1), name: "Polo básico", sellable: true,
+      productId: product(1), name: "Polo básico", nameKey: "polo basico", sellable: true,
       attributes: [{ name: "Talla", values: ["M"] }, { name: "Color", values: ["Negro", "Blanco"] }],
       variants: [
         { variantId: variant(1), productName: "Polo básico", sku: "PB-MN", unitPrice: price(35), variantAttributes: { Talla: "M", Color: "Negro" } },
@@ -35,7 +35,7 @@ describe("buildProductsForReading", () => {
 
   test("reports a product that is not active as not sellable, with its name and no variants", () => {
     const rows: ReadingRows = { ...polo, products: [{ id: product(1), name: "Polo básico", status: "archived" }] };
-    expect(buildProductsForReading([product(1)], rows)).toEqual([{ productId: product(1), name: "Polo básico", sellable: false, attributes: [], variants: [] }]);
+    expect(buildProductsForReading([product(1)], rows)).toEqual([{ productId: product(1), name: "Polo básico", nameKey: "polo basico", sellable: false, attributes: [], variants: [] }]);
   });
 
   test("reports a product whose variants are all inactive as not sellable", () => {

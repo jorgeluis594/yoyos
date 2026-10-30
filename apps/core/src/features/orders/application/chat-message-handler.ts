@@ -4,19 +4,19 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import type { EventHandler, EventHandlerContext, EventHandlerError, EventMetadata } from "@core/src/shared/events/application/contracts";
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { isRetryableChatMessageError, type ApplyChatMessageError, type ApplyChatMessageOutcome, type PermanentChatMessageErrorCode } from "@core/src/features/orders/application/apply-chat-message";
+import type { FailedOutcomeResult } from "@core/src/features/orders/application/record-failed-chat-message";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
 import type { ChatMessageFailureCode } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { CompanyId } from "@core/src/features/orders/domain/order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 
 type Payload = Readonly<{ companyId: string; chatId: string; messageId: string }>;
-type FailedOutcomeResult = Readonly<{ publishNotice: boolean }>;
 
 export type ChatMessageHandlerDependencies = Readonly<{
   /** Runs the work with the tenant isolation of the company. */
   withTenant: <T>(companyId: string, work: () => T) => T;
   apply: (input: Readonly<{ companyId: CompanyId; messageId: ChatMessageId }>, signal: AbortSignal) => Promise<Result<ApplyChatMessageOutcome, ApplyChatMessageError>>;
-  /** Records `failed` unless the message has an outcome; says whether a notice must be published. */
+  /** `recordFailedChatMessage`: records `failed` and the photo memory it leaves unless the message has an outcome; says whether a notice must be published. */
   recordFailedOutcome: (messageId: ChatMessageId, errorCode: ChatMessageFailureCode) => Promise<Result<FailedOutcomeResult, Readonly<{ code: string; message: string }>>>;
   publishNotice: PublishChatMessageProcessed;
   /** Time one attempt may take, including every provider call. */
@@ -48,7 +48,7 @@ export function createChatMessageHandler(deps: ChatMessageHandlerDependencies): 
       if (outcome.kind === "skipped") log.info({ event: "orders_chat_message_skipped", ...base(), reason: outcome.reason }, "orders_chat_message_skipped");
       else if (outcome.kind === "applied") log.info({ event: "orders_chat_message_applied", ...base(), chatId: payload.chatId, orderId: outcome.orderId, createdOrder: outcome.createdOrder,
         outcomeKinds: outcome.outcomes.map(({ kind }) => kind), readerCalls: outcome.trace.readerCalls, answer: outcome.trace.answer, actionKinds: outcome.trace.actionKinds,
-        contextTruncated: outcome.trace.contextTruncated, pendingsBefore: outcome.pendingsBefore, pendingsAfter: outcome.pendingsAfter, candidateMs: outcome.trace.candidateMs,
+        contextTruncated: outcome.trace.contextTruncated, photoJustSent: outcome.trace.photoJustSent, countedInputTokens: outcome.trace.countedInputTokens, droppedForBudget: outcome.trace.droppedForBudget, pendingsBefore: outcome.pendingsBefore, pendingsAfter: outcome.pendingsAfter, candidateMs: outcome.trace.candidateMs,
         candidateMatchCount: outcome.trace.candidateMatchCount, candidatesTimedOut: outcome.trace.candidatesTimedOut, noticeDue: outcome.noticeDue, durationMs: durationMs() }, "orders_chat_message_applied");
       else log.info({ event: "orders_chat_message_skipped", ...base(), reason: "already_processed" }, "orders_chat_message_skipped");
       if (outcome.kind !== "skipped" && outcome.noticeDue) await publishNotice(deps, payload, metadata);
