@@ -3,7 +3,7 @@ import { expect, test } from "vitest";
 import { ok } from "@shared/functional";
 import { prisma, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
-import { deductStockBulk, findVariantStock, lockVariantStock, searchSaleCatalog } from "@core/src/features/products/infrastructure/order-stock";
+import { deductStockBulk, findSellableVariantStock, findVariantStock, lockVariantStock, searchSaleCatalog } from "@core/src/features/products/infrastructure/order-stock";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 
@@ -90,5 +90,16 @@ test("filters the sale catalog to products with an active variant in stock", asy
     // The matching product keeps all its active variants, including the one without stock.
     expect(filtered.success && filtered.data[0].variants.map((variant) => variant.stock).sort()).toEqual([0, 4]);
     expect(filtered.success && filtered.data[0].id).toBe(mixed.productId);
+  });
+});
+
+test("reads the stock of active variants and leaves deactivated ones out", async () => {
+  await withStock([4], "active", async (_companyId, [active]) => {
+    const inactive = await seedProduct({ variants: [{ attributes: { Talla: "S" }, stock: 7, status: "inactive" }] });
+    const empty = await seedProduct({ variants: [{ attributes: { Talla: "S" }, stock: 0 }] });
+    const ids = [active, ...inactive.variantIds, ...empty.variantIds] as VariantId[];
+    const stock = await findSellableVariantStock(ids);
+    expect(stock.success && Object.fromEntries(stock.data)).toEqual({ [active]: 4, [empty.variantIds[0]]: 0 });
+    expect(await findSellableVariantStock([])).toEqual(ok(new Map()));
   });
 });

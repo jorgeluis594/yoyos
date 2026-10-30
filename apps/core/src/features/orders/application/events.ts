@@ -17,11 +17,13 @@ export type PublishChatMessageProcessed = (payload: ChatMessageProcessed) => Pro
 /** In-transaction events (see docs/event-bus.md): the handler runs inside the producer's transaction and its outcome comes back to the producer. */
 export type PaymentConfirmed = Readonly<{ companyId: CompanyId; orderId: OrderId; paymentId: PaymentId }>;
 export type OrderDeliveryChanged = Readonly<{ companyId: CompanyId; orderId: OrderId }>;
+export type OrderEdited = Readonly<{ companyId: CompanyId; orderId: OrderId }>;
 export type OrderStockDeductionOverdue = Readonly<{ companyId: CompanyId; orderId: OrderId }>;
 declare module "@core/src/shared/events/application/in-transaction-events" {
   interface InTransactionEvents {
     payment_confirmed: { payload: PaymentConfirmed; outcome: DeductionOutcome };
     order_delivery_changed: { payload: OrderDeliveryChanged; outcome: DeductionOutcome };
+    order_edited: { payload: OrderEdited; outcome: DeductionOutcome };
     order_stock_deduction_overdue: { payload: OrderStockDeductionOverdue; outcome: DeductionOutcome };
     product_stock_increased: { payload: ProductStockIncreased; outcome: ServeOutcome };
   }

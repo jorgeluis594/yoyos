@@ -153,3 +153,24 @@ test("the texts exist in Portuguese", async () => {
   expect(button("Copiar link")).not.toBeNull();
   await i18n.changeLanguage("es");
 });
+
+test("before saving it is grey with the disabled controls and Disponible al guardar", async () => {
+  await mount({ state: null, link: { kind: "unavailable" }, pendingSave: true });
+  expect(container.textContent).toContain("Enlace del pedido");
+  expect(container.textContent).toContain("Disponible al guardar");
+  expect(input()?.disabled).toBe(true);
+  expect(input()?.value).toBe("");
+  expect(button("Copiar enlace")?.disabled).toBe(true);
+  expect(container.querySelector<HTMLButtonElement>('button[aria-label="Abrir enlace en una pestaña nueva"]')?.disabled).toBe(true);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.textContent).not.toContain("No se pudo obtener el enlace");
+  expect(container.textContent).not.toContain("Reintentar");
+});
+
+test("before saving the copy button does nothing", async () => {
+  const writeText = vi.fn(async () => undefined);
+  vi.stubGlobal("navigator", { clipboard: { writeText } });
+  await mount({ state: null, link: { kind: "unavailable" }, pendingSave: true });
+  await act(async () => button("Copiar enlace")!.click());
+  expect(writeText).not.toHaveBeenCalled();
+});

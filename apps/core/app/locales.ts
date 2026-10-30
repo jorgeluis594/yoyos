@@ -355,7 +355,7 @@ const es = {
       viewReceipt: "Ver captura", reject: "Rechazar", approve: "Aprobar", void: "Anular pago", receiptTitle: "Comprobante de pago", rejectedReason: "Motivo: {{reason}}",
     },
     customer: {
-      title: "Cliente (opcional)", name: "Nombre", phone: "Celular", hint: "Escribe su nombre y celular.", incomplete: "Completa nombre y celular, o deja ambos vacíos.",
+      title: "Cliente (opcional)", name: "Nombre", phone: "Celular", hint: "Escribe su nombre y celular.", incomplete: "Completa nombre y celular, o deja ambos vacíos.", invalidPhone: "Escribe un celular válido con su código de país.", invalidName: "El nombre admite hasta 120 caracteres.",
       remove: "Quitar cliente", whatsapp: "Cliente del chat de WhatsApp. Agrega su nombre y celular si los conoces.", generalPublic: "Público general",
     },
     link: {
@@ -747,7 +747,7 @@ const pt = {
       viewReceipt: "Ver captura", reject: "Rejeitar", approve: "Aprovar", void: "Anular pagamento", receiptTitle: "Comprovante de pagamento", rejectedReason: "Motivo: {{reason}}",
     },
     customer: {
-      title: "Cliente (opcional)", name: "Nome", phone: "Celular", hint: "Digite o nome e o celular.", incomplete: "Preencha nome e celular, ou deixe ambos vazios.",
+      title: "Cliente (opcional)", name: "Nome", phone: "Celular", hint: "Digite o nome e o celular.", incomplete: "Preencha nome e celular, ou deixe ambos vazios.", invalidPhone: "Digite um celular válido com o código do país.", invalidName: "O nome admite até 120 caracteres.",
       remove: "Remover cliente", whatsapp: "Cliente do chat do WhatsApp. Adicione o nome e o celular se você os conhecer.", generalPublic: "Público geral",
     },
     link: {
