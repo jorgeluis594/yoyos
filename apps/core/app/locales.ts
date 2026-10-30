@@ -125,6 +125,8 @@ const es = {
     promoted: " La foto {{position}} ahora es la principal.", kept: "Foto {{position}} de {{total}} se conservará.", primaryAgain: " Ahora es la principal.",
     removed_one: "Foto quitada. Queda {{count}} foto.", removed_other: "Foto quitada. Quedan {{count}} fotos.", removedNone: "Foto quitada. No quedan fotos.",
     added_one: "Se agregó {{count}} foto.", added_other: "Se agregaron {{count}} fotos.", uploadFailed: "La foto {{position}} no se subió: {{reason}}.",
+    openLabel: "Ver la foto {{position}} de {{total}}", viewerTitle: "Foto {{position}} de {{total}}", viewerHint: "Usa las flechas del teclado para ver las demás fotos.", viewerClose: "Cerrar foto",
+    viewerPrevious: "Foto anterior", viewerNext: "Foto siguiente", viewerLoadFailed: "No se pudo cargar la foto.",
   },
   products: {
     title: "Productos", new: "Nuevo producto", newDescription: "Completa los datos para agregarlo a tu empresa.", name: "Nombre", multipleVariants: "Varias variantes", noSku: "Sin SKU", salePrice: "Precio de venta", purchasePrice: "Precio de compra", from: "Desde ", stock: "Stock", searchLabel: "Buscar por nombre o SKU", search: "Buscar", caption: "Productos del catálogo", emptySearch: "No se encontraron productos para esta búsqueda.", empty: "Aún no hay productos en el catálogo. ", createFirst: "Crea el primero", pages: "Páginas de productos", page: "Página {{page}}", invalidSearch: "Búsqueda no válida", loadError: "No se pudo cargar el catálogo", invalidSearchDescription: "Revisa los criterios e inténtalo de nuevo.", retry: "Reintentar", backCatalog: "Volver al catálogo", backProducts: "Volver a productos", saved: "Producto guardado correctamente.", saveChanges: "Guardar cambios", variants: "Variantes", variant: "Variante {{number}}", noPrice: "Sin precio", missing: "Producto no encontrado", loadProductError: "No se pudo cargar el producto", missingDescription: "No hay un producto disponible en esta dirección.", backHome: "Volver al inicio",
@@ -425,6 +427,8 @@ const pt = {
     madePrimary: "Foto 1 de {{total}}, agora é a principal.", announceNew: "Foto {{position}} de {{total}} será removida ao salvar.", announceSaved: "Foto {{position}} de {{total}} será excluída ao salvar.",
     promoted: " A foto {{position}} agora é a principal.", kept: "Foto {{position}} de {{total}} será mantida.", primaryAgain: " Agora é a principal.",
     removed_one: "Foto removida. Resta {{count}} foto.", removed_other: "Foto removida. Restam {{count}} fotos.", removedNone: "Foto removida. Não restam fotos.",
+    openLabel: "Ver a foto {{position}} de {{total}}", viewerTitle: "Foto {{position}} de {{total}}", viewerHint: "Use as setas do teclado para ver as outras fotos.", viewerClose: "Fechar foto",
+    viewerPrevious: "Foto anterior", viewerNext: "Próxima foto", viewerLoadFailed: "Não foi possível carregar a foto.",
     added_one: "{{count}} foto adicionada.", added_other: "{{count}} fotos adicionadas.", uploadFailed: "A foto {{position}} não foi enviada: {{reason}}.",
   },
   products: {

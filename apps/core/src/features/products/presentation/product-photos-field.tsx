@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type ReactNode } from "react"
 import { useTranslation } from "react-i18next";
 import { Loader2, Plus, RotateCcw, Star, Trash2, TriangleAlert, Undo2, X } from "lucide-react";
 import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
+import { ProductPhotoViewer } from "@core/src/features/products/presentation/product-photo-viewer";
 import { uploadImageFile } from "@core/src/shared/images/presentation/client";
 import { imageUploadLimits } from "@shared/contracts/images";
 import {
@@ -239,7 +240,7 @@ export type ProductPhotos = ReturnType<typeof useProductPhotos>;
 // Plain buttons, not the design-system Button: its touch rule would grow them to the touch minimum (two of them no longer fit a 4-column tile on a phone); 32 px is the field's approved hit area.
 const overlayButton = "inline-flex size-8 items-center justify-center rounded-md bg-background/95 text-foreground shadow-sm transition-colors hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background dark:bg-background [&_svg]:size-4";
 
-function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: number; total: number; photos: ProductPhotos }) {
+function Thumbnail({ photo, index, total, photos, onOpen }: { photo: FieldPhoto; index: number; total: number; photos: ProductPhotos; onOpen: (key: string) => void }) {
   const { t } = useTranslation();
   const local = photos.previews[photo.key];
   const primary = primaryKey(photos.field) === photo.key;
@@ -272,7 +273,7 @@ function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: 
       {photo.kind === "failed" && <span className={`${chip} text-destructive`}>{big && <TriangleAlert aria-hidden="true" className="size-3 shrink-0" />}{t("productPhotos.failed")}</span>}
       {marked && <span className={`${chip} text-foreground`}>{t(photo.kind === "saved" ? "productPhotos.markSaved" : "productPhotos.markNew")}</span>}
     </div>
-    <div className="absolute right-0.5 top-0.5 flex gap-0.5 opacity-0 transition-opacity group-hover/tile:opacity-100 group-focus-within/tile:opacity-100 [@media(hover:none)]:opacity-100">
+    <div className="absolute right-0.5 top-0.5 z-10 flex gap-0.5 opacity-0 transition-opacity group-hover/tile:opacity-100 group-focus-within/tile:opacity-100 [@media(hover:none)]:opacity-100">
       {photo.kind === "uploading" && action(t("productPhotos.cancelUploadLabel", position), t("productPhotos.cancelUpload"), <X aria-hidden="true" />, () => photos.discard(photo.key))}
       {photo.kind === "failed" && photo.retryable && action(t("productPhotos.retryLabel", position), t("productPhotos.retry"), <RotateCcw aria-hidden="true" />, () => photos.retry(photo.key))}
       {photo.kind === "failed" && remove(() => photos.discard(photo.key))}
@@ -280,6 +281,9 @@ function Thumbnail({ photo, index, total, photos }: { photo: FieldPhoto; index: 
       {isKept(photo) && !marked && !primary && action(t("productPhotos.makePrimaryLabel", position), t("productPhotos.makePrimary"), <Star aria-hidden="true" />, () => photos.promote(photo.key))}
       {isKept(photo) && !marked && remove(() => photos.remove(photo.key))}
     </div>
+    {/* After the actions in the DOM so the tile's first button stays the first action; a photo still uploading or failed has nothing to show, so it has no button. */}
+    {isKept(photo) && <button type="button" data-photo-open aria-label={t("productPhotos.openLabel", position)} onClick={() => onOpen(photo.key)}
+      className="absolute inset-0 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background" />}
   </li>;
 }
 
@@ -317,6 +321,7 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
   const { field } = photos;
   const input = useRef<HTMLInputElement>(null);
   const root = useRef<HTMLDivElement>(null);
+  const [viewing, setViewing] = useState<string | null>(null);
   const { focus } = photos;
   useEffect(() => {
     if (!focus || !root.current) return;
@@ -339,6 +344,7 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
     marks: (marked, savedOnes) => t(savedOnes ? "productPhotos.markedSaved" : "productPhotos.markedNew", { count: marked }),
     freeUp: t("productPhotos.freeUp"),
   });
+  const viewable = field.photos.filter(isKept).map((photo) => ({ key: photo.key, url: photo.url }));
   const empty = field.photos.length === 0;
   const open = () => input.current?.click();
   // Free cells keep the box at 12 cells: the 8 small ones minus those taken by the photos next to the primary and by the add tile.
@@ -359,7 +365,7 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
             <Plus aria-hidden="true" className="size-5" /><span className="text-sm text-foreground">{t("productPhotos.add")}</span><span id="photos-hint" className="font-normal">{t("productPhotos.hint")}</span>
           </button>
         </li>}
-        {field.photos.map((photo, index) => <Thumbnail key={photo.key} photo={photo} index={index} total={field.photos.length} photos={photos} />)}
+        {field.photos.map((photo, index) => <Thumbnail key={photo.key} photo={photo} index={index} total={field.photos.length} photos={photos} onOpen={setViewing} />)}
         {!empty && !full && <li className="aspect-square">
           <button type="button" data-photos-add aria-describedby="photos-status" className={addTile} onClick={open}><Plus aria-hidden="true" className="size-5" />{t("productPhotos.add")}</button>
         </li>}
@@ -369,6 +375,8 @@ export function ProductPhotosField({ photos, error }: { photos: ProductPhotos; e
         ? <FieldError id="photos-status" data-photos-message {...(full ? { "data-photos-limit": "" } : {})} tabIndex={-1} className={`${statusClass} text-destructive`}>{status.text}</FieldError>
         : <p id="photos-status" tabIndex={full ? -1 : undefined} {...(full ? { "data-photos-limit": "" } : {})} {...(status.kind === "notice" ? { "data-photo-notice": "" } : {})}
             className={`${statusClass} ${status.kind === "photos" ? "text-destructive" : "text-muted-foreground"}`}>{status.text}</p>)}
+      {viewing !== null && viewable.some((photo) => photo.key === viewing) && <ProductPhotoViewer photos={viewable} current={viewing} onChange={setViewing} onClose={() => setViewing(null)}
+        onCloseAutoFocus={(event) => { event.preventDefault(); root.current?.querySelector<HTMLElement>(`[data-photo="${viewing}"] [data-photo-open]`)?.focus(); }} />}
       <p aria-live="polite" aria-atomic="true" data-photo-live className="sr-only"><span key={photos.announcement.id}>{photos.announcement.text}</span></p>
     </div>
   </Field>;
