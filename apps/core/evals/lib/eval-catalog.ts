@@ -54,6 +54,11 @@ export async function readRegisteredImage(imageId: ImageId) {
   return ok<ImageBytes>({ bytes, contentType: contentTypeOf(file) });
 }
 
+/** The `readImages` port of the visual search over registered fixture files: one result per id, in the order asked. */
+export async function readRegisteredImages(imageIds: readonly ImageId[]) {
+  return ok(await Promise.all(imageIds.map((imageId) => readRegisteredImage(imageId))));
+}
+
 const companyTables = ["chatMessageOutcome", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer",
   "productStock", "productVariant", "productOption", "product", "image"] as const;
 
