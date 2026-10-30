@@ -6,6 +6,7 @@ import { mentionedPriceOf, type StatedPrice } from "@core/src/features/orders/do
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import { conflictsWithKnown, describePendings, normalizeValue, pendingPriceOf, resolveVariant, type AdvanceRequest, type AttributeChoice } from "@core/src/features/orders/domain/pending-transitions";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
+import { productNameKey } from "@core/src/features/products/domain/product-name-key";
 import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
 
 /** A short reference valid for one reading only: "P1" products, "I1" items, "Q1" pendings. */
@@ -135,11 +136,12 @@ const wholeQuantity = (quantity: number | null): boolean => quantity === null ||
  * reaches the order except through a catalog variant, and every failed check is a report that leaves the rest of the message applied.
  */
 export function checkReaderAnswer(answer: ReaderAnswer, context: ChatReadingContext, options: Readonly<{ captionDoubt: boolean }>): readonly [ResolvedChatAction, ...ResolvedChatAction[]] {
-  if (answer.kind === "no_intent") return [report({ kind: "no_intent" })];
-  if (answer.kind === "doubt") return context.kind === "photo_product" ? checkReaderAnswer(fixedShownAnswer(context), context, { captionDoubt: true }) : [report({ kind: "reader_doubt", orderId: null })];
+  if (answer.kind === "no_intent") return context.kind === "photo_product" ? shownOnly(context, false) : [report({ kind: "no_intent" })];
+  if (answer.kind === "doubt") return context.kind === "photo_product" ? shownOnly(context, true) : [report({ kind: "reader_doubt", orderId: null })];
+  const photoAnswer = context.kind === "photo_product" ? withShownProducts(answer, context) : answer;
   const world: World = { context, products: new Map(context.products.map((product) => [product.ref, product])), byProductId: new Map(context.products.map((product) => [product.productId, product])),
     items: new Map(context.items.map((item) => [item.ref, item])), pendings: new Map(context.pendings.map((entry) => [entry.ref, entry.pending])) };
-  const actions = answer.actions.slice(0, maxReaderActions);
+  const actions = photoAnswer.actions.slice(0, maxReaderActions);
   const targets = actions.map((action) => pendingTargetOf(action, world));
   const claims = new Map<ChatPendingId, number>();
   for (const target of targets) if (target.kind === "one") claims.set(target.pending.id, (claims.get(target.pending.id) ?? 0) + 1);
@@ -154,10 +156,37 @@ export function checkReaderAnswer(answer: ReaderAnswer, context: ChatReadingCont
     const shared = target.kind === "one" && (claims.get(target.pending.id) ?? 0) > 1;
     return resolveAction(action, target, shared, world);
   });
-  if (answer.moreActions || answer.actions.length > maxReaderActions) resolved.push(invalid("too_many_actions"));
+  if (photoAnswer.moreActions || photoAnswer.actions.length > maxReaderActions) resolved.push(invalid("too_many_actions"));
   if (options.captionDoubt) for (const product of context.products) if (product.shown) resolved.push({ kind: "caption_doubt", productId: product.productId, identification: product.identification });
   const [first, ...rest] = resolved;
   return first ? [first, ...rest] : [report({ kind: "no_intent" })];
+}
+
+/** What a product photo does when its caption adds nothing: the shown products follow the photo rules. */
+function shownOnly(context: ChatReadingContext, captionDoubt: boolean): readonly [ResolvedChatAction, ...ResolvedChatAction[]] {
+  const fixed = fixedShownAnswer(context);
+  return fixed.kind === "actions" ? checkReaderAnswer(fixed, context, { captionDoubt }) : [report({ kind: "no_intent" })];
+}
+
+type ActionsAnswer = Extract<ReaderAnswer, { kind: "actions" }>;
+type QuantityChange = Extract<ReaderAction, { kind: "change_quantity" }>;
+const isUnnamedChange = (action: ReaderAction): action is QuantityChange => action.kind === "change_quantity" && action.target.kind === "unnamed";
+
+/**
+ * A product photo whose caption only asks what the photo never does (a payment, something not allowed, «listo», an unnamed quantity) still
+ * adds or leaves pending the shown product: the shown answer goes first. An unnamed total with one shown product is that product's
+ * quantity; any other unnamed change is an unnamed add, never a change to another item.
+ */
+function withShownProducts(answer: ActionsAnswer, context: ChatReadingContext): ActionsAnswer {
+  const fixed = fixedShownAnswer(context);
+  const onlyExtras = answer.actions.every((action) => action.kind === "payment_request" || action.kind === "not_allowed" || action.kind === "ready" || isUnnamedChange(action));
+  if (fixed.kind !== "actions" || !onlyExtras) return answer;
+  const [shown, ...otherShown] = fixed.actions;
+  const total = fixed.actions.length === 1 ? answer.actions.findIndex((action) => isUnnamedChange(action) && action.mode === "set") : -1;
+  const totalAction = answer.actions[total];
+  const first = shown.kind === "add" && totalAction?.kind === "change_quantity" ? { ...shown, quantity: totalAction.quantity } : shown;
+  const extras = answer.actions.flatMap((action, index): ReaderAction[] => (index === total ? [] : isUnnamedChange(action) ? [{ kind: "add", product: { kind: "unnamed" }, attributes: [], quantity: null, price: null }] : [action]));
+  return { kind: "actions", actions: [first, ...otherShown, ...extras], moreActions: answer.moreActions };
 }
 
 /** A product named twice in an answer, or once with two readings, is one product: pendings of it are searched once. */
@@ -170,7 +199,10 @@ function addedProductOf(product: ReaderProduct, world: World): AddedProduct {
   const named = product.refs.map((ref) => world.products.get(ref));
   const listed = named.filter((found): found is ReadingProduct => found !== undefined);
   if (listed.length < named.length) return { kind: "other", reader: { kind: "unknown" } };
-  const distinct = listed.filter((found, index) => listed.findIndex((other) => other.productId === found.productId) === index);
+  const unique = listed.filter((found, index) => listed.findIndex((other) => other.productId === found.productId) === index);
+  // A product that is not sellable and has the name of a sellable one is its twin, never a doubt.
+  const sellableNames = new Set(unique.filter((found) => found.sellable).map((found) => productNameKey(found.name)));
+  const distinct = unique.filter((found) => found.sellable || !sellableNames.has(productNameKey(found.name)));
   const [first, second, ...rest] = distinct;
   if (!first) return { kind: "other", reader: { kind: "unknown" } };
   if (!second) return { kind: "product", product: first };
@@ -209,10 +241,10 @@ function matchPendings(product: ReadingProduct, choices: readonly AttributeChoic
 
 function resolveAction(action: ReaderAction, target: PendingTarget, shared: boolean, world: World): readonly ResolvedChatAction[] {
   switch (action.kind) {
-    // Until the domain rules arrive, a payment request is a request the chat does not do.
-    case "payment_request":
     case "not_allowed": return [report({ kind: "request_not_allowed", orderId: null })];
-    case "malformed": return [invalid("unknown_reference")];
+    // `applyChatActions` fills the order and what the chat still waits for.
+    case "payment_request": return [report({ kind: "payment_requested", order: { kind: "none" }, productIds: [], unnamed: 0 })];
+    case "malformed": return [invalid("malformed")];
     case "ready": return [{ kind: "ready" }];
     case "variant_only": return [report({ kind: "variant_only" })];
     case "decline_shown": return [];
@@ -247,14 +279,36 @@ function itemTarget(item: ReaderItem, world: World): ItemTarget {
 const readingItem = (item: ReaderItem, world: World): ReadingItem | null =>
   item.kind === "ref" ? world.items.get(item.ref) ?? null : item.kind === "unnamed" && world.context.items.length === 1 ? world.context.items[0] ?? null : null;
 
+/** The photo just sent: only a text is ever read against it, so a caption never changes what the previous photo left. */
+const photoLeftOf = (world: World): PhotoLeft | null => (world.context.kind === "text" ? world.context.photoJustSent : null);
+const unnamedAdd = (): ResolvedChatAction => report({ kind: "unnamed_add" });
+
 function changeQuantity(action: Extract<ReaderAction, { kind: "change_quantity" }>, world: World): readonly ResolvedChatAction[] {
-  // Until the domain rules arrive, a quantity change on a pending and a decrease are not applied.
-  if (action.target.kind === "pending" || action.mode === "decrease") return [invalid("malformed")];
-  const target = itemTarget(action.target, world);
-  const whole = Number.isInteger(action.quantity);
-  if (action.mode === "increase") return whole && action.quantity >= 1 ? [{ kind: "increase_quantity", target, quantity: action.quantity as PositiveInteger }] : [invalid("quantity_not_whole")];
-  return whole && action.quantity >= 0 ? [{ kind: "set_quantity", target, quantity: action.quantity }] : [invalid("quantity_not_whole")];
+  const { target, mode, quantity } = action;
+  const whole = Number.isInteger(quantity) && (mode === "set" ? quantity >= 0 : quantity >= 1);
+  if (!whole) return [invalid("quantity_not_whole")];
+  if (target.kind === "pending") {
+    const pending = world.pendings.get(target.ref);
+    if (!pending) return [invalid("unknown_reference")];
+    const namedProductId = pending.subject.kind === "variant" ? pending.subject.productId : null;
+    return [{ kind: "change_pending_quantity", pendingId: pending.id, mode, quantity, otherwise: report({ kind: "unclear_item", orderId: null, namedItem: true, namedProductId }) }];
+  }
+  if (target.kind === "unnamed") {
+    // A product photo's caption never reaches the only-item rule: its unnamed total was given to the shown product before.
+    if (world.context.kind === "photo_product") return [unnamedAdd()];
+    const left = photoLeftOf(world);
+    if (left) return mode === "set" ? [markedQuantity(left, quantity)] : [unnamedAdd()];
+  }
+  const lineTarget = itemTarget(target, world);
+  if (mode === "increase") return [{ kind: "increase_quantity", target: lineTarget, quantity: quantity as PositiveInteger }];
+  if (mode === "decrease") return [{ kind: "lower_quantity", target: lineTarget, quantity: quantity as PositiveInteger }];
+  return [{ kind: "set_quantity", target: lineTarget, quantity }];
 }
+
+/** The quantity of what the photo just sent left, which falls back to an unnamed add when it is no longer that. */
+const markedQuantity = (left: PhotoLeft, quantity: number): ResolvedChatAction => left.kind === "pending"
+  ? { kind: "change_pending_quantity", pendingId: left.pendingId, mode: "set", quantity, otherwise: unnamedAdd() }
+  : { kind: "set_marked_item_quantity", orderId: left.orderId, variantId: left.variantId, expectedQuantity: left.quantity, quantity, otherwise: unnamedAdd() };
 
 function changeVariant(action: Extract<ReaderAction, { kind: "change_variant" }>, world: World): readonly ResolvedChatAction[] {
   const item = readingItem(action.item, world);
@@ -321,6 +375,11 @@ function doubtfulDraft(products: readonly [ReadingProduct, ReadingProduct, ...Re
 function completePending(action: Extract<ReaderAction, { kind: "complete_pending" }>, target: PendingTarget, shared: boolean, world: World): readonly ResolvedChatAction[] {
   if (target.kind !== "one" || !wholeQuantity(action.quantity)) return [target.kind !== "one" ? invalid("unknown_reference") : invalid("quantity_not_whole")];
   const { pending } = target;
+  if (action.product === null && action.attributes.length === 0 && action.quantity !== null) {
+    // Only a quantity: the units of what the photo just sent left, otherwise an unnamed add that never grows a pending.
+    const left = photoLeftOf(world);
+    return [left?.kind === "pending" && left.pendingId === pending.id ? markedQuantity(left, action.quantity) : unnamedAdd()];
+  }
   const named = action.product === null ? undefined : world.products.get(action.product);
   if (action.product !== null && !named) return [invalid("unknown_reference")];
   const chosen = named ?? ownProduct(pending, world);

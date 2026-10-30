@@ -492,3 +492,67 @@ describe("pending transitions", () => {
 function fixedShownAnswerOf(chat: ReturnType<typeof createChat>, reading: Parameters<ReturnType<typeof createChat>["context"]>[0]) {
   return fixedShownAnswer(chat.context(reading));
 }
+
+describe("changePendingQuantity", () => {
+  const { say, change } = reader;
+  const lot = { amount: { amount: 70, currency: "PEN" as const }, per: "lot" as const, forQuantity: 2 as PositiveInteger };
+  const chatWith = (quantity: number) => createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo", { known: { Talla: "M" }, quantity, price: lot })] });
+
+  test("setting a pending's quantity keeps its values and price and sends no notice", () => {
+    const chat = chatWith(2);
+    expect(chat.say(say(change("Q1", "set", 3))).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendings.pendings[0]).toMatchObject({ quantity: 3, known: { Talla: "M" }, price: lot, lastChangedAt: chat.now });
+  });
+
+  test("raising a pending by one adds a unit", () => {
+    const chat = chatWith(2);
+    expect(chat.say(say(change("Q1", "increase", 1))).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendings.pendings[0]?.quantity).toBe(3);
+  });
+
+  test("lowering a pending by one leaves the rest", () => {
+    const chat = chatWith(2);
+    expect(chat.say(say(change("Q1", "decrease", 1))).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendings.pendings[0]?.quantity).toBe(1);
+  });
+
+  test("lowering a pending to zero ends it as declined", () => {
+    const chat = chatWith(2);
+    const said = chat.say(say(change("Q1", "decrease", 2)));
+    expect(said.outcomes).toEqual([{ kind: "pending_ended", pendingId: id(301) as ChatPendingId, reason: "declined" }]);
+    expect(chat.pendings.pendings).toEqual([]);
+  });
+
+  test("lowering a pending below zero changes nothing and reports quantity_below_zero", () => {
+    const chat = chatWith(2);
+    expect(chat.say(say(change("Q1", "decrease", 3))).outcomes).toEqual([{ kind: "invalid_action", orderId: id(1), reason: "quantity_below_zero" }]);
+    expect(chat.pendings.pendings[0]?.quantity).toBe(2);
+  });
+
+  test("setting a pending above 99 changes nothing and reports quantity_above_limit", () => {
+    const chat = chatWith(98);
+    expect(chat.say(say(change("Q1", "increase", 2))).outcomes).toEqual([{ kind: "quantity_above_limit", productId: productIdOf("polo"), identification: null }]);
+    expect(chat.say(say(change("Q1", "set", 100))).kinds).toEqual(["quantity_above_limit"]);
+    expect(chat.pendings.pendings[0]?.quantity).toBe(98);
+  });
+
+  test("a doubtful pending changes its quantity too and names its first candidate above the limit", () => {
+    const chat = createChat({ pendings: [doubtfulPendingOf(["polo", "oversize"])] });
+    expect(chat.say(say(change("Q1", "set", 4))).kinds).toEqual(["pending_updated"]);
+    expect(chat.say(say(change("Q1", "set", 100))).outcomes).toEqual([{ kind: "quantity_above_limit", productId: productIdOf("polo"), identification: null }]);
+  });
+});
+
+describe("chatPendingsSchema: last incoming photo", () => {
+  const stored = (lastIncomingPhoto: unknown) => ({ pendings: [], readyRemembered: false, lastIncomingPhoto });
+
+  test("a stored pendings row with a last incoming photo reads back equal", () => {
+    const pendingLeft = { left: { kind: "pending", pendingId: id(5) } };
+    const itemLeft = { left: { kind: "item", orderId: id(6), variantId: id(7), quantity: 3 } };
+    for (const photo of [pendingLeft, itemLeft, { left: null }]) expect(chatPendingsSchema.parse(stored(photo)).lastIncomingPhoto).toEqual(photo);
+  });
+
+  test("a stored last incoming photo with an item of quantity 0 reads as invalid stored data", () => {
+    expect(chatPendingsSchema.safeParse(stored({ left: { kind: "item", orderId: id(6), variantId: id(7), quantity: 0 } })).success).toBe(false);
+  });
+});
