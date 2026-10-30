@@ -47,6 +47,20 @@ describe("CheckoutShell", () => {
     act(() => root.unmount());
   });
 
+  test("shows no status block of its own: a confirmed checkout has none, and the header notice goes under the title", () => {
+    const container = document.body.appendChild(document.createElement("div"));
+    const root = createRoot(container);
+    const confirmed = previewCheckout("Lima Studio", "payment");
+    act(() => root.render(withI18n(<CheckoutShell appearance={null} checkout={confirmed}><p>Contenido</p></CheckoutShell>)));
+    expect(container.querySelector("header")?.textContent).not.toContain("Pedido confirmado");
+    expect(container.querySelector("[data-store-part=status]")).toBeNull();
+    act(() => root.render(withI18n(<CheckoutShell appearance={null} checkout={confirmed} headerNotice={<p>Aviso</p>}><p>Contenido</p></CheckoutShell>)));
+    const header = container.querySelector("header")!;
+    expect(header.querySelector("h1")!.compareDocumentPosition([...header.querySelectorAll("p")].find((p) => p.textContent === "Aviso")!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(header.textContent).toContain("Aviso");
+    act(() => root.unmount());
+  });
+
   test("places the brand with the theme's header justification inside the page width, not on the full-width bar", () => {
     const container = document.body.appendChild(document.createElement("div"));
     const root = createRoot(container);
@@ -96,6 +110,15 @@ describe("CheckoutOrderSummary", () => {
     const { container, unmount } = render(<CheckoutOrderSummary checkout={{ ...pending, items: [{ ...pending.items[0]!, variantAttributes: { Talla: "M", Color: "Azul" } }] }} deliveryDraft={null} />);
     expect(container.querySelector("[data-store-part=product-meta]")?.textContent).toBe("M · Azul");
     unmount();
+  });
+
+  test("labels the total «Total del pedido» once the checkout is confirmed or cancelled", () => {
+    for (const state of [{ kind: "confirmed", confirmedAt: "2026-10-30T12:00:00.000Z" }, { kind: "cancelled" }] as const) {
+      const { container, unmount } = render(<CheckoutOrderSummary checkout={{ ...withPhotos, state }} deliveryDraft={null} />);
+      expect(container.querySelector("[data-store-part=total-label]")?.textContent).toBe("Total del pedido");
+      expect(container.querySelector("section[aria-label='Total del pedido']")).not.toBeNull();
+      unmount();
+    }
   });
 
   test("marks the totals with their theme hooks", () => {
