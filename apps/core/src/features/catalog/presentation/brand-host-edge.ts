@@ -9,6 +9,8 @@ import { storefrontConfig } from "@core/src/features/catalog/infrastructure/stor
 const buyerApiPath = /^\/api\/(?:buyer\/orders|quotations)(?:\/|$)/;
 const appHostRefusedPath = /^\/api\/buyer\/orders(?:\/|$)/;
 const notFound = (response: Response) => response.status(404).set("Cache-Control", "no-store").json({ code: "NOT_FOUND", error: "Not found" });
+/** Seller-facing protocol endpoints (OAuth metadata, MCP): served on the app host only. */
+const appHostOnlyPath = /^\/(?:mcp|\.well-known)(?:\/|$)/;
 const scannerPath = /\.php$|^\/\.env|^\/\.git(?:\/|$)|^\/wp-/i;
 
 /**
@@ -33,7 +35,7 @@ export function brandHostEdge(request: Request, response: Response, next: NextFu
   if (host.kind === "app") return appHostRefusedPath.test(request.path) ? notFound(response) : next();
   sendNoReferrer(response);
   if (host.kind === "store" && buyerApiPath.test(request.path)) return next();
-  if (/^\/api(?:\/|$)/.test(request.path)) return notFound(response);
+  if (/^\/api(?:\/|$)/.test(request.path) || appHostOnlyPath.test(request.path)) return notFound(response);
   if (request.path === "/robots.txt" && (request.method === "GET" || request.method === "HEAD"))
     return response.status(200).type("text/plain").set("Cache-Control", "public, max-age=86400").send("User-agent: *\nDisallow: /\n");
   if (scannerPath.test(request.path)) return response.status(404).type("text/plain").send("Not found");

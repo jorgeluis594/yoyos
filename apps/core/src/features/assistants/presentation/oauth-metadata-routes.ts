@@ -13,6 +13,19 @@ async function sendWebResponse(response: ExpressResponse, webResponse: Response)
   response.status(webResponse.status).send(Buffer.from(await webResponse.arrayBuffer()));
 }
 
+// The plugin advertises endpoints from its configuration, not from `disabledPaths`; the introspection endpoint answers 404 here, so it is not advertised.
+const unservedEndpointFields = ["introspection_endpoint"];
+
+async function withoutUnservedEndpoints(webResponse: Response): Promise<Response> {
+  if (webResponse.status !== 200) return webResponse;
+  const document: unknown = await webResponse.json();
+  if (typeof document !== "object" || document === null || Array.isArray(document)) throw new Error("Authorization server metadata is not an object");
+  const served = Object.fromEntries(Object.entries(document).filter(([field]) => !unservedEndpointFields.includes(field)));
+  const headers = new Headers(webResponse.headers);
+  headers.delete("content-length");
+  return new Response(JSON.stringify(served), { status: webResponse.status, headers });
+}
+
 // RFC 9728: the one protected resource is the MCP endpoint, served by the Yoyos authorization server.
 async function protectedResource(_request: ExpressRequest, response: ExpressResponse) {
   try {
@@ -34,7 +47,7 @@ async function protectedResource(_request: ExpressRequest, response: ExpressResp
 async function authorizationServer(request: ExpressRequest, response: ExpressResponse) {
   try {
     const webRequest = new Request(new URL(request.originalUrl, authIssuer), { method: "GET" });
-    await sendWebResponse(response, await authServerMetadata(webRequest));
+    await sendWebResponse(response, await withoutUnservedEndpoints(await authServerMetadata(webRequest)));
   } catch (cause) {
     log.error({ event: "assistant_metadata_failed", metadata: "authorization_server", err: cause }, "assistant_metadata_failed");
     response.status(503).set("Cache-Control", "no-store").json({ error: "temporarily_unavailable" });

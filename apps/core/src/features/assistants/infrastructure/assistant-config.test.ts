@@ -5,6 +5,7 @@ test("uses the design's initial values when nothing is configured", () => {
   expect(parseAssistantConfig({})).toMatchObject({
     accessTokenTtlSeconds: 3600, refreshTokenTtlSeconds: 90 * 24 * 3600, refreshReuseSeconds: 10, authorizationRequestTtlSeconds: 600,
     connectionInactivityDays: 90, registerLimitPerMinute: 5, authorizeLimitPerMinute: 30, tokenLimitPerMinute: 300,
+    toolCallLimitPerMinute: 60, requestLimitPerMinute: 300,
   });
 });
 
