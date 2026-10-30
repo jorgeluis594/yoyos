@@ -36,7 +36,7 @@ function SelectContent({ className, children, ...props }: React.ComponentProps<t
       <SelectPrimitive.Positioner alignItemWithTrigger={false} sideOffset={4}>
         <SelectPrimitive.Popup
           data-slot="select-content"
-          className={cn("z-50 max-h-60 min-w-[var(--anchor-width)] overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none", className)}
+          className={cn("z-50 max-h-[min(15rem,var(--available-height))] min-w-[var(--anchor-width)] overflow-y-auto rounded-md border border-border bg-popover p-1 text-popover-foreground shadow-md outline-none", className)}
           {...props}
         >
           <SelectPrimitive.List>{children}</SelectPrimitive.List>

@@ -32,16 +32,18 @@ async function cleanup(companyId: string | undefined, email: string) {
   });
 }
 
+const animationsFinished = (page: Page) => page.evaluate(() => Promise.allSettled(document.getAnimations().map((animation) => animation.finished)));
+
 /** Opens the select inside the dialog and checks the popup hugs its trigger without making the dialog move, grow or scroll. */
 async function expectPopupBesideTrigger(page: Page, dialog: Locator, trigger: Locator, name: string, open: () => Promise<void>) {
   // The dialog zooms in when it opens; measure once it has settled.
-  await page.waitForTimeout(500);
+  await animationsFinished(page);
   const dialogBefore = await dialog.boundingBox();
   const triggerBox = await trigger.boundingBox();
   await open();
   const listbox = page.getByRole("listbox");
   await browserExpect(listbox).toBeVisible();
-  await page.waitForTimeout(300);
+  await animationsFinished(page);
   const popup = await listbox.boundingBox();
   const dialogAfter = await dialog.boundingBox();
   if (!dialogBefore || !triggerBox || !popup || !dialogAfter) throw new Error("Missing layout boxes");
