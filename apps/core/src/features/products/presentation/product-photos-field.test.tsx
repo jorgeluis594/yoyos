@@ -474,7 +474,7 @@ test("an upload that settles leaves focus alone when it is elsewhere", async () 
 
 test("each thumbnail keeps its actions as icon buttons overlaid on the photo, with the same names and a verb tooltip", async () => {
   mount({ photos: savedPhotos(3) });
-  const overlay = (index: number) => [...thumbs()[index].querySelectorAll("button")].map((item) => `${item.getAttribute("aria-label")}|${item.title}`);
+  const overlay = (index: number) => [...thumbs()[index].querySelectorAll<HTMLButtonElement>("button:not([data-photo-open])")].map((item) => `${item.getAttribute("aria-label")}|${item.title}`);
   expect(overlay(0)).toEqual(["Quitar la foto 1 de 3|Quitar la foto 1 de 3"]);
   expect(overlay(1)).toEqual(["Hacer principal la foto 2 de 3|Hacer principal", "Quitar la foto 2 de 3|Quitar la foto 2 de 3"]);
   expect(thumbs()[1].textContent).toBe("");
@@ -594,4 +594,90 @@ test("the 2×2 cell stays on the photo at index 0 while marked photos pass the p
   click(button("Quitar la foto 4 de 4"));
   expect(thumbs()[0].className).toContain("col-span-2");
   expect(container.querySelectorAll("[aria-label='Fotos del producto'] > li")).toHaveLength(9);
+});
+
+const dialog = () => document.body.querySelector<HTMLElement>("[role='dialog']");
+const viewerImage = () => dialog()?.querySelector("img")?.getAttribute("src");
+const dialogButton = (name: string) => dialog()?.querySelector<HTMLButtonElement>(`button[aria-label="${name}"]`) ?? undefined;
+const arrow = (key: string) => act(() => { dialog()!.dispatchEvent(new KeyboardEvent("keydown", { key, bubbles: true })); });
+
+test("clicking a saved photo opens it large in a modal and closing returns to the form", async () => {
+  mount({ photos: savedPhotos(3) });
+  click(button("Ver la foto 2 de 3"));
+  expect(dialog()?.textContent).toContain("Foto 2 de 3");
+  expect(viewerImage()).toBe("https://img.test/1.png");
+  click(dialogButton("Cerrar foto"));
+  expect(dialog()).toBeNull();
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 0)); });
+  expect(document.activeElement).toBe(button("Ver la foto 2 de 3"));
+  expect(names()).toEqual(["Foto 1 de 3, principal", "Foto 2 de 3", "Foto 3 de 3"]);
+});
+
+test("next and previous step through the photos and wrap around at the ends", () => {
+  mount({ photos: savedPhotos(3) });
+  click(button("Ver la foto 3 de 3"));
+  click(dialogButton("Foto siguiente"));
+  expect(viewerImage()).toBe("https://img.test/0.png");
+  expect(dialog()?.textContent).toContain("Foto 1 de 3");
+  click(dialogButton("Foto anterior"));
+  expect(viewerImage()).toBe("https://img.test/2.png");
+  arrow("ArrowLeft");
+  expect(viewerImage()).toBe("https://img.test/1.png");
+  arrow("ArrowRight");
+  arrow("ArrowRight");
+  expect(viewerImage()).toBe("https://img.test/0.png");
+});
+
+test("a single photo opens without previous and next buttons", () => {
+  mount({ photos: savedPhotos(1) });
+  click(button("Ver la foto 1 de 1"));
+  expect(viewerImage()).toBe("https://img.test/0.png");
+  expect(dialogButton("Foto siguiente")).toBeUndefined();
+  expect(dialogButton("Foto anterior")).toBeUndefined();
+});
+
+test("photos still uploading or failed cannot be opened and the viewer skips them", async () => {
+  mount({ photos: savedPhotos(1) });
+  select(file("lenta.jpg"), file("falla.jpg"));
+  await answer(1, rejected("INTERNAL_ERROR", 500));
+  expect(names()).toEqual(["Foto 1 de 3, principal", "Foto 2 de 3, subiendo", "Foto 3 de 3, falla.jpg, no se subió: no se pudo subir. Revisa la conexión"]);
+  expect(button("Ver la foto 2 de 3")).toBeUndefined();
+  expect(button("Ver la foto 3 de 3")).toBeUndefined();
+  await answer(0, done(0));
+  click(button("Ver la foto 2 de 3"));
+  expect(viewerImage()).toBe("https://img.test/new-0.png");
+  expect(dialog()?.textContent).toContain("Foto 2 de 3");
+  expect(dialog()?.querySelector("img")?.getAttribute("alt")).toBe("Foto 2 de 3");
+  click(dialogButton("Foto siguiente"));
+  expect(viewerImage()).toBe("https://img.test/0.png");
+  expect(dialog()?.textContent).toContain("Foto 1 de 3");
+});
+
+test("opening a photo keeps the other tile actions working", () => {
+  mount({ photos: savedPhotos(2) });
+  click(button("Hacer principal la foto 2 de 2"));
+  expect(names()[0]).toBe("Foto 1 de 2, principal");
+  click(button("Quitar la foto 2 de 2"));
+  expect(dialog()).toBeNull();
+  expect(names()[1]).toContain("se eliminará al guardar");
+});
+
+test("a photo that cannot load shows the failure with Reintentar, and stepping to another photo starts clean", () => {
+  mount({ photos: savedPhotos(2) });
+  click(button("Ver la foto 1 de 2"));
+  act(() => { dialog()!.querySelector("img")!.dispatchEvent(new Event("error")); });
+  expect(dialog()?.querySelector("[role='alert']")?.textContent).toContain("No se pudo cargar la foto.");
+  expect(dialog()?.querySelector("img")).toBeNull();
+  click(dialogButton("Foto siguiente"));
+  expect(dialog()?.querySelector("[role='alert']")).toBeNull();
+  expect(viewerImage()).toBe("https://img.test/1.png");
+});
+
+test("Reintentar in the viewer loads the photo again", () => {
+  mount({ photos: savedPhotos(1) });
+  click(button("Ver la foto 1 de 1"));
+  act(() => { dialog()!.querySelector("img")!.dispatchEvent(new Event("error")); });
+  click([...dialog()!.querySelectorAll("button")].find((candidate) => candidate.textContent === "Reintentar"));
+  expect(dialog()?.querySelector("[role='alert']")).toBeNull();
+  expect(viewerImage()).toBe("https://img.test/0.png");
 });

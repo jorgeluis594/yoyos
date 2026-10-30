@@ -33,7 +33,7 @@ for (const language of ["es", "pt"] as const) {
       await browserExpect(page.getByText(spec.chips[1], { exact: true })).toBeVisible();
       await browserExpect(page.getByText(spec.chips[0], { exact: true })).toBeVisible();
       await page.locator("[data-photo]").nth(1).hover();
-      await page.locator("[data-photo]").nth(1).getByRole("button").last().click();
+      await page.locator("[data-photo]").nth(1).locator("[data-action=remove]").click();
       await browserExpect(page.getByText(spec.chips[2], { exact: true })).toBeVisible();
 
       const chips = await page.locator("[data-photo] span.absolute.bottom-0\\.5").evaluateAll((nodes) => nodes.map((node) => {
@@ -135,3 +135,55 @@ for (const language of ["es", "pt"] as const) {
     } finally { await cleanup(email); }
   });
 }
+
+const wide = `<svg xmlns="http://www.w3.org/2000/svg" width="800" height="600"><rect width="800" height="600" fill="#2a9d8f"/></svg>`;
+const useWideImages = (page: Page) => page.route("**/test-images/*", (route) => route.fulfill({ status: 200, contentType: "image/svg+xml", body: wide }));
+
+test("clicking a photo opens it in a viewer that steps with the arrows and closes without saving the form", async ({ page }) => {
+  const email = `viewer-${crypto.randomUUID()}@example.test`;
+  try {
+    await page.setViewportSize({ width: 1280, height: 1000 });
+    await mockImages(page);
+    await useWideImages(page);
+    await prepareVerifiedCompany(page, { email, name: "Ana Foto", companyName: "Empresa Foto", country: "PE" });
+    await page.goto("/es-PE/products/new");
+    await page.locator("#name").fill("Polo visor");
+    await page.locator("#salePrice").fill("30");
+    await page.locator("input[type=file]").setInputFiles(photos(3));
+    await browserExpect(page.getByRole("button", { name: "Ver la foto 3 de 3" })).toBeVisible();
+    await page.getByRole("button", { name: "Ver la foto 2 de 3" }).click();
+    const viewer = page.getByRole("dialog");
+    await browserExpect(viewer.getByRole("heading", { name: "Foto 2 de 3" })).toBeVisible();
+    await page.keyboard.press("ArrowRight");
+    await browserExpect(viewer.getByRole("heading", { name: "Foto 3 de 3" })).toBeVisible();
+    await viewer.getByRole("button", { name: "Foto siguiente" }).focus();
+    await page.keyboard.press("Enter");
+    await browserExpect(viewer.getByRole("heading", { name: "Foto 1 de 3" })).toBeVisible();
+    await browserExpect(page).toHaveURL(/\/products\/new$/);
+    await page.setViewportSize({ width: 375, height: 700 });
+    await browserExpect.poll(() => viewer.locator("img").evaluate((node) => Math.round(node.getBoundingClientRect().width))).toBeGreaterThan(200);
+    await viewer.getByRole("button", { name: "Cerrar foto" }).click();
+    await browserExpect(viewer).toHaveCount(0);
+    await browserExpect(page).toHaveURL(/\/products\/new$/);
+    await browserExpect(page.locator("[data-photo]")).toHaveCount(3);
+  } finally { await cleanup(email); }
+});
+
+test("a single photo is centered in the viewer on a desktop screen", async ({ page }) => {
+  const email = `viewer-one-${crypto.randomUUID()}@example.test`;
+  try {
+    await page.setViewportSize({ width: 1280, height: 1000 });
+    await mockImages(page);
+    await useWideImages(page);
+    await prepareVerifiedCompany(page, { email, name: "Ana Foto", companyName: "Empresa Foto", country: "PE" });
+    await page.goto("/es-PE/products/new");
+    await page.locator("input[type=file]").setInputFiles(photos(1));
+    await page.getByRole("button", { name: "Ver la foto 1 de 1" }).click();
+    const viewer = page.getByRole("dialog");
+    await browserExpect(viewer.getByRole("button", { name: "Foto siguiente" })).toHaveCount(0);
+    await browserExpect.poll(async () => {
+      const [image, dialog] = await Promise.all([viewer.locator("img").boundingBox(), viewer.boundingBox()]);
+      return image && dialog ? Math.abs(image.x + image.width / 2 - (dialog.x + dialog.width / 2)) : null;
+    }).toBeLessThan(2);
+  } finally { await cleanup(email); }
+});
