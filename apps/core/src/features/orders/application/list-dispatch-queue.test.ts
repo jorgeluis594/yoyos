@@ -21,22 +21,22 @@ const candidate = (number: number, date: string, overrides: Partial<DispatchCand
 const aggregateOf = (id: OrderId) => ({ id, number: Number(id.slice(-12)) }) as unknown as OrderAggregate;
 
 function dependencies(candidates: readonly DispatchCandidate[] | "too_many", overrides: Partial<ListDispatchQueueDependencies> = {}) {
-  const deps = {
-    inSnapshot: vi.fn(<T,>(read: () => Promise<T>) => read()),
-    findDispatchCandidates: vi.fn(async () => ok(candidates)),
-    readStock: vi.fn(async () => ok(new Map([[camisaM, 10]]) as unknown as VariantStock)),
-    findAggregatesByIds: vi.fn(async (ids: readonly OrderId[]) => ok(ids.map(aggregateOf))),
-    countUndatedPending: vi.fn(async () => ok(1)),
-    maxCandidates: 5000,
-    ...overrides,
-  } satisfies ListDispatchQueueDependencies;
-  return deps;
+  const spies = {
+    inSnapshot: vi.fn(),
+    findDispatchCandidates: vi.fn(async (..._args: Parameters<ListDispatchQueueDependencies["findDispatchCandidates"]>) => ok(candidates)),
+    readStock: vi.fn(async (..._args: Parameters<ListDispatchQueueDependencies["readStock"]>) => ok(new Map([[camisaM, 10]]) as unknown as VariantStock)),
+    findAggregatesByIds: vi.fn(async (ids: readonly OrderId[], _companyId: CompanyId) => ok(ids.map(aggregateOf))),
+    countUndatedPending: vi.fn(async (..._args: Parameters<ListDispatchQueueDependencies["countUndatedPending"]>) => ok(1)),
+  };
+  const deps: ListDispatchQueueDependencies = { ...spies, maxCandidates: 5000, ...overrides,
+    inSnapshot: (read) => { spies.inSnapshot(); return read(); } };
+  return { deps, spies };
 }
 
 test("counts overdue and today orders and their ready ones on every page", async () => {
   const members = [...Array.from({ length: 3 }, (_, index) => candidate(1001 + index, "2026-10-28")),
     ...Array.from({ length: 25 }, (_, index) => candidate(1100 + index, "2026-10-30", index < 20 ? {} : { confirmedPayments: [] }))];
-  const deps = dependencies(members);
+  const { deps, spies } = dependencies(members);
   const first = await listDispatchQueue({ today, page: 1 }, access, deps);
   const second = await listDispatchQueue({ today, page: 2 }, access, deps);
   if (!first.success || !second.success) throw new Error("expected success");
@@ -50,50 +50,50 @@ test("counts overdue and today orders and their ready ones on every page", async
 
 test("loads full orders only for the page", async () => {
   const members = Array.from({ length: 45 }, (_, index) => candidate(1001 + index, "2026-10-29"));
-  const deps = dependencies(members);
+  const { deps, spies } = dependencies(members);
   const result = await listDispatchQueue({ today, page: 3 }, access, deps);
   expect(result.success && result.data.entries).toHaveLength(5);
-  expect(deps.findAggregatesByIds).toHaveBeenCalledTimes(1);
-  expect(deps.findAggregatesByIds.mock.calls[0]![0]).toHaveLength(5);
-  expect(deps.findDispatchCandidates).toHaveBeenCalledWith(today, 5000, "company-1");
-  expect(deps.inSnapshot).toHaveBeenCalledTimes(1);
+  expect(spies.findAggregatesByIds).toHaveBeenCalledTimes(1);
+  expect(spies.findAggregatesByIds.mock.calls[0]![0]).toHaveLength(5);
+  expect(spies.findDispatchCandidates).toHaveBeenCalledWith(today, 5000, "company-1");
+  expect(spies.inSnapshot).toHaveBeenCalledTimes(1);
 });
 
 test("reads stock once and only for orders that need it", async () => {
-  const deps = dependencies([candidate(1001, "2026-10-30"), candidate(1002, "2026-10-30", { confirmedPayments: [] })]);
+  const { deps, spies } = dependencies([candidate(1001, "2026-10-30"), candidate(1002, "2026-10-30", { confirmedPayments: [] })]);
   await listDispatchQueue({ today, page: 1 }, access, deps);
-  expect(deps.readStock).toHaveBeenCalledTimes(1);
-  const noStock = dependencies([candidate(1002, "2026-10-30", { confirmedPayments: [] })]);
+  expect(spies.readStock).toHaveBeenCalledTimes(1);
+  const { deps: noStock, spies: noStockSpies } = dependencies([candidate(1002, "2026-10-30", { confirmedPayments: [] })]);
   await listDispatchQueue({ today, page: 1 }, access, noStock);
-  expect(noStock.readStock).not.toHaveBeenCalled();
+  expect(noStockSpies.readStock).not.toHaveBeenCalled();
 });
 
 test("answers queue too large above the candidate ceiling instead of a partial queue", async () => {
-  const deps = dependencies("too_many");
+  const { deps, spies } = dependencies("too_many");
   expect(await listDispatchQueue({ today, page: 1 }, access, deps)).toMatchObject({ success: false, error: { code: "QUEUE_TOO_LARGE" } });
-  expect(deps.findAggregatesByIds).not.toHaveBeenCalled();
+  expect(spies.findAggregatesByIds).not.toHaveBeenCalled();
 });
 
 test("returns a persistence failure instead of an empty queue when the read fails", async () => {
   const failure = err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "down" });
-  expect(await listDispatchQueue({ today, page: 1 }, access, dependencies([], { findDispatchCandidates: async () => failure })))
+  expect(await listDispatchQueue({ today, page: 1 }, access, dependencies([], { findDispatchCandidates: async () => failure }).deps))
     .toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
-  expect(await listDispatchQueue({ today, page: 1 }, access, dependencies([candidate(1001, "2026-10-30")], { readStock: async () => failure })))
+  expect(await listDispatchQueue({ today, page: 1 }, access, dependencies([candidate(1001, "2026-10-30")], { readStock: async () => failure }).deps))
     .toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
-  expect(await listDispatchQueue({ today, page: 1 }, access, dependencies([candidate(1001, "2026-10-30")], { findAggregatesByIds: async () => failure })))
+  expect(await listDispatchQueue({ today, page: 1 }, access, dependencies([candidate(1001, "2026-10-30")], { findAggregatesByIds: async () => failure }).deps))
     .toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
-  expect(await listDispatchQueue({ today, page: 1 }, access, dependencies([], { countUndatedPending: async () => failure })))
+  expect(await listDispatchQueue({ today, page: 1 }, access, dependencies([], { countUndatedPending: async () => failure }).deps))
     .toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
 });
 
 test("rejects a page that is not a positive integer before reading", async () => {
-  const deps = dependencies([]);
+  const { deps, spies } = dependencies([]);
   expect(await listDispatchQueue({ today, page: 0 }, access, deps)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
-  expect(deps.findDispatchCandidates).not.toHaveBeenCalled();
+  expect(spies.findDispatchCandidates).not.toHaveBeenCalled();
 });
 
 test("fails when a page order vanished instead of dropping it silently", async () => {
-  const deps = dependencies([candidate(1001, "2026-10-30")], { findAggregatesByIds: async () => ok([]) });
+  const { deps } = dependencies([candidate(1001, "2026-10-30")], { findAggregatesByIds: async () => ok([]) });
   expect(await listDispatchQueue({ today, page: 1 }, access, deps)).toMatchObject({ success: false, error: { code: "INVALID_ORDER" } });
 });
 

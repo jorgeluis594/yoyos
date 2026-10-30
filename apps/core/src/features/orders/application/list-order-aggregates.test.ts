@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
 import { ok } from "@shared/functional";
 import type { DispatchDate } from "@shared/dispatch-date";
-import { listOrderAggregates, parseScheduledDispatchFilter } from "@core/src/features/orders/application/list-order-aggregates";
+import { listOrderAggregates, parseScheduledDispatchFilter, type AggregateCriteria } from "@core/src/features/orders/application/list-order-aggregates";
 import type { CompanyId } from "@core/src/features/orders/domain/order";
 
 const day = (value: string) => value as DispatchDate;
@@ -26,7 +26,7 @@ test("rejects inverted real dispatch interval before reading", async () => {
 });
 
 test("paid and unpaid views exclude cancelled orders even when cancelled orders are included", async () => {
-  const find = vi.fn(async () => ok({ items: [], page: 1, pageSize: 20 as const, total: 0 }));
+  const find = vi.fn(async (_criteria: AggregateCriteria, _companyId: CompanyId) => ok({ items: [], page: 1, pageSize: 20 as const, total: 0 }));
   const context = { companyId: "c" as CompanyId } as Parameters<typeof listOrderAggregates>[1];
   const base = { page: 1, customer: { kind: "all" } } as const;
   await listOrderAggregates({ ...base, view: "paid" }, context, find);

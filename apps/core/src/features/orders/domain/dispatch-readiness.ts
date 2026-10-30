@@ -1,3 +1,4 @@
+import type { OrderStockDue } from "@shared/contracts/orders";
 import { orderFulfillmentBlock } from "@shared/orders-fulfillment";
 import type { DispatchDate } from "@shared/dispatch-date";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
@@ -46,7 +47,7 @@ export function describeDispatchReadiness(order: DispatchCandidate, stock: Dispa
   const operation = order.deliveryMethod === "store" ? "deliver" : "ship";
   const paid = confirmedCents(order);
   const block = orderFulfillmentBlock({ cancelled: order.cancelled, deliveryStatus: order.deliveryStatus, paymentStatus: paid >= cents(order.total.amount) ? "paid" : "pending",
-    paidAmount: { amount: paid / 100 }, stockDeducted: order.stockDeducted, stockDue: stock.stockDue }, operation);
+    paidAmount: { amount: paid / 100 }, stockDeducted: order.stockDeducted, stockDue: stock.stockDue as OrderStockDue | null }, operation);
   if (block !== null) {
     if (block.code === "PAYMENT_REQUIRED") return { kind: "blocked", operation,
       reason: { code: operation === "ship" ? "SHIP_PAYMENT_REQUIRED" : "PAYMENT_REQUIRED", pendingReport: order.hasReportedPayment } };
