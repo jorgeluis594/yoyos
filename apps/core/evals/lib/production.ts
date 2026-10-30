@@ -416,6 +416,13 @@ async function applyConversation(steps: readonly ConversationStepInput[], wiring
     return { results: done, error: null };
   } catch (cause) {
     return { results: done, error: cause instanceof Error ? cause : new Error(String(cause)) };
+  } finally {
+    // The catalog is shared by every case: a product a conversation deactivated is sold again for the next one.
+    for (const step of steps) {
+      if (!("event" in step) || step.event !== "deactivate_product") continue;
+      const catalogProduct = catalogOf(company.scope).products.find(({ key }) => key === step.product);
+      for (const variant of catalogProduct?.active ? catalogProduct.variants.filter(({ active }) => active) : []) await setProductStatus(step.product, variant.attributes, "active", company);
+    }
   }
 }
 
