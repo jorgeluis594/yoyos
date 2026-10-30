@@ -112,11 +112,16 @@ function balanceWithout(totals: Totals, row: PaymentRow): Money {
   return left?.success && left.data.amount > 0 ? left.data : left?.success ? { amount: 0, currency: totals.total.currency } : totals.balance;
 }
 
+/** Whether the partial stock box shows for a draft row: only when the row leaves a balance. */
+function offersStockBox(totals: Totals, row: PaymentRow) {
+  const typed = isValidPaymentAmount(row.amount) ? { amount: Number(row.amount), currency: totals.total.currency } : null;
+  return offersPartialStockDeduction({ stockDeducted: false, balanceDue: balanceWithout(totals, row) }, typed);
+}
+
 function DraftRow({ row, index, totals, invalid, autoFocus, busy, onChange, onRemove }: { row: PaymentRow; index: number; totals: Totals; invalid: boolean; autoFocus: boolean; busy: boolean;
   onChange: (row: PaymentRow) => void; onRemove: () => void }) {
   const { t } = useTranslation();
-  const typed = isValidPaymentAmount(row.amount) ? { amount: Number(row.amount), currency: totals.total.currency } : null;
-  const stockBox = offersPartialStockDeduction({ stockDeducted: false, balanceDue: balanceWithout(totals, row) }, typed);
+  const stockBox = offersStockBox(totals, row);
   const value: PaymentDraft = { amount: row.amount, method: row.method, walletProvider: row.walletProvider, deductStockIfPartial: row.deductStockIfPartial && stockBox };
   const label = methodLabel(t, row);
   return <li id={draftPaymentRowId(row.paymentId)} className="grid gap-3 rounded-lg border p-3 sm:grid-cols-[1fr_1fr_auto] sm:items-start">
@@ -132,13 +137,23 @@ function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentId
   const { t } = useTranslation();
   const [lastAdded, setLastAdded] = useState<string | null>(null);
   const removed = useRef(false);
+  const content = useRef<HTMLDivElement>(null);
   const canAdd = hasProducts && estimate.balance.amount > 0;
   // A removed row takes the focus with it: it goes back to the first payment button.
   useEffect(() => {
     if (!removed.current) return;
     removed.current = false;
-    document.querySelector<HTMLElement>("#payment-actions button")?.focus();
+    const button = content.current?.querySelector<HTMLElement>("#payment-actions button:not(:disabled)");
+    if (button) return button.focus();
+    const title = document.getElementById("order-payments-title");
+    title?.setAttribute("tabindex", "-1");
+    title?.focus();
   }, [payments]);
+  // A hidden partial stock box never keeps a ticked flag: the request would make the order due on a payment the seller did not choose.
+  useEffect(() => {
+    if (!payments.some(row => row.deductStockIfPartial && !offersStockBox(estimate, row))) return;
+    onChange(payments.map(row => row.deductStockIfPartial && !offersStockBox(estimate, row) ? { ...row, deductStockIfPartial: false } : row));
+  }, [payments, estimate, onChange]);
   const add = (choice: PaymentChoice) => {
     const row: PaymentRow = { paymentId: newPaymentId(), amount: estimate.balance.amount.toFixed(2), deductStockIfPartial: false, ...paymentFromChoice(choice) };
     setLastAdded(row.paymentId);
@@ -146,7 +161,7 @@ function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentId
   };
   return <Card role="region" aria-labelledby="order-payments-title" className="min-w-0">
     <CardHeader><CardTitle id="order-payments-title">{t("orderView.payments.title")}</CardTitle></CardHeader>
-    <CardContent className="flex flex-col gap-4">
+    <CardContent ref={content} className="flex flex-col gap-4">
       {hasProducts && <Summary totals={estimate} reviewPending={false} format={format} />}
       {!hasProducts && payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderView.payments.needProducts")}</p>
         : payments.length === 0 ? <p className="text-sm text-muted-foreground">{t("orderView.payments.empty")}</p>
@@ -179,6 +194,7 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
   const [uncertain, setUncertain] = useState<{ paymentId: string; order: Order } | null>(null);
   // The order seen when the decision was sent: a lost answer blocks its row only until the panel shows a newer order.
   const submitted = useRef<{ paymentId: string; order: Order } | null>(null);
+  const approveNoteId = useId();
   const blockedNote = unsavedChanges ? t("orderView.status.saveFirst") : null;
   const history = [...order.payments].sort((a, b) => paymentDate(b).localeCompare(paymentDate(a)));
   const totals = { total: order.total, paid: order.paidAmount, balance: order.balanceDue, excess: order.overpaidAmount };
@@ -196,7 +212,6 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
   }, [dialog, order.payments]);
   const dialogPayment = dialog ? order.payments.find(payment => payment.id === dialog.paymentId) ?? null : null;
   const rowBlocked = (paymentId: string) => !idle || (uncertain !== null && uncertain.paymentId === paymentId && uncertain.order === order);
-  const approveNoteId = `${useId()}-approve-note`;
   return <Card role="region" aria-labelledby="order-payments-title" className="min-w-0">
     <CardHeader><CardTitle id="order-payments-title">{t("orderView.payments.title")}</CardTitle></CardHeader>
     <CardContent className="flex flex-col gap-4">

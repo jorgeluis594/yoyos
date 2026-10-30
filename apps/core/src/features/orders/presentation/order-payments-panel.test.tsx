@@ -47,8 +47,9 @@ const type = (input: HTMLInputElement, value: string) => act(() => {
   input.dispatchEvent(new Event("input", { bubbles: true }));
 });
 
-function NewSale({ total: initialTotal, products = true, initial = [], togglable = false }: { total: number; products?: boolean; initial?: PaymentRow[]; togglable?: boolean }) {
+function NewSale({ total: initialTotal, products = true, initial = [], togglable = false, onRows }: { total: number; products?: boolean; initial?: PaymentRow[]; togglable?: boolean; onRows?: (rows: readonly PaymentRow[]) => void }) {
   const [payments, setPayments] = useState<readonly PaymentRow[]>(initial);
+  onRows?.(payments);
   const [total, setTotal] = useState(initialTotal);
   const paid = payments.reduce((sum, row) => sum + (Number(row.amount) || 0), 0);
   let next = 0;
@@ -76,6 +77,37 @@ test("adds a draft row prefilled with the balance and removes it with Quitar", a
   act(() => buttonNamed("Quitar")!.click());
   expect(amountInputs()).toHaveLength(0);
   expect(container.textContent).toContain("Aún no hay pagos registrados.");
+});
+
+const stockBoxes = () => [...container.querySelectorAll<HTMLElement>("button[role=checkbox], input[type=checkbox]")];
+
+test("shows the partial stock box only while the draft row leaves a balance", async () => {
+  await mount(<NewSale total={418} />);
+  act(() => buttonNamed("Agregar Yape")!.click());
+  expect(stockBoxes()).toHaveLength(0);
+  type(amountInputs()[0]!, "50");
+  expect(stockBoxes()).toHaveLength(1);
+  type(amountInputs()[0]!, "418");
+  expect(stockBoxes()).toHaveLength(0);
+});
+
+test("stores deductStockIfPartial false once the stock box disappears after being ticked", async () => {
+  let rows: readonly PaymentRow[] = [];
+  await mount(<NewSale total={418} onRows={current => { rows = current; }} />);
+  act(() => buttonNamed("Agregar Yape")!.click());
+  type(amountInputs()[0]!, "50");
+  act(() => stockBoxes()[0]!.click());
+  expect(rows[0]!.deductStockIfPartial).toBe(true);
+  type(amountInputs()[0]!, "418");
+  expect(stockBoxes()).toHaveLength(0);
+  expect(rows[0]!.deductStockIfPartial).toBe(false);
+});
+
+test("returns the focus to the first payment button after Quitar", async () => {
+  await mount(<NewSale total={418} />);
+  act(() => buttonNamed("Agregar Plin")!.click());
+  act(() => buttonNamed("Quitar")!.click());
+  expect(document.activeElement).toBe(buttonNamed("Agregar Yape"));
 });
 
 test("keeps a typed draft amount when products change", async () => {
@@ -109,7 +141,14 @@ test("keeps Anular pago and Rechazar enabled while there are unsaved changes", a
     expect(button.disabled).toBe(false);
     expect(button.getAttribute("aria-disabled")).toBeNull();
   }
-  expect(buttonNamed("Ver captura")?.getAttribute("aria-disabled") ?? null).toBeNull();
+});
+
+test("keeps Ver captura enabled while there are unsaved changes", async () => {
+  await mount(<OrderPaymentsPanel {...savedProps(savedOrder({ payments: [confirmed, reported] }), { unsavedChanges: true, receiptUrls: { "p-2": "https://example.test/receipt.png" } })} />);
+  const button = buttonNamed("Ver captura");
+  expect(button).toBeDefined();
+  expect(button!.disabled).toBe(false);
+  expect(button!.getAttribute("aria-disabled")).toBeNull();
 });
 
 test("disables Agregar Yape with its note while there are unsaved changes", async () => {
