@@ -339,7 +339,7 @@ It is implemented in `features/products/infrastructure/assistant-read.ts`:
 - When `readForAssistant` already runs, the use cases' `snapshot` joins it. Called alone, the use cases open the same budgeted snapshot.
 
 **Implementation notes (T3).**
-- `readForAssistant(work, operation)` takes a required second argument, `"search"` or `"detail"`, because it fills the `operation` field of `product_search_failed` (section 13). The signature of the composition in this section and in section 9 reads that way; T5 passes `"search"` for `buscar_productos` and `"detail"` for `ver_producto`.
+- `readForAssistant(work, operation)` takes a required second argument, `"search"` or `"detail"`, because it fills the `operation` field of `product_search_failed` (section 13). The signature of the composition in this section and in section 9 should read `readForAssistant(work, operation)` (the diagram and tables of sections 2, 5.4 and 9 still show `readForAssistant(work)`); T5 passes `"search"` for `buscar_productos` and `"detail"` for `ver_producto`.
 - The statement count of 11 excludes `BEGIN`, `SET TRANSACTION ISOLATION LEVEL` and `COMMIT`: they run before `statement_timeout` is set and do no work. Counting them gives 12 for the detail. The budget inequality stays meaningful, and their round trips fall inside the 1,150 ms margin (see 7.1 and 11).
 
 ## 6. Domain and typing

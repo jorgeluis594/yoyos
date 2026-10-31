@@ -193,12 +193,30 @@ test("reports stored data that fails its schema as invalid stored data", async (
 });
 
 /**
- * A read that sleeps past the statement limit inside the real budgeted snapshot, tagged so only its own backend is observed.
- * It takes no lock, so suites running in parallel on the shared database are never blocked.
+ * Makes the first statement an adapter sends (not the snapshot's own set_config) sleep past the statement limit, tagged so only its own backend is observed.
+ * The sleep runs inside the adapter's own query call, so its rethrow of a timeout is what the test exercises. It takes no lock, so parallel suites are not blocked.
  */
-const sleepsPastTheLimit = (tag: string) => async () => {
-  await prisma.$queryRaw(Prisma.sql`SELECT pg_sleep(5) /* ${Prisma.raw(tag)} */`);
-};
+function sleepInFirstAdapterStatement(tag: string) {
+  const original = prisma.$queryRaw.bind(prisma) as (...args: unknown[]) => unknown;
+  let slept = false;
+  const spy = vi.spyOn(prisma, "$queryRaw").mockImplementation(((...args: unknown[]) => {
+    const first = args[0];
+    const text = Array.isArray(first) ? first.join("") : (first as { sql?: string } | undefined)?.sql ?? "";
+    if (slept || /set_config/.test(text)) return original(...args);
+    slept = true;
+    return original(Prisma.sql`SELECT pg_sleep(5) /* ${Prisma.raw(tag)} */`);
+  }) as never);
+  return spy;
+}
+
+/** The same sleep ahead of the first statement of `readProducts`, which reads through Prisma's model API and not through `$queryRaw`. */
+function sleepInFirstProductRead(tag: string) {
+  const original = prisma.product.findMany.bind(prisma.product) as (...args: unknown[]) => unknown;
+  return vi.spyOn(prisma.product, "findMany").mockImplementationOnce(((...args: unknown[]) => {
+    const sleep = prisma.$queryRaw(Prisma.sql`SELECT pg_sleep(5) /* ${Prisma.raw(tag)} */`);
+    return sleep.then(() => original(...args));
+  }) as never);
+}
 
 async function sleepingStatements(tag: string) {
   const observer = new Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });
@@ -213,14 +231,16 @@ async function sleepingStatements(tag: string) {
 test("answers STATEMENT_TIMEOUT when a search statement exceeds its limit and leaves no statement running", async () => {
   const tag = `timeout-search-${randomUUID()}`;
   const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  let spy: { mockRestore: () => void } | undefined;
   try {
-    const slow = { ...searchDeps, searchPage: async (query: Parameters<typeof searchPage>[0]) => { await sleepsPastTheLimit(tag)(); return searchPage(query); } };
+    spy = sleepInFirstAdapterStatement(tag);
     const started = performance.now();
-    expect(await withTenantIsolation(store, () => searchForAssistant({ sort: "recent", page: 1, stock: "low" }, slow))).toMatchObject({ success: false, error: { code: "STATEMENT_TIMEOUT" } });
+    expect(await withTenantIsolation(store, () => searchForAssistant({ sort: "recent", page: 1, stock: "low" }, searchDeps))).toMatchObject({ success: false, error: { code: "STATEMENT_TIMEOUT" } });
     expect(performance.now() - started).toBeLessThan(assistantReadBudget.timeout);
     expect(await sleepingStatements(tag)).toBe(0);
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "product_search_failed", operation: "search", errorCode: "STATEMENT_TIMEOUT" }), "product_search_failed");
   } finally {
+    spy?.mockRestore();
     error.mockRestore();
   }
 });
@@ -228,16 +248,18 @@ test("answers STATEMENT_TIMEOUT when a search statement exceeds its limit and le
 test("answers STATEMENT_TIMEOUT, not PERSISTENCE_UNAVAILABLE, when a detail read exceeds its limit", async () => {
   const tag = `timeout-detail-${randomUUID()}`;
   const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  let spy: { mockRestore: () => void } | undefined;
   try {
-    // The sleep runs through the repository's own statement runner, so a real read that times out must not be logged as a persistence failure.
-    const slow = { ...findDeps, readProduct: async (...args: Parameters<typeof readProductInSnapshot>) => { await sleepsPastTheLimit(tag)(); return readProductInSnapshot(...args); } };
-    expect(await withTenantIsolation(store, () => findForAssistant({ by: "id", id: poloId as ProductId }, slow))).toMatchObject({ success: false, error: { code: "STATEMENT_TIMEOUT" } });
+    // The sleep is the first statement of readProducts, so a real timeout must be rethrown (readProducts(ids, true)), not logged as a persistence failure.
+    spy = sleepInFirstProductRead(tag);
+    expect(await withTenantIsolation(store, () => findForAssistant({ by: "id", id: poloId as ProductId }, findDeps))).toMatchObject({ success: false, error: { code: "STATEMENT_TIMEOUT" } });
     expect(await sleepingStatements(tag)).toBe(0);
     const events = error.mock.calls.map(([fields]) => (fields as { event?: string }).event);
     expect(events).toContain("product_search_failed");
     expect(events).not.toContain("product_read_persistence_failed");
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ operation: "detail" }), "product_search_failed");
   } finally {
+    spy?.mockRestore();
     error.mockRestore();
   }
 });
