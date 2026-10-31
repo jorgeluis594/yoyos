@@ -85,8 +85,9 @@ export async function action({ request }: ActionFunctionArgs) {
   const access: AssistantOwnerAccess = { companyId: result.data.company.id as CompanyId, userId: result.data.user.id as UserId };
   const authorization = authorizationFor(request);
   const outcome = form.data.intent === "allow" ? await authorization.allow(signed, access) : await authorization.deny(signed, access);
-  const answer = outcome.success ? (form.data.intent === "allow" ? "allowed" : "denied") : outcome.error.code === "REQUEST_EXPIRED" ? "expired" : "invalid";
-  log.info({ event: "assistant_authorization_answered", companyId: access.companyId, userId: access.userId, oauthClientId, answer }, "assistant_authorization_answered");
+  // A service that could not be reached is not an answer: the repository and the plugin adapter log it.
+  const answer = outcome.success ? (form.data.intent === "allow" ? "allowed" : "denied") : outcome.error.code === "REQUEST_EXPIRED" ? "expired" : outcome.error.code === "REQUEST_INVALID" ? "invalid" : null;
+  if (answer !== null) log.info({ event: "assistant_authorization_answered", companyId: access.companyId, userId: access.userId, oauthClientId, answer }, "assistant_authorization_answered");
   if (!outcome.success) return data<Answer>(answerOf(outcome.error), { status: outcome.error.code === "REQUEST_EXPIRED" || outcome.error.code === "REQUEST_INVALID" ? 400 : 503 });
   return data<Answer>({ answered: form.data.intent === "allow" ? "allowed" : "denied", redirectUrl: outcome.data });
 }
@@ -153,7 +154,7 @@ export default function AssistantAuthorize() {
     <section className="flex flex-col gap-2" aria-labelledby="never"><h2 id="never" className="text-base font-semibold">{t("assistants.neverTitle")}</h2>
       <ul className="list-disc pl-5 text-base"><li>{t("assistants.never1")}</li><li>{t("assistants.never2")}</li></ul></section>
     <p className="text-base">{t("assistants.footer")}</p>
-    <p className="text-base">{t("assistants.connectedAs", { email: screen.email })} · <Button type="button" variant="link" className="inline min-h-touch p-0" disabled={pending} onClick={() => submit("switch_account")}>{t("assistants.switchAccount")}</Button></p>
+    <p className="text-base">{t("assistants.connectedAs", { email: screen.email })} · <Button type="button" variant="link" className="min-h-touch p-0" disabled={pending} onClick={() => submit("switch_account")}>{t("assistants.switchAccount")}</Button></p>
     <div aria-live="polite" className="flex flex-col gap-3">
       {answered && <Alert variant="success"><AlertDescription>{t(answered.answered === "allowed" ? "assistants.done" : "assistants.denied")}</AlertDescription></Alert>}
     </div>

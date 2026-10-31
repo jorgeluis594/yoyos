@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, expect, test } from "vitest";
+import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import type { CompanyId, UserId } from "@shared/identity";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { parseAgentName, type AssistantConnectionId, type NewAssistantConnection, type OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
 import { connectionRepository } from "@core/src/features/assistants/infrastructure/connection-repository";
@@ -71,6 +72,21 @@ test("reactivates an ended row that is still stored with the new authorization a
   const rows = await rowsOf(companyA, oauthClientId);
   expect(rows).toHaveLength(1);
   expect(rows[0]).toMatchObject({ agentName: "Nuevo", returnKind: "this_device", returnDomain: null, authorizedAt: now, lastUsedAt: null });
+});
+
+test("reactivating logs the stored row's id, not the id of the discarded new connection", async () => {
+  const oauthClientId = client("logged");
+  await connectionRepository.saveConnection(newConnection({ oauthClientId, authorizedAt: new Date(now.getTime() - 200 * day) }));
+  const [stored] = await rowsOf(companyA, oauthClientId);
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  try {
+    const again = newConnection({ oauthClientId });
+    expect(await connectionRepository.saveConnection(again)).toEqual({ success: true, data: "reactivated" });
+    const created = info.mock.calls.filter(([fields]) => (fields as { event?: string }).event === "assistant_connection_created");
+    expect(created).toHaveLength(1);
+    expect(created[0][0]).toMatchObject({ connectionId: stored.id });
+    expect(stored.id).not.toBe(again.id);
+  } finally { info.mockRestore(); }
 });
 
 test("reactivates a row authorized before the account's last password change", async () => {

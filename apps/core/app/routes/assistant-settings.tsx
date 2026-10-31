@@ -136,7 +136,7 @@ function Connections({ connections }: { connections: ConnectionRow[] }) {
           <p className="text-sm">{row.domain ?? t("assistants.thisDevice")}</p>
           <p className="text-sm">{t("assistants.connectedOn", { date: formatLimaDate(row.connectedAt) })}</p>
           <p className="text-sm">{lastUse(row)}</p>
-          {failedId === row.id && <div role="alert" className="text-sm text-destructive">{t("assistants.disconnectError")}</div>}
+          <div aria-live="polite" className="text-sm text-destructive">{failedId === row.id ? t("assistants.disconnectError") : null}</div>
           <div><Button type="button" variant="outline" className="min-h-touch" data-disconnect={row.id} disabled={fetcher.state !== "idle"} onClick={() => setAsking(row)}>{t("assistants.disconnect")}</Button></div>
         </li>)}
       </ul>}

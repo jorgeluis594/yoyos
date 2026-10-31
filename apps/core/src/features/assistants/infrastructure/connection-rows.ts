@@ -4,6 +4,7 @@ import type { Result } from "@shared/result";
 import type { CompanyId, UserId } from "@shared/identity";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { assistantScopes } from "@core/src/features/assistants/domain/scopes";
+import type { EndedConnection } from "@core/src/features/assistants/application/disconnect-assistant";
 import { agentNameLengthIsValid, type AgentName, AssistantConnection, AssistantConnectionId, OAuthClientId, ReturnTarget } from "@core/src/features/assistants/domain/assistant-connection";
 
 export type InvalidConnectionRow = Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
@@ -44,5 +45,28 @@ export function parseAssistantConnectionRow(value: unknown): Result<AssistantCon
     scopes: [firstScope, ...otherScopes],
     authorizedAt: row.authorizedAt,
     lastUsedAt: row.lastUsedAt,
+  });
+}
+
+const endedConnectionRowSchema = z.strictObject({
+  id: z.uuid(),
+  companyId: z.uuid(),
+  oauthClientId: z.string().min(1),
+  authorizedByUserId: z.string().min(1),
+});
+
+/** The columns `DELETE … RETURNING` hands back: what the grant revocation needs to know about the ended connection. */
+export function parseEndedConnectionRow(value: unknown): Result<EndedConnection, InvalidConnectionRow> {
+  const parsed = endedConnectionRowSchema.safeParse(value);
+  if (!parsed.success) {
+    log.error({ event: "assistant_connection_row_invalid", errorCode: "INVALID_STORED_DATA" }, "assistant_connection_row_invalid");
+    return err({ code: "INVALID_STORED_DATA", message: "Invalid stored assistant connection" });
+  }
+  const row = parsed.data;
+  return ok({
+    id: row.id as AssistantConnectionId,
+    companyId: row.companyId as CompanyId,
+    oauthClientId: row.oauthClientId as OAuthClientId,
+    authorizedByUserId: row.authorizedByUserId as UserId,
   });
 }
