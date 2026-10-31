@@ -65,7 +65,8 @@ describe.skipIf(!salesLoadEnabled)("the sales summary on the history fixture", (
     const repeated = await best(3, () => callMs(fixture.store.companyId, input));
     console.info(JSON.stringify({ worstSummary366Days: { statementMs: Math.round(statement.time), firstCallMs: Math.round(first), repeatedCallMs: Math.round(repeated), indexes: statement.indexes } }));
     if (!dryRun) {
-      expect(statement.time).toBeLessThanOrEqual(halfStatementBudgetMs);
+      // The call includes the statement and what the tool waits for; `statementMs` (EXPLAIN ANALYZE) carries per-node timing overhead and is only recorded.
+      expect(first).toBeLessThanOrEqual(halfStatementBudgetMs);
       expect(repeated).toBeLessThanOrEqual(halfStatementBudgetMs);
     }
   }, 600_000);
