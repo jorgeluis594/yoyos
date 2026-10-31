@@ -1,6 +1,6 @@
 # Products in AI assistants: technical design
 
-**Status:** design closed, pending implementation (round 2 of the architecture review gate; the question of round 1 is in [Questions decided by the review gate](#17-questions-decided-by-the-review-gate)). Based on [`docs/drafts/mcp-products.md`](mcp-products.md) (product definition closed by the review gate on 31/10/2026). Base: `jorgeluis594/mcp-2-4-productos-con-filtros-nuevos-en` at `5a3f5417`, on top of MCP 1/4 (`eba41e1a`, #311). Todoist 6hrqGV59mx8H4p7V.
+**Status:** design closed, pending implementation. Approved by the architecture review gate in round 2; the question and the gate rounds are in [Questions decided by the review gate](#17-questions-decided-by-the-review-gate). Based on [`docs/drafts/mcp-products.md`](mcp-products.md) (product definition closed by the review gate on 31/10/2026). Base: `jorgeluis594/mcp-2-4-productos-con-filtros-nuevos-en` at `19944906`, on top of MCP 1/4 (`eba41e1a`, #311). Todoist 6hrqGV59mx8H4p7V.
 
 ## 1. Technical goal
 
@@ -17,10 +17,10 @@ agent ──POST /mcp──▶ mcp-routes ─▶ resolveAssistantAccess (unchang
                                                                          │
                        src/composition/assistant-product-capabilities.ts (maps types, ≤ 3 reads in flight per process)
                                                                          │
-                         products.readForAssistant(work)   one RepeatableRead snapshot: maxWait 1 s, timeout 5 s, 400 ms per statement, jit off
+                         products.readForAssistant(work)   one RepeatableRead snapshot: maxWait 1 s, timeout 5 s, 350 ms per statement, jit off
                            ├─ catalogStorefront.describe(companyId)    1 statement
                            ├─ products.searchForAssistant(request)     1–4 statements
-                           └─ products.findForAssistant(reference)     1–7 statements
+                           └─ products.findForAssistant(reference)     1–8 statements
 ```
 
 ## 2. Decisions
@@ -37,9 +37,9 @@ agent ──POST /mcp──▶ mcp-routes ─▶ resolveAssistantAccess (unchang
 | Language | `generalInstructions` says to answer in the owner's language and to keep store data unchanged. In the order paragraph, «cítalo tal cual» becomes «transmite su sentido sin convertirlo en una promesa, en el idioma del dueño». `checkToolModules` refuses any instruction, title or description that says to answer in Spanish or to quote «tal cual». Tool names, inputs and messages stay in Spanish. |
 | Reading-failure text | Per module: `ToolModule.readFailureMessage`. The registry uses it for an output that fails its schema and for a thrown run, instead of the order text it uses for every module today. |
 | Product reads | Through composed operations of `features/products` (`products.readForAssistant`, `products.searchForAssistant`, `products.findForAssistant`). Never through REST, never through another feature's repository. |
-| Search contract | `shared/contracts/products.ts` (`productListQuerySchema`) does not change. Reason: no second application consumes the filters yet (guide rule 5.2). Also, the app list's `stock=sold_out` is a product-level rule («every active variant at 0»), while the assistant's `agotado` is a variant-level one («at least one active variant at 0»), so merging them now would change the app list. When the app list gets the filters, its contract adds fields mapped onto `AssistantProductSearch` (renamed then to a neutral name) and its handler calls the same use case. The meeting point is the products input type, not the HTTP schema. |
-| Time budget per call | One `withinTransaction` per tool call, opened by `products.readForAssistant` with `{ isolationLevel: "RepeatableRead", maxWait: 1000, timeout: 5000, statementTimeoutMs: 400 }` and `jit = off` (section 11). These are constants (`assistantReadBudget`), not environment variables. A unit test pins the rule `maxStatements × statementTimeoutMs + 1000 ≤ timeout`. |
-| Concurrency | At most 3 assistant product reads are in flight per process. A 4th call answers the reading-failure text at once, so product calls can hold at most 3 of the pool's 10 connections (`DATABASE_POOL_MAX` default). |
+| Search contract | `shared/contracts/products.ts` (`productListQuerySchema`) does not change. Reason: no second application consumes the filters yet (guide rule 5.2). Also, the app list's `stock=sold_out` is a product-level rule («every active variant at 0»), while the assistant's `agotado` is a variant-level one («at least one active variant at 0»), so merging them now would change the app list. When the app list gets the filters, its contract adds fields mapped onto `SearchInput` (renamed then to a neutral name) and its handler calls the same use case. The meeting point is the products input type, not the HTTP schema. |
+| Time budget per call | One `withinTransaction` per tool call, opened by `products.readForAssistant` with `{ isolationLevel: "RepeatableRead", maxWait: 1000, timeout: 5000, statementTimeoutMs: 350 }` and `jit = off` (section 11). These are constants (`assistantReadBudget`, `maxStatements: 11`), not environment variables. A unit test pins the rule `maxStatements × statementTimeoutMs + maxWait ≤ timeout` (11 × 350 + 1,000 = 4,850 ≤ 5,000), and an integration test of T3 counts the real statements of the worst-case search and detail calls and asserts they stay within `maxStatements`. |
+| Concurrency | At most 3 assistant product reads are in flight per process, shared by every store the process serves. A 4th call waits up to 300 ms for a slot, before its transaction opens, and then answers the reading-failure text, so product calls can hold at most 3 of the pool's 10 connections (`DATABASE_POOL_MAX` default). |
 | Stock levels | `features/products/domain/stock-level.ts` holds `lowStockThreshold = 3`, `stockLevelOf(quantity)` and the per-variant filter. The threshold is one constant, the same for every store, changed only by Yoyos; MCP 4/4 owns later changes. SQL receives the threshold as a parameter, never as a literal. The products feature computes the level and assistants receives it as a value; assistants never applies the threshold. |
 | «En el catálogo» | At least one variant with `status = 'active'` (`Product.status` is always `active`). Computed in SQL with the same `EXISTS` as the public catalog. |
 | Customer link | `storeUrl(subdomain, "/productos/<id>")` (`storeUrl` of `features/catalog`, the path the public catalog and the legacy redirect already use). It is given only when the catalog is published, the product is in the catalog and the product currency equals the store currency. The currency condition is the public catalog's own filter, so the link never leads to a missing page. No server guard keeps a product in the store currency today (section 15). Such a product shows «En el catálogo» without a customer link. |
@@ -65,14 +65,14 @@ agent ──POST /mcp──▶ mcp-routes ─▶ resolveAssistantAccess (unchang
 | Access per call | `application/resolve-assistant-access.ts` | Ends inactive or password-changed connections through `endConnection(connection, "inactive" \| "password_reset")`. Requires `orders:read` in both token and connection. `RefusalReason = not_ready \| no_connection \| inactive \| password_changed \| scope`. |
 | Authorization | `application/authorize-assistant.ts` | Saves `scopes: ["orders:read"]` |
 | `/authorize` hook | `infrastructure/oauth-hooks.ts` | Rewrites the requested scope to `grantedOAuthScope`. Reads the session. When there is no active connection, drops the stored consent (`dropConsent`); tokens are not revoked. |
-| Grant revocation | `infrastructure/oauth-grant-revocation.ts` `revokeClientGrant` | Revokes the client's refresh and access tokens for one account and deletes its consent. Used when a connection ends. |
+| Grant revocation | `infrastructure/oauth-grant-revocation.ts` `revokeClientGrant(input: { oauthClientId, userId, companyId, connectionId, revokedAt })` | Revokes the client's refresh and access tokens for one account and deletes its consent, in one `systemPrisma` transaction. `companyId` and `connectionId` are used only by its `assistant_grant_revocation_failed` warn line. Used when a connection ends. |
 | Plugin order | `@better-auth/oauth-provider` 1.7.14, `authorizeEndpoint` | Reads the client, refuses scopes outside `client.scopes` with `invalid_scope`, and only then reads the session. `validateClientScopes` also runs on the refresh grant. |
 | Token lifetimes | `infrastructure/assistant-config.ts` | Access 3,600 s, refresh 90 days |
 | Connection log | `connection-repository.ts` `assistant_connection_created` | Same event for `inserted` and `reactivated`, with no outcome field |
 | Consent and settings texts | `app/locales.ts` `assistants.*` (es, pt); `app/routes/assistant-authorize.tsx`, `app/routes/assistant-settings.tsx` (+ tests) | Orders only. `canSee1..3`, `never1..2`, `settingsIntro`, `disconnectBody`. |
 | Product list (app) | `features/products/application/list.ts`, `infrastructure/repository.ts` `list`, `summarySql` | `search` (ILIKE on name or SKU), product-level `stock`, `sort`, page. One id query plus one grouped summary query, which joins `ProductPhoto`. |
 | Public catalog reads | `features/products/infrastructure/catalog-products-repository.ts` | Active product with an active variant and `currency = store currency`; `unaccent(lower(name)) LIKE …` |
-| Product aggregate read | `productRepository.get` (`infrastructure/repository.ts` `readProducts`) | Six batched queries per call, validated rows. Inside a transaction it rethrows transaction failures (`transactionFailureStage`: statement timeout, P2028) instead of logging them as persistence failures. |
+| Product aggregate read | `productRepository.get` (`infrastructure/repository.ts` `readProducts`) | Seven queries per call: products, variants, stock (the `include: { stock: true }` is a separate query, since the generator has no `relationJoins`), links, options, values and photos; validated rows. `readProducts(ids, inTransaction)` rethrows transaction failures (`transactionFailureStage`: statement timeout, P2028) only when `inTransaction` is true, which only `lockProduct` passes. `get` passes `false`, so it logs `product_read_persistence_failed` and returns `PERSISTENCE_UNAVAILABLE`. |
 | Statement-timeout detector | `features/products/infrastructure/text-candidates.ts` `isStatementTimeout`; `shared/infrastructure/persistence-error.ts` `transactionFailureStage` | The first recognizes `57014` at any driver layer. The second classifies both `57014` and P2028 as `transaction_timeout`. `text-candidates.ts` sets `jit` off with `set_config` inside its transaction. |
 | Saved variant order | `domain/product-structure.ts` `sortVariants`, `orderedAttributes` | Pure, computed from the aggregate's option and value positions. Limits: 3 options, 30 values, 100 variants. |
 | SKU lookup | `infrastructure/repository.ts` `findSkuOwners`; `order-stock.ts` `findProductIdsOfVariants` | By `lower(btrim(sku))`, served by `ProductVariant_companyId_sku_normalized_key` |
@@ -146,7 +146,17 @@ Flow of `authorizeHook`:
    - A persistence failure throws `503 server_error`, like the other hook failures.
    - A real write logs `assistant_client_scopes_aligned`.
 3. Read the session, check the marker and look for an active connection (unchanged).
-4. With no active connection, call `revokePriorGrant(userId, client_id)`: `revokeClientGrant` with `revokedAt = now`. It revokes the client's refresh and access tokens for this account and deletes its consent. A failure throws `503`, as `dropConsent` does today.
+4. With no active connection, call `revokePriorGrant(userId, client_id)`. It revokes the client's refresh and access tokens for this account and deletes its consent. A failure is reported through `reportFailure` (`assistant_authorize_hook_failed`, `errorCode: "PERSISTENCE_UNAVAILABLE"`) and throws `503`, as `dropConsent` does today.
+
+The revocation statement is shared, not duplicated. `oauth-grant-revocation.ts` extracts it:
+
+```ts
+export type GrantTokens = Readonly<{ oauthClientId: OAuthClientId; userId: UserId; revokedAt: Date }>;
+/** Revokes refresh and access tokens and deletes the consent of (client, account) in one transaction. Logs nothing; the caller owns the log line. */
+export async function revokeGrantTokens(grant: GrantTokens): Promise<Result<RevokedGrant, RevokeClientGrantError>>;
+```
+
+`revokeClientGrant` keeps its input and its `assistant_grant_revocation_failed` warn line and calls `revokeGrantTokens`. The hook adapter in `auth-hooks.ts` calls `revokeGrantTokens({ oauthClientId, userId, revokedAt: new Date() })` directly: at `/authorize` there may be no company (an account without a store) and no connection row (a client never connected), so no placeholder ids are passed or logged.
 
 Why before the session read: the plugin checks `client.scopes` before it reads the session (`authorizeEndpoint` in 1.7.14). An agent that is not signed in would get `invalid_scope` before ever reaching the login page.
 
@@ -192,7 +202,7 @@ type Read<T> = Promise<Result<T, ToolRunError>>;
 
 `src/composition/assistant-product-capabilities.ts` implements `search` and `find`:
 
-1. It takes a slot of the per-process limit of 3 reads in flight. With no slot free, it answers `{ code: "FAILURE" }` with the products reading-failure text and logs `assistant_tool_failed` with `errorCode: "READS_BUSY"`. It does not wait.
+1. It takes a slot of the per-process limit of 3 reads in flight. With no slot free, it waits up to 300 ms for a slot (before the transaction opens, so outside the transaction budget). With still no slot, it answers `{ code: "FAILURE" }` with the products reading-failure text and logs `assistant_product_reads_busy` at `warn`; it is not an `assistant_tool_failed` error line.
 2. It calls `products.readForAssistant(async () => …)`. Inside that one snapshot it runs `catalogStorefront.describe(access.companyId)`, then `products.searchForAssistant(toProductsSearch(request))` or `products.findForAssistant(reference)`.
 3. It maps the result:
    - products and catalog types become the `Projectable*` types;
@@ -236,11 +246,8 @@ Errors: `ToolRunError` codes `INVALID_INPUT`, `NOT_FOUND` and `FAILURE`; nothing
 File `features/products/application/search-for-assistant.ts`. The tenant comes from the transaction context, as in every product adapter, so the use case takes no access parameter.
 
 ```ts
-/** Plain input: parsed here, never by the caller. */
-export type AssistantProductSearch = Readonly<{
-  text?: string; values?: readonly string[]; priceFromCents?: number; priceToCents?: number;
-  stock?: VariantStockFilter; inCatalog?: boolean; sort: "recent" | "name"; page: number;
-}>;
+/** The plain input is the domain's `SearchInput` (section 6.2), re-exported under the use case's name. */
+export type AssistantProductSearch = SearchInput;
 export type SearchForAssistantDependencies = Readonly<{
   snapshot: AssistantSnapshot;                                  // joins the call's snapshot; opens one with the budget otherwise
   readVocabulary: () => Promise<Result<readonly VocabularyRow[], AssistantReadError>>;
@@ -276,19 +283,19 @@ export type FoundProduct = Readonly<{ product: Product; searchedVariantId: Varia
 export type FindForAssistantDependencies = Readonly<{
   snapshot: AssistantSnapshot;
   findSkuOwner: (normalizedSku: string) => Promise<Result<Readonly<{ variantId: VariantId; productId: ProductId }> | null, AssistantReadError>>;
-  getProduct: (id: ProductId) => Promise<Result<Product | null, ProductReadError>>;   // productRepository.get
+  readProduct: (id: ProductId) => Promise<Result<Product | null, ProductReadError>>;  // readProductInSnapshot: readProducts([id], true)
 }>;
 export async function findForAssistant(reference: AssistantProductReference, deps: FindForAssistantDependencies): Promise<Result<FoundProduct | null, AssistantReadError>>;
 ```
 
 Flow inside one snapshot:
 1. By SKU, normalize the SKU the way the unique index does (`lower(btrim(sku))`: lower case, surrounding spaces removed). Then `findSkuOwner` returns the variant and its product in one statement, using the same expression index plus one column. Absent → `ok(null)`.
-2. `getProduct(id)`. Absent → `ok(null)`.
+2. `readProduct(id)`. Absent → `ok(null)`.
 3. Return the product with `variants: sortVariants(product)` and `searchedVariantId` (null when looked up by id).
 
 Notes:
-- `findForAssistant` calls `productRepository.get` directly, not the `getProduct` use case. So no image URL is signed, `IMAGE_NOT_FOUND` cannot fail a read, and the photo ids the aggregate carries are never projected.
-- Inside the snapshot, `readProducts` rethrows a statement timeout or P2028, so the snapshot maps it (section 11) instead of it being logged as `product_read_persistence_failed`.
+- `findForAssistant` reads the aggregate through a new export of `infrastructure/repository.ts`, `readProductInSnapshot(id)`, which calls `readProducts([id], true)`; neither `productRepository.get` nor the `getProduct` use case is used. So no image URL is signed, `IMAGE_NOT_FOUND` cannot fail a read, and the photo ids the aggregate carries are never projected.
+- Because `inTransaction` is true, `readProducts` rethrows a statement timeout or P2028, and the snapshot maps it to `STATEMENT_TIMEOUT` or `TRANSACTION_TIMEOUT` (section 11), with no `product_read_persistence_failed` line. `productRepository.get` keeps `inTransaction = false`, so the app's product detail is unchanged.
 - The composition passes the id from `ProductReferenceRequest` as a `ProductId` only after the presentation has checked it is a UUID.
 
 ### 5.8 `catalogStorefront.describe` (new, catalog)
@@ -317,7 +324,7 @@ export type AssistantReadError = ProductReadError
   | Readonly<{ code: "STATEMENT_TIMEOUT"; message: string }>
   | Readonly<{ code: "TRANSACTION_TIMEOUT"; message: string }>;   // the Prisma timer or maxWait (P2028)
 export type AssistantSnapshot = <T, E>(read: () => Promise<Result<T, E>>) => Promise<Result<T, E | AssistantReadError>>;
-export const assistantReadBudget = { maxWait: 1000, timeout: 5000, statementTimeoutMs: 400, maxStatements: 10 } as const;
+export const assistantReadBudget = { maxWait: 1000, timeout: 5000, statementTimeoutMs: 350, maxStatements: 11 } as const;
 ```
 
 It is implemented in `features/products/infrastructure/assistant-read.ts`:
@@ -353,11 +360,16 @@ export type MatchKey = string & { readonly __brand: "MatchKey" };
 export function matchKeyOf(text: string): MatchKey;                   // NFD, \p{M} removed, toLowerCase, trim
 export type PriceCents = number & { readonly __brand: "PriceCents" }; // 0..99_999_999_999 (Decimal(11, 2))
 export function parsePriceCents(cents: number): Result<PriceCents, "NOT_AN_INTEGER" | "NEGATIVE" | "TOO_LARGE">;
+/** Plain input, as callers send it; parsed by `parseSearchCriteria`, never by the caller. */
+export type SearchInput = Readonly<{
+  text?: string; values?: readonly string[]; priceFromCents?: number; priceToCents?: number;
+  stock?: VariantStockFilter; inCatalog?: boolean; sort: "recent" | "name"; page: number;
+}>;
 export type SearchCriteria = Readonly<{
   text?: string; values?: readonly [string, ...string[]]; priceFrom?: PriceCents; priceTo?: PriceCents;
   stock?: VariantStockFilter; inCatalog?: boolean; sort: "recent" | "name"; page: number;
 }>;
-export function parseSearchCriteria(input: AssistantProductSearch): Result<SearchCriteria, "INVALID_PRICE" | "PRICE_RANGE_REVERSED" | "VARIANT_FILTER_OUTSIDE_CATALOG">;
+export function parseSearchCriteria(input: SearchInput): Result<SearchCriteria, "INVALID_PRICE" | "PRICE_RANGE_REVERSED" | "VARIANT_FILTER_OUTSIDE_CATALOG">;
 ```
 
 `PriceCents` exists because `Money.amount` is a float. SQL compares `salePrice` with `$cents::numeric / 100`, exactly.
@@ -474,8 +486,8 @@ The `stock` of a variant is a number. `nivel` is «Agotado» or «Stock bajo», 
 
 | Layer | Types and authority |
 | --- | --- |
-| products domain | `lowStockThreshold`, `StockLevel`, `MatchKey`, `PriceCents`, `SearchCriteria`, the vocabulary and value resolution, the «Opción: valor» split: the only definitions |
-| products application and infrastructure | `searchForAssistant`, `findForAssistant`, `readForAssistant`, `AssistantProductSearch`, `SearchedProduct`, `FoundProduct`, `AssistantReadError`, `assistantReadBudget` |
+| products domain | `lowStockThreshold`, `StockLevel`, `MatchKey`, `PriceCents`, `SearchInput`, `SearchCriteria`, the vocabulary and value resolution, the «Opción: valor» split: the only definitions |
+| products application and infrastructure | `searchForAssistant`, `findForAssistant`, `readForAssistant`, `AssistantProductSearch` (alias of the domain's `SearchInput`), `SearchedProduct`, `FoundProduct`, `AssistantReadError`, `assistantReadBudget` |
 | catalog | `StorefrontState`, `catalogStorefront.describe` |
 | src/composition | The only place that sees both sides. It maps products and catalog types onto the `Projectable*` types, computes the customer link, holds the 3-slot limit and logs `assistant_tool_failed`. |
 | assistants domain | The `Projectable*` types and the Spanish projection, catalog and stock lines. It decides no product rule. |
@@ -561,13 +573,13 @@ Statements per call, including `set_config` of the snapshot:
 | Call | Statements |
 | --- | --- |
 | Search | 2 (set_config, jit), storefront 1, then 1 to 4 for the search; at most 7 |
-| Detail | 2, storefront 1, then 1 SKU lookup and 6 aggregate reads; at most 10 |
+| Detail | 2, storefront 1, then 1 SKU lookup and 7 aggregate reads; at most 11 |
 
 The count is constant in the number of products and variants: no N+1.
 
 ### 7.2 Rows read
 
-Every raw row is parsed with a Zod schema in `infrastructure/product-search-repository.ts`: `vocabularyRowSchema`, `pageRowSchema`, `summaryRowSchema`, `matchingVariantRowSchema`, `skuOwnerRowSchema`. Decimals arrive as strings and are converted with `Prisma.Decimal`. `bigint` stock must be within the safe integer range, and the currency goes through `isCurrency`. A row that fails is `INVALID_STORED_DATA` with `invalid_stored_product_data` logged, never an empty result. Inside the snapshot, the adapters rethrow transaction failures, as `readProducts` does.
+Every raw row is parsed with a Zod schema in `infrastructure/product-search-repository.ts`: `vocabularyRowSchema`, `pageRowSchema`, `summaryRowSchema`, `matchingVariantRowSchema`, `skuOwnerRowSchema`. Decimals arrive as strings and are converted with `Prisma.Decimal`. `bigint` stock must be within the safe integer range, and the currency goes through `isCurrency`. A row that fails is `INVALID_STORED_DATA` with `invalid_stored_product_data` logged, never an empty result. Inside the snapshot, the adapters rethrow transaction failures, as `readProducts(ids, true)` does.
 
 ### 7.3 Performance check (T3)
 
@@ -590,8 +602,9 @@ Every raw row is parsed with a Zod schema in `infrastructure/product-search-repo
 **Accepted when:**
 - No plan node scans `ProductVariant`, `ProductStock` or `ProductVariantOptionValue` sequentially across companies.
 - No plan reports JIT.
-- On store A each statement runs under 150 ms on development hardware (initial value), well inside the 400 ms limit.
-- On store B the timings are recorded, together with the store size at which the page statement would reach 400 ms, extrapolated linearly. That size is the limit after which the tools answer the reading-failure text. It goes in the pull request.
+- On store A each statement runs under 150 ms on development hardware (initial value), well inside the 350 ms limit.
+- On store B the timings are recorded. For each of the five measured statements, the store size at which it would reach 350 ms is extrapolated linearly. The limit after which the tools answer the reading-failure text is the minimum of those sizes, vocabulary included, since the vocabulary scans every variant-option link of the store. The per-statement sizes and the minimum go in the pull request.
+- The statement counts of the worst-case search (all filters, `valores` sent) and of the detail by SKU of the 100-variant product are measured through Prisma `query` events and must be at most `assistantReadBudget.maxStatements`. If the measured count differs from section 7.1, the implementer corrects `maxStatements` and lowers `statementTimeoutMs` until `maxStatements × statementTimeoutMs + maxWait ≤ timeout` holds again.
 
 If store A fails, the implementer stops and escalates with the plans. No index is added without review.
 
@@ -620,29 +633,29 @@ Reads only. «Reads only» is a property of the code: no product tool path issue
 
 Each tool call:
 
-1. Takes one of 3 per-process slots. With none free, it answers the reading-failure text immediately (`READS_BUSY`).
-2. Opens one `withinTransaction` with `isolationLevel: "RepeatableRead"`, `maxWait: 1000`, `timeout: 5000` and `statementTimeoutMs: 400`. The first statement sets the tenant and the statement timeout in one round trip, and the second sets `jit` off.
+1. Takes one of 3 per-process slots, waiting up to 300 ms for one. With none free after that, it answers the reading-failure text (`READS_BUSY`, logged at `warn`).
+2. Opens one `withinTransaction` with `isolationLevel: "RepeatableRead"`, `maxWait: 1000`, `timeout: 5000` and `statementTimeoutMs: 350`. The first statement sets the tenant and the statement timeout in one round trip, and the second sets `jit` off.
 3. Reads the storefront, then the search (vocabulary, page ids and total, summaries, matching variants) or the detail (SKU owner, aggregate), all in the same snapshot. The total, the page, the vocabulary and the catalog line therefore never disagree with a concurrent save.
 4. Commits, which releases the pool connection.
 
 Budget:
-- At most 10 statements × 400 ms = 4,000 ms of server time, under the 5,000 ms Prisma timer, with 1,000 ms left for round trips.
-- A unit test of `assistantReadBudget` asserts `maxStatements × statementTimeoutMs + 1000 ≤ timeout`. A later change that adds a statement must keep it true.
+- At most 11 statements × 350 ms = 3,850 ms of server time, under the 5,000 ms Prisma timer, with 1,150 ms left for round trips.
+- A unit test of `assistantReadBudget` asserts `maxStatements × statementTimeoutMs + maxWait ≤ timeout`. An integration test of T3 measures the real statement count of the worst-case search and detail and asserts it is at most `maxStatements`, so a later added statement fails a test instead of breaking the budget silently.
 
 Failures:
 
 | Situation | Effect | `errorCode` | Agent receives |
 | --- | --- | --- | --- |
 | Pool saturated beyond `maxWait` | No statement starts; Prisma throws P2028 | `TRANSACTION_TIMEOUT` | Reading-failure text |
-| One statement exceeds 400 ms | PostgreSQL cancels it (`57014`) and the transaction rolls back | `STATEMENT_TIMEOUT` | Reading-failure text |
-| The Prisma timer fires first (only possible when round trips exceed the 1,000 ms margin) | Prisma rolls back; the statement in flight is stopped by its own 400 ms limit at the latest | `TRANSACTION_TIMEOUT` | Reading-failure text |
-| 4th call while 3 are in flight | No transaction | `READS_BUSY` | Reading-failure text |
+| One statement exceeds 350 ms | PostgreSQL cancels it (`57014`) and the transaction rolls back | `STATEMENT_TIMEOUT` | Reading-failure text |
+| The Prisma timer fires first (only possible when round trips exceed the 1,150 ms margin) | Prisma rolls back; the statement in flight is stopped by its own 350 ms limit at the latest | `TRANSACTION_TIMEOUT` | Reading-failure text |
+| 4th call while 3 are in flight, still no slot after 300 ms | No transaction | `READS_BUSY` (warn, `assistant_product_reads_busy`) | Reading-failure text |
 
-No statement outlives the call by more than 400 ms. A call holds a pool connection for at most 5 s, and product calls hold at most 3 of the pool's 10 connections, so the web app and the order tools always keep 7.
+No statement outlives the call by more than 350 ms. The detail read reports its timeouts like the search, because it reads through `readProducts(ids, true)` (section 5.7). A call holds a pool connection for at most 5 s, and product calls hold at most 3 of the pool's 10 connections, so the web app and the order tools always keep 7.
 
 Writes outside the tools:
 - The `oauthClient.scopes` alignment is one idempotent conditional `UPDATE`. Two concurrent `/authorize` requests write the same value, and the second writes nothing.
-- `revokePriorGrant` reuses `revokeClientGrant`, which is idempotent.
+- `revokePriorGrant` reuses the extracted `revokeGrantTokens` statement, which is idempotent.
 - Ending a connection reuses `endConnection` unchanged: delete, then best-effort revocation.
 
 ## 12. Code organization
@@ -655,7 +668,7 @@ Writes outside the tools:
 | `…/assistants/application/authorize-assistant.ts` (+ test), `assistant-fixtures.ts` | `[...assistantScopes]` | T1 |
 | `…/assistants/infrastructure/connection-access-repository.ts` | `endConnection` reason type | T1 |
 | `…/assistants/infrastructure/connection-repository.ts` | Passes `assistantScopes`; `outcome` field on `assistant_connection_created` | T1 |
-| `…/assistants/infrastructure/oauth-hooks.ts` (+ test), `…/assistants/auth-hooks.ts` | `alignClientScopes`, `revokePriorGrant` and their adapters | T1 |
+| `…/assistants/infrastructure/oauth-hooks.ts` (+ test), `…/assistants/auth-hooks.ts`, `…/assistants/infrastructure/oauth-grant-revocation.ts` | `alignClientScopes`, `revokePriorGrant` and their adapters; `revokeGrantTokens` extracted | T1 |
 | `…/assistants/infrastructure/*.integration.test.ts`, `presentation/assistant-lifecycle.integration.test.ts`, `presentation/oauth-metadata-routes.integration.test.ts`, `presentation/mcp-routes.integration.test.ts` | New scope string, outdated connections, rows with both scopes | T1 |
 | `apps/core/app/locales.ts`, `app/routes/assistant-authorize.tsx` (+ test), `app/routes/assistant-settings.test.tsx`, `tests/e2e/assistants.spec.ts` | Consent and settings texts of the product draft (es, pt) and two new «Podrá ver» lines | T1 |
 | `…/assistants/presentation/server-instructions.ts` (+ new test) | Language rule | T2 |
@@ -663,7 +676,7 @@ Writes outside the tools:
 | `…/assistants/presentation/tool-registry.ts` (+ new `tool-registry.test.ts`) | Language checks in `checkToolModules` | T2, then T5 |
 | `…/products/domain/stock-level.ts` (+ test), `product-search.ts` (+ test) | New | T3 |
 | `…/products/application/search-for-assistant.ts` (+ test), `find-for-assistant.ts` (+ test) | New | T3 |
-| `…/products/infrastructure/product-search-repository.ts` (+ integration test), `assistant-read.ts` (+ test), `statement-timeout.ts`, `text-candidates.ts`, `product-search-fixtures.ts` | New queries, row schemas, the budgeted snapshot, the moved detector, the performance seed | T3 |
+| `…/products/infrastructure/product-search-repository.ts` (+ integration test), `assistant-read.ts` (+ test), `statement-timeout.ts`, `text-candidates.ts`, `product-search-fixtures.ts`, `repository.ts` | New queries, row schemas, the budgeted snapshot, the moved detector, the performance seed, the `readProductInSnapshot` export | T3 |
 | `…/products/composition.ts` | `readForAssistant`, `searchForAssistant`, `findForAssistant` in `products` | T3 |
 | `…/catalog/infrastructure/catalog-settings-repository.ts` (+ integration test), `…/catalog/composition.ts` | `readStorefrontState`, `catalogStorefront.describe` | T4 |
 | `…/assistants/presentation/tool-module.ts`, `tool-registry.ts`, `tools/orders-tools.ts`, `presentation/mcp-routes.integration.test.ts` (fixture module) | `readFailureMessage` per module | T5 |
@@ -680,7 +693,8 @@ Writes outside the tools:
 | Event | Level | Where | Fields |
 | --- | --- | --- | --- |
 | `assistant_tool_called` | info | `tool-registry.ts` (unchanged) | `["companyId", "connectionId", "tool", "outcome", "durationMs"]`; `tool` is `buscar_productos` or `ver_producto` |
-| `assistant_tool_failed` | error | `assistant-product-capabilities.ts`, `tool-registry.ts` | `["companyId", "connectionId", "tool", "errorCode"]`; `errorCode` ∈ `PERSISTENCE_UNAVAILABLE`, `INVALID_STORED_DATA`, `STATEMENT_TIMEOUT`, `TRANSACTION_TIMEOUT`, `READS_BUSY` |
+| `assistant_tool_failed` | error | `assistant-product-capabilities.ts`, `tool-registry.ts` | `["companyId", "connectionId", "tool", "errorCode"]`; `errorCode` ∈ `PERSISTENCE_UNAVAILABLE`, `INVALID_STORED_DATA`, `STATEMENT_TIMEOUT`, `TRANSACTION_TIMEOUT` |
+| `assistant_product_reads_busy` | warn | `assistant-product-capabilities.ts` | `["companyId", "connectionId", "tool", "waitedMs"]` |
 | `assistant_access_refused` | info | `mcp-routes.ts` (unchanged) | existing, with `reason: "consent_outdated"` |
 | `assistant_connection_ended` | info | `connection-access-repository.ts` | existing, with `reason: "consent_outdated"`; counts the endings of the release |
 | `assistant_connection_created` | info | `connection-repository.ts` | existing, plus `outcome` ∈ `inserted`, `reactivated`; counts the re-authorizations of the release |
@@ -726,7 +740,7 @@ Never logged: tool inputs and outputs, search text, values, SKUs, prices, produc
 - `test("answers null for an unknown SKU and for an unknown product")`
 
 `features/products/infrastructure/assistant-read.test.ts`
-- `test("keeps the worst-case statements of a call inside the transaction timer with a second to spare")`
+- `test("keeps maxStatements × statementTimeoutMs + maxWait within the transaction timer")`
 - `test("maps a statement timeout to STATEMENT_TIMEOUT and a Prisma P2028 to TRANSACTION_TIMEOUT")`
 
 `features/assistants/domain/assistant-connection.test.ts`
@@ -759,14 +773,19 @@ Never logged: tool inputs and outputs, search text, values, SKUs, prices, produc
 - `test("summarizes S = 0, M = 2, L = 10 as «Stock: 12 · 1 agotada, 1 con stock bajo»")`
 - `test("summarizes six sizes at 1 unit as «Stock: 6 · 6 con stock bajo»")`
 - `test("shows «Stock: 0 · Agotado» only when every active variant is at 0")`
-- `test("shows the level of a product with one variant")`
+- `test("shows «Stock bajo» for a product without options with 2 units")` (acceptance 4)
 - `test("gives a product without active variants no price, no stock line, no level and no customer link")`
 - `test("never includes a purchase price in a search item")`
 - `test("adds «hay más: pide la página 2» on page 1 of 45 and no more line on page 3")` (acceptance 7)
 - `test("cuts a 1,500-character description at 1,000 with «… (la descripción continúa en Yoyos)»")`
 - `test("shows «Sin precio de compra» when it was never entered and «S/ 0.00» when it was entered as 0")`
 - `test("lists 10 matching variants and «y 4 variantes más: usa Ver producto»")`
-- `test("cuts the value list at 100 with «y 30 valores más»")`
+- `test("cuts the value list at 100 with «y 30 valores más»")` (acceptance 8)
+- `test("answers «Tu tienda no tiene el valor "Celeste". Valores de tu tienda: Color: Azul, Azul claro, Negro, Rojo · Talla: S, M, L.»")` (acceptance 8)
+- `test("answers «Tu tienda no tiene el valor "M" en Color.» with the store's values")` (acceptance 9)
+- `test("answers the unknown-option text for «Material: Algodón» with the store's values")` (acceptance 9)
+- `test("answers «Ningún producto de tu tienda tiene opciones (como color o talla). Busca con texto.» in a store without options")` (acceptance 9)
+- `test("writes the published, hidden and never-linked catalog sentences")` (acceptance 12)
 - `test("answers «No hay productos con esos filtros: precio hasta S/ 30.00.» with the catalog line")` (acceptance 2)
 - `test("writes every applied filter in an empty answer")`
 
@@ -781,7 +800,8 @@ Never logged: tool inputs and outputs, search text, values, SKUs, prices, produc
 
 `src/composition/assistant-product-capabilities.test.ts`
 - `test("gives the customer link only when the catalog is published, the product is in it and its currency is the store's")`
-- `test("answers the reading-failure text at once when three product reads are in flight")`
+- `test("waits up to 300 ms for a slot and then answers the reading-failure text when three product reads are in flight")`
+- `test("logs a busy read at warn and never as assistant_tool_failed")`
 - `test("logs one assistant_tool_failed with the error code of a failed read")`
 
 `src/composition/assistant-tools.test.ts` (static validator)
@@ -812,7 +832,9 @@ Never logged: tool inputs and outputs, search text, values, SKUs, prices, produc
 - `test("finds the variant and product of a SKU in one lookup")` (acceptance 14)
 - `test("never reads another store's products, values or SKUs")` (acceptance 20)
 - `test("reports stored data that fails its schema as invalid stored data")`
-- `test("answers STATEMENT_TIMEOUT when a statement exceeds its limit and leaves no statement running")`
+- `test("answers STATEMENT_TIMEOUT when a search statement exceeds its limit and leaves no statement running")`
+- `test("answers STATEMENT_TIMEOUT, not PERSISTENCE_UNAVAILABLE, when a detail read exceeds its limit")`
+- `test("issues at most maxStatements statements for the worst-case search and the detail by SKU of a 100-variant product")`
 
 `features/catalog/infrastructure/catalog-settings-repository.integration.test.ts`
 - `test("describes a published, a hidden and a never-linked catalog with the store currency")`
@@ -820,6 +842,7 @@ Never logged: tool inputs and outputs, search text, values, SKUs, prices, produc
 
 `features/assistants/presentation/products-tools.integration.test.ts`
 - `test("answers buscar_productos through the MCP server with the catalog line and customer links")` (acceptance 12)
+- `test("carries «Tu catálogo está oculto: ahora nadie ve tus productos.» and no customer link in a page and in an empty answer of a hidden catalog")` (acceptance 12)
 - `test("answers ver_producto by SKU and by identifier, and another store's product as not found")` (acceptance 14)
 - `test("counts product calls in the store limit shared with order tools")` (acceptance 21)
 - `test("leaves every product, price and stock unchanged after any sequence of calls")` (acceptance 23)
@@ -842,6 +865,7 @@ Never logged: tool inputs and outputs, search text, values, SKUs, prices, produc
 - Claude and ChatGPT against a preview: «¿Tienes polos azules en M?», «¿Qué se me está acabando?», «¿Cuánto me costó la casaca negra?» (the purchase price only from **Ver producto**), «¿qué categorías tengo?».
 - Portuguese: «Quais camisetas azuis eu tenho?» and «O que eu despacho hoje?» answer in Portuguese with store data unchanged (acceptance 22).
 - An agent connected before the release re-authorizes by itself after its first refused call. The founder's own connections must be connected again.
+- One agent turn that calls **Ver producto** for 4 products in parallel answers all 4.
 
 ## 15. Limits and checks during implementation
 
@@ -856,6 +880,7 @@ Never logged: tool inputs and outputs, search text, values, SKUs, prices, produc
 - **Collation**: `es-x-icu` must exist in the test and production databases, as the app list already requires.
 - **`unaccent`**: the public catalog's extension. `unaccent(lower(sku))` on a null SKU is null and does not match.
 - **Pool**: the 3-slot limit assumes the default pool of 10. If `DATABASE_POOL_MAX` is raised, the limit stays 3. That is deliberate: product reads never take more connections because the pool grew.
+- **Shared slots** (known limit): the 3 slots are shared by every store the process serves, so one store's burst can make another store's product call wait up to 300 ms and then answer the reading-failure text. The wait absorbs the usual burst of an agent's parallel calls (for example 4 **Ver producto** calls of about 30 ms each). This is accepted at the current scale. The manual checks of section 14 include one parallel burst.
 - Not designed: price or stock sorting, description search, photos, a configurable threshold, margins.
 
 ## 16. Implementation plan
@@ -873,6 +898,8 @@ Final verification  (after T5)
 
 Files per task are those of section 12. Tasks of the same wave share no file. `tool-registry.ts` is edited by T2 (wave 1) and then T5 (wave 2). `presentation/mcp-routes.integration.test.ts` is edited by T1 (wave 1, connection rows) and then T5 (wave 2, fixture module). T5 starts from the integration branch with wave 1 merged.
 
+No preview or deployment happens between waves, and wave 1 is never merged to `main` alone. After wave 1, T1 already ends orders-only connections and grants `products:read` while no product tool exists yet, so a wave-1 build would cut every owner's connection and list only the order tools. The whole plan ships as one pull request from the integration branch; previews are made only after T5.
+
 ### T1. Consent, scope and outdated connections
 
 **Scope:**
@@ -880,7 +907,7 @@ Files per task are those of section 12. Tasks of the same wave share no file. `t
 - `connectionEndReason` with `requiredScopes`, and the scope rule in `isConnectionActive` and in its four callers.
 - `consent_outdated` in `resolveAssistantAccess` and `endConnection`.
 - `authorizeAssistant` saving every scope.
-- `alignClientScopes` (set comparison) and `revokePriorGrant` in the `/authorize` hook.
+- `alignClientScopes` (set comparison) and `revokePriorGrant` in the `/authorize` hook, with `revokeGrantTokens` extracted in `oauth-grant-revocation.ts`.
 - The `outcome` field of `assistant_connection_created`.
 - The consent and settings texts of the product draft in `app/locales.ts` (es, pt), and the two new «Podrá ver» lines in `assistant-authorize.tsx`.
 - Updated scope strings in the existing assistant tests, including `mcp-routes.integration.test.ts` and `connections.test.ts`.
@@ -918,6 +945,7 @@ Files per task are those of section 12. Tasks of the same wave share no file. `t
 **Scope:**
 - `stock-level.ts`, `product-search.ts`, `search-for-assistant.ts`, `find-for-assistant.ts`.
 - `assistant-read.ts` with `assistantReadBudget` and the error mapping, and `statement-timeout.ts` (moved from `text-candidates.ts`).
+- `readProductInSnapshot` in `repository.ts` (`readProducts([id], true)`); `productRepository.get` is unchanged.
 - `product-search-repository.ts` with its row schemas and exported SQL builders.
 - `products.readForAssistant`, `products.searchForAssistant` and `products.findForAssistant` in `composition.ts`.
 - The performance seed and the check of section 7.3, and the currency finding of section 15 for the pull request.
@@ -930,8 +958,9 @@ Files per task are those of section 12. Tasks of the same wave share no file. `t
 3. A store with values Azul, Azul claro, Negro, Rojo and S, M, L rejects «Celeste» with a vocabulary whose sizes read S, M, L. «Verde», held only by deactivated variants, is rejected. «3:4» held by a variant is found.
 4. 45 matching products page as 20, 20 and 5 with total 45.
 5. `findForAssistant({ by: "sku", sku: "pol-m-az " })` opens Polo básico with M / Azul as the searched variant.
-6. A statement forced past 400 ms answers `STATEMENT_TIMEOUT` and logs `product_search_failed`. `pg_stat_activity` then shows no statement of that call still running.
-7. The plans and timings of section 7.3 meet the criteria and are recorded for the pull request.
+6. A search statement and a detail read forced past 350 ms both answer `STATEMENT_TIMEOUT` and log `product_search_failed`, with no `product_read_persistence_failed` line. `pg_stat_activity` then shows no statement of that call still running.
+7. The measured statement counts of the worst-case search and detail are at most `assistantReadBudget.maxStatements`, and the budget inequality holds.
+8. The plans, timings, per-statement store-B sizes and their minimum (section 7.3) meet the criteria and are recorded for the pull request.
 
 **Tests:** the products unit and integration titles of section 14, including `assistant-read.test.ts`. The existing `text-candidates` tests stay green.
 
@@ -966,7 +995,7 @@ Files per task are those of section 12. Tasks of the same wave share no file. `t
 **Acceptance criteria:**
 1. A connection with both scopes lists six tools, and the validator passes with the budget cases of section 14.
 2. Acceptance criteria 1–17, 20, 21 and 23 of the product draft pass, through the MCP client in `products-tools.integration.test.ts` or through the unit tests named in section 14.
-3. A read failure, a timeout or a 4th concurrent call answers «No pudimos leer tus productos en este momento. Inténtalo de nuevo en unos segundos.» and logs `assistant_tool_failed` once, with its `errorCode`.
+3. A read failure or a timeout answers «No pudimos leer tus productos en este momento. Inténtalo de nuevo en unos segundos.» and logs `assistant_tool_failed` once, with its `errorCode`. A 4th concurrent call waits up to 300 ms, then answers the same text and logs `assistant_product_reads_busy` at `warn`.
 4. `grep -r "features/products\|features/catalog" apps/core/src/features/assistants` finds nothing.
 
 **Tests:** the T5 titles of section 14: tool-registry failure text, product-projection, products-tools, assistant-product-capabilities, the validator, and the products-tools integration titles. Also the six-tool lifecycle title.
@@ -982,7 +1011,12 @@ Files per task are those of section 12. Tasks of the same wave share no file. `t
 
 ## 17. Questions decided by the review gate
 
-Answered on 31/10/2026 by round 1 of the architecture review gate of the implement-task skill. The design and performance reviewers agreed, and the coordinator consolidated their answers. The founder confirms them in the pull request.
+Architecture review gate of the implement-task skill, 31/10/2026, with a design reviewer and a performance reviewer. The founder confirms these answers in the pull request.
+
+| Round | Base | Design reviewer | Performance reviewer | Outcome |
+| --- | --- | --- | --- | --- |
+| 1 | `5a3f5417` | Rejected: 1 blocker (assistants imported products internals), 11 suggestions | Rejected: 1 blocker (no time budget for the whole call), 9 suggestions | Every finding applied; question 1 answered by both reviewers and consolidated by the coordinator |
+| 2 | `19944906` | Approved, 7 suggestions | Approved, 4 suggestions | Suggestions applied: 11 statements for the detail and a measured count, detail timeouts through `readProducts(ids, true)`, store-B limit as the minimum across statements, `SearchInput` in the domain, `revokeGrantTokens` without connection fields, titles for acceptance 4, 8, 9 and 12, `READS_BUSY` at `warn` with a 300 ms slot wait, no preview between waves |
 
 | Question | Answer | Decided by | Reason | Discarded |
 | --- | --- | --- | --- | --- |
@@ -997,14 +1031,14 @@ Decided unless objected:
 - At `/authorize` without an active connection, the hook revokes the prior grant (tokens and consent), so old refresh tokens never survive a reactivation.
 - The `/authorize` hook aligns each registered client's stored scopes with the current set before the session read. The plugin checks scope before session, and the write is an idempotent no-op once aligned, comparing sets. It is a hook rather than a migration because every later scope needs the same alignment.
 - `features/assistants` imports no products or catalog file. It declares its own ports and `Projectable*` types, and `src/composition` maps them. Raw input is parsed inside `features/products`.
-- The search filters stay internal to `features/products` (`AssistantProductSearch`). `productListQuerySchema` does not change until the app list uses them.
+- The search filters stay internal to `features/products` (`SearchInput`, re-exported as `AssistantProductSearch`). `productListQuerySchema` does not change until the app list uses them.
 - `lowStockThreshold = 3` is a constant in `products/domain/stock-level.ts`, passed to SQL as a parameter. Products computes the level, and MCP 4/4 reuses it.
 - Text search ignores accents as well as case (`unaccent(lower(…))`), on the name and any SKU, so it is more lenient than the app list's ILIKE.
 - Value matching normalizes in TypeScript and filters by the written spellings in SQL. The vocabulary carries names only, no ids.
 - «Opción: valor» splits only when the left side is a store option, so values such as «3:4» stay reachable.
 - No new index. Access leads with `companyId` on the existing indexes, checked with EXPLAIN as `core_app` under RLS on a 2,000-product store (under 150 ms per statement, initial value) and recorded on a 20,000-product store.
-- Each tool call runs in one snapshot, together with the storefront read, with `maxWait` 1,000 ms, a 5,000 ms timer, 400 ms per statement and `jit` off: fixed constants with a unit test of their sum.
-- At most 3 product reads are in flight per process; a 4th call answers the reading-failure text at once.
+- Each tool call runs in one snapshot, together with the storefront read, with `maxWait` 1,000 ms, a 5,000 ms timer, 350 ms per statement and `jit` off: fixed constants for at most 11 statements, with a unit test of `maxStatements × statementTimeoutMs + maxWait ≤ timeout` and an integration test of the measured count.
+- At most 3 product reads are in flight per process, shared by every store; a 4th call waits up to 300 ms for a slot, then answers the reading-failure text, logged at `warn`.
 - Output maxima as in MCP 1/4: names 100, combinations 50, SKUs 40 in search lists. **Ver producto** shows SKUs and option values whole. The 24 KB proof covers ASCII, and two-byte text answers complete.
 - The customer link also requires the product currency to equal the store currency, the public catalog's own filter.
 - There is a reading-failure text per tool module, and the validator refuses «en español» and «tal cual» in any module's texts.
