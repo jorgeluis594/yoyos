@@ -104,7 +104,7 @@ describe("buscar_productos", () => {
   });
 
   test("turns the refusals of the search into invalid input with the draft texts", async () => {
-    const answer = (partial: Omit<ProductSearchAnswer, "storefront">) => async () => ok({ storefront: published, ...partial } as ProductSearchAnswer);
+    const answer = (partial: object) => async () => ok({ storefront: published, ...partial } as ProductSearchAnswer);
     const reversed = await dependencies({ search: answer({ kind: "price_range_reversed" }) }).run("buscar_productos", { precio_desde: 50, precio_hasta: 20 });
     expect(reversed.run).toEqual(err({ code: "INVALID_INPUT", message: "El precio hasta (S/ 20.00) es menor que el precio desde (S/ 50.00)." }));
     const outside = await dependencies({ search: answer({ kind: "variant_filter_outside_catalog" }) }).run("buscar_productos", { en_catalogo: "no", stock: "agotado" });
