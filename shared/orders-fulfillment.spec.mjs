@@ -15,11 +15,11 @@ test("ship is blocked only while the order waits for stock", () => {
   expect(orderFulfillmentBlock(order(), "ship")).toBeNull();
 });
 
-test("deliver is blocked while the order waits for stock or is being deducted", () => {
+test("deliver is blocked while the order waits for stock but not while it is being deducted", () => {
   expect(stockFulfillmentBlock({ stockDue: waiting }, "deliver")).toEqual({ code: "STOCK_WAITING", variantIds: [variant] });
-  expect(stockFulfillmentBlock({ stockDue: deducting }, "deliver")).toEqual({ code: "STOCK_DEDUCTING" });
+  expect(stockFulfillmentBlock({ stockDue: deducting }, "deliver")).toBeNull();
   expect(orderFulfillmentBlock(order({ stockDue: waiting }), "deliver")).toEqual({ code: "STOCK_WAITING", variantIds: [variant] });
-  expect(orderFulfillmentBlock(order({ stockDue: deducting }), "deliver")).toEqual({ code: "STOCK_DEDUCTING" });
+  expect(orderFulfillmentBlock(order({ stockDue: deducting }), "deliver")).toBeNull();
 });
 
 test("the payment reason comes before any stock block", () => {

@@ -1053,12 +1053,12 @@ test("joins three short items as a list", async () => {
   await screen.findByText("Para despachar falta stock de Camisa (Talla: M), Polo (Talla: L · Color: Azul) y Short (Talla: S).");
 });
 
-test("a store-pickup order being deducted shows «Marcar como entregado» disabled with the deducting reason", async () => {
+test("a store-pickup order being deducted can still be delivered, because delivering deducts the stock itself", async () => {
   mockOrder = waitingOrder({ delivery: storePickup, stockDue: { kind: "deducting" } });
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Orden activa");
-  expect(screen.getByRole("button", { name: "Marcar como entregado" })).toBeDisabled();
-  expect(screen.getByText("El stock se está descontando; podrás entregarlo en menos de un minuto.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Marcar como entregado" })).not.toBeDisabled();
+  expect(screen.queryByText(/podrás entregarlo en menos de un minuto/)).toBeNull();
 });
 
 test("a waiting store-pickup order explains the short item for delivering", async () => {

@@ -51,8 +51,8 @@ export type SavedViewProps = Readonly<{
   actionBusy: boolean;
   /** Under the header: the stock notice, **Cancelar pedido** and its messages. */
   underHeader: ReactNode;
-  /** **Marcar enviado** and **Marcar entregado**, at the top of «Entrega». */
-  fulfillment: ReactNode;
+  /** The «Estado del pedido» card, at the top of the right column. */
+  statusCard: ReactNode;
   onPrint: () => void;
   /** **Descartar cambios**, once confirmed: the route returns every part to its pinned saved state. */
   onDiscardChanges: () => void;
@@ -269,10 +269,11 @@ export function OrderView(props: OrderViewProps) {
           onChange={(customer) => change(setCustomer(state, customer))} onRemove={() => change(clearCustomer(state))} />
       </div>
       <div className="flex min-w-0 flex-col gap-6 max-xl:contents">
+        {saved?.statusCard && <div className="min-w-0 max-xl:order-3">{saved.statusCard}</div>}
         {saved && order ? <OrderLinkCard state={orderLinkState(order)} link={saved.link} /> : <OrderLinkCard pendingSave state={null} link={{ kind: "unavailable" }} />}
         <div className="min-w-0 max-xl:order-5">
           <OrderDeliveryCard state={state} settings={settings} invalid={deliveryMarks} settingsHref={links.deliverySettings} onChange={setDelivery}
-            onDeliverImmediatelyChange={(deliverImmediately) => change({ ...state, draft: { ...draft, deliverImmediately } })} fulfillment={saved?.fulfillment} />
+            onDeliverImmediatelyChange={(deliverImmediately) => change({ ...state, draft: { ...draft, deliverImmediately } })} />
         </div>
       </div>
     </div>

@@ -49,14 +49,14 @@ A late response from an earlier attempt does not change the screen.
 
 ## Layout and header
 
-- Two columns on wide screens. On narrow ones one column: «Productos», «Pagos», «Cliente», «Enlace del pedido», «Entrega». Every control has a touch target of at least 44 px.
+- Two columns on wide screens. On narrow ones one column: «Productos», «Pagos», «Cliente», «Estado del pedido» (saved orders), «Enlace del pedido», «Entrega». Every control has a touch target of at least 44 px.
 - **Sticky bar on narrow screens**, once the header has scrolled out of view: for a new sale with products, the total and **Guardar venta**; for a saved order with unsaved changes, «Cambios sin guardar», the total, **Descartar cambios** and **Guardar cambios**; otherwise only the total. A cancelled order shows only the total. It wraps its actions to a second row instead of overflowing.
 - **Breadcrumb:** Ventas › «Nueva venta» or Ventas › «Pedido #1042».
 - **New sale:** chip «Sin guardar», hint «Completa los productos, pagos, cliente y entrega. Todo se puede editar después.», actions **Ver ventas**, **Descartar** and **Guardar venta** (disabled until there is a product; «Guardando…» while sending).
 - **Saved order:** the [status labels](#status-labels), a subtitle with the date and origin («Creado el 30 oct, 09:10 · Registrado por el vendedor», «Pedido desde el catálogo» or «Pedido desde WhatsApp», adding «· Venta completada el …» when completed; the «Desde el catálogo» badge is not in the detail), and the actions **Imprimir rótulo**, **Ver ventas**, **Descartar cambios** and **Guardar cambios**. A cancelled order shows neither **Descartar cambios** nor **Guardar cambios** and no «Venta guardada.».
 - **Unsaved changes note.** With unsaved changes the header shows once «Tienes cambios sin guardar. Guarda o descarta los cambios primero.». The controls it blocks (**Agregar <wallet>**, **Transferencia bancaria**, **Aprobar**, **Marcar enviado**, **Marcar entregado**, **Cancelar pedido**, **Imprimir rótulo**) stay in the Tab order as `aria-disabled` with that reason as a visually hidden description. Reason: the balance, the requirements and the label must be those of the saved order, and repeating the note beside each control only shifts the layout.
 - **Stays enabled while editing:** **Anular pago**, **Rechazar** and **Ver captura**. They act on the saved order at once; afterwards the view refreshes payments, totals, payment status and stock state and keeps every pending edit.
-- The «Esperando stock» / «Descontando stock» notice stays under the header ([Orders · Order detail: waiting for stock](orders.md#order-detail-waiting-for-stock)); **Cancelar pedido** stays under the header with its confirmation.
+- The «Esperando stock» / «Descontando stock» notice stays under the header ([Orders · Order detail: waiting for stock](orders.md#order-detail-waiting-for-stock)); **Cancelar pedido** is in «Estado del pedido» and opens its confirmation, which says the stock returns to the inventory.
 
 ### Status labels
 
@@ -123,6 +123,14 @@ A late response from an earlier attempt does not change the screen.
 - **Quitar cliente** empties both fields; saving shows «Público general». A WhatsApp order keeps its mark and offers no **Quitar cliente**; with no name or phone it shows «Cliente del chat de WhatsApp. Agrega su nombre y celular si los conoces.». Emptying both fields after setting them keeps the contact and returns to that state.
 - On a confirmed order, clearing the customer leaves the buyer's read-only details empty on their link; the order stays confirmed ([Checkout](checkout.md#confirmation)).
 
+## Estado del pedido
+
+Saved orders only, at the top of the right column (after «Cliente» on narrow screens). Title «Estado del pedido», the delivery modality as subtitle («Entrega a domicilio», «Entrega por agencia», «Recojo en tienda», «Entrega por definir» without delivery) and a badge (Pendiente, Enviado, Entregado, Cancelado). Component: `order-status-card.tsx`.
+
+- **Stepper** (ordered list, `aria-current="step"` on the current step): Pendiente → Enviado → Entregado, or Pendiente → Entregado for store pickup; a cancelled order shows Pendiente → Cancelado with a red connector. Each reached step shows its date («Hoy 09:10» today, «29 oct» otherwise, Lima time); a delivery made straight from pending shows «Enviado» done without a date.
+- **Actions** (only what the backend supports): pending with shipping, **Marcar enviado** plus the links **Entregar directamente** and **Cancelar pedido**; pending store pickup, **Marcar entregado** and **Cancelar pedido**; shipped, **Marcar entregado** alone. Delivered shows «Entregado a <destinatario> el 30 oct, 16:40.»; cancelled shows «Pedido cancelado el 29 oct, 18:40.» plus «El stock de los productos se devolvió al inventario.» when the order had its stock deducted. There is no undo, back-to-pending or reopen.
+- **Blocks.** Without a confirmed payment the primary button and **Entregar directamente** are `aria-disabled` and an amber note says «Registra al menos un pago para despachar (entregar, en recojo). Puede ser un pago parcial.» with **Agregar pago**, which scrolls to and focuses «Pagos». Waiting stock and unsaved changes disable them the same way; **Cancelar pedido** stays enabled except with unsaved changes or while another action runs. Delivering with a balance due is allowed; completion waits for the payments to cover the total ([Orders](orders.md)).
+
 ## Enlace del pedido
 
 - Before saving: grey, with the input, copy and open buttons disabled and a lock next to «Disponible al guardar».
@@ -130,7 +138,7 @@ A late response from an earlier attempt does not change the screen.
 
 ## Entrega
 
-- **Fulfillment actions** (saved order): **Marcar enviado** and **Marcar entregado** at the top, with their block reasons. In a new sale, «Marcar como entregado al guardar» with its requirements.
+- A saved order's transitions live in [«Estado del pedido»](#estado-del-pedido), not here. In a new sale, «Marcar como entregado al guardar» with its requirements.
 - **Method tabs:** **Por definir**, **Domicilio**, **Agencia** and **Recojo en tienda**, only the enabled methods, with a touch target of at least 44 px. A new sale starts at **Por definir** («Entrega por definir. Puedes guardar sin entrega y elegirla después.»). Choosing a method shows its fields open. Choosing **Por definir** again before saving discards the half-filled delivery. On a saved order with a delivery, **Por definir** is disabled with «Una entrega guardada se puede cambiar, pero no quitar.». Reason: core has no operation that clears a delivery; it is replaced.
 - **Incomplete delivery:** the missing fields are marked and saving is refused as an invalid field, with «Completa la entrega o elige Por definir.» (new sale or order without a delivery) or «Completa la entrega o descarta sus cambios.» (order with a delivery).
 - **Destinatario:** name, phone and, for agency, the identity document, plus «Igual que el cliente»:

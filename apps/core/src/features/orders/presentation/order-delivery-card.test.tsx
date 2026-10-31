@@ -68,8 +68,7 @@ describe("OrderDeliveryCard", () => {
     return <I18nextProvider i18n={i18n}><MemoryRouter>
       <OrderDeliveryCard state={state} settings={provided} invalid={invalidFields(state)} settingsHref="/pe/settings/delivery"
         onChange={(delivery: DeliveryDraft) => set(current => ({ ...current, draft: { ...current.draft, delivery } }))}
-        onDeliverImmediatelyChange={(deliverImmediately) => set(current => ({ ...current, draft: { ...current.draft, deliverImmediately } }))}
-        fulfillment={<button type="button">Marcar enviado</button>} />
+        onDeliverImmediatelyChange={(deliverImmediately) => set(current => ({ ...current, draft: { ...current.draft, deliverImmediately } }))} />
     </MemoryRouter></I18nextProvider>;
   }
   async function mount(initial: OrderViewState, provided: DeliverySettingsResponse | null = settings) {
@@ -183,10 +182,11 @@ describe("OrderDeliveryCard", () => {
     expect(document.getElementById("order-delivery-deliverImmediately")).toBeNull();
   });
 
-  test("locks the fields of a shipped order with its note and keeps the fulfillment slot", async () => {
+  test("locks the fields of a shipped order with its note and has no fulfillment buttons any more", async () => {
     await mount(savedState({ deliveryStatus: "shipped" }));
     expect(document.body.textContent).toContain("La entrega ya salió; no se puede cambiar.");
-    expect(document.body.textContent).toContain("Marcar enviado");
+    expect(document.body.textContent).not.toContain("Marcar enviado");
+    expect(document.body.textContent).not.toContain("Marcar entregado");
     expect(field("name").matches(":disabled")).toBe(true);
     expect(tab("Domicilio").disabled).toBe(true);
   });

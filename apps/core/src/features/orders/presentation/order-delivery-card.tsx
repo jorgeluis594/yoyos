@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { useTranslation } from "react-i18next";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
@@ -23,8 +22,6 @@ const blankPlace = { districtCode: null, rateId: "", agencyId: "", ratePrice: nu
 type Props = Readonly<{
   state: OrderViewState; settings: DeliverySettingsResponse | null; invalid: readonly InvalidField[]; settingsHref: string;
   onChange: (delivery: DeliveryDraft) => void; onDeliverImmediatelyChange: (checked: boolean) => void;
-  /** Where «Marcar enviado» and «Marcar entregado» go, at the top of the card. */
-  fulfillment?: ReactNode;
 }>;
 
 /**
@@ -66,7 +63,7 @@ function InternalCost({ amount, currency }: Readonly<{ amount: number; currency:
   return <p className="text-sm">{t("orderView.delivery.internalCost")}: {amount === 0 ? t("deliveryZones.free") : formatCurrency(amount, currency, i18n.language)}</p>;
 }
 
-export function OrderDeliveryCard({ state, settings, invalid, settingsHref, onChange, onDeliverImmediatelyChange, fulfillment }: Props) {
+export function OrderDeliveryCard({ state, settings, invalid, settingsHref, onChange, onDeliverImmediatelyChange }: Props) {
   const { t } = useTranslation();
   const { draft, base, loaded } = state;
   const { delivery, customer } = draft;
@@ -99,7 +96,6 @@ export function OrderDeliveryCard({ state, settings, invalid, settingsHref, onCh
 
   return <Card id="order-delivery"><CardHeader><CardTitle>{t("orderView.delivery.title")}</CardTitle></CardHeader>
     <CardContent className="flex flex-col gap-4">
-      {fulfillment}
       {lockedNote && <p role="status" className="text-sm text-muted-foreground">{lockedNote}</p>}
       {methods.length === 0 && !savedHasDelivery
         ? <div className="flex flex-col gap-2 text-sm"><p className="text-muted-foreground">{t(settings ? "orderDelivery.disabled" : "deliverySettings.loadError")}</p>

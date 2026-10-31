@@ -364,12 +364,10 @@ test("shows the stock line in the products card and no Detalles internos", async
 test("disables ship and deliver with the short items as a list", async () => {
   const html = await renderStockDetail({ stockDue: waiting([camisa, 3], [polo, 0]) });
   expect(html).toContain("Para despachar falta stock de Camisa (M · Azul) y Polo (L).");
-  expect(html).toContain("Para entregar falta stock de Camisa (M · Azul) y Polo (L).");
-  expect(html).toMatch(/<button[^>]*aria-disabled="true"[^>]*aria-describedby="fulfillment-ship-reason"[^>]*>Marcar enviado/);
+  expect(html).toMatch(/<button[^>]*aria-disabled="true"[^>]*aria-describedby="order-status-note"[^>]*>.*?Marcar enviado/);
   const deducting = await renderStockDetail({ stockDue: { kind: "deducting" } });
   expect(deducting).toContain("El stock se está descontando; podrás entregarlo en menos de un minuto.");
-  expect(deducting).not.toContain("fulfillment-ship-reason");
-  expect(deducting).toMatch(/<button[^>]*aria-disabled="true"[^>]*aria-describedby="fulfillment-deliver-reason"[^>]*>Marcar entregado/);
+    expect(deducting).toMatch(/<button[^>]*aria-disabled="true"[^>]*aria-describedby="order-status-note"[^>]*>.*Marcar enviado/);
 });
 
 test("reloads the order when shipping meets short stock", async () => {

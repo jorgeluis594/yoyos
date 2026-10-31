@@ -3,10 +3,9 @@ import type { Result } from "@shared/result";
 import { isOrderId } from "@core/src/features/orders/domain/order";
 import { readCancellationOrder, verifyCancellation, cancellationMessage, type CancelOrderActionError, type CancellationClientResult, type CancellationUiState } from "@core/src/features/orders/presentation/cancellation-client";
 import { cancelOrderResponseSchema, type CancelOrderResponse } from "@shared/contracts/orders";
-import { orderFulfillmentBlock } from "@shared/orders-fulfillment";
 import type { PaymentDecisionResult } from "@core/src/features/orders/presentation/payment-decision-form";
 import { StockDueNotice } from "@core/src/features/orders/presentation/stock-due-notice";
-import { fulfillmentReason } from "@core/src/features/orders/presentation/stock-due";
+import { OrderStatusCard } from "@core/src/features/orders/presentation/order-status-card";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
@@ -454,11 +453,6 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
 
   const underHeader = <div className="flex flex-col gap-4">
     {!order.cancelled && <StockDueNotice order={order} />}
-    {!order.cancelled && order.status === "active" && order.deliveryStatus === "pending" && <div className="flex flex-col gap-1 self-start">
-      <Button type="button" variant="destructive" aria-disabled={unsaved || blocked || undefined} aria-describedby={unsaved ? "cancel-unsaved-note" : undefined}
-        onClick={() => { if (!unsaved && !blocked) setCancelOpen(true); }}>{t("orderCancellation.cancel")}</Button>
-      {unsaved && <p id="cancel-unsaved-note" className="sr-only">{t("orderView.status.saveFirst")}</p>}
-    </div>}
     <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
       <DialogContent>
         <DialogHeader><DialogTitle>{t("orderCancellation.confirm")}</DialogTitle><DialogDescription>{t("orderCancellation.effects")}</DialogDescription></DialogHeader>
@@ -478,29 +472,20 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
     {order.cancelled && <Alert><AlertDescription>{t("orderCancellation.saved")}</AlertDescription></Alert>}
   </div>;
 
-  const fulfillmentSlot = !order.cancelled && <div className="flex flex-col gap-3">
-    {(["ship", "deliver"] as const).map(operation => {
-      const block = orderFulfillmentBlock(order, operation);
-      const reason = block && fulfillmentReason(block, operation, order, i18n.language);
-      const waiting = unsaved || blocked;
-      const done = block?.code === "INVALID_TRANSITION";
-      const note = unsaved ? t("orderView.status.saveFirst") : done ? t(`orderFulfillment.already_${order.deliveryStatus === "delivered" ? "delivered" : "shipped"}`) : reason ? t(reason.key, { items: reason.items }) : null;
-      return <Form key={operation} method="post" className="flex flex-col gap-1" onSubmit={event => { if (reason || waiting) event.preventDefault(); }}>
-        <input type="hidden" name="operation" value={operation} />
-        <Button type="submit" variant="outline" aria-disabled={!!reason || waiting || undefined} aria-describedby={note ? `fulfillment-${operation}-reason` : undefined}>{t(`orderFulfillment.${operation}`)}</Button>
-        {note && <p id={`fulfillment-${operation}-reason`} className={unsaved ? "sr-only" : "text-sm text-muted-foreground"}>{note}</p>}
-      </Form>;
-    })}
+  const fulfillmentFeedback = <>
     {fulfillment?.error && <Alert variant="destructive"><AlertDescription>{t(`orderFulfillment.${fulfillment.operation === "ship" && fulfillment.error === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : fulfillment.error}`, { defaultValue: t("orderFulfillment.saveError") })}</AlertDescription></Alert>}
     {fulfillment?.success && <Alert variant="success"><AlertDescription>{t(`orderFulfillment.${fulfillment.operation}Saved`)}</AlertDescription></Alert>}
-  </div>;
+  </>;
+  const statusCard = <OrderStatusCard order={order} unsaved={unsaved} busy={blocked} feedback={fulfillmentFeedback}
+    onFulfill={operation => submit({ operation }, { method: "post" })} onCancel={() => setCancelOpen(true)}
+    onAddPayment={() => { const panel = document.getElementById("order-payments"); panel?.scrollIntoView({ block: "center" }); panel?.focus(); }} />;
 
   return <OrderView state={state} onStateChange={edit} settings={settings}
     links={{ sales: base, deliverySettings: settingsPath, createProduct: base.replace(/\/orders$/, "/products") + "/new" }}
     catalogEpoch={catalogEpoch} guard={guard} saving={saving} notice={doubt ? { kind: "doubt", checking: doubt === "checking" } : notice} attempts={attempts} headingFocus={headingFocus}
     unavailableVariantId={unavailableVariantId} coverRequired={false} format={{ amount: money, date }}
     newPaymentId={() => crypto.randomUUID()} onSave={save} onCheckAgain={() => setDoubt("checking")}
-    saved={{ link, receiptUrls, manualPaymentId, voidResult, actionBusy: blocked && !saving && doubt === null, underHeader, fulfillment: fulfillmentSlot,
+    saved={{ link, receiptUrls, manualPaymentId, voidResult, actionBusy: blocked && !saving && doubt === null, underHeader, statusCard,
       onPrint: () => setPrintOpen(true), onDiscardChanges: discard, onReload: reload, onSaveCustomerOnly: saveOnlyCustomer }} />;
 }
 

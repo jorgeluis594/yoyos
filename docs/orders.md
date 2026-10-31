@@ -177,12 +177,12 @@ A cancelled order shows no stock state on web, because its stock was restored or
 
 ### Fulfillment buttons
 
-Web shows «Marcar enviado» and «Marcar entregado» at the top of the «Entrega» card; mobile shows the single next action, «Marcar como despachado» or, for store pickup, «Marcar como entregado». Both platforms decide with `orderFulfillmentBlock` (`shared/orders-fulfillment.ts`): payment and transition reasons first, then the stock block.
+Web shows «Marcar enviado», «Entregar directamente» and «Marcar entregado» in the «Estado del pedido» card ([Order view](order-view.md#order-status-card)); mobile shows the single next action, «Marcar como despachado» or, for store pickup, «Marcar como entregado». Both platforms decide with `orderFulfillmentBlock` (`shared/orders-fulfillment.ts`): payment and transition reasons first, then the stock block.
 
 | Order | Ship | Deliver (store pickup included) |
 | --- | --- | --- |
 | Waiting | Disabled: «Para despachar falta stock de Camisa (M · Azul).» | Disabled: «Para entregar falta stock de Camisa (M · Azul).» |
-| Deducting | Enabled: shipping deducts the stock itself | Disabled: «El stock se está descontando; podrás entregarlo en menos de un minuto.» |
+| Deducting | Enabled: shipping deducts the stock itself | Enabled: delivering deducts the stock itself |
 
 - The reasons name only the short items, as a list («Camisa (M) y Polo (L)», «Camisa (M), Polo (L) y Short (S)»); the quantities stay in the notice. Reason: the notice and the buttons must agree, and mobile would otherwise repeat the notice a few rows below.
 - «Se requiere descontar el stock antes de entregar.» remains only for an order that is not due; an unpaid order shows the payment reason first.

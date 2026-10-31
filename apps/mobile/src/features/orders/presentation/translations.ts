@@ -17,7 +17,6 @@ export const translations = {
     ORDER_CANCELLED: "El pedido está cancelado; no se puede enviar ni entregar.", INVALID_TRANSITION: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado.",
     STOCK_WAITING_SHIP: "Para despachar falta stock de {{items}}.", STOCK_WAITING_DELIVER: "Para entregar falta stock de {{items}}.",
     STOCK_WAITING_SHIP_GENERIC: "Para despachar falta stock.", STOCK_WAITING_DELIVER_GENERIC: "Para entregar falta stock.",
-    STOCK_DEDUCTING: "El stock se está descontando; podrás entregarlo en menos de un minuto.",
     saveError: "No se pudo actualizar el pedido. Inténtalo de nuevo.",
   },
 
@@ -240,7 +239,6 @@ export const translations = {
     ORDER_CANCELLED: "O pedido está cancelado; não pode ser despachado nem entregue.", INVALID_TRANSITION: "Só é possível despachar pedidos pendentes e entregar pedidos pendentes ou despachados.",
     STOCK_WAITING_SHIP: "Falta estoque de {{items}} para despachar.", STOCK_WAITING_DELIVER: "Falta estoque de {{items}} para entregar.",
     STOCK_WAITING_SHIP_GENERIC: "Falta estoque para despachar.", STOCK_WAITING_DELIVER_GENERIC: "Falta estoque para entregar.",
-    STOCK_DEDUCTING: "O estoque está sendo descontado; você poderá entregá-lo em menos de um minuto.",
     saveError: "Não foi possível atualizar o pedido. Tente novamente.",
   },
 
