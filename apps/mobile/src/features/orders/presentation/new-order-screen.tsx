@@ -145,7 +145,9 @@ function CompanyOrderScreen() {
     && paymentsDeductStock(draft.payments ?? [], initialDelivery ? (reviewedTotal?.success ? reviewedTotal.data : null) : orderTotal);
   const stockBlocked = stockShort && !!draft.deliverImmediately;
   const balance = paidAmount?.success && reviewedTotal?.success ? subtract(paidAmount.data)(reviewedTotal.data) : null;
-  const saveBlocked = !prepared.success || !deliveryReady || offline || !!unavailableVariants.length || !!(draft.deliverImmediately && balance?.success && balance.data.amount > 0) || stockBlocked;
+  // Delivering on save needs at least one payment, partial or full.
+  const unpaidDelivery = !!draft.deliverImmediately && !!paidAmount?.success && paidAmount.data.amount === 0;
+  const saveBlocked = !prepared.success || !deliveryReady || offline || !!unavailableVariants.length || unpaidDelivery || stockBlocked;
   // Labels and shipping do not apply to store pickup; with home delivery or agency they wait for complete, rated shipping data.
   const dispatchApplies = initialDelivery?.method !== "store";
   const dispatchable = !!ratedDelivery && ratedDelivery.delivery.method !== "store";
@@ -411,7 +413,7 @@ function CompanyOrderScreen() {
               <DeliveryRow symbol={deliveryRowSymbols.label} label={t('rowLabel')} value={sending === "label" ? t('dispatchPreparing') : t('rowLabelPrint')}
                 muted={!dispatchable} disabled={!!sending || !dispatchable || saveBlocked} onPress={() => complete(true)} />
             </> : null}
-            {draft.deliverImmediately && balance?.success && balance.data.amount > 0
+            {unpaidDelivery
               ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('deliveryNeedsPayment')}</ThemedText> : null}
             {draft.deliverImmediately && stockShort
               ? <ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{t('deliveryNeedsStock')}</ThemedText> : null}

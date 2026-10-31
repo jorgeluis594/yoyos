@@ -193,7 +193,7 @@ test("dispatch filters, including disabled couriers and Sin programar, reach the
   const screen = render(<OrderHistoryScreen />);
   await screen.findByText("Aún no hay pedidos");
   fireEvent.press(screen.getByRole("button", { name: "Filtros" }));
-  fireEvent.press(screen.getByRole("button", { name: "Despachado" }));
+  fireEvent.press(screen.getByRole("button", { name: "Enviado" }));
   fireEvent.press(await screen.findByRole("button", { name: "Olva" }));
   fireEvent.press(screen.getByRole("button", { name: "Sin programar" }));
   expect(screen.queryByRole("button", { name: /Programado desde/ })).toBeNull();

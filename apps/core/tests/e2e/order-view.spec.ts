@@ -179,6 +179,30 @@ test("raises a quantity on a saved order, saves, and shows the new balance with 
   } finally { await cleanup(email); }
 });
 
+test("edits a deducted order with short stock, saves it and shows the pending notice", async ({ page }) => {
+  const email = `order-view-deducted-${crypto.randomUUID()}@example.test`;
+  try {
+    const tenantId = await prepareVerifiedCompany(page, { email, name: "Vendedor Descontado", companyName: "Vista descontada", country: "PE" });
+    const deadpool = await withTenantIsolation(tenantId, () => seedProduct({ name: "Disfraz de Deadpool", variants: [{ attributes: { Talla: "M" }, salePrice: 120, stock: 4 }] }));
+    const orderId = crypto.randomUUID();
+    expect((await page.request.post("/api/orders/pending", { data: { id: orderId, items: [{ variantId: deadpool.variantIds[0], quantity: 1 }] } })).status()).toBe(201);
+    expect((await page.request.post(`/api/orders/${orderId}/payments`, { data: { paymentId: crypto.randomUUID(), amount: { amount: 120, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false } })).ok()).toBe(true);
+    expect(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).toMatchObject({ stockDeducted: true });
+
+    await page.goto(`/es-PE/orders/${orderId}`);
+    const quantity = page.getByLabel("Cantidad: Disfraz de Deadpool, M");
+    await browserExpect(quantity).toBeEnabled();
+    await quantity.fill("6");
+    await page.getByRole("button", { name: "Guardar cambios" }).click();
+
+    await browserExpect(page.getByText("Cambios guardados.")).toBeVisible();
+    await browserExpect(page.getByText(/no hay stock suficiente de .*Deadpool.*Se descontará cuando haya\./)).toBeVisible();
+    const saved = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
+    expect(saved).toMatchObject({ stockDeducted: true, total: { amount: 720 }, paidAmount: { amount: 120 }, stockDue: { kind: "partial_waiting" } });
+    expect(saved.payments).toHaveLength(1);
+  } finally { await cleanup(email); }
+});
+
 test("asks before leaving a saved order with unsaved changes", async ({ page }) => {
   const email = `order-view-leave-${crypto.randomUUID()}@example.test`;
   try {

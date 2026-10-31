@@ -172,8 +172,14 @@ export function setCustomer(state: OrderViewState, customer: CustomerDraft): Ord
   return { ...state, draft: { ...state.draft, customer, delivery: next } };
 }
 
-/** «Quitar cliente»: both fields are emptied, and the recipient keeps the last values it mirrored. */
+/** A saved order the buyer confirmed keeps a customer: the seller can change it but not leave it empty. */
+export function customerRequired(state: OrderViewState): boolean {
+  return state.loaded?.order.checkoutConfirmedAt != null;
+}
+
+/** «Quitar cliente»: both fields are emptied, and the recipient keeps the last values it mirrored. It does nothing when the customer is required. */
 export function clearCustomer(state: OrderViewState): OrderViewState {
+  if (customerRequired(state)) return state;
   const { delivery } = state.draft;
   return { ...state, draft: { ...state.draft, customer: { name: "", phone: "" }, delivery: { ...delivery, sameAsCustomer: false } } };
 }
@@ -181,17 +187,16 @@ export function clearCustomer(state: OrderViewState): OrderViewState {
 // ---------------------------------------------------------------------------------------------------------------------
 // Locks and line warnings
 
-export type ProductsLock = "cancelled" | "delivered" | "shipped" | "deducting" | "deducted";
+export type ProductsLock = "cancelled" | "delivered" | "shipped";
 export type ScreenLocks = Readonly<{ products: ProductsLock | null; customer: "cancelled" | null; delivery: "cancelled" | "delivered" | "shipped" | null }>;
 
-/** What the screen disables. «Descontando stock» is a screen rule only; core enforces the rest. */
+/** What the screen disables; core enforces cancelled and delivery not pending too. */
 export function screenLocks(state: OrderViewState): ScreenLocks {
   const order = state.loaded?.order;
   if (!order) return { products: null, customer: null, delivery: null };
   if (order.cancelled) return { products: "cancelled", customer: "cancelled", delivery: "cancelled" };
   const delivery = order.deliveryStatus === "pending" ? null : order.deliveryStatus;
-  const products: ProductsLock | null = delivery ?? (order.stockDue?.kind === "deducting" ? "deducting" : order.stockDeducted ? "deducted" : null);
-  return { products, customer: null, delivery };
+  return { products: delivery, customer: null, delivery };
 }
 
 /** The stock warning applies when the quantity exceeds a known stock; the note applies when raising a line the catalog no longer sells. */
@@ -287,9 +292,9 @@ function invalidItems(state: OrderViewState): readonly InvalidField[] {
   return marks;
 }
 
-function invalidCustomer(customer: CustomerDraft): readonly InvalidField[] {
+function invalidCustomer(customer: CustomerDraft, required: boolean): readonly InvalidField[] {
   const [name, phone] = [customer.name.trim(), customer.phone.trim()];
-  if (name === "" && phone === "") return [];
+  if (name === "" && phone === "") return required ? [{ section: "customer", field: "customerName", reason: "customer_incomplete" }] : [];
   if (name === "" || phone === "") return [{ section: "customer", field: name === "" ? "customerName" : "customerPhone", reason: "customer_incomplete" }];
   const parsed = newOrderCustomerSchema.safeParse({ name, phone });
   if (parsed.success) return [];
@@ -322,11 +327,11 @@ export function invalidFields(state: OrderViewState): readonly InvalidField[] {
   const edited = unsavedParts(state);
   const payments = draft.payments.filter((payment) => !isValidAmount(payment.amount))
     .map((payment): InvalidField => ({ section: "payments", field: "amount", id: payment.paymentId, reason: "amount_invalid" }));
-  const customer = locks.customer === null && (base === null || edited.includes("customer")) ? invalidCustomer(draft.customer) : [];
+  const customer = locks.customer === null && (base === null || edited.includes("customer")) ? invalidCustomer(draft.customer, customerRequired(state)) : [];
   const delivery = locks.delivery === null && (base === null || edited.includes("delivery")) ? invalidDelivery(draft.delivery, base) : [];
   const estimated = estimate(state);
-  const uncovered = base === null && draft.deliverImmediately && !(estimated.success && estimated.data.balance.amount === 0);
-  const deliverNow: readonly InvalidField[] = uncovered ? [{ section: "delivery", field: "deliverImmediately", reason: "deliver_needs_payment" }] : [];
+  const unpaid = base === null && draft.deliverImmediately && !(estimated.success && estimated.data.paid.amount > 0);
+  const deliverNow: readonly InvalidField[] = unpaid ? [{ section: "delivery", field: "deliverImmediately", reason: "deliver_needs_payment" }] : [];
   return [...invalidItems(state), ...payments, ...customer, ...delivery, ...deliverNow];
 }
 
@@ -426,7 +431,7 @@ function pin(state: OrderViewState, fresh: LoadedOrder, takeFresh: (part: OrderP
   // A kept delivery draft stops mirroring once the fresh order locks the delivery; a fresh one keeps the box the seller left while the customer draft is kept.
   const delivery = take.has("delivery") ? { ...saved.delivery, sameAsCustomer: take.has("customer") ? saved.delivery.sameAsCustomer : !deliveryLocked(fresh.order) && state.draft.delivery.sameAsCustomer }
     : { ...state.draft.delivery, sameAsCustomer: !deliveryLocked(fresh.order) && state.draft.delivery.sameAsCustomer };
-  return { loaded: fresh, base: {
+  return { ...state, loaded: fresh, base: {
     items: take.has("items") ? freshBase.items : base.items, customer: take.has("customer") ? freshBase.customer : base.customer,
     delivery: take.has("delivery") ? freshBase.delivery : base.delivery },
   draft: { ...state.draft, items: take.has("items") ? saved.items : kept, customer: take.has("customer") ? saved.customer : state.draft.customer,
@@ -445,11 +450,6 @@ export function refreshFromLoader(state: OrderViewState, fresh: LoadedOrder): Or
 export function applySaveResult(state: OrderViewState, result: EditOrderResult): OrderViewState {
   const { applied, ...fresh } = result;
   return pin(state, fresh, (part, edited, sameAsFresh) => applied.includes(part) || !edited || sameAsFresh);
-}
-
-/** After `ITEMS_LOCKED`: the products return to the fresh saved ones; the customer and the delivery keep their edits and their pinned base. */
-export function resetProducts(state: OrderViewState, fresh: LoadedOrder): OrderViewState {
-  return pin(state, fresh, (part, edited) => part === "items" || !edited);
 }
 
 /** **Descartar y recargar**: every part takes the fresh state and revision. */

@@ -215,11 +215,11 @@ describe("CheckoutReviewFields recipient", () => {
 
 describe("CheckoutBuyerDetails", () => {
   const buyer = { name: "Ana Pérez", phone: "+51987654321" };
-  const render = (delivery: Parameters<typeof CheckoutBuyerDetails>[0]["delivery"], shown: Parameters<typeof CheckoutBuyerDetails>[0]["buyer"] = buyer) => {
+  const render = (delivery: Parameters<typeof CheckoutBuyerDetails>[0]["delivery"]) => {
     const container = document.createElement("div");
     const root = createRoot(container);
-    void act(() => root.render(withI18n(<CheckoutBuyerDetails buyer={shown} delivery={delivery} />)));
-    return { card: container.querySelector("section"), lines: [...container.querySelectorAll("section div p")].map(line => line.textContent), unmount: () => root.unmount() };
+    void act(() => root.render(withI18n(<CheckoutBuyerDetails buyer={buyer} delivery={delivery} />)));
+    return { lines: [...container.querySelectorAll("section div p")].map(line => line.textContent), unmount: () => root.unmount() };
   };
 
   test("shows the name and phone on the first line and the delivery mode and address on the second", () => {
@@ -233,21 +233,5 @@ describe("CheckoutBuyerDetails", () => {
     const { lines, unmount } = render(null);
     expect(lines).toEqual(["Ana Pérez · +51987654321"]);
     unmount();
-  });
-
-  test("shows only the delivery in the buyer details when the confirmed buyer was cleared", () => {
-    const store = { method: "store", recipient: { name: "Ana", phone: "+51987654321", identity: { kind: "absent" } },
-      pickupPoint: { name: "Tienda", address: "Av. Lima 123", instructions: null }, settingsVersion: 1 } as never;
-    for (const cleared of [null, { name: null, phone: null }]) {
-      const { lines, card, unmount } = render(store, cleared);
-      expect(card).not.toBeNull();
-      expect(lines).toEqual(["Recojo en tienda · Av. Lima 123"]);
-      unmount();
-    }
-    for (const cleared of [null, { name: null, phone: null }]) {
-      const { card, unmount } = render(null, cleared);
-      expect(card).toBeNull();
-      unmount();
-    }
   });
 });

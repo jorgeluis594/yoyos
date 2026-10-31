@@ -8,7 +8,7 @@ import { orderBuyerText, WhatsAppMark } from "@core/app/components/order-buyer-l
 import { Check, SlidersHorizontal, TriangleAlert } from "lucide-react";
 import { Badge } from "@core/app/components/ui/badge";
 import { listOrderAggregatesSchema, orderListLoaderSchema } from "@shared/contracts/orders";
-import { limaMidnightUtc } from "@shared/orders-date";
+import { limaMidnightUtc, salesTimeZone } from "@shared/orders-date";
 import { privateUserContext } from "@core/app/private-user-context";
 import { orders } from "@core/src/features/orders/composition";
 import { orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
@@ -33,7 +33,6 @@ import { OrderLabelSelectionBar } from "@core/src/features/orders/presentation/o
 import { pageSelectionState, selectionScope, skipReason, summarizeSelection, type SelectedOrder } from "@core/src/features/orders/presentation/order-label-selection";
 import { useOrderLabelSelection } from "@core/src/features/orders/presentation/use-order-label-selection";
 
-const salesTimeZone = "America/Lima";
 type CheckoutLabelled = Readonly<{ status: string; checkoutEnabledAt: string | null; checkoutConfirmedAt: string | null }>;
 /** Every order is enabled now, so «pending» only describes one still open: a completed order is never waiting for its buyer. */
 function checkoutLabel(item: CheckoutLabelled) {

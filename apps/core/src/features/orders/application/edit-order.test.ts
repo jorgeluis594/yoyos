@@ -20,7 +20,7 @@ const home: DeliverySnapshot = { method: "home", recipient: ana, destination: { 
 
 const variantOf = (n: number) => id(n + 100) as VariantId;
 const item = (n: number, name: string, attributes: Record<string, string>, quantity: number, unit: number): OrderItem => ({ id: id(n) as OrderItemId, variantId: variantOf(n),
-  productName: name, variantAttributes: attributes, sku: `SKU-${n}`, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null });
+  productName: name, variantAttributes: attributes, sku: `SKU-${n}`, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null, stockDeductedQuantity: 0 });
 // Order 1042: two «Traje» lines at S/ 89.00 and «Deadpool · M» at S/ 120.00, paid S/ 150.00 with Yape.
 const payment: Payment = { id: id(60) as PaymentId, orderId: id(1) as OrderId, amount: money(150), status: "confirmed", method: "digital_wallet", deductStockIfPartial: false,
   data: { confirmedAt: at, confirmedBy: { kind: "seller", userId: access.userId }, evidence: { kind: "manual" } } };
@@ -45,6 +45,7 @@ function dependencies(stored: Stored, overrides: Partial<EditOrderDependencies> 
   const saveOrderCustomer = vi.fn<EditOrderDependencies["saveOrderCustomer"]>(async () => { writes.push("customer"); return ok(null); });
   const saveDelivery = vi.fn<EditOrderDependencies["saveDelivery"]>(async () => { writes.push("delivery"); return ok(null); });
   const publishStockEvent = vi.fn<EditOrderDependencies["publishStockEvent"]>(async () => ok({ kind: "not_due" }));
+  const publishStockIncreased = vi.fn<EditOrderDependencies["publishStockIncreased"]>(async () => ok(null));
   const findSellableVariants = vi.fn<EditOrderDependencies["findSellableVariants"]>(async () => ok([sellable(3, 89), sellable(4, 89), sellable(5, 120), sellable(9, 50)]));
   const resolveRatedDelivery = vi.fn<EditOrderDependencies["resolveRatedDelivery"]>(async (_selection, _access, _currency, expectedPrice) => {
     const snapshot = parseDeliverySnapshot({ ...home, recordedBy: { kind: "seller", userId: access.userId } });
@@ -52,9 +53,9 @@ function dependencies(stored: Stored, overrides: Partial<EditOrderDependencies> 
     return ok({ delivery: snapshot.data, cost: expectedPrice });
   });
   const deps: EditOrderDependencies = { transaction: async (_companyId, work) => work(), findOrderForUpdate: async () => ok(stored.current),
-    findSellableVariants, resolveRatedDelivery, saveItemChanges, saveOrderCustomer, saveDelivery, publishStockEvent,
+    findSellableVariants, resolveRatedDelivery, saveItemChanges, saveOrderCustomer, saveDelivery, publishStockEvent, publishStockIncreased,
     findVariantStock: async () => ok(new Map([[variantOf(3), 5n], [variantOf(4), 5n], [variantOf(5), 5n]])), newItemId: () => id(900) as OrderItemId, ...overrides };
-  return { deps, writes, saveItemChanges, saveOrderCustomer, saveDelivery, publishStockEvent, findSellableVariants, resolveRatedDelivery };
+  return { deps, writes, saveItemChanges, saveOrderCustomer, saveDelivery, publishStockEvent, publishStockIncreased, findSellableVariants, resolveRatedDelivery };
 }
 const revisionsOf = (stored: OrderAggregate) => orderRevisions(stored);
 const request = (stored: OrderAggregate, parts: Partial<Record<OrderPart, unknown>>): EditOrderInput => {
@@ -108,12 +109,59 @@ test("saves while a payment was voided since the view loaded", async () => {
   expect(await editOrder(input, access, deps)).toMatchObject({ success: true, data: { order: { payments: [], itemsTotal: money(418) } } });
 });
 
-test("answers ITEMS_LOCKED and writes nothing when stock was deducted since the view loaded", async () => {
+test("edits the items of an order whose stock was deducted and publishes the deducted units of the deleted lines", async () => {
   const loaded = order();
-  const input = request(loaded, { items: { lines: deadpoolTwo } });
-  const { deps, writes } = dependencies({ current: order({ stockDeducted: true, stockDeductedAt: at }) });
-  expect(await editOrder(input, access, deps)).toMatchObject({ success: false, error: { code: "ITEMS_LOCKED" } });
+  const input = request(loaded, { items: { lines: lines(line(3, 1), line(4, 1)) } });
+  const stored = order({ stockDeducted: true, stockDeductedAt: at, items: [item(3, "Traje", { Talla: "S" }, 1, 89), item(4, "Traje", { Talla: "M" }, 1, 89), item(5, "Deadpool", { Talla: "M" }, 1, 120)]
+    .map((entry) => ({ ...entry, stockDeductedQuantity: entry.quantity })) as never });
+  const { deps, writes, publishStockEvent } = dependencies({ current: stored });
+  expect(await editOrder(input, access, deps)).toMatchObject({ success: true });
+  expect(writes).toEqual(["items"]);
+  expect(publishStockEvent).toHaveBeenCalledWith(expect.objectContaining({ returns: [{ variantId: variantOf(5), quantity: 1 }] }));
+});
+
+test("answers the pending part of an adjusted order as partial_waiting and serves waiting orders when units went back", async () => {
+  const loaded = order();
+  const input = request(loaded, { items: { lines: lines(line(3, 1), line(4, 1)) } });
+  const stored = order({ stockDeducted: true, stockDeductedAt: at, items: [item(3, "Traje", { Talla: "S" }, 1, 89), item(4, "Traje", { Talla: "M" }, 1, 89), item(5, "Deadpool", { Talla: "M" }, 1, 120)]
+    .map((entry) => ({ ...entry, stockDeductedQuantity: entry.quantity })) as never });
+  const { deps, publishStockEvent, publishStockIncreased } = dependencies({ current: stored });
+  publishStockEvent.mockResolvedValue(ok({ kind: "adjusted", returnedUnits: 1, deductedUnits: 0, pending: [{ variantId: variantOf(4), available: 0 as never }],
+    deductedByVariant: new Map(), returnedVariantIds: [variantOf(5)] }));
+  const result = await editOrder(input, access, deps);
+  expect(result).toMatchObject({ success: true, data: { stockDue: { kind: "partial_waiting", shortItems: [{ variantId: variantOf(4) }] } } });
+  expect(publishStockIncreased).toHaveBeenCalledWith([variantOf(5)]);
+});
+
+test("rolls the edit back when the listener could not settle the stock of a deducted order", async () => {
+  const loaded = order();
+  const input = request(loaded, { items: { lines: lines(line(3, 1), line(4, 1)) } });
+  const { deps, publishStockEvent } = dependencies({ current: order({ stockDeducted: true, stockDeductedAt: at }) });
+  publishStockEvent.mockResolvedValue(ok({ kind: "failed", stage: "deduct_stock", errorCode: "STATEMENT_TIMEOUT" }));
+  expect(await editOrder(input, access, deps)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+});
+
+test("refuses clearing the customer of a buyer-confirmed order and writes nothing", async () => {
+  const confirmed = order({ checkoutEnabledAt: at, checkoutConfirmedAt: at });
+  const { deps, writes, publishStockEvent } = dependencies({ current: confirmed });
+  expect(await editOrder(request(confirmed, { customer: { value: null } }), access, deps)).toMatchObject({ success: false, error: { code: "CUSTOMER_REQUIRED" } });
   expect(writes).toEqual([]);
+  expect(publishStockEvent).not.toHaveBeenCalled();
+});
+
+test("refuses the whole edit when it clears the customer of a buyer-confirmed order, even with other parts", async () => {
+  const confirmed = order({ checkoutEnabledAt: at, checkoutConfirmedAt: at });
+  const { deps, writes } = dependencies({ current: confirmed });
+  expect(await editOrder(request(confirmed, { items: { lines: deadpoolTwo }, customer: { value: null } }), access, deps)).toMatchObject({ success: false, error: { code: "CUSTOMER_REQUIRED" } });
+  expect(writes).toEqual([]);
+});
+
+test("changes the customer of a buyer-confirmed order to another customer", async () => {
+  const confirmed = order({ checkoutEnabledAt: at, checkoutConfirmedAt: at });
+  const { deps, writes } = dependencies({ current: confirmed });
+  expect(await editOrder(request(confirmed, { customer: { value: { name: "Marta", phone: "+51999000111" } } }), access, deps))
+    .toMatchObject({ success: true, data: { applied: ["customer"], order: { buyer: { name: "Marta", phone: "+51999000111" } } } });
+  expect(writes).toEqual(["customer"]);
 });
 
 test("saves only the customer of a shipped order", async () => {

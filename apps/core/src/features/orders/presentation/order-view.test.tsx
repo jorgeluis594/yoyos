@@ -180,7 +180,7 @@ describe("OrderView (new sale)", () => {
 
 const savedExtras = (over: Partial<SavedViewProps> = {}): SavedViewProps => ({
   link: { kind: "ready", url: "https://fantasio.yoyos.lat/checkout/1042" }, receiptUrls: {}, manualPaymentId: "00000000-0000-4000-8000-0000000000f2", voidResult: undefined,
-  actionBusy: false, underHeader: null, fulfillment: <button type="button">Marcar enviado</button>,
+  actionBusy: false, underHeader: null, statusCard: <section aria-label="Estado del pedido"><button type="button">Marcar enviado</button></section>,
   onPrint: vi.fn(), onDiscardChanges: vi.fn(), onReload: vi.fn(), onSaveCustomerOnly: vi.fn(), ...over });
 const mountSaved = (start: OrderViewState = savedState(), over: Partial<OrderViewProps> = {}, extras: Partial<SavedViewProps> = {}) => mount(start, { saved: savedExtras(extras), ...over });
 const typeQuantity = (state: OrderViewState, variantId: string, quantityText: string): OrderViewState =>
@@ -289,6 +289,52 @@ describe("OrderView (saved order)", () => {
     expect(bar().textContent).toMatch(/S\/\s418\.00/);
   });
 
+  describe("Guardar cambios shown once per breakpoint", () => {
+    let notify: (entries: { isIntersecting: boolean }[]) => void = () => {};
+    const viewport = (narrow: boolean) => {
+      vi.stubGlobal("IntersectionObserver", class { constructor(callback: typeof notify) { notify = callback; } observe() {} disconnect() {} });
+      vi.stubGlobal("matchMedia", (query: string) => ({ matches: narrow && query.startsWith("(max-width"), addEventListener() {}, removeEventListener() {} }));
+    };
+    const saveButtons = () => [...container.querySelectorAll("button")].filter((element) => element.textContent === "Guardar cambios");
+
+    test("below 1280 px the header gives it up to the sticky bar once the header leaves the view, and takes it back when it returns", async () => {
+      viewport(true);
+      await mountSaved(edited());
+      expect(saveButtons()).toHaveLength(1);
+      expect(container.querySelector(".fixed")).toBeNull();
+      await act(async () => notify([{ isIntersecting: false }]));
+      expect(saveButtons()).toHaveLength(1);
+      expect(container.querySelector(".fixed")!.contains(saveButtons()[0]!)).toBe(true);
+      await act(async () => notify([{ isIntersecting: true }]));
+      expect(saveButtons()).toHaveLength(1);
+      expect(container.querySelector(".fixed")).toBeNull();
+    });
+
+    test("from 1280 px the header keeps it, whether or not the header is in view", async () => {
+      viewport(false);
+      await mountSaved(edited());
+      await act(async () => notify([{ isIntersecting: false }]));
+      expect(saveButtons().filter((element) => !element.closest(".fixed"))).toHaveLength(1);
+    });
+
+    test("keeps the disabled header button while the sticky bar has no save to offer", async () => {
+      viewport(true);
+      await mountSaved();
+      await act(async () => notify([{ isIntersecting: false }]));
+      expect(saveButtons()).toHaveLength(1);
+      expect(saveButtons()[0]!.disabled).toBe(true);
+    });
+
+    test("does the same for Guardar venta of a new sale", async () => {
+      viewport(true);
+      await mount(withLine(empty()));
+      await act(async () => notify([{ isIntersecting: false }]));
+      const buttons = [...container.querySelectorAll("button")].filter((element) => element.textContent === "Guardar venta");
+      expect(buttons).toHaveLength(1);
+      expect(container.querySelector(".fixed")!.contains(buttons[0]!)).toBe(true);
+    });
+  });
+
   test("lets the sticky bar wrap so Guardar cambios never leaves the screen", async () => {
     let notify: (entries: { isIntersecting: boolean }[]) => void = () => {};
     vi.stubGlobal("IntersectionObserver", class { constructor(callback: typeof notify) { notify = callback; } observe() {} disconnect() {} });
@@ -369,17 +415,6 @@ describe("OrderView (saved order)", () => {
     await mountSaved(savedState({ order: order1042({ status: "cancelled", cancelled: true }) }), { notice: { kind: "locked", code: "ORDER_CANCELLED" } });
     expect(document.body.textContent).toContain("El pedido está cancelado; no se guardaron los cambios.");
     expect(button("Guardar solo el cliente")).toBeUndefined();
-  });
-
-  test("says other edits stay after the stock was deducted, or that there are none", async () => {
-    const deducted = savedState({ order: order1042({ stockDeducted: true }), lineCatalog: null });
-    const withName = { ...deducted, draft: { ...deducted.draft, customer: { name: "Ana", phone: "+51977909427" } } };
-    await mountSaved(withName, { notice: { kind: "itemsLocked" } });
-    expect(document.body.textContent).toContain("El stock se descontó mientras editabas: los productos ya no se pueden cambiar. Tus cambios de cliente y entrega siguen aquí.");
-    act(() => root!.unmount());
-    await mountSaved(deducted, { notice: { kind: "itemsLocked" } });
-    expect(document.body.textContent).toContain("El stock se descontó mientras editabas: los productos ya no se pueden cambiar. No hay otros cambios que guardar.");
-    expect(document.body.textContent).toContain("El stock de este pedido ya se descontó");
   });
 
   test("announces the result of a save politely and moves focus to the heading", async () => {

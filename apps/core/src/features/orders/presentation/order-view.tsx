@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useTranslation } from "react-i18next";
 import { ChevronRight } from "lucide-react";
@@ -22,7 +22,7 @@ import type { PaymentFormat } from "@core/src/features/orders/presentation/payme
 import { useCatalogSearch } from "@core/src/features/orders/presentation/use-catalog-search";
 import type { LeaveGuard } from "@core/src/features/orders/presentation/use-unsaved-changes-guard";
 import {
-  clearCustomer, estimate, invalidFields, isEmptyDraft, screenLocks, setCustomer, unsavedParts,
+  clearCustomer, customerRequired, estimate, invalidFields, isEmptyDraft, screenLocks, setCustomer, unsavedParts,
   type DeliveryDraft, type InvalidField, type OrderViewState,
 } from "@core/src/features/orders/presentation/order-view-state";
 
@@ -35,9 +35,7 @@ export type ViewNotice =
   /** A part changed elsewhere while the seller edited: the edits stay until **Recargar pedido**. */
   | Readonly<{ kind: "conflict" }>
   /** The order shipped, was delivered or was cancelled meanwhile; the text follows the order the view shows. */
-  | Readonly<{ kind: "locked"; code: "DELIVERY_LOCKED" | "ORDER_CANCELLED" }>
-  /** The stock was deducted meanwhile: the products went back to the saved ones. */
-  | Readonly<{ kind: "itemsLocked" }>;
+  | Readonly<{ kind: "locked"; code: "DELIVERY_LOCKED" | "ORDER_CANCELLED" }>;
 
 export type OrderViewLinks = Readonly<{ sales: string; deliverySettings: string; createProduct: string }>;
 
@@ -51,8 +49,8 @@ export type SavedViewProps = Readonly<{
   actionBusy: boolean;
   /** Under the header: the stock notice, **Cancelar pedido** and its messages. */
   underHeader: ReactNode;
-  /** **Marcar enviado** and **Marcar entregado**, at the top of «Entrega». */
-  fulfillment: ReactNode;
+  /** The «Estado del pedido» card, at the top of the right column. */
+  statusCard: ReactNode;
   onPrint: () => void;
   /** **Descartar cambios**, once confirmed: the route returns every part to its pinned saved state. */
   onDiscardChanges: () => void;
@@ -130,6 +128,16 @@ function useHeaderOutOfView() {
   return [ref, outOfView] as const;
 }
 
+/** Tailwind `xl` is 80rem: below it the sticky bar replaces the header actions. The server and the hydration pass render the wide layout. */
+const narrowLayout = "(max-width: 79.99rem)";
+function useNarrowLayout(): boolean {
+  return useSyncExternalStore(
+    (change) => { if (typeof matchMedia !== "function") return () => {}; const media = matchMedia(narrowLayout); media.addEventListener("change", change); return () => media.removeEventListener("change", change); },
+    () => typeof matchMedia === "function" && matchMedia(narrowLayout).matches,
+    () => false,
+  );
+}
+
 const isTypingTarget = (target: EventTarget | null) =>
   target instanceof Element && target.closest("input, textarea, select, [contenteditable=''], [contenteditable='true'], [role='combobox'], [role='textbox']") !== null;
 
@@ -156,6 +164,7 @@ export function OrderView(props: OrderViewProps) {
   const [reloading, setReloading] = useState(false);
   const search = useCatalogSearch({ catalogEpoch: props.catalogEpoch });
   const [headerRef, headerOutOfView] = useHeaderOutOfView();
+  const narrow = useNarrowLayout();
   const noticeRef = useRef<HTMLDivElement>(null);
   const firstMarkTarget = useRef<string | null>(null);
   const { draft } = state;
@@ -184,7 +193,7 @@ export function OrderView(props: OrderViewProps) {
   }, [attempts]);
   // A refusal that names an element (an unavailable line, the delivery rate) or an alert takes focus when it appears.
   useEffect(() => {
-    if (notice === null || !["alert", "conflict", "locked", "itemsLocked"].includes(notice.kind)) return;
+    if (notice === null || !["alert", "conflict", "locked"].includes(notice.kind)) return;
     if (notice.kind === "alert" && notice.focus && focusTarget(notice.focus)) return;
     noticeRef.current?.focus();
   }, [notice]);
@@ -203,13 +212,16 @@ export function OrderView(props: OrderViewProps) {
   const discardConfirm = saved ? "orderView.discard.leaveConfirm" : "orderView.discard.saleConfirm";
   const stickyLabel = inDoubt ? "orderView.status.stickyVerifying" : notice?.kind === "success" ? "orderView.status.stickySaved" : saved && unsaved && !order?.cancelled ? "orderView.status.stickyUnsaved" : "orderView.products.total";
   const confirmDiscard = () => { setDiscarding(false); if (saved) saved.onDiscardChanges(); else props.onDiscard?.(); };
+  // Below `xl`, the sticky bar already offers the save once the header has left the view: the header does not repeat it.
+  const stickySaves = saved ? unsaved && !order?.cancelled : hasProducts;
+  const headerSave = !(narrow && headerOutOfView && stickySaves);
   const stickyActions = saved ? unsaved && !order?.cancelled && <>
     <Button type="button" variant="outline" disabled={busy} onClick={() => setDiscarding(true)}>{t("orderView.header.discardChanges")}</Button>
     <Button type="button" disabled={!canSave} onClick={props.onSave}>{saveLabel}</Button></>
     : hasProducts && <Button type="button" disabled={!canSave} onClick={props.onSave}>{saveLabel}</Button>;
 
   return <section className={cn("flex flex-col gap-6 pb-24 xl:pb-0", touchTargets)} aria-labelledby="order-view-title">
-    {saved && order ? <SavedHeader order={order} salesHref={links.sales} format={format} headerRef={headerRef} unsaved={unsaved} busy={busy} saving={saving}
+    {saved && order ? <SavedHeader order={order} salesHref={links.sales} format={format} headerRef={headerRef} unsaved={unsaved} busy={busy} saving={saving} showSave={headerSave}
       onPrint={saved.onPrint} onDiscard={() => setDiscarding(true)} onSave={props.onSave} />
       : <div ref={headerRef} className="flex flex-col gap-3">
         <nav aria-label={t("orderView.header.breadcrumb")}>
@@ -228,7 +240,7 @@ export function OrderView(props: OrderViewProps) {
           <PageHeader.Actions>
             <Button asChild variant="ghost" className="text-muted-foreground"><Link to={links.sales}>{t("orderView.header.viewSales")}</Link></Button>
             <Button type="button" variant="outline" disabled={empty || busy} onClick={() => setDiscarding(true)}>{t("orderView.header.discard")}</Button>
-            <Button type="button" disabled={!canSave} aria-busy={saving || undefined} onClick={props.onSave}>{saveLabel}</Button>
+            {headerSave && <Button type="button" disabled={!canSave} aria-busy={saving || undefined} onClick={props.onSave}>{saveLabel}</Button>}
           </PageHeader.Actions>
         </PageHeader>
       </div>}
@@ -241,8 +253,8 @@ export function OrderView(props: OrderViewProps) {
       </div>}
       {notice?.kind === "alert" && <Alert ref={noticeRef} variant="destructive" tabIndex={-1} className="outline-none">
         <AlertDescription>{notice.text}{notice.link && <> <Link to={notice.link.to} className="font-medium underline underline-offset-4">{notice.link.label}</Link></>}</AlertDescription></Alert>}
-      {saved && order && notice && !(order.cancelled && notice.kind === "success") && (notice.kind === "success" || notice.kind === "conflict" || notice.kind === "locked" || notice.kind === "itemsLocked")
-        && <SavedNotices notice={notice} order={order} hasCustomerEdit={edits.includes("customer")} hasOtherEdit={unsaved} alertRef={noticeRef}
+      {saved && order && notice && !(order.cancelled && notice.kind === "success") && (notice.kind === "success" || notice.kind === "conflict" || notice.kind === "locked")
+        && <SavedNotices notice={notice} order={order} hasCustomerEdit={edits.includes("customer")} alertRef={noticeRef}
           onReload={() => setReloading(true)} onSaveCustomerOnly={saved.onSaveCustomerOnly} />}
       {marks.length > 0 && <Alert variant="destructive"><AlertDescription>
         {firstTarget
@@ -265,14 +277,15 @@ export function OrderView(props: OrderViewProps) {
               estimate={paymentTotals} newPaymentId={props.newPaymentId} invalidPaymentIds={marksOf("payments").flatMap((mark) => mark.id ? [mark.id] : [])}
               hasProducts={hasProducts} busy={busy} format={format} />}
         </div>
-        <OrderCustomerCard customer={draft.customer} source={order?.source ?? "manual"} locked={screenLocks(state).customer !== null} marks={marksOf("customer")}
+        <OrderCustomerCard customer={draft.customer} source={order?.source ?? "manual"} locked={screenLocks(state).customer !== null} required={customerRequired(state)} marks={marksOf("customer")}
           onChange={(customer) => change(setCustomer(state, customer))} onRemove={() => change(clearCustomer(state))} />
       </div>
       <div className="flex min-w-0 flex-col gap-6 max-xl:contents">
+        {saved?.statusCard && <div className="min-w-0 max-xl:-order-1">{saved.statusCard}</div>}
         {saved && order ? <OrderLinkCard state={orderLinkState(order)} link={saved.link} /> : <OrderLinkCard pendingSave state={null} link={{ kind: "unavailable" }} />}
         <div className="min-w-0 max-xl:order-5">
           <OrderDeliveryCard state={state} settings={settings} invalid={deliveryMarks} settingsHref={links.deliverySettings} onChange={setDelivery}
-            onDeliverImmediatelyChange={(deliverImmediately) => change({ ...state, draft: { ...draft, deliverImmediately } })} fulfillment={saved?.fulfillment} />
+            onDeliverImmediatelyChange={(deliverImmediately) => change({ ...state, draft: { ...draft, deliverImmediately } })} />
         </div>
       </div>
     </div>
