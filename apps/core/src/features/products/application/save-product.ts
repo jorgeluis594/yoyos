@@ -4,6 +4,8 @@ import { isEmptyChange, planProductSave, type ProductStructureChange, type SaveR
 import { parseProductPhotos, samePhotos } from "@core/src/features/products/domain/photos";
 import type { ProductBusinessError, ValidationError, ValidationIssue } from "@core/src/features/products/domain/errors";
 import type { ImageId, Product, ProductId, ProductPhotos, VariantId } from "@core/src/features/products/domain/product";
+import { isOffered } from "@core/src/features/products/domain/product-visibility";
+import type { Currency } from "@shared/money";
 import type { Detail, DetailError } from "@core/src/features/products/application/get";
 import type { ProductAccess, ProductReadError } from "@core/src/features/products/application/repository";
 import type { ImageLookupError } from "@core/src/shared/images/application/images";
@@ -17,7 +19,8 @@ export type SaveProductError = Extract<ProductBusinessError, { code: "VALIDATION
 /** What the composition logs after the commit or on a rejection. Never names, SKUs or prices. */
 export type SaveObserver = Readonly<{
   saved?: (summary: Readonly<{ productId: ProductId; structureVersion: number; optionCount: number; variantCount: number; createdVariants: number; updatedVariants: number;
-    deletedVariants: number; rekeyedVariants: number; removedValues: number; photoCount: number; photosChanged: boolean }>) => void;
+    deletedVariants: number; rekeyedVariants: number; removedValues: number; photoCount: number; photosChanged: boolean;
+    hiddenChanged: boolean; hidden: boolean; hidLastOffered: boolean }>) => void;
   rejected?: (summary: Readonly<{ productId: ProductId; error: SaveProductError }>) => void;
 }>;
 export type SaveProductDependencies = Readonly<{
@@ -31,6 +34,8 @@ export type SaveProductDependencies = Readonly<{
   findForeignOptionIds: (ids: readonly string[]) => Promise<Result<ReadonlySet<string>, ProductReadError>>;
   /** The ids that exist for the company (RLS). */
   findImages: (ids: readonly ImageId[]) => Promise<Result<ReadonlySet<ImageId>, ImageLookupError>>;
+  /** Whether another product of the company (RLS) is offered in this currency: active, not hidden, with an active variant. */
+  hasOtherOfferedProduct: (productId: ProductId, currency: Currency) => Promise<Result<boolean, ProductReadError>>;
   /** Bulk writes in the fixed order of the design; translates constraint violations into typed errors. */
   applyStructureChange: (change: ProductStructureChange) => Promise<Result<null, SaveProductError>>;
   /** The editing read, inside the same transaction. */
@@ -80,7 +85,9 @@ async function foreignIds(current: Product, input: SaveProductInput, deps: SaveP
   ]));
 }
 
-type Saved = Readonly<{ detail: Detail; addedPhotos: boolean }>;
+/** The saved product and whether this save hid the company's last offered product of its currency. */
+export type SavedProduct = Readonly<{ detail: Detail; hidLastOffered: boolean }>;
+type Saved = SavedProduct & Readonly<{ addedPhotos: boolean }>;
 
 /** Ids the product does not already have must exist for the company; the ones it has are guaranteed by the foreign key. */
 async function missingPhotos(current: Product, photos: ProductPhotos, deps: SaveProductDependencies): Promise<Result<readonly ValidationIssue[], ImageLookupError>> {
@@ -118,6 +125,13 @@ async function saveInTransaction(input: SaveProductInput, deps: SaveProductDepen
     const applied = await deps.applyStructureChange(change);
     if (!applied.success) return applied;
   }
+  // Only a save that hides a product that was offered can withdraw the last one; any other save asks nothing.
+  let hidLastOffered = false;
+  if (change.product.hidden === true && isOffered(current)) {
+    const other = await deps.hasOtherOfferedProduct(input.productId, current.currency);
+    if (!other.success) return other;
+    hidLastOffered = !other.data;
+  }
   const detail = await deps.reload(input.productId);
   if (!detail.success) return detail;
   if (!detail.data) return err({ code: "PRODUCT_NOT_FOUND", message: "Product does not exist" });
@@ -128,12 +142,13 @@ async function saveInTransaction(input: SaveProductInput, deps: SaveProductDepen
     createdVariants: change.insertVariants.length, updatedVariants: change.variantFieldChanges.length, deletedVariants: change.deleteVariantIds.length,
     rekeyedVariants: change.rekeyVariants.length, removedValues: change.deleteValueIds.length,
     photoCount: (change.photos ?? current.photoIds).length, photosChanged: change.photos !== undefined,
+    hiddenChanged: change.product.hidden !== undefined, hidden: change.product.hidden ?? current.hidden, hidLastOffered,
   });
   const stored = new Set<ImageId>(current.photoIds);
-  return ok({ detail: detail.data, addedPhotos: change.photos?.some((id) => !stored.has(id)) ?? false });
+  return ok({ detail: detail.data, hidLastOffered, addedPhotos: change.photos?.some((id) => !stored.has(id)) ?? false });
 }
 
-export async function saveProduct(input: SaveProductInput, access: ProductAccess, deps: SaveProductDependencies): Promise<Result<Detail, SaveProductError>> {
+export async function saveProduct(input: SaveProductInput, access: ProductAccess, deps: SaveProductDependencies): Promise<Result<SavedProduct, SaveProductError>> {
   const saved = await deps.transaction(access.companyId, () => saveInTransaction(input, deps));
   if (!saved.success) {
     deps.observe?.rejected?.({ productId: input.productId, error: saved.error });
@@ -141,5 +156,5 @@ export async function saveProduct(input: SaveProductInput, access: ProductAccess
   }
   // Removing photos publishes nothing: searches join the current photos only.
   if (saved.data.addedPhotos) await deps.publishProductPhotosAdded(input.productId);
-  return ok(saved.data.detail);
+  return ok({ detail: saved.data.detail, hidLastOffered: saved.data.hidLastOffered });
 }

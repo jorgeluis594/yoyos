@@ -76,7 +76,7 @@ test("an explicit variant prints saved data and copies while saving the draft do
   const request = jest.fn(async (_path: string, init?: RequestInit) => {
     if (init?.method === "PUT") savedName = JSON.parse(init.body as string).name;
     return ok({ product: {
-      id: productId, name: savedName, description: null, photos: [], currency: "PEN", qrCode: "00000000-0000-4000-8000-000000000006",
+      id: productId, name: savedName, description: null, hidden: false, photos: [], currency: "PEN", qrCode: "00000000-0000-4000-8000-000000000006",
       createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", structureVersion: 1,
       options: [{ id: colorId, name: "Color", values: [{ id: redId, name: "Rojo" }, { id: blueId, name: "Azul" }] }],
       variants: [

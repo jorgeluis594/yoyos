@@ -19,7 +19,7 @@ import type { ListImageDependencies, ListImageFailure } from "@core/src/features
 import { z } from "zod";
 import { identifyProductsInImage, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
 import type { ImageBytes, MatchConfidence, VariantQrCode } from "@core/src/features/products/domain/image-identification";
-import { findSellableVariantsByQrCodes } from "@core/src/features/products/infrastructure/order-stock";
+import { findOfferedVariants, findSellableVariantsByQrCodes } from "@core/src/features/products/infrastructure/order-stock";
 import { findNearestProductImages, hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
 import { readQrCodes } from "@core/src/shared/images/infrastructure/qr-code-reader";
 import { brightenDimPhoto } from "@core/src/features/products/infrastructure/product-matching/dim-photo";
@@ -210,6 +210,8 @@ export const products = {
   /** The products whose name matches the most words of a message; a timeout returns no ids with `timedOut`. */
   findMessageCandidates: (text: string) => findMessageCandidates(text, { searchByCoverage: (words) => searchProductsByCoverage(words, messageCandidateLimits) }),
   catalogSearchReadiness: () => catalogSearchReadiness(readinessDependencies),
+  /** Active variants of offered products (active and not hidden) with their stock: the buyer's cart and **Continuar**. */
+  findOfferedVariants,
   listForCatalog: (criteria: Parameters<typeof listCatalogProducts>[0]) =>
     listCatalogProducts(criteria, { repository: catalogProductRepository, images: listImages }),
   findVariantPhotos: (variantIds: readonly VariantId[]) => findVariantPhotos(variantIds, { findVariantImages, images: listImages }),

@@ -24,7 +24,7 @@ const threeColors = (): ProductDetailResponse["product"] => {
     variants: [negro, azul, rojo].map((value, index) => ({ ...base.variants[0], id: id(80 + index), qrCode: id(90 + index), combination: [{ optionId: color, valueId: value }] })) };
 };
 const product = (blocked: boolean): ProductDetailResponse["product"] => ({
-  id: id(50), name: "Polo", description: null, photos: [], currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
+  id: id(50), name: "Polo", description: null, hidden: false, photos: [], currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
   options: [{ id: color, name: "Color", values: [{ id: negro, name: "Negro" }, { id: azul, name: "Azul" }] }],
   variants: [negro, azul].map((value, index) => ({
     id: id(60 + index), combination: [{ optionId: color, valueId: value }], sku: null, salePrice: money(10), purchasePrice: null, qrCode: id(70 + index), status: "active",

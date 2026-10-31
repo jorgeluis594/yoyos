@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, expect, test } from "vitest";
-import { createProductRequestSchema, productApiErrorSchema, productDetailResponseSchema, productListResponseSchema, productIssueReasonSchema } from "@shared/contracts/products";
+import { createProductRequestSchema, productApiErrorSchema, productDetailResponseSchema, productListResponseSchema, productIssueReasonSchema, saveProductResponseSchema } from "@shared/contracts/products";
 import { combinationLabel } from "@shared/product-variants";
 import { app } from "@core/src/app";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -57,7 +57,7 @@ const options = () => [
   { id: randomUUID(), name: "Talla", values: ["S", "M", "L"].map((name) => ({ id: randomUUID(), name })) },
   { id: randomUUID(), name: "Color", values: ["Negro", "Azul"].map((name) => ({ id: randomUUID(), name })) },
 ];
-const request = (overrides: Record<string, unknown> = {}) => ({ id: randomUUID(), name: "Polo básico", description: null, photoIds: [], currency: "PEN", options: [],
+const request = (overrides: Record<string, unknown> = {}) => ({ id: randomUUID(), name: "Polo básico", description: null, photoIds: [], hidden: false, currency: "PEN", options: [],
   variants: [{ values: [], sku: null, salePrice: 25, purchasePrice: null, initialStock: 3 }], ...overrides });
 const variantsOf = (opts: ReturnType<typeof options>, pairs: readonly (readonly [number, number])[]) => pairs.map(([size, color]) => ({
   values: [opts[0].values[size].id, opts[1].values[color].id], sku: null, salePrice: 25, purchasePrice: null, initialStock: 2 }));
@@ -414,4 +414,88 @@ test("PUT on a product of another company answers 404", async () => {
   expect(productApiErrorSchema.parse(await response.json()).code).toBe("PRODUCT_NOT_FOUND");
   expect((await detail(other.cookie, other.seeded.productId)).product.name).toBe("Polo");
   expect((await put(mine.cookie, randomUUID(), form)).status).toBe(404);
+});
+
+async function publishCatalog(companyId: string, published: boolean) {
+  await withTenantIsolation(companyId, async () => { await prisma.company.update({ where: { id: companyId }, data: { catalogSubdomain: `t0-${randomUUID().slice(0, 8)}`, catalogPublished: published } }); });
+}
+const hide = (cookie: string, read: Detail, hidden?: boolean) => put(cookie, read.product.id, { ...formOf(read), ...(hidden === undefined ? {} : { hidden }) });
+
+test("creating a hidden product stores it hidden", async () => {
+  const { cookie } = await seller();
+  const body = request({ hidden: true });
+  expect((await call("/api/products", cookie, body)).status).toBe(201);
+  expect((await detail(cookie, body.id)).product).toMatchObject({ hidden: true, structureVersion: 1 });
+  expect((await call("/api/products", cookie, { ...request(), hidden: undefined })).status).toBe(400);
+});
+
+test("saving with hidden true hides the product and returns it hidden", async () => {
+  const { cookie, seeded } = await poloWithOrder();
+  const before = await detail(cookie, seeded.productId);
+  expect(before.product.hidden).toBe(false);
+  const response = await hide(cookie, before, true);
+  expect(response.status).toBe(200);
+  const saved = saveProductResponseSchema.parse(await response.json());
+  expect(saved.product.hidden).toBe(true);
+  expect(saved.product.structureVersion).toBe(before.product.structureVersion);
+  expect((await detail(cookie, seeded.productId)).product.hidden).toBe(true);
+});
+
+test("saving without hidden keeps the stored visibility", async () => {
+  const { cookie, seeded } = await poloWithOrder();
+  const form = formOf(await detail(cookie, seeded.productId));
+  expect((await put(cookie, seeded.productId, { ...form, hidden: true })).status).toBe(200);
+  const typo = await put(cookie, seeded.productId, { ...form, description: "Con corrección" });
+  expect(typo.status).toBe(200);
+  expect(saveProductResponseSchema.parse(await typo.json()).product).toMatchObject({ hidden: true, description: "Con corrección" });
+  expect((await put(cookie, seeded.productId, { ...form, description: "Con corrección", hidden: false })).status).toBe(200);
+  expect((await detail(cookie, seeded.productId)).product.hidden).toBe(false);
+});
+
+test("hiding the last offered product of a published catalog returns catalogEmptied true", async () => {
+  const { cookie, companyId, seeded } = await poloWithOrder();
+  await publishCatalog(companyId, true);
+  const other = await withTenantIsolation(companyId, () => seedProduct({ name: "Casaca jean", hidden: true }));
+  const response = await hide(cookie, await detail(cookie, seeded.productId), true);
+  expect(saveProductResponseSchema.parse(await response.json()).catalogEmptied).toBe(true);
+  // Showing the other one and hiding Polo again leaves another offered product, so there is nothing to announce.
+  expect((await hide(cookie, await detail(cookie, seeded.productId), false)).status).toBe(200);
+  expect((await hide(cookie, await detail(cookie, other.productId), false)).status).toBe(200);
+  const second = await hide(cookie, await detail(cookie, seeded.productId), true);
+  expect(saveProductResponseSchema.parse(await second.json()).catalogEmptied).toBe(false);
+});
+
+test("hiding the last offered product of an unpublished catalog returns catalogEmptied false", async () => {
+  const { cookie, companyId, seeded } = await poloWithOrder();
+  await publishCatalog(companyId, false);
+  const response = await hide(cookie, await detail(cookie, seeded.productId), true);
+  expect(saveProductResponseSchema.parse(await response.json())).toMatchObject({ catalogEmptied: false, product: { hidden: true } });
+});
+
+test("hiding a product without active variants or saving an already hidden one returns catalogEmptied false", async () => {
+  const { cookie, companyId } = await seller();
+  await publishCatalog(companyId, true);
+  const inactive = await withTenantIsolation(companyId, () => seedProduct({ name: "Sin variantes", variants: [{ attributes: { Talla: "S" }, status: "inactive" }, { attributes: { Talla: "M" }, status: "inactive" }] }));
+  const sold = await withTenantIsolation(companyId, () => seedProduct({ name: "Casaca jean" }));
+  const first = await hide(cookie, await detail(cookie, inactive.productId), true);
+  expect(saveProductResponseSchema.parse(await first.json()).catalogEmptied).toBe(false);
+  expect((await hide(cookie, await detail(cookie, sold.productId), true)).status).toBe(200);
+  const again = await hide(cookie, await detail(cookie, sold.productId), true);
+  expect(saveProductResponseSchema.parse(await again.json()).catalogEmptied).toBe(false);
+});
+
+test("product list returns hidden for each product", async () => {
+  const { cookie, companyId } = await seller();
+  await withTenantIsolation(companyId, async () => { await seedProduct({ name: "A visible" }); await seedProduct({ name: "B oculto", hidden: true }); });
+  const list = productListResponseSchema.parse(await (await call("/api/products?sort=name", cookie)).json());
+  expect(list.items.map((item) => [item.name, item.hidden])).toEqual([["A visible", false], ["B oculto", true]]);
+});
+
+test("another company cannot read or change a product's visibility", async () => {
+  const mine = await seller();
+  const other = await poloWithOrder();
+  const form = formOf(await detail(other.cookie, other.seeded.productId));
+  expect((await put(mine.cookie, other.seeded.productId, { ...form, hidden: true })).status).toBe(404);
+  expect((await call(`/api/products/${other.seeded.productId}`, mine.cookie)).status).toBe(404);
+  expect((await detail(other.cookie, other.seeded.productId)).product.hidden).toBe(false);
 });

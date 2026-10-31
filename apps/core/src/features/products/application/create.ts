@@ -17,6 +17,8 @@ export type CreateInput = Readonly<{
   description?: string | null;
   /** Ordered, position 0 is the primary; omitted = no photos (the HTTP contract requires the list). */
   photoIds?: readonly ImageId[];
+  /** The seller hides the product from buyers; omitted = visible (the HTTP contract requires it). */
+  hidden?: boolean;
   currency: Currency;
   options: readonly RawOption[];
   variants: readonly [CreateVariantInput, ...CreateVariantInput[]];
@@ -26,7 +28,7 @@ export type CreateError = Extract<ProductBusinessError, { code: "VALIDATION_ERRO
   | ImageLookupError;
 /** What the composition logs after the commit or on a rejection. Never names, SKUs or prices. */
 export type CreateObserver = Readonly<{
-  created?: (summary: Readonly<{ productId: ProductId; optionCount: number; variantCount: number; photoCount: number }>) => void;
+  created?: (summary: Readonly<{ productId: ProductId; optionCount: number; variantCount: number; photoCount: number; hidden: boolean }>) => void;
   rejected?: (summary: Readonly<{ productId: ProductId; error: CreateError }>) => void;
 }>;
 export type CreateDependencies = Readonly<{
@@ -126,10 +128,10 @@ async function createInTransaction(input: CreateInput, deps: CreateDependencies)
     ...(value.description === undefined ? {} : { description: value.description }),
     photoIds: photos.data.photos,
     currency: value.currency, qrCode: deps.newId(), status: "active",
-    createdAt: new Date(now), updatedAt: new Date(now), structureVersion: 1, options: value.options, variants,
+    hidden: input.hidden ?? false, createdAt: new Date(now), updatedAt: new Date(now), structureVersion: 1, options: value.options, variants,
   };
   const inserted = await deps.insertProduct(product);
-  if (inserted.success) deps.observe?.created?.({ productId: id, optionCount: product.options.length, variantCount: variants.length, photoCount: product.photoIds.length });
+  if (inserted.success) deps.observe?.created?.({ productId: id, optionCount: product.options.length, variantCount: variants.length, photoCount: product.photoIds.length, hidden: product.hidden });
   return inserted;
 }
 

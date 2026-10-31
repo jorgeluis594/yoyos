@@ -36,7 +36,7 @@ export function parseRequestJson<S extends z.ZodType>(schema: S, text: string, m
 export function toCreateInput(request: CreateProductRequest): CreateInput {
   const [first, ...rest] = request.variants;
   return {
-    id: request.id as ProductId, name: request.name, description: request.description, photoIds: request.photoIds as ImageId[],
+    id: request.id as ProductId, name: request.name, description: request.description, photoIds: request.photoIds as ImageId[], hidden: request.hidden,
     currency: request.currency, options: request.options, variants: [first, ...rest],
   };
 }
@@ -45,6 +45,7 @@ export function toSaveInput(productId: ProductId, request: SaveProductRequest): 
   return {
     productId, structureVersion: request.structureVersion, name: request.name, description: request.description,
     ...request.photoIds === undefined ? {} : { photoIds: request.photoIds as ImageId[] },
+    ...request.hidden === undefined ? {} : { hidden: request.hidden },
     options: request.options,
     variants: request.variants.map((variant) => ({ ...variant, id: variant.id as VariantId })),
     newVariants: request.newVariants,

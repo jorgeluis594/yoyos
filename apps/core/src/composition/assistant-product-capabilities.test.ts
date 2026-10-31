@@ -26,7 +26,7 @@ const variant = (id: string, quantity: number, status: "active" | "inactive", sk
   id: id as VariantId, productId, combination: {}, ...sku ? { sku } : {}, salePrice: { amount: 39.9, currency: "PEN" as const }, qrCode: "q", status, stock: { variantId: id as VariantId, quantity },
 });
 const product = (overrides: Partial<Product> = {}): Product => ({
-  id: productId, name: "Polo básico", photoIds: [] as never, currency: "PEN", qrCode: "q", status: "active", createdAt: new Date(), updatedAt: new Date(), structureVersion: 1,
+  id: productId, name: "Polo básico", photoIds: [] as never, currency: "PEN", qrCode: "q", status: "active", hidden: false, createdAt: new Date(), updatedAt: new Date(), structureVersion: 1,
   options: [], variants: [variant("v1", 2, "active", "POL-M")], ...overrides,
 });
 
