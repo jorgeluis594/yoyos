@@ -291,7 +291,7 @@ describe("appendItems", () => {
     expect(result).toMatchObject({ success: true, data: { itemsTotal: money(17), total: money(17) } });
     if (!result.success) return;
     expect(result.data.items).toEqual([{ ...order().items[0], mentionedPrice: null }, { id: id(90), variantId: id(5), productName: "Variant 5", variantAttributes: { Size: "M" },
-      sku: null, quantity: 1, unitPrice: money(7), subtotal: money(7), mentionedPrice: null }]);
+      sku: null, quantity: 1, unitPrice: money(7), subtotal: money(7), mentionedPrice: null, stockDeductedQuantity: 0 }]);
   });
 
   test("appendItems increments the quantity of a variant already in the order", () => {
