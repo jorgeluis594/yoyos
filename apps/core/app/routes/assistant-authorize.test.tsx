@@ -21,7 +21,7 @@ const AssistantAuthorize = authorizeModule.default;
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const i18n = createInstance();
-await i18n.use(initReactI18next).init({ lng: "es", resources });
+await i18n.use(initReactI18next).init({ lng: "es", resources, interpolation: { escapeValue: false } });
 let root: Root | undefined;
 let container: HTMLDivElement;
 beforeEach(() => { for (const mock of [redirectBrowser, resolveCurrentAccess, getSession, signOut, authorization.read, authorization.allow, authorization.deny]) mock.mockReset(); });
