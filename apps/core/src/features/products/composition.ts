@@ -38,6 +38,12 @@ import { findMessageCandidates } from "@core/src/features/products/application/f
 import { readProductRowsForReading } from "@core/src/features/products/infrastructure/reading-products";
 import { searchProductsByCoverage } from "@core/src/features/products/infrastructure/text-candidates";
 import { defaultTextMatchLimits } from "@core/src/features/products/domain/message-words";
+import type { AppError, Result } from "@shared/result";
+import { searchForAssistant, type AssistantProductSearch } from "@core/src/features/products/application/search-for-assistant";
+import { findForAssistant, type AssistantProductReference } from "@core/src/features/products/application/find-for-assistant";
+import { assistantSnapshot, type AssistantReadError, type AssistantReadOperation } from "@core/src/features/products/infrastructure/assistant-read";
+import { findSkuOwner, readVocabulary, searchPage } from "@core/src/features/products/infrastructure/product-search-repository";
+import { readProductInSnapshot } from "@core/src/features/products/infrastructure/repository";
 
 const imageStorage = createR2ImageStorage({
   endpoint: process.env.R2_ENDPOINT ?? "", bucket: process.env.R2_BUCKET ?? "",
@@ -187,6 +193,15 @@ function logPhotoFailure(failure: PhotoIndexFailure, base: Readonly<{ companyId:
 }
 
 export const products = {
+  /** Runs `work` in one budgeted read snapshot that the assistant reads below join; `operation` names it in `product_search_failed`. */
+  readForAssistant: <T, E extends AppError>(work: () => Promise<Result<T, E>>, operation: AssistantReadOperation): Promise<Result<T, E | AssistantReadError>> =>
+    assistantSnapshot(operation)(work),
+  /** Products by text, variant values, price, stock and catalog membership, 20 per page; joins the open snapshot or opens its own. */
+  searchForAssistant: (input: AssistantProductSearch) =>
+    searchForAssistant(input, { snapshot: assistantSnapshot("search"), readVocabulary, searchPage }),
+  /** One product by identifier or SKU with its variants in saved order; `null` when it does not exist. */
+  findForAssistant: (reference: AssistantProductReference) =>
+    findForAssistant(reference, { snapshot: assistantSnapshot("detail"), findSkuOwner, readProduct: readProductInSnapshot }),
   identifyProductsInImage: (image: ImageBytes, signal?: AbortSignal) => identifyProductsInImage(image, identificationDependencies, signal),
   /** Active variants and attribute values of these products, for the chat reader. Absent products are deleted ones. */
   findProductsForReading: (productIds: readonly ProductId[]) => findProductsForReading(productIds, { readRows: readProductRowsForReading }),

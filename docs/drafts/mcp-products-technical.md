@@ -338,6 +338,10 @@ It is implemented in `features/products/infrastructure/assistant-read.ts`:
 - `isStatementTimeout` moves from `text-candidates.ts` to `features/products/infrastructure/statement-timeout.ts`, and `text-candidates.ts` imports it.
 - When `readForAssistant` already runs, the use cases' `snapshot` joins it. Called alone, the use cases open the same budgeted snapshot.
 
+**Implementation notes (T3).**
+- `readForAssistant(work, operation)` takes a required second argument, `"search"` or `"detail"`, because it fills the `operation` field of `product_search_failed` (section 13). The signature of the composition in this section and in section 9 should read `readForAssistant(work, operation)` (the diagram and tables of sections 2, 5.4 and 9 still show `readForAssistant(work)`); T5 passes `"search"` for `buscar_productos` and `"detail"` for `ver_producto`.
+- The statement count of 11 excludes `BEGIN`, `SET TRANSACTION ISOLATION LEVEL` and `COMMIT`: they run before `statement_timeout` is set and do no work. Counting them gives 12 for the detail. The budget inequality stays meaningful, and their round trips fall inside the 1,150 ms margin (see 7.1 and 11).
+
 ## 6. Domain and typing
 
 ### 6.1 Stock levels (`features/products/domain/stock-level.ts`)
@@ -577,6 +581,12 @@ Statements per call, including `set_config` of the snapshot:
 
 The count is constant in the number of products and variants: no N+1.
 
+**Implementation notes (T3).**
+- The vocabulary SQL implemented in `vocabularySql` tests `EXISTS` of an active variant per option value instead of joining every variant link. It returns the same rows: the distinct (option, value) spellings held by at least one active variant, `productRank` of the newest product that holds the value, and `position` of the value in that product. It uses `ProductVariantOptionValue_companyId_optionId_valueId_idx` and replaces the join above; it took a 2,000-product store from 177 ms to 67 ms.
+- The SKU lookup is **not** served by `ProductVariant_companyId_sku_normalized_key` when it runs as `core_app` under RLS. `lower()` and `btrim()` are not leakproof, so PostgreSQL does not use the condition as an index condition ahead of the RLS policy. The plan is a Bitmap Heap Scan on `ProductVariant_companyId_id_key` filtering the variants of the store (store A, 5.1 ms), or a Parallel Seq Scan on store B (21 ms). The cost grows linearly with the variants of the store and is still small: the extrapolated limit of this statement is about 327,000 products. No migration or index was added. A constant-time lookup needs another approach (for example a leakproof comparison on a stored normalized column), to be decided by the design, not by T3.
+- Every variant has a `ProductStock` row, created with the variant, so all statements join it with an inner join. A page product whose variants lack one reads as `INVALID_STORED_DATA`.
+- `parseSearchCriteria` also refuses a `page` that is not a safe integer from 1 (`INVALID_PAGE`) and a `sort` other than `recent` or `name` (`INVALID_SORT`); T5's schema can still reject them earlier.
+
 ### 7.2 Rows read
 
 Every raw row is parsed with a Zod schema in `infrastructure/product-search-repository.ts`: `vocabularyRowSchema`, `pageRowSchema`, `summaryRowSchema`, `matchingVariantRowSchema`, `skuOwnerRowSchema`. Decimals arrive as strings and are converted with `Prisma.Decimal`. `bigint` stock must be within the safe integer range, and the currency goes through `isCurrency`. A row that fails is `INVALID_STORED_DATA` with `invalid_stored_product_data` logged, never an empty result. Inside the snapshot, the adapters rethrow transaction failures, as `readProducts(ids, true)` does.
@@ -607,6 +617,13 @@ Every raw row is parsed with a Zod schema in `infrastructure/product-search-repo
 - The statement counts of the worst-case search (all filters, `valores` sent) and of the detail by SKU of the 100-variant product are measured through Prisma `query` events and must be at most `assistantReadBudget.maxStatements`. If the measured count differs from section 7.1, the implementer corrects `maxStatements` and lowers `statementTimeoutMs` until `maxStatements × statementTimeoutMs + maxWait ≤ timeout` holds again.
 
 If store A fails, the implementer stops and escalates with the plans. No index is added without review.
+
+**Implementation notes (T3).** Measured with `PRODUCT_SEARCH_PERFORMANCE=1` (`product-search-performance.integration.test.ts`), as `core_app` under RLS, inside a RepeatableRead transaction with `jit` off.
+- **Store A** (2,000 products): vocabulary 62 ms, every other statement 0.8–29 ms, no sequential scan, no JIT. All under 150 ms.
+- **Store B** (20,000 products): vocabulary 338 ms, page with all filters 478 ms (556 ms in the implementer's run), every other statement ≤ 110 ms. Store B owns almost every row of the test table, so the planner correctly chooses sequential scans on `ProductVariant` and `ProductVariantOptionValue` there. The "no sequential scan" criterion is therefore asserted on store A only, and B's plans and timings are an upper bound from a table dominated by a single tenant, not a prediction for a 20,000-product store inside a multi-tenant table. They are recorded, not asserted.
+- **Extrapolated limit:** the minimum is the page with all filters, about 12,600 products in the implementer's run and 14,653 in the reviewer's. The vocabulary alone would reach 350 ms at about 18,800–20,700 products. Above roughly 12,600 products an all-filters search answers the reading-failure text; the founder should know it. The per-statement sizes go in the pull request.
+- **Statement counts** are measured by spying on `pg.Client.prototype.query` instead of Prisma `query` events (the spy sees the statements Prisma sends through its driver adapter) and are asserted exactly: 7 for the worst-case search and 11 for the detail by SKU of the 100-variant product, with the storefront read of the composition included. The count test uses the budgeted snapshot with a generous statement limit, so machine load cannot make it time out.
+- The statement timeout tests do not lock any table: a read sleeps past the limit inside the real snapshot, tagged with a unique comment, and `pg_stat_activity` is queried for that tag only, so suites running in parallel are not blocked or counted.
 
 ## 8. Contracts between applications
 
