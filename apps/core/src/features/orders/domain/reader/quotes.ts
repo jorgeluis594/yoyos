@@ -1,0 +1,47 @@
+import type { ContextMessageRef, ExtractedRequest, ExtractedValue, Quote, ReadingInput, TargetReference } from "@core/src/features/orders/domain/reader/readings";
+
+/** A request after its quotes were checked: `complete` is false when some datum of it was dropped, which is certainty signal 1. */
+export type VerifiedRequest = Readonly<{ request: ExtractedRequest; complete: boolean }>;
+
+/** Case and whitespace are ignored; nothing else is normalized. */
+const squash = (text: string): string => text.toLowerCase().replace(/\s+/g, "");
+
+function isFound(quote: Quote, input: ReadingInput, allowContext: boolean): boolean {
+  const wanted = squash(quote.text);
+  if (wanted === "") return false;
+  if (quote.source === "current") return squash(input.current.text).includes(wanted);
+  if (!allowContext) return false;
+  const message = input.context.find((candidate) => candidate.ref === (quote.ref satisfies ContextMessageRef));
+  return message?.text != null && squash(message.text).includes(wanted);
+}
+
+/**
+ * Drops every datum whose justifying words are not a substring of the current message (a target may also be justified by a context message).
+ * A dropped target quote leaves the target without the buyer's naming; a request keeps going without the data it lost.
+ */
+export function verifyQuotes(requests: readonly ExtractedRequest[], input: ReadingInput): readonly VerifiedRequest[] {
+  return requests.map((request) => {
+    let complete = true;
+    const keep = (quote: Quote | null, allowContext = false): boolean => {
+      if (quote === null) return true;
+      if (isFound(quote, input, allowContext)) return true;
+      complete = false;
+      return false;
+    };
+    const target = verifiedTarget(request.target, keep);
+    const values: readonly ExtractedValue[] = request.values.filter((value) => keep(value.valueWords) && (value.attributeWords === null || keep(value.attributeWords)));
+    const quantity = request.quantity && keep(request.quantity.quote) ? request.quantity : null;
+    const price = request.price && keep(request.price.quote) ? request.price : null;
+    const changeVerb = request.changeVerb && keep(request.changeVerb) ? request.changeVerb : null;
+    return { request: { ...request, target, values, quantity, price, changeVerb }, complete };
+  });
+}
+
+function verifiedTarget(target: TargetReference, keep: (quote: Quote | null, allowContext?: boolean) => boolean): TargetReference {
+  switch (target.kind) {
+    case "named": return keep(target.words, true) ? target : { kind: "none" };
+    case "item": return { ...target, named: keep(target.named, true) ? target.named : null };
+    case "pending": return { ...target, named: keep(target.named, true) ? target.named : null };
+    default: return target;
+  }
+}

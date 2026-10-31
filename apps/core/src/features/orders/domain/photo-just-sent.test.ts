@@ -25,7 +25,8 @@ const orderWith = (amount: number) => {
 };
 const openWith = (amount: number): ChatOrderTarget => ({ kind: "open", order: orderWith(amount), productIds: new Map([[capVariant, productCap]]) });
 const pending = (n: number, productId = productPolo): ChatPending => ({ id: id(n) as ChatPendingId, subject: { kind: "variant", productId }, known: {}, quantity: quantity(1), price: null, order: null,
-  lastChangedAt: new Date("2026-10-22T11:00:00Z"), sourceMessageId: id(900) as ChatMessageId, requestId: id(n) as ChatPendingId });
+  lastChangedAt: new Date("2026-10-22T11:00:00Z"), sourceMessageId: id(900) as ChatMessageId, requestId: id(n) as ChatPendingId,
+  doubt: null, pointSince: new Date("2026-10-22T11:00:00Z"), acknowledgedAt: null });
 const applied = (outcomes: ChatMessageOutcome[], over: Partial<AppliedChatActions> = {}): AppliedChatActions => ({ target: { kind: "none" }, createdOrder: null,
   changes: { added: [], updated: [], removedItemIds: [] }, pendings: { pendings: [], readyRemembered: false }, outcomes: outcomes as unknown as AppliedChatActions["outcomes"], ...over });
 const withPendings = (...list: ChatPending[]): ChatPendings => ({ pendings: list, readyRemembered: false });
