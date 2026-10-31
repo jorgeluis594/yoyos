@@ -186,7 +186,7 @@ test("lists the product's example queue in order with the expected reasons", asy
     await seed({ number: 1050, total: 80, date: "2026-10-30", delivery: home, payments: paid });
     await seed({ number: 1051, total: 80, date: "2026-10-30", delivery: home });
     await seed({ number: 1052, total: 880, quantity: 11, date: "2026-10-30", delivery: home, payments: [{ amount: 880 }] });
-    await seed({ number: 1053, total: 80, date: "2026-10-30", delivery: storePickup, payments: [{ amount: 40 }] });
+    await seed({ number: 1053, total: 80, date: "2026-10-30", delivery: storePickup });
     await seed({ number: 1054, total: 80, date: "2026-10-30", delivery: home, payments: [{ amount: 0, status: "reported" }] });
     const queue = await orders.listDispatchQueue({ today: "2026-10-30" as DispatchDate, page: 1 }, access);
     if (!queue.success) throw new Error(queue.error.message);
