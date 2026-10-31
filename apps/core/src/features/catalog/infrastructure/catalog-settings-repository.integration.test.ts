@@ -1,9 +1,21 @@
 import { randomUUID } from "node:crypto";
+import pg from "pg";
 import { afterAll, expect, test } from "vitest";
 import type { CatalogSubdomain } from "@shared/catalog-subdomain";
-import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { prisma, withTenantIsolation, withinTransaction, inActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import type { CompanyId } from "@core/src/features/catalog/application/catalog-settings";
-import { readCatalogSettings, resolveSubdomain, saveSubdomain, savePublication } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
+import { readCatalogSettings, readStorefrontState, resolveSubdomain, saveSubdomain, savePublication } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
+
+/** Every statement the pg driver sends, whichever pool client carries it; transaction control included. */
+const sent: string[] = [];
+let counting = false;
+const originalQuery = pg.Client.prototype.query;
+(pg.Client.prototype as unknown as { query: (...args: unknown[]) => unknown }).query = function (this: unknown, ...args: unknown[]) {
+  const first = args[0];
+  const text = typeof first === "string" ? first : (first as { text?: string } | undefined)?.text;
+  if (counting && text) sent.push(text);
+  return (originalQuery as unknown as (...rest: unknown[]) => unknown).apply(this, args);
+};
 
 const companies: string[] = [];
 const unique = () => `s${randomUUID().replaceAll("-", "").slice(0, 20)}` as CatalogSubdomain;
@@ -92,4 +104,41 @@ test("reads null for a company that is not visible", async () => {
   const hidden = await company();
   const caller = await company();
   expect(await withTenantIsolation(caller, () => readCatalogSettings(hidden))).toEqual({ success: true, data: null });
+});
+
+test("describes a published, a hidden and a never-linked catalog with the store currency", async () => {
+  const [published, hidden] = [unique(), unique()];
+  const peru = await company({ catalogSubdomain: published, catalogPublished: true });
+  const brazil = await company({ country: "BR", catalogSubdomain: hidden });
+  const unlinked = await company();
+  expect(await withTenantIsolation(peru, () => readStorefrontState(peru))).toEqual({ success: true, data: { currency: "PEN", catalog: { kind: "published", subdomain: published } } });
+  expect(await withTenantIsolation(brazil, () => readStorefrontState(brazil))).toEqual({ success: true, data: { currency: "BRL", catalog: { kind: "hidden", subdomain: hidden } } });
+  expect(await withTenantIsolation(unlinked, () => readStorefrontState(unlinked))).toEqual({ success: true, data: { currency: "PEN", catalog: { kind: "hidden_without_link" } } });
+});
+
+test("reports an absent company, and another company's row, as unavailable", async () => {
+  const absent = randomUUID() as CompanyId;
+  expect(await withTenantIsolation(absent, () => readStorefrontState(absent))).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+  const other = await company({ catalogSubdomain: unique(), catalogPublished: true });
+  const caller = await company();
+  expect(await withTenantIsolation(caller, () => readStorefrontState(other))).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+});
+
+test("reads the storefront inside the caller's snapshot with one statement and no transaction of its own", async () => {
+  const subdomain = unique();
+  const id = await company({ catalogSubdomain: subdomain, catalogPublished: true });
+  const observed = await withTenantIsolation(id, () => withinTransaction(async () => {
+    await prisma.company.update({ where: { id }, data: { catalogPublished: false } });
+    sent.length = 0;
+    counting = true;
+    try {
+      const state = await readStorefrontState(id);
+      return { success: true as const, data: { active: inActiveTransaction(), state, statements: [...sent] } };
+    } finally { counting = false; }
+  }));
+  if (!observed.success) throw new Error("transaction failed");
+  expect(observed.data.active).toBe(true);
+  expect(observed.data.statements).toHaveLength(1);
+  expect(observed.data.statements[0]).toMatch(/^\s*SELECT\b/i);
+  expect(observed.data.state).toEqual({ success: true, data: { currency: "PEN", catalog: { kind: "hidden", subdomain } } });
 });

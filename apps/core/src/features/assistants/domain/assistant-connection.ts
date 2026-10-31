@@ -43,13 +43,24 @@ export function parseAgentName(raw: string | null | undefined): AgentName | null
   return agentNameLengthIsValid(name) ? (name as AgentName) : null;
 }
 
-// Active while it was used (or authorized, if never used) within the inactivity window and
-// authorized after the authorizing account's last password change.
-export function isConnectionActive(connection: ConnectionWithPasswordChange, now: Date, inactivityDays: number): boolean {
-  const lastActivity = connection.lastUsedAt ?? connection.authorizedAt;
-  const recentlyUsed = lastActivity.getTime() > now.getTime() - inactivityDays * day;
+export type ConnectionEndReason = "inactive" | "password_reset" | "consent_outdated";
+
+// Null while the connection is active. A password change comes first, then a missing required scope (a category added after the
+// owner authorized), then the inactivity window (used, or authorized if never used, within `inactivityDays`).
+export function connectionEndReason(
+  connection: ConnectionWithPasswordChange, now: Date, inactivityDays: number, requiredScopes: readonly AssistantScope[],
+): ConnectionEndReason | null {
   const afterPasswordChange = connection.passwordChangedAt === null || connection.authorizedAt.getTime() > connection.passwordChangedAt.getTime();
-  return recentlyUsed && afterPasswordChange;
+  if (!afterPasswordChange) return "password_reset";
+  if (requiredScopes.some((scope) => !connection.scopes.includes(scope))) return "consent_outdated";
+  const lastActivity = connection.lastUsedAt ?? connection.authorizedAt;
+  return lastActivity.getTime() > now.getTime() - inactivityDays * day ? null : "inactive";
+}
+
+export function isConnectionActive(
+  connection: ConnectionWithPasswordChange, now: Date, inactivityDays: number, requiredScopes: readonly AssistantScope[],
+): boolean {
+  return connectionEndReason(connection, now, inactivityDays, requiredScopes) === null;
 }
 
 // The URL parser already normalizes numeric hosts: 127.1 becomes 127.0.0.1 and ::ffff:127.0.0.1 becomes [::ffff:7f00:1].

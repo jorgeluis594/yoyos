@@ -3,6 +3,7 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { getCompanyId, prisma, withinTransaction } from "@core/src/shared/infrastructure/persistance";
+import { isStatementTimeout } from "@core/src/features/products/infrastructure/statement-timeout";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import { searchedWordCap, type TextMatchLimits } from "@core/src/features/products/domain/message-words";
 import type { MessageCandidates } from "@core/src/features/products/application/find-message-candidates";
@@ -11,17 +12,6 @@ const unavailable = (cause: unknown) => {
   log.error({ event: "unable_to_find_message_candidates", companyId: getCompanyId(), errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_find_message_candidates");
   return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read catalog" });
 };
-
-const statementTimeoutCode = "57014";
-
-/** The statement timeout of PostgreSQL, whichever layer of the driver reports it. */
-function isStatementTimeout(cause: unknown): boolean {
-  if (!cause || typeof cause !== "object") return false;
-  const { code, message, meta, cause: inner } = cause as { code?: unknown; message?: unknown; meta?: unknown; cause?: unknown };
-  const metaText = meta === undefined ? "" : JSON.stringify(meta);
-  return code === statementTimeoutCode || metaText.includes(statementTimeoutCode)
-    || (typeof message === "string" && message.includes("statement timeout")) || metaText.includes("statement timeout") || isStatementTimeout(inner);
-}
 
 const coverageRowSchema = z.object({ id: z.uuid(), matches: z.coerce.number().int().min(1) });
 

@@ -150,7 +150,7 @@ export default function AssistantAuthorize() {
     {screen.agentName && <p className="text-base">{t("assistants.declaredName")}</p>}
     <p className="text-base">{returnLine}</p>
     <section className="flex flex-col gap-2" aria-labelledby="can-see"><h2 id="can-see" className="text-base font-semibold">{t("assistants.canSeeTitle")}</h2>
-      <ul className="list-disc pl-5 text-base"><li>{t("assistants.canSee1")}</li><li>{t("assistants.canSee2")}</li><li>{t("assistants.canSee3")}</li></ul></section>
+      <ul className="list-disc pl-5 text-base"><li>{t("assistants.canSee1")}</li><li>{t("assistants.canSee2")}</li><li>{t("assistants.canSee3")}</li><li>{t("assistants.canSee4")}</li><li>{t("assistants.canSee5")}</li></ul></section>
     <section className="flex flex-col gap-2" aria-labelledby="never"><h2 id="never" className="text-base font-semibold">{t("assistants.neverTitle")}</h2>
       <ul className="list-disc pl-5 text-base"><li>{t("assistants.never1")}</li><li>{t("assistants.never2")}</li></ul></section>
     <p className="text-base">{t("assistants.footer")}</p>

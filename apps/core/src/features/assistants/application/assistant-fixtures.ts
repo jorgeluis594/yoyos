@@ -14,7 +14,7 @@ export function storedConnection(overrides: Partial<ConnectionWithPasswordChange
     oauthClientId: clientId,
     agentName: null,
     returnTarget: { kind: "web", domain: "claude.ai" },
-    scopes: ["orders:read"],
+    scopes: ["orders:read", "products:read"],
     authorizedAt: new Date("2026-10-01T10:00:00.000Z"),
     lastUsedAt: null,
     passwordChangedAt: null,

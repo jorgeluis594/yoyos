@@ -5,6 +5,7 @@ import {
   parseAgentName, returnTargetOf,
   type AssistantConnectionId, type NewAssistantConnection, type OAuthClientId,
 } from "@core/src/features/assistants/domain/assistant-connection";
+import { assistantScopes } from "@core/src/features/assistants/domain/scopes";
 
 /** The raw signed query string the OAuth plugin passed to the authorization screen; only `readRequest` parses it. */
 export type SignedAuthorizationRequest = string & { readonly __brand: "SignedAuthorizationRequest" };
@@ -50,7 +51,7 @@ export async function authorizeAssistant(input: AuthorizeAssistantInput, access:
     oauthClientId: read.data.oauthClientId,
     agentName: parseAgentName(read.data.clientName),
     returnTarget,
-    scopes: ["orders:read"],
+    scopes: [...assistantScopes],
     authorizedAt: now,
   });
   return saved.success ? ok(accepted.data) : saved;

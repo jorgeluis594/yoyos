@@ -25,7 +25,7 @@ function fixtureTool(overrides: Partial<RegisteredTool<Input, Output>> = {}): Re
 }
 
 function fixtureModule(tools: readonly RegisteredTool<Input, Output>[] = [fixtureTool()], overrides: Partial<ToolModule> = {}): ToolModule {
-  return { scope: "orders:read", access: "read", instructions: "Las herramientas de prueba solo leen.", tools, ...overrides };
+  return { scope: "orders:read", access: "read", instructions: "Las herramientas de prueba solo leen.", readFailureMessage: "No pudimos leer los datos de prueba.", tools, ...overrides };
 }
 
 const access: AssistantAccess = {
@@ -57,8 +57,22 @@ describe("the registered tool modules", () => {
     const { client, close } = await connect(toolModules);
     const { tools } = await client.listTools();
     expect(tools.map((tool) => tool.name)).toEqual(["buscar_pedidos", "ver_pedido", "pedidos_por_cobrar", "pedidos_por_despachar_hoy"]);
-    for (const tool of tools) expect(tool.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
     expect(client.getInstructions()).toContain("solo lee");
+    await close();
+  });
+
+  test("lists the six tools, all read only, for a connection with both scopes", async () => {
+    const { client, close } = await connect(toolModules, { ...access, scopes: ["orders:read", "products:read"] });
+    const { tools } = await client.listTools();
+    expect(tools.map((tool) => tool.name)).toEqual(["buscar_pedidos", "ver_pedido", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "buscar_productos", "ver_producto"]);
+    for (const tool of tools) expect(tool.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+    expect(client.getInstructions()).toContain("productos");
+    await close();
+  });
+
+  test("a connection with only the products scope lists the two product tools", async () => {
+    const { client, close } = await connect(toolModules, { ...access, scopes: ["products:read"] });
+    expect((await client.listTools()).tools.map((tool) => tool.name)).toEqual(["buscar_productos", "ver_producto"]);
     await close();
   });
 
@@ -82,6 +96,45 @@ describe("the registered tool modules", () => {
     expect(sample.productos).toHaveLength(60);
     expect(sample.pagos).toHaveLength(10);
     expect(Buffer.byteLength(JSON.stringify(sample))).toBeLessThan(maxToolOutputBytes);
+  });
+});
+
+describe("the product tools' response budget", () => {
+  const sampleOf = (name: string, index: number) => toolModules.flatMap((module) => module.tools).find((candidate) => candidate.name === name)!.sampleOutputs[index];
+
+  test("keeps a search page of 20 products at maximum ASCII lengths within 24 KB", () => {
+    const sample = sampleOf("buscar_productos", 0);
+    expect(sample.productos).toHaveLength(20);
+    expect(Buffer.byteLength(JSON.stringify(sample))).toBeLessThan(maxToolOutputBytes);
+  });
+
+  test("keeps a search page of 20 products with 3 matching variants each at maximum ASCII lengths within 24 KB", () => {
+    const sample = sampleOf("buscar_productos", 1);
+    expect(sample.productos).toHaveLength(20);
+    expect(sample.productos.every((product: { variantes_coincidentes?: unknown[] }) => product.variantes_coincidentes?.length === 3)).toBe(true);
+    expect(Buffer.byteLength(JSON.stringify(sample))).toBeLessThan(maxToolOutputBytes);
+  });
+
+  test("keeps a product of 60 variants with a 1,000-character description at maximum ASCII lengths within 24 KB", () => {
+    const sample = sampleOf("ver_producto", 0);
+    expect(sample.variantes).toHaveLength(60);
+    expect(sample.descripcion.length).toBeGreaterThan(1000);
+    expect(Buffer.byteLength(JSON.stringify(sample))).toBeLessThan(maxToolOutputBytes);
+  });
+
+  test("answers a product of 100 variants at maximum lengths complete", async () => {
+    const full = sampleOf("ver_producto", 0);
+    const huge = { ...full, variantes: Array.from({ length: 100 }, (_, index) => ({ ...full.variantes[0], sku: `${index}`.padEnd(100, "S") })) };
+    expect(Buffer.byteLength(JSON.stringify(huge))).toBeGreaterThan(maxToolOutputBytes);
+    const module = fixtureModule([fixtureTool({
+      name: "ver_producto_de_prueba", title: "Ver producto de prueba", outputSchema: z.looseObject({ variantes: z.array(z.unknown()) }) as never,
+      sampleOutputs: [{ variantes: [] } as never], run: async () => ok({ output: huge as never, empty: false }),
+    })]);
+    const { client, close } = await connect([module]);
+    const result = await client.callTool({ name: "ver_producto_de_prueba", arguments: {} });
+    expect(result.isError).toBeFalsy();
+    expect((result.structuredContent as { variantes: unknown[] }).variantes).toHaveLength(100);
+    await close();
   });
 });
 
