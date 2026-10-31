@@ -422,7 +422,10 @@ async function applyConversation(steps: readonly ConversationStepInput[], wiring
     for (const step of steps) {
       if (!("event" in step) || step.event !== "deactivate_product") continue;
       const catalogProduct = catalogOf(company.scope).products.find(({ key }) => key === step.product);
-      for (const variant of catalogProduct?.active ? catalogProduct.variants.filter(({ active }) => active) : []) await setProductStatus(step.product, variant.attributes, "active", company);
+      for (const variant of catalogProduct?.active ? catalogProduct.variants.filter(({ active }) => active) : []) {
+        // A failure here must not replace the recorded results: it is only logged and the remaining variants are still reactivated.
+        try { await setProductStatus(step.product, variant.attributes, "active", company); } catch (cause) { console.error(`Could not reactivate ${step.product}`, cause); }
+      }
     }
   }
 }
