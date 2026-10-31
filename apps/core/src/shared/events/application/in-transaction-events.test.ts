@@ -11,7 +11,7 @@ const event = { companyId: company, orderId: "00000000-0000-4000-8000-0000000000
 const deducted: DeductionOutcome = { kind: "deducted", stock: new Map(), deductedAt: new Date("2026-09-30T12:00:00Z") };
 const failed: DeductionOutcome = { kind: "failed", stage: "lock_stock", errorCode: "STATEMENT_TIMEOUT" };
 const registryOf = (handler: () => Promise<ReturnType<typeof ok<DeductionOutcome>> | ReturnType<typeof err<Ending>>>): InTransactionRegistry<Ending> => ({
-  payment_confirmed: handler, order_delivery_changed: handler, order_stock_deduction_overdue: handler,
+  payment_confirmed: handler, order_delivery_changed: handler, order_edited: handler, order_stock_deduction_overdue: handler,
   product_stock_increased: async () => ok({ candidates: 0, deducted: 0, skippedLocked: 0, skippedInvalid: 0, budgetExhausted: false, failed: null }),
 }) as InTransactionRegistry<Ending>;
 const passThrough = async (work: () => Promise<unknown>) => work();

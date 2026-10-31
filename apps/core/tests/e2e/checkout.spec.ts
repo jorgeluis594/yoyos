@@ -13,6 +13,7 @@ import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infr
 import type { CompanyId, ContactId, OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { chooseDistrict, chooseDistrictInProvince, expectDistrict } from "@core/tests/e2e/district-combobox";
+import { orderTotal } from "@core/tests/e2e/order-view-helpers";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 
 function requestLogs(requestId: string) {
@@ -256,8 +257,9 @@ test("seller copies a stable link and sees buyer confirmation separately from pa
     expect(await mobileApi.listAggregates({ page: 1, customer: "all" })).toMatchObject({ data: { total: 2, items: expect.arrayContaining([expect.objectContaining({ number: 10000, checkoutConfirmedAt: expect.any(String) })]) } });
     await page.reload();
     await browserExpect(page.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
-    await browserExpect(page.getByText("Ana", { exact: true })).toBeVisible();
-    await browserExpect(page.getByRole("region", { name: "Pagos" }).getByText("Pendiente", { exact: true }).locator("..").getByText("S/ 10.00", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("region", { name: "Cliente" }).getByLabel("Nombre", { exact: true })).toHaveValue("Ana");
+    await browserExpect(page.getByText("Sin pagos · necesario para despachar")).toBeVisible();
+    await browserExpect(orderTotal(page)).toHaveText("S/ 10.00");
     await page.goto("/es-PE/orders");
     const table = page.getByRole("table", { name: "Órdenes" });
     await browserExpect(table.getByRole("link", { name: "Pedido #10000" })).toBeVisible();

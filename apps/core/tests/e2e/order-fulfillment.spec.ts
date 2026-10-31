@@ -55,8 +55,8 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       const stockBefore = await withTenantIsolation(tenantId, async () => await prisma.productStock.findUniqueOrThrow({ where: { variantId } }));
       if (mode === "shipment") {
         await page.getByRole("button", { name: "Marcar enviado", exact: true }).click();
-        await browserExpect(page.getByRole("status")).toHaveText("Pedido marcado como enviado.");
-        await browserExpect(page.getByText("Entrega: Despachada", { exact: true })).toBeVisible();
+        await browserExpect(page.getByRole("status").filter({ hasText: "Pedido marcado como enviado." })).toBeVisible();
+        await browserExpect(page.getByRole("group", { name: "Estado de la entrega: Enviada" })).toBeVisible();
         await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
         expect((await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).payments).toEqual(before.payments);
         for (const operation of ["ship", "cancel"] as const) {
@@ -66,7 +66,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
         }
         await page.getByRole("link", { name: "Ver ventas", exact: true }).click();
         const shippedRow = page.getByRole("row").filter({ has: page.getByRole("link", { name: `Pedido #${before.number}`, exact: true }) });
-        await browserExpect(shippedRow.locator("summary").last()).toHaveAttribute("aria-label", /Entrega: Despachada/);
+        await browserExpect(shippedRow.locator("summary").last()).toHaveAttribute("aria-label", /Estado de la entrega: Enviada/);
         await page.getByRole("link", { name: `Pedido #${before.number}`, exact: true }).click();
         await page.setViewportSize({ width: 1280, height: 900 });
         await page.screenshot({ path: "/tmp/order-fulfillment-desktop.png", fullPage: true });
@@ -75,7 +75,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
         await page.screenshot({ path: "/tmp/order-fulfillment-mobile.png", fullPage: true });
       }
       await page.getByRole("button", { name: "Marcar entregado", exact: true }).click();
-      await browserExpect(page.getByRole("status")).toHaveText("Pedido marcado como entregado.");
+      await browserExpect(page.getByRole("status").filter({ hasText: "Pedido marcado como entregado." })).toBeVisible();
       await browserExpect(page.getByText("Venta completada", { exact: true })).toBeVisible();
       await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
       const after = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
@@ -91,7 +91,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       expect(stockAfter.quantity).toBe(stockBefore.quantity);
       await page.setViewportSize({ width: 1280, height: 900 });
       await page.getByRole("link", { name: "Ver ventas", exact: true }).click();
-      await browserExpect(page.getByRole("row").filter({ has: page.getByRole("link", { name: `Pedido #${after.number}`, exact: true }) }).locator("summary")).toHaveAttribute("aria-label", "Completado");
+      await browserExpect(page.getByRole("row").filter({ has: page.getByRole("link", { name: `Pedido #${after.number}`, exact: true }) }).locator("summary")).toHaveAttribute("aria-label", "Estado de la venta: Venta completada");
     }
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {
