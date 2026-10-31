@@ -479,7 +479,6 @@ Events follow [Logging](../logging.md). Never logged: tool inputs and outputs, d
 
 `assistant-tools.test.ts` (static validator)
 - `test("lists the six existing tools plus the tools of the sales module for a connection with both scopes")` (T0; T3 pins the nine names and `test("lists exactly the nine tools, all read only, for a connection with both scopes")`)
-
 - `test("the sales instructions paragraph stays within 700 characters and the orders paragraph no longer says there are no totals")`
 
 ### Integration (core, real PostgreSQL)
