@@ -86,13 +86,12 @@ function isApplied(order: OrderAggregate, input: OrderEditParts, part: OrderPart
   return input.delivery !== undefined && isDeliveryApplied(order, input.delivery.change);
 }
 
-/** A cancelled order refuses every edit, a delivery that left pending refuses items and delivery, and deducted stock refuses items. */
+/** A cancelled order refuses every edit and a delivery that left pending refuses items and delivery. Deducted stock does not lock items: the stock listener settles the difference. */
 function checkLocks(order: OrderAggregate, parts: ReadonlySet<OrderPart>): Result<null, OrderDomainError | ItemsLocked> {
   if (parts.size === 0) return ok(null);
   if (order.cancelled) return failure("ORDER_CANCELLED", "Order is cancelled");
   const touchesFulfillment = parts.has("items") || parts.has("delivery");
   if (touchesFulfillment && order.deliveryStatus !== "pending") return failure("DELIVERY_LOCKED", "Delivery has progressed");
-  if (parts.has("items") && order.stockDeducted) return err({ code: "ITEMS_LOCKED", message: "Stock was already deducted for the items" });
   return ok(null);
 }
 

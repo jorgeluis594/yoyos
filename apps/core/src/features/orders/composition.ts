@@ -14,7 +14,7 @@ import { recoverDueStockDeductions, STOCK_DEDUCTION_FAILURE_QUARANTINE_MINUTES, 
 import { containedDeductionOutcome, containedServeOutcome, deductDueOrderStock, serveWaitingOrders, type DeductDueStockDependencies, type DeductionOutcome, type ServeOutcome, type StockEvent } from "@core/src/features/orders/application/deduct-due-stock";
 import { describeOrderStockDue } from "@core/src/features/orders/application/describe-order-stock-due";
 import type { StockDue } from "@core/src/features/orders/domain/stock-deduction";
-import { listCompaniesWithOverdueStockDeductions, listOverdueOrderIds, listWaitingOrderIds, loadStockOrders, lockOrdersSkipLocked, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
+import { listCompaniesWithOverdueStockDeductions, listOverdueOrderIds, listWaitingOrderIds, loadStockOrders, lockOrdersSkipLocked, saveLineDeductions, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
 import { err, map, ok } from "@shared/functional";
 import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, requireActiveTransaction, requireNoActiveTransaction, setLocalTimeouts, withinReadSnapshot, withinSavepoint, withinTransaction, withTenantIsolation, type TransactionOptions } from "@core/src/shared/infrastructure/persistance";
@@ -46,7 +46,7 @@ import { listOrderAggregates } from "@core/src/features/orders/application/list-
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
 import { allocateOrderNumber, findOrderNumbers, findChatOrderTargetForUpdate, findChatOrderTarget, findChatOrdersOpenedSince, saveItemChanges as saveOrderItemChanges, saveOrderCustomer, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariants, findSellableVariantStock, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
+import { findSellableVariants, findSellableVariantStock, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, restoreStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
@@ -110,12 +110,14 @@ function emitStockEvent(event: StockEvent) {
       itemCount: event.itemCount, durationMs: event.durationMs }, "order_stock_deducted"));
     case "waiting": return afterTransactionCommit(() => log.info({ event: "order_stock_waiting", companyId: event.companyId, orderId: event.orderId, trigger: event.trigger,
       shortItemCount: event.shortItemCount }, "order_stock_waiting"));
+    case "adjusted": return afterTransactionCommit(() => log.info({ event: "order_stock_adjusted", companyId: event.companyId, orderId: event.orderId, trigger: event.trigger,
+      returnedUnits: event.returnedUnits, deductedUnits: event.deductedUnits, pendingLines: event.pendingLines, durationMs: event.durationMs }, "order_stock_adjusted"));
     case "skipped_invalid": return log.error({ event: "stock_deduction_failed", companyId: event.companyId, orderId: event.orderId, trigger: "product_stock_increased",
       stage: "load_order", errorCode: "INVALID_STORED_DATA" }, "stock_deduction_failed");
   }
 }
 
-export const deductDueStockDependencies: DeductDueStockDependencies = { loadStockOrders, lockOrdersSkipLocked, lockVariantStock, deductStockBulk, saveStockDeductions, listWaitingOrderIds,
+export const deductDueStockDependencies: DeductDueStockDependencies = { loadStockOrders, lockOrdersSkipLocked, lockVariantStock, deductStockBulk, restoreStock: restoreStockBulk, saveLineDeductions, saveStockDeductions, listWaitingOrderIds,
   limitStatementsToMs: (ms) => setLocalTimeouts({ statementTimeout: `${ms}ms`, lockTimeout: `${ms}ms` }),
   emit: emitStockEvent, waitingOrdersBatchSize: WAITING_ORDERS_BATCH_SIZE, waitingOrdersBudgetMs: WAITING_ORDERS_BUDGET_MS, clock: () => new Date() };
 
@@ -519,6 +521,7 @@ export async function editConfiguredOrder(input: EditOrderInput, access: OrderAc
     saveOrderCustomer: (id, companyId, buyer) => { observed.stage = "save_customer"; return saveOrderCustomer(id, companyId, buyer); },
     saveDelivery: (id, companyId, change) => { observed.stage = "save_delivery"; return saveDelivery(id, companyId, change); },
     publishStockEvent: (payload) => { observed.stage = "deduct_stock"; return timed(() => publishStockEvent("order_edited", payload), (ms) => { observed.deductStockMs = ms; }); },
+    publishStockIncreased: (variantIds) => publishStockEvent("product_stock_increased", { companyId: access.companyId, variantIds }),
     findVariantStock,
     newItemId: () => randomUUID() as OrderItemId,
   });
@@ -551,7 +554,7 @@ export async function editConfiguredOrder(input: EditOrderInput, access: OrderAc
 }
 
 /** Whether the stored order already locks its products: the card shows no stock warning then, so the stock is not read. */
-const productsLocked = (order: Pick<OrderAggregate, "cancelled" | "deliveryStatus" | "stockDeducted">) => order.cancelled || order.deliveryStatus !== "pending" || order.stockDeducted;
+const productsLocked = (order: Pick<OrderAggregate, "cancelled" | "deliveryStatus">) => order.cancelled || order.deliveryStatus !== "pending";
 
 /**
  * Stock of the order's sellable variants, for the «sin stock» warnings. `null` means "unknown" (the read failed or the products are locked);

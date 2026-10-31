@@ -4,7 +4,7 @@ import type { TransactionEndingError } from "@core/src/shared/application/contai
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
-import { describeStockDue, isStockDeductionDue, parseStockQuantity, toStockOrder, type NonNegativeInteger, type OrderWithStockDue, type StockDue } from "@core/src/features/orders/domain/stock-deduction";
+import { deductedOf, describeStockDue, isStockDeductionDue, parseStockQuantity, toStockOrder, type NonNegativeInteger, type OrderWithStockDue, type StockDue } from "@core/src/features/orders/domain/stock-deduction";
 import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
 
 /** What a use case that published a stock event answers: the order, its `stockDue`, and what the listener did (null on a replay that published nothing). */
@@ -28,8 +28,14 @@ function describeWith(order: OrderAggregate, rows: ReadonlyMap<VariantId, unknow
  */
 export async function orderWithStockDue(order: OrderAggregate, outcome: DeductionOutcome, readStock: StockReader): Promise<Result<StockEventResult, TransactionEndingError>> {
   switch (outcome.kind) {
-    case "deducted": return ok({ order: { ...order, stockDeducted: true, stockDeductedAt: order.stockDeductedAt ?? outcome.deductedAt }, stockDue: null, outcome });
+    case "deducted": return ok({ order: { ...order, stockDeducted: true, stockDeductedAt: order.stockDeductedAt ?? outcome.deductedAt,
+      items: order.items.map((item) => ({ ...item, stockDeductedQuantity: item.quantity })) as unknown as OrderAggregate["items"] }, stockDue: null, outcome });
     case "not_due": return ok({ order, stockDue: null, outcome });
+    case "adjusted": {
+      const items = order.items.map((item) => ({ ...item, stockDeductedQuantity: outcome.deductedByVariant.get(item.variantId) ?? deductedOf(order, item) }));
+      const [first, ...pending] = outcome.pending;
+      return ok({ order: { ...order, items: items as unknown as OrderAggregate["items"] }, stockDue: first ? { kind: "partial_waiting", shortItems: [first, ...pending] } : null, outcome });
+    }
     case "short": return ok({ order, stockDue: { kind: "waiting", shortItems: outcome.shortItems }, outcome });
     case "skipped_locked":
     case "failed": {

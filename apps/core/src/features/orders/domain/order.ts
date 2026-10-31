@@ -16,7 +16,9 @@ export type PositiveInteger = number & { readonly __brand: "PositiveInteger" };
 export type OrderCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: ContactId; name: string | null; phone: string | null }> | Readonly<{ kind: "buyer"; name: string; phone: string }>;
 /** Price the buyer wrote in the chat for an item, in the order currency. Stored for display only: it never changes the unit price. */
 export type MentionedPrice = Readonly<{ amount: Money; units: number }>;
-export type OrderItem = Readonly<{ id: OrderItemId; variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; quantity: PositiveInteger; unitPrice: Money; subtotal: Money; mentionedPrice?: MentionedPrice | null }>;
+export type OrderItem = Readonly<{ id: OrderItemId; variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; quantity: PositiveInteger; unitPrice: Money; subtotal: Money; mentionedPrice?: MentionedPrice | null;
+  /** Units already taken out of the variant stock. Absent on an order that was not read from storage: it then follows `stockDeducted` (see `deductedOf`). */
+  stockDeductedQuantity?: number }>;
 export type Order = OrderAggregate;
 export type PricedOrder = Pick<Order, "id" | "companyId" | "sellerId" | "createdAt" | "items" | "total"> & Readonly<{ customer: OrderCustomer }>;
 export type BuildOrderError = Readonly<{ code: "INVALID_ORDER" | "CURRENCY_MISMATCH"; message: string; item?: number }>;

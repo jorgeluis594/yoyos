@@ -10,8 +10,8 @@ UPDATE "OrderItem" i SET "stockDeductedQuantity" = i.quantity
 
 ALTER TABLE "OrderItem" ADD CONSTRAINT "OrderItem_stockDeductedQuantity_check" CHECK ("stockDeductedQuantity" >= 0);
 
--- Lines whose deducted quantity differs from the ordered one: the waiting and recovery queries of already deducted orders walk it.
-CREATE INDEX "OrderItem_stock_unsettled_idx" ON "OrderItem" ("companyId", "variantId", "orderId") WHERE "stockDeductedQuantity" <> quantity;
+-- Lines with units still to deduct: the waiting and recovery queries of already deducted orders walk it.
+CREATE INDEX "OrderItem_stock_unsettled_idx" ON "OrderItem" ("companyId", "variantId", "orderId") WHERE "stockDeductedQuantity" < quantity;
 
 -- Also lists the companies with a deducted order whose lines are not settled yet and could be now.
 CREATE OR REPLACE FUNCTION public.list_companies_with_overdue_stock_deductions()
@@ -32,7 +32,9 @@ AS $$
            WHERE i."companyId" = o."companyId" AND i."orderId" = o.id AND coalesce(s.quantity, 0) < i.quantity))
     OR (o."stockDeducted"
       AND EXISTS (SELECT 1 FROM public."OrderItem" i LEFT JOIN public."ProductStock" s ON s."variantId" = i."variantId"
-           WHERE i."companyId" = o."companyId" AND i."orderId" = o.id AND i."stockDeductedQuantity" <> i.quantity
-             AND (i."stockDeductedQuantity" > i.quantity OR coalesce(s.quantity, 0) >= i.quantity - i."stockDeductedQuantity"))))
+           WHERE i."companyId" = o."companyId" AND i."orderId" = o.id AND i."stockDeductedQuantity" < i.quantity)
+      AND NOT EXISTS (SELECT 1 FROM public."OrderItem" i LEFT JOIN public."ProductStock" s ON s."variantId" = i."variantId"
+           WHERE i."companyId" = o."companyId" AND i."orderId" = o.id AND i."stockDeductedQuantity" < i.quantity
+             AND coalesce(s.quantity, 0) < i.quantity - i."stockDeductedQuantity")))
 $$;
 COMMIT;

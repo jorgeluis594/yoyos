@@ -13,7 +13,7 @@ const v = (n: number) => id(100 + n) as VariantId;
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const ending: TransactionEndingError = { code: "PERSISTENCE_UNAVAILABLE", message: "closed", transactionEnding: true };
 function order(n: number, items: [number, number][], overrides: Partial<StockOrder> = {}): StockOrder {
-  const [first, ...rest] = items.map(([variant, quantity]) => ({ variantId: v(variant), quantity: quantity as never }));
+  const [first, ...rest] = items.map(([variant, quantity]) => ({ variantId: v(variant), quantity: quantity as never, deducted: 0 as never }));
   return { id: id(n) as OrderId, createdAt: new Date(2026, 9, n), cancelled: false, stockDeducted: false, deliveryStatus: "pending", total: money(100),
     items: [first!, ...rest], confirmedPayments: [{ amount: money(100), deductStockIfPartial: false }], ...overrides };
 }

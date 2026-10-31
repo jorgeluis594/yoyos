@@ -15,6 +15,7 @@ import { parsePayment } from "@core/src/features/orders/domain/payment";
 import type { OrderCriteria } from "@core/src/features/orders/application/read-orders";
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
+import type { NonNegativeInteger } from "@core/src/features/orders/domain/stock-deduction";
 import type { StockOrderRow } from "@core/src/features/orders/application/deduct-due-stock";
 import { isOpenForMessageItems, type ChatId, type OrderChatSource } from "@core/src/features/orders/domain/message-order";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
@@ -125,7 +126,7 @@ function knownFailure(cause: unknown) {
 
 function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): OrderAggregate {
   if (!isCurrency(row.currency) || !row.items.length ||
-    row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER)))
+    row.items.some((item) => item.quantity <= 0n || item.quantity > BigInt(Number.MAX_SAFE_INTEGER) || item.stockDeductedQuantity < 0n || item.stockDeductedQuantity > BigInt(Number.MAX_SAFE_INTEGER)))
     throw new InvalidStoredOrderError("Invalid stored order identity or items");
   const delivery = row.delivery === null ? null : parseDeliverySnapshot(row.delivery);
   if (delivery !== null && !delivery.success) {
@@ -139,7 +140,7 @@ function mapAggregate(row: DbAggregate, operation = "get_order_aggregate"): Orde
     if (!attributes || typeof attributes !== "object" || Array.isArray(attributes) || Object.values(attributes).some((value) => typeof value !== "string"))
       throw new InvalidStoredOrderError("Invalid stored order attributes");
     return { id: item.id as OrderItemId, variantId: item.variantId as VariantId, productName: item.productName,
-      variantAttributes: { ...attributes } as Record<string, string>, sku: item.sku, quantity: Number(item.quantity) as PositiveInteger,
+      variantAttributes: { ...attributes } as Record<string, string>, sku: item.sku, quantity: Number(item.quantity) as PositiveInteger, stockDeductedQuantity: Number(item.stockDeductedQuantity),
       unitPrice: { amount: item.unitPrice.toNumber(), currency: row.currency }, subtotal: { amount: item.subtotal.toNumber(), currency: row.currency },
       mentionedPrice: item.mentionedPriceAmount === null || item.mentionedPriceUnits === null ? null
         : { amount: { amount: item.mentionedPriceAmount.toNumber(), currency: row.currency }, units: item.mentionedPriceUnits } };
@@ -211,6 +212,7 @@ export async function savePendingOrder(order: OrderAggregate, source?: OrderChat
       inserting = item.variantId;
       await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, companyId: order.companyId, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
+        stockDeductedQuantity: BigInt(item.stockDeductedQuantity ?? (order.stockDeducted ? item.quantity : 0)),
         unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()),
         ...mentionedPriceColumns(item.mentionedPrice) } });
     }
@@ -313,12 +315,15 @@ export async function findOrderForUpdate(id: OrderId, companyId: CompanyId, oper
   }
 }
 
-/** The deduction time is written once: a time already stored (the first deduction) is never moved. */
+/** The deduction time is written once: a time already stored (the first deduction) is never moved. Every item ends at its full quantity, also when only a pending part was deducted. */
 export async function saveStockDeduction(id: OrderId, companyId: CompanyId, stockDeductedAt: Date, operation?: string) {
   requireActiveTransaction(companyId);
   try {
-    const updated = await prisma.$executeRaw`UPDATE "Order" SET "stockDeducted" = true, "stockDeductedAt" = COALESCE("stockDeductedAt", ${stockDeductedAt}::timestamptz)
-      WHERE id = ${id}::uuid AND "companyId" = ${companyId}::uuid AND "stockDeducted" = false`;
+    const updated = await prisma.$executeRaw`WITH marked AS (UPDATE "Order" SET "stockDeducted" = true, "stockDeductedAt" = COALESCE("stockDeductedAt", ${stockDeductedAt}::timestamptz)
+      WHERE id = ${id}::uuid AND "companyId" = ${companyId}::uuid AND (NOT "stockDeducted" OR EXISTS (SELECT 1 FROM "OrderItem" i WHERE i."companyId" = ${companyId}::uuid AND i."orderId" = ${id}::uuid AND i."stockDeductedQuantity" < i.quantity))
+      RETURNING id),
+      settled AS (UPDATE "OrderItem" i SET "stockDeductedQuantity" = i.quantity FROM marked WHERE i."companyId" = ${companyId}::uuid AND i."orderId" = marked.id AND i."stockDeductedQuantity" <> i.quantity RETURNING i.id)
+      SELECT 1 FROM marked`;
     if (updated !== 1) throw new Error("Locked order was not available for stock deduction");
     return ok<null>(null);
   } catch (cause) {
@@ -420,6 +425,7 @@ export async function saveStockRestoration(id: OrderId, companyId: CompanyId) {
   try {
     const updated = await prisma.order.updateMany({ where: { id, companyId, cancelled: true, stockDeducted: true }, data: { stockDeducted: false } });
     if (updated.count !== 1) throw new Error("Locked cancelled order was not available for restoration");
+    await prisma.orderItem.updateMany({ where: { orderId: id, companyId, stockDeductedQuantity: { not: 0n } }, data: { stockDeductedQuantity: 0n } });
     return ok<null>(null);
   } catch (cause) {
     if (!knownFailure(cause)) throw cause;
@@ -746,10 +752,11 @@ export async function findOrderNumbers(ids: readonly OrderId[]) {
 
 
 /**
- * The due-and-fit rule in SQL, for an order aliased `o`: the three stock queries and the definer function share it. Its first line repeats the
- * partial index predicate with the same literals, so PostgreSQL can prove `Order_undeducted_pending_idx` applies under a generic plan.
+ * The due-and-fit rule in SQL, for an order aliased `o`, as two branches so each walks its own partial index: an undeducted order that is paid enough
+ * (first line repeats the `Order_undeducted_pending_idx` predicate with the same literals), or a deducted order with pending lines
+ * (`OrderItem_stock_unsettled_idx`). Both require every pending unit to fit; the three stock queries and the definer function share it.
  */
-const dueAndFit = Prisma.sql`NOT o."stockDeducted" AND NOT o.cancelled AND o."deliveryStatus" = 'pending'
+const undeductedDueAndFit = Prisma.sql`NOT o."stockDeducted" AND NOT o.cancelled AND o."deliveryStatus" = 'pending'
   AND (
     (SELECT coalesce(sum(p.amount), 0) FROM "Payment" p
        WHERE p."companyId" = o."companyId" AND p."orderId" = o.id AND p.status = 'confirmed') >= o.total
@@ -758,11 +765,22 @@ const dueAndFit = Prisma.sql`NOT o."stockDeducted" AND NOT o.cancelled AND o."de
   )
   AND NOT EXISTS (SELECT 1 FROM "OrderItem" i LEFT JOIN "ProductStock" s ON s."variantId" = i."variantId"
        WHERE i."companyId" = o."companyId" AND i."orderId" = o.id AND coalesce(s.quantity, 0) < i.quantity)`;
+const pendingDueAndFit = Prisma.sql`o."stockDeducted" AND NOT o.cancelled AND o."deliveryStatus" = 'pending'
+  AND EXISTS (SELECT 1 FROM "OrderItem" u WHERE u."companyId" = o."companyId" AND u."orderId" = o.id AND u."stockDeductedQuantity" < u.quantity)
+  AND NOT EXISTS (SELECT 1 FROM "OrderItem" i LEFT JOIN "ProductStock" s ON s."variantId" = i."variantId"
+       WHERE i."companyId" = o."companyId" AND i."orderId" = o.id AND i."stockDeductedQuantity" < i.quantity
+         AND coalesce(s.quantity, 0) < i.quantity - i."stockDeductedQuantity")`;
+/** Oldest first; the branches are unioned instead of OR-ed so each keeps its index. `filter` is a condition on `o`. */
+const dueAndFitIds = (companyId: CompanyId, filter: Prisma.Sql, limit: number) => Prisma.sql`SELECT id FROM (
+  SELECT o.id, o."createdAt" FROM "Order" o WHERE o."companyId" = ${companyId}::uuid AND ${filter} AND ${undeductedDueAndFit}
+  UNION ALL
+  SELECT o.id, o."createdAt" FROM "Order" o WHERE o."companyId" = ${companyId}::uuid AND ${filter} AND ${pendingDueAndFit}
+) due ORDER BY "createdAt", id LIMIT ${limit}`;
 
 const stockOrderRow = z.object({
   id: z.uuid(), createdAt: z.date(), cancelled: z.boolean(), stockDeducted: z.boolean(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
   total: z.string().regex(/^\d+(\.\d+)?$/), currency: z.string(),
-  items: z.array(z.object({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
+  items: z.array(z.object({ variantId: z.uuid(), quantity: z.number().int().positive().safe(), deducted: z.number().int().nonnegative().safe() })).min(1),
   payments: z.array(z.object({ amount: z.number().positive().finite(), currency: z.string(), deductStockIfPartial: z.boolean() })),
 });
 
@@ -771,7 +789,7 @@ export async function loadStockOrders(ids: readonly OrderId[], companyId: Compan
   requireActiveTransaction(companyId);
   try {
     const rows = await prisma.$queryRaw<unknown[]>`SELECT o.id, o."createdAt", o.cancelled, o."stockDeducted", o."deliveryStatus", o.total::text AS total, o.currency,
-      (SELECT coalesce(json_agg(json_build_object('variantId', i."variantId", 'quantity', i.quantity) ORDER BY i.id), '[]'::json)
+      (SELECT coalesce(json_agg(json_build_object('variantId', i."variantId", 'quantity', i.quantity, 'deducted', i."stockDeductedQuantity") ORDER BY i.id), '[]'::json)
          FROM "OrderItem" i WHERE i."companyId" = o."companyId" AND i."orderId" = o.id) AS items,
       (SELECT coalesce(json_agg(json_build_object('amount', p.amount, 'currency', p.currency, 'deductStockIfPartial', p."deductStockIfPartial") ORDER BY p.id), '[]'::json)
          FROM "Payment" p WHERE p."companyId" = o."companyId" AND p."orderId" = o.id AND p.status = 'confirmed') AS payments
@@ -782,7 +800,7 @@ export async function loadStockOrders(ids: readonly OrderId[], companyId: Compan
       const [first, ...rest] = parsed.success ? parsed.data.items : [];
       if (!parsed.success || !first || !isCurrency(parsed.data.currency) || parsed.data.payments.some((payment) => payment.currency !== parsed.data.currency)) return { ok: false, id };
       const currency = parsed.data.currency;
-      const line = (item: typeof first) => ({ variantId: item.variantId as VariantId, quantity: item.quantity as PositiveInteger });
+      const line = (item: typeof first) => ({ variantId: item.variantId as VariantId, quantity: item.quantity as PositiveInteger, deducted: item.deducted as NonNegativeInteger });
       return { ok: true, order: { id, createdAt: parsed.data.createdAt, cancelled: parsed.data.cancelled, stockDeducted: parsed.data.stockDeducted,
         deliveryStatus: parsed.data.deliveryStatus, total: { amount: Number(parsed.data.total), currency }, items: [line(first), ...rest.map(line)],
         confirmedPayments: parsed.data.payments.map((payment) => ({ amount: { amount: payment.amount, currency }, deductStockIfPartial: payment.deductStockIfPartial })) } };
@@ -800,22 +818,36 @@ export async function lockOrdersSkipLocked(ids: readonly OrderId[], companyId: C
   } catch (cause) { return err(persistenceFailureResult(cause, "Unable to lock orders")); }
 }
 
-/** One statement; returns how many orders it marked (those still undeducted). A deduction time already stored (the first deduction) is never moved. */
+/**
+ * One statement; returns how many orders it marked. Every item of those orders ends at its full quantity. A deduction time already stored (the first deduction) is never moved.
+ * The caller planned under the order lock, so an order that is already deducted here is one whose pending lines were just taken.
+ */
 export async function saveStockDeductions(ids: readonly OrderId[], companyId: CompanyId, stockDeductedAt: Date): Promise<Result<number, TransactionEndingError | ContainedFailure>> {
   requireActiveTransaction(companyId);
   try {
-    return ok(await prisma.$executeRaw`UPDATE "Order" SET "stockDeducted" = true, "stockDeductedAt" = COALESCE("stockDeductedAt", ${stockDeductedAt}::timestamptz)
-      WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[]) AND NOT "stockDeducted"`);
+    return ok(await prisma.$executeRaw`WITH marked AS (UPDATE "Order" SET "stockDeducted" = true, "stockDeductedAt" = COALESCE("stockDeductedAt", ${stockDeductedAt}::timestamptz)
+      WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[]) AND NOT cancelled RETURNING id),
+      settled AS (UPDATE "OrderItem" i SET "stockDeductedQuantity" = i.quantity FROM marked WHERE i."companyId" = ${companyId}::uuid AND i."orderId" = marked.id AND i."stockDeductedQuantity" <> i.quantity RETURNING i.id)
+      SELECT 1 FROM marked`);
   } catch (cause) { return err(persistenceFailureResult(cause, "Unable to save stock deductions")); }
+}
+
+/** One statement: stores the deducted figure of each listed line (by variant) of the locked order. */
+export async function saveLineDeductions(orderId: OrderId, companyId: CompanyId, deducted: ReadonlyMap<VariantId, NonNegativeInteger>): Promise<Result<number, TransactionEndingError | ContainedFailure>> {
+  requireActiveTransaction(companyId);
+  try {
+    const values = Prisma.join([...deducted].map(([variantId, quantity]) => Prisma.sql`(${variantId}::uuid, ${BigInt(quantity)}::bigint)`));
+    return ok(await prisma.$executeRaw`UPDATE "OrderItem" i SET "stockDeductedQuantity" = v.deducted FROM (VALUES ${values}) AS v(variant, deducted)
+      WHERE i."companyId" = ${companyId}::uuid AND i."orderId" = ${orderId}::uuid AND i."variantId" = v.variant`);
+  } catch (cause) { return err(persistenceFailureResult(cause, "Unable to save line deductions")); }
 }
 
 /** Orders of the company with an item on one of these variants that are due and now fit, oldest first. Walks the partial index. */
 export async function listWaitingOrderIds(companyId: CompanyId, variantIds: readonly VariantId[], limit: number): Promise<Result<readonly OrderId[], TransactionEndingError | ContainedFailure>> {
   requireActiveTransaction(companyId);
   try {
-    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT o.id FROM "Order" o WHERE o."companyId" = ${companyId}::uuid
-      AND EXISTS (SELECT 1 FROM "OrderItem" w WHERE w."companyId" = o."companyId" AND w."orderId" = o.id AND w."variantId" = ANY(${[...variantIds]}::uuid[]))
-      AND ${dueAndFit} ORDER BY o."createdAt", o.id LIMIT ${limit}`);
+    const rows = await prisma.$queryRaw<{ id: string }[]>(dueAndFitIds(companyId,
+      Prisma.sql`EXISTS (SELECT 1 FROM "OrderItem" w WHERE w."companyId" = o."companyId" AND w."orderId" = o.id AND w."variantId" = ANY(${[...variantIds]}::uuid[]))`, limit));
     return ok(rows.map((row) => row.id as OrderId));
   } catch (cause) { return err(persistenceFailureResult(cause, "Unable to list waiting orders")); }
 }
@@ -823,8 +855,7 @@ export async function listWaitingOrderIds(companyId: CompanyId, variantIds: read
 export async function listOverdueOrderIds(companyId: CompanyId, limit: number, exclude: readonly OrderId[]) {
   requireActiveTransaction(companyId);
   try {
-    const rows = await prisma.$queryRaw<{ id: string }[]>(Prisma.sql`SELECT o.id FROM "Order" o WHERE o."companyId" = ${companyId}::uuid
-      AND ${dueAndFit} AND o.id <> ALL(${[...exclude]}::uuid[]) ORDER BY o."createdAt", o.id LIMIT ${limit}`);
+    const rows = await prisma.$queryRaw<{ id: string }[]>(dueAndFitIds(companyId, Prisma.sql`o.id <> ALL(${[...exclude]}::uuid[])`, limit));
     return ok<readonly OrderId[]>(rows.map((row) => row.id as OrderId));
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
