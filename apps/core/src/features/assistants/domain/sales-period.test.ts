@@ -14,7 +14,7 @@ describe("resolveSalesPeriod", () => {
   });
 
   test("refuses only hasta with the initial-date text", () => {
-    expect(resolveSalesPeriod({ hasta: "2026-10-10" }, "2026-10-20")).toEqual({ success: false, error: { kind: "only_through" } });
+    expect(resolveSalesPeriod({ hasta: "2026-10-10" }, "2026-10-20")).toMatchObject({ success: false, error: { kind: "only_through" } });
   });
 
   test("cuts a future hasta to today and marks the period as cut", () => {
@@ -23,17 +23,17 @@ describe("resolveSalesPeriod", () => {
   });
 
   test("refuses a desde after today echoing both dates as AAAA-MM-DD", () => {
-    expect(resolveSalesPeriod({ desde: "2026-11-05" }, "2026-10-31")).toEqual({ success: false, error: { kind: "from_after_today", from: "2026-11-05", today: "2026-10-31" } });
+    expect(resolveSalesPeriod({ desde: "2026-11-05" }, "2026-10-31")).toMatchObject({ success: false, error: { kind: "from_after_today", from: "2026-11-05", today: "2026-10-31" } });
   });
 
   test("refuses a reversed range with the existing reversed-range text", () => {
-    expect(resolveSalesPeriod({ desde: "2026-10-07", hasta: "2026-10-01" }, "2026-10-31")).toEqual({ success: false, error: { kind: "reversed", from: "2026-10-07", through: "2026-10-01" } });
+    expect(resolveSalesPeriod({ desde: "2026-10-07", hasta: "2026-10-01" }, "2026-10-31")).toMatchObject({ success: false, error: { kind: "reversed", from: "2026-10-07", through: "2026-10-01" } });
   });
 
   test("refuses a period read longer than 366 days and accepts a leap year of 366", () => {
     expect(salesPeriodMaxDays).toBe(366);
     expect(resolveSalesPeriod({ desde: "2028-01-01", hasta: "2028-12-31" }, "2029-03-01")).toMatchObject({ success: true });
-    expect(resolveSalesPeriod({ desde: "2027-01-01", hasta: "2028-01-02" }, "2029-03-01")).toEqual({ success: false, error: { kind: "too_long", maxDays: 366 } });
+    expect(resolveSalesPeriod({ desde: "2027-01-01", hasta: "2028-01-02" }, "2029-03-01")).toMatchObject({ success: false, error: { kind: "too_long", maxDays: 366 } });
     expect(resolveSalesPeriod({ desde: "2025-01-01" }, "2026-10-31")).toMatchObject({ success: false, error: { kind: "too_long" } });
     expect(resolveSalesPeriod({ desde: "2027-01-01", hasta: "2028-01-01" }, "2029-03-01")).toMatchObject({ success: true });
   });

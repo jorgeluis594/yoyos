@@ -5,11 +5,12 @@ import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
 /** Inclusive Lima days, `AAAA-MM-DD`; `cutToToday` marks a `hasta` in the future that was read up to today. */
 export type SalesPeriod = Readonly<{ from: string; through: string; cutToToday: boolean }>;
 export type PreviousPeriod = Readonly<{ from: string; through: string; month: Readonly<{ year: number; month: number }> | null }>;
+/** `message` is an internal diagnostic (`AppError`); the owner's Spanish text is chosen by `kind` in the presentation. */
 export type PeriodRefusal =
-  | Readonly<{ kind: "only_through" }>
-  | Readonly<{ kind: "reversed"; from: string; through: string }>
-  | Readonly<{ kind: "from_after_today"; from: string; today: string }>
-  | Readonly<{ kind: "too_long"; maxDays: number }>;
+  | Readonly<{ kind: "only_through"; message: string }>
+  | Readonly<{ kind: "reversed"; message: string; from: string; through: string }>
+  | Readonly<{ kind: "from_after_today"; message: string; from: string; today: string }>
+  | Readonly<{ kind: "too_long"; message: string; maxDays: number }>;
 
 /** Initial value: a whole year, leap years included, is the longest period an owner names. Lowered only if the load checks fail. */
 export const salesPeriodMaxDays = 366;
@@ -33,13 +34,13 @@ export function periodDays(period: Readonly<{ from: string; through: string }>):
  */
 export function resolveSalesPeriod(input: Readonly<{ desde?: string; hasta?: string }>, today: string): Result<SalesPeriod, PeriodRefusal> {
   const { desde, hasta } = input;
-  if (desde === undefined && hasta !== undefined) return err({ kind: "only_through" });
-  if (desde !== undefined && hasta !== undefined && hasta < desde) return err({ kind: "reversed", from: desde, through: hasta });
-  if (desde !== undefined && desde > today) return err({ kind: "from_after_today", from: desde, today });
+  if (desde === undefined && hasta !== undefined) return err({ kind: "only_through", message: "The final date needs an initial date" });
+  if (desde !== undefined && hasta !== undefined && hasta < desde) return err({ kind: "reversed", message: "The final date is before the initial date", from: desde, through: hasta });
+  if (desde !== undefined && desde > today) return err({ kind: "from_after_today", message: "The initial date is after today", from: desde, today });
   const from = desde ?? `${today.slice(0, 8)}01`;
   const cutToToday = hasta !== undefined && hasta > today;
   const period: SalesPeriod = { from, through: hasta === undefined || cutToToday ? today : hasta, cutToToday };
-  return periodDays(period) > salesPeriodMaxDays ? err({ kind: "too_long", maxDays: salesPeriodMaxDays }) : ok(period);
+  return periodDays(period) > salesPeriodMaxDays ? err({ kind: "too_long", message: "The period is too long", maxDays: salesPeriodMaxDays }) : ok(period);
 }
 
 /**

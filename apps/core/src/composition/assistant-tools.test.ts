@@ -8,6 +8,12 @@ import type { AssistantAccess } from "@core/src/features/assistants/application/
 import { checkToolModules, createToolRegistry, maxToolOutputBytes } from "@core/src/features/assistants/presentation/tool-registry";
 import type { RegisteredTool, ToolModule } from "@core/src/features/assistants/presentation/tool-module";
 import { toolModules } from "@core/src/composition/assistant-tools";
+import { salesToolsInstructions } from "@core/src/features/assistants/presentation/tools/sales-texts";
+import { orderToolsInstructions } from "@core/src/features/assistants/presentation/tools/orders-texts";
+
+// The tools of the sales module (none until MCP 3/4 lands them); the module requires both scopes.
+const salesModule = toolModules.find((module) => module.scopes.length === 2)!;
+const salesToolNames = salesModule.tools.map((tool) => tool.name);
 
 type Input = { texto?: string };
 type Output = { total: number; pedidos: string[] };
@@ -61,13 +67,29 @@ describe("the registered tool modules", () => {
     await close();
   });
 
-  test("lists the six tools, all read only, for a connection with both scopes", async () => {
+  test("lists the six existing tools plus the tools of the sales module, all read only, for a connection with both scopes", async () => {
     const { client, close } = await connect(toolModules, { ...access, scopes: ["orders:read", "products:read"] });
     const { tools } = await client.listTools();
-    expect(tools.map((tool) => tool.name)).toEqual(["buscar_pedidos", "ver_pedido", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "buscar_productos", "ver_producto"]);
+    expect(tools.map((tool) => tool.name)).toEqual(["buscar_pedidos", "ver_pedido", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "buscar_productos", "ver_producto", ...salesToolNames]);
     for (const tool of tools) expect(tool.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
     expect(client.getInstructions()).toContain("productos");
     await close();
+  });
+
+  test("the sales module needs both scopes and adds no scope literal", async () => {
+    expect(salesModule.scopes).toEqual(["orders:read", "products:read"]);
+    const only = await connect(toolModules, { ...access, scopes: ["orders:read"] });
+    expect(only.client.getInstructions()).not.toContain(salesToolsInstructions);
+    await only.close();
+    const both = await connect(toolModules, { ...access, scopes: ["orders:read", "products:read"] });
+    expect(both.client.getInstructions()).toContain(salesToolsInstructions);
+    await both.close();
+  });
+
+  test("the sales instructions paragraph stays within 700 characters and the orders paragraph no longer says there are no totals", () => {
+    expect(salesToolsInstructions.length).toBeLessThanOrEqual(700);
+    expect(orderToolsInstructions).not.toContain("totales de ventas");
+    expect(orderToolsInstructions).not.toContain("finanzas");
   });
 
   test("a connection with only the products scope lists the two product tools", async () => {
