@@ -27,6 +27,7 @@ import { catalogRoutes } from "@core/src/features/catalog/presentation/api-route
 import { brandHostBuyerOwner, brandHostEdge } from "@core/src/features/catalog/presentation/brand-host-edge";
 import { buyerPaymentRoutes } from "@core/src/features/orders/presentation/buyer-payment-routes";
 import { sellerNoticeRoutes } from "@core/src/features/orders/presentation/seller-notice-routes";
+import { orderItemsRoutes } from "@core/src/features/orders/presentation/order-items-routes";
 import { pushDeviceRoutes, pushDeviceUnregisterRoutes } from "@core/src/features/notifications/presentation/push-device-routes";
 import { log, requestLogging } from "@core/src/shared/infrastructure/logger";
 
@@ -116,6 +117,7 @@ app.use("/api/company/dispatch-sender", dispatchSenderRoutes);
 app.use("/api/dispatch-labels", dispatchLabelRoutes);
 app.use("/api/products/:productId/variants", variantRoutes);
 app.use("/api/products", productRoutes);
+app.use("/api/orders", orderItemsRoutes);
 app.use("/api/orders", orderRoutes);
 app.use("/api/delivery-settings", deliverySettingsRoutes);
 app.use("/api/catalog", catalogRoutes);
