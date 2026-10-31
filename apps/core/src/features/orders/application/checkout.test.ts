@@ -19,7 +19,7 @@ const total = { amount: 120, currency: "PEN" as const };
 const base: CheckoutOrder = {
   ...access, id: access.orderId, companyName: "Store", number: number.data, buyer: null,
   items: [{ id: uuid(3) as OrderItemId, variantId: uuid(4) as VariantId, productName: "Product", variantAttributes: {}, sku: null,
-    quantity: 2 as PositiveInteger, unitPrice: { amount: 50, currency: "PEN" }, subtotal: { amount: 100, currency: "PEN" } }],
+    quantity: 2 as PositiveInteger, unitPrice: { amount: 50, currency: "PEN" }, subtotal: { amount: 100, currency: "PEN" }, stockDeductedQuantity: 0 }],
   delivery: null, deliveryCharge: { amount: 20, currency: "PEN" }, itemsTotal: { amount: 100, currency: "PEN" }, total, cancelled: false,
   checkoutEnabledAt: new Date("2020-01-01T00:00:00Z"), checkoutConfirmedAt: null, fromCatalog: false,
 };

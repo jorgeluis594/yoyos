@@ -115,11 +115,14 @@ export const paymentSchema = z.discriminatedUnion("status", [
 export const orderStockDueSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("waiting"), shortItems: z.array(z.strictObject({
     variantId: z.uuid(), available: z.number().int().nonnegative().safe() })).min(1) }),
+  /** The order's stock was deducted, but an edit added units that did not fit yet. */
+  z.strictObject({ kind: z.literal("partial_waiting"), shortItems: z.array(z.strictObject({
+    variantId: z.uuid(), available: z.number().int().nonnegative().safe() })).min(1) }),
   z.strictObject({ kind: z.literal("deducting") }),
 ]);
 export type OrderStockDue = z.infer<typeof orderStockDueSchema>;
 export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.datetime().nullable(), checkoutConfirmedAt: z.iso.datetime().nullable(), number: z.number().int().safe().min(1001), id: z.uuid(), companyId: z.uuid(), sellerId: z.string().nullable(), buyer: orderBuyerSchema.nullable(), source: orderSourceSchema,
-  createdAt: z.iso.datetime(), scheduledDispatchDate: dispatchDateSchema.nullable(), shippedAt: z.iso.datetime().nullable(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
+  createdAt: z.iso.datetime(), scheduledDispatchDate: dispatchDateSchema.nullable(), shippedAt: z.iso.datetime().nullable(), deliveredAt: z.iso.datetime().nullable(), completedAt: z.iso.datetime().nullable(), cancelledAt: z.iso.datetime().nullable(), stockDeductedAt: z.iso.datetime().nullable(), status: z.enum(["active", "cancelled", "completed"]),
   paymentStatus: z.enum(["pending", "paid"]), paidAmount: moneySchema, balanceDue: moneySchema, overpaidAmount: moneySchema,
   cancelled: z.boolean(), delivery: deliverySnapshotSchema.nullable(), deliveryStatus: z.enum(["pending", "shipped", "delivered"]),
   stockDeducted: z.boolean(), stockDue: orderStockDueSchema.nullable(), items: z.array(z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(),

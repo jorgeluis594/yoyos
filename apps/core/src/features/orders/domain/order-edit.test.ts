@@ -18,7 +18,7 @@ const home: DeliverySnapshot = { method: "home", recipient: ana, destination: { 
 
 const variantOf = (n: number) => id(n + 100) as VariantId;
 const item = (n: number, name: string, attributes: Record<string, string>, quantity: number, unit: number): OrderItem => ({ id: id(n) as OrderItemId, variantId: variantOf(n),
-  productName: name, variantAttributes: attributes, sku: `SKU-${n}`, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null });
+  productName: name, variantAttributes: attributes, sku: `SKU-${n}`, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null, stockDeductedQuantity: 0 });
 // Order 1042: two «Traje» lines at S/ 89.00 and «Deadpool · M» at S/ 120.00.
 const traje = (n: number, size: string) => item(n, "Traje", { Talla: size }, 1, 89);
 const deadpool = item(5, "Deadpool", { Talla: "M" }, 1, 120);
@@ -91,6 +91,27 @@ describe("isApplied", () => {
   });
 });
 
+describe("checkCustomerRequired", () => {
+  const confirmed = (overrides: Partial<OrderAggregate> = {}) => order({ checkoutEnabledAt: at, checkoutConfirmedAt: at, ...overrides });
+  test("refuses clearing the customer of an order the buyer confirmed", () => {
+    expect(orderEdit.checkCustomerRequired(confirmed(), { customer: { value: null } })).toMatchObject({ success: false, error: { code: "CUSTOMER_REQUIRED" } });
+  });
+
+  test("allows changing the customer of a confirmed order to another one", () => {
+    const luis = { name: "Marta", phone: "+51999000111" } as never;
+    expect(orderEdit.checkCustomerRequired(confirmed(), { customer: { value: luis } })).toEqual({ success: true, data: null });
+  });
+
+  test("allows clearing the customer when the buyer did not confirm", () => {
+    expect(orderEdit.checkCustomerRequired(order(), { customer: { value: null } })).toEqual({ success: true, data: null });
+    expect(orderEdit.checkCustomerRequired(order({ checkoutEnabledAt: at }), { customer: { value: null } })).toEqual({ success: true, data: null });
+  });
+
+  test("has nothing to check when the request does not touch the customer", () => {
+    expect(orderEdit.checkCustomerRequired(confirmed(), { items: { lines: keepAll } })).toEqual({ success: true, data: null });
+  });
+});
+
 describe("checkLocks", () => {
   const all = new Set<OrderPart>(["items", "customer", "delivery"]);
   test("refuses any edit of a cancelled order", () => {
@@ -105,11 +126,10 @@ describe("checkLocks", () => {
     expect(orderEdit.checkLocks(shipped, new Set(["customer"]))).toEqual({ success: true, data: null });
   });
 
-  test("refuses items edits once stock is deducted but allows customer and delivery edits", () => {
+  test("allows items, customer and delivery edits once stock is deducted: the stock listener settles the difference", () => {
     const deducted = order({ stockDeducted: true, stockDeductedAt: at });
-    expect(orderEdit.checkLocks(deducted, new Set(["items"]))).toMatchObject({ success: false, error: { code: "ITEMS_LOCKED" } });
-    expect(orderEdit.checkLocks(deducted, new Set(["items", "customer"]))).toMatchObject({ success: false, error: { code: "ITEMS_LOCKED" } });
-    expect(orderEdit.checkLocks(deducted, new Set(["customer", "delivery"]))).toEqual({ success: true, data: null });
+    expect(orderEdit.checkLocks(deducted, new Set(["items"]))).toEqual({ success: true, data: null });
+    expect(orderEdit.checkLocks(deducted, all)).toEqual({ success: true, data: null });
   });
 
   test("allows everything on an open order and nothing to check when no part remains", () => {

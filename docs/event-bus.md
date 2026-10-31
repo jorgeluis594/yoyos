@@ -150,6 +150,9 @@ stock events of orders: `payment_confirmed`, `order_delivery_changed`,
 `order_edited`, `order_stock_deduction_overdue` and `product_stock_increased`, so a payment
 answers with the stock already deducted and a restock deducts the orders it
 covers in the same step ([Orders · Stock deduction](orders.md#stock-deduction)).
+`order_edited` carries `{ companyId, orderId, returns }`; for an order whose stock is already deducted its
+handler settles the difference of the edited lines (returning stock publishes
+`product_stock_increased`) ([Orders · Stock after an edit](orders.md#stock-after-an-edit)).
 
 How it works:
 

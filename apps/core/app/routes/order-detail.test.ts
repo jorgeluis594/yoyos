@@ -328,7 +328,7 @@ test("shows the waiting notice with each short item and its available units", as
   expect(html).toContain("Esperando stock");
   expect(html).toContain("Camisa (M · Azul): 4 en el pedido, hay 3.");
   expect(html).toContain("Polo (L): 2 en el pedido, hay 0.");
-  expect(html).toContain("Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede despachar ni entregar.");
+  expect(html).toContain("Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede enviar ni entregar.");
   expect(html).toMatch(/<h2[^>]*>Esperando stock<\/h2>/);
   expect(html.indexOf("Camisa (M · Azul): 4 en el pedido")).toBeLessThan(html.indexOf(">Productos<"));
 });
@@ -363,13 +363,11 @@ test("shows the stock line in the products card and no Detalles internos", async
 
 test("disables ship and deliver with the short items as a list", async () => {
   const html = await renderStockDetail({ stockDue: waiting([camisa, 3], [polo, 0]) });
-  expect(html).toContain("Para despachar falta stock de Camisa (M · Azul) y Polo (L).");
-  expect(html).toContain("Para entregar falta stock de Camisa (M · Azul) y Polo (L).");
-  expect(html).toMatch(/<button[^>]*aria-disabled="true"[^>]*aria-describedby="fulfillment-ship-reason"[^>]*>Marcar enviado/);
+  expect(html).toContain("Para enviar falta stock de Camisa (M · Azul) y Polo (L).");
+  expect(html).toMatch(/<button[^>]*aria-disabled="true"[^>]*aria-describedby="order-status-note"[^>]*>.*?Marcar enviado/);
   const deducting = await renderStockDetail({ stockDue: { kind: "deducting" } });
-  expect(deducting).toContain("El stock se está descontando; podrás entregarlo en menos de un minuto.");
-  expect(deducting).not.toContain("fulfillment-ship-reason");
-  expect(deducting).toMatch(/<button[^>]*aria-disabled="true"[^>]*aria-describedby="fulfillment-deliver-reason"[^>]*>Marcar entregado/);
+  expect(deducting).not.toContain("podrás entregarlo en menos de un minuto");
+  expect(deducting).not.toMatch(/<button[^>]*aria-disabled="true"[^>]*>[^<]*(<[^b][^>]*>)*[^<]*Marcar enviado/);
 });
 
 test("reloads the order when shipping meets short stock", async () => {
@@ -377,7 +375,16 @@ test("reloads the order when shipping meets short stock", async () => {
   const result = await action(args({ operation: "ship" }));
   expect(result).toEqual({ operation: "ship", url: null, success: false, error: "INSUFFICIENT_STOCK" });
   expect(shouldRevalidate({ actionResult: result, defaultShouldRevalidate: false })).toBe(true);
-  expect(resources.es.translation.orderFulfillment.INSUFFICIENT_STOCK).toBe("No hay stock suficiente para despachar este pedido.");
+  expect(resources.es.translation.orderFulfillment.INSUFFICIENT_STOCK).toBe("No hay stock suficiente para enviar este pedido.");
+});
+
+test("reloads the order when delivering meets short stock and the copy names delivering", async () => {
+  vi.spyOn(orders, "deliver").mockResolvedValue(err({ code: "INSUFFICIENT_STOCK", message: "Short" }));
+  const result = await action(args({ operation: "deliver" }));
+  expect(result).toEqual({ operation: "deliver", url: null, success: false, error: "INSUFFICIENT_STOCK" });
+  expect(shouldRevalidate({ actionResult: result, defaultShouldRevalidate: false })).toBe(true);
+  expect(resources.es.translation.orderFulfillment.DELIVER_INSUFFICIENT_STOCK).toBe("No hay stock suficiente para entregar este pedido.");
+  expect(resources.pt.translation.orderFulfillment.DELIVER_INSUFFICIENT_STOCK).toBe("Não há estoque suficiente para entregar este pedido.");
 });
 
 test("chooses the payment success text from the returned order", async () => {
@@ -489,7 +496,7 @@ test("maps the conflict, the variant and the lock errors with their extra fields
   expect(await action(jsonArgs(customerBody))).toEqual({ operation: "save_changes", code: "ORDER_CHANGED", parts: ["items"] });
   edit.mockResolvedValue(err({ code: "VARIANT_NOT_FOUND", message: "gone", variantId: orderId as VariantId }));
   expect(await action(jsonArgs(customerBody))).toEqual({ operation: "save_changes", code: "VARIANT_NOT_FOUND", variantId: orderId });
-  for (const code of ["ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED", "RATE_UNAVAILABLE", "PERSISTENCE_UNAVAILABLE"] as const) {
+  for (const code of ["DELIVERY_LOCKED", "ORDER_CANCELLED", "RATE_UNAVAILABLE", "PERSISTENCE_UNAVAILABLE"] as const) {
     edit.mockResolvedValue(err({ code, message: "x" } as never));
     expect(await action(jsonArgs(customerBody))).toEqual({ operation: "save_changes", code });
   }
@@ -506,7 +513,7 @@ test("a thrown error answers a persistence failure and is logged without persona
 test("does not revalidate after a successful save_changes and uses its result, but revalidates for the lock errors", () => {
   const saved = { operation: "save_changes", applied: ["items"], order: {}, revisions: {}, lineCatalog: null };
   expect(shouldRevalidate({ actionResult: saved, defaultShouldRevalidate: true })).toBe(false);
-  for (const code of ["ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED"]) expect(shouldRevalidate({ actionResult: { operation: "save_changes", code }, defaultShouldRevalidate: true })).toBe(true);
+  for (const code of ["DELIVERY_LOCKED", "ORDER_CANCELLED", "CUSTOMER_REQUIRED"]) expect(shouldRevalidate({ actionResult: { operation: "save_changes", code }, defaultShouldRevalidate: true })).toBe(true);
   for (const code of ["ORDER_CHANGED", "TOTAL_CHANGED", "INVALID_INPUT", "PERSISTENCE_UNAVAILABLE"]) expect(shouldRevalidate({ actionResult: { operation: "save_changes", code }, defaultShouldRevalidate: true })).toBe(false);
   expect(shouldRevalidate({ actionResult: { operation: "save_changes", lost: "in-doubt" }, defaultShouldRevalidate: true })).toBe(false);
   expect(shouldRevalidate({ actionResult: { url: null, success: true, error: false }, defaultShouldRevalidate: true })).toBe(true);

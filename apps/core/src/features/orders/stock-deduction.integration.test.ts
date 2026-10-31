@@ -255,6 +255,37 @@ test("shipping a partially paid order with short stock still answers INSUFFICIEN
   expect(await s.stock()).toBe(0);
 });
 
+test("delivering a partially paid order deducts the pending stock and keeps the balance open", async () => {
+  const s = await shop([4]);
+  const id = await s.create([[0, 4]]);
+  expect(await s.run(() => orders.deliver(id, s.context))).toMatchObject({ success: false, error: { code: "PAYMENT_REQUIRED" } });
+  await s.pay(id, 10);
+  expect(await s.deducted(id)).toBe(false);
+  expect(await s.run(() => orders.deliver(id, s.context))).toMatchObject({ success: true,
+    data: { deliveryStatus: "delivered", stockDeducted: true, deliveredAt: expect.any(Date), completedAt: null } });
+  expect(await s.stock()).toBe(0);
+  const covered = await s.pay(id, 30);
+  expect(covered).toMatchObject({ success: true, data: { order: { deliveredAt: expect.any(Date), completedAt: expect.any(Date) } } });
+});
+
+test("delivering a shipped, partially paid order succeeds without completing it", async () => {
+  const s = await shop([4]);
+  const id = await s.create([[0, 4]]);
+  await s.pay(id, 10);
+  expect(await s.run(() => orders.ship(id, s.context))).toMatchObject({ success: true, data: { deliveryStatus: "shipped" } });
+  expect(await s.run(() => orders.deliver(id, s.context))).toMatchObject({ success: true, data: { deliveryStatus: "delivered", completedAt: null } });
+  expect(await s.stock()).toBe(0);
+});
+
+test("delivering a partially paid order with short stock answers INSUFFICIENT_STOCK and persists nothing", async () => {
+  const s = await shop([3]);
+  const id = await s.create([[0, 4]]);
+  await s.pay(id, 10);
+  expect(await s.run(() => orders.deliver(id, s.context))).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK", variantId: s.variants[0] } });
+  expect(await s.stock()).toBe(3);
+  expect(await s.run(async () => await prisma.order.findUniqueOrThrow({ where: { id } }))).toMatchObject({ deliveryStatus: "pending", deliveredAt: null, stockDeducted: false });
+});
+
 test("a stock row with an invalid quantity under a covering payment commits the payment and shows the order as being deducted", async () => {
   const s = await shop([9007199254740993n]);
   const id = await s.create([[0, 2]]);

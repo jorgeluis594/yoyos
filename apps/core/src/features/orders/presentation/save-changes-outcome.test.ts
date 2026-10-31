@@ -42,9 +42,8 @@ describe("a refused save_changes", () => {
     expect(outcome.state.base?.items.revision).toBe(revisions.items);
   });
 
-  test("asks for a revalidation that resets the products on ITEMS_LOCKED and one that keeps them on DELIVERY_LOCKED", () => {
-    expect(saveChangesOutcome(edited(), refuse("ITEMS_LOCKED"), context)).toMatchObject({ notice: { kind: "itemsLocked" }, resetProducts: true });
-    expect(saveChangesOutcome(edited(), refuse("DELIVERY_LOCKED"), context)).toMatchObject({ notice: { kind: "locked", code: "DELIVERY_LOCKED" }, resetProducts: false });
+  test("tells the order moved on when delivery or cancellation locks the save", () => {
+    expect(saveChangesOutcome(edited(), refuse("DELIVERY_LOCKED"), context).notice).toEqual({ kind: "locked", code: "DELIVERY_LOCKED" });
     expect(saveChangesOutcome(edited(), refuse("ORDER_CANCELLED"), context).notice).toEqual({ kind: "locked", code: "ORDER_CANCELLED" });
   });
 
@@ -69,6 +68,12 @@ describe("a refused save_changes", () => {
     expect(added).toMatchObject({ unavailableVariantId: "new-variant", notice: { kind: "alert", focus: "order-line-new-variant", text: "Uno de los productos ya no está disponible." } });
     const kept = saveChangesOutcome(edited(), refuse("VARIANT_NOT_FOUND", { variantId: trajeM }), context);
     expect(kept.notice).toMatchObject({ text: "Este producto ya no se vende; puedes bajar la cantidad o quitarlo.", focus: `order-line-${trajeM}` });
+  });
+
+  test("tells the seller the customer of a buyer-confirmed order cannot be left empty and keeps the edits", () => {
+    const outcome = saveChangesOutcome(edited(), refuse("CUSTOMER_REQUIRED"), context);
+    expect(outcome.notice).toMatchObject({ kind: "alert", focus: "customer-name", text: "El comprador confirmó este pedido con sus datos. Puedes cambiar el cliente, pero no dejarlo vacío." });
+    expect(unsavedParts(outcome.state)).toEqual(["items"]);
   });
 
   test("answers persistence, business and malformed errors with generic texts that keep the edits", () => {

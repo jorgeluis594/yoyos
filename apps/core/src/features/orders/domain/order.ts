@@ -16,11 +16,13 @@ export type PositiveInteger = number & { readonly __brand: "PositiveInteger" };
 export type OrderCustomer = Readonly<{ kind: "general_public" }> | Readonly<{ kind: "contact"; contactId: ContactId; name: string | null; phone: string | null }> | Readonly<{ kind: "buyer"; name: string; phone: string }>;
 /** Price the buyer wrote in the chat for an item, in the order currency. Stored for display only: it never changes the unit price. */
 export type MentionedPrice = Readonly<{ amount: Money; units: number }>;
-export type OrderItem = Readonly<{ id: OrderItemId; variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; quantity: PositiveInteger; unitPrice: Money; subtotal: Money; mentionedPrice?: MentionedPrice | null }>;
+export type OrderItem = Readonly<{ id: OrderItemId; variantId: VariantId; productName: string; variantAttributes: Readonly<Record<string, string>>; sku: string | null; quantity: PositiveInteger; unitPrice: Money; subtotal: Money; mentionedPrice?: MentionedPrice | null;
+  /** Units already taken out of the variant stock; a line that was just added has 0. */
+  stockDeductedQuantity: number }>;
 export type Order = OrderAggregate;
 export type PricedOrder = Pick<Order, "id" | "companyId" | "sellerId" | "createdAt" | "items" | "total"> & Readonly<{ customer: OrderCustomer }>;
 export type BuildOrderError = Readonly<{ code: "INVALID_ORDER" | "CURRENCY_MISMATCH"; message: string; item?: number }>;
-export type BuildOrderItem = Readonly<Omit<OrderItem, "quantity" | "subtotal"> & { quantity: number }>;
+export type BuildOrderItem = Readonly<Omit<OrderItem, "quantity" | "subtotal" | "stockDeductedQuantity"> & { quantity: number; stockDeductedQuantity?: number }>;
 export type BuildOrderInput = Readonly<Omit<PricedOrder, "items" | "total"> & { items: readonly BuildOrderItem[] }>;
 
 const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -59,7 +61,7 @@ export function buildOrder(input: BuildOrderInput): Result<PricedOrder, BuildOrd
     const nextTotal = total ? add(subtotal.data)(total) : ok(subtotal.data);
     if (!nextTotal.success || !validAmount(nextTotal.data.amount, maxTotalCents)) return err({ code: "INVALID_ORDER", message: "Total exceeds supported range", item: index });
     total = nextTotal.data;
-    items.push({ ...item, quantity: item.quantity as PositiveInteger, variantAttributes: { ...item.variantAttributes }, unitPrice: { ...item.unitPrice }, subtotal: subtotal.data, mentionedPrice: item.mentionedPrice ?? null });
+    items.push({ ...item, quantity: item.quantity as PositiveInteger, variantAttributes: { ...item.variantAttributes }, unitPrice: { ...item.unitPrice }, subtotal: subtotal.data, mentionedPrice: item.mentionedPrice ?? null, stockDeductedQuantity: item.stockDeductedQuantity ?? 0 });
   }
   return ok({ id: input.id, companyId: input.companyId, sellerId: input.sellerId,
     customer: input.customer.kind === "general_public" ? { kind: "general_public" } : { ...input.customer },

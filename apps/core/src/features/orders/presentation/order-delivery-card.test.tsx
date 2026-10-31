@@ -11,8 +11,9 @@ import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settin
 import { ok } from "@shared/functional";
 import { OrderDeliveryCard } from "@core/src/features/orders/presentation/order-delivery-card";
 import {
-  buildCreateRequest, clearCustomer, initialDraft, invalidFields, setCustomer, type DeliveryDraft, type OrderViewState,
+  buildCreateRequest, clearCustomer, initialDraft, invalidFields, refreshFromLoader, setCustomer, type DeliveryDraft, type OrderViewState,
 } from "@core/src/features/orders/presentation/order-view-state";
+import { applyRateRecovery } from "@core/src/features/orders/presentation/new-sale-outcome";
 
 vi.mock("@core/src/features/delivery-settings/infrastructure/quotation-api", () => ({ requestDeliveryQuotation: vi.fn() }));
 vi.mock("@core/app/components/peru-district-select", () => ({
@@ -68,8 +69,7 @@ describe("OrderDeliveryCard", () => {
     return <I18nextProvider i18n={i18n}><MemoryRouter>
       <OrderDeliveryCard state={state} settings={provided} invalid={invalidFields(state)} settingsHref="/pe/settings/delivery"
         onChange={(delivery: DeliveryDraft) => set(current => ({ ...current, draft: { ...current.draft, delivery } }))}
-        onDeliverImmediatelyChange={(deliverImmediately) => set(current => ({ ...current, draft: { ...current.draft, deliverImmediately } }))}
-        fulfillment={<button type="button">Marcar enviado</button>} />
+        onDeliverImmediatelyChange={(deliverImmediately) => set(current => ({ ...current, draft: { ...current.draft, deliverImmediately } }))} />
     </MemoryRouter></I18nextProvider>;
   }
   async function mount(initial: OrderViewState, provided: DeliverySettingsResponse | null = settings) {
@@ -168,7 +168,7 @@ describe("OrderDeliveryCard", () => {
     expect(document.body.textContent).toContain("Costo de entrega (interno)");
   });
 
-  test("offers Marcar como entregado al guardar only on a new sale and marks it when payments do not cover", async () => {
+  test("offers Marcar como entregado al guardar only on a new sale and marks it until there is a payment", async () => {
     const start = newState();
     const line = { variantId: "00000000-0000-4000-8000-0000000000a1", productName: "Corona", attributes: {}, sku: null, unitPrice: pen(35), quantityText: "1", stock: 5, sellable: true };
     await mount({ ...start, draft: { ...start.draft, items: [line] } });
@@ -176,17 +176,18 @@ describe("OrderDeliveryCard", () => {
     expect(box).not.toBeNull();
     await act(async () => { box.click(); });
     expect(latest.draft.deliverImmediately).toBe(true);
-    expect(document.body.textContent).toContain("Para marcarlo entregado, los pagos deben cubrir el total.");
+    expect(document.body.textContent).toContain("Para marcarlo entregado, registra al menos un pago. Puede ser un pago parcial.");
     act(() => root!.unmount());
     document.body.innerHTML = "";
     await mount(savedState());
     expect(document.getElementById("order-delivery-deliverImmediately")).toBeNull();
   });
 
-  test("locks the fields of a shipped order with its note and keeps the fulfillment slot", async () => {
+  test("locks the fields of a shipped order with its note and has no fulfillment buttons any more", async () => {
     await mount(savedState({ deliveryStatus: "shipped" }));
     expect(document.body.textContent).toContain("La entrega ya salió; no se puede cambiar.");
-    expect(document.body.textContent).toContain("Marcar enviado");
+    expect(document.body.textContent).not.toContain("Marcar enviado");
+    expect(document.body.textContent).not.toContain("Marcar entregado");
     expect(field("name").matches(":disabled")).toBe(true);
     expect(tab("Domicilio").disabled).toBe(true);
   });
@@ -213,6 +214,29 @@ describe("OrderDeliveryCard", () => {
     await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=district]")!.click(); });
     expect(requestDeliveryQuotation).toHaveBeenCalledTimes(1);
     expect(document.querySelector("[data-testid=saved-delivery]")).toBeNull();
+  });
+
+  test("quotes again after a refused save without choosing the district again, and a revalidation keeps the rate picked afterwards", async () => {
+    let quotations = 0;
+    vi.mocked(requestDeliveryQuotation).mockImplementation(async () => {
+      quotations += 1;
+      return ok({ rates: [{ id: `00000000-0000-4000-8000-00000000010${quotations}`, method: "home", price: pen(12), optionId: "o", zoneId: "z", zoneName: "Lima" }] } as never);
+    });
+    await mount(savedState());
+    await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=district]")!.click(); });
+    expect(requestDeliveryQuotation).toHaveBeenCalledTimes(1);
+    for (const refusal of [{ price: pen(12) }, "clear" as const]) {
+      const before = vi.mocked(requestDeliveryQuotation).mock.calls.length;
+      await act(async () => setState((state) => applyRateRecovery(state, refusal)));
+      expect(requestDeliveryQuotation).toHaveBeenCalledTimes(before + 1);
+      expect(latest.draft.delivery.fields.districtCode).toBe("150122");
+    }
+    const picked = `00000000-0000-4000-8000-00000000010${quotations}`;
+    await act(async () => setState((state) => ({ ...state, draft: { ...state.draft, delivery: { ...state.draft.delivery, fields: { ...state.draft.delivery.fields, rateId: picked, ratePrice: pen(12) } } } })));
+    const calls = vi.mocked(requestDeliveryQuotation).mock.calls.length;
+    await act(async () => setState((state) => refreshFromLoader(state, { order: order(), revisions, lineCatalog: null })));
+    expect(requestDeliveryQuotation).toHaveBeenCalledTimes(calls);
+    expect(latest.draft.delivery.fields.rateId).toBe(picked);
   });
 
   test("shows the saved rate of a locked home order as the internal cost", async () => {

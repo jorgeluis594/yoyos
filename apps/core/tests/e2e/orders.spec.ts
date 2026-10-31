@@ -208,7 +208,7 @@ test("pending order remains active when paid before delivery", async ({ page }) 
     await page.getByRole("table", { name: "Órdenes" }).getByRole("link", { name: "Público general" }).click();
     await browserExpect(page).toHaveURL(new RegExp(`/orders/${orderId}$`));
     await browserExpect(page.getByRole("group", { name: "Estado del pago: Pago pendiente" })).toBeVisible();
-    await browserExpect(page.getByText("Sin pagos · necesario para despachar")).toBeVisible();
+    await browserExpect(page.getByText("Sin pagos · necesario para enviar")).toBeVisible();
     await browserExpect(page.getByText("Saldo pendiente").locator("xpath=following-sibling::dd")).toHaveText(formatCurrency(10, "PEN", "es"));
     expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(2n);
     const paymentId = crypto.randomUUID();

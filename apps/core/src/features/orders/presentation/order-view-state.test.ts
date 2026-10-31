@@ -2,8 +2,8 @@ import { describe, expect, test } from "vitest";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { EditOrderResult } from "@core/src/features/orders/presentation/order-edit-schemas";
 import {
-  applySaveResult, buildCreateRequest, buildEditRequest, clearCustomer, estimate, inDoubtOutcome, initialDraft, invalidFields, isEmptyDraft, lineWarnings,
-  refreshFromLoader, resetProducts, screenLocks, setCustomer, unsavedParts, type DeliveryDraft, type DraftLine, type LoadedOrder, type OrderViewState,
+  applySaveResult, buildCreateRequest, buildEditRequest, clearCustomer, customerRequired, estimate, inDoubtOutcome, initialDraft, invalidFields, isEmptyDraft, lineWarnings,
+  refreshFromLoader, screenLocks, setCustomer, unsavedParts, type DeliveryDraft, type DraftLine, type LoadedOrder, type OrderViewState,
 } from "@core/src/features/orders/presentation/order-view-state";
 
 const orderId = "00000000-0000-4000-8000-000000001042";
@@ -36,7 +36,7 @@ const yape = {
 function order1042(patch: Partial<OrderAggregateResponse> = {}): OrderAggregateResponse {
   return {
     checkoutEnabledAt: null, checkoutConfirmedAt: null, number: 1042, id: orderId, companyId, sellerId: "user-1", buyer: { contactId: null, name: "Jorge Gonzalez", phone: "+51977909427" },
-    source: "manual", createdAt: "2026-10-30T09:10:00.000Z", scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, status: "active",
+    source: "manual", createdAt: "2026-10-30T09:10:00.000Z", scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelledAt: null, stockDeductedAt: null, status: "active",
     paymentStatus: "pending", paidAmount: pen(150), balanceDue: pen(148), overpaidAmount: pen(0), cancelled: false, delivery: homeDelivery, deliveryStatus: "pending",
     stockDeducted: false, stockDue: null,
     items: [item("00000000-0000-4000-8000-000000000001", trajeM, "Traje de Príncipe Azul", "M", 89), item("00000000-0000-4000-8000-000000000002", trajeL, "Traje de Príncipe Azul", "L", 89),
@@ -124,6 +124,22 @@ describe("edit request", () => {
   test("sends a null customer when both fields are emptied", () => {
     const cleared = clearCustomer(savedState());
     expect(expectRequest(buildEditRequest(cleared)).customer).toEqual({ base: revisions.customer, value: null });
+  });
+
+  test("requires the customer of an order confirmed by the buyer, and not of one that was not", () => {
+    const confirmed = savedState({ order: order1042({ checkoutEnabledAt: "2026-10-30T09:10:00.000Z", checkoutConfirmedAt: "2026-10-30T09:15:00.000Z" }) });
+    expect(customerRequired(confirmed)).toBe(true);
+    expect(customerRequired(savedState())).toBe(false);
+    expect(customerRequired(initialDraft({ kind: "new", orderId, currency: "PEN" } as never))).toBe(false);
+  });
+
+  test("keeps clearing the customer a no-op and marks emptied fields on a buyer-confirmed order", () => {
+    const confirmed = savedState({ order: order1042({ checkoutEnabledAt: "2026-10-30T09:10:00.000Z", checkoutConfirmedAt: "2026-10-30T09:15:00.000Z" }) });
+    expect(clearCustomer(confirmed)).toBe(confirmed);
+    const emptied = { ...confirmed, draft: { ...confirmed.draft, customer: { name: "", phone: "" } } };
+    expect(invalidFields(emptied)).toContainEqual({ section: "customer", field: "customerName", reason: "customer_incomplete" });
+    const changed = { ...confirmed, draft: { ...confirmed.draft, customer: { name: "Marta", phone: "+51999000111" } } };
+    expect(invalidFields(changed).filter(mark => mark.section === "customer")).toEqual([]);
   });
 
   test("chooses amend when only the recipient, address or reference changed", () => {
@@ -243,6 +259,13 @@ describe("invalid fields", () => {
       payments: [{ paymentId: "p1", amount: "20.505", method: "digital_wallet", walletProvider: "yape", deductStockIfPartial: false }] } };
     expect(invalidFields(state)).toMatchObject([{ section: "payments", field: "amount", id: "p1" }, { section: "delivery", field: "deliverImmediately", reason: "deliver_needs_payment" }]);
   });
+
+  test("deliver on save needs one payment, and a partial one is enough", () => {
+    const base = initialDraft({ kind: "new", orderId, currency: "PEN" });
+    const withPayments = (payments: OrderViewState["draft"]["payments"]) => ({ ...base, draft: { ...base.draft, items: [newLine(crown, "2")], deliverImmediately: true, payments } });
+    expect(invalidFields(withPayments([]))).toMatchObject([{ section: "delivery", field: "deliverImmediately", reason: "deliver_needs_payment" }]);
+    expect(invalidFields(withPayments([{ paymentId: "p1", amount: "1.00", method: "digital_wallet", walletProvider: "yape", deductStockIfPartial: false }]))).toEqual([]);
+  });
 });
 
 describe("estimate", () => {
@@ -281,12 +304,12 @@ describe("estimate", () => {
 });
 
 describe("screen locks", () => {
-  test("locks products while stock is deducting, deducted, shipped or delivered", () => {
+  test("locks products once shipped or delivered, but not while stock is deducting or once it is deducted", () => {
     const lock = (patch: Partial<OrderAggregateResponse>) => screenLocks(savedState({ order: order1042(patch) }));
     expect(lock({})).toEqual({ products: null, customer: null, delivery: null });
     expect(lock({ stockDue: { kind: "waiting", shortItems: [{ variantId: deadpoolM, available: 0 }] } }).products).toBeNull();
-    expect(lock({ stockDue: { kind: "deducting" } })).toEqual({ products: "deducting", customer: null, delivery: null });
-    expect(lock({ stockDeducted: true })).toEqual({ products: "deducted", customer: null, delivery: null });
+    expect(lock({ stockDue: { kind: "deducting" } })).toEqual({ products: null, customer: null, delivery: null });
+    expect(lock({ stockDeducted: true })).toEqual({ products: null, customer: null, delivery: null });
     expect(lock({ stockDeducted: true, deliveryStatus: "shipped", shippedAt: "2026-10-31T10:00:00.000Z" })).toEqual({ products: "shipped", customer: null, delivery: "shipped" });
     expect(lock({ stockDeducted: true, deliveryStatus: "delivered", deliveredAt: "2026-10-31T10:00:00.000Z" })).toEqual({ products: "delivered", customer: null, delivery: "delivered" });
     expect(lock({ stockDeducted: true, deliveryStatus: "delivered", deliveredAt: "2026-10-31T10:00:00.000Z", status: "completed", completedAt: "2026-10-31T16:40:00.000Z" }).products).toBe("delivered");
@@ -386,20 +409,6 @@ describe("pinned base", () => {
     expect(refreshed.draft.delivery.sameAsCustomer).toBe(false);
     const typing = setCustomer(refreshed, { name: "Ana P", phone: "+51977909427" });
     expect(unsavedParts(typing)).toEqual(["customer"]);
-  });
-
-  test("keeps the customer and delivery base revisions when products are reset after ITEMS_LOCKED", () => {
-    let edited = typeQuantity(savedState(), deadpoolM, "2");
-    edited = setCustomer(edited, { name: "Ana Pérez", phone: "+51977909427" });
-    const fresh = { order: order1042({ stockDeducted: true }), revisions: { items: revision("X"), customer: revision("Y"), delivery: revision("W") }, lineCatalog: null };
-    const reset = resetProducts(edited, fresh);
-    expect(reset.draft.items.map((line) => line.quantityText)).toEqual(["1", "1", "1"]);
-    expect(reset.base?.items.revision).toBe(revision("X"));
-    expect(reset.base?.customer.revision).toBe(revisions.customer);
-    expect(reset.base?.delivery.revision).toBe(revisions.delivery);
-    expect(reset.draft.customer.name).toBe("Ana Pérez");
-    expect(unsavedParts(reset)).toEqual(["customer", "delivery"]);
-    expect(screenLocks(reset).products).toBe("deducted");
   });
 
   test("re-pins every part from a save result and clears the draft of the applied parts", () => {

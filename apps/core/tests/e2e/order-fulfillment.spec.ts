@@ -25,9 +25,16 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
         } })).ok()).toBe(true);
       }
       await page.goto(`/es-PE/orders/${orderId}`);
-      await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
-      await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
-      await browserExpect(page.getByText("Se requiere al menos un pago para despachar.").first()).toBeVisible();
+      const statusCard = page.getByRole("region", { name: "Estado del pedido" });
+      if (mode === "pickup") {
+        await browserExpect(statusCard.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
+        await browserExpect(statusCard.getByText("Registra al menos un pago para entregar. Puede ser un pago parcial.")).toBeVisible();
+      } else {
+        await browserExpect(statusCard.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
+        await browserExpect(statusCard.getByRole("button", { name: "Entregar directamente", exact: true })).toBeDisabled();
+        await browserExpect(statusCard.getByText("Registra al menos un pago para enviar. Puede ser un pago parcial.")).toBeVisible();
+      }
+      await browserExpect(statusCard.getByRole("button", { name: "Cancelar pedido", exact: true })).toBeEnabled();
       for (const operation of ["ship", "deliver"] as const) {
         const blocked = await page.request.post(`/api/orders/${orderId}/${operation}`);
         expect(blocked.status()).toBe(409);
@@ -57,7 +64,7 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
         await page.getByRole("button", { name: "Marcar enviado", exact: true }).click();
         await browserExpect(page.getByRole("status").filter({ hasText: "Pedido marcado como enviado." })).toBeVisible();
         await browserExpect(page.getByRole("group", { name: "Estado de la entrega: Enviada" })).toBeVisible();
-        await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
+        await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toHaveCount(0);
         expect((await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).payments).toEqual(before.payments);
         for (const operation of ["ship", "cancel"] as const) {
           const blocked = await page.request.post(`/api/orders/${orderId}/${operation}`);
@@ -74,10 +81,10 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
         expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
         await page.screenshot({ path: "/tmp/order-fulfillment-mobile.png", fullPage: true });
       }
-      await page.getByRole("button", { name: "Marcar entregado", exact: true }).click();
+      await page.getByRole("button", { name: mode === "handover" ? "Entregar directamente" : "Marcar entregado", exact: true }).click();
       await browserExpect(page.getByRole("status").filter({ hasText: "Pedido marcado como entregado." })).toBeVisible();
       await browserExpect(page.getByText("Venta completada", { exact: true })).toBeVisible();
-      await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
+      await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toHaveCount(0);
       const after = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
       expect(after.payments).toEqual(before.payments);
       expect(after).toMatchObject({ status: "completed", paymentStatus: "paid", deliveryStatus: "delivered", completedAt: expect.any(String) });
@@ -98,6 +105,41 @@ test("seller ships or delivers directly, refreshes details and list, and preserv
       await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
       await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await prisma.companyDeliverySettings.deleteMany();
+      await systemPrisma.user.deleteMany({ where: { email } });
+      await prisma.company.delete({ where: { id: companyId } });
+    });
+  }
+});
+
+test("seller ships and delivers an order with a partial payment and it keeps a balance due", async ({ page }) => {
+  const email = `partial-delivery-${crypto.randomUUID()}@example.test`;
+  let companyId: string | undefined;
+  try {
+    companyId = await prepareVerifiedCompany(page, { email, name: "Seller", companyName: "Partial delivery", country: "PE" });
+    const tenantId = companyId;
+    const variantId = await withTenantIsolation(tenantId, async () => {
+      const product = await productEditing.create({ name: "Partial product", currency: "PEN", options: [], variants: [{ values: [], salePrice: 10, initialStock: 5 }] });
+      if (!product.success) throw new Error("Product setup failed");
+      return (await prisma.productVariant.findFirstOrThrow({ where: { productId: product.data } })).id;
+    });
+    const orderId = crypto.randomUUID();
+    expect((await page.request.post("/api/orders", { data: { id: orderId, items: [{ variantId, quantity: 2 }] } })).status()).toBe(201);
+    expect((await page.request.post(`/api/orders/${orderId}/payments`, { data: { paymentId: crypto.randomUUID(),
+      amount: { amount: 5, currency: "PEN" }, method: "digital_wallet", deductStockIfPartial: false } })).ok()).toBe(true);
+    await page.goto(`/es-PE/orders/${orderId}`);
+    const statusCard = page.getByRole("region", { name: "Estado del pedido" });
+    await statusCard.getByRole("button", { name: "Marcar enviado", exact: true }).click();
+    await browserExpect(page.getByRole("status").filter({ hasText: "Pedido marcado como enviado." })).toBeVisible();
+    await statusCard.getByRole("button", { name: "Marcar entregado", exact: true }).click();
+    await browserExpect(page.getByRole("status").filter({ hasText: "Pedido marcado como entregado." })).toBeVisible();
+    await browserExpect(statusCard.getByRole("button")).toHaveCount(0);
+    const after = await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json();
+    expect(after).toMatchObject({ status: "active", paymentStatus: "pending", deliveryStatus: "delivered", stockDeducted: true, deliveredAt: expect.any(String), completedAt: null });
+    expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(3n);
+  } finally {
+    if (companyId) await withTenantIsolation(companyId, async () => {
+      await prisma.payment.deleteMany(); await prisma.orderItem.deleteMany(); await prisma.order.deleteMany();
+      await prisma.productStock.deleteMany(); await prisma.productVariant.deleteMany(); await prisma.productOption.deleteMany(); await prisma.product.deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } });
       await prisma.company.delete({ where: { id: companyId } });
     });
@@ -133,9 +175,9 @@ test("mobile fulfillment refreshes details and history through the real API", as
       await browserExpect(page.getByText(new RegExp(`#${pending.number} ·`))).toBeVisible({ timeout: 90000 });
       await page.getByText(new RegExp(`#${pending.number} ·`)).click();
       await browserExpect(page.getByText("Orden activa", { exact: true })).toBeVisible();
-      const primary = page.getByRole("button", { name: shipFirst ? "Marcar como despachado" : "Marcar como entregado", exact: true });
+      const primary = page.getByRole("button", { name: shipFirst ? "Marcar como enviado" : "Marcar como entregado", exact: true });
       await browserExpect(primary).toBeDisabled();
-      await browserExpect(page.getByText(shipFirst ? "Se requiere al menos un pago para despachar." : "Se requiere el pago completo antes de entregar.").first()).toBeVisible();
+      await browserExpect(page.getByText(shipFirst ? "Se requiere al menos un pago para enviar." : "Registra al menos un pago para entregar. Puede ser un pago parcial.").first()).toBeVisible();
       await page.getByRole("button", { name: "Registrar pago", exact: true }).click();
       await page.getByRole("button", { name: /^Registrar .*\d/ }).click();
       await browserExpect(primary).toBeEnabled();
@@ -143,16 +185,16 @@ test("mobile fulfillment refreshes details and history through the real API", as
       expect(before.payments).toHaveLength(1);
       const stockBefore = await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity);
       if (shipFirst) {
-        await page.getByRole("button", { name: "Marcar como despachado", exact: true }).click();
+        await page.getByRole("button", { name: "Marcar como enviado", exact: true }).click();
         await browserExpect(page.getByText("Pedido marcado como enviado.", { exact: true })).toBeVisible();
-        await browserExpect(page.getByRole("button", { name: "Marcar como despachado", exact: true })).toHaveCount(0);
+        await browserExpect(page.getByRole("button", { name: "Marcar como enviado", exact: true })).toHaveCount(0);
         const shipped = await (await page.request.get(`${coreOrigin}/api/orders/${orderId}/aggregate`)).json();
         expect(shipped.deliveryStatus).toBe("shipped");
         expect(shipped.payments).toEqual(before.payments);
-        await browserExpect(page.getByText("Despachado", { exact: true })).toBeVisible();
+        await browserExpect(page.getByText("Enviado", { exact: true })).toBeVisible();
         await page.getByRole("button", { name: "Volver a pedidos", exact: true }).click();
         const row = page.getByRole("button").filter({ hasText: `#${before.number} ·` });
-        await browserExpect(row).toContainText("Despachado");
+        await browserExpect(row).toContainText("Enviado");
         await row.click();
       }
       await page.getByRole("button", { name: "Marcar como entregado", exact: true }).click();
@@ -161,7 +203,7 @@ test("mobile fulfillment refreshes details and history through the real API", as
       const after = await (await page.request.get(`${coreOrigin}/api/orders/${orderId}/aggregate`)).json();
       expect(after.payments).toEqual(before.payments);
       expect(after).toMatchObject({ status: "completed", deliveryStatus: "delivered", stockDeducted: true });
-      await browserExpect(page.getByRole("button", { name: "Marcar como despachado", exact: true })).toHaveCount(0);
+      await browserExpect(page.getByRole("button", { name: "Marcar como enviado", exact: true })).toHaveCount(0);
       await browserExpect(page.getByRole("button", { name: "Marcar como entregado", exact: true })).toHaveCount(0);
       expect(await withTenantIsolation(tenantId, async () => (await prisma.productStock.findUniqueOrThrow({ where: { variantId } })).quantity)).toBe(stockBefore);
       if (shipFirst) await page.getByRole("button", { name: "Volver a pedidos", exact: true }).click();

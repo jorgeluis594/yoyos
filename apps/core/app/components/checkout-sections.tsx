@@ -134,13 +134,11 @@ function deliverySummary(delivery: NonNullable<PublicCheckoutResponse["delivery"
   return `${mode} · ${where}`;
 }
 
-/** «Datos del comprador» in two lines: name and phone, then how and where the order is delivered. Without name and phone only the delivery line shows, and without either the card is hidden. */
+/** «Datos del comprador» in two lines: name and phone, then how and where the order is delivered. */
 export function CheckoutBuyerDetails({ buyer, delivery }: Readonly<{ buyer: PublicCheckoutResponse["buyer"]; delivery: PublicCheckoutResponse["delivery"] }>) {
   const { t } = useTranslation();
-  const hasContact = Boolean(buyer?.name || buyer?.phone);
-  if (!hasContact && !delivery) return null;
-  return <section data-store-part="card" className={checkoutCard}><h2 data-store-part="section-title" className={sectionTitle}>{t("checkoutSections.buyerDetails")}</h2>
-    <div>{hasContact && <p className="font-medium">{buyer?.name}{buyer?.name && buyer.phone && " "}{buyer?.phone && <span className="font-normal text-muted-foreground tabular-nums">{buyer.name && "· "}{buyer.phone}</span>}</p>}
+  return buyer && <section data-store-part="card" className={checkoutCard}><h2 data-store-part="section-title" className={sectionTitle}>{t("checkoutSections.buyerDetails")}</h2>
+    <div><p className="font-medium">{buyer.name} <span className="font-normal text-muted-foreground tabular-nums">· {buyer.phone}</span></p>
       {delivery && <p className="text-muted-foreground">{deliverySummary(delivery, t(`checkoutDelivery.method.${delivery.method}`))}</p>}</div></section>;
 }
 
