@@ -20,6 +20,11 @@ export function toLegacyOrderJson(order: OrderAggregate) {
       unitPrice: item.unitPrice.amount, subtotal: item.subtotal.amount, mentionedPrice: item.mentionedPrice ?? null })) });
 }
 
+/** The per-line deducted units are internal; the contract exposes the order-level stockDue instead. */
+function omitDeducted<T extends { stockDeductedQuantity?: number }>(item: T): Omit<T, "stockDeductedQuantity"> {
+  return Object.fromEntries(Object.entries(item).filter(([key]) => key !== "stockDeductedQuantity")) as Omit<T, "stockDeductedQuantity">;
+}
+
 /** `stockDue` is described by the caller: inside the producer's transaction or in a read snapshot. Summaries and lists pass null and never expose it. */
 export function toOrderAggregateJson(order: OrderAggregate, stockDue: StockDue | null) {
   const lifecycle = orderStateMachine.getLifecycle(order);
@@ -27,7 +32,7 @@ export function toOrderAggregateJson(order: OrderAggregate, stockDue: StockDue |
   if (!lifecycle.success || !payment.success) throw new Error("Invalid order aggregate response");
   // The contract exposes `source`, not the chat id, the catalog flag or the terminal times.
   const fields = Object.fromEntries(Object.entries(order).filter(([key]) => !["chatId", "fromCatalog", "cancelledAt", "stockDeductedAt"].includes(key)));
-  return orderAggregateSchema.parse({ ...fields, items: order.items.map(({ stockDeductedQuantity: _deducted, ...item }) => ({ ...item, mentionedPrice: item.mentionedPrice ?? null })), source: orderSource(order), stockDue, checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), shippedAt: order.shippedAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null,
+  return orderAggregateSchema.parse({ ...fields, items: order.items.map((item) => ({ ...omitDeducted(item), mentionedPrice: item.mentionedPrice ?? null })), source: orderSource(order), stockDue, checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), shippedAt: order.shippedAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null,
     completedAt: order.completedAt?.toISOString() ?? null, status: lifecycle.data.status,
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,
