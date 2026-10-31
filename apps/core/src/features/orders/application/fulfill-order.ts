@@ -18,9 +18,9 @@ export type FulfillOrderDependencies = Readonly<{
   clock: () => Date;
 }>;
 
-/** Shipping deducts the stock when it is still pending; short stock fails and the surrounding transaction persists nothing. */
-export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
-  const plan = orderStateMachine.planStockDeduction(order, true, shippedAt);
+/** Shipping and delivering deduct the stock when it is still pending; short stock fails and the surrounding transaction persists nothing. */
+async function deductPendingStock(order: OrderAggregate, at: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
+  const plan = orderStateMachine.planStockDeduction(order, true, at);
   if (!plan.success) return plan;
   if (plan.data.kind === "deduct") {
     const variantIds = order.items.map((item) => item.variantId).sort();
@@ -35,10 +35,21 @@ export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: Fu
     const deducted = await deps.deductStockBulk(lines);
     if (!deducted.success) return deducted;
     if (deducted.data !== lines.length) return err({ code: "INSUFFICIENT_STOCK", message: "Not enough stock", variantId: lines[0]!.variantId });
-    const saved = await deps.saveStockDeduction(order.id, order.companyId, shippedAt);
+    const saved = await deps.saveStockDeduction(order.id, order.companyId, at);
     if (!saved.success) return saved;
   }
-  return orderStateMachine.registerShipment(plan.data.nextOrder, shippedAt);
+  return { success: true, data: plan.data.nextOrder };
+}
+
+export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
+  const deducted = await deductPendingStock(order, shippedAt, deps);
+  return deducted.success ? orderStateMachine.registerShipment(deducted.data, shippedAt) : deducted;
+}
+
+/** Delivering needs a confirmed payment, partial or full, and deducts pending stock like shipping does. */
+export async function deliverOrder(order: OrderAggregate, deliveredAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
+  const deducted = await deductPendingStock(order, deliveredAt, deps);
+  return deducted.success ? orderStateMachine.registerDelivery(deducted.data, deliveredAt) : deducted;
 }
 
 export async function registerShipment(id: OrderId, context: OrderAccess, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
@@ -58,7 +69,7 @@ export async function registerDelivery(id: OrderId, context: OrderAccess, deps: 
     const found = await deps.findOrderForUpdate(id, context.companyId);
     if (!found.success) return found;
     if (!found.data) return err({ code: "ORDER_NOT_FOUND", message: "Order is not available" });
-    const delivered = orderStateMachine.registerDelivery(found.data, deps.clock());
+    const delivered = await deliverOrder(found.data, deps.clock(), deps);
     if (!delivered.success) return delivered;
     const saved = await deps.saveFulfillment(id, context.companyId, delivered.data);
     return saved.success ? delivered : saved;
