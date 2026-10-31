@@ -194,7 +194,8 @@ test("hides an orders-only connection from the list, ends it on its next call an
   const response = await mcp(token, rpc("tools/call", { name: "buscar_pedidos", arguments: {} }));
   expect(response.status).toBe(401);
   expect(await withTenantIsolation(rosa.companyId, async () => await prisma.assistantConnection.count())).toBe(0);
-  const tokens = await systemPrisma.oauthAccessToken.findMany({ where: { clientId, userId: rosa.userId } });
+  // Access tokens are JWTs with no stored row; the refresh tokens are the stored part of the grant.
+  const tokens = await systemPrisma.oauthRefreshToken.findMany({ where: { clientId, userId: rosa.userId } });
   expect(tokens.length).toBeGreaterThan(0);
   expect(tokens.every((row) => row.revoked !== null)).toBe(true);
 
@@ -223,8 +224,9 @@ test("revokes the old grant's refresh tokens when an orders-only connection is r
   expect(typeof first.refresh_token).toBe("string");
   await makeOrdersOnly(rosa, clientId);
   const second = await connectAgentTokens(rosa, clientId);
-  expect((await refresh(clientId, first.refresh_token)).status).toBeGreaterThanOrEqual(400);
+  // The new grant first: presenting a revoked token makes the plugin invalidate the whole refresh family.
   expect((await refresh(clientId, second.refresh_token)).status).toBe(200);
+  expect((await refresh(clientId, first.refresh_token)).status).toBeGreaterThanOrEqual(400);
 });
 
 test("never returns another store's order for the same number", async () => {
