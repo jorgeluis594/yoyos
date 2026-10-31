@@ -4,6 +4,8 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { isPersistenceFailure, persistenceFailureResult } from "@core/src/shared/infrastructure/persistence-error";
 import type { ContainedFailure, TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import { Prisma } from "@prisma/client";
+import { visibleOrder } from "@core/src/features/orders/infrastructure/order-visibility";
+import { orderBalance } from "@core/src/features/orders/infrastructure/order-balance";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { isCurrency, type Money } from "@shared/money";
@@ -484,8 +486,6 @@ export async function findOrders(criteria: OrderCriteria) {
 /** Sum of the confirmed payments of an order aliased `o`. */
 const confirmedPaid = Prisma.sql`coalesce((SELECT sum(p.amount) FROM "Payment" p WHERE p."orderId" = o.id
   AND p."companyId" = o."companyId" AND p.status = 'confirmed'), 0)`;
-/** Unconfirmed catalog orders do not exist for the seller. */
-const visibleOrder = Prisma.sql`NOT (o."fromCatalog" AND o."checkoutConfirmedAt" IS NULL)`;
 
 export async function findOrderAggregates(criteria: AggregateCriteria, companyId: CompanyId) {
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
@@ -577,11 +577,12 @@ export async function summarizeUnpaidOrders(companyId: CompanyId) {
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
   try {
     // Payments are grouped once and hash-joined: a correlated sum per order costs about 2.5x more at 50 000 orders.
+    const balance = orderBalance(Prisma.sql`o.total`, Prisma.sql`coalesce(c.confirmed, 0)`);
     const rows = await prisma.$queryRaw<unknown[]>(Prisma.sql`WITH paid AS (SELECT p."orderId", coalesce(sum(p.amount) FILTER (WHERE p.status = 'confirmed'), 0) AS confirmed,
         coalesce(bool_or(p.status = 'reported'), false) AS reported FROM "Payment" p WHERE p."companyId" = ${companyId}::uuid GROUP BY p."orderId")
-      SELECT o.currency, count(*)::int AS count, (count(*) FILTER (WHERE coalesce(c.reported, false)))::int AS "pendingReports", sum(o.total - coalesce(c.confirmed, 0))::text AS owed
+      SELECT o.currency, count(*)::int AS count, (count(*) FILTER (WHERE coalesce(c.reported, false)))::int AS "pendingReports", sum(${balance.owed})::text AS owed
       FROM "Order" o LEFT JOIN paid c ON c."orderId" = o.id
-      WHERE o."companyId" = ${companyId}::uuid AND ${visibleOrder} AND o.cancelled = false AND coalesce(c.confirmed, 0) < o.total
+      WHERE o."companyId" = ${companyId}::uuid AND ${visibleOrder} AND o.cancelled = false AND ${balance.unpaid}
       GROUP BY o.currency ORDER BY o.currency`);
     const parsed = z.array(unpaidSummaryRow).safeParse(rows);
     if (!parsed.success || parsed.data.some((row) => !isCurrency(row.currency))) {
