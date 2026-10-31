@@ -17,7 +17,6 @@ Sources of truth:
 - **Pinned base.** For each part (items, customer, delivery) the view keeps the saved state and revision it loaded. A part's base changes only when that part has no unsaved edit, or when its draft already equals the fresh state:
   - After a successful save, a part that was sent takes the result; a part with edits that were not sent keeps its base and draft. This is stricter than re-pinning every part. Reason: an edit not sent must still be compared with what it was made against.
   - After **Anular pago**, **Rechazar** or any other action that refreshes the order, parts with edits keep their base, so a change made elsewhere meanwhile is answered as a conflict on save.
-  - After a stock deduction meanwhile (`ITEMS_LOCKED`), the products return to the fresh saved ones and the customer and delivery keep their edits and base.
   - After **Descartar y recargar**, every part takes the fresh state.
   - A successful save does not revalidate the loader: its result is the new state.
 - **Invalid fields.** Save buttons are not disabled by an invalid field (quantity 0, incomplete delivery, half-typed customer, «Marcar como entregado al guardar» without covering payments). Pressing them sends nothing, shows «No se guardó: revisa 1 campo marcado.» and moves focus and scroll to the first invalid field in screen order, which carries its own message. Reason: a disabled button gives no way to find a field that is off-screen.
@@ -38,7 +37,8 @@ Success, in-doubt and check messages show in a status line under the header and 
 | **Guardar venta** in doubt | «No sabemos si la venta se guardó. Verificando…»; saving and leaving are blocked. The view reads the order by its id: if it exists, the saved view with «Venta guardada.»; if not, the form intact. Never a second order | Wait |
 | **Guardar cambios** succeeds | «Cambios guardados.», or «Cambios guardados. El pedido queda esperando stock.» | Continue |
 | The order changed meanwhile in a part being edited (`ORDER_CHANGED`) | «Este pedido cambió mientras lo editabas. Tus cambios siguen aquí; recarga para ver la versión actual.» with **Recargar pedido**, which asks «¿Descartar tus cambios y ver la versión actual?» (**Descartar y recargar** / **Seguir viendo mis cambios**) | Reload and redo the edits |
-| Stock was deducted while editing products (`ITEMS_LOCKED`) | «El stock se descontó mientras editabas: los productos ya no se pueden cambiar. Tus cambios de cliente y entrega siguen aquí.» The products return to the saved ones, locked. Without other edits: «No hay otros cambios que guardar.» | **Guardar cambios** for the rest; to change products, cancel and create a new sale |
+| Stock was deducted while editing products | Nothing: the save goes through and only the difference is adjusted | None |
+| The saved edit of a deducted order adds units that do not fit | «Cambios guardados.» and, in **Productos**, the amber notice «Se guardó el cambio, pero no hay stock suficiente de X. Se descontará cuando haya.» (pt: same meaning) until the units are deducted | Wait for stock, or ship/deliver once it fits |
 | The order was shipped or delivered meanwhile (`DELIVERY_LOCKED`), or cancelled | «El pedido ya se envió; no se guardaron los cambios.» (or «ya se entregó» / «está cancelado»), edits kept until reloading. After shipping or delivery with a customer edit, **Guardar solo el cliente** drops the other edits and saves the customer | **Recargar pedido** or **Guardar solo el cliente** |
 | **Guardar cambios** not sent | «No se pudieron guardar los cambios. Revisa tu conexión e inténtalo de nuevo.»; edits intact | Save again |
 | **Guardar cambios** in doubt | «No sabemos si los cambios se guardaron. Verificando…», saving and immediate actions blocked until the check ends. The check re-reads the order and compares each sent part with the draft and with its pinned saved state: all equal to the draft is applied («Cambios guardados.», fresh revisions), all equal to the saved state is not applied (edits intact, saving enabled), any other is changed (the conflict alert). Repeating is harmless because the save sends the same final state | Wait |
@@ -74,16 +74,15 @@ A late response from an earlier attempt does not change the screen.
 
 | Order | Products | Customer | Delivery | Payments |
 | --- | --- | --- | --- | --- |
-| Active, delivery pending, stock not deducted and not «Descontando stock» (includes «Esperando stock» and «Stock pendiente») | Editable | Editable | Editable | Add, approve, reject, void |
-| Active, delivery pending, «Descontando stock» | Locked: «El stock se está descontando; los productos ya no se pueden cambiar. Para cambiarlos, cancela el pedido y crea una venta nueva.» | Editable | Editable | Same |
-| Active, delivery pending, stock deducted | Locked: «El stock de este pedido ya se descontó; los productos ya no se pueden cambiar. Para cambiarlos, cancela el pedido y crea una venta nueva.» | Editable | Editable | Same |
+| Active, delivery pending, stock not deducted (includes «Esperando stock», «Descontando stock» and «Stock pendiente») | Editable | Editable | Editable | Add, approve, reject, void |
+| Active, delivery pending, stock deducted | Editable; only the difference moves stock ([Orders · Stock after an edit](orders.md#stock-after-an-edit)) | Editable | Editable | Same |
 | Shipped | Locked: «El pedido ya se envió; los productos ya no se pueden cambiar.» | Editable | Locked: «La entrega ya salió; no se puede cambiar.» | Same |
 | Delivered or completed | Locked: «El pedido ya se entregó; los productos ya no se pueden cambiar.» | Editable | Locked: «El pedido ya se entregó; la entrega no se puede cambiar.» | Same; voiding a payment can return a completed sale to active |
 | Cancelled | Read-only | Read-only | Read-only | Only **Anular pago**; pending reports are read-only |
 
 - What is locked is shown disabled with one note in its card that names the remedy; nothing the seller expects to find is hidden. A locked delivery explains itself once, without a second note or a repeated summary. Shipped and delivered orders get no remedy: the goods left, and corrections are agreed in the chat.
 - A button blocked by a rule (the only line, unsaved changes, fulfillment requirements) stays focusable as `aria-disabled` with its note linked as its description, so keyboard and screen-reader users reach the reason. A state lock (see the table above) uses a real `disabled`.
-- «Descontando stock» is a screen rule only; core enforces cancelled, delivery not pending and stock deducted ([Orders · Locks enforced by core](orders.md#locks-enforced-by-core)).
+- The screen locks products only when the order is shipped, delivered or cancelled, as core does ([Orders · Locks enforced by core](orders.md#locks-enforced-by-core)); a stock deduction in progress never locks anything, because it runs under the order lock and settles by the difference.
 
 ## Productos
 
@@ -153,4 +152,4 @@ Saved orders only, at the top of the right column (right after the header on nar
 ## Not offered
 
 - Product photos, categories, searching by variant value, saved contacts in «Cliente», operation number and payer on payment rows, returning a saved delivery to «Por definir», and repricing a kept line are not offered.
-- Editing products on mobile and after the stock is deducted are not offered; the remedy for the second is cancel and create a new sale.
+- Editing products on mobile is not offered.

@@ -417,17 +417,6 @@ describe("OrderView (saved order)", () => {
     expect(button("Guardar solo el cliente")).toBeUndefined();
   });
 
-  test("says other edits stay after the stock was deducted, or that there are none", async () => {
-    const deducted = savedState({ order: order1042({ stockDeducted: true }), lineCatalog: null });
-    const withName = { ...deducted, draft: { ...deducted.draft, customer: { name: "Ana", phone: "+51977909427" } } };
-    await mountSaved(withName, { notice: { kind: "itemsLocked" } });
-    expect(document.body.textContent).toContain("El stock se descontó mientras editabas: los productos ya no se pueden cambiar. Tus cambios de cliente y entrega siguen aquí.");
-    act(() => root!.unmount());
-    await mountSaved(deducted, { notice: { kind: "itemsLocked" } });
-    expect(document.body.textContent).toContain("El stock se descontó mientras editabas: los productos ya no se pueden cambiar. No hay otros cambios que guardar.");
-    expect(document.body.textContent).toContain("El stock de este pedido ya se descontó");
-  });
-
   test("announces the result of a save politely and moves focus to the heading", async () => {
     await mountSaved(savedState(), { notice: { kind: "success", text: "Cambios guardados." }, headingFocus: 0 });
     expect(container.querySelector('[role="status"]')?.textContent).toContain("Cambios guardados.");

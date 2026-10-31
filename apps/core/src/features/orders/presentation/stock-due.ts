@@ -12,7 +12,7 @@ export function stockItemName(item: Pick<Item, "productName" | "variantAttribute
 
 /** One entry per short item, in the order of the products card. */
 export function shortItemLines(order: StockOrder) {
-  if (order.stockDue?.kind !== "waiting") return [];
+  if (order.stockDue?.kind !== "waiting" && order.stockDue?.kind !== "partial_waiting") return [];
   const available = new Map(order.stockDue.shortItems.map(({ variantId, available }) => [variantId, available]));
   return order.items.filter(item => available.has(item.variantId))
     .map(item => ({ variantId: item.variantId, name: stockItemName(item), quantity: item.quantity, available: available.get(item.variantId) ?? 0 }));
@@ -36,5 +36,5 @@ export function fulfillmentReason(block: Block, operation: "ship" | "deliver", o
 
 /** Success text of a recorded payment, chosen from the order the response returns. */
 export function paymentRecordedKey(order: Pick<StockOrder, "stockDue">) {
-  return order.stockDue?.kind === "waiting" ? "orders.paymentRecordedWaiting" as const : "orders.paymentRecorded" as const;
+  return order.stockDue?.kind === "waiting" || order.stockDue?.kind === "partial_waiting" ? "orders.paymentRecordedWaiting" as const : "orders.paymentRecorded" as const;
 }

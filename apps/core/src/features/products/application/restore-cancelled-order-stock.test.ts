@@ -4,7 +4,8 @@ import { restoreCancelledOrderStock, type RestoreCancelledOrderStockDependencies
 import type { CompanyId, OrderId } from "@core/src/features/orders";
 import type { VariantId } from "@core/src/features/products/domain/product";
 const payload = { orderId: "00000000-0000-4000-8000-000000000001" as OrderId, companyId: "00000000-0000-4000-8000-000000000002" as CompanyId };
-const item = { variantId: "00000000-0000-4000-8000-000000000003" as VariantId, quantity: 2 };
+const item = { variantId: "00000000-0000-4000-8000-000000000003" as VariantId, quantity: 2, stockDeductedQuantity: 2 };
+const restoredItem = { variantId: item.variantId, quantity: 2 };
 function fixture(cancelled = true, stockDeducted = true) {
   const restored: unknown[] = [];
   const published: unknown[] = [];
@@ -22,7 +23,7 @@ function fixture(cancelled = true, stockDeducted = true) {
 test("restores quantities and then clears the order flag", async () => {
   const f = fixture();
   expect(await restoreCancelledOrderStock(payload, f.deps)).toEqual(ok(undefined));
-  expect(f.restored).toEqual([item]);
+  expect(f.restored).toEqual([restoredItem]);
   expect(f.marked()).toBe(true);
 });
 test("already restored deliveries succeed without stock changes", async () => {

@@ -15,7 +15,7 @@ const order = (): OrderAggregate => ({
   number: 1001 as OrderNumber, id: id(1) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId,
   buyer: null, fromCatalog: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false, cancelledAt: null, stockDeductedAt: null,
   items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null,
-    quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
+    quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10), stockDeductedQuantity: 0 }],
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false,
   itemsTotal: money(10), deliveryCost: money(0), deliveryCharge: money(0), total: money(10),
 });
@@ -274,7 +274,7 @@ describe("delivery and stock transitions", () => {
 
 describe("chat order item operations", () => {
   const item = (n: number, variant: number, quantity: number, unit: number) => ({ id: id(n) as OrderItemId, variantId: id(variant) as VariantId, productName: `Item ${variant}`,
-    variantAttributes: {}, sku: null, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity) });
+    variantAttributes: {}, sku: null, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), stockDeductedQuantity: 0 });
   const two = (): OrderAggregate => ({ ...order(), items: [item(3, 4, 2, 10), item(5, 6, 1, 5)], itemsTotal: money(25), total: money(25) });
   const newItemId = () => id(90) as OrderItemId;
 
@@ -322,7 +322,7 @@ describe("appendItems", () => {
     expect(result).toMatchObject({ success: true, data: { itemsTotal: money(17), total: money(17) } });
     if (!result.success) return;
     expect(result.data.items).toEqual([{ ...order().items[0], mentionedPrice: null }, { id: id(90), variantId: id(5), productName: "Variant 5", variantAttributes: { Size: "M" },
-      sku: null, quantity: 1, unitPrice: money(7), subtotal: money(7), mentionedPrice: null }]);
+      sku: null, quantity: 1, unitPrice: money(7), subtotal: money(7), mentionedPrice: null, stockDeductedQuantity: 0 }]);
   });
 
   test("appendItems increments the quantity of a variant already in the order", () => {

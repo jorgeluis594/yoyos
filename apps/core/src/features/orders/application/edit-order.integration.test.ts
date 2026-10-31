@@ -3,6 +3,7 @@ import { expect, test, vi } from "vitest";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
+import { restoreCancelledStock } from "@core/src/composition/event-handlers";
 import { orders, publishStockEvent } from "@core/src/features/orders/composition";
 import { editOrder, type EditOrderDependencies, type EditOrderInput } from "@core/src/features/orders/application/edit-order";
 import { findOrderAggregate, findOrderForUpdate, saveDelivery, saveItemChanges, saveOrderCustomer } from "@core/src/features/orders/infrastructure/order-repository";
@@ -124,7 +125,7 @@ test("removes two lines with short stock and leaves the order waiting", async ()
   }, { traje: 5, deadpool: 0 });
 });
 
-test("refuses an items edit after a restock served the order and keeps the stored items", async () => {
+test("edits the items of an order a restock already served and settles only the difference", async () => {
   await inShop(async (s) => {
     const id = await s.create();
     unwrap(await s.pay(id, 150));
@@ -137,8 +138,9 @@ test("refuses an items edit after a restock served the order and keeps the store
     }));
     expect(restocked).toMatchObject({ success: true, data: { deducted: 1 } });
     const fresh = await s.load(id);
-    expect(await s.edit(id, { items: s.lines([s.deadpool, 3]) }, fresh.revisions)).toMatchObject({ success: false, error: { code: "ITEMS_LOCKED" } });
-    expect((await s.load(id)).order.items.map((item) => item.quantity)).toEqual([1]);
+    unwrap(await s.edit(id, { items: s.lines([s.deadpool, 3]) }, fresh.revisions));
+    expect((await s.load(id)).order.items.map((item) => item.quantity)).toEqual([3]);
+    expect(await s.stock(s.deadpool)).toBe(2);
   }, { traje: 5, deadpool: 0 });
 });
 
@@ -150,7 +152,133 @@ test("saves a customer edit after a covering payment from another session deduct
     expect((await s.load(id)).order.stockDeducted).toBe(true);
     const edited = unwrap(await s.edit(id, { customer: { value: { name: "Marta", phone: "+51999000111" } } }, loaded.revisions));
     expect(edited).toMatchObject({ applied: ["customer"], order: { buyer: { name: "Marta", phone: "+51999000111" }, stockDeducted: true } });
-    expect(await s.edit(id, { items: s.lines([s.deadpool, 2]) }, loaded.revisions)).toMatchObject({ success: false, error: { code: "ITEMS_LOCKED" } });
+    expect(await s.edit(id, { items: s.lines([s.deadpool, 2]) }, loaded.revisions)).toMatchObject({ success: true });
+  });
+});
+
+const deducted = (s: Shop, orderId: OrderId) => s.run(async () => (await prisma.orderItem.findMany({ where: { orderId }, orderBy: { id: "asc" } }))
+  .map((item) => [item.variantId, Number(item.quantity), Number(item.stockDeductedQuantity)] as const));
+const restock = (s: Shop, variantId: VariantId, units: bigint) => s.run(() => withinTransaction(async () => {
+  await prisma.productStock.update({ where: { variantId }, data: { quantity: { increment: units } } });
+  const published = await publishStockEvent("product_stock_increased", { companyId: s.companyId, variantIds: [variantId] });
+  return published.success ? ok(published.data) : published;
+}));
+
+test("raising a line of a deducted order takes only the added units from the stock", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);
+    unwrap(await s.pay(id, 209));
+    expect(await s.stock(s.deadpool)).toBe(3);
+    const edited = unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }));
+    expect(edited.order.stockDeducted).toBe(true);
+    expect(edited.stockDue).toBeNull();
+    expect(await s.stock(s.deadpool)).toBe(1);
+    expect((await deducted(s, id)).map(([, quantity, units]) => [quantity, units]).sort()).toEqual([[1, 1], [3, 3]]);
+    expect((await s.load(id)).order.payments).toHaveLength(1);
+  });
+});
+
+test("lowering a line and removing another of a deducted order return their units to the stock", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 2], [s.trajeM, 1], [s.deadpool, 3]]);
+    unwrap(await s.pay(id, 727));
+    expect([await s.stock(s.trajeS), await s.stock(s.trajeM), await s.stock(s.deadpool)]).toEqual([3, 4, 1]);
+    unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }));
+    expect([await s.stock(s.trajeS), await s.stock(s.trajeM), await s.stock(s.deadpool)]).toEqual([4, 5, 1]);
+    expect((await deducted(s, id)).map(([, quantity, units]) => [quantity, units]).sort()).toEqual([[1, 1], [3, 3]]);
+  });
+});
+
+test("a short increase is saved, stays pending, and a later cancellation returns exactly what was deducted", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);
+    unwrap(await s.pay(id, 209));
+    expect(await s.stock(s.deadpool)).toBe(0);
+    const edited = unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }));
+    expect(edited.stockDue).toMatchObject({ kind: "partial_waiting", shortItems: [{ variantId: s.deadpool, available: 0 }] });
+    expect(edited.order.stockDeducted).toBe(true);
+    expect((await deducted(s, id)).map(([, quantity, units]) => [quantity, units]).sort()).toEqual([[1, 1], [3, 1]]);
+    expect(unwrap(await s.run(() => orders.cancel(id, s.context)))).toMatchObject({ cancelled: true });
+    expect(await restoreCancelledStock.handler({ orderId: id, companyId: s.companyId } as never, {} as never, {} as never)).toMatchObject({ success: true });
+    expect(await s.stock(s.deadpool)).toBe(1);
+    expect(await s.stock(s.trajeS)).toBe(5);
+  }, { traje: 5, deadpool: 1 });
+});
+
+test("the pending units of a deducted order are taken when the stock comes back", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);
+    unwrap(await s.pay(id, 209));
+    unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }));
+    expect(await restock(s, s.deadpool, 5n)).toMatchObject({ success: true, data: { deducted: 1 } });
+    expect(await s.stock(s.deadpool)).toBe(3);
+    expect((await deducted(s, id)).map(([, quantity, units]) => [quantity, units]).sort()).toEqual([[1, 1], [3, 3]]);
+    expect((await s.load(id)).order.stockDeducted).toBe(true);
+  }, { traje: 5, deadpool: 1 });
+});
+
+/** Adds stock straight in the table: no event is published, so no listener takes the pending units. */
+const restockSilently = (s: Shop, variantId: VariantId, quantity: number) => s.run(() => prisma.productStock.update({ where: { variantId }, data: { quantity: { increment: BigInt(quantity) } } }));
+
+test("shipping a deducted order with a pending part takes only that part", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);
+    unwrap(await s.pay(id, 209));
+    unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }));
+    expect(await s.stock(s.deadpool)).toBe(0);
+    await restockSilently(s, s.deadpool, 5);
+    expect(unwrap(await s.run(() => orders.ship(id, s.context)))).toMatchObject({ deliveryStatus: "shipped" });
+    expect(await s.stock(s.deadpool)).toBe(3);
+    expect(await s.stock(s.trajeS)).toBe(4);
+    expect((await deducted(s, id)).map(([, quantity, units]) => [quantity, units]).sort()).toEqual([[1, 1], [3, 3]]);
+  }, { traje: 5, deadpool: 1 });
+});
+
+test("delivering through PATCH /shipping takes the pending part, or fails short and persists nothing", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);
+    unwrap(await s.pay(id, 209));
+    unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }));
+    unwrap(await s.pay(id, 240));
+    const short = await s.run(() => orders.updateShipping({ orderId: id, status: "delivered" }, s.context));
+    expect(short).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+    expect((await s.load(id)).order.deliveryStatus).toBe("pending");
+    expect(await s.stock(s.deadpool)).toBe(0);
+    await restockSilently(s, s.deadpool, 2);
+    expect(unwrap(await s.run(() => orders.updateShipping({ orderId: id, status: "delivered" }, s.context)))).toMatchObject({ deliveryStatus: "delivered" });
+    expect(await s.stock(s.deadpool)).toBe(0);
+    expect((await deducted(s, id)).map(([, quantity, units]) => [quantity, units]).sort()).toEqual([[1, 1], [3, 3]]);
+  }, { traje: 5, deadpool: 1 });
+});
+
+test("delivering a deducted order with a pending part and only a partial payment takes the part and leaves the balance due", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);
+    unwrap(await s.pay(id, 209));
+    unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }));
+    await restockSilently(s, s.deadpool, 5);
+    const delivered = unwrap(await s.run(() => orders.deliver(id, s.context)));
+    expect(delivered).toMatchObject({ deliveryStatus: "delivered", completedAt: null });
+    expect(await s.stock(s.deadpool)).toBe(3);
+    expect((await deducted(s, id)).map(([, quantity, units]) => [quantity, units]).sort()).toEqual([[1, 1], [3, 3]]);
+  }, { traje: 5, deadpool: 1 });
+});
+
+test("two simultaneous edits of a deducted order leave the stock consistent with the winning lines", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);
+    unwrap(await s.pay(id, 209));
+    const { revisions } = await s.load(id);
+    const results = await Promise.all([
+      s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }, revisions),
+      s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 2]) }, revisions),
+    ]);
+    expect(results.filter((result) => result.success)).toHaveLength(1);
+    expect(results.find((result) => !result.success)).toMatchObject({ error: { code: "ORDER_CHANGED" } });
+    const lines = await deducted(s, id);
+    const units = lines.find(([variantId]) => variantId === s.deadpool)![2];
+    expect(await s.stock(s.deadpool)).toBe(4 - units);
+    expect(lines.every(([, quantity, taken]) => quantity === taken)).toBe(true);
   });
 });
 
@@ -294,6 +422,7 @@ test("answers VARIANT_NOT_FOUND when a new variant is deleted between the lookup
       },
       resolveRatedDelivery: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "unused" }),
       saveItemChanges, saveOrderCustomer, saveDelivery, publishStockEvent: (payload) => publishStockEvent("order_edited", payload),
+      publishStockIncreased: (variantIds) => publishStockEvent("product_stock_increased", { companyId: s.companyId, variantIds }),
       findVariantStock, newItemId: () => randomUUID() as OrderItemId };
     const result = await s.run(() => editOrder({ orderId: id, items: { base: revisions.items, lines: s.lines([s.deadpool, 1], [variantId, 1]).lines as never } }, s.context, deps));
     expect(result).toMatchObject({ success: false, error: { code: "VARIANT_NOT_FOUND", variantId } });
@@ -321,7 +450,6 @@ test("answers the stock of sellable lines, leaves out an unsellable one and answ
     const query = vi.spyOn(prisma, "$queryRaw");
     try {
       expect(await s.run(() => orders.lineCatalog({ ...order, cancelled: true }, "save_result"))).toBeNull();
-      expect(await s.run(() => orders.lineCatalog({ ...order, stockDeducted: true }, "save_result"))).toBeNull();
       expect(await s.run(() => orders.lineCatalog({ ...order, deliveryStatus: "shipped" }, "save_result"))).toBeNull();
       expect(query).not.toHaveBeenCalled();
     } finally { query.mockRestore(); }
@@ -393,6 +521,7 @@ test("rolls back items and customer when the transaction ends during stock deduc
       resolveRatedDelivery: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "unused" }),
       saveItemChanges, saveOrderCustomer, saveDelivery,
       publishStockEvent: async () => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "closed", transactionEnding: true as const }),
+      publishStockIncreased: async () => ok(null),
       findVariantStock, newItemId: () => randomUUID() as OrderItemId };
     const result = await s.run(() => editOrder({ orderId: id, items: { base: revisions.items, lines: s.lines([s.deadpool, 1]).lines as never },
       customer: { base: revisions.customer, value: { name: "Marta", phone: "+51999000111" } as never } }, s.context, deps));

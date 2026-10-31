@@ -235,17 +235,17 @@ describe("OrderProductsCard", () => {
     expect(quantities()[0]).toBe("1");
   });
 
-  test("shows the locked note with its remedy when stock is deducted", async () => {
+  test("keeps the products editable and shows no lock note when stock is deducted", async () => {
     await mount(saved({ order: order({ stockDeducted: true }) }));
-    expect(text()).toContain("El stock de este pedido ya se descontó; los productos ya no se pueden cambiar. Para cambiarlos, cancela el pedido y crea una venta nueva.");
-    expect(text()).toContain("Stock descontado");
+    expect(text()).not.toContain("ya no se pueden cambiar");
+    expect(button("Agregar producto").disabled).toBe(false);
+    expect(button("Aumentar cantidad").disabled).toBe(false);
+    expect(fields()[0]!.disabled).toBe(false);
   });
 
-  test("disables every products control when stock is deducted", async () => {
-    await mount(saved({ order: order({ stockDeducted: true }) }));
-    expect(button("Agregar producto").disabled).toBe(true);
-    expect(button("Aumentar cantidad").disabled).toBe(true);
-    expect(button("Quitar Traje de Príncipe Azul, M").disabled).toBe(true);
-    expect(fields()[0]!.disabled).toBe(true);
+  test("shows the amber notice naming the products whose added units did not fit", async () => {
+    const short = order({ stockDeducted: true });
+    await mount(saved({ order: { ...short, stockDue: { kind: "partial_waiting", shortItems: [{ variantId: short.items[0]!.variantId, available: 0 }] } } }));
+    expect(text()).toContain("Se guardó el cambio, pero no hay stock suficiente de Traje de Príncipe Azul (M). Se descontará cuando haya.");
   });
 });

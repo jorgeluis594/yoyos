@@ -1,4 +1,4 @@
-import { err } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { orderStateMachine, type OrderAggregate, type FulfillmentChange, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
@@ -18,37 +18,50 @@ export type FulfillOrderDependencies = Readonly<{
   clock: () => Date;
 }>;
 
-/** Shipping and delivering deduct the stock when it is still pending; short stock fails and the surrounding transaction persists nothing. */
-async function deductPendingStock(order: OrderAggregate, at: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
+/** The units of the order still to take out of the stock: all of it before the deduction, only the part an edit added that did not fit after it. */
+export function pendingStockLines(order: OrderAggregate): StockLine[] {
+  return order.items.flatMap((item): StockLine[] => {
+    const pending = item.quantity - item.stockDeductedQuantity;
+    return pending > 0 ? [{ variantId: item.variantId, quantity: pending as StockLine["quantity"] }] : [];
+  });
+}
+
+/** Locks the variants (variantId order), checks that every pending line fits and takes the units out all or nothing; short stock is INSUFFICIENT_STOCK. */
+export async function deductPendingStock(order: OrderAggregate, at: Date, deps: FulfillOrderDependencies): Promise<Result<null, FulfillOrderError>> {
+  const lines = pendingStockLines(order);
+  if (lines.length === 0) return ok(null);
+  const locked = await deps.lockVariantStock(order.items.map((item) => item.variantId).sort(), "wait");
+  if (!locked.success) return locked;
+  for (const line of [...lines].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
+    const available = parseStockQuantity(locked.data.get(line.variantId) ?? 0);
+    if (!available.success) return err({ code: "INVALID_STORED_DATA", message: available.error.message });
+    if (available.data < line.quantity) return err({ code: "INSUFFICIENT_STOCK", message: "Not enough stock", variantId: line.variantId });
+  }
+  const deducted = await deps.deductStockBulk(lines);
+  if (!deducted.success) return deducted;
+  if (deducted.data !== lines.length) return err({ code: "INSUFFICIENT_STOCK", message: "Not enough stock", variantId: lines[0]!.variantId });
+  return deps.saveStockDeduction(order.id, order.companyId, at);
+}
+
+/** Shipping and delivering deduct the stock when it is still pending (or the part an edit left pending); short stock fails and the surrounding transaction persists nothing. */
+async function deductForFulfillment(order: OrderAggregate, at: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
   const plan = orderStateMachine.planStockDeduction(order, true, at);
   if (!plan.success) return plan;
-  if (plan.data.kind === "deduct") {
-    const variantIds = order.items.map((item) => item.variantId).sort();
-    const locked = await deps.lockVariantStock(variantIds, "wait");
-    if (!locked.success) return locked;
-    for (const item of [...order.items].sort((a, b) => a.variantId.localeCompare(b.variantId))) {
-      const available = parseStockQuantity(locked.data.get(item.variantId) ?? 0);
-      if (!available.success) return err({ code: "INVALID_STORED_DATA", message: available.error.message });
-      if (available.data < item.quantity) return err({ code: "INSUFFICIENT_STOCK", message: "Not enough stock", variantId: item.variantId });
-    }
-    const lines = order.items.map((item): StockLine => ({ variantId: item.variantId, quantity: item.quantity }));
-    const deducted = await deps.deductStockBulk(lines);
+  if (plan.data.kind === "deduct" || (plan.data.reason === "already_deducted" && pendingStockLines(order).length > 0)) {
+    const deducted = await deductPendingStock(order, at, deps);
     if (!deducted.success) return deducted;
-    if (deducted.data !== lines.length) return err({ code: "INSUFFICIENT_STOCK", message: "Not enough stock", variantId: lines[0]!.variantId });
-    const saved = await deps.saveStockDeduction(order.id, order.companyId, at);
-    if (!saved.success) return saved;
   }
-  return { success: true, data: plan.data.nextOrder };
+  return ok(plan.data.nextOrder);
 }
 
 export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
-  const deducted = await deductPendingStock(order, shippedAt, deps);
+  const deducted = await deductForFulfillment(order, shippedAt, deps);
   return deducted.success ? orderStateMachine.registerShipment(deducted.data, shippedAt) : deducted;
 }
 
-/** Delivering needs a confirmed payment, partial or full, and deducts pending stock like shipping does. */
+/** Delivering needs a confirmed payment, partial or full, and deducts the pending stock like shipping does. */
 export async function deliverOrder(order: OrderAggregate, deliveredAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
-  const deducted = await deductPendingStock(order, deliveredAt, deps);
+  const deducted = await deductForFulfillment(order, deliveredAt, deps);
   return deducted.success ? orderStateMachine.registerDelivery(deducted.data, deliveredAt) : deducted;
 }
 

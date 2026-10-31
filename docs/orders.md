@@ -54,7 +54,7 @@ An order has three independent dimensions plus a derived status:
 | Dimension | Values | Rule |
 | --- | --- | --- |
 | Payment | `pending`, `paid` | `paid` when confirmed payments cover the total. Reported (buyer) payments do not count until confirmed. |
-| Stock | `stockDeducted` | Stock is deducted at most once per order, all items or none; see [Stock deduction](#stock-deduction). |
+| Stock | `stockDeducted` | Stock is deducted at most once per order, all items or none (an edit that adds units can leave a pending part, deducted later by restock, ship or deliver); see [Stock deduction](#stock-deduction). |
 | Delivery | `pending`, `shipped`, `delivered` | Shipping and delivering require at least one confirmed payment, partial or full, and deduct pending stock themselves. A delivered order can keep a balance due. |
 | Status | `active`, `cancelled`, `completed` | `completed` when delivered and its confirmed payments cover the total (`deliveredAt` is the physical delivery, `completedAt` the moment delivery and coverage both hold); otherwise `active` unless cancelled. |
 
@@ -72,8 +72,8 @@ An order has three independent dimensions plus a derived status:
 
 | Aspect | Rule |
 | --- | --- |
-| Due for deduction | An order is due when it is not cancelled, its stock is not deducted, its delivery is `pending`, and either its confirmed payments cover the total or a confirmed payment asked to deduct stock even though it is partial (`deductStockIfPartial`, stored on the payment). It is derived from the order (`isStockDeductionDue`); nothing else marks it. |
-| When it is attempted | Whenever an order may become due (a payment is confirmed: manual payment, report approval, creation with payments, immediate sale; a delivery changes, by the seller or by the buyer in the checkout; the seller saves an edit that changed the items or the delivery of a saved order) and whenever a variant's stock increases. Nothing else deducts: editing never deducts or restores stock by itself. Reason: every path that makes an order due needs a trigger. |
+| Due for deduction | An order is due when it is not cancelled, its delivery is `pending`, and either (a) its stock is not deducted and its confirmed payments cover the total or a confirmed payment asked to deduct stock even though it is partial (`deductStockIfPartial`, stored on the payment), or (b) its stock is deducted but an edit left units pending (a line with `stockDeductedQuantity` below `quantity`), whatever the payments. It is derived from the order (`isStockDeductionDue`); nothing else marks it. |
+| When it is attempted | Whenever an order may become due (a payment is confirmed: manual payment, report approval, creation with payments, immediate sale; a delivery changes, by the seller or by the buyer in the checkout; the seller saves an edit that changed the items or the delivery of a saved order) and whenever a variant's stock increases. Nothing else deducts: editing never deducts or restores stock by itself; on an order that is already deducted, the edit's `order_edited` listener settles only the difference. Reason: every path that makes an order due needs a trigger. |
 | Enough stock | The result the seller sees right after the response is already deducted. Reason: anything else would show a false «Esperando stock». |
 | Short stock | Nothing is deducted and the operation still succeeds; the order is **waiting** («Esperando stock»). |
 | All or nothing | Either every item of the order is deducted or none. Example: 4 «Camisa · M» and 2 «Polo · L» with stock 3 and 5: nothing is deducted until «Camisa · M» reaches 4. Reason: a half-deducted order cannot be dispatched and hides what is missing. |
@@ -81,11 +81,11 @@ An order has three independent dimensions plus a derived status:
 | Serving waiting orders | On a restock, the waiting orders that contain an increased variant are served oldest creation date first; each order whose items all fit the stock left at that moment is deducted, and an order that does not fit is skipped so the next ones are tried. Example: stock left at 3, #1010 needs 5 and #1012 needs 2: #1012 is deducted and #1010 keeps waiting with «hay 1». Reason: simple and predictable, and stock does not sit idle behind a large order (rejected: choosing the order by hand). |
 | Restock in one step | The increase and the deduction of the waiting orders it covers commit in the same transaction, so no newer payment, creation or dispatch can take the increased units in between. A sale paid while units are free is deducted right away. |
 | Guarantee | A due order whose items all fit is never left undeducted, store pickup included: if the deduction did not complete, the recovery job deducts it within a minute, without seller action and without another restock. Meanwhile the order shows «Descontando stock». |
-| Stock source | Stock is never negative and never deducted twice for one order. It is deducted only by this automatic deduction (also after an edit), by shipping, by delivering, and by creation with immediate delivery or shipment; it is restored only by cancellation. There is no standalone deduction operation. Reason: a second path would bypass oldest first. |
-| Ship and deliver | Both deduct inside their own transaction and answer `INSUFFICIENT_STOCK` when short (also on a partially paid order that is not due), persisting nothing. A delivered order therefore always has its stock deducted. |
+| Stock source | Stock is never negative and never deducted twice for one order. It is deducted only by this automatic deduction (also after an edit), by shipping, by delivering, and by creation with immediate delivery or shipment; it is returned only by cancellation and by an edit of a deducted order that lowers or removes a line (which publishes `product_stock_increased`). There is no standalone deduction operation. Reason: a second path would bypass oldest first. |
+| Ship and deliver | Ship, deliver (`/ship`, `/deliver`, `PATCH /shipping`) and creation with immediate shipment or delivery deduct, in their own transaction, what is not deducted yet: the whole order before the deduction, the part an edit left pending after it. They answer `INSUFFICIENT_STOCK` with nothing persisted when it does not fit, also on a partially paid order that is not due. Reason: a shipped or delivered order is no longer due, so nothing else would take those units. |
 | Leaving waiting | A cancelled waiting order leaves the waiting orders and nothing is restored, because nothing was deducted. An order that stops being due (a voided payment, or a delivery or items change that raises the total, and no remaining payment asked to deduct) shows «Stock pendiente» like any unpaid order. |
 
-The order response carries `stockDue` (`null`, `{ kind: "waiting", shortItems: [{ variantId, available }] }` or `{ kind: "deducting" }`; `orderStockDueSchema`). It is the only representation of «Esperando stock» and «Descontando stock»; `null` covers deducted and not due orders, which `stockDeducted` already tells apart. `available` is the current stock, read when the order is read, listed in the order's item order. Use cases that publish a stock event compute it inside their own transaction from the deduction outcome, so a response never mixes two moments; other reads compute it in a read snapshot and read stock only for due orders. List pages never compute it, and dispatch labels compute it once per batch. Nothing new is copied into the order and no history of deduction attempts is kept.
+The order response carries `stockDue` (`null`, `{ kind: "waiting", shortItems: [{ variantId, available }] }`, `{ kind: "partial_waiting", shortItems }` (deducted order whose edit added units that did not fit; mobile shows it like waiting) or `{ kind: "deducting" }`; `orderStockDueSchema`). It is the only representation of «Esperando stock» and «Descontando stock»; `null` covers deducted and not due orders, which `stockDeducted` already tells apart. `available` is the current stock, read when the order is read, listed in the order's item order. Use cases that publish a stock event compute it inside their own transaction from the deduction outcome, so a response never mixes two moments; other reads compute it in a read snapshot and read stock only for due orders. List pages never compute it, and dispatch labels compute it once per batch. Nothing new is copied into the order and no history of deduction attempts is kept.
 
 ### Mechanism
 
@@ -220,9 +220,9 @@ Web shows «Marcar enviado», «Entregar directamente» and «Marcar entregado»
 | --- | --- | --- | --- |
 | Cancelled | `ORDER_CANCELLED` | `ORDER_CANCELLED` | `ORDER_CANCELLED` |
 | Delivery shipped or delivered | `DELIVERY_LOCKED` | Editable | `DELIVERY_LOCKED` |
-| Stock deducted, delivery pending | `ITEMS_LOCKED` | Editable | Editable |
+| Stock deducted, delivery pending | Editable: the stock listener settles the difference ([Stock after an edit](#stock-after-an-edit)) | Editable | Editable |
 
-«Descontando stock» is not enforced by core: it is derived and can appear or vanish while the seller edits. A save accepted in that state is harmless, because the items are replaced under the lock and the listener then deducts the new ones. Reason: a lock that depends on a moment would refuse saves for a state the seller cannot see change. The web screen does lock products while stock is deducting ([Order view](order-view.md#what-can-change-when)).
+«Descontando stock» is not enforced by core: it is derived and can appear or vanish while the seller edits. A save accepted in that state is harmless, because the items are replaced under the lock and the listener then deducts the new ones. Reason: a lock that depends on a moment would refuse saves for a state the seller cannot see change.
 
 ### Conflicts
 
@@ -236,7 +236,15 @@ Web shows «Marcar enviado», «Entregar directamente» and «Marcar entregado»
 - The result carries the order with `stockDue`, the new revisions and the parts applied.
 - Saved lines carry their current stock and sellable state, read in one query of the order's variants (active variants of active products, no cap). If the read fails the stock is unknown: the order stays readable and editable without stock warnings, and core still refuses an unsellable variant on save. When the stored order already locks its items the read is skipped.
 - An edit holds the order lock for a fixed number of statements whatever the number of lines. Everything inside the lock is database-only.
-- Items cannot be edited once the stock is deducted. Cancelling the order and creating a new one is the remedy; stock is restored only by cancellation. Reason: a second path that restores stock would bypass oldest-first.
+- Items of an order whose stock is already deducted can be edited ([Stock after an edit](#stock-after-an-edit)); a deduction never locks them. Payments are never removed or rejected: a higher total with uncovered payments keeps the stock already reserved.
+
+#### Stock after an edit
+
+- `editOrder` never moves stock. It reads, under the order lock and before replacing the lines, the units already deducted by the lines it removes, and publishes `order_edited` with `{ companyId, orderId, returns }` (`returns`: variant → previously deducted units of removed lines). Kept lines keep their row and their `stockDeductedQuantity`; new lines start at 0. Reason: the listener runs in the same transaction and settles by difference, so the stock never swings through zero.
+- For a deducted order the listener locks the order row, then the variants in `variantId` order, and per variant compares the lines' `quantity` with their `stockDeductedQuantity`. A lower or removed line returns the difference and publishes `product_stock_increased` like a cancellation. A higher or new line takes what fits; the rest stays pending and the order keeps `stockDeducted = true`. Reason: an edit is never refused for stock.
+- An order with pending units answers `stockDue: { kind: "partial_waiting", shortItems }`. The restock listener and the recovery job retry it (all pending units fit or nothing, like a waiting order). Ship and deliver deduct the pending part first, through the helper in `fulfill-order.ts`, and answer the usual short-stock error if it does not fit; `stockFulfillmentBlock` blocks both buttons meanwhile.
+- Cancelling returns the sum of `stockDeductedQuantity` per variant, never `quantity`. Reason: a short increase followed by a cancellation returns exactly what was taken.
+- After commit the listener logs `order_stock_adjusted` with `trigger`, `returnedUnits`, `deductedUnits`, `pendingLines` and `durationMs`; pending units reuse `order_stock_waiting`.
 - A buyer-confirmed order keeps its confirmation after a change; the buyer sees the current products and total on the same link, and the checkout's `expectedTotal` check refuses a confirmation with an outdated total ([Checkout](checkout.md#confirmation)).
 - Only the latest items and customer are kept; there is no history of earlier versions.
 
@@ -274,7 +282,7 @@ Errors use the envelope `{ code, error, issues? }`; `issues` points to the affec
 | Delivery already progressed / payment not covered | `409 DELIVERY_LOCKED` / `409 PAYMENT_REQUIRED` |
 | Known persistence failure, or a contended stock deduction for immediate delivery | `503 SERVICE_UNAVAILABLE` |
 
-An order of another company responds exactly as a missing one. Outside creation, `INSUFFICIENT_STOCK` remains only for shipping (`/ship` and `PATCH /:id/shipping` with a shipment).
+An order of another company responds exactly as a missing one. Outside creation, `INSUFFICIENT_STOCK` remains only for shipping and delivering (`/ship`, `/deliver` and `PATCH /:id/shipping`).
 
 ### Uncertain responses
 

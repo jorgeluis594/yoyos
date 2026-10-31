@@ -21,8 +21,6 @@ export type SaveOutcome = Readonly<{
   focusHeading: boolean;
   /** The picker's cached searches are stale: the stock changed. */
   bumpCatalog: boolean;
-  /** `ITEMS_LOCKED`: the next loader answer returns the products to the saved ones. */
-  resetProducts: boolean;
   /** The lost answer must be checked by reading the order. */
   check: boolean;
 }>;
@@ -32,7 +30,7 @@ const rateGone = ["RATE_UNAVAILABLE", "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_D
 /** Maps the action's answer to the next state, the status line and the effects. Edits stay on screen unless the save went through. */
 export function saveChangesOutcome(state: OrderViewState, result: SaveChangesResult, context: Readonly<{ t: TFunction; formatMoney: (money: Money) => string }>): SaveOutcome {
   const { t, formatMoney } = context;
-  const stay = (notice: ViewNotice | null, patch: Partial<SaveOutcome> = {}): SaveOutcome => ({ state, notice, unavailableVariantId: null, focusHeading: false, bumpCatalog: false, resetProducts: false, check: false, ...patch });
+  const stay = (notice: ViewNotice | null, patch: Partial<SaveOutcome> = {}): SaveOutcome => ({ state, notice, unavailableVariantId: null, focusHeading: false, bumpCatalog: false, check: false, ...patch });
   const alert = (text: string, focus?: string): ViewNotice => ({ kind: "alert", text, focus });
   if ("lost" in result) return result.lost === "offline" ? stay(alert(t("orderView.failure.changesOffline"))) : stay({ kind: "doubt", checking: true }, { check: true });
   if ("applied" in result) {
@@ -42,7 +40,6 @@ export function saveChangesOutcome(state: OrderViewState, result: SaveChangesRes
   }
   switch (true) {
     case result.code === "ORDER_CHANGED": return stay({ kind: "conflict" });
-    case result.code === "ITEMS_LOCKED": return stay({ kind: "itemsLocked" }, { resetProducts: true });
     case result.code === "CUSTOMER_REQUIRED": return stay(alert(t("orderView.customer.requiredNote"), "customer-name"));
     case result.code === "DELIVERY_LOCKED" || result.code === "ORDER_CANCELLED": return stay({ kind: "locked", code: result.code });
     case result.code === "VARIANT_NOT_FOUND" && result.variantId !== undefined: {

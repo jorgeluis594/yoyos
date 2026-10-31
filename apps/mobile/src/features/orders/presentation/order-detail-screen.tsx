@@ -39,7 +39,7 @@ import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { useCopyLink } from "@mobile/features/catalog/presentation/use-copy-link";
 import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
-import { joinLabels, shortStockLines } from "@mobile/features/orders/presentation/order-stock";
+import { isWaitingDue, joinLabels, shortStockLines } from "@mobile/features/orders/presentation/order-stock";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
 import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
@@ -159,7 +159,7 @@ export default function OrderDetailScreen() {
       ...method, deductStockIfPartial });
     if (result.success) {
       setOrder(result.data.order); setEditor(null);
-      setPaymentLine(result.data.order.stockDue?.kind === "waiting" ? "waiting" : "recorded");
+      setPaymentLine(isWaitingDue(result.data.order.stockDue) ? "waiting" : "recorded");
       if (source === "manual") manualPaymentId.current = null;
     }
     else {
@@ -326,7 +326,7 @@ export default function OrderDetailScreen() {
   const nextReasonText = !nextReason || !nextOperation ? null
     : nextReason === "STOCK_WAITING" ? t(`orderFulfillment.STOCK_WAITING_${nextOperation === "ship" ? "SHIP" : "DELIVER"}${shortLines.length ? "" : "_GENERIC"}`, { items: joinLabels(shortLines.map(line => line.label), t("listAnd")) })
     : t(`orderFulfillment.${fulfillmentKey(nextOperation, nextReason)}`);
-  const stockLine = order.stockDeducted ? t("stockDeducted") : order.stockDue?.kind === "waiting" ? t("stockWaiting") : order.stockDue?.kind === "deducting" ? t("stockDeducting") : t("stockPending");
+  const stockLine = isWaitingDue(order.stockDue) ? t("stockWaiting") : order.stockDeducted ? t("stockDeducted") : order.stockDue?.kind === "deducting" ? t("stockDeducting") : t("stockPending");
   const cardStyle = { backgroundColor: theme.backgroundElement, borderColor: theme.border };
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <View style={styles.container}>
@@ -364,10 +364,10 @@ export default function OrderDetailScreen() {
         {!order.cancelled && order.stockDue ? <View style={[styles.stockNotice, { backgroundColor: theme.warningSurface, borderColor: theme.border }]}>
           <SymbolView name={{ ios: "shippingbox", android: "inventory_2" }} size={24} tintColor={theme.warning} />
           <View style={styles.flex}>
-            <ThemedText accessibilityRole="header" style={[styles.semibold, { color: theme.warning }]}>{order.stockDue.kind === "waiting" ? t("stockWaitingTitle") : t("stockDeductingTitle")}</ThemedText>
-            {order.stockDue.kind === "waiting" ? shortLines.map(line => <ThemedText key={line.variantId} type="small" style={{ color: theme.warning }}>
+            <ThemedText accessibilityRole="header" style={[styles.semibold, { color: theme.warning }]}>{isWaitingDue(order.stockDue) ? t("stockWaitingTitle") : t("stockDeductingTitle")}</ThemedText>
+            {isWaitingDue(order.stockDue) ? shortLines.map(line => <ThemedText key={line.variantId} type="small" style={{ color: theme.warning }}>
               {t("stockWaitingLine", { name: line.label, quantity: line.quantity, available: line.available })}</ThemedText>) : null}
-            <ThemedText type="small" style={{ color: theme.warning }}>{order.stockDue.kind === "waiting" ? t("stockWaitingHelp") : t("stockDeductingHelp")}</ThemedText>
+            <ThemedText type="small" style={{ color: theme.warning }}>{isWaitingDue(order.stockDue) ? t("stockWaitingHelp") : t("stockDeductingHelp")}</ThemedText>
           </View>
         </View> : null}
         {changed && original ? <View style={[styles.card, styles.section, { backgroundColor: theme.warningSurface, borderColor: theme.border }]}>

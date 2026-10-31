@@ -115,6 +115,9 @@ export const paymentSchema = z.discriminatedUnion("status", [
 export const orderStockDueSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("waiting"), shortItems: z.array(z.strictObject({
     variantId: z.uuid(), available: z.number().int().nonnegative().safe() })).min(1) }),
+  /** The order's stock was deducted, but an edit added units that did not fit yet. */
+  z.strictObject({ kind: z.literal("partial_waiting"), shortItems: z.array(z.strictObject({
+    variantId: z.uuid(), available: z.number().int().nonnegative().safe() })).min(1) }),
   z.strictObject({ kind: z.literal("deducting") }),
 ]);
 export type OrderStockDue = z.infer<typeof orderStockDueSchema>;

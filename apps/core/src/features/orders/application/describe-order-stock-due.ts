@@ -2,7 +2,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { TransactionEndingError } from "@core/src/shared/application/contained-failure";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
-import type { OrderId } from "@core/src/features/orders/domain/order";
+import type { OrderId, OrderItem } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { describeStockDue, isStockDeductionDue, parseStockQuantity, toStockOrder, type NonNegativeInteger, type OrderWithStockDue, type StockDue } from "@core/src/features/orders/domain/stock-deduction";
 import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
@@ -22,15 +22,27 @@ function describeWith(order: OrderAggregate, rows: ReadonlyMap<VariantId, unknow
   return describeStockDue(toStockOrder(order), stock);
 }
 
+function withDeducted(order: OrderAggregate, deducted: (item: OrderItem) => number): OrderAggregate["items"] {
+  const [first, ...rest] = order.items;
+  const line = (item: OrderItem): OrderItem => ({ ...item, stockDeductedQuantity: deducted(item) });
+  return [line(first), ...rest.map(line)];
+}
+
 /**
  * The producer's order and its `stockDue`, from the outcome of the event it published. `failed` is the only outcome that reads stock (inside the producer's transaction).
  * `deducted` returns the order as deducted.
  */
 export async function orderWithStockDue(order: OrderAggregate, outcome: DeductionOutcome, readStock: StockReader): Promise<Result<StockEventResult, TransactionEndingError>> {
   switch (outcome.kind) {
-    case "deducted": return ok({ order: { ...order, stockDeducted: true, stockDeductedAt: order.stockDeductedAt ?? outcome.deductedAt }, stockDue: null, outcome });
+    case "deducted": return ok({ order: { ...order, stockDeducted: true, stockDeductedAt: order.stockDeductedAt ?? outcome.deductedAt,
+      items: withDeducted(order, (item) => item.quantity) }, stockDue: null, outcome });
     case "not_due": return ok({ order, stockDue: null, outcome });
-    case "short": return ok({ order, stockDue: { kind: "waiting", shortItems: outcome.shortItems }, outcome });
+    case "adjusted": {
+      const items = withDeducted(order, (item) => outcome.deductedByVariant.get(item.variantId) ?? item.stockDeductedQuantity);
+      const [first, ...pending] = outcome.pending;
+      return ok({ order: { ...order, items }, stockDue: first ? { kind: "partial_waiting", shortItems: [first, ...pending] } : null, outcome });
+    }
+    case "short": return ok({ order, stockDue: { kind: order.stockDeducted ? "partial_waiting" : "waiting", shortItems: outcome.shortItems }, outcome });
     case "skipped_locked":
     case "failed": {
       if (!isStockDeductionDue(toStockOrder(order))) return ok({ order, stockDue: null, outcome });

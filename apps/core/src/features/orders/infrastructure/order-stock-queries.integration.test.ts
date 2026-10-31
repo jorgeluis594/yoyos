@@ -10,7 +10,7 @@ import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order"
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 type SeedPayment = Readonly<{ amount: number; status?: "confirmed" | "voided" | "reported"; deductStockIfPartial?: boolean }>;
-type SeedOrder = Readonly<{ total: number; items: readonly [number, number][]; payments?: readonly SeedPayment[]; createdAt?: Date; stockDeducted?: boolean; cancelled?: boolean; deliveryStatus?: string }>;
+type SeedOrder = Readonly<{ total: number; items: readonly [number, number][]; payments?: readonly SeedPayment[]; createdAt?: Date; stockDeducted?: boolean; /** Units already taken per item, in the order of `items`; defaults to all (deducted) or none. */ deducted?: readonly number[]; cancelled?: boolean; deliveryStatus?: string }>;
 let numbers = 1001;
 
 async function scenario<T>(stocks: number[], work: (ctx: { companyId: CompanyId; variants: VariantId[]; seed: (order: SeedOrder) => Promise<OrderId> }) => Promise<T>) {
@@ -27,8 +27,8 @@ async function scenario<T>(stocks: number[], work: (ctx: { companyId: CompanyId;
         createdAt: order.createdAt ?? new Date(), stockDeducted: order.stockDeducted ?? false, stockDeductedAt: order.stockDeducted ? order.createdAt ?? new Date() : null,
         cancelled: order.cancelled ?? false, cancelledAt: order.cancelled ? order.createdAt ?? new Date() : null, deliveryStatus: order.deliveryStatus ?? "pending",
         fromCatalog: false, sellerId } });
-      for (const [variant, quantity] of order.items) await prisma.orderItem.create({ data: { orderId: id, variantId: variants[variant]!, productName: "Camisa", variantAttributes: {},
-        quantity: BigInt(quantity), unitPrice: new Prisma.Decimal(1), subtotal: new Prisma.Decimal(quantity) } });
+      for (const [index, [variant, quantity]] of order.items.entries()) await prisma.orderItem.create({ data: { orderId: id, variantId: variants[variant]!, productName: "Camisa", variantAttributes: {},
+        quantity: BigInt(quantity), stockDeductedQuantity: BigInt(order.deducted?.[index] ?? (order.stockDeducted ? quantity : 0)), unitPrice: new Prisma.Decimal(1), subtotal: new Prisma.Decimal(quantity) } });
       for (const payment of order.payments ?? []) await prisma.payment.create({ data: { id: randomUUID(), orderId: id, status: payment.status ?? "confirmed",
         amount: payment.status === "reported" ? null : new Prisma.Decimal(payment.amount), currency: "PEN", method: payment.status === "reported" ? null : "bank_transfer",
         deductStockIfPartial: payment.deductStockIfPartial ?? false, data: {} } });
@@ -79,7 +79,7 @@ test("locks a set of orders in one statement and skips those held elsewhere", as
     expect(data(await tx(() => lockOrdersSkipLocked([second, first], companyId)))).toEqual([first, second]);
     const deductedAt = new Date("2026-10-30T10:00:00Z");
     expect(data(await tx(() => saveStockDeductions([first, second], companyId, deductedAt)))).toBe(2);
-    expect(data(await tx(() => saveStockDeductions([first, second], companyId, new Date("2026-10-30T11:00:00Z"))))).toBe(0);
+    expect(data(await tx(() => saveStockDeductions([first, second], companyId, new Date("2026-10-30T11:00:00Z"))))).toBe(0); // nothing pending: not marked again, the first deduction time stays
     expect((await prisma.order.findMany({ where: { id: { in: [first, second] } } })).map((order) => order.stockDeductedAt)).toEqual([deductedAt, deductedAt]);
   });
 });
@@ -155,5 +155,27 @@ test("restock and recovery order locks do not block a payment report insert on t
       }, { lockTimeoutMs: 1000 });
       expect(inserted).toEqual({ success: true, data: true });
     } finally { release(); await holder; }
+  });
+});
+
+test("recovers the pending part of a deducted order only when it fits the current stock", async () => {
+  await scenario([2, 0], async ({ companyId, seed }) => {
+    const fits = await seed({ total: 100, items: [[0, 3]], stockDeducted: true, deducted: [1], createdAt: new Date("2026-10-01") });
+    await seed({ total: 100, items: [[0, 5]], stockDeducted: true, deducted: [1] }); // pending 4, stock 2
+    await seed({ total: 100, items: [[0, 1], [1, 2]], stockDeducted: true, deducted: [1, 1] }); // another variant lacks stock
+    await seed({ total: 100, items: [[0, 3]], stockDeducted: true }); // settled
+    await seed({ total: 100, items: [[0, 3]], stockDeducted: true, deducted: [1], cancelled: true });
+    await seed({ total: 100, items: [[0, 3]], stockDeducted: true, deducted: [1], deliveryStatus: "shipped" });
+    expect(data(await tx(() => listOverdueOrderIds(companyId, 10, [])))).toEqual([fits]);
+    expect(data(await tx(() => listOverdueOrderIds(companyId, 10, [fits])))).toEqual([]);
+    expect(data(await listCompaniesWithOverdueStockDeductions())).toContain(companyId);
+  });
+});
+
+test("the overdue companies lookup does not list a company whose pending parts do not fit or are settled", async () => {
+  await scenario([1], async ({ companyId, seed }) => {
+    await seed({ total: 100, items: [[0, 4]], stockDeducted: true, deducted: [1] }); // pending 3, stock 1
+    await seed({ total: 100, items: [[0, 2]], stockDeducted: true });
+    expect(data(await listCompaniesWithOverdueStockDeductions())).not.toContain(companyId);
   });
 });

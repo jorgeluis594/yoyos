@@ -270,7 +270,7 @@ function appendItems(order: OrderAggregate, variants: readonly AppendedVariant[]
       continue;
     }
     const { variantId, productName, variantAttributes, sku, unitPrice } = variant;
-    items.push({ id: newItemId(), variantId, productName, variantAttributes, sku, quantity, unitPrice, subtotal: unitPrice, mentionedPrice: variant.mentionedPrice ?? null });
+    items.push({ id: newItemId(), variantId, productName, variantAttributes, sku, quantity, unitPrice, subtotal: unitPrice, mentionedPrice: variant.mentionedPrice ?? null, stockDeductedQuantity: 0 });
   }
   return withItems(order, items);
 }
@@ -310,7 +310,7 @@ function replaceItemVariant(order: OrderAggregate, itemId: OrderItemId, variant:
     return withItems(order, order.items.filter((item) => item.id !== itemId).map((item) => item.id === existing.id ? merged : item));
   }
   const { variantId, productName, variantAttributes, sku, unitPrice } = variant;
-  const replacement: OrderItem = { id: newItemId(), variantId, productName, variantAttributes, sku, quantity: old.quantity, unitPrice, subtotal: unitPrice, mentionedPrice };
+  const replacement: OrderItem = { id: newItemId(), variantId, productName, variantAttributes, sku, quantity: old.quantity, unitPrice, subtotal: unitPrice, mentionedPrice, stockDeductedQuantity: 0 };
   return withItems(order, order.items.map((item) => item.id === itemId ? replacement : item));
 }
 

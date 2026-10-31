@@ -26,7 +26,7 @@ export type DispatchQueueSummary = Readonly<{ overdue: number; overdueReady: num
 export type OrderedDispatchQueue = Readonly<{ members: readonly (ClassifiedCandidate & Readonly<{ group: DispatchGroup }>)[]; summary: DispatchQueueSummary }>;
 
 /** The shared fulfillment rule reads the due stock as plain arrays; copying keeps this domain free of the transport contract. */
-const mutableStockDue = (due: StockDue | null) => due?.kind === "waiting" ? { kind: "waiting" as const, shortItems: [...due.shortItems] } : due;
+const mutableStockDue = (due: StockDue | null) => due?.kind === "waiting" || due?.kind === "partial_waiting" ? { kind: due.kind, shortItems: [...due.shortItems] } : due;
 const cents = (amount: number) => Math.round(amount * 100);
 const confirmedCents = (order: StockOrder) => order.confirmedPayments.reduce((sum, payment) => sum + cents(payment.amount.amount), 0);
 

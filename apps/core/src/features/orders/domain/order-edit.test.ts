@@ -18,7 +18,7 @@ const home: DeliverySnapshot = { method: "home", recipient: ana, destination: { 
 
 const variantOf = (n: number) => id(n + 100) as VariantId;
 const item = (n: number, name: string, attributes: Record<string, string>, quantity: number, unit: number): OrderItem => ({ id: id(n) as OrderItemId, variantId: variantOf(n),
-  productName: name, variantAttributes: attributes, sku: `SKU-${n}`, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null });
+  productName: name, variantAttributes: attributes, sku: `SKU-${n}`, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null, stockDeductedQuantity: 0 });
 // Order 1042: two «Traje» lines at S/ 89.00 and «Deadpool · M» at S/ 120.00.
 const traje = (n: number, size: string) => item(n, "Traje", { Talla: size }, 1, 89);
 const deadpool = item(5, "Deadpool", { Talla: "M" }, 1, 120);
@@ -126,11 +126,10 @@ describe("checkLocks", () => {
     expect(orderEdit.checkLocks(shipped, new Set(["customer"]))).toEqual({ success: true, data: null });
   });
 
-  test("refuses items edits once stock is deducted but allows customer and delivery edits", () => {
+  test("allows items, customer and delivery edits once stock is deducted: the stock listener settles the difference", () => {
     const deducted = order({ stockDeducted: true, stockDeductedAt: at });
-    expect(orderEdit.checkLocks(deducted, new Set(["items"]))).toMatchObject({ success: false, error: { code: "ITEMS_LOCKED" } });
-    expect(orderEdit.checkLocks(deducted, new Set(["items", "customer"]))).toMatchObject({ success: false, error: { code: "ITEMS_LOCKED" } });
-    expect(orderEdit.checkLocks(deducted, new Set(["customer", "delivery"]))).toEqual({ success: true, data: null });
+    expect(orderEdit.checkLocks(deducted, new Set(["items"]))).toEqual({ success: true, data: null });
+    expect(orderEdit.checkLocks(deducted, all)).toEqual({ success: true, data: null });
   });
 
   test("allows everything on an open order and nothing to check when no part remains", () => {
