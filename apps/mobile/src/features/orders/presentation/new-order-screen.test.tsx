@@ -199,7 +199,7 @@ const stockWarning = /disponibles?\. Puedes guardarlo y cobrarlo/;
 
 test("line warning says how many units are available and what happens, only above the shown stock", async () => {
   const screen = await reviewWithQuantity(0, 4);
-  expect(screen.getByText("Solo hay 0 disponibles. Puedes guardarlo y cobrarlo; si lo cobras, quedará esperando stock y no podrás despacharlo hasta que se descuente.")).toBeTruthy();
+  expect(screen.getByText("Solo hay 0 disponibles. Puedes guardarlo y cobrarlo; si lo cobras, quedará esperando stock y no podrás enviarlo hasta que se descuente.")).toBeTruthy();
   screen.unmount();
   const single = await reviewWithQuantity(1, 2);
   expect(single.getByText(/^Solo hay 1 disponible\. Puedes guardar/)).toBeTruthy();
@@ -218,7 +218,7 @@ test("line warning is in Portuguese with the available count", async () => {
   try {
     const screen = await reviewWithQuantity(2, 3);
     await act(async () => { await i18n.changeLanguage("pt-BR"); });
-    expect(screen.getByText("Só há 2 disponíveis. Você pode salvá-lo e cobrá-lo; se cobrar, ficará aguardando estoque e você não poderá despachá-lo até que seja descontado.")).toBeTruthy();
+    expect(screen.getByText("Só há 2 disponíveis. Você pode salvá-lo e cobrá-lo; se cobrar, ficará aguardando estoque e você não poderá enviá-lo até que seja descontado.")).toBeTruthy();
   } finally { await i18n.changeLanguage("es"); }
 });
 

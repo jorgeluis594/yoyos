@@ -52,7 +52,7 @@ const unknownField = { error: (issue: { code: string; keys?: string[] }) => issu
 const searchInput = z.strictObject({
   texto: z.string({ error: "texto debe ser un texto." }).trim().max(120, "texto admite como máximo 120 caracteres.").optional(),
   pago: z.enum(["por cobrar", "pagado"], { error: 'pago admite "por cobrar" o "pagado".' }).optional(),
-  entrega: z.enum(["pendiente", "despachada", "entregada"], { error: 'entrega admite "pendiente", "despachada" o "entregada".' }).optional(),
+  entrega: z.enum(["pendiente", "enviada", "entregada"], { error: 'entrega admite "pendiente", "enviada" o "entregada".' }).optional(),
   incluir_cancelados: z.boolean({ error: "incluir_cancelados debe ser true o false." }).default(false),
   courier: z.string({ error: "courier debe ser un texto." }).trim().min(1, "courier no puede estar vacío.").max(80, "courier admite como máximo 80 caracteres.").optional(),
   creado_desde: day.optional(), creado_hasta: day.optional(), despacho_programado_desde: day.optional(), despacho_programado_hasta: day.optional(),
@@ -65,7 +65,7 @@ const text = z.string();
 const summarySchema = z.strictObject({
   numero: text, creado: text, cliente: text, origen: z.enum(["Desde el catálogo", "WhatsApp", "Venta manual"]), total: text, recibido: text,
   estado_pago: z.enum(["Pagado", "Pago pendiente"]), por_cobrar: text.optional(), pago_por_revisar: z.literal(true).optional(), estado: z.enum(["Cancelado", "Completado"]).optional(),
-  estado_entrega: z.enum(["Pendiente", "Despachada", "Entregada"]), modalidad: z.enum(["A domicilio", "Agencia", "Recojo en tienda", "Por definir"]),
+  estado_entrega: z.enum(["Pendiente", "Enviada", "Entregada"]), modalidad: z.enum(["A domicilio", "Agencia", "Recojo en tienda", "Por definir"]),
   courier: text.optional(), despacho_programado: text.optional(), enlace: text,
 }) satisfies z.ZodType<AssistantOrderSummary>;
 const readinessSchema = z.strictObject({ listo: z.boolean(), texto: text });
@@ -118,7 +118,7 @@ const hasMore = (current: number, total: number) => (current * pageSize < total 
 const withMore = (current: number, total: number) => { const more = hasMore(current, total); return more ? { hay_mas: more } : {}; };
 
 type SearchInput = z.output<typeof searchInput>;
-const deliveryStates = { pendiente: "pending", despachada: "shipped", entregada: "delivered" } as const;
+const deliveryStates = { pendiente: "pending", enviada: "shipped", entregada: "delivered" } as const;
 
 /** Whether the agent narrowed the search: an empty answer to a narrowed search may still belong to a store with orders. */
 const hasFilters = (input: SearchInput): boolean => input.texto !== undefined && input.texto !== "" || input.sin_fecha_de_despacho === true
@@ -153,7 +153,7 @@ export function createOrderToolsModule(deps: OrderToolsDependencies, options: Or
       if (!created.success) return created;
       const scheduled = rangeOf("Despacho programado", input.despacho_programado_desde, input.despacho_programado_hasta);
       if (!scheduled.success) return scheduled;
-      const shipped = rangeOf("Despachado", input.despachado_desde, input.despachado_hasta);
+      const shipped = rangeOf("Enviado", input.despachado_desde, input.despachado_hasta);
       if (!shipped.success) return shipped;
       if (input.sin_fecha_de_despacho && (input.despacho_programado_desde || input.despacho_programado_hasta)) {
         return err(invalid("sin_fecha_de_despacho no se combina con un rango de despacho programado."));
@@ -245,7 +245,7 @@ function sampleDispatchOutput(count: number): z.output<typeof dispatchOutput> {
     pedidos: Array.from({ length: count }, (_, index) => ({
       grupo: "Atrasados" as const, numero: `#${1000 + index}`, cliente: long(200, "Ana "), modalidad: "Agencia" as const, courier: long(80, "Olva "), destino: long(300, "Calle "),
       despacho_programado: "28/10/2026", estado_pago: "Pago pendiente" as const, por_cobrar: "S/ 99,999,999.00", pago_por_revisar: true as const,
-      preparacion: { listo: false, texto: `Para despachar falta stock de ${long(120, "Camisa (M · Azul), ")}.` }, enlace: sampleSummary(index).enlace,
+      preparacion: { listo: false, texto: `Para enviar falta stock de ${long(120, "Camisa (M · Azul), ")}.` }, enlace: sampleSummary(index).enlace,
     })),
   };
 }
@@ -259,6 +259,6 @@ function sampleOrderOutput(itemCount: number, paymentCount: number): z.output<ty
       estado: "Rechazado" as const, fecha: "30/10/2026 10:42", monto: "S/ 99,999,999.00", metodo: "Transferencia bancaria" as const, con_comprobante: true as const, motivo: long(maxRejectionReason, "Monto incorrecto "),
     })),
     entrega: { modalidad: "Agencia", destino: long(400, "Agencia "), courier: long(80, "Olva "), destinatario: long(200, "Ana "), telefono: "termina en 789", punto_de_recojo: long(100) },
-    stock: "Esperando stock", preparacion: { listo: false, texto: `Para despachar falta stock de ${long(300, "Camisa (M · Azul), ")}.` },
+    stock: "Esperando stock", preparacion: { listo: false, texto: `Para enviar falta stock de ${long(300, "Camisa (M · Azul), ")}.` },
   };
 }
