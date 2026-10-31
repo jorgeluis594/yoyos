@@ -22,7 +22,8 @@ const config: KnipConfig = {
   compilers: { css: cssImports },
   ignoreBinaries: ["psql"],
   // Storybook resolves its builder by name from @storybook/react-vite.
-  ignoreDependencies: ["@storybook/builder-vite"],
+  // The MCP packages are added ahead of the MCP endpoint (MCP 1/4, T3), which imports them and removes them from this list.
+  ignoreDependencies: ["@storybook/builder-vite", "@modelcontextprotocol/server", "@modelcontextprotocol/node", "@modelcontextprotocol/client"],
   ignoreIssues: {
     // shadcn components export their variants and parts by convention.
     "app/components/ui/**": ["exports"],

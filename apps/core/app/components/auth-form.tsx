@@ -16,9 +16,13 @@ import { z } from "zod";
 import { authClient } from "@core/src/shared/infrastructure/auth-client";
 import { createCompanyForCurrentUser, registerWeb } from "@core/app/register";
 import { BrandLogo } from "@core/app/components/brand-logo";
+import { hasSignedAuthorizationQuery } from "@core/app/lib/assistant-display";
+import { isWebUrl, redirectBrowser } from "@core/app/lib/redirect-browser";
 
 const credentialsSchema = z.object({ email: z.email(), password: z.string().min(1) });
-const authResultSchema = z.object({ error: z.object({ message: z.string().optional() }).nullable(), data: z.unknown().nullable() });
+const authResultSchema = z.object({ error: z.looseObject({ code: z.string().optional(), status: z.number().optional(), message: z.string().optional() }).nullable(), data: z.unknown().nullable() });
+// Signing in from an agent request: Better Auth continues the authorization and answers where to go next.
+const continuationSchema = z.object({ redirect: z.literal(true), url: z.string().min(1) });
 
 export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "register"; pendingCompany?: boolean }) {
   const { t, i18n } = useTranslation();
@@ -29,11 +33,14 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
   const location = useLocation();
   const path = (target: string) => localizedPath(location.pathname, target);
   const [error, setError] = useState("");
+  const [unverifiedEmail, setUnverifiedEmail] = useState<string | null>(null);
   const [pending, setPending] = useState(false);
+  const agentRequest = mode === "login" && !pendingCompany && hasSignedAuthorizationQuery(location.search);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError("");
+    setUnverifiedEmail(null);
     setPending(true);
     const data = new FormData(event.currentTarget);
     try {
@@ -59,7 +66,16 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
         if (!credentials.success) { setError(t("auth.invalidCredentials")); return; }
         const result = authResultSchema.safeParse(await authClient.signIn.email(credentials.data));
         if (!result.success || !result.data.data && !result.data.error) { setError(t("auth.invalidResponse")); return; }
-        if (result.data.error) { setError(t("auth.loginError")); return; }
+        if (result.data.error) {
+          const { code, status } = result.data.error;
+          if (agentRequest && code === "EMAIL_NOT_VERIFIED") { setUnverifiedEmail(credentials.data.email); return; }
+          // The continuation failed closed after the session was set: signing in again continues the request.
+          if (agentRequest && status !== undefined && status >= 500) { setError(t("assistants.continueError")); return; }
+          setError(t("auth.loginError"));
+          return;
+        }
+        const continuation = continuationSchema.safeParse(result.data.data);
+        if (agentRequest && continuation.success && isWebUrl(continuation.data.url)) { redirectBrowser(continuation.data.url); return; }
       }
       navigate(path("/dashboard"));
     } catch {
@@ -72,6 +88,7 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
       <Link to={path("/login")} className="self-start focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-ring"><BrandLogo /></Link>
       <AuthLayoutTitle>{pendingCompany ? t("auth.companyTitle") : isRegister ? t("auth.createAccount") : t("common.login")}</AuthLayoutTitle>
       <AuthLayoutDescription>{pendingCompany ? t("auth.companyDescription") : isRegister ? t("auth.registerDescription") : t("auth.loginDescription")}</AuthLayoutDescription>
+      {agentRequest && <p className="text-sm font-medium">{t("assistants.loginHint")}</p>}
     </AuthLayoutHeader>
     <form onSubmit={submit} className="flex flex-col gap-4">
       {isRegister && <Field><FieldLabel htmlFor="name">{t("common.name")}</FieldLabel><Input id="name" name="name" autoComplete="name" required /></Field>}
@@ -84,6 +101,10 @@ export function AuthForm({ mode, pendingCompany = false }: { mode: "login" | "re
         <Field><FieldLabel htmlFor="country">{t("auth.country")}</FieldLabel><Select name="country" required items={countryItems} defaultValue={null}><SelectTrigger id="country"><SelectValue placeholder={t("auth.selectCountry")} /></SelectTrigger><SelectContent><SelectGroup>{countryItems.map((item) => <SelectItem key={item.value ?? "placeholder"} value={item.value} disabled={item.value === null}>{item.label}</SelectItem>)}</SelectGroup></SelectContent></Select></Field>
       </>}
       {error && <Alert variant="destructive"><AlertDescription>{error}</AlertDescription></Alert>}
+      {unverifiedEmail !== null && <Alert variant="destructive" role="alert"><AlertDescription className="flex flex-col gap-3">
+        <span>{t("assistants.unverified")}</span>
+        <Button asChild variant="outline" className="min-h-touch self-start"><Link to={path("/check-email")} state={{ email: unverifiedEmail }}>{t("assistants.resendVerification")}</Link></Button>
+      </AlertDescription></Alert>}
       <Button type="submit" disabled={pending}>{pending ? t("auth.wait") : pendingCompany ? t("auth.createCompany") : isRegister ? t("auth.createAccount") : t("auth.enter")}</Button>
     </form>
     {!pendingCompany && <AuthLayoutFooter>

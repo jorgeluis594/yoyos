@@ -6,8 +6,8 @@ import type { ContainedFailure, TransactionEndingError } from "@core/src/shared/
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { isCurrency } from "@shared/money";
-import { parseDispatchDate } from "@shared/dispatch-date";
+import { isCurrency, type Money } from "@shared/money";
+import { parseDispatchDate, type DispatchDate } from "@shared/dispatch-date";
 import { getCompanyId, prisma, systemPrisma, requireActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildOrder, type OrderItem, type OrderItemId, type OrderId, type ContactId, type CompanyId, type UserId, type PositiveInteger } from "@core/src/features/orders/domain/order";
 import { orderSource, orderStateMachine, parseDeliverySnapshot, type DispatchScheduleChange, type FulfillmentChange, type OrderAggregate, type Payment } from "@core/src/features/orders/domain/order-state-machine";
@@ -16,6 +16,8 @@ import type { OrderCriteria } from "@core/src/features/orders/application/read-o
 import type { AggregateCriteria, AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { NonNegativeInteger } from "@core/src/features/orders/domain/stock-deduction";
+import type { DispatchCandidate } from "@core/src/features/orders/domain/dispatch-readiness";
+import type { UnpaidSummary } from "@core/src/features/orders/application/summarize-unpaid-orders";
 import type { StockOrderRow } from "@core/src/features/orders/application/deduct-due-stock";
 import { isOpenForMessageItems, type ChatId, type OrderChatSource } from "@core/src/features/orders/domain/message-order";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
@@ -485,9 +487,16 @@ export async function findOrders(criteria: OrderCriteria) {
   }
 }
 
+/** Sum of the confirmed payments of an order aliased `o`. */
+const confirmedPaid = Prisma.sql`coalesce((SELECT sum(p.amount) FROM "Payment" p WHERE p."orderId" = o.id
+  AND p."companyId" = o."companyId" AND p.status = 'confirmed'), 0)`;
+/** Unconfirmed catalog orders do not exist for the seller. */
+const visibleOrder = Prisma.sql`NOT (o."fromCatalog" AND o."checkoutConfirmedAt" IS NULL)`;
+
 export async function findOrderAggregates(criteria: AggregateCriteria, companyId: CompanyId) {
   if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
-  const predicates = [Prisma.sql`o."companyId" = ${companyId}::uuid`, Prisma.sql`NOT (o."fromCatalog" AND o."checkoutConfirmedAt" IS NULL)`];
+  const predicates = [Prisma.sql`o."companyId" = ${companyId}::uuid`, visibleOrder];
+  if (criteria.cancelled === "exclude") predicates.push(Prisma.sql`o.cancelled = false`);
   if (criteria.customer.kind === "general_public") predicates.push(Prisma.sql`b."orderId" IS NULL`);
   if (criteria.createdFrom) predicates.push(Prisma.sql`o."createdAt" >= ${criteria.createdFrom}`);
   if (criteria.createdBefore) predicates.push(Prisma.sql`o."createdAt" < ${criteria.createdBefore}`);
@@ -502,13 +511,17 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
   if (criteria.shippedBefore) predicates.push(Prisma.sql`o."shippedAt" < ${criteria.shippedBefore}`);
   if (criteria.search) {
     const number = /^#?\d+$/.test(criteria.search) ? Number(criteria.search.replace(/^#/, "")) : NaN;
-    predicates.push(Prisma.sql`(strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0
-      OR strpos(b.phone, ${criteria.search}) > 0
-      ${Number.isSafeInteger(number) ? Prisma.sql`OR o.number = ${BigInt(number)}` : Prisma.empty})`);
+    const byNumber = Number.isSafeInteger(number) ? Prisma.sql`o.number = ${BigInt(number)}` : Prisma.sql`false`;
+    if (criteria.searchPhone === "exclude") {
+      // Assistant search: digits never match a customer name, so a hidden phone cannot be rebuilt by probing. A query with any numeric character searches the order number only.
+      predicates.push(/\p{N}/u.test(criteria.search.normalize("NFKC")) ? byNumber : Prisma.sql`strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0`);
+    } else {
+      predicates.push(Prisma.sql`(strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0 OR strpos(b.phone, ${criteria.search}) > 0
+        ${Number.isSafeInteger(number) ? Prisma.sql`OR o.number = ${BigInt(number)}` : Prisma.empty})`);
+    }
   }
-  if (criteria.view === "unpaid") predicates.push(Prisma.sql`o.cancelled = false AND
-    coalesce((SELECT sum(p.amount) FROM "Payment" p WHERE p."orderId" = o.id
-      AND p."companyId" = o."companyId" AND p.status = 'confirmed'), 0) < o.total`);
+  if (criteria.view === "unpaid") predicates.push(Prisma.sql`o.cancelled = false AND ${confirmedPaid} < o.total`);
+  if (criteria.view === "paid") predicates.push(Prisma.sql`o.cancelled = false AND ${confirmedPaid} >= o.total`);
   if (criteria.view === "undelivered") predicates.push(Prisma.sql`o.cancelled = false AND o."deliveryStatus" IN ('pending', 'shipped')`);
   try {
     const [page] = await prisma.$queryRaw<{ ids: string[]; total: number }[]>(Prisma.sql`
@@ -530,6 +543,130 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
     if (!knownFailure(cause)) throw cause;
     log.error({ event: "unable_to_list_order_aggregates", err: cause }, "unable_to_list_order_aggregates");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to list orders" });
+  }
+}
+
+/** The company's order with this number, with its derived state; the caller's composition hides unconfirmed catalog orders. */
+export async function findOrderAggregateByNumber(number: OrderNumber, companyId: CompanyId, operation = "get_order_aggregate_by_number") {
+  if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+  try {
+    const row = await prisma.order.findFirst({ where: { companyId, number: BigInt(number) }, include: aggregateInclude });
+    return ok(row ? mapAggregate(row, operation) : null);
+  } catch (cause) {
+    if (cause instanceof InvalidStoredOrderError) {
+      if (!(cause instanceof InvalidStoredDeliveryError)) log.error({ event: "order_checkout_data_invalid", errorCode: "INVALID_STORED_ORDER", err: cause }, "Invalid stored order");
+      return err({ code: "INVALID_ORDER" as const, message: "Invalid stored order" });
+    }
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_load_order_by_number", operation, orderNumber: number, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_load_order_by_number");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to load order" });
+  }
+}
+
+/** Whether the company has an order the seller can see. */
+export async function existsOrder(companyId: CompanyId) {
+  if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+  try {
+    const [row] = await prisma.$queryRaw<{ found: boolean }[]>(Prisma.sql`SELECT EXISTS (SELECT 1 FROM "Order" o WHERE o."companyId" = ${companyId}::uuid AND ${visibleOrder}) AS found`);
+    return ok(row?.found === true);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_check_any_order", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_check_any_order");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to check orders" });
+  }
+}
+
+const unpaidSummaryRow = z.object({ currency: z.string(), count: z.number().int().nonnegative(), pendingReports: z.number().int().nonnegative(), owed: z.string().regex(/^\d+(\.\d+)?$/) });
+
+/** One aggregate over every unpaid order (the `unpaid` view's predicate): count, balance per currency and how many have a payment report waiting. */
+export async function summarizeUnpaidOrders(companyId: CompanyId) {
+  if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+  try {
+    // Payments are grouped once and hash-joined: a correlated sum per order costs about 2.5x more at 50 000 orders.
+    const rows = await prisma.$queryRaw<unknown[]>(Prisma.sql`WITH paid AS (SELECT p."orderId", coalesce(sum(p.amount) FILTER (WHERE p.status = 'confirmed'), 0) AS confirmed,
+        coalesce(bool_or(p.status = 'reported'), false) AS reported FROM "Payment" p WHERE p."companyId" = ${companyId}::uuid GROUP BY p."orderId")
+      SELECT o.currency, count(*)::int AS count, (count(*) FILTER (WHERE coalesce(c.reported, false)))::int AS "pendingReports", sum(o.total - coalesce(c.confirmed, 0))::text AS owed
+      FROM "Order" o LEFT JOIN paid c ON c."orderId" = o.id
+      WHERE o."companyId" = ${companyId}::uuid AND ${visibleOrder} AND o.cancelled = false AND coalesce(c.confirmed, 0) < o.total
+      GROUP BY o.currency ORDER BY o.currency`);
+    const parsed = z.array(unpaidSummaryRow).safeParse(rows);
+    if (!parsed.success || parsed.data.some((row) => !isCurrency(row.currency))) {
+      log.error({ event: "unpaid_summary_invalid_row", errorCode: "INVALID_STORED_ORDER" }, "Invalid unpaid summary row");
+      return err({ code: "INVALID_ORDER" as const, message: "Invalid stored order" });
+    }
+    const owed: Money[] = parsed.data.map((row) => ({ amount: Number(row.owed), currency: row.currency as Money["currency"] }));
+    return ok<UnpaidSummary>({ count: parsed.data.reduce((sum, row) => sum + row.count, 0), withPendingReport: parsed.data.reduce((sum, row) => sum + row.pendingReports, 0), owed });
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_summarize_unpaid_orders", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_summarize_unpaid_orders");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to summarize unpaid orders" });
+  }
+}
+
+const dispatchCandidateRow = z.object({
+  id: z.uuid(), number: z.string().regex(/^\d+$/), createdAt: z.date(), scheduledDispatchDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), stockDeducted: z.boolean(),
+  total: z.string().regex(/^\d+(\.\d+)?$/), currency: z.string(), method: z.enum(["home", "agency", "store"]).nullable(), hasReportedPayment: z.boolean(),
+  items: z.array(z.object({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
+  payments: z.array(z.object({ amount: z.number().positive().finite(), currency: z.string(), deductStockIfPartial: z.boolean() })),
+});
+
+/**
+ * Pending, not cancelled orders scheduled through `through`, oldest date first, as light rows (items and confirmed payments aggregated in SQL).
+ * `"too_many"` when more than `max` match. The `Order_dispatch_queue_idx` predicate is repeated with literals so a generic plan can use the partial index.
+ */
+export async function findDispatchCandidates(through: DispatchDate, max: number, companyId: CompanyId) {
+  if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+  try {
+    const raw = await prisma.$queryRaw<unknown[]>(Prisma.sql`SELECT o.id, o.number::text AS number, o."createdAt", o."scheduledDispatchDate"::text AS "scheduledDispatchDate",
+      o."stockDeducted", o.total::text AS total, o.currency, o.delivery ->> 'method' AS method, pay.reported AS "hasReportedPayment",
+      (SELECT coalesce(json_agg(json_build_object('variantId', i."variantId", 'quantity', i.quantity) ORDER BY i.id), '[]'::json)
+         FROM "OrderItem" i WHERE i."companyId" = o."companyId" AND i."orderId" = o.id) AS items,
+      pay.confirmed AS payments
+      FROM "Order" o
+      CROSS JOIN LATERAL (SELECT coalesce(json_agg(json_build_object('amount', p.amount, 'currency', p.currency, 'deductStockIfPartial', p."deductStockIfPartial") ORDER BY p.id)
+          FILTER (WHERE p.status = 'confirmed'), '[]'::json) AS confirmed, coalesce(bool_or(p.status = 'reported'), false) AS reported
+        FROM "Payment" p WHERE p."companyId" = o."companyId" AND p."orderId" = o.id) pay
+      WHERE o."companyId" = ${companyId}::uuid AND NOT o.cancelled AND o."deliveryStatus" = 'pending'
+        AND o."scheduledDispatchDate" <= ${through}::date AND ${visibleOrder}
+      ORDER BY o."scheduledDispatchDate", o.number LIMIT ${max + 1}`);
+    if (raw.length > max) return ok<readonly DispatchCandidate[] | "too_many">("too_many");
+    const candidates = raw.map((row): DispatchCandidate => {
+      const parsed = dispatchCandidateRow.safeParse(row);
+      const [first, ...rest] = parsed.success ? parsed.data.items : [];
+      const number = parsed.success ? parseOrderNumber(Number(parsed.data.number)) : null;
+      const date = parsed.success ? parseDispatchDate(parsed.data.scheduledDispatchDate) : null;
+      if (!parsed.success || !first || !number?.success || !date?.success || !isCurrency(parsed.data.currency) || parsed.data.payments.some((payment) => payment.currency !== parsed.data.currency))
+        throw new InvalidStoredOrderError("Invalid stored dispatch candidate");
+      const currency = parsed.data.currency;
+      const line = (item: typeof first) => ({ variantId: item.variantId as VariantId, quantity: item.quantity as PositiveInteger });
+      return { id: parsed.data.id as OrderId, createdAt: parsed.data.createdAt, cancelled: false, stockDeducted: parsed.data.stockDeducted, deliveryStatus: "pending",
+        total: { amount: Number(parsed.data.total), currency }, items: [line(first), ...rest.map(line)],
+        confirmedPayments: parsed.data.payments.map((payment) => ({ amount: { amount: payment.amount, currency }, deductStockIfPartial: payment.deductStockIfPartial })),
+        number: number.data, scheduledDispatchDate: date.data, deliveryMethod: parsed.data.method, hasReportedPayment: parsed.data.hasReportedPayment };
+    });
+    return ok<readonly DispatchCandidate[] | "too_many">(candidates);
+  } catch (cause) {
+    if (cause instanceof InvalidStoredOrderError) {
+      log.error({ event: "dispatch_candidate_invalid", errorCode: "INVALID_STORED_ORDER", err: cause }, "Invalid stored dispatch candidate");
+      return err({ code: "INVALID_ORDER" as const, message: "Invalid stored order" });
+    }
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_find_dispatch_candidates", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_find_dispatch_candidates");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read the dispatch queue" });
+  }
+}
+
+/** Pending orders with no scheduled dispatch date; same index and literal predicate as `findDispatchCandidates`. */
+export async function countUndatedPendingOrders(companyId: CompanyId) {
+  if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+  try {
+    const [row] = await prisma.$queryRaw<{ count: number }[]>(Prisma.sql`SELECT count(*)::int AS count FROM "Order" o
+      WHERE o."companyId" = ${companyId}::uuid AND NOT o.cancelled AND o."deliveryStatus" = 'pending' AND o."scheduledDispatchDate" IS NULL AND ${visibleOrder}`);
+    return ok(row?.count ?? 0);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_count_undated_pending_orders", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_count_undated_pending_orders");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to count undated orders" });
   }
 }
 
