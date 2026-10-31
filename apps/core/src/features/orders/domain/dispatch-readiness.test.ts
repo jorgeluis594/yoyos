@@ -34,8 +34,9 @@ test("adds the pending report flag only to payment reasons", () => {
   expect(classify({ hasReportedPayment: true }, [[camisaM, 1]])).toEqual({ kind: "blocked", operation: "ship", reason: { code: "STOCK_WAITING", variantIds: [camisaM] } });
 });
 
-test("blocks a store pickup with a pending balance with the full payment reason", () => {
-  expect(classify({ deliveryMethod: "store", confirmedPayments: [{ amount: money(30), deductStockIfPartial: false }], hasReportedPayment: true }))
+test("marks a store pickup with a partial payment as ready to deliver and one without payment as blocked", () => {
+  expect(classify({ deliveryMethod: "store", confirmedPayments: [{ amount: money(30), deductStockIfPartial: false }] })).toEqual({ kind: "ready", operation: "deliver" });
+  expect(classify({ deliveryMethod: "store", confirmedPayments: [], hasReportedPayment: true }))
     .toEqual({ kind: "blocked", operation: "deliver", reason: { code: "PAYMENT_REQUIRED", pendingReport: true } });
 });
 
@@ -50,9 +51,9 @@ test("blocks a partially paid order whose items exceed current stock although sh
   expect(result.readiness).toEqual({ kind: "blocked", operation: "ship", reason: { code: "STOCK_WAITING", variantIds: [camisaM] } });
 });
 
-test("marks a deducting home delivery as ready and a deducting store pickup as blocked", () => {
+test("marks a deducting home delivery and a deducting store pickup as ready", () => {
   expect(classify({})).toEqual({ kind: "ready", operation: "ship" });
-  expect(classify({ deliveryMethod: "store" })).toEqual({ kind: "blocked", operation: "deliver", reason: { code: "STOCK_DEDUCTING" } });
+  expect(classify({ deliveryMethod: "store" })).toEqual({ kind: "ready", operation: "deliver" });
   expect(classify({ deliveryMethod: "agency" })).toEqual({ kind: "ready", operation: "ship" });
 });
 

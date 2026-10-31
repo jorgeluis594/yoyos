@@ -35,8 +35,7 @@ export type ProjectableReadiness =
   | Readonly<{ kind: "ready"; operation: "ship" | "deliver" }>
   | Readonly<{ kind: "blocked"; operation: "ship" | "deliver"; reason:
       | Readonly<{ code: "SHIP_PAYMENT_REQUIRED" | "PAYMENT_REQUIRED"; pendingReport: boolean }>
-      | Readonly<{ code: "STOCK_WAITING"; variantIds: readonly string[] }>
-      | Readonly<{ code: "STOCK_DEDUCTING" | "STOCK_NOT_DEDUCTED" }> }>
+      | Readonly<{ code: "STOCK_WAITING"; variantIds: readonly string[] }> }>
   | Readonly<{ kind: "delivery_unassigned" }>;
 
 export type Display = Readonly<{ money: (money: Money) => string; date: (date: Date) => string; dateTime: (date: Date) => string; day: (day: string) => string }>;

@@ -18,8 +18,6 @@ export function readinessText(readiness: ProjectableReadiness, shortItems: reado
     case "SHIP_PAYMENT_REQUIRED": return `${t("orderFulfillment.SHIP_PAYMENT_REQUIRED")}${reason.pendingReport ? ` ${pendingReportSentence}` : ""}`;
     case "PAYMENT_REQUIRED": return [t("orderFulfillment.PAYMENT_REQUIRED"), owed ? `Por cobrar: ${owed}.` : "", reason.pendingReport ? pendingReportSentence : ""].filter(Boolean).join(" ");
     case "STOCK_WAITING": return t(`orderFulfillment.STOCK_WAITING_${operation}`, { items: shortItems.join(", ") });
-    case "STOCK_DEDUCTING": return t("orderFulfillment.STOCK_DEDUCTING");
-    case "STOCK_NOT_DEDUCTED": return t("orderFulfillment.STOCK_NOT_DEDUCTED");
   }
 }
 
