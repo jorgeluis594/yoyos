@@ -68,7 +68,7 @@ test("the payment dialog and the label dialog keep their size while their select
     await page.setViewportSize({ width: 1280, height: 900 });
     await page.goto(`/es-PE/orders/${prepared.orderId}`);
 
-    await page.getByRole("button", { name: "¿Te pagaron por fuera? Registrar pago" }).click();
+    await page.getByRole("button", { name: "Agregar Yape" }).click();
     const payment = page.getByRole("dialog", { name: "Registrar pago" });
     await browserExpect(payment).toBeVisible();
     const method = payment.getByRole("combobox", { name: "Medio de pago" });

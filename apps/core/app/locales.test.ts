@@ -19,9 +19,9 @@ test("authentication translations exist in both languages and preserve localized
   expect(Object.keys(resources.pt.translation.dispatchSender).sort()).toEqual(Object.keys(resources.es.translation.dispatchSender).sort());
   expect(Object.keys(resources.pt.translation.orderDelivery).sort()).toEqual(Object.keys(resources.es.translation.orderDelivery).sort());
   expect(Object.keys(resources.pt.translation.assistants).sort()).toEqual(Object.keys(resources.es.translation.assistants).sort());
+  expect(Object.keys(resources.pt.translation.orderView).sort()).toEqual(Object.keys(resources.es.translation.orderView).sort());
   const i18n = createInstance();
   await i18n.init({ lng: "pt", resources });
-  expect(i18n.t("orders.status.active")).toBe("Pedido ativo");
   expect(i18n.t("orders.balanceDue", { amount: "R$ 10,00" })).toBe("Pendente: R$ 10,00");
   expect(i18n.t("auth.resetTitle")).toBe("Redefinir senha");
   expect(i18n.t("common.close")).toBe("Fechar");
@@ -42,4 +42,21 @@ function keyPaths(value: unknown, prefix = ""): string[] {
 
 test("Spanish and Portuguese panel texts contain the same keys", () => {
   expect(keyPaths(resources.pt.translation).sort()).toEqual(keyPaths(resources.es.translation).sort());
+});
+
+test("order view texts have the same nested keys in both languages and interpolate", async () => {
+  expect(keyPaths(resources.pt.translation.orderView).sort()).toEqual(keyPaths(resources.es.translation.orderView).sort());
+  const i18n = createInstance();
+  await i18n.init({ lng: "es", resources, interpolation: { escapeValue: false } });
+  expect(i18n.t("orderView.products.lockedDeducted")).toBe("El stock de este pedido ya se descontó; los productos ya no se pueden cambiar. Para cambiarlos, cancela el pedido y crea una venta nueva.");
+  expect(i18n.t("orderView.payments.addWallet", { wallet: "Yape" })).toBe("Agregar Yape");
+  expect(i18n.t("orderView.payments.partial", { amount: "S/ 148.00" })).toBe("Pago parcial · falta S/ 148.00");
+  expect(i18n.t("orderView.picker.results", { count: 3 })).toBe("3 resultados");
+  expect(i18n.t("orderView.picker.results", { count: 1 })).toBe("1 resultado");
+  expect(i18n.t("orderView.picker.done", { count: 2 })).toBe("Listo · 2 agregados");
+  expect(i18n.t("orderView.status.fieldsInvalid", { count: 1 })).toBe("No se guardó: revisa 1 campo marcado.");
+  await i18n.changeLanguage("pt");
+  expect(i18n.t("orderView.payments.addWallet", { wallet: "Pix" })).toBe("Adicionar Pix");
+  expect(i18n.t("orderView.picker.results", { count: 3 })).toBe("3 resultados");
+  expect(i18n.t("orderView.labels.shipped")).toBe("Enviada");
 });

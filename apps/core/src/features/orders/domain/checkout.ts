@@ -68,8 +68,14 @@ export function parseBuyer(value: unknown): Result<BuyerData, CheckoutError> {
     : err({ code: "INVALID_BUYER", message: "Buyer name and international phone are required" });
 }
 
+/** A confirmed order may have no buyer details at all (the seller cleared them); one of name and phone alone is invalid. */
+function hasValidConfirmedBuyer(buyer: CheckoutOrder["buyer"]): boolean {
+  if (buyer === null || (buyer.name === null && buyer.phone === null)) return true;
+  return parseBuyer({ name: buyer.name, phone: buyer.phone }).success;
+}
+
 export function checkoutState(order: Pick<CheckoutOrder, "checkoutEnabledAt" | "checkoutConfirmedAt" | "cancelled" | "buyer">): Result<CheckoutState, CheckoutError> {
-  if (!dates.safeParse(order).success || (order.checkoutConfirmedAt && (!order.buyer || !parseBuyer({ name: order.buyer.name, phone: order.buyer.phone }).success)))
+  if (!dates.safeParse(order).success || (order.checkoutConfirmedAt && !hasValidConfirmedBuyer(order.buyer)))
     return err({ code: "INVALID_CHECKOUT", message: "Invalid stored checkout state" });
   if (order.cancelled) return ok({ kind: "cancelled" });
   if (order.checkoutEnabledAt === null) return ok({ kind: "not_enabled" });

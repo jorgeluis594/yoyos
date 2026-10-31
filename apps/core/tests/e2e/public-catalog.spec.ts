@@ -96,7 +96,8 @@ test("buyer opens the brand host, adds two variants, continues to checkout on th
     await browserExpect(table.getByText("Desde el catálogo", { exact: true })).toBeVisible();
     await browserExpect(table.getByText("Confirmado por el comprador", { exact: true })).toBeVisible();
     await page.goto(`/es-PE/orders/${orderId}`);
-    await browserExpect(page.getByText("Desde el catálogo", { exact: true })).toBeVisible();
+    await browserExpect(page.getByText("Pedido desde el catálogo")).toBeVisible();
+    await browserExpect(page.getByText("Desde el catálogo", { exact: true })).toHaveCount(0);
     await browserExpect(page.getByText("S/ 135.00").first()).toBeVisible();
   } finally {
     await buyer.close();

@@ -1,5 +1,6 @@
 import { log } from "@core/src/shared/infrastructure/logger";
 import { Prisma } from "@prisma/client";
+import { catalogResultLimit } from "@shared/catalog-search";
 import { err, ok } from "@shared/functional";
 import { isCurrency } from "@shared/money";
 import { prisma, requireActiveTransaction, getCompanyId, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
@@ -103,6 +104,30 @@ export async function findVariantStock(variantIds: readonly VariantId[]): Promis
   } catch (cause) { return err(transactionEndingOrThrow(cause, "Unable to read stock")); }
 }
 
+/** Stock of the given variants that are active in an active product (the `findSellableVariants` filter); a sellable variant without a stock row reads 0, and an unsellable one is absent. */
+export async function findSellableVariantStock(variantIds: readonly VariantId[]) {
+  try {
+    const rows = await prisma.$queryRaw<{ variantId: string; quantity: bigint | null }[]>`SELECT v.id AS "variantId", s.quantity FROM "ProductVariant" v
+      JOIN "Product" p ON p.id = v."productId" AND p."companyId" = v."companyId"
+      LEFT JOIN "ProductStock" s ON s."variantId" = v.id
+      WHERE v.id = ANY(${[...variantIds]}::uuid[]) AND v.status = 'active' AND p.status = 'active'`;
+    const stock = new Map<VariantId, number>();
+    for (const row of rows) {
+      const quantity = row.quantity ?? 0n;
+      if (quantity < 0n || quantity > BigInt(Number.MAX_SAFE_INTEGER)) {
+        log.error({ event: "invalid_stored_variant_stock", variantId: row.variantId }, "invalid_stored_variant_stock");
+        return err({ code: "INVALID_STORED_DATA" as const, message: "Unable to read stock" });
+      }
+      stock.set(row.variantId as VariantId, Number(quantity));
+    }
+    return ok<ReadonlyMap<VariantId, number>>(stock);
+  } catch (cause) {
+    if (!knownFailure(cause)) throw cause;
+    log.error({ event: "unable_to_read_sellable_variant_stock", err: cause }, "unable_to_read_sellable_variant_stock");
+    return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to read stock" });
+  }
+}
+
 export async function restoreProductStock(variantId: VariantId, quantity: number) {
   try {
     const result = await prisma.productStock.updateMany({ where: { variantId }, data: { quantity: { increment: BigInt(quantity) } } });
@@ -115,14 +140,16 @@ export async function restoreProductStock(variantId: VariantId, quantity: number
   }
 }
 
-export async function searchSaleCatalog(search: string, variantIds?: readonly string[]) {
+/** `inStock` keeps the products with at least one active variant in stock, still shown with all their active variants. */
+export async function searchSaleCatalog(search: string, variantIds?: readonly string[], filter: Readonly<{ inStock: boolean }> = { inStock: false }) {
   try {
     const variantFilter = { status: "active" as const, ...(variantIds ? { id: { in: [...variantIds] } } : {}) };
+    const productVariantFilter = filter.inStock ? { ...variantFilter, stock: { is: { quantity: { gt: 0 } } } } : variantFilter;
     const { rows, attributes } = await withinReadSnapshot(async () => {
-      const rows = await prisma.product.findMany({ where: { status: "active", variants: { some: variantFilter }, ...(variantIds
+      const rows = await prisma.product.findMany({ where: { status: "active", variants: { some: productVariantFilter }, ...(variantIds
         ? {}
         : { name: { contains: search.replace(/[\\%_]/g, "\\$&"), mode: "insensitive" as const } }) },
-        orderBy: { name: "asc" }, ...(variantIds ? {} : { take: 20 }),
+        orderBy: { name: "asc" }, ...(variantIds ? {} : { take: catalogResultLimit }),
         include: { variants: { where: variantFilter, include: { stock: true } } } });
       const productIds = rows.map((row) => row.id);
       const bySavedOrder = await savedVariantOrder(productIds);

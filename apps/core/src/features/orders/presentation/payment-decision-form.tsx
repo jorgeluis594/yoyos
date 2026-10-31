@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { FetcherWithComponents } from "react-router";
 import { useTranslation } from "react-i18next";
 import { offersPartialStockDeduction } from "@shared/orders-payment";
-import { defaultPaymentChoice, paymentFromChoice } from "@shared/wallet-providers";
+import { defaultPaymentChoice, paymentFromChoice, type PaymentChoice } from "@shared/wallet-providers";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { Button } from "@core/app/components/ui/button";
 import { Field, FieldLabel } from "@core/app/components/ui/field";
@@ -24,11 +24,13 @@ export function paymentErrorKey(error: string) {
 
 /** The fetcher belongs to the dialog: the form unmounts as soon as the reload shows the payment decided, before it could report the answer. */
 type FormProps = Readonly<{ kind: DecisionKind; paymentId: string; order: Pick<OrderAggregateResponse, "stockDeducted" | "balanceDue" | "total">;
-  heading: boolean; fetcher: FetcherWithComponents<unknown>; onSubmit: () => void; onCancel: () => void }>;
+  heading: boolean; fetcher: FetcherWithComponents<unknown>; onSubmit: () => void; onCancel: () => void;
+  /** The method the form opens with; the first wallet when absent. */
+  initialChoice?: PaymentChoice }>;
 
-export function PaymentDecisionForm({ kind, paymentId, order, heading, fetcher, onSubmit, onCancel }: FormProps) {
+export function PaymentDecisionForm({ kind, paymentId, order, heading, fetcher, onSubmit, onCancel, initialChoice }: FormProps) {
   const { t, i18n } = useTranslation();
-  const [draft, setDraft] = useState<PaymentDraft>({ amount: order.balanceDue.amount > 0 ? order.balanceDue.amount.toFixed(2) : "", ...paymentFromChoice(defaultPaymentChoice), deductStockIfPartial: false });
+  const [draft, setDraft] = useState<PaymentDraft>({ amount: order.balanceDue.amount > 0 ? order.balanceDue.amount.toFixed(2) : "", ...paymentFromChoice(initialChoice ?? defaultPaymentChoice), deductStockIfPartial: false });
   const [reason, setReason] = useState("");
   const pending = fetcher.state !== "idle";
 

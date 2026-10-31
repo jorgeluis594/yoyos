@@ -25,6 +25,9 @@ import type { AppError, Result } from "@shared/result";
 import { afterTransactionCommit, getCompanyId, requireActiveTransaction, requireNoActiveTransaction, setLocalTimeouts, withinReadSnapshot, withinSavepoint, withinTransaction, withTenantIsolation, type TransactionOptions } from "@core/src/shared/infrastructure/persistance";
 import { deliverySettings } from "@core/src/features/delivery-settings";
 import { setOrderDelivery, type SetDeliveryInput } from "@core/src/features/orders/application/set-delivery";
+import { editOrder, type EditOrderInput } from "@core/src/features/orders/application/edit-order";
+import { orderRevisions } from "@core/src/features/orders/domain/order-revisions";
+import type { OrderItemChanges } from "@core/src/features/orders/domain/order-edit";
 import { resolveShippingCost as resolveRatedShippingCost } from "@core/src/features/orders/application/resolve-delivery-selection";
 import { type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { rejectPendingCatalogOrder } from "@core/src/features/orders/application/reject-pending-catalog-order";
@@ -47,8 +50,8 @@ import { getOrderAggregate } from "@core/src/features/orders/application/read-or
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
-import { allocateOrderNumber, findOrderNumbers, findChatOrderTargetForUpdate, findChatOrderTarget, findChatOrdersOpenedSince, saveItemChanges, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
-import { findSellableVariants, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
+import { allocateOrderNumber, findOrderNumbers, findChatOrderTargetForUpdate, findChatOrderTarget, findChatOrdersOpenedSince, saveItemChanges as saveOrderItemChanges, saveOrderCustomer, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
+import { findSellableVariants, findSellableVariantStock, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
@@ -126,6 +129,7 @@ export const deductDueStockDependencies: DeductDueStockDependencies = { loadStoc
 export const stockRegistry: InTransactionRegistry<TransactionEndingError | ContainedFailure> = {
   payment_confirmed: deductDueOrderStock("payment_confirmed", deductDueStockDependencies),
   order_delivery_changed: deductDueOrderStock("order_delivery_changed", deductDueStockDependencies),
+  order_edited: deductDueOrderStock("order_edited", deductDueStockDependencies),
   order_stock_deduction_overdue: deductDueOrderStock("order_stock_deduction_overdue", deductDueStockDependencies),
   product_stock_increased: serveWaitingOrders(deductDueStockDependencies),
 };
@@ -509,6 +513,110 @@ async function createConfiguredCatalogOrder(input: CreateCatalogOrderInput, acce
   return result;
 }
 
+/** The chat path knows only retryable persistence failures: a variant deleted before the insert is retried, as the next scan no longer finds it. */
+export const saveChatItemChanges = async (order: OrderAggregate, changes: OrderItemChanges): Promise<Result<null, Persistence>> => {
+  const saved = await saveOrderItemChanges(order, changes);
+  if (saved.success) return saved;
+  return err({ code: "PERSISTENCE_UNAVAILABLE", message: saved.error.message });
+};
+
+const conflictCodes = ["ORDER_CHANGED", "ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED"];
+const failureCodes = ["PERSISTENCE_UNAVAILABLE", "INVALID_STORED_DATA", "SERVICE_UNAVAILABLE"];
+
+/** The stage an edit stopped at: the use case's own checks are told apart by their error code, the others by the last capability the composition saw. */
+function editStage(code: string, observed: string): string {
+  if (code === "ORDER_CHANGED") return "check_revisions";
+  if (code === "ITEMS_LOCKED" || code === "DELIVERY_LOCKED" || code === "ORDER_CANCELLED") return "check_locks";
+  if (code === "VARIANT_NOT_FOUND") return "resolve_variants";
+  if (code === "INVALID_ORDER" || code === "CURRENCY_MISMATCH") return "check_applied"; // refused while applying the parts in memory, whatever capability ran before
+  if (["TOTAL_CHANGED", "RATE_UNAVAILABLE", "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED"].includes(code)) return "resolve_delivery";
+  return observed;
+}
+
+export async function editConfiguredOrder(input: EditOrderInput, access: OrderAccess) {
+  const started = performance.now();
+  const observed: { previous: OrderAggregate | null; changes: OrderItemChanges | null; stage: string; lockWaitMs: number; saveItemsMs: number; deductStockMs: number } =
+    { previous: null, changes: null, stage: "lock_order", lockWaitMs: 0, saveItemsMs: 0, deductStockMs: 0 };
+  const timed = async <T,>(call: () => Promise<T>, record: (ms: number) => void): Promise<T> => {
+    const begun = performance.now();
+    try { return await call(); } finally { record(Math.round(performance.now() - begun)); }
+  };
+  const result = await editOrder(input, access, {
+    transaction: (companyId, work) => {
+      if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+      return orderTransaction(work, { orderId: input.orderId, userId: access.userId }, producerOptions);
+    },
+    findOrderForUpdate: async (id, companyId) => {
+      const found = await timed(() => findOrderForUpdate(id, companyId, "edit_order"), (ms) => { observed.lockWaitMs = ms; });
+      if (found.success) observed.previous = found.data;
+      return found;
+    },
+    findSellableVariants: (ids) => { observed.stage = "resolve_variants"; return findSellableVariants(ids); },
+    resolveRatedDelivery: async (selection, context, currency, expectedPrice) => {
+      observed.stage = "resolve_delivery";
+      return resolveRatedShippingCost(selection, { companyId: context.companyId, author: { kind: "seller", userId: context.userId } }, currency, expectedPrice, {
+        getStoreSettings: () => deliverySettings.get(context, "edit_order"),
+        resolveSelectedDeliveryRate: deliverySettings.resolveSelectedDeliveryRate,
+      });
+    },
+    saveItemChanges: async (order, changes) => {
+      observed.stage = "save_items";
+      observed.changes = changes;
+      return timed(() => saveOrderItemChanges(order, changes), (ms) => { observed.saveItemsMs = ms; });
+    },
+    saveOrderCustomer: (id, companyId, buyer) => { observed.stage = "save_customer"; return saveOrderCustomer(id, companyId, buyer); },
+    saveDelivery: (id, companyId, change) => { observed.stage = "save_delivery"; return saveDelivery(id, companyId, change); },
+    publishStockEvent: (payload) => { observed.stage = "deduct_stock"; return timed(() => publishStockEvent("order_edited", payload), (ms) => { observed.deductStockMs = ms; }); },
+    findVariantStock,
+    newItemId: () => randomUUID() as OrderItemId,
+  });
+  const durationMs = Math.round(performance.now() - started);
+  const parts = (["items", "customer", "delivery"] as const).filter((part) => input[part] !== undefined);
+  const base = { operation: "edit_order", orderId: input.orderId, userId: access.userId, parts };
+  if (result.success) {
+    const before = observed.previous;
+    const changes = observed.changes;
+    const outcome = result.data.outcome;
+    afterTransactionCommit(() => log.info({ event: "order_edit_saved", ...base, applied: result.data.applied, addedItems: changes?.added.length ?? 0, removedItems: changes?.removedItemIds.length ?? 0,
+      changedQuantities: changes?.updated.length ?? 0, deliveryChange: input.delivery?.change.kind ?? null,
+      customerChange: !input.customer || !result.data.applied.includes("customer") ? null : input.customer.value ? "set" : "cleared",
+      stockOutcome: outcome?.kind ?? null, stockDeducted: result.data.order.stockDeducted, totalChanged: before?.total.amount !== result.data.order.total.amount,
+      lockWaitMs: observed.lockWaitMs, stageMs: { lock_order: observed.lockWaitMs, save_items: observed.saveItemsMs, deduct_stock: observed.deductStockMs },
+      durationMs, transactionOutcome: "committed" }, "Order edit saved"));
+    return result;
+  }
+  const error = result.error;
+  const previous = observed.previous;
+  if (conflictCodes.includes(error.code)) {
+    log.info({ event: "order_edit_conflicted", ...base, errorCode: error.code, conflictParts: error.code === "ORDER_CHANGED" ? error.parts : undefined,
+      deliveryStatus: previous?.deliveryStatus, stockDeducted: previous?.stockDeducted, cancelled: previous?.cancelled, lockWaitMs: observed.lockWaitMs, durationMs }, "Order edit conflicted");
+  } else if (failureCodes.includes(error.code)) {
+    log.error({ event: "order_edit_failed", ...base, errorCode: error.code, stage: editStage(error.code, observed.stage), durationMs, err: error }, "Order edit failed");
+  } else {
+    log.debug({ event: "order_edit_rejected", ...base, errorCode: error.code, stage: editStage(error.code, observed.stage), durationMs }, "Order edit rejected");
+  }
+  return result;
+}
+
+/** Whether the stored order already locks its products: the card shows no stock warning then, so the stock is not read. */
+const productsLocked = (order: Pick<OrderAggregate, "cancelled" | "deliveryStatus" | "stockDeducted">) => order.cancelled || order.deliveryStatus !== "pending" || order.stockDeducted;
+
+/**
+ * Stock of the order's sellable variants, for the «sin stock» warnings. `null` means "unknown" (the read failed or the products are locked);
+ * a variant missing from the answer is not sellable. It never fails the caller.
+ */
+async function lineCatalog(order: Pick<OrderAggregate, "id" | "items" | "cancelled" | "deliveryStatus" | "stockDeducted">, entryPoint: "detail_loader" | "save_result"):
+  Promise<Readonly<Record<string, Readonly<{ stock: number }>>> | null> {
+  if (productsLocked(order)) return null;
+  const variantIds = order.items.map((item) => item.variantId);
+  const stock = await findSellableVariantStock(variantIds);
+  if (!stock.success) {
+    log.warn({ event: "order_line_catalog_unavailable", orderId: order.id, entryPoint, errorCode: stock.error.code, variantCount: variantIds.length }, "order_line_catalog_unavailable");
+    return null;
+  }
+  return Object.fromEntries([...stock.data].map(([variantId, quantity]) => [variantId, { stock: quantity }]));
+}
+
 export const orders = {
   // Notice capabilities for notifications. They run inside the company's tenant context.
   claimChatMessageNotice: (messageId: ChatMessageId) => claimNotice(messageId),
@@ -536,6 +644,9 @@ export const orders = {
     return ok(result.data.checkout);
   },
   setDelivery: (input: SetDeliveryInput, context: OrderAccess) => setConfiguredOrderDelivery(input, context),
+  edit: (input: EditOrderInput, access: OrderAccess) => editConfiguredOrder(input, access),
+  revisions: orderRevisions,
+  lineCatalog,
   createCatalogOrder: createConfiguredCatalogOrder,
   /** Whether a catalog order was confirmed in the checkout; a missing, pending or other company's order is `not_confirmed`. */
   readCatalogOrderConfirmation: (companyId: CompanyId, orderId: OrderId) => withTenantIsolation(companyId, () => readConfirmation(companyId, orderId)),
@@ -697,7 +808,7 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   findChatOrderTargetForUpdate: (chatId) => findChatOrderTargetForUpdate(chatId, findProductIdsOfVariants),
   allocateNumber: () => allocateOrderNumber(getCompanyId() as CompanyId),
   saveNewOrder: (order, link) => savePendingOrder(order, link),
-  saveItemChanges,
+  saveItemChanges: saveChatItemChanges,
   recordOrderMessage: recordProcessedMessage,
   recordOutcome,
   newOrderId: () => randomUUID() as OrderId,

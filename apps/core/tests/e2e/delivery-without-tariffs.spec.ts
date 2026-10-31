@@ -43,15 +43,16 @@ test("normal composition assigns configured pickup explicitly for free", async (
       return variant.id;
     });
     await page.goto(`/es-PE/orders/${orderId}`);
-    await page.getByRole("button", { name: "Asignar entrega", exact: true }).click();
+    await page.getByRole("tab", { name: "Recojo en tienda" }).click();
     await page.getByLabel("Nombre del destinatario").fill("Recipient");
     await page.getByLabel("Teléfono del destinatario").fill("00123");
-    await page.getByRole("button", { name: "Guardar entrega" }).click();
-    await browserExpect(page.getByRole("status")).toHaveText("Entrega guardada.");
+    await page.getByRole("button", { name: "Guardar cambios" }).first().click();
+    await browserExpect(page.getByText("Cambios guardados.")).toBeVisible();
     await browserExpect(page.getByLabel("Nombre del destinatario")).toHaveValue("Recipient");
     expect(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).toMatchObject({ delivery: { method: "store", pickupPoint: { address: "Lima" } }, deliveryCharge: { amount: 0 }, total: { amount: 10 }, stockDeducted: false });
     await page.reload();
-    await browserExpect(page.getByText("Lima", { exact: true })).toBeVisible();
+    await browserExpect(page.getByRole("tab", { name: "Recojo en tienda" })).toHaveAttribute("aria-selected", "true");
+    await browserExpect(page.getByText("Lima").first()).toBeVisible();
     await mkdir("../../.impeccable/review", { recursive: true });
     for (const [width, height, label] of [[1280, 900, "desktop"], [390, 844, "mobile"]] as const) {
       await page.setViewportSize({ width, height });

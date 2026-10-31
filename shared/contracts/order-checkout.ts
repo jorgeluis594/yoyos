@@ -43,6 +43,6 @@ export const publicCheckoutSchema = z.strictObject({
   delivery: publicCheckoutDeliverySchema.nullable(),
   state: z.discriminatedUnion("kind", [z.strictObject({ kind: z.literal("pending") }),
     z.strictObject({ kind: z.literal("confirmed"), confirmedAt: z.iso.datetime() }), z.strictObject({ kind: z.literal("cancelled") })]),
-}).refine((value) => value.state.kind !== "confirmed" || checkoutBuyerSchema.safeParse(value.buyer).success,
-  { message: "Confirmed checkout requires complete buyer data", path: ["buyer"] });
+}).refine((value) => value.state.kind !== "confirmed" || value.buyer === null || (value.buyer.name === null && value.buyer.phone === null) || checkoutBuyerSchema.safeParse(value.buyer).success,
+  { message: "Confirmed checkout buyer data is empty or complete", path: ["buyer"] });
 export type PublicCheckoutResponse = z.infer<typeof publicCheckoutSchema>;

@@ -21,6 +21,7 @@ import { paymentRecordedKey } from "@core/src/features/orders/presentation/stock
 
 vi.mock("@core/src/shared/images", async (importOriginal) => ({ ...await importOriginal<typeof import("@core/src/shared/images")>(), resolvePublicImages: vi.fn() }));
 
+const testRevisions = { items: "A".repeat(43), customer: "B".repeat(43), delivery: "C".repeat(43) };
 const companyId = "00000000-0000-4000-8000-000000000001";
 const orderId = "00000000-0000-4000-8000-000000000002";
 const args = (fields: Record<string, string> = {}) => ({ params: { orderId },
@@ -37,6 +38,7 @@ test("a bare seller post no longer enables or reads the checkout link", async ()
 });
 
 beforeEach(() => {
+  vi.spyOn(orders, "lineCatalog").mockResolvedValue(null);
   vi.spyOn(deliverySettings, "get").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "unused" }));
   vi.mocked(resolvePublicImages).mockReset().mockResolvedValue(ok({ images: [], failures: [] }));
 });
@@ -142,7 +144,7 @@ test("lost cancellation response reads once, preserves uncertainty and manual ch
   } finally { vi.unstubAllGlobals(); }
 });
 
-test("order detail shows «Desde el catálogo» and no seller for a catalog order, and the seller for a manual one", async () => {
+test("order detail names the origin in the subtitle, drops the «Desde el catálogo» badge and never prints the seller id", async () => {
   const i18n = createInstance();
   await i18n.init({ lng: "es", resources });
   const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -157,16 +159,17 @@ test("order detail shows «Desde el catálogo» and no seller for a catalog orde
   const render = (order: OrderAggregate) => {
     const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
       hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order, null), base: "/es-PE/orders", manualPaymentId: id(5), receiptUrls: {},
-        settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "ready", url: "https://fantasio.yoyos.lat/checkout/7bf00000-0000-4000-8000-000000000002" } } } } });
+        settings: null, settingsPath: "/es-PE/settings/delivery", revisions: testRevisions, lineCatalog: null, link: { kind: "ready", url: "https://fantasio.yoyos.lat/checkout/7bf00000-0000-4000-8000-000000000002" } } } } });
     try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
     finally { router.dispose(); }
   };
   const fromCatalog = render({ ...catalog.data, checkoutConfirmedAt: new Date("2026-10-17T12:05:00Z") });
-  expect(fromCatalog).toContain("Desde el catálogo");
+  expect(fromCatalog).toContain("Pedido desde el catálogo");
   expect(fromCatalog).not.toContain(seller);
   const fromSeller = render(manual.data);
-  expect(fromSeller).not.toContain("Desde el catálogo");
-  expect(fromSeller).toContain(seller);
+  expect(fromSeller).toContain("Registrado por el vendedor");
+  expect(fromSeller).not.toContain("Pedido desde el catálogo");
+  expect(fromSeller).not.toContain(seller);
 });
 
 test("order detail offers «Imprimir rótulo» for any order, cancelled included, because the dialog explains why there is no label", async () => {
@@ -180,7 +183,7 @@ test("order detail offers «Imprimir rótulo» for any order, cancelled included
   const render = (order: OrderAggregate) => {
     const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
       hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order, null), base: "/es-PE/orders", manualPaymentId: id(5), receiptUrls: {},
-        settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" } } } } });
+        settings: null, settingsPath: "/es-PE/settings/delivery", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
     try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
     finally { router.dispose(); }
   };
@@ -222,7 +225,7 @@ test("order detail labels a rejected payment as Pago rechazado and never as conf
     data: { report: { receiptImageId: id(20), reportedAt: at }, rejectedAt: at, rejectedBy: "seller", reason: "No coincide" } }] } as unknown as OrderAggregate;
   const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
     hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(order, null), base: "/es-PE/orders", manualPaymentId: id(5),
-      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" } } } } });
+      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
   try {
     const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));
     expect(html).toContain("Pago rechazado");
@@ -274,7 +277,7 @@ test("receipt thumbnails load lazily with fixed dimensions", async () => {
     data: { receiptImageId: id(20), reportedAt: at } }] } as unknown as OrderAggregate;
   const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
     hydrationData: { loaderData: { detail: { order: toOrderAggregateJson(withReport, null), base: "/es-PE/orders", manualPaymentId: id(5),
-      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" } } } } });
+      receiptUrls: { [id(6)]: "https://cdn.example/20.png" }, settings: null, settingsPath: "/es-PE/settings/delivery", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
   try {
     const html = renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router })));
     expect(html).toMatch(/<img[^>]*src="https:\/\/cdn.example\/20.png"[^>]*loading="lazy"[^>]*decoding="async"[^>]*width="56"[^>]*height="80"/);
@@ -314,7 +317,7 @@ async function renderStockDetail(patch: { stockDue: StockDueJson; stockDeducted?
     stockDeducted: patch.stockDeducted ?? false, stockDue: patch.stockDue };
   const router = createMemoryRouter([{ id: "detail", path: "/", element: createElement(OrderDetail), loader: () => null }], {
     hydrationData: { loaderData: { detail: { order, base: "/es-PE/orders", manualPaymentId: stockId(5), receiptUrls: {}, settings: null,
-      settingsPath: "/es-PE/settings/delivery", link: { kind: "unavailable" } } } } });
+      settingsPath: "/es-PE/settings/delivery", revisions: testRevisions, lineCatalog: null, link: { kind: "unavailable" } } } } });
   try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); }
   finally { router.dispose(); }
 }
@@ -327,7 +330,7 @@ test("shows the waiting notice with each short item and its available units", as
   expect(html).toContain("Polo (L): 2 en el pedido, hay 0.");
   expect(html).toContain("Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede despachar ni entregar.");
   expect(html).toMatch(/<h2[^>]*>Esperando stock<\/h2>/);
-  expect(html.indexOf("Camisa (M · Azul): 4 en el pedido")).toBeLessThan(html.indexOf('aria-labelledby="order-products-title"'));
+  expect(html.indexOf("Camisa (M · Azul): 4 en el pedido")).toBeLessThan(html.indexOf(">Productos<"));
 });
 
 test("shows the deducting notice when every item fits", async () => {
@@ -345,23 +348,28 @@ test("shows no notice for deducted or not due orders", async () => {
   }
 });
 
-test("shows the four internal stock line values", async () => {
-  const line = (html: string) => /<dt[^>]*>Stock<\/dt><dd>([^<]*)<\/dd>/.exec(html)?.[1];
-  expect(line(await renderStockDetail({ stockDue: null, stockDeducted: true }))).toBe("Descontado");
-  expect(line(await renderStockDetail({ stockDue: waiting([camisa, 3]) }))).toBe("Esperando stock");
-  expect(line(await renderStockDetail({ stockDue: { kind: "deducting" } }))).toBe("Descontando stock");
-  expect(line(await renderStockDetail({ stockDue: null, paymentStatus: "pending" }))).toBe("Pendiente");
+test("shows the stock line in the products card and no Detalles internos", async () => {
+  const deducted = await renderStockDetail({ stockDue: null, stockDeducted: true });
+  expect(deducted).toContain("Stock descontado");
+  expect(deducted).not.toContain("Detalles internos");
+  expect(await renderStockDetail({ stockDue: null, paymentStatus: "pending" })).toContain("Stock pendiente");
+  // Waiting and deducting are told by the notice under the header and are not repeated in the card.
+  for (const stockDue of [waiting([camisa, 3]), { kind: "deducting" as const }]) {
+    const html = await renderStockDetail({ stockDue });
+    expect(html).not.toContain("Stock descontado");
+    expect(html).not.toContain("Stock pendiente");
+  }
 });
 
 test("disables ship and deliver with the short items as a list", async () => {
   const html = await renderStockDetail({ stockDue: waiting([camisa, 3], [polo, 0]) });
   expect(html).toContain("Para despachar falta stock de Camisa (M · Azul) y Polo (L).");
   expect(html).toContain("Para entregar falta stock de Camisa (M · Azul) y Polo (L).");
-  expect(html).toMatch(/<button[^>]*disabled=""[^>]*aria-describedby="fulfillment-ship-reason"[^>]*>Marcar enviado/);
+  expect(html).toMatch(/<button[^>]*aria-disabled="true"[^>]*aria-describedby="fulfillment-ship-reason"[^>]*>Marcar enviado/);
   const deducting = await renderStockDetail({ stockDue: { kind: "deducting" } });
   expect(deducting).toContain("El stock se está descontando; podrás entregarlo en menos de un minuto.");
   expect(deducting).not.toContain("fulfillment-ship-reason");
-  expect(deducting).toMatch(/<button[^>]*disabled=""[^>]*aria-describedby="fulfillment-deliver-reason"[^>]*>Marcar entregado/);
+  expect(deducting).toMatch(/<button[^>]*aria-disabled="true"[^>]*aria-describedby="fulfillment-deliver-reason"[^>]*>Marcar entregado/);
 });
 
 test("reloads the order when shipping meets short stock", async () => {
@@ -402,4 +410,115 @@ test("a payment never fails for stock and the dialog no longer has a stock rejec
   expect(paymentErrorKey("INSUFFICIENT_STOCK")).toBe("orders.paymentSaveError");
   expect(resources.es.translation.orders).not.toHaveProperty("paymentStockError");
   expect(resources.pt.translation.orders).not.toHaveProperty("paymentStockError");
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// «Guardar cambios»: the loader's extra reads and the save_changes operation
+
+const revisionOf = (letter: string) => letter.repeat(43);
+const jsonArgs = (body: unknown) => ({ params: { orderId },
+  context: { get: () => ({ company: { id: companyId }, user: { id: "authenticated-seller" } }) },
+  request: new Request(`http://localhost/es-PE/orders/${orderId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) }),
+}) as unknown as ActionFunctionArgs;
+const customerBody = { operation: "save_changes", customer: { base: revisionOf("B"), value: { name: "Ana Pérez", phone: "+51977909427" } } };
+
+test("the loader adds the revisions and loads the line catalog in one batched read for all the order's variants", async () => {
+  const order = aggregate();
+  vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(order));
+  vi.spyOn(orders, "checkoutUrl").mockResolvedValue(ok("https://fantasio.yoyos.lat/checkout/x"));
+  const lineCatalog = vi.spyOn(orders, "lineCatalog").mockResolvedValue({ [orderId]: { stock: 3 } });
+  const loaded = await loader(loaderArgs());
+  expect(lineCatalog).toHaveBeenCalledOnce();
+  expect(lineCatalog).toHaveBeenCalledWith(expect.objectContaining({ items: order.items }), "detail_loader");
+  expect(loaded.lineCatalog).toEqual({ [orderId]: { stock: 3 } });
+  expect(loaded.revisions).toEqual(orders.revisions(order));
+});
+
+test("the loader answers an unknown line catalog when the stock read fails or throws, and still loads the order", async () => {
+  vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(aggregate()));
+  vi.spyOn(orders, "checkoutUrl").mockResolvedValue(ok("https://fantasio.yoyos.lat/checkout/x"));
+  const lineCatalog = vi.spyOn(orders, "lineCatalog").mockResolvedValue(null);
+  expect(await loader(loaderArgs())).toMatchObject({ lineCatalog: null, order: { id: orderId } });
+  lineCatalog.mockRejectedValue(new Error("not a Prisma error"));
+  expect(await loader(loaderArgs())).toMatchObject({ lineCatalog: null, order: { id: orderId } });
+});
+
+test("dispatches a JSON body by its operation", async () => {
+  const edit = vi.spyOn(orders, "edit").mockResolvedValue(err({ code: "ORDER_NOT_FOUND", message: "missing" }));
+  expect(await action(jsonArgs(customerBody))).toMatchObject({ operation: "save_changes", code: "ORDER_NOT_FOUND" });
+  expect(edit).toHaveBeenCalledWith({ orderId, customer: { base: revisionOf("B"), value: { name: "Ana Pérez", phone: "+51977909427" } } }, { companyId, userId: "authenticated-seller" });
+  edit.mockClear();
+  // The old delivery body is no longer an operation, and neither is an unknown one.
+  expect(await action(jsonArgs({ delivery: { method: "store" }, expectedPrice: { amount: 0, currency: "PEN" } }))).toEqual({ operation: "save_changes", code: "INVALID_INPUT" });
+  expect(await action(jsonArgs({ operation: "other" }))).toEqual({ operation: "save_changes", code: "INVALID_INPUT" });
+  expect(await action({ ...jsonArgs({}), request: new Request(`http://localhost/es-PE/orders/${orderId}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{" }) } as ActionFunctionArgs))
+    .toEqual({ operation: "save_changes", code: "INVALID_INPUT" });
+  expect(edit).not.toHaveBeenCalled();
+});
+
+test("save_changes turns an empty reference into null, passes the pinned revision and answers the saved order with its revisions and line catalog", async () => {
+  const order = aggregate();
+  const edit = vi.spyOn(orders, "edit").mockResolvedValue(ok({ order, stockDue: null, outcome: null, applied: ["items"] }));
+  const lineCatalog = vi.spyOn(orders, "lineCatalog").mockResolvedValue({ [orderId]: { stock: 9 } });
+  const lines = [{ variantId: orderId, quantity: 2 }];
+  const result = await action(jsonArgs({ operation: "save_changes", items: { base: revisionOf("A"), lines } }));
+  expect(edit).toHaveBeenCalledWith({ orderId, items: { base: revisionOf("A"), lines } }, { companyId, userId: "authenticated-seller" });
+  expect(lineCatalog).toHaveBeenCalledWith(expect.objectContaining({ id: orderId }), "save_result");
+  expect(result).toMatchObject({ operation: "save_changes", applied: ["items"], lineCatalog: { [orderId]: { stock: 9 } }, order: { id: orderId }, revisions: orders.revisions(order) });
+});
+
+test("save_changes answers saved with an unknown line catalog when the read after commit fails or throws", async () => {
+  vi.spyOn(orders, "edit").mockResolvedValue(ok({ order: aggregate(), stockDue: null, outcome: null, applied: ["customer"] }));
+  const lineCatalog = vi.spyOn(orders, "lineCatalog").mockResolvedValue(null);
+  expect(await action(jsonArgs(customerBody))).toMatchObject({ operation: "save_changes", applied: ["customer"], lineCatalog: null });
+  lineCatalog.mockRejectedValue(new Error("boom"));
+  expect(await action(jsonArgs(customerBody))).toMatchObject({ operation: "save_changes", applied: ["customer"], lineCatalog: null });
+});
+
+test("answers TOTAL_CHANGED with the current price for a replaced delivery with an outdated expectedPrice and writes nothing", async () => {
+  const edit = vi.spyOn(orders, "edit").mockResolvedValue(err({ code: "TOTAL_CHANGED", message: "changed", currentPrice: { amount: 12, currency: "PEN" } } as never));
+  const body = { operation: "save_changes", delivery: { base: revisionOf("C"), change: { kind: "replace", expectedPrice: { amount: 8, currency: "PEN" },
+    selection: { method: "store", recipient: { name: "Ana", phone: "+51977909427", identity: { kind: "absent" } } } } } };
+  expect(await action(jsonArgs(body))).toEqual({ operation: "save_changes", code: "TOTAL_CHANGED", currentPrice: { amount: 12, currency: "PEN" } });
+  expect(edit).toHaveBeenCalledOnce();
+});
+
+test("maps the conflict, the variant and the lock errors with their extra fields", async () => {
+  const edit = vi.spyOn(orders, "edit");
+  edit.mockResolvedValue(err({ code: "ORDER_CHANGED", message: "changed", parts: ["items"] }));
+  expect(await action(jsonArgs(customerBody))).toEqual({ operation: "save_changes", code: "ORDER_CHANGED", parts: ["items"] });
+  edit.mockResolvedValue(err({ code: "VARIANT_NOT_FOUND", message: "gone", variantId: orderId as VariantId }));
+  expect(await action(jsonArgs(customerBody))).toEqual({ operation: "save_changes", code: "VARIANT_NOT_FOUND", variantId: orderId });
+  for (const code of ["ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED", "RATE_UNAVAILABLE", "PERSISTENCE_UNAVAILABLE"] as const) {
+    edit.mockResolvedValue(err({ code, message: "x" } as never));
+    expect(await action(jsonArgs(customerBody))).toEqual({ operation: "save_changes", code });
+  }
+});
+
+test("a thrown error answers a persistence failure and is logged without personal data", async () => {
+  vi.spyOn(orders, "edit").mockRejectedValue(new Error("boom"));
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined as never);
+  expect(await action(jsonArgs(customerBody))).toEqual({ operation: "save_changes", code: "PERSISTENCE_UNAVAILABLE" });
+  expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "order_edit_request_failed", operation: "edit_order", entryPoint: "web_action", orderId, userId: "authenticated-seller" }), expect.any(String));
+  expect(JSON.stringify(error.mock.calls)).not.toContain("Ana");
+});
+
+test("does not revalidate after a successful save_changes and uses its result, but revalidates for the lock errors", () => {
+  const saved = { operation: "save_changes", applied: ["items"], order: {}, revisions: {}, lineCatalog: null };
+  expect(shouldRevalidate({ actionResult: saved, defaultShouldRevalidate: true })).toBe(false);
+  for (const code of ["ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED"]) expect(shouldRevalidate({ actionResult: { operation: "save_changes", code }, defaultShouldRevalidate: true })).toBe(true);
+  for (const code of ["ORDER_CHANGED", "TOTAL_CHANGED", "INVALID_INPUT", "PERSISTENCE_UNAVAILABLE"]) expect(shouldRevalidate({ actionResult: { operation: "save_changes", code }, defaultShouldRevalidate: true })).toBe(false);
+  expect(shouldRevalidate({ actionResult: { operation: "save_changes", lost: "in-doubt" }, defaultShouldRevalidate: true })).toBe(false);
+  expect(shouldRevalidate({ actionResult: { url: null, success: true, error: false }, defaultShouldRevalidate: true })).toBe(true);
+});
+
+test("the client action turns a lost save_changes response into a lost answer that never revalidates", async () => {
+  const request = new Request(`http://localhost/es-PE/orders/${orderId}`, { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(customerBody) });
+  const gateway = vi.fn(async () => { throw new Response("bad gateway", { status: 502 }); });
+  const lost = await clientAction({ ...args(), request, params: { orderId }, serverAction: gateway });
+  expect(lost).toMatchObject({ data: { operation: "save_changes", lost: "in-doubt" }, init: { status: 503 } });
+  const offline = vi.fn(async () => { throw new TypeError("Failed to fetch"); });
+  expect(await clientAction({ ...args(), request, params: { orderId }, serverAction: offline })).toMatchObject({ data: { operation: "save_changes", lost: "offline" } });
+  const refused = vi.fn(async () => ({ operation: "save_changes", code: "ORDER_CHANGED" }) as never);
+  expect(await clientAction({ ...args(), request, params: { orderId }, serverAction: refused })).toEqual({ operation: "save_changes", code: "ORDER_CHANGED" });
 });
