@@ -3,11 +3,12 @@ import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import { parseCatalogSubdomain, type CatalogSubdomain } from "@shared/catalog-subdomain";
 import { countryCurrencies, isCountry } from "@shared/country";
+import type { Currency } from "@shared/money";
 import type { CompanyId } from "@shared/identity";
 import type { Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { prisma, systemPrisma } from "@core/src/shared/infrastructure/persistance";
-import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
+import { inActiveTransaction, prisma, systemPrisma } from "@core/src/shared/infrastructure/persistance";
+import { isPersistenceFailure, transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import type { SaveSubdomainError, StoredCatalogSettings, SubdomainOwner } from "@core/src/features/catalog/application/catalog-settings";
 
 export type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
@@ -31,6 +32,38 @@ export async function readCatalogSettings(companyId: CompanyId): Promise<Result<
     if (!isPersistenceFailure(cause)) throw cause;
     log.error({ event: "unable_to_read_catalog", companyId, operation: "read_settings", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_read_catalog");
     return unavailable("Unable to read catalog settings");
+  }
+}
+
+export type StorefrontState = Readonly<{ currency: Currency; catalog:
+  | Readonly<{ kind: "published"; subdomain: CatalogSubdomain }>
+  | Readonly<{ kind: "hidden"; subdomain: CatalogSubdomain }>
+  | Readonly<{ kind: "hidden_without_link" }> }>;
+
+const storefrontRow = z.object({ catalogPublished: z.boolean(), catalogSubdomain: z.string().nullable(), country: z.string().refine(isCountry) });
+
+/** One statement through the context client: inside a transaction it joins it, and a transaction failure is the transaction's to report. */
+export async function readStorefrontState(companyId: CompanyId): Promise<Result<StorefrontState, ReadError>> {
+  try {
+    const rows = await prisma.$queryRaw<unknown[]>`SELECT "catalogPublished", "catalogSubdomain", country FROM "Company" WHERE id = ${companyId}::uuid`;
+    if (rows.length === 0) {
+      log.error({ event: "unable_to_read_catalog", companyId, operation: "read_storefront", errorCode: "PERSISTENCE_UNAVAILABLE" }, "unable_to_read_catalog");
+      return unavailable("Company not found");
+    }
+    const row = storefrontRow.safeParse(rows[0]);
+    const subdomain = row.success && row.data.catalogSubdomain !== null ? parseCatalogSubdomain(row.data.catalogSubdomain) : undefined;
+    if (row.success && isCountry(row.data.country) && (subdomain === undefined || subdomain.success)) {
+      const currency = countryCurrencies[row.data.country];
+      if (subdomain === undefined) return ok({ currency, catalog: { kind: "hidden_without_link" } });
+      return ok({ currency, catalog: { kind: row.data.catalogPublished ? "published" : "hidden", subdomain: subdomain.data } });
+    }
+    log.error({ event: "unable_to_read_catalog", companyId, operation: "read_storefront", errorCode: "INVALID_STORED_DATA" }, "unable_to_read_catalog");
+    return invalidStored("Stored storefront data is invalid");
+  } catch (cause) {
+    if (inActiveTransaction() && transactionFailureStage(cause)) throw cause;
+    if (!isPersistenceFailure(cause)) throw cause;
+    log.error({ event: "unable_to_read_catalog", companyId, operation: "read_storefront", errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_read_catalog");
+    return unavailable("Unable to read the storefront");
   }
 }
 

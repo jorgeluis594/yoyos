@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, expect, test } from "vitest";
 import type { CatalogSubdomain } from "@shared/catalog-subdomain";
-import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { prisma, withTenantIsolation, withinTransaction, inActiveTransaction } from "@core/src/shared/infrastructure/persistance";
 import type { CompanyId } from "@core/src/features/catalog/application/catalog-settings";
-import { readCatalogSettings, resolveSubdomain, saveSubdomain, savePublication } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
+import { readCatalogSettings, readStorefrontState, resolveSubdomain, saveSubdomain, savePublication } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
 
 const companies: string[] = [];
 const unique = () => `s${randomUUID().replaceAll("-", "").slice(0, 20)}` as CatalogSubdomain;
@@ -92,4 +92,36 @@ test("reads null for a company that is not visible", async () => {
   const hidden = await company();
   const caller = await company();
   expect(await withTenantIsolation(caller, () => readCatalogSettings(hidden))).toEqual({ success: true, data: null });
+});
+
+test("describes a published, a hidden and a never-linked catalog with the store currency", async () => {
+  const [published, hidden] = [unique(), unique()];
+  const peru = await company({ catalogSubdomain: published, catalogPublished: true });
+  const brazil = await company({ country: "BR", catalogSubdomain: hidden });
+  const unlinked = await company();
+  expect(await withTenantIsolation(peru, () => readStorefrontState(peru))).toEqual({ success: true, data: { currency: "PEN", catalog: { kind: "published", subdomain: published } } });
+  expect(await withTenantIsolation(brazil, () => readStorefrontState(brazil))).toEqual({ success: true, data: { currency: "BRL", catalog: { kind: "hidden", subdomain: hidden } } });
+  expect(await withTenantIsolation(unlinked, () => readStorefrontState(unlinked))).toEqual({ success: true, data: { currency: "PEN", catalog: { kind: "hidden_without_link" } } });
+});
+
+test("reports an absent company as unavailable and an invalid stored country as invalid stored data", async () => {
+  const absent = randomUUID() as CompanyId;
+  expect(await withTenantIsolation(absent, () => readStorefrontState(absent))).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+  const invalid = await company({ country: "XX" });
+  expect(await withTenantIsolation(invalid, () => readStorefrontState(invalid))).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+});
+
+test("reads the storefront inside the caller's snapshot without a transaction of its own", async () => {
+  const subdomain = unique();
+  const id = await company({ catalogSubdomain: subdomain, catalogPublished: true });
+  const transactionId = async () => (await prisma.$queryRaw<{ id: string }[]>`SELECT txid_current()::text AS id`)[0].id;
+  const observed = await withTenantIsolation(id, () => withinTransaction(async () => {
+    const before = await transactionId();
+    const state = await readStorefrontState(id);
+    return { success: true as const, data: { before, after: await transactionId(), active: inActiveTransaction(), state } };
+  }));
+  if (!observed.success) throw new Error("transaction failed");
+  expect(observed.data.active).toBe(true);
+  expect(observed.data.after).toBe(observed.data.before);
+  expect(observed.data.state).toEqual({ success: true, data: { currency: "PEN", catalog: { kind: "published", subdomain } } });
 });

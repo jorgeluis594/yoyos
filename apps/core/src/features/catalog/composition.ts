@@ -7,7 +7,9 @@ import {
 } from "@core/src/features/catalog/application/catalog-settings";
 import { resolveBrandHostOwner, resolveLegacyCatalogLink, resolveStorefront } from "@core/src/features/catalog/application/resolve-storefront";
 import type { StoreHost } from "@core/src/features/catalog/domain/store-host";
-import { readCatalogSettings, resolveSubdomain, savePublication, saveSubdomain } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
+import { readCatalogSettings, readStorefrontState, resolveSubdomain, savePublication, saveSubdomain } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
+export type { StorefrontState } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
+import type { StorefrontState } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
 /** A seller's own company always exists; the legacy link resolver reads the absent case from the repository itself. */
@@ -46,6 +48,8 @@ export const catalogStorefront = {
   resolve: (host: StoreHost) => resolveStorefront({ host }, { resolveSubdomain }),
   /** For the checkout and buyer-API paths: the host's company even when the catalog is hidden. */
   resolveOwner: (host: StoreHost) => resolveBrandHostOwner({ host }, { resolveSubdomain }),
+  /** The seller's own storefront for an assistant: joins the caller's snapshot, so it shares the view of the product rows. */
+  describe: (companyId: CompanyId): Promise<Result<StorefrontState, CatalogSettingsError>> => readStorefrontState(companyId),
 };
 
 export const catalogLegacy = {
