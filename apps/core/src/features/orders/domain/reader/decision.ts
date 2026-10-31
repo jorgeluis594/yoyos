@@ -21,13 +21,14 @@ export const problemKinds = ["not_identified", "not_clear", "variant_missing", "
   "variant_only", "no_open_order", "order_closed", "product_not_available", "variant_for_several_pendings", "request_not_allowed", "reader_doubt"] as const;
 export type ProblemKind = (typeof problemKinds)[number];
 
-export type DoubtReason =
+export type OriginalDoubtReason =
   | Readonly<{ kind: "variant_changed"; attribute: string; from: string; to: string }>
   | Readonly<{ kind: "quantity_set"; quantity: PositiveInteger }>
   | Readonly<{ kind: "added_by_reference"; quantity: PositiveInteger; quote: QuoteId | null }>
   | Readonly<{ kind: "removed"; product: string }>
-  | Readonly<{ kind: "caption_unread" }>
-  | Readonly<{ kind: "inherited"; from: DoubtReason }>;
+  | Readonly<{ kind: "caption_unread" }>;
+/** An inherited reason never nests: it carries the original, non-inherited reason of the pending's doubt. */
+export type DoubtReason = OriginalDoubtReason | Readonly<{ kind: "inherited"; from: OriginalDoubtReason }>;
 export type ChangeDecision =
   | Readonly<{ kind: "applied" }>
   | Readonly<{ kind: "doubtful"; reason: DoubtReason }>
@@ -40,14 +41,18 @@ const quantity = z.number().int().min(1).transform((value) => value as PositiveI
 const quoteId = z.number().int().min(0).transform((value) => value as QuoteId);
 
 /** Stored in pendings, change rows and traces; validated on write and on read. */
-export const doubtReasonSchema: z.ZodType<DoubtReason> = z.lazy(() => z.discriminatedUnion("kind", [
+const originalDoubtReasonSchema: z.ZodType<OriginalDoubtReason> = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("variant_changed"), attribute: text, from: text, to: text }),
   z.strictObject({ kind: z.literal("quantity_set"), quantity }),
   z.strictObject({ kind: z.literal("added_by_reference"), quantity, quote: quoteId.nullable() }),
   z.strictObject({ kind: z.literal("removed"), product: text }),
   z.strictObject({ kind: z.literal("caption_unread") }),
-  z.strictObject({ kind: z.literal("inherited"), from: doubtReasonSchema }),
-]));
+]);
+
+export const doubtReasonSchema: z.ZodType<DoubtReason> = z.union([
+  originalDoubtReasonSchema,
+  z.strictObject({ kind: z.literal("inherited"), from: originalDoubtReasonSchema }),
+]);
 
 export const changeDecisionSchema: z.ZodType<ChangeDecision> = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("applied") }),

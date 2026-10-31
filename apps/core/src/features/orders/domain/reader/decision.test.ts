@@ -8,7 +8,7 @@ const reasons = [
   { kind: "added_by_reference", quantity: 1, quote: null },
   { kind: "removed", product: "Polera" },
   { kind: "caption_unread" },
-  { kind: "inherited", from: { kind: "inherited", from: { kind: "caption_unread" } } },
+  { kind: "inherited", from: { kind: "quantity_set", quantity: 3 } },
 ];
 
 describe("doubtReasonSchema", () => {
@@ -21,6 +21,7 @@ describe("doubtReasonSchema", () => {
     ["a zero quantity", { kind: "quantity_set", quantity: 0 }],
     ["a fractional quantity", { kind: "quantity_set", quantity: 1.5 }],
     ["an inherited reason without its origin", { kind: "inherited" }],
+    ["an inherited reason nested in another", { kind: "inherited", from: { kind: "inherited", from: { kind: "caption_unread" } } }],
     ["an inherited reason from an unknown kind", { kind: "inherited", from: { kind: "gut_feeling" } }],
     ["an extra field", { kind: "caption_unread", text: "hola" }],
   ])("rejects %s", (_title, stored) => {
