@@ -248,20 +248,22 @@ test("never returns a complete phone in a customer name and never finds a custom
     { number: 2009, total: 40, buyer: { name: "987\u2013654\u2013123", phone: null } },
     { number: 2010, total: 40, buyer: { name: "Luis 987_654_456", phone: null } },
     { number: 2011, total: 40, buyer: { name: "Ana 9\ufe0f\u20e38\ufe0f\u20e37\ufe0f\u20e36\ufe0f\u20e35\ufe0f\u20e34\ufe0f\u20e3", phone: null } },
+    { number: 2012, total: 40, buyer: { name: "Eva ❾❽❼❻❺❹❸❷❶", phone: null } },
+    { number: 2013, total: 40, buyer: { name: "Rita ⁹⁸⁷⁶⁵⁴³²¹", phone: null } },
   ]);
   const token = await connectAgent(rosa, await registerClient());
   const found = async (texto: string) => ((await callTool(token, "buscar_pedidos", { texto })).structuredContent!.pedidos as { numero: string }[]).map((order) => order.numero);
-  for (const texto of ["987", "654", "987654", "987654789", "987654444", "444", "111", "222", "777", "333", "321", "51 987", "+51 987-654-321", "24", "９８７"]) expect(await found(texto), texto).toEqual([]);
+  for (const texto of ["987", "654", "987654", "987654789", "987654444", "444", "111", "222", "777", "333", "321", "51 987", "+51 987-654-321", "24", "９８７", "❾❽❼", "⁹⁸⁷", "❶"]) expect(await found(texto), texto).toEqual([]);
   expect(await found("carla")).toEqual(["#2003"]);
   expect(await found("tienda")).toEqual(["#2008"]);
   expect(await found("#2001")).toEqual(["#2001"]);
   expect(await found("2008")).toEqual(["#2008"]);
   const everything = JSON.stringify([(await callTool(token, "buscar_pedidos")).structuredContent, (await callTool(token, "pedidos_por_cobrar")).structuredContent]);
   expect(everything.replace(/https?:\/\/\S+?"/g, "")).not.toMatch(/\d{6}/);
-  const customers = Object.fromEntries(await Promise.all([2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011].map(async (number) =>
+  const customers = Object.fromEntries(await Promise.all([2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010, 2011, 2012, 2013].map(async (number) =>
     [number, (await callTool(token, "ver_pedido", { numero: String(number) })).structuredContent!.cliente])));
   expect(customers).toEqual({ 2001: "Cliente que termina en 789", 2002: "Cliente que termina en 321", 2003: "Carla •••444", 2004: "Cliente que termina en 111",
-    2005: "Cliente que termina en 222", 2006: "Cliente que termina en 777", 2007: "Cliente que termina en 333", 2008: "Tienda 24", 2009: "Cliente que termina en 123", 2010: "Luis •••456", 2011: "Ana •••654" });
+    2005: "Cliente que termina en 222", 2006: "Cliente que termina en 777", 2007: "Cliente que termina en 333", 2008: "Tienda 24", 2009: "Cliente que termina en 123", 2010: "Luis •••456", 2011: "Ana •••654", 2012: "Eva •••❸❷❶", 2013: "Rita •••³²¹" });
 });
 
 test("answers agency orders, unassigned delivery, short stock, cancelled orders and a disabled courier through tools/call", async () => {

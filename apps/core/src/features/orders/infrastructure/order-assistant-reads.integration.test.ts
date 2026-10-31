@@ -90,7 +90,7 @@ test("assistant search never matches a customer name by digits while the web sea
     await seed({ number: 1002, total: 50, buyer: { name: "Carla 987654444", phone: "+51987654444" } });
     await seed({ number: 1003, total: 50, buyer: { name: "987\u00a0654\u00a0111", phone: null } });
     await seed({ number: 1004, total: 50, buyer: { name: "Tienda 24", phone: null } });
-    for (const search of ["987654789", "987654", "987", "654", "444", "111", "24"]) expect(numbersOf(await orders.listAggregates(page({ search, searchPhone: "exclude" }), access)), search).toEqual([]);
+    for (const search of ["987654789", "987654", "987", "654", "444", "111", "24", "❾❽❼", "➒", "²"]) expect(numbersOf(await orders.listAggregates(page({ search, searchPhone: "exclude" }), access)), search).toEqual([]);
     expect(numbersOf(await orders.listAggregates(page({ search: "carla", searchPhone: "exclude" }), access))).toEqual([1002]);
     expect(numbersOf(await orders.listAggregates(page({ search: "#1001", searchPhone: "exclude" }), access))).toEqual([1001]);
     expect(numbersOf(await orders.listAggregates(page({ search: "1004", searchPhone: "exclude" }), access))).toEqual([1004]);

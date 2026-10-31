@@ -229,6 +229,23 @@ describe("names never carry a complete phone", () => {
     }
   });
 
+  test("treats every Unicode numeric character as a digit (circled, dingbat, superscript, subscript)", () => {
+    expect(maskDigitRuns("Carla ❾❽❼❻❺❹❸❷❶")).toBe("Carla •••❸❷❶");
+    expect(maskDigitRuns("Carla ➒➑➐➏➎➍➌➋➊")).toBe("Carla •••➌➋➊");
+    expect(maskDigitRuns("⑨⑧⑦⑥⑤④③②①")).toBe("•••321");
+    expect(maskDigitRuns("⁹⁸⁷⁶⁵⁴³²¹")).toBe("•••321");
+    expect(maskDigitRuns("₉₈₇₆₅₄₃₂₁")).toBe("•••321");
+    expect(maskDigitRuns("❾❽❼ ➏➎➍ ③②①")).toBe("•••321");
+    expect(maskDigitRuns("Tienda ❷❹")).toBe("Tienda ❷❹");
+    expect(isPhoneLikeName("❾❽❼❻❺❹❸❷❶")).toBe(true);
+    expect(customerLabel({ name: "❾❽❼❻❺❹❸❷❶", phone: null })).toBe("Cliente que termina en ❸❷❶");
+  });
+
+  test("keeps combining marks on letters while removing them after numeric characters", () => {
+    expect(maskDigitRuns("Jose\u0301 Pérez")).toBe("José Pérez");
+    expect(maskDigitRuns("प्रिया")).toBe("प्रिया");
+  });
+
   test("ignores keycap emoji digits and combining marks on digits", () => {
     expect(maskDigitRuns("Carla 9\ufe0f\u20e38\ufe0f\u20e37\ufe0f\u20e36\ufe0f\u20e35\ufe0f\u20e34\ufe0f\u20e33\ufe0f\u20e32\ufe0f\u20e31\ufe0f\u20e3")).toBe("Carla •••321");
     expect(maskDigitRuns("9\u03018\u03017\u03016\u03015\u03014\u03013\u0301")).toBe("•••543");

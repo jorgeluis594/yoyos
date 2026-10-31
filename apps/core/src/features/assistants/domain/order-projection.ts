@@ -74,14 +74,14 @@ export type AssistantOrder = AssistantOrderSummary & Readonly<{
 }>;
 export type DispatchStockState = Readonly<{ stockDue: Readonly<{ kind: "waiting" | "deducting" }> | null }>;
 
-/** Unicode NFKC (fullwidth digits become ASCII), every Unicode space as a plain space, format and control characters (zero-width spaces, bidi marks) and combining marks (keycaps, accents on digits) removed. */
+/** Unicode NFKC (fullwidth digits become ASCII), every Unicode space as a plain space, format and control characters (zero-width spaces, bidi marks) and the combining marks that follow a numeric character (keycaps, accents on digits) removed; marks on letters stay, so «José» and scripts with vowel signs survive. */
 export function normalizeText(text: string): string {
-  return text.normalize("NFKC").replace(/[\s\p{Z}]/gu, " ").replace(/[\p{Cf}\p{Cc}\p{M}]/gu, "").replace(/ +/g, " ").trim();
+  return text.normalize("NFKC").replace(/[\s\p{Z}]/gu, " ").replace(/[\p{Cf}\p{Cc}]/gu, "").replace(/(\p{N})\p{M}+/gu, "$1").replace(/ +/g, " ").trim();
 }
 
-const digitsOf = (text: string) => normalizeText(text).replace(/[^\p{Nd}]/gu, "");
-// A run of digits, allowing any characters other than letters and digits between them (spaces, any dash, underscore, comma, dots, slashes, brackets, plus signs, emoji), with the brackets or plus sign that open or close it.
-const digitRun = /[+(]*\p{Nd}(?:[^\p{L}\p{Nd}]*\p{Nd})*\)*/gu;
+const digitsOf = (text: string) => normalizeText(text).replace(/[^\p{N}]/gu, "");
+// A run of numeric characters (any Unicode \p{N}: circled, dingbat, superscript, subscript, roman and so on, besides the decimal digits), allowing any characters other than letters and digits between them (spaces, any dash, underscore, comma, dots, slashes, brackets, plus signs, emoji), with the brackets or plus sign that open or close it.
+const digitRun = /[+(]*\p{N}(?:[^\p{L}\p{N}]*\p{N})*\)*/gu;
 const maskedRun = "•••";
 
 /** `"termina en 789"`; `null` when the phone has fewer than three digits. */
@@ -93,7 +93,7 @@ export function maskPhone(phone: string | null): string | null {
 /** Every run of six or more digits (separators ignored) becomes «•••» plus its last three digits, so a name never carries a complete phone. Normalizes first. */
 export function maskDigitRuns(text: string): string {
   return normalizeText(text).replace(digitRun, (run) => {
-    const digits = run.replace(/[^\p{Nd}]/gu, "");
+    const digits = run.replace(/[^\p{N}]/gu, "");
     return digits.length >= 6 ? `${maskedRun}${digits.slice(-3)}` : run;
   });
 }
