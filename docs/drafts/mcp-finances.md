@@ -1,6 +1,6 @@
 # Sales and best sellers in the AI assistant: product definition
 
-**Status:** definition ready to implement once the review gate approves round 2; the four round-1 questions were decided by the review gate and await the founder's confirmation in the pull request. Builds on the merged MCP 1/4 (orders) and 2/4 (products), documented in [AI assistants](../assistants.md), whose conventions apply unchanged unless this document says otherwise. Reads [Orders](../orders.md) and [Products](../products.md) as they work today; there is no sales summary or product ranking anywhere in Yoyos. Todoist task 6hrqGV5xvQFxGWQV («MCP 3/4: finanzas por periodo y lo más vendido en el MCP»), 31/10/2026.
+**Status:** definition ready to implement once the review gate approves round 3 (round 2: product approved, UX/UI rejected on three text gaps, fixed here); the four round-1 questions were decided by the review gate and await the founder's confirmation in the pull request. Builds on the merged MCP 1/4 (orders) and 2/4 (products), documented in [AI assistants](../assistants.md), whose conventions apply unchanged unless this document says otherwise. Reads [Orders](../orders.md) and [Products](../products.md) as they work today; there is no sales summary or product ranking anywhere in Yoyos. Todoist task 6hrqGV5xvQFxGWQV («MCP 3/4: finanzas por periodo y lo más vendido en el MCP»), 31/10/2026.
 
 ## Problem and situation
 
@@ -76,41 +76,43 @@ Each tool follows the [common rules](../assistants.md#common-rules) of the assis
 | Aspect | Behavior |
 | --- | --- |
 | Inputs | `desde` and `hasta`, both optional, `AAAA-MM-DD`, whole inclusive days in America/Lima. The description calls them the order's creation date, the same date as `creado_desde` and `creado_hasta` in **Buscar pedidos**, never the dispatch, delivery or payment date. |
-| Default | Without both: from the 1st of the current month to today. With only `desde`: up to today. Only `hasta` is refused: «Indica también la fecha inicial (desde).» |
-| Future end | A `hasta` after today is read up to today, and the answer states the period actually read: «Del 01/10/2026 al 20/10/2026 (hasta hoy)». Every figure, the previous period included, is computed on the period read. A `desde` after today is refused: «La fecha inicial (2026-11-05) es posterior a hoy (31/10/2026).» |
+| Default | Without both: from the 1st of the current month to today. With only `desde`: up to today. Only `hasta` is refused: «Indica también la fecha inicial (desde).» Reason: without a start the period and its comparison are ambiguous. **Buscar pedidos** accepts `creado_hasta` alone, and the description does not claim both behave the same. |
+| Future end | A `hasta` after today is read up to today, and the answer states the period actually read: «Del 01/10/2026 al 20/10/2026 (hasta hoy)». Every figure, the previous period included, is computed on the period read. A `desde` after today is refused: «La fecha inicial (2026-11-05) es posterior a hoy (2026-10-31).» Refusals echo dates as `AAAA-MM-DD`, the format of the input, as the existing reversed-range text does; one format per sentence. |
 | Reversed | «La fecha final (2026-10-01) es anterior a la inicial (2026-10-07).», the existing text. |
 | Length | The period read has at most 366 days (initial value): «El periodo puede tener hasta 366 días. Pide uno más corto.» Criterion: a whole year, leap years included, is the longest period an owner names («¿cómo me fue este año?»). The value is lowered only if the technical design's load check shows that a store at the expected maximum volume cannot read 366 days within the read budget; the text then states the new number. |
 | Format | Any other format is refused with the remedy, as in **Buscar pedidos**. |
 
 ### Resumen de ventas
 
-Inputs: the period. Every answer, empty ones included, carries the period read and the previous period with its own dates. Every answer with sales carries one meaning line: «Ventas son los pedidos registrados en estas fechas, pagados o no. Recibido son los pagos confirmados de esas ventas, aunque se confirmaran después: no es lo que entró a tu cuenta en estas fechas.»
+Inputs: the period. Every answer, empty ones included, carries the period read and the previous period with its own dates. Every answer with sales carries one meaning line: «Ventas son los pedidos registrados en estas fechas, pagados o no. Recibido son los pagos confirmados de esas ventas, aunque se confirmaran después: no es lo que entró a tu cuenta en estas fechas. Por cobrar es lo que aún deben estas ventas, no todo lo que te deben.»
 
 - «Ventas»: the sum of the totals of the period's sales, split into «productos» (item subtotals) and «envíos» (the delivery charge the buyer pays, never the internal delivery cost the seller pays the courier). An order with «Entrega por definir» adds nothing to «envíos».
 - «Pedidos»: how many sales. «Ticket promedio»: sales divided by orders, rounded to the cent (half up); not shown with zero orders.
 - «Recibido»: the confirmed payments of the period's sales, whatever the date they were confirmed, as of now. It is the sum of the «recibido» that **Buscar pedidos** shows for each of those orders, and uses the same word.
-- «Por cobrar»: the sum of the balances of the period's sales that are not fully paid. «Exceso recibido»: the sum of overpayments, shown only when above zero. The three always reconcile: Ventas = Recibido + Por cobrar − Exceso recibido.
-- «Por medio de pago»: received by method, largest first (ties by name A–Z), with its share of «Recibido» rounded half up to the whole percent, or «menos de 1%» below 0.5%: «Yape», «Plin», «Transferencia bancaria», and «Billetera digital sin especificar» for a wallet payment recorded without provider (other countries show the wallets of their catalog). A method without confirmed payments in the period is not listed. Shares are rounded one by one and may add up to 99% or 101%; the description says so and tells the agent not to adjust them.
+- «Por cobrar de estas ventas»: the sum of the balances of the period's sales that are not fully paid. The label names its scope so it is never read as the store's whole debt, which is **Pedidos por cobrar**'s figure. «Exceso recibido»: the sum of overpayments, shown only when above zero. The three always reconcile: Ventas = Recibido + Por cobrar − Exceso recibido.
+- «Por medio de pago»: received by method, largest first (ties by name A–Z), with its share of «Recibido» rounded half up to the whole percent, or «menos de 1%» below 0.5%: «Yape», «Plin», «Transferencia bancaria», and «Billetera digital sin especificar» for a wallet payment recorded without provider (other countries show the wallets of their catalog). The summary refines by provider the method that **Ver pedido** shows as «Billetera digital»: a «Yape» line and a «Billetera digital» payment in **Ver pedido** are the same payment, and the description says so. A method without confirmed payments in the period is not listed. Shares are rounded one by one and may add up to 99% or 101%; the description says so and tells the agent not to adjust them.
 - With sales but no confirmed payment: «Recibido: S/ 0.00» and «Todavía no hay pagos confirmados de estas ventas.» instead of the method breakdown.
-- «Pagos por revisar»: «2 pagos por revisar en estos pedidos. Se aprueban o rechazan en Yoyos.», when buyer reports on the period's sales await review. They carry no amount and count nowhere until the owner approves them. A report on a cancelled order is not counted: it can no longer be approved or rejected.
+- «Pagos por revisar»: «3 pagos reportados por revisar, en 2 pedidos. Se aprueban o rechazan en Yoyos.» (singular: «1 pago reportado por revisar, en 1 pedido. Se aprueba o rechaza en Yoyos.»), when buyer reports on the period's sales await review. It counts reports and the orders that hold them, both named, because **Pedidos por cobrar** counts orders («3 tienen un pago por revisar»). Reports carry no amount and count nowhere until the owner approves them. A report on a cancelled order is not counted: it can no longer be approved or rejected.
 - «Cancelados»: «3 pedidos cancelados (S/ 240.00) no cuentan en las ventas.», when orders created in the period are cancelled now.
 - Money on cancelled orders: «En pedidos cancelados hay S/ 40.00 en pagos confirmados. Si devolviste ese dinero, anula esos pagos en Yoyos desde la web.», shown only when the cancelled orders of the period still have confirmed payments; voided, rejected and reported payments never count for it. The remedy names the web because voiding a payment on a cancelled order is offered only there ([Orders · Payments](../orders.md#payments)).
 - Next steps, in the description, not in the answer: the unpaid orders behind «Por cobrar» are listed with **Buscar pedidos**, `pago: «por cobrar»` and `creado_desde`/`creado_hasta` set to the period read; every unpaid order of the store, whatever its date, with **Pedidos por cobrar**; the orders with a payment to review show «Pago por revisar» in both lists, and the report is reviewed in Yoyos.
-- «Periodo anterior»: a header with its dates, plus the month's name when it is exactly one calendar month («Periodo anterior: septiembre de 2026, del 01/09/2026 al 30/09/2026»; «Periodo anterior: del 01/09/2026 al 20/09/2026»), then sales, orders, average ticket and received of that period, each with the difference in amount and in percent rounded half up to the whole number: «Ventas: S/ 600.00 · +S/ 80.00 (+13%)». A figure that was 0 in the previous period shows the difference without percent («Recibido: S/ 0.00 · +S/ 380.00»). With no sales in the previous period the block says «Sin ventas en el periodo anterior.» and shows no differences. Received by method and owed are not compared.
-- Empty period: «No hay ventas del 01/10/2026 al 31/10/2026.», followed by the cancelled lines when there are cancelled orders and by the previous period. A store with no orders at all: «Tu tienda todavía no tiene pedidos.», alone.
+- Comparison with the previous period: a header with the previous period's dates, plus the month's name when it is exactly one calendar month («Comparado con el periodo anterior (septiembre de 2026, del 01/09/2026 al 30/09/2026):»; «Comparado con el periodo anterior (del 01/09/2026 al 20/09/2026):»), then one line each for sales, orders, average ticket and received. Each line names both figures and the direction in words, so it cannot be read backwards: «Ventas: S/ 680.00 en este periodo y S/ 600.00 en el anterior: S/ 80.00 más que en el anterior (+13%).», «Ticket promedio: S/ 170.00 en este periodo y S/ 200.00 en el anterior: S/ 30.00 menos que en el anterior (−15%).», «… : igual que en el anterior.». The difference is always this period minus the previous one, the percent is relative to the previous figure, rounded half up to the whole number, with the same sign as the difference. A figure that was 0 in the previous period shows the difference without percent («Recibido: S/ 380.00 en este periodo y S/ 0.00 en el anterior: S/ 380.00 más que en el anterior.»). With no sales in the previous period the block says «Sin ventas en el periodo anterior (del 01/09/2026 al 30/09/2026).» and shows no lines. Received by method and owed are not compared.
+- Open period: when the period read ends today, the received line adds «Este periodo sigue abierto: su recibido puede subir mientras se pagan sus ventas.», because the previous period has had more time to be paid.
+- Empty period: «No hay ventas del 01/10/2026 al 31/10/2026.», followed by the cancelled lines when there are cancelled orders, and by the previous period's figures alone, with no differences and no ticket comparison: «En el periodo anterior (septiembre de 2026, del 01/09/2026 al 30/09/2026): ventas S/ 600.00, 3 pedidos, ticket promedio S/ 200.00, recibido S/ 500.00.», or «Tampoco hubo ventas en el periodo anterior (del 01/09/2026 al 30/09/2026).». A store with no orders at all: «Tu tienda todavía no tiene pedidos.», alone.
 - Another currency: one block per currency, the store currency first and then the others by currency code A–Z, each complete and labelled with its currency: sales and its split, orders, average ticket, received and its methods, owed, overpaid, its cancelled lines and its own comparison with the previous period in that currency. The meaning line, the payments-to-review count and «Hoy es …» appear once.
 
 ### Lo más vendido
 
 Inputs: the period, `orden` («unidades», the default, or «monto»), `texto`, `producto`, `pagina`.
 
-- One line per product sold in the period's sales: current product name, units, amount (sum of its item subtotals, delivery excluded), share of the period's product amount rounded half up to the whole percent (or «menos de 1%»), the product identifier and the Yoyos product link.
+- One line per product sold in the period's sales: current product name, units, amount (sum of its item subtotals, delivery excluded), share rounded half up to the whole percent (or «menos de 1%»), the product identifier and the Yoyos product link.
+- Share: every product share, in every mode, is of the period's whole product amount in the store currency, never of the filtered products, and says so: «44% de tus ventas de productos del periodo». Variants never carry a share. Reason: a filtered share of 100% would be read as the whole store's sales.
 - Under each product, its variants sold with their current combination, units and amount, most units first (ties by amount, then combination A–Z), at most 3 followed by «y 4 variantes más: pide este producto para verlas todas».
 - Order: by units (ties by amount, then name A–Z) or by amount (ties by units, then name A–Z). 20 products per page with the total of products sold and «hay más: pide la página 2». Reason for 20 × 3: it is the shape **Buscar productos** already proves within the 24 KB budget at maximum lengths; 10 variants per product would not fit.
 - Header: «Del 01/10/2026 al 31/10/2026: 11 unidades de 2 productos, S/ 640.00 en productos.» Shares are rounded one by one and may add up to 99% or 101%.
-- `texto`: one phrase matched as in **Buscar productos** (partial, ignoring case and accents, on the product name or any variant SKU), up to 120 characters; the ranking, header and shares then cover only the matching products, and the header says «que coinciden con "polo"». The description repeats the singular-stem advice of **Buscar productos** («polo», «casac»).
-- `producto`: the identifier returned by this tool or by **Buscar productos**. It answers that product alone with every variant sold in the period, no cap, so «¿qué talla de polo sale más?» is answered complete. `texto`, `orden` and `pagina` are ignored with it, and the description says so. A product of 60 variants at maximum lengths fits the 24 KB budget; a larger one still answers complete. Without sales in the period: «"Polo básico" no tuvo ventas del 01/10/2026 al 31/10/2026.». An unknown identifier, or another store's product: «No encontré ese producto en tu tienda. Búscalo con Buscar productos.», the existing text.
-- Currency: the ranking, its amounts and shares cover only sales in the store currency. Sales in another currency are never ranked with them; each other currency adds one line: «Además vendiste en USD: 1 pedido, 3 unidades, US$ 90.00 en productos, fuera de este ranking.».
+- `texto`: one phrase matched as in **Buscar productos** (partial, ignoring case and accents, on the product name or any variant SKU), up to 120 characters; the ranking and the header's units and amount then cover only the matching products, and the header names both the filter and the denominator: «Del 01/10/2026 al 31/10/2026, productos que coinciden con "polo": 8 unidades de 1 producto, S/ 280.00 de los S/ 640.00 que vendiste en productos.». The description repeats the singular-stem advice of **Buscar productos** («polo», «casac»).
+- `producto`: the identifier returned by this tool or by **Buscar productos**. It answers that product alone with every variant sold in the period, no cap, so «¿qué talla de polo sale más?» is answered complete. Header: «"Polo básico" del 01/10/2026 al 31/10/2026: 8 unidades, S/ 280.00, 44% de tus ventas de productos del periodo (S/ 640.00).». `texto`, `orden` and `pagina` are ignored with it, and the description says so. A product of 60 variants at maximum lengths fits the 24 KB budget; a larger one still answers complete. Without sales in the period: «"Polo básico" no tuvo ventas del 01/10/2026 al 31/10/2026.». An unknown identifier, or another store's product: «No encontré ese producto en tu tienda. Búscalo con Buscar productos.», the existing text.
+- Currency: the ranking, its amounts and shares cover only sales in the store currency. Sales in another currency are never ranked with them; each other currency adds one line: «Además vendiste en USD: 1 pedido, 3 unidades, US$ 90.00 en productos, fuera de este ranking.». With `texto` the line covers only the matching products, and with `producto` only that product: «Además vendiste "Polo básico" en USD: 3 unidades, US$ 90.00, fuera de estas cifras.»; it is omitted when there is nothing in another currency.
 - Empty: «No vendiste productos del 01/10/2026 al 31/10/2026.»; with `texto`: «Ningún producto que coincida con "casac" se vendió del 01/10/2026 al 31/10/2026.». A page beyond the last: «Esa página no existe: hay 14 productos en total, 20 por página.», the existing text.
 
 ### Productos sin ventas
@@ -123,11 +125,19 @@ Inputs: the period, `texto`, `pagina`.
   - «Volvió a venderse el 15/10/2026», the first sale after the period, only when the period ended before today and there is one.
   - «Creado el 25/10/2026» when it was created inside the period.
   - Cancelled orders and unconfirmed catalog orders are never a sale for these dates.
+- Header: «3 de tus 5 productos con stock no se vendieron del 01/10/2026 al 31/10/2026.». «Productos con stock» are the ones checked: existing by the end of the period, with an active variant and stock above 0 today. With `texto`: «… de tus 2 productos con stock que coinciden con "casac" …».
 - Order: most stock first, then oldest last sale before the period (none first), then name A–Z. 20 per page with the total.
 - Stock is the current count, not the stock at the start of the period; the answer says so once: «El stock es el de hoy.».
 - `texto`: the same phrase match as in **Lo más vendido**; the list covers only the matching products.
 - A unit sold in any currency counts as a sale; the list shows no amounts.
-- Empty: «Todos tus productos con stock tuvieron ventas del 01/10/2026 al 31/10/2026.»; with `texto`: «Todos tus productos con stock que coinciden con "casac" tuvieron ventas del 01/10/2026 al 31/10/2026.»; a store without products: «Tu tienda todavía no tiene productos.». A page beyond the last answers the existing page text.
+- Short periods: when the period read has fewer than 14 days the answer adds «Este periodo tiene solo 3 días: para ver lo que no rota, pide al menos un mes.». The description tells the agent that, when the owner names no period for this question, it sends the last 30 days counted from the «Hoy es …» line instead of the default month to date. Reason: on the 2nd of the month almost every product is «sin ventas».
+- Empty answers, checked in this order, so «all sold» is said only when something was checked:
+  - A store without products: «Tu tienda todavía no tiene productos.».
+  - `texto` matching no product: «Ningún producto coincide con "casac".».
+  - No product (matching `texto` when given) with stock today in an active variant: «Ninguno de tus productos tiene stock hoy, así que no hay productos parados que revisar.»; with `texto`: «Ninguno de tus productos que coinciden con "casac" tiene stock hoy…».
+  - Products with stock today, but all created after the period: «Tus productos con stock se crearon después del 30/09/2026: ninguno estaba a la venta en esas fechas.».
+  - Every product checked sold: «Tus 5 productos con stock tuvieron ventas del 01/10/2026 al 31/10/2026.»; with `texto`: «Tus 2 productos con stock que coinciden con "casac" tuvieron ventas …».
+  - A page beyond the last answers the existing page text.
 
 ### Server instructions
 
@@ -136,10 +146,12 @@ The orders paragraph drops «there are no sales totals or finances, so say so in
 - For totals, best sellers and products that do not sell, use these three tools; never add pages of orders.
 - «Ventas» are registered orders not cancelled, paid or not; do not present them as money earned.
 - «Recibido» is what the period's sales have paid, confirmed by the seller, whenever it was confirmed; it is not what came into the account during those dates, and the figures of a past period keep moving while its orders are paid or payments are voided.
-- The comparison with the previous period comes computed with its dates; do not recompute it or compute other percents. Percents are rounded one by one and are not adjusted to add up to 100.
+- The comparison with the previous period comes computed with its dates; each line says which figure is this period's and which the previous one's, and «más»/«menos» is always this period against the previous one; do not recompute it, invert it or compute other percents. A period starting on the 1st (a day, a week, a month to date) is compared with the same days of the previous month, not with the days just before. While a period is open its received figure is not like for like with the previous period's, which has had more time to be paid. Percents are rounded one by one and are not adjusted to add up to 100.
 - Amounts in different currencies are never added; each currency is answered separately.
-- Unpaid orders of a period: **Buscar pedidos** with `pago` «por cobrar» and the same creation dates; every unpaid order: **Pedidos por cobrar**.
+- «Por cobrar de estas ventas» is not the store's whole debt. Unpaid orders of a period: **Buscar pedidos** with `pago` «por cobrar» and the same creation dates; every unpaid order: **Pedidos por cobrar**.
 - Money on cancelled orders is voided in Yoyos on the web, never through the agent.
+- «Yape» and «Plin» in the summary are the provider of what **Ver pedido** calls «Billetera digital».
+- For «¿qué no se vende?» without a period, use the last 30 days.
 
 ## Rules
 
@@ -172,10 +184,12 @@ The orders paragraph drops «there are no sales totals or finances, so say so in
 | 01/10/2026–20/10/2026 (no dates, asked on 20/10, or `hasta` 31/10 cut to today) | 01/09/2026–20/09/2026 | 2 |
 | 01/09/2026–20/10/2026 | 01/07/2026–20/08/2026 | 2 |
 | 01/03/2026–30/03/2026 | 01/02/2026–28/02/2026 | 2 |
+| 01/10/2026–01/10/2026 (one day) | 01/09/2026–01/09/2026 | 2 |
+| 01/10/2026–07/10/2026 (first week) | 01/09/2026–07/09/2026, not 24/09–30/09 | 2 |
 | 11/10/2026–17/10/2026 | 04/10/2026–10/10/2026 | 3 |
 | 15/09/2026–14/10/2026 (30 days) | 16/08/2026–14/09/2026 | 3 |
 
-Example, October 2026 asked on 05/11/2026 (Tienda Rosa, store currency PEN). Products: «Polo básico» at S/ 35.00 and «Casaca» at S/ 120.00.
+Example, October 2026 asked on 05/11/2026 (Tienda Rosa, store currency PEN). Products: «Polo básico» at S/ 35.00 (stock today 20) and «Casaca» at S/ 120.00 (stock today 4). No order was created in November.
 
 | Order | Items | Envío | Total | Payments | Counts as |
 | --- | --- | --- | --- | --- | --- |
@@ -186,11 +200,11 @@ Example, October 2026 asked on 05/11/2026 (Tienda Rosa, store currency PEN). Pro
 | #1005, 31/10 23:30 Lima | Polo básico M · Azul × 2 (S/ 70.00), Casaca M · Negro × 1 (S/ 120.00) | S/ 10.00 | S/ 200.00 | Yape S/ 210.00 confirmed | Sale; received S/ 210.00, overpaid S/ 10.00 |
 | #1006, 15/10, catalog not confirmed | Polo básico S · Blanco × 5 (S/ 175.00) | — | S/ 175.00 | — | Does not exist |
 
-Summary result: Ventas S/ 680.00 (productos S/ 640.00, envíos S/ 40.00), 4 pedidos, ticket promedio S/ 170.00, Recibido S/ 380.00 (Yape S/ 330.00, 87%; Plin S/ 50.00, 13%), Por cobrar S/ 310.00, Exceso recibido S/ 10.00, «1 pago por revisar en estos pedidos…», «1 pedido cancelado (S/ 100.00) no cuenta en las ventas.», «En pedidos cancelados hay S/ 40.00 en pagos confirmados…». Checks: 105 + 120 + 225 + 190 = 640 and 15 + 0 + 15 + 10 = 40; 120 + 50 + 210 = 380; 70 + 240 = 310; 380 + 310 − 10 = 680.
+Summary result: Ventas S/ 680.00 (productos S/ 640.00, envíos S/ 40.00), 4 pedidos, ticket promedio S/ 170.00, Recibido S/ 380.00 (Yape S/ 330.00, 87%; Plin S/ 50.00, 13%), Por cobrar de estas ventas S/ 310.00, Exceso recibido S/ 10.00, «1 pago reportado por revisar, en 1 pedido…», «1 pedido cancelado (S/ 100.00) no cuenta en las ventas.», «En pedidos cancelados hay S/ 40.00 en pagos confirmados…». Checks: 105 + 120 + 225 + 190 = 640 and 15 + 0 + 15 + 10 = 40; 120 + 50 + 210 = 380; 70 + 240 = 310; 380 + 310 − 10 = 680.
 
-Best sellers for the same period: «11 unidades de 2 productos, S/ 640.00 en productos». By units: «Polo básico» 8 units, S/ 280.00, 44% (M · Azul 5, S/ 175.00; L · Negro 3, S/ 105.00), then «Casaca» 3 units, S/ 360.00, 56% (M · Negro 2, S/ 240.00; L · Negro 1, S/ 120.00). By amount, «Casaca» first.
+Best sellers for the same period: «11 unidades de 2 productos, S/ 640.00 en productos». By units: «Polo básico» 8 units, S/ 280.00, 44% (M · Azul 5, S/ 175.00; L · Negro 3, S/ 105.00), then «Casaca» 3 units, S/ 360.00, 56% (M · Negro 2, S/ 240.00; L · Negro 1, S/ 120.00). By amount, «Casaca» first. With `texto: «polo»`: «Polo básico» alone, header «… 8 unidades de 1 producto, S/ 280.00 de los S/ 640.00 que vendiste en productos.», share still 44%.
 
-Products without sales for the same period, other products of the store: «Bufanda» (stock 12, last sale 14/08/2026), «Gorro» (stock 8, its only sale is cancelled #1003, never sold otherwise), «Polo estampado» (stock 6, created 25/10/2026, never sold), «Chompa» (created 02/11/2026), «Short» (stock 0), «Vestido» (every variant deactivated). The list is «Bufanda» (Última venta antes del periodo: 14/08/2026), «Gorro» (Ninguna venta antes del periodo), «Polo estampado» (Ninguna venta antes del periodo · Creado el 25/10/2026); «Chompa», «Short», «Vestido», «Polo básico» and «Casaca» are not listed.
+Products without sales for the same period, other products of the store: «Bufanda» (stock 12, last sale 14/08/2026), «Gorro» (stock 8, its only sale is cancelled #1003, never sold otherwise), «Polo estampado» (stock 6, created 25/10/2026, never sold), «Chompa» (created 02/11/2026), «Short» (stock 0), «Vestido» (every variant deactivated). The header is «3 de tus 5 productos con stock no se vendieron del 01/10/2026 al 31/10/2026.» (checked: Polo básico, Casaca, Bufanda, Gorro, Polo estampado). The list is «Bufanda» (Última venta antes del periodo: 14/08/2026), «Gorro» (Ninguna venta antes del periodo), «Polo estampado» (Ninguna venta antes del periodo · Creado el 25/10/2026); «Chompa», «Short», «Vestido», «Polo básico» and «Casaca» are not listed.
 
 ## When something fails
 
@@ -235,7 +249,8 @@ Nothing new. Every figure is computed from current orders, payments and products
 - Abandoned chat orders inflate «Ventas» and lower «Ticket promedio»: an order created from WhatsApp messages stays active until the seller cancels it, paid or not. The meaning line and the instructions say «Ventas» are registered orders, paid or not, and «Por cobrar» shows the gap. Trigger to revisit (for example, a «Ventas pagadas» figure): owners saying the sales figure is higher than what they sold, or stores where more than a third of a month's sales still have no payment 30 days later.
 - An owner who refunds outside Yoyos without voiding the payment sees «Recibido» overstated; on cancelled orders the money line asks them to void it on the web, on active orders nothing warns.
 - «Recibido» differs from the wallet apps by date: a payment confirmed in November for an October sale counts in October. The meaning line says so in every answer.
-- A month's figures are not final: they move while its orders are paid, voided or cancelled.
+- A month's figures are not final: they move while its orders are paid, voided or cancelled. While a period is open its received figure compares low against the previous period; the open-period line and the instructions say so.
+- Sellers cannot add stock by hand ([Orders](../orders.md)): a product restocked physically but still at 0 in Yoyos never appears in **Productos sin ventas**, because only products with stock today are checked.
 
 ## Closed decisions
 
@@ -249,6 +264,8 @@ Nothing new. Every figure is computed from current orders, payments and products
 | «Recibido», not «Cobrado» | The word existing tools use per order, so the summary adds up what **Buscar pedidos** shows |
 | Ranking and products without sales are by product, variants inside; one product answers every variant | Owners speak of products; the variant breakdown answers sizes |
 | 20 products per page, 3 variants each | The shape already proven within the 24 KB budget |
+| Comparison lines name both figures and the direction in words | A signed difference under a «previous period» header can be read backwards |
+| Product shares are always of the whole period's product amount | A share of the filtered products reads as the share of the store's sales |
 | No margins or costs in any of the three tools | Standing assistant rule |
 | Amounts in different currencies are never added | A sum of soles and dollars is wrong |
 
@@ -264,42 +281,48 @@ Following question 3, `docs/assistants.md` changes when this feature is merged:
 - When something fails: the sales reading-failure text and the too-many-orders text.
 - Connecting an agent and checking the server: exactly nine tools.
 
-The repository memories that say MCP 3/4 adds a «finanzas» scope literal are updated with the same criterion once round 2 is approved.
+The repository memories that say MCP 3/4 adds a «finanzas» scope literal or that each later task adds a scope literal (3b49cccc, 4b823bad, 854b8b20, and fc437ed9, which also says a module declares one scope) are updated with the same criterion once this definition is approved.
+
+To be resolved in the technical design: how one tool module requires two current scopes (`orders:read` and `products:read`), since a module declares one scope today.
 
 ## Acceptance criteria
 
-1. With the example orders above, **Resumen de ventas** for 2026-10-01 to 2026-10-31 asked on 05/11/2026 returns Ventas S/ 680.00 with productos S/ 640.00 and envíos S/ 40.00, 4 pedidos, ticket promedio S/ 170.00, Recibido S/ 380.00 with Yape S/ 330.00 (87%) and Plin S/ 50.00 (13%), Por cobrar S/ 310.00, Exceso recibido S/ 10.00, «1 pago por revisar», «1 pedido cancelado (S/ 100.00) no cuenta en las ventas.», «En pedidos cancelados hay S/ 40.00 en pagos confirmados. Si devolviste ese dinero, anula esos pagos en Yoyos desde la web.» and the meaning line.
+1. With the example orders above, **Resumen de ventas** for 2026-10-01 to 2026-10-31 asked on 05/11/2026 returns Ventas S/ 680.00 with productos S/ 640.00 and envíos S/ 40.00, 4 pedidos, ticket promedio S/ 170.00, Recibido S/ 380.00 with Yape S/ 330.00 (87%) and Plin S/ 50.00 (13%), «Por cobrar de estas ventas» S/ 310.00, Exceso recibido S/ 10.00, «1 pago reportado por revisar, en 1 pedido.», «1 pedido cancelado (S/ 100.00) no cuenta en las ventas.», «En pedidos cancelados hay S/ 40.00 en pagos confirmados. Si devolviste ese dinero, anula esos pagos en Yoyos desde la web.» and the meaning line.
 2. The voided S/ 120.00 of #1001, the rejected report of #1002 and the pending report of cancelled #1003 appear in no figure; voiding #1001's confirmed payment afterwards gives, on the next call, Recibido S/ 260.00 (Yape S/ 210.00, 81%; Plin S/ 50.00, 19%) and Por cobrar S/ 430.00. Voiding #1003's S/ 40.00 removes the money-on-cancelled line.
 3. Order #1005, created on 31/10/2026 at 23:30 Lima, counts in October and not in November; an order created on 01/11/2026 at 00:05 Lima counts in November.
-4. With three September sales totalling S/ 600.00 and S/ 500.00 received, the October summary shows «Periodo anterior: septiembre de 2026, del 01/09/2026 al 30/09/2026», Ventas «S/ 600.00 · +S/ 80.00 (+13%)», Pedidos «3 · +1 (+33%)», Ticket promedio «S/ 200.00 · −S/ 30.00 (−15%)» and Recibido «S/ 500.00 · −S/ 120.00 (−24%)». With no September sales it shows «Sin ventas en el periodo anterior.» and no differences.
-5. Called on 20/10/2026 without dates, or with `hasta: 2026-10-31`, the summary reads 01/10/2026 to 20/10/2026, says «(hasta hoy)» in the second case, and compares with «del 01/09/2026 al 20/09/2026» without a month name. A period of 01/09/2026 to 20/10/2026 compares with 01/07/2026 to 20/08/2026, and 11/10/2026 to 17/10/2026 with 04/10/2026 to 10/10/2026.
+4. With three September sales totalling S/ 600.00 and S/ 500.00 received, the October summary shows «Comparado con el periodo anterior (septiembre de 2026, del 01/09/2026 al 30/09/2026):», «Ventas: S/ 680.00 en este periodo y S/ 600.00 en el anterior: S/ 80.00 más que en el anterior (+13%).», «Pedidos: 4 en este periodo y 3 en el anterior: 1 más que en el anterior (+33%).», «Ticket promedio: S/ 170.00 en este periodo y S/ 200.00 en el anterior: S/ 30.00 menos que en el anterior (−15%).» and «Recibido: S/ 380.00 en este periodo y S/ 500.00 en el anterior: S/ 120.00 menos que en el anterior (−24%).», without the open-period line because October has ended. With no September sales it shows «Sin ventas en el periodo anterior (del 01/09/2026 al 30/09/2026).» and no lines. A November summary with no sales, asked on 05/11/2026, answers «No hay ventas del 01/11/2026 al 05/11/2026.» and «En el periodo anterior (del 01/10/2026 al 05/10/2026): ventas S/ 120.00, 1 pedido, ticket promedio S/ 120.00, recibido S/ 120.00.», with no differences.
+5. Called on 20/10/2026 without dates, or with `hasta: 2026-10-31`, the summary reads 01/10/2026 to 20/10/2026, says «(hasta hoy)» in the second case, and compares with «del 01/09/2026 al 20/09/2026» without a month name, adding the open-period line to the received comparison. A period of 01/09/2026 to 20/10/2026 compares with 01/07/2026 to 20/08/2026, 01/10/2026 to 07/10/2026 with 01/09/2026 to 07/09/2026, and 11/10/2026 to 17/10/2026 with 04/10/2026 to 10/10/2026.
 6. The unconfirmed catalog order #1006 appears in no figure, ranking, unit count or «Última venta» date.
 7. **Lo más vendido** for October with the example orders lists «Polo básico» first by units (8 units, S/ 280.00, 44%; M · Azul 5, L · Negro 3) and «Casaca» first by amount (3 units, S/ 360.00, 56%; M · Negro 2, L · Negro 1), with the header «11 unidades de 2 productos, S/ 640.00 en productos».
-8. A product with 5 variants sold shows 3 and «y 2 variantes más: pide este producto para verlas todas»; called with its `producto` it lists all 5. `texto: «polo»` ranks only «Polo básico»; `texto: «casac»` with no casaca sold answers the no-match text.
+8. A product with 5 variants sold shows 3 and «y 2 variantes más: pide este producto para verlas todas»; called with its `producto` it lists all 5. `texto: «polo»` ranks only «Polo básico», still at 44% «de tus ventas de productos del periodo», with the header «S/ 280.00 de los S/ 640.00 que vendiste en productos»; `producto` of «Polo básico» answers the header «8 unidades, S/ 280.00, 44% de tus ventas de productos del periodo (S/ 640.00)» and its two variants without shares; `texto: «gorro»`, whose only order is cancelled, answers the no-sales text with that phrase.
 9. Gorro, whose only October sale is in cancelled #1003, appears in **Productos sin ventas** for October with «Ninguna venta antes del periodo», and not in **Lo más vendido**.
-10. **Productos sin ventas** for October lists Bufanda, Gorro and Polo estampado in that order, with their texts as in the example, and omits Chompa (created after the period), Short (stock 0) and Vestido (no active variant). For September asked on 05/11/2026, Casaca with a last sale on 20/08/2026 shows «Última venta antes del periodo: 20/08/2026 · Volvió a venderse el 10/10/2026», and Polo estampado is not listed.
+10. **Productos sin ventas** for October answers «3 de tus 5 productos con stock no se vendieron …» and lists Bufanda, Gorro and Polo estampado in that order, with their texts as in the example, and omits Chompa (created after the period), Short (stock 0) and Vestido (no active variant). For September asked on 05/11/2026, with Casaca at stock 4 today, no sale in September and a last earlier sale on 20/08/2026, Casaca shows «Última venta antes del periodo: 20/08/2026 · Volvió a venderse el 10/10/2026», and Polo estampado is not listed.
 11. A period with only cancelled orders answers «No hay ventas del …», the cancelled lines and the previous period. A period with one S/ 50.00 sale and no confirmed payment shows «Recibido: S/ 0.00», «Todavía no hay pagos confirmados de estas ventas.» and Por cobrar S/ 50.00, with no method breakdown.
 12. Three methods with S/ 10.00 each show 33% each and the shares are not adjusted to 100%.
-13. A period of 400 days, a `desde` after today, a reversed range and only `hasta` are each refused with their text and nothing is read; a page beyond the last answers the page text.
-14. A read of a 200-day period over its time budget answers the too-many-orders text; a 31-day period over its budget answers the reading-failure text; neither answers zero sales or an empty list.
-15. Another store's orders and products never change any figure or list of the authorized store, and its product identifier answers the not-found text.
-16. A store with one order in USD and the rest in PEN sees a complete PEN block and a separate USD block, each with its own comparison; **Lo más vendido** ranks only PEN and adds the USD line; no amount adds both.
-17. A page of 20 products at maximum lengths with 3 variants each, and a `producto` answer of 60 variants at maximum lengths, fit the 24 KB budget.
-18. A call over the store limit answers the limit text with the seconds to wait.
-19. Existing connections keep working after the release and see nine tools; the authorization screen is unchanged.
+13. **Productos sin ventas** answers «Tus productos con stock se crearon después del 30/09/2026…» for September in a store whose only products with stock were created in October; «Ninguno de tus productos tiene stock hoy…» in a store whose products are all at 0 or deactivated; «Ningún producto coincide con "zapato".» for a phrase that matches nothing; and never «Tus N productos con stock tuvieron ventas…» in those cases.
+14. **Productos sin ventas** for 01/11/2026 to 03/11/2026 adds «Este periodo tiene solo 3 días: para ver lo que no rota, pide al menos un mes.».
+15. A period of 400 days, a `desde` after today, a reversed range and only `hasta` are each refused with their text and nothing is read; a page beyond the last answers the page text.
+16. A read of a 200-day period over its time budget answers the too-many-orders text; a 31-day period over its budget answers the reading-failure text; neither answers zero sales or an empty list.
+17. Another store's orders and products never change any figure or list of the authorized store, and its product identifier answers the not-found text.
+18. A store with one order in USD and the rest in PEN sees a complete PEN block and a separate USD block, each with its own comparison; **Lo más vendido** ranks only PEN and adds the USD line; no amount adds both.
+19. A page of 20 products at maximum lengths with 3 variants each, and a `producto` answer of 60 variants at maximum lengths, fit the 24 KB budget.
+20. A call over the store limit answers the limit text with the seconds to wait.
+21. Existing connections keep working after the release and see nine tools; the authorization screen is unchanged.
 
 ## Open items and questions
 
-No open questions in round 2.
+No open questions in round 3.
 
 Decided unless objected:
 - «Cobrado» is renamed «Recibido», the word existing tools use per order; the meaning is question 1's answer.
-- Every answer with sales carries the meaning line for «Ventas» and «Recibido».
-- Previous period: three cases on the period read, with month names only for a single calendar month; multi-month periods ending mid-month move back by the number of months they touch.
+- Every answer with sales carries the meaning line for «Ventas», «Recibido» and «Por cobrar»; the owed label is «Por cobrar de estas ventas».
+- Previous period: three cases on the period read, with month names only for a single calendar month; multi-month periods ending mid-month move back by the number of months they touch; a day or week starting on the 1st compares with the same days of the previous month.
+- Comparison lines name this period's and the previous period's figure and the direction in words («más»/«menos que en el anterior»); an open period adds a line on its received figure; an empty current period shows the previous figures without differences.
 - `texto` on **Lo más vendido** and **Productos sin ventas**, and `producto` on **Lo más vendido** for every variant of one product.
-- 20 products per page with at most 3 variants each.
-- **Productos sin ventas** omits products created after the period, shows «Última venta antes del periodo» and «Volvió a venderse el …» for past periods; cancelled orders never count as a sale.
-- Other currencies: complete summary block per currency; best sellers rank the store currency only, with one line per other currency.
+- 20 products per page with at most 3 variants each; product shares always of the whole period's product amount; variants without share.
+- **Productos sin ventas** omits products created after the period, shows «Última venta antes del periodo» and «Volvió a venderse el …» for past periods, states how many products were checked, and has separate texts for nothing checked; cancelled orders never count as a sale; under 14 days it suggests a month, and the agent defaults to the last 30 days.
+- «Pagos por revisar» counts reports and the orders that hold them.
+- Other currencies: complete summary block per currency; best sellers rank the store currency only, with one line per other currency, also filtered.
 - Too many orders: own text for periods longer than 31 days; the 366-day maximum lowered only on the load check's evidence.
 - Only `hasta` stays refused (one extra round for the agent, accepted for clarity).
 - Money held on cancelled orders and pending reports on cancelled orders follow question 2.
