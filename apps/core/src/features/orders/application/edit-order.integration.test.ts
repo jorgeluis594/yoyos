@@ -266,14 +266,15 @@ test("keeps the contact of a WhatsApp order when name and phone are emptied", as
   });
 });
 
-test("clears the customer of a confirmed checkout order and reads it back in the detail, the list and the stock listener", async () => {
+test("refuses to clear the customer of a confirmed checkout order but changes it to another customer", async () => {
   await inShop(async (s) => {
     const id = await s.create();
     await s.run(() => prisma.order.update({ where: { id }, data: { checkoutEnabledAt: new Date(), checkoutConfirmedAt: new Date(), buyer: { create: { name: "Ana", phone: "+51987654321" } } } }));
-    unwrap(await s.edit(id, { customer: { value: null } }));
-    expect((await s.load(id)).order).toMatchObject({ buyer: null, checkoutConfirmedAt: expect.any(Date) });
-    const listed = await s.run(() => orders.listAggregates({ page: 1, customer: { kind: "all" } }, s.context));
-    expect(listed).toMatchObject({ success: true, data: { items: [{ buyer: null }] } });
+    const { revisions } = await s.load(id);
+    expect(await s.edit(id, { customer: { value: null } }, revisions)).toMatchObject({ success: false, error: { code: "CUSTOMER_REQUIRED" } });
+    expect((await s.load(id)).order.buyer).toMatchObject({ name: "Ana", phone: "+51987654321" });
+    unwrap(await s.edit(id, { customer: { value: { name: "Marta", phone: "+51999000111" } } }, revisions));
+    expect((await s.load(id)).order).toMatchObject({ buyer: { name: "Marta", phone: "+51999000111" }, checkoutConfirmedAt: expect.any(Date) });
     expect(unwrap(await s.pay(id, 298)).order.stockDeducted).toBe(true);
   });
 });

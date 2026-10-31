@@ -214,7 +214,7 @@ export async function clientAction({ request, params, serverAction }: ClientActi
   return { operation: "cancellation", orderId: id, outcome: { kind: "failed", error: result.error } } satisfies CancellationClientResult;
 }
 
-const revalidatedRefusals = ["ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED"];
+const revalidatedRefusals = ["ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED", "CUSTOMER_REQUIRED"];
 
 export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { actionResult: unknown; defaultShouldRevalidate: boolean }) {
   // The save's own answer is the new state; only the refusals that mean the order moved on reload it.

@@ -16,7 +16,7 @@ let root: Root | undefined;
 let container: HTMLDivElement;
 afterEach(() => { act(() => root?.unmount()); root = undefined; container.remove(); });
 
-type Options = Partial<Pick<OrderCustomerCardProps, "source" | "locked" | "marks">> & { customer?: CustomerDraft };
+type Options = Partial<Pick<OrderCustomerCardProps, "source" | "locked" | "marks" | "required">> & { customer?: CustomerDraft };
 const jorge: CustomerDraft = { name: "Jorge Gonzalez", phone: "+51977909427" };
 
 async function mount(options: Options = {}) {
@@ -24,7 +24,7 @@ async function mount(options: Options = {}) {
   const onRemove = vi.fn();
   function Harness() {
     const [customer, setCustomer] = useState(options.customer ?? { name: "", phone: "" });
-    return <OrderCustomerCard customer={customer} source={options.source ?? "manual"} locked={options.locked ?? false} marks={options.marks ?? []}
+    return <OrderCustomerCard customer={customer} source={options.source ?? "manual"} locked={options.locked ?? false} required={options.required ?? false} marks={options.marks ?? []}
       onChange={next => { changes.push(next); setCustomer(next); }} onRemove={() => { onRemove(); setCustomer({ name: "", phone: "" }); }} />;
   }
   container = document.body.appendChild(document.createElement("div"));
@@ -103,4 +103,20 @@ test("a cancelled order is read-only with no Quitar cliente", async () => {
   expect(phoneInput().disabled).toBe(true);
   expect(container.querySelector("select")?.disabled).toBe(true);
   expect(removeButton()).toBeUndefined();
+});
+
+test("a buyer-confirmed order drops Quitar cliente and the optional title, and says why the customer cannot be cleared", async () => {
+  await mount({ customer: jorge, required: true });
+  expect(removeButton()).toBeUndefined();
+  expect(container.textContent).not.toContain("(opcional)");
+  expect(container.textContent).toContain("Cliente");
+  expect(container.textContent).toContain("El comprador confirmó este pedido con sus datos. Puedes cambiar el cliente, pero no dejarlo vacío.");
+  expect(nameInput().disabled).toBe(false);
+  await type(nameInput(), "Marta");
+  expect(nameInput().value).toBe("Marta");
+});
+
+test("an order that was not confirmed by the buyer shows no required note", async () => {
+  await mount({ customer: jorge });
+  expect(container.textContent).not.toContain("El comprador confirmó este pedido");
 });

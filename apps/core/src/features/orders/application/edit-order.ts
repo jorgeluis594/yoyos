@@ -7,7 +7,7 @@ import type { TransactionEndingError } from "@core/src/shared/application/contai
 import type { BuyerData, OrderBuyer } from "@core/src/features/orders/domain/checkout";
 import type { SellableVariant } from "@core/src/features/orders/domain/catalog-order";
 import type { CompanyId, OrderId, OrderItemId } from "@core/src/features/orders/domain/order";
-import { orderEdit, type DeliveryEdit, type ItemsLocked, type OrderItemChanges, type OrderLineRequest, type OrderPart, type VariantNotFound } from "@core/src/features/orders/domain/order-edit";
+import { orderEdit, type CustomerRequired, type DeliveryEdit, type ItemsLocked, type OrderItemChanges, type OrderLineRequest, type OrderPart, type VariantNotFound } from "@core/src/features/orders/domain/order-edit";
 import { orderRevisions, type OrderRevision } from "@core/src/features/orders/domain/order-revisions";
 import { orderStateMachine, type OrderAggregate, type OrderDomainError, type RatedDeliverySelection, type ResolvedDelivery } from "@core/src/features/orders/domain/order-state-machine";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -28,6 +28,7 @@ export type EditOrderError =
   | OrderDomainError | ResolveRateError | PeruDistrictError
   | Readonly<{ code: "INVALID_INPUT" | "ORDER_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA" | "DELIVERY_UNAVAILABLE" | "DELIVERY_METHOD_DISABLED"; message: string }>
   | ItemsLocked
+  | CustomerRequired
   | Readonly<{ code: "ORDER_CHANGED"; message: string; parts: readonly [OrderPart, ...OrderPart[]] }>
   | VariantNotFound
   | TransactionEndingError;
@@ -74,6 +75,8 @@ export async function editOrder(input: EditOrderInput, access: EditOrderAccess, 
     }
     const locked = orderEdit.checkLocks(order, new Set(parts));
     if (!locked.success) return locked;
+    const required = parts.includes("customer") ? orderEdit.checkCustomerRequired(order, input) : ok(null);
+    if (!required.success) return required;
 
     const revisions = orderRevisions(order);
     const changedElsewhere = parts.filter((part) => input[part]?.base !== revisions[part]);
