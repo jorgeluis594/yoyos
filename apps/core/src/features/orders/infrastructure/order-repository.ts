@@ -505,9 +505,14 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
   if (criteria.shippedBefore) predicates.push(Prisma.sql`o."shippedAt" < ${criteria.shippedBefore}`);
   if (criteria.search) {
     const number = /^#?\d+$/.test(criteria.search) ? Number(criteria.search.replace(/^#/, "")) : NaN;
-    predicates.push(Prisma.sql`(strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0
-      ${criteria.searchPhone === "exclude" ? Prisma.empty : Prisma.sql`OR strpos(b.phone, ${criteria.search}) > 0`}
-      ${Number.isSafeInteger(number) ? Prisma.sql`OR o.number = ${BigInt(number)}` : Prisma.empty})`);
+    const byNumber = Number.isSafeInteger(number) ? Prisma.sql`o.number = ${BigInt(number)}` : Prisma.sql`false`;
+    if (criteria.searchPhone === "exclude") {
+      // Assistant search: digits never match a customer name, so a hidden phone cannot be rebuilt by probing. A query with any numeric character searches the order number only.
+      predicates.push(/\p{N}/u.test(criteria.search.normalize("NFKC")) ? byNumber : Prisma.sql`strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0`);
+    } else {
+      predicates.push(Prisma.sql`(strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0 OR strpos(b.phone, ${criteria.search}) > 0
+        ${Number.isSafeInteger(number) ? Prisma.sql`OR o.number = ${BigInt(number)}` : Prisma.empty})`);
+    }
   }
   if (criteria.view === "unpaid") predicates.push(Prisma.sql`o.cancelled = false AND ${confirmedPaid} < o.total`);
   if (criteria.view === "paid") predicates.push(Prisma.sql`o.cancelled = false AND ${confirmedPaid} >= o.total`);

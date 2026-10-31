@@ -84,6 +84,21 @@ test("search without phone does not match the buyer phone", async () => {
   });
 });
 
+test("assistant search never matches a customer name by digits while the web search still does", async () => {
+  await scenario(async ({ seed, access }) => {
+    await seed({ number: 1001, total: 50, buyer: { name: "987654789", phone: null } });
+    await seed({ number: 1002, total: 50, buyer: { name: "Carla 987654444", phone: "+51987654444" } });
+    await seed({ number: 1003, total: 50, buyer: { name: "987\u00a0654\u00a0111", phone: null } });
+    await seed({ number: 1004, total: 50, buyer: { name: "Tienda 24", phone: null } });
+    for (const search of ["987654789", "987654", "987", "654", "444", "111", "24", "❾❽❼", "➒", "²"]) expect(numbersOf(await orders.listAggregates(page({ search, searchPhone: "exclude" }), access)), search).toEqual([]);
+    expect(numbersOf(await orders.listAggregates(page({ search: "carla", searchPhone: "exclude" }), access))).toEqual([1002]);
+    expect(numbersOf(await orders.listAggregates(page({ search: "#1001", searchPhone: "exclude" }), access))).toEqual([1001]);
+    expect(numbersOf(await orders.listAggregates(page({ search: "1004", searchPhone: "exclude" }), access))).toEqual([1004]);
+    expect(numbersOf(await orders.listAggregates(page({ search: "987654789" }), access))).toEqual([1001]);
+    expect(numbersOf(await orders.listAggregates(page({ search: "987654" }), access))).toEqual([1001, 1002]);
+  });
+});
+
 test("lists paid and unpaid views over not-cancelled orders and excludes cancelled ones on request", async () => {
   await scenario(async ({ seed, access }) => {
     await seed({ number: 1001, total: 100, payments: [{ amount: 100 }] });

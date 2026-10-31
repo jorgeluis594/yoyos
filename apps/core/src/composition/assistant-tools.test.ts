@@ -52,6 +52,37 @@ describe("the registered tool modules", () => {
   test("follow every rule of the registry", () => {
     expect(checkToolModules(toolModules)).toEqual([]);
   });
+
+  test("list exactly the four order tools, all read only, for a connection with the orders scope", async () => {
+    const { client, close } = await connect(toolModules);
+    const { tools } = await client.listTools();
+    expect(tools.map((tool) => tool.name)).toEqual(["buscar_pedidos", "ver_pedido", "pedidos_por_cobrar", "pedidos_por_despachar_hoy"]);
+    for (const tool of tools) expect(tool.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+    expect(client.getInstructions()).toContain("solo lee");
+    await close();
+  });
+
+  test("a connection without the orders scope lists no order tools", async () => {
+    const { client, close } = await connect(toolModules, { ...access, scopes: [] });
+    expect((await client.listTools()).tools).toEqual([]);
+    await close();
+  });
+
+  test("a twenty-order page with maximum-length texts stays under 24 KB", () => {
+    for (const name of ["buscar_pedidos", "pedidos_por_cobrar", "pedidos_por_despachar_hoy"]) {
+      const tool = toolModules.flatMap((module) => module.tools).find((candidate) => candidate.name === name)!;
+      expect(tool.sampleOutputs[0].pedidos).toHaveLength(20);
+      expect(Buffer.byteLength(JSON.stringify(tool.sampleOutputs[0]))).toBeLessThan(maxToolOutputBytes);
+    }
+  });
+
+  test("an order with sixty maximum-length item lines and ten payments stays under 24 KB", () => {
+    const tool = toolModules.flatMap((module) => module.tools).find((candidate) => candidate.name === "ver_pedido")!;
+    const sample = tool.sampleOutputs[0];
+    expect(sample.productos).toHaveLength(60);
+    expect(sample.pagos).toHaveLength(10);
+    expect(Buffer.byteLength(JSON.stringify(sample))).toBeLessThan(maxToolOutputBytes);
+  });
 });
 
 describe("static validator", () => {

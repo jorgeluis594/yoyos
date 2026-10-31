@@ -90,3 +90,14 @@ test("paginates overdue and today as one sequence of twenty", () => {
   expect(pageOfDispatchQueue(queue, 3 as never)).toEqual([]);
   expect(queue.summary).toEqual({ overdue: 3, overdueReady: 3, today: 25, todayReady: 25 });
 });
+
+test("judges a full order by the same rules as the queue through its readiness subject", async () => {
+  const { toReadinessSubject, describeDispatchReadiness: describe } = await import("@core/src/features/orders/domain/dispatch-readiness");
+  const confirmed = { status: "confirmed", amount: money(30), method: "bank_transfer", deductStockIfPartial: false } as const;
+  const aggregate = { id: id(1), createdAt: new Date("2026-10-20T10:00:00Z"), cancelled: false, stockDeducted: false, deliveryStatus: "pending", total: money(80),
+    items: [{ variantId: camisaM, quantity: 4 }], payments: [confirmed, { status: "reported" }], delivery: { method: "home" } } as never;
+  const subject = toReadinessSubject(aggregate);
+  expect(subject).toMatchObject({ deliveryMethod: "home", hasReportedPayment: true, confirmedPayments: [{ amount: money(30) }] });
+  expect(describe(subject, { stockDue: null, shortAtCurrentStock: [camisaM] })).toEqual({ kind: "blocked", operation: "ship", reason: { code: "STOCK_WAITING", variantIds: [camisaM] } });
+  expect(describe(subject, { stockDue: null, shortAtCurrentStock: [] })).toEqual({ kind: "ready", operation: "ship" });
+});
