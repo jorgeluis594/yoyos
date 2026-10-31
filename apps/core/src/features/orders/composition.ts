@@ -17,6 +17,7 @@ import { hasAnyOrder } from "@core/src/features/orders/application/has-any-order
 import { summarizeUnpaidOrders } from "@core/src/features/orders/application/summarize-unpaid-orders";
 import { describeDispatchStock, listDispatchQueue, type ListDispatchQueueDependencies, type ListDispatchQueueError, type ListDispatchQueueInput } from "@core/src/features/orders/application/list-dispatch-queue";
 import { readDispatchQueueMax } from "@core/src/features/orders/infrastructure/dispatch-queue-env";
+import { describeDispatchReadiness, toReadinessSubject, type DispatchStock } from "@core/src/features/orders/domain/dispatch-readiness";
 import { describeOrderStockDue } from "@core/src/features/orders/application/describe-order-stock-due";
 import { parseStockQuantity, type NonNegativeInteger, type StockDue, type VariantStock } from "@core/src/features/orders/domain/stock-deduction";
 import { countUndatedPendingOrders, existsOrder, findDispatchCandidates, findOrderAggregateByNumber as findAnyOrderAggregateByNumber, summarizeUnpaidOrders as summarizeUnpaidInDatabase, listCompaniesWithOverdueStockDeductions, listOverdueOrderIds, listWaitingOrderIds, loadStockOrders, lockOrdersSkipLocked, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
@@ -581,6 +582,8 @@ export const orders = {
   listDispatchQueue: readDispatchQueue,
   /** Read-only: `stockDue` and the current-stock shortfall of full orders. */
   describeDispatchStock: describeOrdersDispatchStock,
+  /** Pure: the readiness of a full order given its `describeDispatchStock` entry; `null` when it is cancelled or no longer pending. */
+  describeDispatchReadiness: (order: OrderAggregate, stock: DispatchStock) => describeDispatchReadiness(toReadinessSubject(order), stock),
   ship: (id: Parameters<typeof registerShipment>[0], context: Parameters<typeof registerShipment>[1]) =>
     registerShipment(id, context, fulfillmentDependencies),
   updateShipping: (input: Parameters<typeof updateOrderShipping>[0], context: Parameters<typeof updateOrderShipping>[1]) =>

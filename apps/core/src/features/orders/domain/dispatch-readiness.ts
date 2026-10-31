@@ -3,7 +3,8 @@ import { orderFulfillmentBlock } from "@shared/orders-fulfillment";
 import type { DispatchDate } from "@shared/dispatch-date";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { VariantId } from "@core/src/features/products/domain/product";
-import { describeStockDue, isStockDeductionDue, type StockDue, type StockOrder, type VariantStock } from "@core/src/features/orders/domain/stock-deduction";
+import { describeStockDue, isStockDeductionDue, toStockOrder, type StockDue, type StockOrder, type VariantStock } from "@core/src/features/orders/domain/stock-deduction";
+import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 
 export const DISPATCH_PAGE_SIZE = 20;
 
@@ -11,6 +12,8 @@ export const DISPATCH_PAGE_SIZE = 20;
 export type DispatchCandidate = StockOrder & Readonly<{
   number: OrderNumber; scheduledDispatchDate: DispatchDate;
   deliveryMethod: "home" | "agency" | "store" | null; hasReportedPayment: boolean }>;
+/** What readiness reads of an order: a candidate without the fields only the queue's ordering uses. */
+export type ReadinessSubject = Omit<DispatchCandidate, "number" | "scheduledDispatchDate">;
 export type DispatchStock = Readonly<{ stockDue: StockDue | null; shortAtCurrentStock: readonly VariantId[] }>;
 export type DispatchReadiness =
   | Readonly<{ kind: "ready"; operation: "ship" | "deliver" }>
@@ -41,7 +44,7 @@ export function describeDispatchStockOf(order: StockOrder, stock: VariantStock):
 }
 
 /** `null` when the order is cancelled or no longer pending: it is not waiting for a dispatch. */
-export function describeDispatchReadiness(order: DispatchCandidate, stock: DispatchStock): DispatchReadiness | null {
+export function describeDispatchReadiness(order: ReadinessSubject, stock: DispatchStock): DispatchReadiness | null {
   if (order.cancelled || order.deliveryStatus !== "pending") return null;
   if (order.deliveryMethod === null) return { kind: "delivery_unassigned" };
   const operation = order.deliveryMethod === "store" ? "deliver" : "ship";
@@ -58,6 +61,11 @@ export function describeDispatchReadiness(order: DispatchCandidate, stock: Dispa
   const [first, ...rest] = order.stockDeducted ? [] : stock.shortAtCurrentStock;
   if (first) return { kind: "blocked", operation, reason: { code: "STOCK_WAITING", variantIds: [first, ...rest] } };
   return { kind: "ready", operation };
+}
+
+/** The readiness subject of a full order, so a single order is judged by the same rules as the queue. */
+export function toReadinessSubject(order: OrderAggregate): ReadinessSubject {
+  return { ...toStockOrder(order), deliveryMethod: order.delivery?.method ?? null, hasReportedPayment: order.payments.some((payment) => payment.status === "reported") };
 }
 
 export function classifyDispatchCandidate(candidate: DispatchCandidate, stock: VariantStock): Readonly<{ stock: DispatchStock; readiness: DispatchReadiness | null }> {
