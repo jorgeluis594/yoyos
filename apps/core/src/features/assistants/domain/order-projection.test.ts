@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  customerLabel, destinationLabel, isPhoneLikeName, maskPhone, recipientLabel, shortItemNames, toAssistantDispatchEntry, toAssistantOrder, toAssistantOrderSummary,
+  customerLabel, destinationLabel, displayName, isPhoneLikeName, maskDigitRuns, maskPhone, recipientLabel, shortItemNames, toAssistantDispatchEntry, toAssistantOrder, toAssistantOrderSummary,
   type ProjectableDelivery, type ProjectableOrder, type ProjectionContext,
 } from "@core/src/features/assistants/domain/order-projection";
 import { display } from "@core/src/features/assistants/presentation/display";
@@ -206,9 +206,44 @@ describe("pending payment report", () => {
   });
 });
 
-describe("phone-like name predicate", () => {
-  test("is true for six or more digits with spaces, plus, dashes, dots and parentheses, and false otherwise", () => {
-    for (const name of ["987654", "+51 987 654 789", "(01) 987-654", "987.654.789"]) expect(isPhoneLikeName(name), name).toBe(true);
-    for (const name of ["98765", "Carla 987654789", "Local 12", "987654a", "", "٩٨٧٦٥٤"]) expect(isPhoneLikeName(name), name).toBe(false);
+describe("names never carry a complete phone", () => {
+  const nbsp = "\u00a0", zwsp = "\u200b";
+  test("masks a long digit run inside a name and keeps the rest", () => {
+    expect(maskDigitRuns("Carla 987654444")).toBe("Carla •••444");
+    expect(maskDigitRuns("Carla (987) 654-444 Pérez")).toBe("Carla •••444 Pérez");
+  });
+
+  test("ignores separators, no-break spaces, zero-width characters and fullwidth digits", () => {
+    expect(maskDigitRuns("987/654/777")).toBe("•••777");
+    expect(maskDigitRuns(`987${nbsp}654${nbsp}111`)).toBe("•••111");
+    expect(maskDigitRuns(`987${zwsp}654222`)).toBe("•••222");
+    expect(maskDigitRuns("９８７６５４３３３")).toBe("•••333");
+    expect(maskDigitRuns("+51 987-654-321")).toBe("•••321");
+    expect(maskDigitRuns("987.654.123")).toBe("•••123");
+    expect(maskDigitRuns("\u202e987654555\u202c")).toBe("•••555");
+  });
+
+  test("keeps a name with a short number", () => {
+    expect(maskDigitRuns("Tienda 24")).toBe("Tienda 24");
+    expect(displayName("Tienda 24")).toBe("Tienda 24");
+    expect(maskDigitRuns("Local 12 y 34")).toBe("Local 12 y 34");
+  });
+
+  test("treats a name left without letters as no name", () => {
+    for (const name of ["987654789", "+51 987-654-789", "987/654/777", `987${nbsp}654${nbsp}111`, `987${zwsp}654222`, "９８７６５４３３３", "٩٨٧٦٥٤", "(01) 987-654"]) {
+      expect(isPhoneLikeName(name), name).toBe(true);
+      expect(displayName(name), name).toBeNull();
+    }
+    for (const name of ["98765", "Carla 987654789", "Local 12", "987654a", ""]) expect(isPhoneLikeName(name), name).toBe(false);
+  });
+
+  test("shows the buyer and the recipient without any complete phone", () => {
+    expect(customerLabel({ name: "Carla 987654444", phone: "+51987654444" })).toBe("Carla •••444");
+    expect(customerLabel({ name: `987${nbsp}654${nbsp}111`, phone: null })).toBe("Cliente que termina en 111");
+    expect(customerLabel({ name: "987/654/777", phone: "+51987000123" })).toBe("Cliente que termina en 123");
+    expect(recipientLabel({ name: "Luis 999111222", phone: "999111222" })).toBe("Luis •••222");
+    const full = toAssistantOrder(order({ buyer: { name: "Carla 987654444", phone: "+51987654444" }, payments: [{ status: "rejected", data: { rejectedAt: new Date(), reason: "Llamar al 987654321" } }] }), { stockDue: null }, null, context);
+    expect(JSON.stringify({ ...full, enlace: "" })).not.toMatch(/\d{6}/);
+    expect(full.pagos[0]!.motivo).toBe("Llamar al •••321");
   });
 });

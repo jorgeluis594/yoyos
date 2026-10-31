@@ -484,8 +484,6 @@ export async function findOrders(criteria: OrderCriteria) {
 const confirmedPaid = Prisma.sql`coalesce((SELECT sum(p.amount) FROM "Payment" p WHERE p."orderId" = o.id
   AND p."companyId" = o."companyId" AND p.status = 'confirmed'), 0)`;
 /** Unconfirmed catalog orders do not exist for the seller. */
-/** SQL twin of `isPhoneLikeName` (assistants/domain/order-projection.ts): after removing spaces, `+`, `-`, `.` and parentheses, six or more digits and nothing else. */
-const phoneLikeName = Prisma.sql`regexp_replace(coalesce(b.name, ''), '[[:space:]+().-]', '', 'g') ~ '^[0-9]{6,}$'`;
 const visibleOrder = Prisma.sql`NOT (o."fromCatalog" AND o."checkoutConfirmedAt" IS NULL)`;
 
 export async function findOrderAggregates(criteria: AggregateCriteria, companyId: CompanyId) {
@@ -506,13 +504,14 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
   if (criteria.shippedBefore) predicates.push(Prisma.sql`o."shippedAt" < ${criteria.shippedBefore}`);
   if (criteria.search) {
     const number = /^#?\d+$/.test(criteria.search) ? Number(criteria.search.replace(/^#/, "")) : NaN;
-    // The assistant search treats a name made of a phone number as no name (`isPhoneLikeName`), so digits of a hidden phone cannot be probed through it.
-    const nameMatches = criteria.searchPhone === "exclude"
-      ? Prisma.sql`(strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0 AND NOT ${phoneLikeName})`
-      : Prisma.sql`strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0`;
-    predicates.push(Prisma.sql`(${nameMatches}
-      ${criteria.searchPhone === "exclude" ? Prisma.empty : Prisma.sql`OR strpos(b.phone, ${criteria.search}) > 0`}
-      ${Number.isSafeInteger(number) ? Prisma.sql`OR o.number = ${BigInt(number)}` : Prisma.empty})`);
+    const byNumber = Number.isSafeInteger(number) ? Prisma.sql`o.number = ${BigInt(number)}` : Prisma.sql`false`;
+    if (criteria.searchPhone === "exclude") {
+      // Assistant search: digits never match a customer name, so a hidden phone cannot be rebuilt by probing. A query with any digit searches the order number only.
+      predicates.push(/\p{Nd}/u.test(criteria.search) ? byNumber : Prisma.sql`strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0`);
+    } else {
+      predicates.push(Prisma.sql`(strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0 OR strpos(b.phone, ${criteria.search}) > 0
+        ${Number.isSafeInteger(number) ? Prisma.sql`OR o.number = ${BigInt(number)}` : Prisma.empty})`);
+    }
   }
   if (criteria.view === "unpaid") predicates.push(Prisma.sql`o.cancelled = false AND ${confirmedPaid} < o.total`);
   if (criteria.view === "paid") predicates.push(Prisma.sql`o.cancelled = false AND ${confirmedPaid} >= o.total`);

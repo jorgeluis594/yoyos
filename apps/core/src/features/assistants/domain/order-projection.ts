@@ -74,7 +74,15 @@ export type AssistantOrder = AssistantOrderSummary & Readonly<{
 }>;
 export type DispatchStockState = Readonly<{ stockDue: Readonly<{ kind: "waiting" | "deducting" }> | null }>;
 
-const digitsOf = (text: string) => text.replace(/\D/g, "");
+/** Unicode NFKC (fullwidth digits become ASCII), every Unicode space as a plain space, format and control characters (zero-width spaces, bidi marks) removed. */
+export function normalizeText(text: string): string {
+  return text.normalize("NFKC").replace(/[\s\p{Z}]/gu, " ").replace(/[\p{Cf}\p{Cc}]/gu, "").replace(/ +/g, " ").trim();
+}
+
+const digitsOf = (text: string) => normalizeText(text).replace(/[^\p{Nd}]/gu, "");
+// A run of digits, allowing spaces, dots, hyphens, slashes, parentheses and plus signs between them, with the brackets or plus sign that open or close it.
+const digitRun = /[+(]*\p{Nd}(?:[\s.\-/()+]*\p{Nd})*\)*/gu;
+const maskedRun = "•••";
 
 /** `"termina en 789"`; `null` when the phone has fewer than three digits. */
 export function maskPhone(phone: string | null): string | null {
@@ -82,31 +90,38 @@ export function maskPhone(phone: string | null): string | null {
   return digits.length < 3 ? null : `termina en ${digits.slice(-3)}`;
 }
 
-/**
- * A name made only of a phone number (a chat contact saved without a name) counts as no name.
- * The assistant search applies the same rule in SQL (`phoneLikeName` in orders/infrastructure/order-repository.ts); change both together.
- */
-export function isPhoneLikeName(name: string): boolean {
-  const stripped = name.replace(/[\s+\-.()]/g, "");
-  return /^\d+$/.test(stripped) && stripped.length >= 6;
+/** Every run of six or more digits (separators ignored) becomes «•••» plus its last three digits, so a name never carries a complete phone. Normalizes first. */
+export function maskDigitRuns(text: string): string {
+  return normalizeText(text).replace(digitRun, (run) => {
+    const digits = run.replace(/[^\p{Nd}]/gu, "");
+    return digits.length >= 6 ? `${maskedRun}${digits.slice(-3)}` : run;
+  });
 }
 
-const nameOf = (name: string | null): string | null => {
-  const trimmed = name?.trim() ?? "";
-  return trimmed === "" || isPhoneLikeName(trimmed) ? null : trimmed;
-};
+/** A name that, once its long digit runs are masked, has no letters left: a chat contact saved with its number as name counts as no name. */
+export function isPhoneLikeName(name: string): boolean {
+  const masked = maskDigitRuns(name);
+  return masked.includes(maskedRun) && !/\p{L}/u.test(masked);
+}
+
+/** The name to show: normalized and with phone numbers masked; `null` when nothing usable is left (empty or phone-like). */
+export function displayName(name: string | null): string | null {
+  if (name === null || isPhoneLikeName(name)) return null;
+  const masked = maskDigitRuns(name);
+  return masked === "" ? null : masked;
+}
 
 /** The buyer's name; else «Cliente que termina en 427»; else «Público general». */
 export function customerLabel(buyer: Contact | null): string {
   if (buyer === null) return "Público general";
-  const name = nameOf(buyer.name);
+  const name = displayName(buyer.name);
   if (name !== null) return name;
-  const masked = maskPhone(buyer.phone) ?? maskPhone(buyer.name);
+  const masked = maskPhone(buyer.phone) ?? (buyer.name !== null && isPhoneLikeName(buyer.name) ? maskPhone(buyer.name) : null);
   return masked === null ? "Público general" : `Cliente que ${masked}`;
 }
 
 export function recipientLabel(recipient: Contact): string {
-  return nameOf(recipient.name) ?? customerLabel({ name: null, phone: recipient.phone });
+  return displayName(recipient.name) ?? customerLabel({ name: null, phone: recipient.phone });
 }
 
 const place = ({ district, province, department }: Place) => `${district}, ${province}, ${department}`;
@@ -189,7 +204,7 @@ function toAssistantPayment(payment: ProjectablePayment, display: Display): Assi
     case "confirmed": return { estado: "Confirmado", fecha: display.dateTime(payment.data.confirmedAt), monto: display.money(payment.amount), metodo: methodWord[payment.method],
       ...(payment.data.evidence.kind === "buyer_report" ? { con_comprobante: true as const } : {}) };
     case "reported": return { estado: "Por revisar", fecha: display.dateTime(payment.data.reportedAt), con_comprobante: true };
-    case "rejected": return { estado: "Rechazado", fecha: display.dateTime(payment.data.rejectedAt), con_comprobante: true, ...(payment.data.reason ? { motivo: clip(payment.data.reason, maxRejectionReason) } : {}) };
+    case "rejected": return { estado: "Rechazado", fecha: display.dateTime(payment.data.rejectedAt), con_comprobante: true, ...(payment.data.reason ? { motivo: clip(maskDigitRuns(payment.data.reason), maxRejectionReason) } : {}) };
     case "voided": return { estado: "Anulado", fecha: display.dateTime(payment.data.voidedAt), monto: display.money(payment.amount), metodo: methodWord[payment.method] };
   }
 }
