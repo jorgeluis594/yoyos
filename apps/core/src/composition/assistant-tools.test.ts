@@ -9,6 +9,7 @@ import { checkToolModules, createToolRegistry, maxToolOutputBytes } from "@core/
 import type { RegisteredTool, ToolModule } from "@core/src/features/assistants/presentation/tool-module";
 import { toolModules } from "@core/src/composition/assistant-tools";
 import { salesToolsInstructions } from "@core/src/features/assistants/presentation/tools/sales-texts";
+import { assistantScopes } from "@core/src/features/assistants/domain/scopes";
 import { orderToolsInstructions } from "@core/src/features/assistants/presentation/tools/orders-texts";
 
 // The tools of the sales module (none until MCP 3/4 lands them); the module requires both scopes.
@@ -78,6 +79,8 @@ describe("the registered tool modules", () => {
 
   test("the sales module needs both scopes and adds no scope literal", async () => {
     expect(salesModule.scopes).toEqual(["orders:read", "products:read"]);
+    // A new literal would end every live connection: the sales group reuses the two existing ones.
+    expect(assistantScopes).toEqual(["orders:read", "products:read"]);
     const only = await connect(toolModules, { ...access, scopes: ["orders:read"] });
     expect(only.client.getInstructions()).not.toContain(salesToolsInstructions);
     await only.close();

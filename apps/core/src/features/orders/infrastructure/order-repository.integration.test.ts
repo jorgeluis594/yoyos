@@ -2403,7 +2403,7 @@ test("moving an order's createdAt moves its items' orderCreatedAt", async () => 
 test("the created-date filter and newest-first order of the order search use Order_companyId_createdAt_id_key", async () => {
   const admin = new pg.Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });
   await admin.connect();
-  const store = await seedStore(admin, { companyId: randomUUID(), start: "2025-01-01", end: "2027-01-01", ordersPerDay: 30, products: 30 });
+  const store = await seedStore(admin, { companyId: randomUUID(), start: "2025-01-01", end: "2027-01-01", ordersPerDay: 6, products: 30 });
   try {
     await admin.query('ANALYZE "Order"');
     const companyId = store.companyId as CompanyId;
