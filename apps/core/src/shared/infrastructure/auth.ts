@@ -91,6 +91,8 @@ export const auth = betterAuth({
     grantTypes: ["authorization_code", "refresh_token"],
     clientRegistrationDefaultResources: [mcpResourceUrl],
     clientRegistrationDefaultScopes: [...oauthScopes],
+    // A client registering a loopback http redirect (MCP Inspector, desktop agents) is a native app; the plugin refuses it as a web client.
+    clientRegistrationDefaultApplicationType: "infer",
     allowDynamicClientRegistration: true,
     allowUnauthenticatedClientRegistration: true,
     accessTokenExpiresIn: assistantConfig.accessTokenTtlSeconds,
