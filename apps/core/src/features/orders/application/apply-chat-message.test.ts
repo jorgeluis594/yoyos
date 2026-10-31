@@ -60,7 +60,8 @@ const existingOrder = (items: OrderAggregate["items"] = [{ id: id(60) as OrderIt
 const openTarget = (order = existingOrder()): ChatOrderTarget => ({ kind: "open", order, productIds: new Map(order.items.map((item) => [item.variantId, productCap])) });
 
 const pendingOf = (n: number, over: Partial<ChatPending> = {}): ChatPending => ({ id: id(n) as ChatPendingId, subject: { kind: "variant", productId: productPolo }, known: {}, quantity: 1 as PositiveInteger,
-  price: null, order: null, lastChangedAt: hourBefore, sourceMessageId: id(900 + n) as ChatMessageId, requestId: id(n) as ChatPendingId, ...over });
+  price: null, order: null, lastChangedAt: hourBefore, sourceMessageId: id(900 + n) as ChatMessageId, requestId: id(n) as ChatPendingId,
+  doubt: null, pointSince: hourBefore, acknowledgedAt: null, ...over });
 const pendingSet = (...pendings: ChatPending[]): ChatPendings => ({ pendings, readyRemembered: false });
 
 const zeroUsage = { inputTokens: 100, cachedInputTokens: 0, outputTokens: 20, reasoningTokens: 0 };

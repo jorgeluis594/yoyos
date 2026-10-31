@@ -3,6 +3,7 @@ import { currencies } from "@shared/money";
 import { moneySchema } from "@shared/contracts/money";
 import { peruDeliveryDistrictSchema, peruDistrictCodeSchema } from "@shared/contracts/peru-location";
 import { pickupPointSchema } from "@shared/contracts/delivery-settings";
+import { orderRevisionSchema } from "@shared/contracts/order-revisions";
 import { parseDispatchDate } from "@shared/dispatch-date";
 import { internationalPhonePattern } from "@shared/phone";
 import { walletProviderFitsMethod, walletProviderSchema } from "@shared/wallet-providers";
@@ -128,7 +129,9 @@ export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.da
   stockDeducted: z.boolean(), stockDue: orderStockDueSchema.nullable(), items: z.array(z.strictObject({ id: z.uuid(), variantId: z.uuid(), productName: z.string(),
     variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(),
     unitPrice: moneySchema, subtotal: moneySchema, mentionedPrice: mentionedPriceSchema.nullable() })).min(1), payments: z.array(paymentSchema),
-  itemsTotal: moneySchema, deliveryCost: moneySchema, deliveryCharge: moneySchema, total: moneySchema });
+  itemsTotal: moneySchema, deliveryCost: moneySchema, deliveryCharge: moneySchema, total: moneySchema,
+  /** The items revision, for mobile edits. Optional until core fills it in with the mobile item editing. */
+  revisions: z.strictObject({ items: orderRevisionSchema }).optional() });
 export type OrderAggregateResponse = z.infer<typeof orderAggregateSchema>;
 export const listOrderAggregatesSchema = z.strictObject({
   search: z.string().max(120).optional(),
@@ -148,7 +151,9 @@ export const listOrderAggregatesSchema = z.strictObject({
 export type ListOrderAggregatesRequest = z.infer<typeof listOrderAggregatesSchema>;
 export const orderAggregateSummarySchema = orderAggregateSchema.pick({ checkoutEnabledAt: true, checkoutConfirmedAt: true, number: true, id: true, createdAt: true, scheduledDispatchDate: true, shippedAt: true, deliveredAt: true, completedAt: true, status: true,
   paymentStatus: true, deliveryStatus: true, stockDeducted: true, buyer: true, source: true, sellerId: true, total: true })
-  .extend({ courier: snapshotCourierSchema.nullable().optional() });
+  .extend({ courier: snapshotCourierSchema.nullable().optional(),
+    /** Something in the order needs the seller's review. Optional until core fills it in with the review core. */
+    toReview: z.boolean().optional() });
 export const listOrderAggregatesResponseSchema = z.strictObject({ items: z.array(orderAggregateSummarySchema),
   page: z.number().int().positive(), pageSize: z.literal(20), total: z.number().int().nonnegative() });
 export type ListOrderAggregatesResponse = z.infer<typeof listOrderAggregatesResponseSchema>;

@@ -119,7 +119,8 @@ export function draftPending(set: ChatPendings, draft: PendingDraft, env: Transi
   }
   const id = env.newPendingId();
   const created: ChatPending = { id, subject: draft.subject, known: draft.known, quantity: draft.quantity as PositiveInteger, price: draft.price, order: null,
-    lastChangedAt: env.now, sourceMessageId: env.sourceMessageId, requestId: id };
+    lastChangedAt: env.now, sourceMessageId: env.sourceMessageId, requestId: id,
+    doubt: null, pointSince: env.now, acknowledgedAt: null };
   const problem: ChatMessageOutcome = draft.subject.kind === "product" ? { kind: "not_clear", productIds: draft.subject.candidates, silent: false }
     : { kind: draft.problem === "variant_not_available" ? "variant_not_available" : "variant_missing", productId: draft.subject.productId, identification: draft.identification };
   const limited = enforceLimit({ ...set, pendings: [...set.pendings, created] }, [id]);

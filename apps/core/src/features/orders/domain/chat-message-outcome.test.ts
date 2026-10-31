@@ -54,4 +54,26 @@ describe("chatMessageOutcomesSchema", () => {
   ])("rejects %s", (_title, outcome) => {
     expect(chatMessageOutcomesSchema.safeParse([outcome]).success).toBe(false);
   });
+
+  test("accepts the outcomes of the staged reader and round-trips their structured questions", () => {
+    const outcomes = [
+      { kind: "payment_requested", order: { kind: "open", orderId: id(4) }, productIds: [id(2)], unnamed: 1 },
+      { kind: "payment_requested", order: { kind: "none" }, productIds: [], unnamed: 0 },
+      { kind: "changed_after_link", orderId: id(4) },
+      { kind: "invalid_action", orderId: null, reason: "quantity_below_zero" },
+      { kind: "questions", questions: [{ language: "pt", kind: "which_variant", product: "Polera", attribute: "Talla", values: ["S", "M"] }, { language: "es", kind: "photo_product_name" }] },
+    ];
+    expect(chatMessageOutcomesSchema.parse(JSON.parse(JSON.stringify(outcomes)))).toEqual(outcomes);
+  });
+
+  test.each([
+    ["an empty list of questions", { kind: "questions", questions: [] }],
+    ["a question of an unknown kind", { kind: "questions", questions: [{ language: "es", kind: "free_text", text: "hola" }] }],
+    ["a question in an unsupported language", { kind: "questions", questions: [{ language: "en", kind: "photo_product_name" }] }],
+    ["a payment request with an unknown order kind", { kind: "payment_requested", order: { kind: "later" }, productIds: [], unnamed: 0 }],
+    ["a changed-after-link outcome without its order", { kind: "changed_after_link" }],
+    ["the malformed reason the staged reader no longer has", { kind: "invalid_action", orderId: null, reason: "malformed" }],
+  ])("rejects %s", (_title, outcome) => {
+    expect(chatMessageOutcomesSchema.safeParse([outcome]).success).toBe(false);
+  });
 });

@@ -164,7 +164,8 @@ export function createChat(start: ChatStart = {}) {
 export function pendingOf(key: ProductKey, fields: Partial<Pick<ChatPending, "known" | "price" | "lastChangedAt" | "order">> & Readonly<{ n?: number; quantity?: number }> = {}): ChatPending {
   const n = fields.n ?? 1;
   return { id: id(300 + n) as ChatPendingId, subject: { kind: "variant", productId: productId(key) }, known: fields.known ?? {}, quantity: (fields.quantity ?? 1) as PositiveInteger, price: fields.price ?? null,
-    order: fields.order ?? null, lastChangedAt: fields.lastChangedAt ?? t0, sourceMessageId: id(80 + n) as ChatMessageId, requestId: id(300 + n) as ChatPendingId };
+    order: fields.order ?? null, lastChangedAt: fields.lastChangedAt ?? t0, sourceMessageId: id(80 + n) as ChatMessageId, requestId: id(300 + n) as ChatPendingId,
+    doubt: null, pointSince: fields.lastChangedAt ?? t0, acknowledgedAt: null };
 }
 
 export function doubtfulPendingOf(keys: readonly [ProductKey, ProductKey, ...ProductKey[]], n = 1): ChatPending {
