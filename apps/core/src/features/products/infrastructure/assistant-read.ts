@@ -1,5 +1,5 @@
 import { err } from "@shared/functional";
-import type { Result } from "@shared/result";
+import type { AppError, Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { getCompanyId, inActiveTransaction, prisma, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { isPersistenceFailure, transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
@@ -32,7 +32,7 @@ export function assistantReadFailure(cause: unknown): AssistantReadError & Reado
  * and the outer snapshot reports the failure. A thrown timeout becomes a result and is logged once as `product_search_failed`.
  */
 export function assistantSnapshot(operation: AssistantReadOperation): AssistantSnapshot {
-  return async <T, E>(read: () => Promise<Result<T, E>>): Promise<Result<T, E | AssistantReadError>> => {
+  return async <T, E extends AppError>(read: () => Promise<Result<T, E>>): Promise<Result<T, E | AssistantReadError>> => {
     if (inActiveTransaction()) return read();
     const started = performance.now();
     try {

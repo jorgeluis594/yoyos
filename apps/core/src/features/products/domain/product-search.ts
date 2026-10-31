@@ -71,9 +71,10 @@ const byOrder = (left: Order, right: Order) => left.productRank - right.productR
 
 /** Options alphabetical; values by the saved order of their first (newest) product; written form of the newest product. */
 export function buildVocabulary(rows: readonly VocabularyRow[]): StoreVocabulary {
-  const options = new Map<MatchKey, { first: VocabularyRow; values: Map<MatchKey, { first: VocabularyRow; spellings: Spelling[] }> }>();
+  type Entry = { first: VocabularyRow; values: Map<MatchKey, { first: VocabularyRow; spellings: Spelling[] }> };
+  const options = new Map<MatchKey, Entry>();
   for (const row of [...rows].sort(byOrder)) {
-    const option = options.get(matchKeyOf(row.optionName)) ?? { first: row, values: new Map() };
+    const option = options.get(matchKeyOf(row.optionName)) ?? { first: row, values: new Map() } as Entry;
     options.set(matchKeyOf(row.optionName), option);
     const value = option.values.get(matchKeyOf(row.valueName)) ?? { first: row, spellings: [] };
     option.values.set(matchKeyOf(row.valueName), value);
