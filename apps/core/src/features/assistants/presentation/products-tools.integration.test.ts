@@ -38,7 +38,10 @@ async function mint(subject: string) {
   } as never);
 }
 
-type ToolResult = { isError?: boolean; structuredContent?: Record<string, any>; content: { text: string }[] };
+type Line = { combinacion: string; sku: string; buscada_por_sku?: boolean };
+type Item = { id: string; nombre: string; en_catalogo: string; enlace: string; enlace_cliente?: string; variantes_coincidentes?: Line[] };
+type Output = { catalogo: string; total: number; mensaje?: string; productos: Item[]; id?: string; variantes: Line[] };
+type ToolResult = { isError?: boolean; structuredContent?: Output; content: { text: string }[] };
 async function call(store: Store, name: string, args: unknown = {}): Promise<ToolResult> {
   const response = await fetch(`${base}/mcp`, {
     method: "POST",
@@ -123,7 +126,7 @@ describe("product tools through the MCP server", () => {
     const bySku = (await call(rosa, "ver_producto", { sku: "pol-m-az " })).structuredContent!;
     expect(bySku).toMatchObject({ id: poloId, nombre: "Polo básico" });
     expect(bySku.variantes).toHaveLength(2);
-    expect(bySku.variantes.filter((line: { buscada_por_sku?: boolean }) => line.buscada_por_sku)).toEqual([expect.objectContaining({ sku: "POL-M-AZ", precio_compra: expect.stringContaining("20.00") })]);
+    expect(bySku.variantes.filter((line) => line.buscada_por_sku)).toEqual([expect.objectContaining({ sku: "POL-M-AZ", precio_compra: expect.stringContaining("20.00") })]);
     expect((await call(rosa, "ver_producto", { producto: poloId })).structuredContent).toMatchObject({ id: poloId });
     for (const args of [{ producto: luisProductId }, { sku: "LUIS-1" }, { producto: "no-es-un-uuid" }]) {
       const missing = await call(rosa, "ver_producto", args);
