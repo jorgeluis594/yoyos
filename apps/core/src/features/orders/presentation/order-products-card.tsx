@@ -8,12 +8,13 @@ import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { formatCurrency } from "@core/app/format-currency";
 import { cn } from "@core/app/lib/utils";
+import { joinNames, shortItemLines } from "@core/src/features/orders/presentation/stock-due";
 import { ProductPickerDialog, initialsOf, type PickerChoice } from "@core/src/features/orders/presentation/product-picker-dialog";
 import type { CatalogSearch } from "@core/src/features/orders/presentation/use-catalog-search";
 import { estimate, invalidFields, lineWarnings, screenLocks, unsavedParts, type DraftLine, type OrderViewState, type ProductsLock } from "@core/src/features/orders/presentation/order-view-state";
 
 const lockNoteKeys = {
-  deducting: "orderView.products.lockedDeducting", deducted: "orderView.products.lockedDeducted",
+  deducting: "orderView.products.lockedDeducting",
   shipped: "orderView.products.lockedShipped", delivered: "orderView.products.lockedDelivered",
 } as const satisfies Readonly<Record<Exclude<ProductsLock, "cancelled">, string>>;
 
@@ -145,6 +146,8 @@ export function OrderProductsCard({ state, onChange, search, pickerOpen, onPicke
       </div>
     </CardHeader>
     <CardContent className="grid gap-4">
+      {order && order.stockDue?.kind === "partial_waiting" && !order.cancelled && <p role="note" className="rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning-foreground">
+        {t("orderView.products.partialStock", { items: joinNames(shortItemLines(order).map((line) => line.name), i18n.language) })}</p>}
       {locks.products !== null && locks.products !== "cancelled" && <p role="note" className="text-sm text-muted-foreground">{t(lockNoteKeys[locks.products])}</p>}
       {items.length === 0
         ? <div className="grid justify-items-center gap-1 py-6 text-center"><p className="font-medium">{t("orderView.products.empty")}</p>

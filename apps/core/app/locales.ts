@@ -347,7 +347,7 @@ const es = {
       subtotal: "Subtotal", delivery: "Entrega", paid: "Pagado", total: "Total", balance: "Saldo pendiente", excess: "Exceso recibido: {{amount}}",
       estimate: "El total final se calcula al guardar con los precios vigentes.", empty: "Aún no hay productos", emptyHint: "Pulsa / o Agregar producto para buscar.",
       lockedDeducting: "El stock se está descontando; los productos ya no se pueden cambiar. Para cambiarlos, cancela el pedido y crea una venta nueva.",
-      lockedDeducted: "El stock de este pedido ya se descontó; los productos ya no se pueden cambiar. Para cambiarlos, cancela el pedido y crea una venta nueva.",
+      partialStock: "Se guardó el cambio, pero no hay stock suficiente de {{items}}. Se descontará cuando haya.",
       lockedShipped: "El pedido ya se envió; los productos ya no se pueden cambiar.", lockedDelivered: "El pedido ya se entregó; los productos ya no se pueden cambiar.",
     },
     picker: {
@@ -752,7 +752,7 @@ const pt = {
       subtotal: "Subtotal", delivery: "Entrega", paid: "Pago", total: "Total", balance: "Saldo pendente", excess: "Excesso recebido: {{amount}}",
       estimate: "O total final é calculado ao salvar, com os preços vigentes.", empty: "Ainda não há produtos", emptyHint: "Pressione / ou Adicionar produto para buscar.",
       lockedDeducting: "O estoque está sendo baixado; os produtos não podem mais ser alterados. Para alterá-los, cancele o pedido e crie uma nova venda.",
-      lockedDeducted: "O estoque deste pedido já foi baixado; os produtos não podem mais ser alterados. Para alterá-los, cancele o pedido e crie uma nova venda.",
+      partialStock: "A alteração foi salva, mas não há estoque suficiente de {{items}}. Será baixado quando houver.",
       lockedShipped: "O pedido já foi enviado; os produtos não podem mais ser alterados.", lockedDelivered: "O pedido já foi entregue; os produtos não podem mais ser alterados.",
     },
     picker: {

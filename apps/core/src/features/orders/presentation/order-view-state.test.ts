@@ -281,12 +281,12 @@ describe("estimate", () => {
 });
 
 describe("screen locks", () => {
-  test("locks products while stock is deducting, deducted, shipped or delivered", () => {
+  test("locks products while stock is deducting, shipped or delivered, but not once it is deducted", () => {
     const lock = (patch: Partial<OrderAggregateResponse>) => screenLocks(savedState({ order: order1042(patch) }));
     expect(lock({})).toEqual({ products: null, customer: null, delivery: null });
     expect(lock({ stockDue: { kind: "waiting", shortItems: [{ variantId: deadpoolM, available: 0 }] } }).products).toBeNull();
     expect(lock({ stockDue: { kind: "deducting" } })).toEqual({ products: "deducting", customer: null, delivery: null });
-    expect(lock({ stockDeducted: true })).toEqual({ products: "deducted", customer: null, delivery: null });
+    expect(lock({ stockDeducted: true })).toEqual({ products: null, customer: null, delivery: null });
     expect(lock({ stockDeducted: true, deliveryStatus: "shipped", shippedAt: "2026-10-31T10:00:00.000Z" })).toEqual({ products: "shipped", customer: null, delivery: "shipped" });
     expect(lock({ stockDeducted: true, deliveryStatus: "delivered", deliveredAt: "2026-10-31T10:00:00.000Z" })).toEqual({ products: "delivered", customer: null, delivery: "delivered" });
     expect(lock({ stockDeducted: true, deliveryStatus: "delivered", deliveredAt: "2026-10-31T10:00:00.000Z", status: "completed", completedAt: "2026-10-31T16:40:00.000Z" }).products).toBe("delivered");
@@ -399,7 +399,7 @@ describe("pinned base", () => {
     expect(reset.base?.delivery.revision).toBe(revisions.delivery);
     expect(reset.draft.customer.name).toBe("Ana Pérez");
     expect(unsavedParts(reset)).toEqual(["customer", "delivery"]);
-    expect(screenLocks(reset).products).toBe("deducted");
+    expect(screenLocks(reset).products).toBeNull();
   });
 
   test("re-pins every part from a save result and clears the draft of the applied parts", () => {

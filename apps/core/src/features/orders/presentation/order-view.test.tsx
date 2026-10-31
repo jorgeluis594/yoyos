@@ -379,7 +379,6 @@ describe("OrderView (saved order)", () => {
     act(() => root!.unmount());
     await mountSaved(deducted, { notice: { kind: "itemsLocked" } });
     expect(document.body.textContent).toContain("El stock se descontó mientras editabas: los productos ya no se pueden cambiar. No hay otros cambios que guardar.");
-    expect(document.body.textContent).toContain("El stock de este pedido ya se descontó");
   });
 
   test("announces the result of a save politely and moves focus to the heading", async () => {

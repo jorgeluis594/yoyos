@@ -48,7 +48,7 @@ test("order view texts have the same nested keys in both languages and interpola
   expect(keyPaths(resources.pt.translation.orderView).sort()).toEqual(keyPaths(resources.es.translation.orderView).sort());
   const i18n = createInstance();
   await i18n.init({ lng: "es", resources, interpolation: { escapeValue: false } });
-  expect(i18n.t("orderView.products.lockedDeducted")).toBe("El stock de este pedido ya se descontó; los productos ya no se pueden cambiar. Para cambiarlos, cancela el pedido y crea una venta nueva.");
+  expect(i18n.t("orderView.products.partialStock", { items: "Camisa (M)" })).toBe("Se guardó el cambio, pero no hay stock suficiente de Camisa (M). Se descontará cuando haya.");
   expect(i18n.t("orderView.payments.addWallet", { wallet: "Yape" })).toBe("Agregar Yape");
   expect(i18n.t("orderView.payments.partial", { amount: "S/ 148.00" })).toBe("Pago parcial · falta S/ 148.00");
   expect(i18n.t("orderView.picker.results", { count: 3 })).toBe("3 resultados");

@@ -181,7 +181,7 @@ export function clearCustomer(state: OrderViewState): OrderViewState {
 // ---------------------------------------------------------------------------------------------------------------------
 // Locks and line warnings
 
-export type ProductsLock = "cancelled" | "delivered" | "shipped" | "deducting" | "deducted";
+export type ProductsLock = "cancelled" | "delivered" | "shipped" | "deducting";
 export type ScreenLocks = Readonly<{ products: ProductsLock | null; customer: "cancelled" | null; delivery: "cancelled" | "delivered" | "shipped" | null }>;
 
 /** What the screen disables. «Descontando stock» is a screen rule only; core enforces the rest. */
@@ -190,7 +190,7 @@ export function screenLocks(state: OrderViewState): ScreenLocks {
   if (!order) return { products: null, customer: null, delivery: null };
   if (order.cancelled) return { products: "cancelled", customer: "cancelled", delivery: "cancelled" };
   const delivery = order.deliveryStatus === "pending" ? null : order.deliveryStatus;
-  const products: ProductsLock | null = delivery ?? (order.stockDue?.kind === "deducting" ? "deducting" : order.stockDeducted ? "deducted" : null);
+  const products: ProductsLock | null = delivery ?? (order.stockDue?.kind === "deducting" ? "deducting" : null);
   return { products, customer: null, delivery };
 }
 

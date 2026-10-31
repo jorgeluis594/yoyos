@@ -206,7 +206,6 @@ describe("saved order route", () => {
     expect(quantityInputs()[2]!.value).toBe("1");
     expect(container.querySelector<HTMLInputElement>("#customer-name")!.value).toBe("Ana Pérez");
     expect(button("Guardar cambios")!.disabled).toBe(false);
-    expect(container.textContent).toContain("El stock de este pedido ya se descontó");
   });
 
   test("saves a customer name change without touching the recipient of another person", async () => {
