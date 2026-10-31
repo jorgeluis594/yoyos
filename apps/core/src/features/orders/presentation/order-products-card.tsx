@@ -14,7 +14,6 @@ import type { CatalogSearch } from "@core/src/features/orders/presentation/use-c
 import { estimate, invalidFields, lineWarnings, screenLocks, unsavedParts, type DraftLine, type OrderViewState, type ProductsLock } from "@core/src/features/orders/presentation/order-view-state";
 
 const lockNoteKeys = {
-  deducting: "orderView.products.lockedDeducting",
   shipped: "orderView.products.lockedShipped", delivered: "orderView.products.lockedDelivered",
 } as const satisfies Readonly<Record<Exclude<ProductsLock, "cancelled">, string>>;
 

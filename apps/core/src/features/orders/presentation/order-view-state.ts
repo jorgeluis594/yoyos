@@ -187,17 +187,16 @@ export function clearCustomer(state: OrderViewState): OrderViewState {
 // ---------------------------------------------------------------------------------------------------------------------
 // Locks and line warnings
 
-export type ProductsLock = "cancelled" | "delivered" | "shipped" | "deducting";
+export type ProductsLock = "cancelled" | "delivered" | "shipped";
 export type ScreenLocks = Readonly<{ products: ProductsLock | null; customer: "cancelled" | null; delivery: "cancelled" | "delivered" | "shipped" | null }>;
 
-/** What the screen disables. «Descontando stock» is a screen rule only; core enforces the rest. */
+/** What the screen disables; core enforces cancelled and delivery not pending too. */
 export function screenLocks(state: OrderViewState): ScreenLocks {
   const order = state.loaded?.order;
   if (!order) return { products: null, customer: null, delivery: null };
   if (order.cancelled) return { products: "cancelled", customer: "cancelled", delivery: "cancelled" };
   const delivery = order.deliveryStatus === "pending" ? null : order.deliveryStatus;
-  const products: ProductsLock | null = delivery ?? (order.stockDue?.kind === "deducting" ? "deducting" : null);
-  return { products, customer: null, delivery };
+  return { products: delivery, customer: null, delivery };
 }
 
 /** The stock warning applies when the quantity exceeds a known stock; the note applies when raising a line the catalog no longer sells. */
@@ -451,11 +450,6 @@ export function refreshFromLoader(state: OrderViewState, fresh: LoadedOrder): Or
 export function applySaveResult(state: OrderViewState, result: EditOrderResult): OrderViewState {
   const { applied, ...fresh } = result;
   return pin(state, fresh, (part, edited, sameAsFresh) => applied.includes(part) || !edited || sameAsFresh);
-}
-
-/** After `ITEMS_LOCKED`: the products return to the fresh saved ones; the customer and the delivery keep their edits and their pinned base. */
-export function resetProducts(state: OrderViewState, fresh: LoadedOrder): OrderViewState {
-  return pin(state, fresh, (part, edited) => part === "items" || !edited);
 }
 
 /** **Descartar y recargar**: every part takes the fresh state and revision. */

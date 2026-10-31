@@ -36,7 +36,7 @@ import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response
 import { OrderView, type ViewNotice } from "@core/src/features/orders/presentation/order-view";
 import { clearSaleSaved, readSaleSaved } from "@core/src/features/orders/presentation/new-sale-outcome";
 import { saveChangesOutcome, type SaveChangesResult } from "@core/src/features/orders/presentation/save-changes-outcome";
-import { buildEditRequest, discardChanges, initialDraft, inDoubtOutcome, invalidFields, refreshFromLoader, reloadAll, resetProducts, unsavedParts, type LoadedOrder, type OrderViewState } from "@core/src/features/orders/presentation/order-view-state";
+import { buildEditRequest, discardChanges, initialDraft, inDoubtOutcome, invalidFields, refreshFromLoader, reloadAll, unsavedParts, type LoadedOrder, type OrderViewState } from "@core/src/features/orders/presentation/order-view-state";
 import { useUnsavedChangesGuard } from "@core/src/features/orders/presentation/use-unsaved-changes-guard";
 import { resolvePublicImages } from "@core/src/shared/images";
 import { Button } from "@core/app/components/ui/button";
@@ -214,7 +214,7 @@ export async function clientAction({ request, params, serverAction }: ClientActi
   return { operation: "cancellation", orderId: id, outcome: { kind: "failed", error: result.error } } satisfies CancellationClientResult;
 }
 
-const revalidatedRefusals = ["ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED", "CUSTOMER_REQUIRED"];
+const revalidatedRefusals = ["DELIVERY_LOCKED", "ORDER_CANCELLED", "CUSTOMER_REQUIRED"];
 
 export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { actionResult: unknown; defaultShouldRevalidate: boolean }) {
   // The save's own answer is the new state; only the refusals that mean the order moved on reload it.
@@ -297,7 +297,7 @@ type Loaded = ReturnType<typeof useLoaderData<typeof loader>>;
 const loadedOf = ({ order, revisions, lineCatalog }: Loaded): LoadedOrder => ({ order, revisions, lineCatalog });
 const isSaveResult = (value: unknown): value is SaveChangesResult => typeof value === "object" && value !== null && "operation" in value && value.operation === "save_changes";
 type Doubt = "checking" | "failed" | null;
-type OnLoad = "refresh" | "resetProducts" | "reloadAll";
+type OnLoad = "refresh" | "reloadAll";
 
 export default function OrderDetail() {
   const loaded = useLoaderData<typeof loader>();
@@ -331,7 +331,7 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
   // The sale this view came from announces itself once; the mark is not read again.
   useEffect(() => { clearSaleSaved(loaded.order.id); }, [loaded.order.id]);
 
-  // Both the action's answer and a revalidation can arrive in the same render, the answer first: a refusal that asks for a reset says how the loader's data is taken.
+  // Both the action's answer and a revalidation can arrive in the same render, the answer first: a reload the seller asked for says how the loader's data is taken.
   if (rawAction !== seenAction || seenLoaded !== loaded) {
     let next = state;
     let mode = onLoad;
@@ -345,7 +345,6 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
         setDoubt(outcome.check ? "checking" : null);
         if (outcome.focusHeading) setHeadingFocus(headingFocus + 1);
         if (outcome.bumpCatalog) setCatalogEpoch(catalogEpoch + 1);
-        if (outcome.resetProducts) mode = "resetProducts";
         if ("applied" in rawAction) setAttempts(0);
       }
     }
@@ -353,7 +352,7 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
     if (seenLoaded !== loaded) {
       const fresh = loadedOf(loaded);
       setSeenLoaded(loaded);
-      next = mode === "reloadAll" ? reloadAll(next, fresh) : mode === "resetProducts" ? resetProducts(next, fresh) : refreshFromLoader(next, fresh);
+      next = mode === "reloadAll" ? reloadAll(next, fresh) : refreshFromLoader(next, fresh);
       mode = "refresh";
       setCatalogEpoch(catalogEpoch + 1);
     }

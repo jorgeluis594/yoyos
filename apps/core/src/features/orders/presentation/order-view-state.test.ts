@@ -3,7 +3,7 @@ import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { EditOrderResult } from "@core/src/features/orders/presentation/order-edit-schemas";
 import {
   applySaveResult, buildCreateRequest, buildEditRequest, clearCustomer, customerRequired, estimate, inDoubtOutcome, initialDraft, invalidFields, isEmptyDraft, lineWarnings,
-  refreshFromLoader, resetProducts, screenLocks, setCustomer, unsavedParts, type DeliveryDraft, type DraftLine, type LoadedOrder, type OrderViewState,
+  refreshFromLoader, screenLocks, setCustomer, unsavedParts, type DeliveryDraft, type DraftLine, type LoadedOrder, type OrderViewState,
 } from "@core/src/features/orders/presentation/order-view-state";
 
 const orderId = "00000000-0000-4000-8000-000000001042";
@@ -297,11 +297,11 @@ describe("estimate", () => {
 });
 
 describe("screen locks", () => {
-  test("locks products while stock is deducting, shipped or delivered, but not once it is deducted", () => {
+  test("locks products once shipped or delivered, but not while stock is deducting or once it is deducted", () => {
     const lock = (patch: Partial<OrderAggregateResponse>) => screenLocks(savedState({ order: order1042(patch) }));
     expect(lock({})).toEqual({ products: null, customer: null, delivery: null });
     expect(lock({ stockDue: { kind: "waiting", shortItems: [{ variantId: deadpoolM, available: 0 }] } }).products).toBeNull();
-    expect(lock({ stockDue: { kind: "deducting" } })).toEqual({ products: "deducting", customer: null, delivery: null });
+    expect(lock({ stockDue: { kind: "deducting" } })).toEqual({ products: null, customer: null, delivery: null });
     expect(lock({ stockDeducted: true })).toEqual({ products: null, customer: null, delivery: null });
     expect(lock({ stockDeducted: true, deliveryStatus: "shipped", shippedAt: "2026-10-31T10:00:00.000Z" })).toEqual({ products: "shipped", customer: null, delivery: "shipped" });
     expect(lock({ stockDeducted: true, deliveryStatus: "delivered", deliveredAt: "2026-10-31T10:00:00.000Z" })).toEqual({ products: "delivered", customer: null, delivery: "delivered" });
@@ -402,20 +402,6 @@ describe("pinned base", () => {
     expect(refreshed.draft.delivery.sameAsCustomer).toBe(false);
     const typing = setCustomer(refreshed, { name: "Ana P", phone: "+51977909427" });
     expect(unsavedParts(typing)).toEqual(["customer"]);
-  });
-
-  test("keeps the customer and delivery base revisions when products are reset after ITEMS_LOCKED", () => {
-    let edited = typeQuantity(savedState(), deadpoolM, "2");
-    edited = setCustomer(edited, { name: "Ana Pérez", phone: "+51977909427" });
-    const fresh = { order: order1042({ stockDeducted: true }), revisions: { items: revision("X"), customer: revision("Y"), delivery: revision("W") }, lineCatalog: null };
-    const reset = resetProducts(edited, fresh);
-    expect(reset.draft.items.map((line) => line.quantityText)).toEqual(["1", "1", "1"]);
-    expect(reset.base?.items.revision).toBe(revision("X"));
-    expect(reset.base?.customer.revision).toBe(revisions.customer);
-    expect(reset.base?.delivery.revision).toBe(revisions.delivery);
-    expect(reset.draft.customer.name).toBe("Ana Pérez");
-    expect(unsavedParts(reset)).toEqual(["customer", "delivery"]);
-    expect(screenLocks(reset).products).toBeNull();
   });
 
   test("re-pins every part from a save result and clears the draft of the applied parts", () => {

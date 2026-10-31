@@ -17,7 +17,6 @@ Sources of truth:
 - **Pinned base.** For each part (items, customer, delivery) the view keeps the saved state and revision it loaded. A part's base changes only when that part has no unsaved edit, or when its draft already equals the fresh state:
   - After a successful save, a part that was sent takes the result; a part with edits that were not sent keeps its base and draft. This is stricter than re-pinning every part. Reason: an edit not sent must still be compared with what it was made against.
   - After **Anular pago**, **Rechazar** or any other action that refreshes the order, parts with edits keep their base, so a change made elsewhere meanwhile is answered as a conflict on save.
-  - After a stock deduction meanwhile (`ITEMS_LOCKED`), the products return to the fresh saved ones and the customer and delivery keep their edits and base.
   - After **Descartar y recargar**, every part takes the fresh state.
   - A successful save does not revalidate the loader: its result is the new state.
 - **Invalid fields.** Save buttons are not disabled by an invalid field (quantity 0, incomplete delivery, half-typed customer, «Marcar como entregado al guardar» without covering payments). Pressing them sends nothing, shows «No se guardó: revisa 1 campo marcado.» and moves focus and scroll to the first invalid field in screen order, which carries its own message. Reason: a disabled button gives no way to find a field that is off-screen.
@@ -75,8 +74,7 @@ A late response from an earlier attempt does not change the screen.
 
 | Order | Products | Customer | Delivery | Payments |
 | --- | --- | --- | --- | --- |
-| Active, delivery pending, stock not deducted and not «Descontando stock» (includes «Esperando stock» and «Stock pendiente») | Editable | Editable | Editable | Add, approve, reject, void |
-| Active, delivery pending, «Descontando stock» | Locked: «El stock se está descontando; los productos ya no se pueden cambiar. Para cambiarlos, cancela el pedido y crea una venta nueva.» | Editable | Editable | Same |
+| Active, delivery pending, stock not deducted (includes «Esperando stock», «Descontando stock» and «Stock pendiente») | Editable | Editable | Editable | Add, approve, reject, void |
 | Active, delivery pending, stock deducted | Editable; only the difference moves stock ([Orders · Stock after an edit](orders.md#stock-after-an-edit)) | Editable | Editable | Same |
 | Shipped | Locked: «El pedido ya se envió; los productos ya no se pueden cambiar.» | Editable | Locked: «La entrega ya salió; no se puede cambiar.» | Same |
 | Delivered or completed | Locked: «El pedido ya se entregó; los productos ya no se pueden cambiar.» | Editable | Locked: «El pedido ya se entregó; la entrega no se puede cambiar.» | Same; voiding a payment can return a completed sale to active |
@@ -84,7 +82,7 @@ A late response from an earlier attempt does not change the screen.
 
 - What is locked is shown disabled with one note in its card that names the remedy; nothing the seller expects to find is hidden. A locked delivery explains itself once, without a second note or a repeated summary. Shipped and delivered orders get no remedy: the goods left, and corrections are agreed in the chat.
 - A button blocked by a rule (the only line, unsaved changes, fulfillment requirements) stays focusable as `aria-disabled` with its note linked as its description, so keyboard and screen-reader users reach the reason. A state lock (see the table above) uses a real `disabled`.
-- «Descontando stock» is a screen rule only; core enforces cancelled and delivery not pending ([Orders · Locks enforced by core](orders.md#locks-enforced-by-core)).
+- The screen locks products only when the order is shipped, delivered or cancelled, as core does ([Orders · Locks enforced by core](orders.md#locks-enforced-by-core)); a stock deduction in progress never locks anything, because it runs under the order lock and settles by the difference.
 
 ## Productos
 

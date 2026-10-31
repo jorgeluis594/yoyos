@@ -21,7 +21,7 @@ export function toLegacyOrderJson(order: OrderAggregate) {
 }
 
 /** The per-line deducted units are internal; the contract exposes the order-level stockDue instead. */
-function omitDeducted<T extends { stockDeductedQuantity?: number }>(item: T): Omit<T, "stockDeductedQuantity"> {
+function omitDeducted<T extends { stockDeductedQuantity: number }>(item: T): Omit<T, "stockDeductedQuantity"> {
   return Object.fromEntries(Object.entries(item).filter(([key]) => key !== "stockDeductedQuantity")) as Omit<T, "stockDeductedQuantity">;
 }
 

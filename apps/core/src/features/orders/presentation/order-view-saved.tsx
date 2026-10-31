@@ -69,16 +69,15 @@ function PrintButton({ blocked, onPrint }: Readonly<{ blocked: boolean; onPrint:
   </>;
 }
 
-/** The alerts under the header that only a saved order has: the conflict, the products reset by a deduction, the order that moved on, and the result of the last save. */
-export function SavedNotices({ notice, order, hasCustomerEdit, hasOtherEdit, onReload, onSaveCustomerOnly, alertRef }: Readonly<{
-  notice: Readonly<{ kind: "success"; text: string }> | Readonly<{ kind: "conflict" }> | Readonly<{ kind: "locked"; code: "DELIVERY_LOCKED" | "ORDER_CANCELLED" }> | Readonly<{ kind: "itemsLocked" }>;
-  order: Order; hasCustomerEdit: boolean; hasOtherEdit: boolean; onReload: () => void; onSaveCustomerOnly: () => void; alertRef: RefObject<HTMLDivElement | null>;
+/** The alerts under the header that only a saved order has: the conflict, the order that moved on, and the result of the last save. */
+export function SavedNotices({ notice, order, hasCustomerEdit, onReload, onSaveCustomerOnly, alertRef }: Readonly<{
+  notice: Readonly<{ kind: "success"; text: string }> | Readonly<{ kind: "conflict" }> | Readonly<{ kind: "locked"; code: "DELIVERY_LOCKED" | "ORDER_CANCELLED" }>;
+  order: Order; hasCustomerEdit: boolean; onReload: () => void; onSaveCustomerOnly: () => void; alertRef: RefObject<HTMLDivElement | null>;
 }>): ReactNode {
   const { t } = useTranslation();
   if (notice.kind === "success") return <p role="status" className="text-sm text-[var(--success)]">{notice.text}</p>;
   const lockedText = notice.kind === "locked" ? t(`orderView.failure.${notice.code === "ORDER_CANCELLED" || order.cancelled ? "cancelled" : order.deliveryStatus === "delivered" ? "delivered" : "shipped"}`) : null;
-  const text = notice.kind === "conflict" ? t("orderView.failure.conflict")
-    : notice.kind === "itemsLocked" ? t(hasOtherEdit ? "orderView.failure.stockDeducted" : "orderView.failure.stockDeductedAlone") : lockedText;
+  const text = notice.kind === "conflict" ? t("orderView.failure.conflict") : lockedText;
   return <Alert ref={alertRef} role="alert" variant="destructive" tabIndex={-1} className="outline-none">
     <AlertDescription className="flex flex-wrap items-center gap-3">
       <span>{text}</span>

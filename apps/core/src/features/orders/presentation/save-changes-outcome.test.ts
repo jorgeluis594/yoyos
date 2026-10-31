@@ -42,9 +42,8 @@ describe("a refused save_changes", () => {
     expect(outcome.state.base?.items.revision).toBe(revisions.items);
   });
 
-  test("asks for a revalidation that resets the products on ITEMS_LOCKED and one that keeps them on DELIVERY_LOCKED", () => {
-    expect(saveChangesOutcome(edited(), refuse("ITEMS_LOCKED"), context)).toMatchObject({ notice: { kind: "itemsLocked" }, resetProducts: true });
-    expect(saveChangesOutcome(edited(), refuse("DELIVERY_LOCKED"), context)).toMatchObject({ notice: { kind: "locked", code: "DELIVERY_LOCKED" }, resetProducts: false });
+  test("tells the order moved on when delivery or cancellation locks the save", () => {
+    expect(saveChangesOutcome(edited(), refuse("DELIVERY_LOCKED"), context).notice).toEqual({ kind: "locked", code: "DELIVERY_LOCKED" });
     expect(saveChangesOutcome(edited(), refuse("ORDER_CANCELLED"), context).notice).toEqual({ kind: "locked", code: "ORDER_CANCELLED" });
   });
 

@@ -195,19 +195,6 @@ describe("saved order route", () => {
     expect(container.textContent).not.toContain("Solo se puede enviar desde pendiente");
   });
 
-  test("resets the products and keeps the customer edit after ITEMS_LOCKED", async () => {
-    await mount();
-    refuse("ITEMS_LOCKED");
-    await raiseDeadpool();
-    await type(container.querySelector<HTMLInputElement>("#customer-name")!, "Ana Pérez");
-    current = loaderData({ order: order1042({ stockDeducted: true }), lineCatalog: null });
-    await click(button("Guardar cambios"));
-    await vi.waitFor(() => expect(container.textContent).toContain("Tus cambios de cliente y entrega siguen aquí."));
-    expect(quantityInputs()[2]!.value).toBe("1");
-    expect(container.querySelector<HTMLInputElement>("#customer-name")!.value).toBe("Ana Pérez");
-    expect(button("Guardar cambios")!.disabled).toBe(false);
-  });
-
   test("saves a customer name change without touching the recipient of another person", async () => {
     current = loaderData({ order: order1042({ buyer: { contactId: null, name: "Jorge Gonzalez", phone: "+51977909427" } }) });
     const other = homeDelivery;

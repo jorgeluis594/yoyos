@@ -35,9 +35,7 @@ export type ViewNotice =
   /** A part changed elsewhere while the seller edited: the edits stay until **Recargar pedido**. */
   | Readonly<{ kind: "conflict" }>
   /** The order shipped, was delivered or was cancelled meanwhile; the text follows the order the view shows. */
-  | Readonly<{ kind: "locked"; code: "DELIVERY_LOCKED" | "ORDER_CANCELLED" }>
-  /** The stock was deducted meanwhile: the products went back to the saved ones. */
-  | Readonly<{ kind: "itemsLocked" }>;
+  | Readonly<{ kind: "locked"; code: "DELIVERY_LOCKED" | "ORDER_CANCELLED" }>;
 
 export type OrderViewLinks = Readonly<{ sales: string; deliverySettings: string; createProduct: string }>;
 
@@ -184,7 +182,7 @@ export function OrderView(props: OrderViewProps) {
   }, [attempts]);
   // A refusal that names an element (an unavailable line, the delivery rate) or an alert takes focus when it appears.
   useEffect(() => {
-    if (notice === null || !["alert", "conflict", "locked", "itemsLocked"].includes(notice.kind)) return;
+    if (notice === null || !["alert", "conflict", "locked"].includes(notice.kind)) return;
     if (notice.kind === "alert" && notice.focus && focusTarget(notice.focus)) return;
     noticeRef.current?.focus();
   }, [notice]);
@@ -241,8 +239,8 @@ export function OrderView(props: OrderViewProps) {
       </div>}
       {notice?.kind === "alert" && <Alert ref={noticeRef} variant="destructive" tabIndex={-1} className="outline-none">
         <AlertDescription>{notice.text}{notice.link && <> <Link to={notice.link.to} className="font-medium underline underline-offset-4">{notice.link.label}</Link></>}</AlertDescription></Alert>}
-      {saved && order && notice && !(order.cancelled && notice.kind === "success") && (notice.kind === "success" || notice.kind === "conflict" || notice.kind === "locked" || notice.kind === "itemsLocked")
-        && <SavedNotices notice={notice} order={order} hasCustomerEdit={edits.includes("customer")} hasOtherEdit={unsaved} alertRef={noticeRef}
+      {saved && order && notice && !(order.cancelled && notice.kind === "success") && (notice.kind === "success" || notice.kind === "conflict" || notice.kind === "locked")
+        && <SavedNotices notice={notice} order={order} hasCustomerEdit={edits.includes("customer")} alertRef={noticeRef}
           onReload={() => setReloading(true)} onSaveCustomerOnly={saved.onSaveCustomerOnly} />}
       {marks.length > 0 && <Alert variant="destructive"><AlertDescription>
         {firstTarget
