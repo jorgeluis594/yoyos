@@ -2,7 +2,7 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { isCurrency, type Money } from "@shared/money";
+import { isCurrency, type Currency, type Money } from "@shared/money";
 import { getCompanyId, prisma } from "@core/src/shared/infrastructure/persistance";
 import { transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
 import { log } from "@core/src/shared/infrastructure/logger";
@@ -21,7 +21,7 @@ const decimal = z.string().regex(/^\d+(\.\d+)?$/);
 export const vocabularyRowSchema = z.strictObject({ optionName: z.string(), valueName: z.string(), productRank: z.number().int().min(1), position: z.number().int().min(0) });
 export const pageRowSchema = z.strictObject({ ids: z.array(uuid), total: z.number().int().min(0), storeHasProducts: z.boolean() });
 export const summaryRowSchema = z.strictObject({
-  id: uuid, name: z.string(), currency: z.string().refine(isCurrency, "Stored currency is invalid"),
+  id: uuid, name: z.string(), currency: z.custom<Currency>(isCurrency, "Stored currency is invalid"),
   variantCount: z.number().int().min(1), activeCount: z.number().int().min(0), soldOut: z.number().int().min(0), low: z.number().int().min(0),
   minPrice: decimal.nullable(), hasDifferentPrices: z.boolean(), totalStock: safeInteger,
   activeSku: z.string().nullable(), allSku: z.string().nullable(),
@@ -117,13 +117,16 @@ export function pageSql(companyId: string, query: ProductSearchQuery): Prisma.Sq
       EXISTS (SELECT 1 FROM "Product" WHERE "companyId" = ${companyId}::uuid) AS "storeHasProducts"`;
 }
 
-/** Prices, stock levels and SKU of the products of one page, over their active variants; no photo and no purchase price. */
+/**
+ * Prices, stock levels and SKU of the products of one page, over their active variants; no photo and no purchase price.
+ * Every variant has a stock row (it is created with the variant), so the join is inner like the filters'; a page product without one reads as invalid stored data.
+ */
 export function summariesSql(companyId: string, ids: readonly string[], lowStockThreshold: number): Prisma.Sql {
   return Prisma.sql`SELECT p.id::text AS id, p.name, p.currency,
       count(v.id)::int AS "variantCount",
       (count(v.id) FILTER (WHERE v.status = 'active'))::int AS "activeCount",
-      (count(v.id) FILTER (WHERE v.status = 'active' AND coalesce(s.quantity, 0) = 0))::int AS "soldOut",
-      (count(v.id) FILTER (WHERE v.status = 'active' AND coalesce(s.quantity, 0) BETWEEN 1 AND ${lowStockThreshold}))::int AS low,
+      (count(v.id) FILTER (WHERE v.status = 'active' AND s.quantity = 0))::int AS "soldOut",
+      (count(v.id) FILTER (WHERE v.status = 'active' AND s.quantity BETWEEN 1 AND ${lowStockThreshold}))::int AS low,
       (min(v."salePrice") FILTER (WHERE v.status = 'active'))::text AS "minPrice",
       coalesce((count(DISTINCT v."salePrice") FILTER (WHERE v.status = 'active')) > 1, false) AS "hasDifferentPrices",
       (coalesce(sum(s.quantity) FILTER (WHERE v.status = 'active'), 0))::text AS "totalStock",
@@ -131,7 +134,7 @@ export function summariesSql(companyId: string, ids: readonly string[], lowStock
       max(v.sku) AS "allSku"
     FROM "Product" p
     JOIN "ProductVariant" v ON v."companyId" = p."companyId" AND v."productId" = p.id
-    LEFT JOIN "ProductStock" s ON s."companyId" = v."companyId" AND s."variantId" = v.id
+    JOIN "ProductStock" s ON s."companyId" = v."companyId" AND s."variantId" = v.id
     WHERE p."companyId" = ${companyId}::uuid AND p.id = ANY(${[...ids]}::uuid[])
     GROUP BY p.id`;
 }
@@ -175,7 +178,7 @@ const skuSummary = (count: number, sku: string | null): SkuSummary => count === 
 
 function toActive(row: z.infer<typeof summaryRowSchema>): ActiveSummary {
   if (row.activeCount === 0 || row.minPrice === null) return { kind: "none", sku: skuSummary(row.variantCount, row.allSku) };
-  return { kind: "some", count: row.activeCount, minSalePrice: money(row.minPrice, row.currency as Money["currency"]), hasDifferentPrices: row.hasDifferentPrices,
+  return { kind: "some", count: row.activeCount, minSalePrice: money(row.minPrice, row.currency), hasDifferentPrices: row.hasDifferentPrices,
     totalStock: row.totalStock, soldOut: row.soldOut, low: row.low, onlyLevel: row.activeCount === 1 ? stockLevelOf(row.totalStock) : null, sku: skuSummary(row.activeCount, row.activeSku) };
 }
 
@@ -199,7 +202,7 @@ export async function searchPage(query: ProductSearchQuery): Promise<Result<Prod
   for (const id of ids) {
     const row = summaryOf.get(id);
     if (!row) return invalid("summaries", "a page product has no variants");
-    const currency = row.currency as Money["currency"];
+    const currency = row.currency;
     const variants = matching?.data.filter((variant) => variant.productId === id) ?? [];
     items.push({ id: id as ProductId, name: row.name, currency, variantCount: row.variantCount, inactiveCount: row.variantCount - row.activeCount, active: toActive(row),
       matching: matching ? { variants: variants.map((variant) => toVariant(variant, currency)), total: variants[0]?.total ?? 0 } : null });

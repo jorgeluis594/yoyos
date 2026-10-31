@@ -31,11 +31,12 @@ async function explain(statement: string, sql: Prisma.Sql): Promise<Measure> {
 }
 
 async function explainOnce(statement: string, sql: Prisma.Sql): Promise<Measure> {
+  // The snapshot of the budget (RepeatableRead, jit off), without its statement limit: the plan of a slow statement must still be measured.
   const plan = await withinTransaction(async () => {
     await prisma.$queryRaw`SELECT set_config('jit', 'off', true)`;
     const rows = await prisma.$queryRaw<Record<string, string>[]>(Prisma.sql`EXPLAIN (ANALYZE, BUFFERS, SETTINGS) ${sql}`);
     return ok(rows.map((row) => row["QUERY PLAN"]).join("\n"));
-  });
+  }, { isolationLevel: "RepeatableRead", timeout: 60_000 });
   if (!plan.success) throw new Error("explain failed");
   const text = plan.data;
   return { statement, plan: text, executionMs: Number(/Execution Time: ([\d.]+) ms/.exec(text)?.[1]),

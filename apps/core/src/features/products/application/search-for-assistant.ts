@@ -30,7 +30,7 @@ export type SearchForAssistantDependencies = Readonly<{
   searchPage: (query: ProductSearchQuery) => Promise<Result<ProductSearchPage, AssistantReadError>>;
 }>;
 export type SearchForAssistantError =
-  | Readonly<{ code: "PRICE_RANGE_REVERSED" | "VARIANT_FILTER_OUTSIDE_CATALOG" | "INVALID_PRICE"; message: string }>
+  | SearchCriteriaError
   | Readonly<{ code: "VALUE_REJECTED"; rejection: ValueRejection; message: string }>
   | AssistantReadError;
 
@@ -40,7 +40,7 @@ export const matchingVariantCap = 10;
 /** Pages the store's products by text, variant values, price, stock and catalog membership; the filters on variants all apply to the same active variant. */
 export async function searchForAssistant(input: AssistantProductSearch, deps: SearchForAssistantDependencies): Promise<Result<ProductSearchPage, SearchForAssistantError>> {
   const criteria = parseSearchCriteria(input);
-  if (!criteria.success) return criteria as Result<never, SearchCriteriaError>;
+  if (!criteria.success) return criteria;
   const { values, text, priceFrom, priceTo, stock, inCatalog, sort, page } = criteria.data;
   return deps.snapshot<ProductSearchPage, SearchForAssistantError>(async () => {
     let valueSets: readonly (readonly Spelling[])[] = [];

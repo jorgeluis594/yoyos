@@ -30,7 +30,7 @@ export type SearchCriteria = Readonly<{
   text?: string; values?: readonly [string, ...string[]]; priceFrom?: PriceCents; priceTo?: PriceCents;
   stock?: VariantStockFilter; inCatalog?: boolean; sort: "recent" | "name"; page: number;
 }>;
-export type SearchCriteriaError = Readonly<{ code: "INVALID_PRICE" | "PRICE_RANGE_REVERSED" | "VARIANT_FILTER_OUTSIDE_CATALOG"; message: string }>;
+export type SearchCriteriaError = Readonly<{ code: "INVALID_PRICE" | "INVALID_PAGE" | "INVALID_SORT" | "PRICE_RANGE_REVERSED" | "VARIANT_FILTER_OUTSIDE_CATALOG"; message: string }>;
 
 function parseOptionalPrice(cents: number | undefined): Result<PriceCents | undefined, SearchCriteriaError> {
   if (cents === undefined) return ok(undefined);
@@ -39,6 +39,8 @@ function parseOptionalPrice(cents: number | undefined): Result<PriceCents | unde
 }
 
 export function parseSearchCriteria(input: SearchInput): Result<SearchCriteria, SearchCriteriaError> {
+  if (!Number.isSafeInteger(input.page) || input.page < 1) return err({ code: "INVALID_PAGE", message: "The page must be a whole number from 1" });
+  if (input.sort !== "recent" && input.sort !== "name") return err({ code: "INVALID_SORT", message: "The sort must be recent or name" });
   const from = parseOptionalPrice(input.priceFromCents);
   if (!from.success) return from;
   const to = parseOptionalPrice(input.priceToCents);
@@ -93,21 +95,23 @@ export type ValueRejection =
   | Readonly<{ kind: "value_in_other_option"; written: string; option: string; vocabulary: StoreVocabulary }>
   | Readonly<{ kind: "unknown_option"; option: string; vocabulary: StoreVocabulary }>;
 
-function resolveEntry(entry: string, vocabulary: StoreVocabulary): readonly Spelling[] | ValueRejection {
+type Resolved = Readonly<{ spellings: readonly Spelling[] }> | Readonly<{ rejection: ValueRejection }>;
+
+function resolveEntry(entry: string, vocabulary: StoreVocabulary): Resolved {
   const colon = entry.indexOf(":");
   const left = colon < 0 ? "" : entry.slice(0, colon).trim();
   const option = left ? vocabulary.find(({ key }) => key === matchKeyOf(left)) : undefined;
   if (colon >= 0 && option) {
     const written = entry.slice(colon + 1).trim();
     const value = option.values.find(({ key }) => key === matchKeyOf(written));
-    if (value) return value.spellings;
+    if (value) return { spellings: value.spellings };
     const elsewhere = vocabulary.some(({ values }) => values.some(({ key }) => key === matchKeyOf(written)));
-    return elsewhere ? { kind: "value_in_other_option", written, option: option.name, vocabulary } : { kind: "unknown_value", written, vocabulary };
+    return { rejection: elsewhere ? { kind: "value_in_other_option", written, option: option.name, vocabulary } : { kind: "unknown_value", written, vocabulary } };
   }
   const spellings = vocabulary.flatMap(({ values }) => values.filter(({ key }) => key === matchKeyOf(entry)).flatMap((value) => value.spellings));
-  if (spellings.length) return spellings;
+  if (spellings.length) return { spellings };
   const right = colon < 0 ? "" : entry.slice(colon + 1).trim();
-  return left && right ? { kind: "unknown_option", option: left, vocabulary } : { kind: "unknown_value", written: entry.trim(), vocabulary };
+  return { rejection: left && right ? { kind: "unknown_option", option: left, vocabulary } : { kind: "unknown_value", written: entry.trim(), vocabulary } };
 }
 
 /** One spelling set per entry, in entry order; the first entry that fails decides. */
@@ -116,8 +120,8 @@ export function resolveValues(entries: readonly string[], vocabulary: StoreVocab
   const sets: (readonly Spelling[])[] = [];
   for (const entry of entries) {
     const resolved = resolveEntry(entry, vocabulary);
-    if (!Array.isArray(resolved)) return err({ ...(resolved as ValueRejection), message: "Value not found in the store's vocabulary" });
-    sets.push(resolved);
+    if ("rejection" in resolved) return err({ ...resolved.rejection, message: "Value not found in the store's vocabulary" });
+    sets.push(resolved.spellings);
   }
   return ok(sets);
 }

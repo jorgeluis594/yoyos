@@ -26,6 +26,11 @@ test("refuses cents that are negative, fractional or above the stored maximum", 
   expect(parsePriceCents(100_000_000_000)).toMatchObject({ success: false, error: { code: "TOO_LARGE" } });
 });
 
+test("refuses a page that is not a whole number from 1 and an unknown sort", () => {
+  for (const page of [0, -1, 1.5, Number.NaN]) expect(parseSearchCriteria({ sort: "recent", page })).toMatchObject({ success: false, error: { code: "INVALID_PAGE" } });
+  expect(parseSearchCriteria({ sort: "price" as never, page: 1 })).toMatchObject({ success: false, error: { code: "INVALID_SORT" } });
+});
+
 test("refuses a reversed price range", () => {
   expect(parseSearchCriteria({ priceFromCents: 5000, priceToCents: 4000, sort: "recent", page: 1 })).toMatchObject({ success: false, error: { code: "PRICE_RANGE_REVERSED" } });
   expect(parseSearchCriteria({ priceFromCents: 4000, priceToCents: 4000, sort: "recent", page: 1 })).toMatchObject({ success: true });

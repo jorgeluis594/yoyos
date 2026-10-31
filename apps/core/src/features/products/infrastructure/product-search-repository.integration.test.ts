@@ -1,12 +1,13 @@
 import { randomUUID } from "node:crypto";
+import { Prisma } from "@prisma/client";
 import { Client } from "pg";
 import { afterAll, beforeAll, expect, test, vi } from "vitest";
 import { ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { prisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { prisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import { deleteSeededProducts, seedProduct, type SeedProduct } from "@core/src/features/products/infrastructure/product-seed";
-import { assistantReadBudget, assistantSnapshot } from "@core/src/features/products/infrastructure/assistant-read";
+import { assistantReadBudget, assistantSnapshot, type AssistantSnapshot } from "@core/src/features/products/infrastructure/assistant-read";
 import { findSkuOwner, readVocabulary, searchPage } from "@core/src/features/products/infrastructure/product-search-repository";
 import { readProductInSnapshot } from "@core/src/features/products/infrastructure/repository";
 import { searchForAssistant, type AssistantProductSearch } from "@core/src/features/products/application/search-for-assistant";
@@ -148,6 +149,19 @@ test("builds the vocabulary from active variants only, without ids", async () =>
   expect(rejected).toMatchObject({ success: false, error: { code: "VALUE_REJECTED", rejection: { kind: "unknown_value", written: "Celeste" } } });
 });
 
+test("lists the sizes of a store as S, M, L and finds a value written with a colon", async () => {
+  const id = await newStore();
+  await seed(id, { name: "Polo escolar", variants: [variant("S", "Azul", 10, 5), variant("M", "Azul claro", 10, 5), variant("L", "Negro", 10, 5), variant("3:4", "Rojo", 10, 5)] });
+  const rejected = await search(id, { values: ["Celeste"] });
+  expect(rejected.success).toBe(false);
+  const vocabulary = !rejected.success && rejected.error.code === "VALUE_REJECTED" && "vocabulary" in rejected.error.rejection ? rejected.error.rejection.vocabulary : [];
+  const talla = vocabulary.find((option) => option.name === "Talla");
+  expect(talla?.values.map((value) => value.name)).toEqual(["S", "M", "L", "3:4"]);
+  expect(vocabulary.find((option) => option.name === "Color")?.values.map((value) => value.name).sort()).toEqual(["Azul", "Azul claro", "Negro", "Rojo"]);
+  expect(names(await pageOf(id, { values: ["3:4"] }))).toEqual(["Polo escolar"]);
+  expect((await pageOf(id, { values: ["Talla: 3:4", "rojo"] })).items[0]?.matching?.variants.map((line) => line.values)).toEqual([["3:4", "Rojo"]]);
+});
+
 test("finds the variant and product of a SKU in one lookup", async () => {
   const found = await find(store, { by: "sku", sku: "pol-m-az " });
   expect(found.success && found.data?.product.id).toBe(poloId);
@@ -178,33 +192,33 @@ test("reports stored data that fails its schema as invalid stored data", async (
   }
 });
 
-/** Holds an exclusive lock on the variants so any statement that reads them waits past its limit. */
-async function withVariantsLocked<T>(run: (admin: Client) => Promise<T>): Promise<T> {
-  const locker = new Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });
+/**
+ * A read that sleeps past the statement limit inside the real budgeted snapshot, tagged so only its own backend is observed.
+ * It takes no lock, so suites running in parallel on the shared database are never blocked.
+ */
+const sleepsPastTheLimit = (tag: string) => async () => {
+  await prisma.$queryRaw(Prisma.sql`SELECT pg_sleep(5) /* ${Prisma.raw(tag)} */`);
+};
+
+async function sleepingStatements(tag: string) {
   const observer = new Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });
-  await Promise.all([locker.connect(), observer.connect()]);
+  await observer.connect();
   try {
-    await locker.query("BEGIN");
-    await locker.query(`LOCK TABLE "ProductVariant" IN ACCESS EXCLUSIVE MODE`);
-    return await run(observer);
+    return (await observer.query(`SELECT count(*)::int AS running FROM pg_stat_activity WHERE state = 'active' AND pid <> pg_backend_pid() AND query LIKE $1`, [`%${tag}%`])).rows[0].running as number;
   } finally {
-    await locker.query("ROLLBACK");
-    await Promise.all([locker.end(), observer.end()]);
+    await observer.end();
   }
 }
 
-const runningStatements = async (observer: Client) =>
-  (await observer.query(`SELECT count(*)::int AS running FROM pg_stat_activity WHERE usename = 'core_app' AND state = 'active' AND pid <> pg_backend_pid() AND query ILIKE '%ProductVariant%'`)).rows[0].running as number;
-
 test("answers STATEMENT_TIMEOUT when a search statement exceeds its limit and leaves no statement running", async () => {
+  const tag = `timeout-search-${randomUUID()}`;
   const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
   try {
-    await withVariantsLocked(async (observer) => {
-      const started = performance.now();
-      expect(await search(store, { stock: "low" })).toMatchObject({ success: false, error: { code: "STATEMENT_TIMEOUT" } });
-      expect(performance.now() - started).toBeLessThan(assistantReadBudget.timeout);
-      expect(await runningStatements(observer)).toBe(0);
-    });
+    const slow = { ...searchDeps, searchPage: async (query: Parameters<typeof searchPage>[0]) => { await sleepsPastTheLimit(tag)(); return searchPage(query); } };
+    const started = performance.now();
+    expect(await withTenantIsolation(store, () => searchForAssistant({ sort: "recent", page: 1, stock: "low" }, slow))).toMatchObject({ success: false, error: { code: "STATEMENT_TIMEOUT" } });
+    expect(performance.now() - started).toBeLessThan(assistantReadBudget.timeout);
+    expect(await sleepingStatements(tag)).toBe(0);
     expect(error).toHaveBeenCalledWith(expect.objectContaining({ event: "product_search_failed", operation: "search", errorCode: "STATEMENT_TIMEOUT" }), "product_search_failed");
   } finally {
     error.mockRestore();
@@ -212,12 +226,13 @@ test("answers STATEMENT_TIMEOUT when a search statement exceeds its limit and le
 });
 
 test("answers STATEMENT_TIMEOUT, not PERSISTENCE_UNAVAILABLE, when a detail read exceeds its limit", async () => {
+  const tag = `timeout-detail-${randomUUID()}`;
   const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
   try {
-    await withVariantsLocked(async (observer) => {
-      expect(await find(store, { by: "id", id: poloId as ProductId })).toMatchObject({ success: false, error: { code: "STATEMENT_TIMEOUT" } });
-      expect(await runningStatements(observer)).toBe(0);
-    });
+    // The sleep runs through the repository's own statement runner, so a real read that times out must not be logged as a persistence failure.
+    const slow = { ...findDeps, readProduct: async (...args: Parameters<typeof readProductInSnapshot>) => { await sleepsPastTheLimit(tag)(); return readProductInSnapshot(...args); } };
+    expect(await withTenantIsolation(store, () => findForAssistant({ by: "id", id: poloId as ProductId }, slow))).toMatchObject({ success: false, error: { code: "STATEMENT_TIMEOUT" } });
+    expect(await sleepingStatements(tag)).toBe(0);
     const events = error.mock.calls.map(([fields]) => (fields as { event?: string }).event);
     expect(events).toContain("product_search_failed");
     expect(events).not.toContain("product_read_persistence_failed");
@@ -228,7 +243,13 @@ test("answers STATEMENT_TIMEOUT, not PERSISTENCE_UNAVAILABLE, when a detail read
 });
 
 // Transaction control (BEGIN, SET TRANSACTION ISOLATION LEVEL, COMMIT) is not counted: it runs before the statement limit is set and does no work.
-test("issues at most maxStatements statements for the worst-case search and the detail by SKU of a 100-variant product", async () => {
+// The snapshot is the budgeted one with a generous statement limit: the count must not depend on how loaded the machine is.
+const unlimitedSnapshot: AssistantSnapshot = async (read) => withinTransaction(async () => {
+  await prisma.$queryRaw`SELECT set_config('jit', 'off', true)`;
+  return read();
+}, { isolationLevel: "RepeatableRead", timeout: 60_000, statementTimeoutMs: 30_000 });
+
+test("issues the measured number of statements, within maxStatements, for the worst-case search and the detail by SKU of a 100-variant product", async () => {
   const id = await newStore();
   const tallas = Array.from({ length: 10 }, (_, index) => `T${index}`);
   const colores = Array.from({ length: 10 }, (_, index) => `C${index}`);
@@ -244,18 +265,19 @@ test("issues at most maxStatements statements for the worst-case search and the 
   } as never);
   try {
     const worst = { text: "cien", values: ["T1", "Color: C2"], priceFromCents: 1000, priceToCents: 3000, stock: "low" as const, inCatalog: true };
-    const searched = await search(id, worst);
+    const searched = await withTenantIsolation(id, () => searchForAssistant({ sort: "recent", page: 1, ...worst }, { ...searchDeps, snapshot: unlimitedSnapshot }));
     expect(searched.success && searched.data.total).toBe(1);
     // The storefront read of the composition joins the same snapshot with one more statement.
     const storefront = 1;
     const searchCount = statements.length + storefront;
-    expect(searchCount).toBeLessThanOrEqual(assistantReadBudget.maxStatements);
+    expect(statements.length).toBeGreaterThan(0);
+    expect(searchCount).toBe(7);
     statements = [];
-    const found = await find(id, { by: "sku", sku: "BIG-T9-C9" });
+    const found = await withTenantIsolation(id, () => findForAssistant({ by: "sku", sku: "BIG-T9-C9" }, { ...findDeps, snapshot: unlimitedSnapshot }));
     expect(found.success && found.data?.product.id).toBe(big.productId);
     expect(found.success && found.data?.product.variants).toHaveLength(100);
     const detailCount = statements.length + storefront;
-    expect(detailCount).toBeLessThanOrEqual(assistantReadBudget.maxStatements);
+    expect(detailCount).toBe(assistantReadBudget.maxStatements);
     console.info(JSON.stringify({ worstCaseSearchStatements: searchCount, detailStatements: detailCount, maxStatements: assistantReadBudget.maxStatements }));
   } finally {
     spy.mockRestore();

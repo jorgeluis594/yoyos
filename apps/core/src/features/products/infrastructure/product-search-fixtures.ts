@@ -61,6 +61,9 @@ function rowsOf(spec: Spec, ordinal: number, now: Date, rows: Rows) {
   });
 }
 
+/** A chunk of about 3,000 variants and their links outlasts Prisma's 5 s default timer on a loaded machine. */
+const seedChunkTimeoutMs = 120_000;
+
 async function insertRows(rows: Rows) {
   const result = await withinTransaction(async () => {
     await prisma.product.createMany({ data: rows.products as never });
@@ -70,7 +73,7 @@ async function insertRows(rows: Rows) {
     await prisma.productStock.createMany({ data: rows.stocks as never });
     await prisma.productVariantOptionValue.createMany({ data: rows.links as never });
     return ok(null);
-  });
+  }, { timeout: seedChunkTimeoutMs });
   if (!result.success) throw new Error("Unable to seed the search store");
 }
 
