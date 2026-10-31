@@ -55,7 +55,7 @@ test("serves the protected resource metadata of the MCP endpoint", async () => {
     expect(await response.json()).toMatchObject({
       resource: `${baseUrl}/mcp`,
       authorization_servers: [baseUrl],
-      scopes_supported: ["orders:read", "offline_access"],
+      scopes_supported: ["orders:read", "products:read", "offline_access"],
       bearer_methods_supported: ["header"],
       resource_name: "Yoyos",
     });
@@ -99,7 +99,7 @@ test("authorize refuses an allowed https redirect URI that is not registered for
   const { body } = await register(["https://claude.ai/api/mcp/auth_callback"]);
   const query = new URLSearchParams({
     response_type: "code", client_id: body.client_id, redirect_uri: "https://other.example/callback",
-    scope: "orders:read offline_access", code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", code_challenge_method: "S256",
+    scope: "orders:read products:read offline_access", code_challenge: "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM", code_challenge_method: "S256",
     state: "state-1", resource: `${baseUrl}/mcp`,
   });
   const response = await fetch(`${api}/api/auth/oauth2/authorize?${query}`, { redirect: "manual" });

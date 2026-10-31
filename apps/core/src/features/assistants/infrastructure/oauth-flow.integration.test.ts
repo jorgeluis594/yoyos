@@ -68,7 +68,7 @@ function pkce() {
 
 function authorizeParameters(clientId: string, challenge: string, extra: Record<string, string> = {}) {
   return new URLSearchParams({
-    response_type: "code", client_id: clientId, redirect_uri: redirectUri, scope: "orders:read offline_access", code_challenge: challenge,
+    response_type: "code", client_id: clientId, redirect_uri: redirectUri, scope: "orders:read products:read offline_access", code_challenge: challenge,
     code_challenge_method: "S256", state: "state-1", resource, ...extra,
   });
 }
@@ -151,7 +151,7 @@ test("allowing a first-time request returns the agent redirect with a code on th
   expect(codeOf(redirect)).not.toBe("");
   const rows = await connectionsOf(owner);
   expect(rows).toHaveLength(1);
-  expect(rows[0]).toMatchObject({ agentName: "Claude", returnKind: "web", returnDomain: "claude.ai", scopes: ["orders:read"], lastUsedAt: null, oauthClientId: clientId });
+  expect(rows[0]).toMatchObject({ agentName: "Claude", returnKind: "web", returnDomain: "claude.ai", scopes: ["orders:read", "products:read"], lastUsedAt: null, oauthClientId: clientId });
 });
 
 test("registration refuses a custom scheme redirect URI and accepts a loopback one", async () => {
@@ -168,10 +168,10 @@ test("registration with openid profile email scopes succeeds and the connection 
   expect(response.status).toBe(201);
   const screen = await authorizeGet(clientId, owner.cookie, { scope: "openid profile email" }, pkce().challenge);
   expect(screen.kind).toBe("screen");
-  expect(new URLSearchParams(screen.signed).get("scope")).toBe("orders:read offline_access");
+  expect(new URLSearchParams(screen.signed).get("scope")).toBe("orders:read products:read offline_access");
   expect((await authorizationFor(requestOf(owner.cookie)).allow(screen.signed, accessFor(owner))).success).toBe(true);
-  expect((await systemPrisma.oauthConsent.findFirstOrThrow({ where: { clientId, userId: owner.userId } })).scopes.toSorted()).toEqual(["offline_access", "orders:read"]);
-  expect((await connectionsOf(owner))[0].scopes).toEqual(["orders:read"]);
+  expect((await systemPrisma.oauthConsent.findFirstOrThrow({ where: { clientId, userId: owner.userId } })).scopes.toSorted()).toEqual(["offline_access", "orders:read", "products:read"]);
+  expect((await connectionsOf(owner))[0].scopes).toEqual(["orders:read", "products:read"]);
 });
 
 test("an authorization asking for openid or only offline_access is normalized to orders and offline access", async () => {
@@ -180,7 +180,7 @@ test("an authorization asking for openid or only offline_access is normalized to
   for (const scope of ["openid", "offline_access", "openid profile email offline_access"]) {
     const screen = await authorizeGet(clientId, owner.cookie, { scope }, pkce().challenge);
     expect(screen.kind, scope).toBe("screen");
-    expect(new URLSearchParams(screen.signed).get("scope"), scope).toBe("orders:read offline_access");
+    expect(new URLSearchParams(screen.signed).get("scope"), scope).toBe("orders:read products:read offline_access");
   }
 });
 
@@ -239,7 +239,7 @@ test("a form POST authorization drops a stale consent, shows the authorization s
   });
   const step = await stepOfResponse(response);
   expect(step.kind).toBe("screen");
-  expect(new URLSearchParams(step.signed).get("scope")).toBe("orders:read offline_access");
+  expect(new URLSearchParams(step.signed).get("scope")).toBe("orders:read products:read offline_access");
 });
 
 test("authorize refuses an https redirect URI not registered for the client, also when a consent and an active connection exist", async () => {

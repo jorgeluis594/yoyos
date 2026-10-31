@@ -14,7 +14,7 @@ const authorizedAt = new Date("2026-10-01T10:00:00.000Z");
 
 const connectionData = (overrides: Record<string, unknown> = {}) => ({
   id: randomUUID(), authorizedByUserId: userId, oauthClientId: client, agentName: "Claude", returnKind: "web", returnDomain: "claude.ai",
-  scopes: ["orders:read"], authorizedAt, ...overrides,
+  scopes: ["orders:read", "products:read"], authorizedAt, ...overrides,
 });
 
 beforeAll(async () => {
@@ -37,7 +37,7 @@ test("finds the connection of a client and account with the account's last passw
   const found = await withTenantIsolation(companyA, () => findConnectionForClient(client, userId as UserId));
   expect(found).toMatchObject({ success: true, data: {
     companyId: companyA, oauthClientId: client, authorizedByUserId: userId, agentName: "Claude", returnTarget: { kind: "web", domain: "claude.ai" },
-    scopes: ["orders:read"], authorizedAt, lastUsedAt: null, passwordChangedAt: new Date("2026-09-01T00:00:00.000Z"),
+    scopes: ["orders:read", "products:read"], authorizedAt, lastUsedAt: null, passwordChangedAt: new Date("2026-09-01T00:00:00.000Z"),
   } });
 });
 

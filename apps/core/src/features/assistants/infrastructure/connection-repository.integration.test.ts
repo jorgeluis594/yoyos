@@ -17,7 +17,7 @@ const now = new Date("2026-10-30T12:00:00.000Z");
 
 const newConnection = (overrides: Partial<NewAssistantConnection> = {}): NewAssistantConnection => ({
   id: randomUUID() as AssistantConnectionId, companyId: companyA, authorizedByUserId: userA, oauthClientId: client("one"),
-  agentName: null, returnTarget: { kind: "web", domain: "claude.ai" }, scopes: ["orders:read"], authorizedAt: now, ...overrides,
+  agentName: null, returnTarget: { kind: "web", domain: "claude.ai" }, scopes: ["orders:read", "products:read"], authorizedAt: now, ...overrides,
 });
 const rowsOf = (companyId: CompanyId, oauthClientId: OAuthClientId) =>
   withTenantIsolation(companyId, async () => await prisma.assistantConnection.findMany({ where: { oauthClientId } }));
