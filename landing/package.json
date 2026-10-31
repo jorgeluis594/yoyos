@@ -15,11 +15,11 @@
   "devEngines": {
     "packageManager": {
       "name": "pnpm",
-      "version": "12.5.1",
+      "version": "12.15.0",
       "onFail": "download"
     }
   },
-  "packageManager": "pnpm@12.5.1",
+  "packageManager": "pnpm@12.15.0",
   "dependencies": {
     "@astrojs/check": "^0.9.11",
     "@astrojs/sitemap": "^3.7.4",

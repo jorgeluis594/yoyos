@@ -9,7 +9,7 @@ ARG GID=1000
 RUN apt-get update && apt-get install -y --no-install-recommends postgresql-client && rm -rf /var/lib/apt/lists/*
 
 ENV COREPACK_HOME=/opt/corepack
-RUN corepack enable && corepack prepare pnpm@12.5.1 --activate
+RUN corepack enable && corepack prepare pnpm@12.15.0 --activate
 
 RUN groupmod -o -g "$GID" node && usermod -o -u "$UID" -g "$GID" node \
   && mkdir -p /workspace/apps/core && chown -R node:node /workspace /opt/corepack
