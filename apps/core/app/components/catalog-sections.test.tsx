@@ -18,8 +18,8 @@ describe("CatalogShell", () => {
   });
 
   test("links the store logo and name to the catalog home, unless the shell is inert", () => {
-    const shell = (linkHome?: boolean) => renderToStaticMarkup(<MemoryRouter initialEntries={["/carrito"]}><CatalogShell appearance={{ logoUrl: "https://cdn.example/logo.png", theme: "classic" }} storeName="Lima Studio" linkHome={linkHome}><p>Carrito</p></CatalogShell></MemoryRouter>);
-    expect(shell()).toMatch(/<a data-slot="brand-link"[^>]*href="\/"[^>]*>.*Lima Studio/);
+    const shell = (linkHome?: boolean) => renderToStaticMarkup(<MemoryRouter><CatalogShell appearance={{ logoUrl: "https://cdn.example/logo.png", theme: "classic" }} storeName="Lima Studio" linkHome={linkHome}><p>Productos</p></CatalogShell></MemoryRouter>);
+    expect(shell()).toMatch(/<a data-store-part="header-brand" data-slot="brand-link"[^>]*href="\/"[^>]*>.*Lima Studio/);
     expect(shell(false)).not.toContain("<a ");
   });
 

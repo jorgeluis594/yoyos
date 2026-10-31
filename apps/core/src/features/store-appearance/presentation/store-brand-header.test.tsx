@@ -71,4 +71,21 @@ describe("StoreBrandHeader", () => {
     expect(links[0].querySelector('[data-slot="brand-logo"]')).not.toBeNull();
     expect(renderToStaticMarkup(<StoreBrandHeader companyName="Lima Studio" logoUrl={null} />)).not.toContain("<a ");
   });
+
+  test("the element the theme lays out holds the logo and the name directly, so a theme's logo direction reaches them with or without a link", () => {
+    for (const to of [undefined, "/"]) {
+      const html = renderToStaticMarkup(<MemoryRouter><StoreBrandHeader companyName="Lima Studio" logoUrl="https://cdn.example/logo.png" to={to} /></MemoryRouter>);
+      const brand = new DOMParser().parseFromString(html, "text/html").querySelector('[data-store-part="header-brand"]')!;
+      expect([...brand.children].map((child) => child.getAttribute("data-slot") ?? child.tagName), String(to)).toEqual(["brand-logo", "P"]);
+      expect(brand.className).toContain("flex");
+    }
+  });
+
+  test("the link is read once as the store name: the logo image has an empty alt", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><StoreBrandHeader companyName="Lima Studio" logoUrl="https://cdn.example/logo.png" to="/" /></MemoryRouter>);
+    const link = new DOMParser().parseFromString(html, "text/html").querySelector("a")!;
+    expect(link.querySelector("img")!.getAttribute("alt")).toBe("");
+    expect(link.textContent).toBe("Lima Studio");
+    expect(link.getAttribute("aria-label")).toBeNull();
+  });
 });

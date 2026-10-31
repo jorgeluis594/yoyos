@@ -33,14 +33,14 @@ function BrandLogo({ url }: Readonly<{ url: string }>) {
   </span>;
 }
 
+/** The element that holds the logo and the name is the one the theme lays out (`header-brand`), so a theme's logo direction reaches them with or without a link. */
 export function StoreBrandHeader({ companyName, logoUrl, to }: StoreBrandHeaderProps) {
   const content = <>
     {logoUrl && <BrandLogo key={logoUrl} url={logoUrl} />}
     <p style={storeName} className="min-w-0 break-words">{companyName}</p>
   </>;
-  return <div data-store-part="header-brand" className="flex min-w-0 items-center">
-    {to
-      ? <Link data-slot="brand-link" to={to} className="flex min-w-0 items-center gap-3">{content}</Link>
-      : <div className="flex min-w-0 items-center gap-3">{content}</div>}
-  </div>;
+  const className = "flex min-w-0 items-center gap-3";
+  return to
+    ? <Link data-store-part="header-brand" data-slot="brand-link" to={to} className={className}>{content}</Link>
+    : <div data-store-part="header-brand" className={className}>{content}</div>;
 }

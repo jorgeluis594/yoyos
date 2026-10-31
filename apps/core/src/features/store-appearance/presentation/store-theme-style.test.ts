@@ -19,7 +19,7 @@ function catalogValues(theme: StoreThemeDefinition): Set<string> {
   return new Set([
     ...Object.values(theme.colors), ...Object.values(theme.style), ...Object.values(theme.logo), ...Object.values(theme.thumbnail),
     ...Object.values(theme.fonts).map((family) => storeFontStacks[family]), ...(theme.backgroundImage ? [theme.backgroundImage.css] : []),
-    "0", "0.5rem",
+    "0", "0.5rem", "0px", "2px", "3px",
   ]);
 }
 const channel = (hex: string, start: number) => {
@@ -111,7 +111,9 @@ describe("store-theme.css", () => {
     const written = new Set(declarations(scoped.body).map((declaration) => declaration.name));
     const read = [...stylesheet.matchAll(/var\((--[a-z0-9-]+)/g)].map((match) => match[1]);
     expect(read.length).toBeGreaterThan(50);
-    for (const name of read) expect(written.has(name), name).toBe(true);
+    // The focus color is set on the field itself, so the same rules can switch it to the destructive color.
+    const local = new Set(["--store-focus-color"]);
+    for (const name of read) expect(written.has(name) || local.has(name), name).toBe(true);
   });
 
   test("declares keyboard focus and invalid fields with the theme's ring and destructive tokens", () => {
@@ -119,22 +121,39 @@ describe("store-theme.css", () => {
     expect(focus.length).toBeGreaterThan(1);
     // A native radio draws no ring of its own: its option or payment chip draws the one ring.
     const nativeRadio = (selector: string) => selector.includes('input[data-slot="radio-group-item"]');
-    for (const [, selector, body] of focus) expect(body, selector).toMatch(nativeRadio(selector) ? /outline:\s*none/ : /outline:\s*2px solid var\(--ring\)/);
+    const field = (selector: string) => selector.includes('data-slot="input"') || selector.includes("catalog-search");
+    for (const [, selector, body] of focus.filter(([, selector]) => !field(selector))) expect(body, selector).toMatch(nativeRadio(selector) ? /outline:\s*none/ : /outline:\s*2px solid var\(--ring\)/);
     expect(focus.map(([, selector]) => selector).join(" ")).toMatch(/data-slot="button"[\s\S]*data-slot="input"/);
     const invalid = [...stylesheet.matchAll(/([^{}]*\[aria-invalid="true"\][^{}]*)\{([^{}]*)\}/g)];
-    expect(invalid.length).toBe(1);
+    expect(invalid.length).toBe(2);
     expect(invalid[0][2]).toContain("border-color: var(--destructive)");
-    expect(invalid[0][2]).toContain("var(--destructive)");
+    expect(invalid[0][2]).toContain("box-shadow: inset 0 -2px 0 var(--destructive)");
+    expect(invalid[1][2]).toContain("--store-focus-color: var(--destructive)");
   });
 
-  test("draws one focus indicator on fields: the ring hugs the border instead of floating beside it", () => {
+  test("draws one focus indicator on fields, in the ring color or the destructive color when invalid", () => {
     const field = [...stylesheet.matchAll(/([^{}]*:focus-visible[^{}]*)\{([^{}]*)\}/g)].find(([, selector]) => selector.includes('data-slot="input"'))!;
     for (const slot of ["input", "select", "select-trigger", "textarea"]) expect(field[1]).toContain(`data-slot="${slot}"`);
+    expect(field[2]).toContain("outline: var(--store-focus-box) solid var(--store-focus-color)");
     expect(field[2]).toMatch(/outline-offset:\s*0;/);
-    expect(field[2]).toContain("border-color: var(--ring)");
+    expect(field[2]).toContain("border-color: var(--store-focus-color)");
+    expect(field[2]).toContain("inset 0 calc(-1 * var(--store-focus-underline)) 0 var(--store-focus-color)");
+    expect(stylesheet).toMatch(/--store-focus-color: var\(--ring\)/);
     // Buttons and links keep their offset ring; only fields have a border to hug.
     expect(field[1]).not.toContain('data-slot="button"');
-    expect(stylesheet.indexOf(field[1])).toBeLessThan(stylesheet.indexOf('[aria-invalid="true"]'));
+    // The color switch and the focus rule come after the invalid look at rest, so the focused field recolors it.
+    expect(stylesheet.indexOf(field[1])).toBeGreaterThan(stylesheet.indexOf('[aria-invalid="true"]'));
+  });
+
+  test("focuses an underline field with a thicker underline and a bordered field with a ring hugging its border", () => {
+    const css = (id: StoreThemeId) => storeThemeCss(id, scope);
+    for (const id of storeThemeIds) {
+      const underline = storeThemes[id].style["input-border"] === "none";
+      expect(css(id), id).toContain(`--store-focus-box:${underline ? "0px" : "2px"}`);
+      expect(css(id), id).toContain(`--store-focus-underline:${underline ? "3px" : "0px"}`);
+    }
+    expect(["boutique", "noche"].every((id) => storeThemes[id as StoreThemeId].style["input-border"] === "none")).toBe(true);
+    expect(["classic", "antojo", "suave"].every((id) => storeThemes[id as StoreThemeId].style["input-border"] !== "none")).toBe(true);
   });
 
   test("gives a checked payment method and a checked option the selected look and a readable text color", () => {
