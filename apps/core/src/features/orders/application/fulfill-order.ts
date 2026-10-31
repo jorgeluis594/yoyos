@@ -43,23 +43,26 @@ export async function deductPendingStock(order: OrderAggregate, at: Date, deps: 
   return deps.saveStockDeduction(order.id, order.companyId, at);
 }
 
-/** Shipping deducts the stock when it is still pending (or the part an edit left pending); short stock fails and the surrounding transaction persists nothing. */
-export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
-  const plan = orderStateMachine.planStockDeduction(order, true, shippedAt);
+/** Shipping and delivering deduct the stock when it is still pending (or the part an edit left pending); short stock fails and the surrounding transaction persists nothing. */
+async function deductForFulfillment(order: OrderAggregate, at: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
+  const plan = orderStateMachine.planStockDeduction(order, true, at);
   if (!plan.success) return plan;
   if (plan.data.kind === "deduct" || (plan.data.reason === "already_deducted" && pendingStockLines(order).length > 0)) {
-    const deducted = await deductPendingStock(order, shippedAt, deps);
+    const deducted = await deductPendingStock(order, at, deps);
     if (!deducted.success) return deducted;
   }
-  return orderStateMachine.registerShipment(plan.data.nextOrder, shippedAt);
+  return ok(plan.data.nextOrder);
 }
 
-/** Delivering takes out the units an edit left pending, like shipping does; short stock fails and the surrounding transaction persists nothing. */
+export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
+  const deducted = await deductForFulfillment(order, shippedAt, deps);
+  return deducted.success ? orderStateMachine.registerShipment(deducted.data, shippedAt) : deducted;
+}
+
+/** Delivering needs a confirmed payment, partial or full, and deducts the pending stock like shipping does. */
 export async function deliverOrder(order: OrderAggregate, deliveredAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
-  const delivered = orderStateMachine.registerDelivery(order, deliveredAt);
-  if (!delivered.success) return delivered;
-  const deducted = await deductPendingStock(order, deliveredAt, deps);
-  return deducted.success ? delivered : deducted;
+  const deducted = await deductForFulfillment(order, deliveredAt, deps);
+  return deducted.success ? orderStateMachine.registerDelivery(deducted.data, deliveredAt) : deducted;
 }
 
 export async function registerShipment(id: OrderId, context: OrderAccess, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {

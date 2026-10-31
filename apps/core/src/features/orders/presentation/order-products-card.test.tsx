@@ -26,7 +26,7 @@ const item = (id: string, variantId: string, name: string, size: string | null, 
 function order(patch: Partial<OrderAggregateResponse> = {}): OrderAggregateResponse {
   return {
     checkoutEnabledAt: null, checkoutConfirmedAt: null, number: 1042, id: orderId, companyId: "00000000-0000-4000-8000-0000000000c1", sellerId: "user-1",
-    buyer: null, source: "manual", createdAt: "2026-10-30T09:10:00.000Z", scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, status: "active",
+    buyer: null, source: "manual", createdAt: "2026-10-30T09:10:00.000Z", scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelledAt: null, stockDeductedAt: null, status: "active",
     paymentStatus: "pending", paidAmount: pen(0), balanceDue: pen(178), overpaidAmount: pen(0), cancelled: false, delivery: null, deliveryStatus: "pending",
     stockDeducted: false, stockDue: null,
     items: [item("00000000-0000-4000-8000-000000000001", trajeM, "Traje de Príncipe Azul", "M", 89, 1), item("00000000-0000-4000-8000-000000000002", trajeL, "Traje de Príncipe Azul", "L", 89, 1)],

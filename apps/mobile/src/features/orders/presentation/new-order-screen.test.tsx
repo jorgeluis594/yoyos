@@ -172,13 +172,13 @@ test("products stay read-only on the form and returning preserves entered data",
   expect(screen.getByRole("button", { name: "Estado de entrega: Entregado" })).toBeTruthy();
 });
 
-test("delivered status explains missing payment and allows saving once covered", async () => {
+test("delivered status explains missing payment and allows saving with a payment, even a partial one", async () => {
   const screen = await review();
   markDelivered(screen);
-  expect(screen.getByText(/Completa el pago/)).toHaveProp("accessibilityRole", "alert");
+  expect(screen.getByText(/Registra al menos un pago/)).toHaveProp("accessibilityRole", "alert");
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeDisabled();
   advance(screen, "10");
-  expect(screen.queryByText(/Completa el pago/)).toBeNull();
+  expect(screen.queryByText(/Registra al menos un pago/)).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar pedido" })).toBeEnabled();
 });
 beforeEach(() => { jest.clearAllMocks(); mockQuotation.mockReset(); mockSettingsGet.mockReset();

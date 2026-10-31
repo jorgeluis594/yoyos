@@ -31,7 +31,6 @@ export function fulfillmentReason(block: Block, operation: "ship" | "deliver", o
     const names = shortItemLines(order).map(line => line.name);
     return { key: `orderFulfillment.STOCK_WAITING_${operation}` as const, items: joinNames(names, language) };
   }
-  if (block.code === "STOCK_DEDUCTING") return { key: "orderFulfillment.STOCK_DEDUCTING" as const, items: "" };
   return { key: `orderFulfillment.${operation === "ship" && block.code === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : block.code}` as const, items: "" };
 }
 

@@ -180,7 +180,7 @@ describe("OrderView (new sale)", () => {
 
 const savedExtras = (over: Partial<SavedViewProps> = {}): SavedViewProps => ({
   link: { kind: "ready", url: "https://fantasio.yoyos.lat/checkout/1042" }, receiptUrls: {}, manualPaymentId: "00000000-0000-4000-8000-0000000000f2", voidResult: undefined,
-  actionBusy: false, underHeader: null, fulfillment: <button type="button">Marcar enviado</button>,
+  actionBusy: false, underHeader: null, statusCard: <section aria-label="Estado del pedido"><button type="button">Marcar enviado</button></section>,
   onPrint: vi.fn(), onDiscardChanges: vi.fn(), onReload: vi.fn(), onSaveCustomerOnly: vi.fn(), ...over });
 const mountSaved = (start: OrderViewState = savedState(), over: Partial<OrderViewProps> = {}, extras: Partial<SavedViewProps> = {}) => mount(start, { saved: savedExtras(extras), ...over });
 const typeQuantity = (state: OrderViewState, variantId: string, quantityText: string): OrderViewState =>

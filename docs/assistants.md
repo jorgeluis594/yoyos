@@ -128,15 +128,14 @@ Readiness follows the rules of the web's «Marcar enviado» and «Marcar entrega
 | --- | --- |
 | Home or agency, at least one confirmed payment, enough stock (deducted, deducting, or available for every item) | «Listo para enviar» |
 | Home or agency, no confirmed payment | «Se requiere al menos un pago para enviar.» |
-| Store pickup, paid in full, stock deducted | «Listo para entregar» |
-| Store pickup, balance pending | «Se requiere el pago completo antes de entregar. Por cobrar: S/ 40.00.» |
+| Store pickup, at least one confirmed payment (partial or full), enough stock | «Listo para entregar» |
+| Store pickup, no confirmed payment | «Registra al menos un pago para entregar. Puede ser un pago parcial. Por cobrar: S/ 40.00.» |
 | Home or agency waiting for stock, or partially paid with an item's current stock below its quantity | «Para enviar falta stock de Camisa (M · Azul).», naming only the short items |
 | Store pickup waiting for stock | «Para entregar falta stock de Camisa (M · Azul).» |
-| Store pickup, stock being deducted | «El stock se está descontando; podrás entregarlo en menos de un minuto.» |
 | No delivery assigned | «Entrega por definir: falta asignar la entrega.» |
 
 - A payment reason adds «Tiene un pago por revisar.» when the buyer has a report awaiting review, so the owner reviews it instead of registering a duplicate payment.
-- A partially paid order with short stock is not «Esperando stock» in Yoyos and its button stays enabled until the tap fails; the tool marks it with the stock sentence anyway. Reason: the owner must not prepare an order Yoyos will refuse to ship.
+- A partially paid order with short stock is not «Esperando stock» in Yoyos and its button stays enabled until the tap fails; the tool marks it with the stock sentence anyway. Reason: the owner must not prepare an order Yoyos will refuse to ship or deliver.
 - A cancelled order shows only «Cancelado», with no readiness.
 - Readiness is computed per order at the moment of the call and reserves no stock among the listed orders: two orders each needing 3 of a variant with 4 in stock both show ready, and only the first shipped succeeds. The description tells the agent to warn about this when ready orders share a product.
 

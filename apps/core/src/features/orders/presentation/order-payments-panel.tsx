@@ -159,7 +159,7 @@ function NewPanel({ payments, onChange, estimate, newPaymentId, invalidPaymentId
     setLastAdded(row.paymentId);
     onChange([...payments, row]);
   };
-  return <Card role="region" aria-labelledby="order-payments-title" className="min-w-0">
+  return <Card id="order-payments" role="region" aria-labelledby="order-payments-title" tabIndex={-1} className="min-w-0 outline-none">
     <CardHeader><CardTitle id="order-payments-title">{t("orderView.payments.title")}</CardTitle></CardHeader>
     <CardContent ref={content} className="flex flex-col gap-4">
       {hasProducts && <Summary totals={estimate} reviewPending={false} format={format} />}
@@ -212,7 +212,7 @@ function SavedPanel({ order, receiptUrls, manualPaymentId, voidResult, unsavedCh
   }, [dialog, order.payments]);
   const dialogPayment = dialog ? order.payments.find(payment => payment.id === dialog.paymentId) ?? null : null;
   const rowBlocked = (paymentId: string) => !idle || (uncertain !== null && uncertain.paymentId === paymentId && uncertain.order === order);
-  return <Card role="region" aria-labelledby="order-payments-title" className="min-w-0">
+  return <Card id="order-payments" role="region" aria-labelledby="order-payments-title" tabIndex={-1} className="min-w-0 outline-none">
     <CardHeader><CardTitle id="order-payments-title">{t("orderView.payments.title")}</CardTitle></CardHeader>
     <CardContent className="flex flex-col gap-4">
       {!order.cancelled && <Summary totals={totals} reviewPending={reviewPending} format={format} />}

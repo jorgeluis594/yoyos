@@ -330,8 +330,8 @@ export function invalidFields(state: OrderViewState): readonly InvalidField[] {
   const customer = locks.customer === null && (base === null || edited.includes("customer")) ? invalidCustomer(draft.customer, customerRequired(state)) : [];
   const delivery = locks.delivery === null && (base === null || edited.includes("delivery")) ? invalidDelivery(draft.delivery, base) : [];
   const estimated = estimate(state);
-  const uncovered = base === null && draft.deliverImmediately && !(estimated.success && estimated.data.balance.amount === 0);
-  const deliverNow: readonly InvalidField[] = uncovered ? [{ section: "delivery", field: "deliverImmediately", reason: "deliver_needs_payment" }] : [];
+  const unpaid = base === null && draft.deliverImmediately && !(estimated.success && estimated.data.paid.amount > 0);
+  const deliverNow: readonly InvalidField[] = unpaid ? [{ section: "delivery", field: "deliverImmediately", reason: "deliver_needs_payment" }] : [];
   return [...invalidItems(state), ...payments, ...customer, ...delivery, ...deliverNow];
 }
 

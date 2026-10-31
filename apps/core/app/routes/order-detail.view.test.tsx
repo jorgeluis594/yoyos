@@ -186,12 +186,13 @@ describe("saved order route", () => {
   test("tells a shipped or delivered order that the step already happened instead of the transition rule", async () => {
     current = loaderData({ order: order1042({ deliveryStatus: "shipped", shippedAt: "2026-10-30T12:00:00.000Z" }), lineCatalog: null });
     await mount();
-    expect(container.textContent).toContain("El pedido ya está marcado como enviado.");
+    expect(container.textContent).toContain("Marcar entregado");
     expect(container.textContent).not.toContain("Solo se puede enviar desde pendiente");
     act(() => root!.unmount());
     current = loaderData({ order: order1042({ deliveryStatus: "delivered", status: "completed", paymentStatus: "paid" }), lineCatalog: null });
     await mount();
-    expect(container.textContent).toContain("El pedido ya está marcado como entregado.");
+    expect(container.textContent).toContain("Entregado");
+    expect(container.textContent).not.toContain("Marcar entregado");
     expect(container.textContent).not.toContain("Solo se puede enviar desde pendiente");
   });
 

@@ -55,7 +55,7 @@ export async function createCompleteOrder(input: CreateCompleteOrderInput, conte
       current = { order: paid.data.order, stockDue: paid.data.stockDue };
       lastOutcome = paid.data.outcome ?? lastOutcome;
     }
-    // Shipping deducts by itself. Delivering needs the stock already deducted: the answer follows what the listener did.
+    // Shipping and delivering deduct the stock by themselves; a short outcome of the payment listener is refused here with its own error.
     if (input.shipImmediately) return map(await deps.ship(input.id, context), (order) => ({ order, stockDue: null }));
     if (!input.deliverImmediately) return ok(current);
     const refusal = current.order.stockDeducted ? null : stockRefusalOf(lastOutcome);
