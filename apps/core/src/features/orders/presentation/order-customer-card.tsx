@@ -36,7 +36,7 @@ export function OrderCustomerCard({ customer, source, locked, required, marks, o
   const markOf = (field: string) => marks.find(mark => mark.field === field);
   const messageOf = (field: string, invalid: "invalidName" | "invalidPhone") => {
     const mark = markOf(field);
-    return mark ? t(mark.reason === "customer_incomplete" ? "orderView.customer.incomplete" : `orderView.customer.${invalid}`) : null;
+    return mark ? t(mark.reason === "customer_incomplete" ? (required ? "orderView.customer.incompleteRequired" : "orderView.customer.incomplete") : `orderView.customer.${invalid}`) : null;
   };
   const nameError = messageOf("customerName", "invalidName");
   const phoneError = messageOf("customerPhone", "invalidPhone");

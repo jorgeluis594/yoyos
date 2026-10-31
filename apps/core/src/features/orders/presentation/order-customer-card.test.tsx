@@ -116,6 +116,13 @@ test("a buyer-confirmed order drops Quitar cliente and the optional title, and s
   expect(nameInput().value).toBe("Marta");
 });
 
+test("a buyer-confirmed order with both fields cleared asks for both without offering to leave them empty", async () => {
+  const marks: InvalidField[] = [{ section: "customer", field: "customerName", reason: "customer_incomplete" }];
+  await mount({ customer: { name: "", phone: "" }, required: true, marks });
+  expect(container.textContent).toContain("Completa nombre y celular.");
+  expect(container.textContent).not.toContain("deja ambos vacíos");
+});
+
 test("an order that was not confirmed by the buyer shows no required note", async () => {
   await mount({ customer: jorge });
   expect(container.textContent).not.toContain("El comprador confirmó este pedido");
