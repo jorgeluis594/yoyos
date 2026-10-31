@@ -2,14 +2,13 @@ import { Prisma } from "@prisma/client";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import { parseCatalogSubdomain, type CatalogSubdomain } from "@shared/catalog-subdomain";
-import { countryCurrencies, isCountry } from "@shared/country";
-import type { Currency } from "@shared/money";
+import { countryCurrencies, isCountry, type Country } from "@shared/country";
 import type { CompanyId } from "@shared/identity";
 import type { Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { inActiveTransaction, prisma, systemPrisma } from "@core/src/shared/infrastructure/persistance";
 import { isPersistenceFailure, transactionFailureStage } from "@core/src/shared/infrastructure/persistence-error";
-import type { SaveSubdomainError, StoredCatalogSettings, SubdomainOwner } from "@core/src/features/catalog/application/catalog-settings";
+import type { SaveSubdomainError, StoredCatalogSettings, StorefrontState, SubdomainOwner } from "@core/src/features/catalog/application/catalog-settings";
 
 export type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 type ReadError = PersistenceError | Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
@@ -35,12 +34,7 @@ export async function readCatalogSettings(companyId: CompanyId): Promise<Result<
   }
 }
 
-export type StorefrontState = Readonly<{ currency: Currency; catalog:
-  | Readonly<{ kind: "published"; subdomain: CatalogSubdomain }>
-  | Readonly<{ kind: "hidden"; subdomain: CatalogSubdomain }>
-  | Readonly<{ kind: "hidden_without_link" }> }>;
-
-const storefrontRow = z.object({ catalogPublished: z.boolean(), catalogSubdomain: z.string().nullable(), country: z.string().refine(isCountry) });
+const storefrontRow = z.object({ catalogPublished: z.boolean(), catalogSubdomain: z.string().nullable(), country: z.custom<Country>(isCountry) });
 
 /** One statement through the context client: inside a transaction it joins it, and a transaction failure is the transaction's to report. */
 export async function readStorefrontState(companyId: CompanyId): Promise<Result<StorefrontState, ReadError>> {
@@ -52,7 +46,7 @@ export async function readStorefrontState(companyId: CompanyId): Promise<Result<
     }
     const row = storefrontRow.safeParse(rows[0]);
     const subdomain = row.success && row.data.catalogSubdomain !== null ? parseCatalogSubdomain(row.data.catalogSubdomain) : undefined;
-    if (row.success && isCountry(row.data.country) && (subdomain === undefined || subdomain.success)) {
+    if (row.success && (subdomain === undefined || subdomain.success)) {
       const currency = countryCurrencies[row.data.country];
       if (subdomain === undefined) return ok({ currency, catalog: { kind: "hidden_without_link" } });
       return ok({ currency, catalog: { kind: row.data.catalogPublished ? "published" : "hidden", subdomain: subdomain.data } });
