@@ -187,6 +187,7 @@ Web shows «Marcar enviado» and «Marcar entregado» at the top of the «Entreg
 - The reasons name only the short items, as a list («Camisa (M) y Polo (L)», «Camisa (M), Polo (L) y Short (S)»); the quantities stay in the notice. Reason: the notice and the buttons must agree, and mobile would otherwise repeat the notice a few rows below.
 - «Se requiere descontar el stock antes de entregar.» remains only for an order that is not due; an unpaid order shows the payment reason first.
 - If stock changed after the screen loaded and a tap still meets short stock, «No hay stock suficiente para despachar este pedido.» is shown and the order reloads. A partially paid order with short stock and no deduction request is not waiting: it shows no notice, ship stays enabled and the tap fails with that text.
+- The [AI assistants' dispatch readiness](assistants.md#dispatch-readiness) uses these rules and sentences, and also marks a partially paid order with short stock as not ready.
 
 ### Delivery
 
@@ -298,6 +299,8 @@ All under `/api/orders`, authenticated, scoped to the session company and sent w
 There is no route that deducts the stock of an order.
 
 `GET /` and `GET /:id` serve the older completed-sales contract (`orderSchema`, `listOrdersResponseSchema`).
+
+AI assistants read orders through the orders feature's composed operations, not these routes; their search never matches the buyer phone ([AI assistants · Tools](assistants.md#tools)).
 
 Day filters select whole inclusive days in `America/Lima`, converted to UTC instants with an inclusive start and exclusive end (`shared/orders-date.ts`); dates are displayed in Lima too. Reason: sellers operate in Peru and the filter must match the time shown, regardless of the phone's zone.
 
