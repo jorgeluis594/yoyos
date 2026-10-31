@@ -3,6 +3,7 @@ import { join, relative, resolve } from "node:path";
 import { describe, expect, test } from "vitest";
 import { allCases } from "@core/evals/cases";
 import { examplesOf, findOverlaps, overlapReason } from "@core/evals/lib/prompt-overlap";
+import { promptRegistry, registeredVersions, type PromptRegistry } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
 
 const root = resolve(import.meta.dirname, "../..");
 
@@ -22,6 +23,10 @@ const promptFiles = [
   "src/features/orders/infrastructure/openai-chat-reader.ts",
   "src/features/products/infrastructure/product-matching/openai-product-chooser.ts",
   "src/features/products/infrastructure/product-matching/product-chooser.ts",
+  "src/features/orders/infrastructure/reader/runtime/prompt-registry.ts",
+  "src/features/orders/infrastructure/reader/stages/intent/versions.ts",
+  "src/features/orders/infrastructure/reader/stages/extraction/versions.ts",
+  "src/features/orders/infrastructure/reader/stages/resolution/versions.ts",
 ];
 
 /** The buyer's words of every eval case, paraphrases and the messages of conversations included. */
@@ -30,6 +35,10 @@ const evalInputs = [...new Set(allCases.flatMap((testCase) => {
   const inputs = testCase.pass === "conversation" ? testCase.steps.flatMap((step) => "input" in step ? [step.input] : []) : [testCase.input];
   return inputs.flatMap((input) => [input.text, input.caption]).filter((text): text is string => text !== undefined);
 }))];
+
+/** The instructions of every registered stage version, as the string literal the model receives. */
+const registeredExamples = (registry: PromptRegistry) => registeredVersions(registry)
+  .flatMap(({ stage, version, registered }) => examplesOf(`const instructions = ${JSON.stringify(registered.instructions)};`, `${stage}/${version}`));
 
 describe("prompt overlap check", () => {
   test("finds quotes and parenthesised examples in string literals, not in comments", () => {
@@ -59,5 +68,16 @@ describe("prompt overlap check", () => {
 
     expect(examples.length).toBeGreaterThan(20);
     expect(findOverlaps(examples, evalInputs).map(({ example, input, reason }) => `${example.file}:${example.line} «${example.text}» ~ «${input}» (${reason})`)).toEqual([]);
+  });
+
+  test("never copies an eval input into a stage prompt", () => {
+    expect(findOverlaps(registeredExamples(promptRegistry), evalInputs).map(({ example, input, reason }) => `${example.file} «${example.text}» ~ «${input}» (${reason})`)).toEqual([]);
+  });
+
+  test("flags an eval input copied into a registered version's instructions, whichever file the version lives in", () => {
+    const [copied] = evalInputs;
+    const registry = { intent: { "intent-v1": { stage: "intent", version: "intent-v1", instructions: `Rules (${copied})` } }, extraction: {}, resolution: {} } as unknown as PromptRegistry;
+
+    expect(findOverlaps(registeredExamples(registry), evalInputs)).not.toEqual([]);
   });
 });

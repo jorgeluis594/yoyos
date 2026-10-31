@@ -61,6 +61,7 @@ import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/ord
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
 import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
+import { readerStagesFromEnv } from "@core/src/features/orders/infrastructure/reader/runtime/reader-stages-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
 import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
@@ -786,6 +787,8 @@ export const orders = {
 
 // The products composition imports the event handlers that import this module, so `products` is only read when a message is applied.
 const readChatMessage = createChatReaderFromEnv(process.env);
+/** The staged reader's ports from the env; not used by `applyChatMessage` yet. A function, so nothing starts, or fails startup, before it is called. */
+export const createReaderStagePorts = () => readerStagesFromEnv(process.env);
 
 const chatMessageDependencies: ApplyChatMessageDependencies = {
   findOutcome,
