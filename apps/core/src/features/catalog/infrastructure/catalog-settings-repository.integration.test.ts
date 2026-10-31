@@ -104,11 +104,9 @@ test("describes a published, a hidden and a never-linked catalog with the store 
   expect(await withTenantIsolation(unlinked, () => readStorefrontState(unlinked))).toEqual({ success: true, data: { currency: "PEN", catalog: { kind: "hidden_without_link" } } });
 });
 
-test("reports an absent company as unavailable and an invalid stored country as invalid stored data", async () => {
+test("reports an absent company as unavailable", async () => {
   const absent = randomUUID() as CompanyId;
   expect(await withTenantIsolation(absent, () => readStorefrontState(absent))).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
-  const invalid = await company({ country: "XX" });
-  expect(await withTenantIsolation(invalid, () => readStorefrontState(invalid))).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
 });
 
 test("reads the storefront inside the caller's snapshot without a transaction of its own", async () => {

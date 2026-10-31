@@ -8,7 +8,6 @@ import {
 import { resolveBrandHostOwner, resolveLegacyCatalogLink, resolveStorefront } from "@core/src/features/catalog/application/resolve-storefront";
 import type { StoreHost } from "@core/src/features/catalog/domain/store-host";
 import { readCatalogSettings, readStorefrontState, resolveSubdomain, savePublication, saveSubdomain } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
-export type { StorefrontState } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
 import type { StorefrontState } from "@core/src/features/catalog/infrastructure/catalog-settings-repository";
 import { withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 
