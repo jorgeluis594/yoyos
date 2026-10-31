@@ -28,7 +28,7 @@ async function scenario<T>(stocks: number[], work: (ctx: { companyId: CompanyId;
         cancelled: order.cancelled ?? false, cancelledAt: order.cancelled ? order.createdAt ?? new Date() : null, deliveryStatus: order.deliveryStatus ?? "pending",
         fromCatalog: false, sellerId } });
       for (const [variant, quantity] of order.items) await prisma.orderItem.create({ data: { orderId: id, variantId: variants[variant]!, productName: "Camisa", variantAttributes: {},
-        quantity: BigInt(quantity), unitPrice: new Prisma.Decimal(1), subtotal: new Prisma.Decimal(quantity) } });
+        quantity: BigInt(quantity), stockDeductedQuantity: order.stockDeducted ? BigInt(quantity) : 0n, unitPrice: new Prisma.Decimal(1), subtotal: new Prisma.Decimal(quantity) } });
       for (const payment of order.payments ?? []) await prisma.payment.create({ data: { id: randomUUID(), orderId: id, status: payment.status ?? "confirmed",
         amount: payment.status === "reported" ? null : new Prisma.Decimal(payment.amount), currency: "PEN", method: payment.status === "reported" ? null : "bank_transfer",
         deductStockIfPartial: payment.deductStockIfPartial ?? false, data: {} } });
@@ -79,7 +79,7 @@ test("locks a set of orders in one statement and skips those held elsewhere", as
     expect(data(await tx(() => lockOrdersSkipLocked([second, first], companyId)))).toEqual([first, second]);
     const deductedAt = new Date("2026-10-30T10:00:00Z");
     expect(data(await tx(() => saveStockDeductions([first, second], companyId, deductedAt)))).toBe(2);
-    expect(data(await tx(() => saveStockDeductions([first, second], companyId, new Date("2026-10-30T11:00:00Z"))))).toBe(0);
+    expect(data(await tx(() => saveStockDeductions([first, second], companyId, new Date("2026-10-30T11:00:00Z"))))).toBe(2); // marks again, the first deduction time stays
     expect((await prisma.order.findMany({ where: { id: { in: [first, second] } } })).map((order) => order.stockDeductedAt)).toEqual([deductedAt, deductedAt]);
   });
 });

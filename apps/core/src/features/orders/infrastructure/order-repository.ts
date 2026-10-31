@@ -963,7 +963,7 @@ export async function saveStockDeductions(ids: readonly OrderId[], companyId: Co
   requireActiveTransaction(companyId);
   try {
     return ok(await prisma.$executeRaw`WITH marked AS (UPDATE "Order" SET "stockDeducted" = true, "stockDeductedAt" = COALESCE("stockDeductedAt", ${stockDeductedAt}::timestamptz)
-      WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[]) AND NOT cancelled RETURNING id),
+      WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[]) RETURNING id),
       settled AS (UPDATE "OrderItem" i SET "stockDeductedQuantity" = i.quantity FROM marked WHERE i."companyId" = ${companyId}::uuid AND i."orderId" = marked.id AND i."stockDeductedQuantity" <> i.quantity RETURNING i.id)
       SELECT 1 FROM marked`);
   } catch (cause) { return err(persistenceFailureResult(cause, "Unable to save stock deductions")); }
