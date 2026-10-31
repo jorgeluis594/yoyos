@@ -52,7 +52,7 @@ const visual = (productId: ProductId, confidence = 0.92): ImageIdentification =>
 const notProduct: ImageIdentification = { kind: "not_product", topDistance: 0.5 };
 
 const existingOrder = (items: OrderAggregate["items"] = [{ id: id(60) as OrderItemId, variantId: cap.variantId, productName: "Gorra", variantAttributes: {}, sku: null,
-  quantity: 1 as PositiveInteger, unitPrice: money(25), subtotal: money(25), mentionedPrice: null }]): OrderAggregate => ({
+  quantity: 1 as PositiveInteger, unitPrice: money(25), subtotal: money(25), mentionedPrice: null, stockDeductedQuantity: 0 }]): OrderAggregate => ({
   number: 1007 as OrderNumber, id: id(9) as OrderId, companyId, sellerId, chatId, buyer: { contactId, name: null, phone: null },
   fromCatalog: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: hourBefore, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false, cancelledAt: null,
   items, payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false, stockDeductedAt: null,

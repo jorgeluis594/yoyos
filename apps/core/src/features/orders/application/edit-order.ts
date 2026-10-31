@@ -7,14 +7,13 @@ import type { TransactionEndingError } from "@core/src/shared/application/contai
 import type { BuyerData, OrderBuyer } from "@core/src/features/orders/domain/checkout";
 import type { SellableVariant } from "@core/src/features/orders/domain/catalog-order";
 import type { CompanyId, OrderId, OrderItemId, PositiveInteger } from "@core/src/features/orders/domain/order";
-import { orderEdit, type CustomerRequired, type DeliveryEdit, type ItemsLocked, type OrderItemChanges, type OrderLineRequest, type OrderPart, type VariantNotFound } from "@core/src/features/orders/domain/order-edit";
+import { orderEdit, type CustomerRequired, type DeliveryEdit, type OrderItemChanges, type OrderLineRequest, type OrderPart, type VariantNotFound } from "@core/src/features/orders/domain/order-edit";
 import { orderRevisions, type OrderRevision } from "@core/src/features/orders/domain/order-revisions";
 import { orderStateMachine, type OrderAggregate, type OrderDomainError, type RatedDeliverySelection, type ResolvedDelivery } from "@core/src/features/orders/domain/order-state-machine";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { OrderEdited } from "@core/src/features/orders/application/events";
 import type { DeductionOutcome } from "@core/src/features/orders/application/deduct-due-stock";
-import { deductedOf } from "@core/src/features/orders/domain/stock-deduction";
 import { describeOrderStockDue, orderWithStockDue, type StockEventResult, type StockReader } from "@core/src/features/orders/application/describe-order-stock-due";
 
 export type EditOrderInput = Readonly<{
@@ -28,7 +27,6 @@ export type EditOrderAccess = OrderAccess;
 export type EditOrderError =
   | OrderDomainError | ResolveRateError | PeruDistrictError
   | Readonly<{ code: "INVALID_INPUT" | "ORDER_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA" | "DELIVERY_UNAVAILABLE" | "DELIVERY_METHOD_DISABLED"; message: string }>
-  | ItemsLocked
   | CustomerRequired
   | Readonly<{ code: "ORDER_CHANGED"; message: string; parts: readonly [OrderPart, ...OrderPart[]] }>
   | VariantNotFound
@@ -128,7 +126,7 @@ export async function editOrder(input: EditOrderInput, access: EditOrderAccess, 
     // The units of lines the edit deleted are read before the rows go: the listener returns them to the stock.
     const returns = (itemChanges?.removedItemIds ?? []).flatMap((itemId) => {
       const item = order.items.find((candidate) => candidate.id === itemId);
-      const units = item ? deductedOf(order, item) : 0;
+      const units = item?.stockDeductedQuantity ?? 0;
       return item && units > 0 ? [{ variantId: item.variantId, quantity: units as PositiveInteger }] : [];
     });
     if (itemChanges) {

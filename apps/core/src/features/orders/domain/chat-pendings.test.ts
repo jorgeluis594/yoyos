@@ -63,7 +63,7 @@ const orderOf = (n: number, createdAt: Date, changes: Partial<OrderAggregate> = 
   number: (1000 + n) as OrderNumber, id: id(200 + n) as OrderId, companyId: id(2) as CompanyId, sellerId: "seller" as UserId, chatId,
   buyer: null, fromCatalog: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null,
   completedAt: null, cancelled: false, cancelledAt: null,
-  items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null, quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10) }],
+  items: [{ id: id(3) as OrderItemId, variantId: id(4) as VariantId, productName: "Item", variantAttributes: {}, sku: null, quantity: 1 as PositiveInteger, unitPrice: money(10), subtotal: money(10), stockDeductedQuantity: 0 }],
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false, stockDeductedAt: null,
   itemsTotal: money(10), deliveryCost: money(0), deliveryCharge: money(0), total: money(10), ...changes,
 });

@@ -18,7 +18,7 @@ const home: DeliverySnapshot = { method: "home", recipient: ana, destination: { 
 
 const variantOf = (n: number) => id(n + 100) as VariantId;
 const item = (n: number, name: string, attributes: Record<string, string>, quantity: number, unit: number): OrderItem => ({ id: id(n) as OrderItemId, variantId: variantOf(n),
-  productName: name, variantAttributes: attributes, sku: `SKU-${n}`, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null });
+  productName: name, variantAttributes: attributes, sku: `SKU-${n}`, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null, stockDeductedQuantity: 0 });
 // Order 1042: two «Traje» lines at S/ 89.00 and «Deadpool · M» at S/ 120.00.
 const traje = (n: number, size: string) => item(n, "Traje", { Talla: size }, 1, 89);
 const deadpool = item(5, "Deadpool", { Talla: "M" }, 1, 120);

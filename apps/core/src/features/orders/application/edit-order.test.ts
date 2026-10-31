@@ -20,7 +20,7 @@ const home: DeliverySnapshot = { method: "home", recipient: ana, destination: { 
 
 const variantOf = (n: number) => id(n + 100) as VariantId;
 const item = (n: number, name: string, attributes: Record<string, string>, quantity: number, unit: number): OrderItem => ({ id: id(n) as OrderItemId, variantId: variantOf(n),
-  productName: name, variantAttributes: attributes, sku: `SKU-${n}`, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null });
+  productName: name, variantAttributes: attributes, sku: `SKU-${n}`, quantity: quantity as PositiveInteger, unitPrice: money(unit), subtotal: money(unit * quantity), mentionedPrice: null, stockDeductedQuantity: 0 });
 // Order 1042: two «Traje» lines at S/ 89.00 and «Deadpool · M» at S/ 120.00, paid S/ 150.00 with Yape.
 const payment: Payment = { id: id(60) as PaymentId, orderId: id(1) as OrderId, amount: money(150), status: "confirmed", method: "digital_wallet", deductStockIfPartial: false,
   data: { confirmedAt: at, confirmedBy: { kind: "seller", userId: access.userId }, evidence: { kind: "manual" } } };

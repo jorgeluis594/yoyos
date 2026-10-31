@@ -41,7 +41,6 @@ export type OrderEditParts = Readonly<{
 }>;
 export type ItemsPlan = Readonly<{ lookup: readonly VariantId[] }>;
 export type VariantNotFound = Readonly<{ code: "VARIANT_NOT_FOUND"; message: string; variantId: VariantId }>;
-export type ItemsLocked = Readonly<{ code: "ITEMS_LOCKED"; message: string }>;
 export type CustomerRequired = Readonly<{ code: "CUSTOMER_REQUIRED"; message: string }>;
 
 const failure = (code: OrderDomainError["code"], message: string) => err({ code, message });
@@ -88,7 +87,7 @@ function isApplied(order: OrderAggregate, input: OrderEditParts, part: OrderPart
 }
 
 /** A cancelled order refuses every edit and a delivery that left pending refuses items and delivery. Deducted stock does not lock items: the stock listener settles the difference. */
-function checkLocks(order: OrderAggregate, parts: ReadonlySet<OrderPart>): Result<null, OrderDomainError | ItemsLocked> {
+function checkLocks(order: OrderAggregate, parts: ReadonlySet<OrderPart>): Result<null, OrderDomainError> {
   if (parts.size === 0) return ok(null);
   if (order.cancelled) return failure("ORDER_CANCELLED", "Order is cancelled");
   const touchesFulfillment = parts.has("items") || parts.has("delivery");
@@ -136,7 +135,7 @@ function applyItems(order: OrderAggregate, lines: readonly OrderLineRequest[], v
     if (!variant) return err({ code: "VARIANT_NOT_FOUND", message: "The variant is no longer available", variantId: line.variantId });
     next.push(kept ? { ...kept, quantity: line.quantity as number as PositiveInteger }
       : { id: newItemId(), variantId: variant.variantId, productName: variant.productName, variantAttributes: variant.variantAttributes, sku: variant.sku,
-        quantity: line.quantity as number as PositiveInteger, unitPrice: variant.unitPrice, subtotal: variant.unitPrice, mentionedPrice: null });
+        quantity: line.quantity as number as PositiveInteger, unitPrice: variant.unitPrice, subtotal: variant.unitPrice, mentionedPrice: null, stockDeductedQuantity: 0 });
   }
   // Items are read back in id order, so the next items are sorted the same way.
   next.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));

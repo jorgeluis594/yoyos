@@ -27,14 +27,9 @@ export type StockDue =
   | Readonly<{ kind: "deducting" }>;
 export type OrderWithStockDue = Readonly<{ order: OrderAggregate; stockDue: StockDue | null }>;
 
-/** Units of the item already deducted: the stored figure, or all of it for an order read without per-line figures that is deducted. */
-export function deductedOf(order: Pick<OrderAggregate, "stockDeducted">, item: Readonly<{ quantity: number; stockDeductedQuantity?: number }>): NonNegativeInteger {
-  return (item.stockDeductedQuantity ?? (order.stockDeducted ? item.quantity : 0)) as NonNegativeInteger;
-}
-
 export function toStockOrder(order: OrderAggregate): StockOrder {
   const [first, ...rest] = order.items;
-  const line = (item: typeof first): StockOrderLine => ({ variantId: item.variantId, quantity: item.quantity, deducted: deductedOf(order, item) });
+  const line = (item: typeof first): StockOrderLine => ({ variantId: item.variantId, quantity: item.quantity, deducted: item.stockDeductedQuantity as NonNegativeInteger });
   return { id: order.id, createdAt: order.createdAt, cancelled: order.cancelled, stockDeducted: order.stockDeducted,
     deliveryStatus: order.deliveryStatus, total: order.total, items: [line(first), ...rest.map(line)],
     confirmedPayments: order.payments.flatMap((payment) => payment.status === "confirmed"

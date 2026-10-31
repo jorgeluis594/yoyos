@@ -117,7 +117,7 @@ function emitStockEvent(event: StockEvent) {
       itemCount: event.itemCount, durationMs: event.durationMs }, "order_stock_deducted"));
     case "waiting": return afterTransactionCommit(() => log.info({ event: "order_stock_waiting", companyId: event.companyId, orderId: event.orderId, trigger: event.trigger,
       shortItemCount: event.shortItemCount }, "order_stock_waiting"));
-    case "adjusted": return afterTransactionCommit(() => log.info({ event: "order_stock_adjusted", companyId: event.companyId, orderId: event.orderId, trigger: event.trigger,
+    case "adjusted": return event.returnedUnits + event.deductedUnits + event.pendingLines === 0 ? undefined : afterTransactionCommit(() => log.info({ event: "order_stock_adjusted", companyId: event.companyId, orderId: event.orderId, trigger: event.trigger,
       returnedUnits: event.returnedUnits, deductedUnits: event.deductedUnits, pendingLines: event.pendingLines, durationMs: event.durationMs }, "order_stock_adjusted"));
     case "skipped_invalid": return log.error({ event: "stock_deduction_failed", companyId: event.companyId, orderId: event.orderId, trigger: "product_stock_increased",
       stage: "load_order", errorCode: "INVALID_STORED_DATA" }, "stock_deduction_failed");
@@ -523,13 +523,13 @@ export const saveChatItemChanges = async (order: OrderAggregate, changes: OrderI
   return err({ code: "PERSISTENCE_UNAVAILABLE", message: saved.error.message });
 };
 
-const conflictCodes = ["ORDER_CHANGED", "ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED"];
+const conflictCodes = ["ORDER_CHANGED", "DELIVERY_LOCKED", "ORDER_CANCELLED"];
 const failureCodes = ["PERSISTENCE_UNAVAILABLE", "INVALID_STORED_DATA", "SERVICE_UNAVAILABLE"];
 
 /** The stage an edit stopped at: the use case's own checks are told apart by their error code, the others by the last capability the composition saw. */
 function editStage(code: string, observed: string): string {
   if (code === "ORDER_CHANGED") return "check_revisions";
-  if (code === "ITEMS_LOCKED" || code === "DELIVERY_LOCKED" || code === "ORDER_CANCELLED") return "check_locks";
+  if (code === "DELIVERY_LOCKED" || code === "ORDER_CANCELLED") return "check_locks";
   if (code === "CUSTOMER_REQUIRED") return "check_customer";
   if (code === "VARIANT_NOT_FOUND") return "resolve_variants";
   if (code === "INVALID_ORDER" || code === "CURRENCY_MISMATCH") return "check_applied"; // refused while applying the parts in memory, whatever capability ran before
@@ -571,7 +571,7 @@ export async function editConfiguredOrder(input: EditOrderInput, access: OrderAc
     saveOrderCustomer: (id, companyId, buyer) => { observed.stage = "save_customer"; return saveOrderCustomer(id, companyId, buyer); },
     saveDelivery: (id, companyId, change) => { observed.stage = "save_delivery"; return saveDelivery(id, companyId, change); },
     publishStockEvent: (payload) => { observed.stage = "deduct_stock"; return timed(() => publishStockEvent("order_edited", payload), (ms) => { observed.deductStockMs = ms; }); },
-    publishStockIncreased: (variantIds) => publishStockEvent("product_stock_increased", { companyId: access.companyId, variantIds }),
+    publishStockIncreased: (variantIds) => { observed.stage = "restock"; return publishStockEvent("product_stock_increased", { companyId: access.companyId, variantIds }); },
     findVariantStock,
     newItemId: () => randomUUID() as OrderItemId,
   });

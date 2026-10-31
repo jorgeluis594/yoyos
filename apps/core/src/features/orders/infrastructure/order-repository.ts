@@ -214,7 +214,7 @@ export async function savePendingOrder(order: OrderAggregate, source?: OrderChat
       inserting = item.variantId;
       await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, companyId: order.companyId, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
-        stockDeductedQuantity: BigInt(item.stockDeductedQuantity ?? (order.stockDeducted ? item.quantity : 0)),
+        stockDeductedQuantity: BigInt(item.stockDeductedQuantity),
         unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()),
         ...mentionedPriceColumns(item.mentionedPrice) } });
     }
@@ -957,13 +957,15 @@ export async function lockOrdersSkipLocked(ids: readonly OrderId[], companyId: C
 
 /**
  * One statement; returns how many orders it marked. Every item of those orders ends at its full quantity. A deduction time already stored (the first deduction) is never moved.
- * The caller planned under the order lock, so an order that is already deducted here is one whose pending lines were just taken.
+ * Like `saveStockDeduction`, an order already deducted with no pending line is not marked again, so a repeated mark answers 0.
  */
 export async function saveStockDeductions(ids: readonly OrderId[], companyId: CompanyId, stockDeductedAt: Date): Promise<Result<number, TransactionEndingError | ContainedFailure>> {
   requireActiveTransaction(companyId);
   try {
     return ok(await prisma.$executeRaw`WITH marked AS (UPDATE "Order" SET "stockDeducted" = true, "stockDeductedAt" = COALESCE("stockDeductedAt", ${stockDeductedAt}::timestamptz)
-      WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[]) RETURNING id),
+      WHERE "companyId" = ${companyId}::uuid AND id = ANY(${[...ids]}::uuid[])
+        AND (NOT "stockDeducted" OR EXISTS (SELECT 1 FROM "OrderItem" u WHERE u."companyId" = "Order"."companyId" AND u."orderId" = "Order".id AND u."stockDeductedQuantity" < u.quantity))
+      RETURNING id),
       settled AS (UPDATE "OrderItem" i SET "stockDeductedQuantity" = i.quantity FROM marked WHERE i."companyId" = ${companyId}::uuid AND i."orderId" = marked.id AND i."stockDeductedQuantity" <> i.quantity RETURNING i.id)
       SELECT 1 FROM marked`);
   } catch (cause) { return err(persistenceFailureResult(cause, "Unable to save stock deductions")); }

@@ -217,6 +217,40 @@ test("the pending units of a deducted order are taken when the stock comes back"
   }, { traje: 5, deadpool: 1 });
 });
 
+/** Adds stock straight in the table: no event is published, so no listener takes the pending units. */
+const restockSilently = (s: Shop, variantId: VariantId, quantity: number) => s.run(() => prisma.productStock.update({ where: { variantId }, data: { quantity: { increment: BigInt(quantity) } } }));
+
+test("shipping a deducted order with a pending part takes only that part", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);
+    unwrap(await s.pay(id, 209));
+    unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }));
+    expect(await s.stock(s.deadpool)).toBe(0);
+    await restockSilently(s, s.deadpool, 5);
+    expect(unwrap(await s.run(() => orders.ship(id, s.context)))).toMatchObject({ deliveryStatus: "shipped" });
+    expect(await s.stock(s.deadpool)).toBe(3);
+    expect(await s.stock(s.trajeS)).toBe(4);
+    expect((await deducted(s, id)).map(([, quantity, units]) => [quantity, units]).sort()).toEqual([[1, 1], [3, 3]]);
+  }, { traje: 5, deadpool: 1 });
+});
+
+test("delivering through PATCH /shipping takes the pending part, or fails short and persists nothing", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);
+    unwrap(await s.pay(id, 209));
+    unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }));
+    unwrap(await s.pay(id, 240));
+    const short = await s.run(() => orders.updateShipping({ orderId: id, status: "delivered" }, s.context));
+    expect(short).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+    expect((await s.load(id)).order.deliveryStatus).toBe("pending");
+    expect(await s.stock(s.deadpool)).toBe(0);
+    await restockSilently(s, s.deadpool, 2);
+    expect(unwrap(await s.run(() => orders.updateShipping({ orderId: id, status: "delivered" }, s.context)))).toMatchObject({ deliveryStatus: "delivered" });
+    expect(await s.stock(s.deadpool)).toBe(0);
+    expect((await deducted(s, id)).map(([, quantity, units]) => [quantity, units]).sort()).toEqual([[1, 1], [3, 3]]);
+  }, { traje: 5, deadpool: 1 });
+});
+
 test("two simultaneous edits of a deducted order leave the stock consistent with the winning lines", async () => {
   await inShop(async (s) => {
     const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);

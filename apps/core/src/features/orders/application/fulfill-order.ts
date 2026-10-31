@@ -4,7 +4,7 @@ import { orderStateMachine, type OrderAggregate, type FulfillmentChange, type Or
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
-import { deductedOf, parseStockQuantity, type StockLine } from "@core/src/features/orders/domain/stock-deduction";
+import { parseStockQuantity, type StockLine } from "@core/src/features/orders/domain/stock-deduction";
 
 export type FulfillOrderError = OrderDomainError | Readonly<{ code: "ORDER_NOT_FOUND" | "INSUFFICIENT_STOCK" | "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string; variantId?: string }>;
 export type FulfillOrderDependencies = Readonly<{
@@ -21,7 +21,7 @@ export type FulfillOrderDependencies = Readonly<{
 /** The units of the order still to take out of the stock: all of it before the deduction, only the part an edit added that did not fit after it. */
 export function pendingStockLines(order: OrderAggregate): StockLine[] {
   return order.items.flatMap((item): StockLine[] => {
-    const pending = item.quantity - deductedOf(order, item);
+    const pending = item.quantity - item.stockDeductedQuantity;
     return pending > 0 ? [{ variantId: item.variantId, quantity: pending as StockLine["quantity"] }] : [];
   });
 }
@@ -54,6 +54,14 @@ export async function shipOrder(order: OrderAggregate, shippedAt: Date, deps: Fu
   return orderStateMachine.registerShipment(plan.data.nextOrder, shippedAt);
 }
 
+/** Delivering takes out the units an edit left pending, like shipping does; short stock fails and the surrounding transaction persists nothing. */
+export async function deliverOrder(order: OrderAggregate, deliveredAt: Date, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
+  const delivered = orderStateMachine.registerDelivery(order, deliveredAt);
+  if (!delivered.success) return delivered;
+  const deducted = await deductPendingStock(order, deliveredAt, deps);
+  return deducted.success ? delivered : deducted;
+}
+
 export async function registerShipment(id: OrderId, context: OrderAccess, deps: FulfillOrderDependencies): Promise<Result<OrderAggregate, FulfillOrderError>> {
   return deps.transaction(context.companyId, async () => {
     const found = await deps.findOrderForUpdate(id, context.companyId);
@@ -71,11 +79,8 @@ export async function registerDelivery(id: OrderId, context: OrderAccess, deps: 
     const found = await deps.findOrderForUpdate(id, context.companyId);
     if (!found.success) return found;
     if (!found.data) return err({ code: "ORDER_NOT_FOUND", message: "Order is not available" });
-    const delivered = orderStateMachine.registerDelivery(found.data, deps.clock());
+    const delivered = await deliverOrder(found.data, deps.clock(), deps);
     if (!delivered.success) return delivered;
-    // An edit may have left units pending: delivering takes them out like shipping does, or fails with the short-stock answer.
-    const deducted = await deductPendingStock(found.data, deps.clock(), deps);
-    if (!deducted.success) return deducted;
     const saved = await deps.saveFulfillment(id, context.companyId, delivered.data);
     return saved.success ? delivered : saved;
   });
