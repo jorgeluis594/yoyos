@@ -167,7 +167,7 @@ describe("OrderDeliveryCard", () => {
     expect(document.body.textContent).toContain("Costo de entrega (interno)");
   });
 
-  test("offers Marcar como entregado al guardar only on a new sale and marks it when payments do not cover", async () => {
+  test("offers Marcar como entregado al guardar only on a new sale and marks it until there is a payment", async () => {
     const start = newState();
     const line = { variantId: "00000000-0000-4000-8000-0000000000a1", productName: "Corona", attributes: {}, sku: null, unitPrice: pen(35), quantityText: "1", stock: 5, sellable: true };
     await mount({ ...start, draft: { ...start.draft, items: [line] } });
@@ -175,7 +175,7 @@ describe("OrderDeliveryCard", () => {
     expect(box).not.toBeNull();
     await act(async () => { box.click(); });
     expect(latest.draft.deliverImmediately).toBe(true);
-    expect(document.body.textContent).toContain("Para marcarlo entregado, los pagos deben cubrir el total.");
+    expect(document.body.textContent).toContain("Para marcarlo entregado, registra al menos un pago. Puede ser un pago parcial.");
     act(() => root!.unmount());
     document.body.innerHTML = "";
     await mount(savedState());

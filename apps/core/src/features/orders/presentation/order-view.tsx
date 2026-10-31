@@ -269,7 +269,7 @@ export function OrderView(props: OrderViewProps) {
           onChange={(customer) => change(setCustomer(state, customer))} onRemove={() => change(clearCustomer(state))} />
       </div>
       <div className="flex min-w-0 flex-col gap-6 max-xl:contents">
-        {saved?.statusCard && <div className="min-w-0 max-xl:order-3">{saved.statusCard}</div>}
+        {saved?.statusCard && <div className="min-w-0 max-xl:-order-1">{saved.statusCard}</div>}
         {saved && order ? <OrderLinkCard state={orderLinkState(order)} link={saved.link} /> : <OrderLinkCard pendingSave state={null} link={{ kind: "unavailable" }} />}
         <div className="min-w-0 max-xl:order-5">
           <OrderDeliveryCard state={state} settings={settings} invalid={deliveryMarks} settingsHref={links.deliverySettings} onChange={setDelivery}

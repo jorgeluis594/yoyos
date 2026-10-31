@@ -259,6 +259,13 @@ describe("invalid fields", () => {
       payments: [{ paymentId: "p1", amount: "20.505", method: "digital_wallet", walletProvider: "yape", deductStockIfPartial: false }] } };
     expect(invalidFields(state)).toMatchObject([{ section: "payments", field: "amount", id: "p1" }, { section: "delivery", field: "deliverImmediately", reason: "deliver_needs_payment" }]);
   });
+
+  test("deliver on save needs one payment, and a partial one is enough", () => {
+    const base = initialDraft({ kind: "new", orderId, currency: "PEN" });
+    const withPayments = (payments: OrderViewState["draft"]["payments"]) => ({ ...base, draft: { ...base.draft, items: [newLine(crown, "2")], deliverImmediately: true, payments } });
+    expect(invalidFields(withPayments([]))).toMatchObject([{ section: "delivery", field: "deliverImmediately", reason: "deliver_needs_payment" }]);
+    expect(invalidFields(withPayments([{ paymentId: "p1", amount: "1.00", method: "digital_wallet", walletProvider: "yape", deductStockIfPartial: false }]))).toEqual([]);
+  });
 });
 
 describe("estimate", () => {

@@ -392,7 +392,7 @@ const es = {
       incompleteNew: "Completa la entrega o elige Por definir.", incompleteSaved: "Completa la entrega o descarta sus cambios.",
       recipient: "Destinatario", sameAsCustomer: "Igual que el cliente", internalCost: "Costo de entrega (interno)", chosenByBuyer: "Elegida por el comprador",
       lockedShipped: "La entrega ya salió; no se puede cambiar.", lockedDelivered: "El pedido ya se entregó; la entrega no se puede cambiar.",
-      coverPayments: "Para marcarlo entregado, los pagos deben cubrir el total.", noStock: "No hay stock suficiente para uno de los productos.",
+      coverPayments: "Para marcarlo entregado, registra al menos un pago. Puede ser un pago parcial.", noStock: "No hay stock suficiente para uno de los productos.",
       priceChanged: "El precio de la entrega cambió a {{amount}}. Revísalo y guarda de nuevo.", unavailable: "Esa opción de entrega ya no está disponible. Elige otra.",
     },
     discard: {
@@ -808,7 +808,7 @@ const pt = {
       incompleteNew: "Complete a entrega ou escolha A definir.", incompleteSaved: "Complete a entrega ou descarte suas alterações.",
       recipient: "Destinatário", sameAsCustomer: "Igual ao cliente", internalCost: "Custo de entrega (interno)", chosenByBuyer: "Escolhida pelo comprador",
       lockedShipped: "A entrega já saiu; não pode ser alterada.", lockedDelivered: "O pedido já foi entregue; a entrega não pode ser alterada.",
-      coverPayments: "Para marcar como entregue, os pagamentos devem cobrir o total.", noStock: "Não há estoque suficiente para um dos produtos.",
+      coverPayments: "Para marcar como entregue, registre pelo menos um pagamento. Pode ser um pagamento parcial.", noStock: "Não há estoque suficiente para um dos produtos.",
       priceChanged: "O preço da entrega mudou para {{amount}}. Revise e salve novamente.", unavailable: "Essa opção de entrega não está mais disponível. Escolha outra.",
     },
     discard: {

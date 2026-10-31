@@ -30,7 +30,7 @@ Success, in-doubt and check messages show in a status line under the header and 
 | Situation | What the user sees | What they can do |
 | --- | --- | --- |
 | **Guardar venta**: a variant is no longer available | The line marked «L / Azul ya no está disponible.»; everything else intact | Remove or change the line |
-| **Guardar venta** with «Marcar como entregado al guardar» and payments that do not cover the total | The checkbox marked «Para marcarlo entregado, los pagos deben cubrir el total.» with focus; nothing saved | Add a payment or uncheck it |
+| **Guardar venta** with «Marcar como entregado al guardar» and no confirmed payment | The checkbox marked «Para marcarlo entregado, registra al menos un pago. Puede ser un pago parcial.» with focus; nothing saved | Add a payment (a partial one is enough) or uncheck it |
 | **Guardar venta** with «Marcar como entregado al guardar» and short stock | «No hay stock suficiente para uno de los productos.»; nothing saved | Uncheck it or lower the quantity |
 | Delivery price changed (`TOTAL_CHANGED`) | The rate marked «El precio de la entrega cambió a S/ 12.00. Revísalo y guarda de nuevo.»; the delivery is quoted again at the new price without choosing the district again; nothing saved, every edit intact | Review the price and save again |
 | Rate or agency no longer available | The delivery marked «Esa opción de entrega ya no está disponible. Elige otra.»; the delivery is quoted again; nothing saved | Choose another option, or **Por definir** when the order has no delivery |
@@ -125,7 +125,7 @@ A late response from an earlier attempt does not change the screen.
 
 ## Estado del pedido
 
-Saved orders only, at the top of the right column (after «Cliente» on narrow screens). Title «Estado del pedido», the delivery modality as subtitle («Entrega a domicilio», «Entrega por agencia», «Recojo en tienda», «Entrega por definir» without delivery) and a badge (Pendiente, Enviado, Entregado, Cancelado). Component: `order-status-card.tsx`.
+Saved orders only, at the top of the right column (right after the header on narrow screens, before «Productos»). Title «Estado del pedido», the delivery modality as subtitle («Entrega a domicilio», «Entrega por agencia», «Recojo en tienda», «Entrega por definir» without delivery) and a badge (Pendiente, Enviado, Entregado, Cancelado). Component: `order-status-card.tsx`.
 
 - **Stepper** (ordered list, `aria-current="step"` on the current step): Pendiente → Enviado → Entregado, or Pendiente → Entregado for store pickup; a cancelled order shows Pendiente → Cancelado with a red connector. Each reached step shows its date («Hoy 09:10» today, «29 oct» otherwise, Lima time); a delivery made straight from pending shows «Enviado» done without a date.
 - **Actions** (only what the backend supports): pending with shipping, **Marcar enviado** plus the links **Entregar directamente** and **Cancelar pedido**; pending store pickup, **Marcar entregado** and **Cancelar pedido**; shipped, **Marcar entregado** alone. Delivered shows «Entregado a <destinatario> el 30 oct, 16:40.»; cancelled shows «Pedido cancelado el 29 oct, 18:40.» plus «El stock de los productos se devolvió al inventario.» when the order had its stock deducted. There is no undo, back-to-pending or reopen.
