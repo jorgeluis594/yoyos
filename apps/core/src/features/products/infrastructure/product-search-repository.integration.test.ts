@@ -162,6 +162,14 @@ test("lists the sizes of a store as S, M, L and finds a value written with a col
   expect((await pageOf(id, { values: ["Talla: 3:4", "rojo"] })).items[0]?.matching?.variants.map((line) => line.values)).toEqual([["3:4", "Rojo"]]);
 });
 
+test("answers an empty page for values in a store without products and the no-options rejection in one without options", async () => {
+  const empty = await newStore();
+  expect(await pageOf(empty, { values: ["Azul"], priceFromCents: 1000 })).toMatchObject({ items: [], total: 0, storeHasProducts: false });
+  const plain = await newStore();
+  await seed(plain, { name: "Llavero", variants: [{ salePrice: 5, stock: 3 }] });
+  expect(await search(plain, { values: ["Azul"] })).toMatchObject({ success: false, error: { code: "VALUE_REJECTED", rejection: { kind: "no_options" } } });
+});
+
 test("finds the variant and product of a SKU in one lookup", async () => {
   const found = await find(store, { by: "sku", sku: "pol-m-az " });
   expect(found.success && found.data?.product.id).toBe(poloId);

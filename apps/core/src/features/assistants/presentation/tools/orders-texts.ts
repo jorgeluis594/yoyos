@@ -24,6 +24,7 @@ export function readinessText(readiness: ProjectableReadiness, shortItems: reado
 }
 
 export const pendingReportSentence = "Tiene un pago por revisar.";
+export const orderReadFailureMessage = "No pudimos leer tus pedidos en este momento. Inténtalo de nuevo en unos segundos.";
 export const noOrderMessage = (number: number) => `No hay un pedido #${number} en tu tienda.`;
 export const noMatchesMessage = "No hay pedidos con esos filtros.";
 export const noOrdersMessage = "Tu tienda todavía no tiene pedidos.";

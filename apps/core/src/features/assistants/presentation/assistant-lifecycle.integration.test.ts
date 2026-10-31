@@ -173,12 +173,12 @@ afterAll(async () => {
   await systemPrisma.$disconnect();
 });
 
-test("lists the four order tools for a connected store", async () => {
+test("lists the four order tools and the two product tools for a connected store", async () => {
   const rosa = await createOwner("Rosa");
   const token = await connectAgent(rosa, await registerClient());
   const response = await readRpc(await mcp(token, rpc("tools/list")));
   const tools = response.result.tools as { name: string; annotations: Record<string, boolean> }[];
-  expect(tools.map((tool) => tool.name).sort()).toEqual(["buscar_pedidos", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "ver_pedido"]);
+  expect(tools.map((tool) => tool.name).sort()).toEqual(["buscar_pedidos", "buscar_productos", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "ver_pedido", "ver_producto"]);
   for (const tool of tools) expect(tool.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
 });
 
@@ -203,7 +203,7 @@ test("hides an orders-only connection from the list, ends it on its next call an
   expect((await authorizeLocation(clientId, rosa.cookie)).pathname).toBe("/assistants/authorize");
 });
 
-test("re-authorizes an agent registered before products with its own client", async () => {
+test("re-authorizes an agent registered before products with its own client and lists six tools", async () => {
   const rosa = await createOwner("Rosa");
   const clientId = await registerClient();
   await connectAgent(rosa, clientId);
@@ -214,7 +214,7 @@ test("re-authorizes an agent registered before products with its own client", as
   expect(rows[0]!.scopes.toSorted()).toEqual(["orders:read", "products:read"]);
   expect((await systemPrisma.oauthClient.findUniqueOrThrow({ where: { clientId } })).scopes.toSorted()).toEqual(["offline_access", "orders:read", "products:read"]);
   const tools = (await readRpc(await mcp(token, rpc("tools/list")))).result.tools as { name: string }[];
-  expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["buscar_pedidos", "ver_pedido"]));
+  expect(tools.map((tool) => tool.name).sort()).toEqual(["buscar_pedidos", "buscar_productos", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "ver_pedido", "ver_producto"]);
 });
 
 test("revokes the old grant's refresh tokens when an orders-only connection is re-authorized before its next call", async () => {

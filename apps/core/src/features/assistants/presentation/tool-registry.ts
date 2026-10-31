@@ -21,6 +21,7 @@ export const annotationsOf = (access: ToolModule["access"]): ToolAnnotations => 
 type JsonSchema = Record<string, unknown>;
 export type ToolDefinition = Readonly<{
   scope: AssistantScope;
+  readFailureMessage: string;
   tool: RegisteredTool<unknown, unknown>;
   annotations: ToolAnnotations;
   inputJsonSchema: JsonSchema;
@@ -48,7 +49,7 @@ export function buildToolDefinitions(modules: readonly ToolModule[]): readonly T
       if (!toolNamePattern.test(tool.name)) throw new Error(`Invalid tool name: ${tool.name}`);
       if (names.has(tool.name)) throw new Error(`Repeated tool name: ${tool.name}`);
       names.add(tool.name);
-      return { scope: module.scope, tool, annotations, inputJsonSchema: jsonSchemaOf(tool.inputSchema, "input"), outputJsonSchema: jsonSchemaOf(tool.outputSchema, "output") };
+      return { scope: module.scope, readFailureMessage: module.readFailureMessage, tool, annotations, inputJsonSchema: jsonSchemaOf(tool.inputSchema, "input"), outputJsonSchema: jsonSchemaOf(tool.outputSchema, "output") };
     });
   });
 }
@@ -62,7 +63,6 @@ export type ToolRegistryOptions = Readonly<{
   now: () => number;
 }>;
 
-export const readFailureMessage = "No pudimos leer tus pedidos en este momento. Inténtalo de nuevo en unos segundos.";
 export const limitMessage = (limit: number, seconds: number) =>
   `Llegaste al límite de ${limit} consultas por minuto de tu tienda. No reintentes antes de ${seconds} segundos.`;
 
@@ -88,7 +88,7 @@ export function createToolRegistry(options: ToolRegistryOptions): ToolRegistry {
         const checked = definition.tool.outputSchema.safeParse(answer.output);
         if (!checked.success) {
           log.error({ event: "assistant_tool_failed", companyId: access.companyId, connectionId: access.connectionId, tool: definition.tool.name, errorCode: "INVALID_TOOL_OUTPUT" }, "assistant_tool_failed");
-          return errorResult(readFailureMessage);
+          return errorResult(definition.readFailureMessage);
         }
         return { content: [{ type: "text", text: JSON.stringify(checked.data) }], structuredContent: checked.data as Record<string, unknown> };
       }
@@ -101,7 +101,7 @@ export function createToolRegistry(options: ToolRegistryOptions): ToolRegistry {
         if (answer.cause !== undefined) {
           log.error({ event: "assistant_tool_failed", companyId: access.companyId, connectionId: access.connectionId, tool: definition.tool.name, errorCode: "UNEXPECTED_ERROR", err: answer.cause }, "assistant_tool_failed");
         }
-        return errorResult(answer.message ?? readFailureMessage);
+        return errorResult(answer.message ?? definition.readFailureMessage);
     }
   }
 
@@ -155,7 +155,10 @@ export function checkToolModules(modules: readonly ToolModule[]): string[] {
   const checkLanguage = (where: string, text: string) => {
     for (const { phrase, message } of languageViolations) if (plain(text).includes(phrase)) violations.push(`${where} contains «${phrase === "en espanol" ? "en español" : phrase}» and ${message}.`);
   };
-  for (const module of modules) checkLanguage(`Module of scope ${module.scope}:`, module.instructions);
+  for (const module of modules) {
+    checkLanguage(`Module of scope ${module.scope}:`, module.instructions);
+    if (module.readFailureMessage.trim() === "") violations.push(`Module of scope ${module.scope}: needs a reading-failure message.`);
+  }
   let definitions: readonly ToolDefinition[] = [];
   // The tools of a module that is not read are checked too, as if it were.
   try { definitions = buildToolDefinitions(modules.map((module) => ({ ...module, access: "read" as const }))); } catch (cause) { violations.push(String(cause instanceof Error ? cause.message : cause)); }

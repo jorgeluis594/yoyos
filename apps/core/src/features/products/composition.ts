@@ -42,6 +42,8 @@ import type { AppError, Result } from "@shared/result";
 import { searchForAssistant, type AssistantProductSearch } from "@core/src/features/products/application/search-for-assistant";
 import { findForAssistant, type AssistantProductReference } from "@core/src/features/products/application/find-for-assistant";
 import { assistantSnapshot, type AssistantReadError, type AssistantReadOperation } from "@core/src/features/products/infrastructure/assistant-read";
+
+export type { AssistantReadOperation };
 import { findSkuOwner, readVocabulary, searchPage } from "@core/src/features/products/infrastructure/product-search-repository";
 import { readProductInSnapshot } from "@core/src/features/products/infrastructure/repository";
 

@@ -12,7 +12,7 @@ import {
 import { display as defaultDisplay } from "@core/src/features/assistants/presentation/display";
 import {
   ambiguousCourierMessage, dateFormatMessage, dispatchSummaryLine, dispatchTodayDescription, moreLine, noDispatchMessage, noMatchesMessage, noOrderMessage, noOrdersMessage,
-  noUnpaidMessage, orderToolsInstructions, pendingReportsLine, readinessText, reversedRangeMessage, searchOrdersDescription, todayLine, undatedLine,
+  noUnpaidMessage, orderReadFailureMessage, orderToolsInstructions, pendingReportsLine, readinessText, reversedRangeMessage, searchOrdersDescription, todayLine, undatedLine,
   unknownCourierMessage, unpaidOrdersDescription, unpaidSummaryLine, viewOrderDescription,
 } from "@core/src/features/assistants/presentation/tools/orders-texts";
 
@@ -220,7 +220,7 @@ export function createOrderToolsModule(deps: OrderToolsDependencies, options: Or
     },
   };
 
-  return { scope: "orders:read", access: "read", instructions: orderToolsInstructions, tools: [searchOrders, viewOrder, unpaidOrders, dispatchToday] };
+  return { scope: "orders:read", access: "read", instructions: orderToolsInstructions, readFailureMessage: orderReadFailureMessage, tools: [searchOrders, viewOrder, unpaidOrders, dispatchToday] };
 }
 
 // Sample outputs for the static validator: maximum-length texts, so the 24 KB budget is checked on realistic worst cases.
