@@ -630,6 +630,8 @@ model OrderItem {
   subtotal Decimal @db.Decimal(15, 2)
   mentionedPriceAmount Decimal? @db.Decimal(11, 2)
   mentionedPriceUnits Int?
+  /// Units of this line already taken out of the variant's stock; never above `quantity`. The cancellation returns exactly this.
+  stockDeductedQuantity BigInt @default(0)
 
   @@unique([companyId, orderId, variantId])
   @@index([companyId, variantId])
