@@ -86,6 +86,6 @@ describe("resumen_de_ventas", () => {
 
   test("describes the meaning of each figure, the next-step tools with the creation dates, Yape and Plin, the open period and the web remedy", () => {
     const { tool } = setup();
-    for (const phrase of ["creación", "buscar_pedidos", "creado_desde", "pedidos_por_cobrar", "Yape", "Plin", "Billetera digital", "sigue abierto", "desde la web"]) expect(tool.description).toContain(phrase);
+    for (const phrase of ["creación", "buscar_pedidos", "creado_desde", "pedidos_por_cobrar", "Yape", "Plin", "Billetera digital", "sigue abierto", "desde la web", "mismos días del mes anterior"]) expect(tool.description).toContain(phrase);
   });
 });

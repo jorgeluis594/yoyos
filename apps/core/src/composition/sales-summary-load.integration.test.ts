@@ -1,3 +1,6 @@
+import { appendFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import pg from "pg";
 import { Prisma } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -15,6 +18,10 @@ const scale = Number(process.env.SALES_LOAD_SCALE ?? 1);
 const dryRun = scale < 1;
 const orderIndex = "Order_companyId_createdAt_id_key";
 const halfStatementBudgetMs = 750;
+
+// Vitest hides console output of passing tests, so every measurement is also appended to a file and its path is written to stderr at the end.
+const reportPath = process.env.SALES_LOAD_REPORT ?? join(tmpdir(), "sales-summary-load-report.jsonl");
+const record = (entry: Record<string, unknown>) => { console.info(JSON.stringify(entry)); appendFileSync(reportPath, `${JSON.stringify(entry)}\n`); };
 
 let admin: pg.Client;
 let fixture: SalesLoadFixture;
@@ -57,13 +64,13 @@ describe.skipIf(!salesLoadEnabled)("the sales summary on the history fixture", (
     await admin.end();
   }, 3_600_000);
 
-  test("a 366-day summary of the worst case-2 shape reads figures within half the statement budget on four years of history with other companies' rows", async () => {
+  test("a 366-day summary of the worst case-2 shape (366 days against 366 days, 732 days of orders) reads figures within half the statement budget on four years of history with other companies' rows", async () => {
     const { current, previous } = fixture.windows.worstSummary;
     const input = windows(current, previous);
     const statement = await explain(fixture.store.companyId, input);
     const first = await callMs(fixture.store.companyId, input);
     const repeated = await best(3, () => callMs(fixture.store.companyId, input));
-    console.info(JSON.stringify({ worstSummary366Days: { statementMs: Math.round(statement.time), firstCallMs: Math.round(first), repeatedCallMs: Math.round(repeated), indexes: statement.indexes } }));
+    record({ worstSummary366Days: { statementMs: Math.round(statement.time), firstCallMs: Math.round(first), repeatedCallMs: Math.round(repeated), indexes: statement.indexes, buffersHit: statement.hit, buffersRead: statement.read } });
     if (!dryRun) {
       // The call includes the statement and what the tool waits for; `statementMs` (EXPLAIN ANALYZE) carries per-node timing overhead and is only recorded.
       expect(first).toBeLessThanOrEqual(halfStatementBudgetMs);
@@ -81,7 +88,7 @@ describe.skipIf(!salesLoadEnabled)("the sales summary on the history fixture", (
     };
     const fourYears = await measure(fixture.store.companyId);
     const oneYear = await measure(fixture.oneYearStore.companyId);
-    console.info(JSON.stringify({ summary30Days: { fourYearsMs: Math.round(fourYears), oneYearMs: Math.round(oneYear) } }));
+    record({ summary30Days: { fourYearsMs: Math.round(fourYears), oneYearMs: Math.round(oneYear), limitMs: Math.round(oneYear * 1.5 + 50) } });
     if (!dryRun) expect(fourYears).toBeLessThanOrEqual(oneYear * 1.5 + 50);
   }, 600_000);
 
@@ -97,7 +104,8 @@ describe.skipIf(!salesLoadEnabled)("the sales summary on the history fixture", (
       const repeated = await explain(fixture.store.companyId, input);
       rows[name] = { firstMs: Math.round(first.time), repeatedMs: Math.round(repeated.time), buffersHit: repeated.hit, buffersRead: first.read, indexes: first.indexes };
     }
-    console.info(JSON.stringify({ salesSummaryStatements: rows }));
+    record({ salesSummaryStatements: rows });
+    process.stderr.write(`sales summary load report: ${reportPath}\n`);
     expect(Object.keys(rows)).toHaveLength(3);
   }, 600_000);
 });

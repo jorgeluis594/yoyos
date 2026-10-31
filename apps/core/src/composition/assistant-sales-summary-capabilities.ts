@@ -1,6 +1,6 @@
 import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { walletProviderLabel, walletProviderSchema } from "@shared/wallet-providers";
+import { walletProviderLabel } from "@shared/wallet-providers";
 import { orders } from "@core/src/features/orders";
 import { catalogStorefront } from "@core/src/features/catalog";
 import type { SalesFigures, SalesSummary } from "@core/src/features/orders/application/summarize-sales";
@@ -12,8 +12,7 @@ import { salesRead } from "@core/src/composition/assistant-sales-capabilities";
 /** «Yape», «Plin» or the wallets of the country's catalog; «Transferencia bancaria» for a transfer; a wallet payment without a known provider has its own label. */
 function methodLabel({ method, walletProvider }: SalesFigures["receivedBy"][number]): string {
   if (method === "bank_transfer") return "Transferencia bancaria";
-  const provider = walletProviderSchema.safeParse(walletProvider);
-  return provider.success ? walletProviderLabel(provider.data) : "Billetera digital sin especificar";
+  return walletProvider === null ? "Billetera digital sin especificar" : walletProviderLabel(walletProvider);
 }
 
 const figuresOf = (figures: SalesFigures): ProjectableFigures => ({
