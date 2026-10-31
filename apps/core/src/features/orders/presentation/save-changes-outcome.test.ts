@@ -71,6 +71,12 @@ describe("a refused save_changes", () => {
     expect(kept.notice).toMatchObject({ text: "Este producto ya no se vende; puedes bajar la cantidad o quitarlo.", focus: `order-line-${trajeM}` });
   });
 
+  test("tells the seller the customer of a buyer-confirmed order cannot be left empty and keeps the edits", () => {
+    const outcome = saveChangesOutcome(edited(), refuse("CUSTOMER_REQUIRED"), context);
+    expect(outcome.notice).toMatchObject({ kind: "alert", focus: "customer-name", text: "El comprador confirmó este pedido con sus datos. Puedes cambiar el cliente, pero no dejarlo vacío." });
+    expect(unsavedParts(outcome.state)).toEqual(["items"]);
+  });
+
   test("answers persistence, business and malformed errors with generic texts that keep the edits", () => {
     expect(saveChangesOutcome(edited(), refuse("PERSISTENCE_UNAVAILABLE"), context).notice)
       .toMatchObject({ kind: "alert", text: "No se pudieron guardar los cambios. Revisa tu conexión e inténtalo de nuevo." });

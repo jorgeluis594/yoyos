@@ -141,6 +141,29 @@ test("rolls the edit back when the listener could not settle the stock of a dedu
   expect(await editOrder(input, access, deps)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
 });
 
+test("refuses clearing the customer of a buyer-confirmed order and writes nothing", async () => {
+  const confirmed = order({ checkoutEnabledAt: at, checkoutConfirmedAt: at });
+  const { deps, writes, publishStockEvent } = dependencies({ current: confirmed });
+  expect(await editOrder(request(confirmed, { customer: { value: null } }), access, deps)).toMatchObject({ success: false, error: { code: "CUSTOMER_REQUIRED" } });
+  expect(writes).toEqual([]);
+  expect(publishStockEvent).not.toHaveBeenCalled();
+});
+
+test("refuses the whole edit when it clears the customer of a buyer-confirmed order, even with other parts", async () => {
+  const confirmed = order({ checkoutEnabledAt: at, checkoutConfirmedAt: at });
+  const { deps, writes } = dependencies({ current: confirmed });
+  expect(await editOrder(request(confirmed, { items: { lines: deadpoolTwo }, customer: { value: null } }), access, deps)).toMatchObject({ success: false, error: { code: "CUSTOMER_REQUIRED" } });
+  expect(writes).toEqual([]);
+});
+
+test("changes the customer of a buyer-confirmed order to another customer", async () => {
+  const confirmed = order({ checkoutEnabledAt: at, checkoutConfirmedAt: at });
+  const { deps, writes } = dependencies({ current: confirmed });
+  expect(await editOrder(request(confirmed, { customer: { value: { name: "Marta", phone: "+51999000111" } } }), access, deps))
+    .toMatchObject({ success: true, data: { applied: ["customer"], order: { buyer: { name: "Marta", phone: "+51999000111" } } } });
+  expect(writes).toEqual(["customer"]);
+});
+
 test("saves only the customer of a shipped order", async () => {
   const loaded = order();
   const shipped = order({ deliveryStatus: "shipped", shippedAt: at, stockDeducted: true, stockDeductedAt: at });

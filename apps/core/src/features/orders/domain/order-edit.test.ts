@@ -91,6 +91,27 @@ describe("isApplied", () => {
   });
 });
 
+describe("checkCustomerRequired", () => {
+  const confirmed = (overrides: Partial<OrderAggregate> = {}) => order({ checkoutEnabledAt: at, checkoutConfirmedAt: at, ...overrides });
+  test("refuses clearing the customer of an order the buyer confirmed", () => {
+    expect(orderEdit.checkCustomerRequired(confirmed(), { customer: { value: null } })).toMatchObject({ success: false, error: { code: "CUSTOMER_REQUIRED" } });
+  });
+
+  test("allows changing the customer of a confirmed order to another one", () => {
+    const luis = { name: "Marta", phone: "+51999000111" } as never;
+    expect(orderEdit.checkCustomerRequired(confirmed(), { customer: { value: luis } })).toEqual({ success: true, data: null });
+  });
+
+  test("allows clearing the customer when the buyer did not confirm", () => {
+    expect(orderEdit.checkCustomerRequired(order(), { customer: { value: null } })).toEqual({ success: true, data: null });
+    expect(orderEdit.checkCustomerRequired(order({ checkoutEnabledAt: at }), { customer: { value: null } })).toEqual({ success: true, data: null });
+  });
+
+  test("has nothing to check when the request does not touch the customer", () => {
+    expect(orderEdit.checkCustomerRequired(confirmed(), { items: { lines: keepAll } })).toEqual({ success: true, data: null });
+  });
+});
+
 describe("checkLocks", () => {
   const all = new Set<OrderPart>(["items", "customer", "delivery"]);
   test("refuses any edit of a cancelled order", () => {

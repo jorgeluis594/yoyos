@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { EditOrderResult } from "@core/src/features/orders/presentation/order-edit-schemas";
 import {
-  applySaveResult, buildCreateRequest, buildEditRequest, clearCustomer, estimate, inDoubtOutcome, initialDraft, invalidFields, isEmptyDraft, lineWarnings,
+  applySaveResult, buildCreateRequest, buildEditRequest, clearCustomer, customerRequired, estimate, inDoubtOutcome, initialDraft, invalidFields, isEmptyDraft, lineWarnings,
   refreshFromLoader, resetProducts, screenLocks, setCustomer, unsavedParts, type DeliveryDraft, type DraftLine, type LoadedOrder, type OrderViewState,
 } from "@core/src/features/orders/presentation/order-view-state";
 
@@ -124,6 +124,22 @@ describe("edit request", () => {
   test("sends a null customer when both fields are emptied", () => {
     const cleared = clearCustomer(savedState());
     expect(expectRequest(buildEditRequest(cleared)).customer).toEqual({ base: revisions.customer, value: null });
+  });
+
+  test("requires the customer of an order confirmed by the buyer, and not of one that was not", () => {
+    const confirmed = savedState({ order: order1042({ checkoutEnabledAt: "2026-10-30T09:10:00.000Z", checkoutConfirmedAt: "2026-10-30T09:15:00.000Z" }) });
+    expect(customerRequired(confirmed)).toBe(true);
+    expect(customerRequired(savedState())).toBe(false);
+    expect(customerRequired(initialDraft({ kind: "new", orderId, currency: "PEN" } as never))).toBe(false);
+  });
+
+  test("keeps clearing the customer a no-op and marks emptied fields on a buyer-confirmed order", () => {
+    const confirmed = savedState({ order: order1042({ checkoutEnabledAt: "2026-10-30T09:10:00.000Z", checkoutConfirmedAt: "2026-10-30T09:15:00.000Z" }) });
+    expect(clearCustomer(confirmed)).toBe(confirmed);
+    const emptied = { ...confirmed, draft: { ...confirmed.draft, customer: { name: "", phone: "" } } };
+    expect(invalidFields(emptied)).toContainEqual({ section: "customer", field: "customerName", reason: "customer_incomplete" });
+    const changed = { ...confirmed, draft: { ...confirmed.draft, customer: { name: "Marta", phone: "+51999000111" } } };
+    expect(invalidFields(changed).filter(mark => mark.section === "customer")).toEqual([]);
   });
 
   test("chooses amend when only the recipient, address or reference changed", () => {

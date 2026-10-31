@@ -530,6 +530,7 @@ const failureCodes = ["PERSISTENCE_UNAVAILABLE", "INVALID_STORED_DATA", "SERVICE
 function editStage(code: string, observed: string): string {
   if (code === "ORDER_CHANGED") return "check_revisions";
   if (code === "ITEMS_LOCKED" || code === "DELIVERY_LOCKED" || code === "ORDER_CANCELLED") return "check_locks";
+  if (code === "CUSTOMER_REQUIRED") return "check_customer";
   if (code === "VARIANT_NOT_FOUND") return "resolve_variants";
   if (code === "INVALID_ORDER" || code === "CURRENCY_MISMATCH") return "check_applied"; // refused while applying the parts in memory, whatever capability ran before
   if (["TOTAL_CHANGED", "RATE_UNAVAILABLE", "DELIVERY_UNAVAILABLE", "DELIVERY_METHOD_DISABLED"].includes(code)) return "resolve_delivery";

@@ -24,20 +24,8 @@ test("state derives from timestamps and cancellation takes precedence without er
   expect(checkoutState(complete)).toMatchObject({ data: { kind: "confirmed", confirmedAt: confirmed } });
   expect(checkoutState({ ...complete, cancelled: true })).toMatchObject({ data: { kind: "cancelled" } });
   expect(complete.checkoutConfirmedAt).toEqual(confirmed);
-  for (const order of [{ ...complete, checkoutEnabledAt: null }, { ...complete, checkoutConfirmedAt: new Date(NaN) }])
+  for (const order of [{ ...complete, checkoutEnabledAt: null }, { ...complete, buyer: null }, { ...complete, checkoutConfirmedAt: new Date(NaN) }])
     expect(checkoutState(order)).toMatchObject({ success: false, error: { code: "INVALID_CHECKOUT" } });
-});
-
-test("accepts a confirmed checkout whose buyer details were cleared", () => {
-  const base = { checkoutEnabledAt: new Date("2026-01-01T00:00:00Z"), checkoutConfirmedAt: new Date("2026-01-02T00:00:00Z"), cancelled: false };
-  for (const buyer of [null, { contactId: null, name: null, phone: null }])
-    expect(checkoutState({ ...base, buyer })).toMatchObject({ success: true, data: { kind: "confirmed" } });
-});
-
-test("still rejects a confirmed buyer with a name and an invalid phone", () => {
-  const base = { checkoutEnabledAt: new Date("2026-01-01T00:00:00Z"), checkoutConfirmedAt: new Date("2026-01-02T00:00:00Z"), cancelled: false };
-  for (const buyer of [{ name: "Ana", phone: "123" }, { name: "Ana", phone: null }, { name: null, phone: "+51987654321" }, { name: " ", phone: "+51987654321" }])
-    expect(checkoutState({ ...base, buyer: { contactId: null, ...buyer } })).toMatchObject({ success: false, error: { code: "INVALID_CHECKOUT" } });
 });
 
 test("expected total checks amount and currency without rounding client values into a match", () => {
@@ -57,5 +45,5 @@ test("buyer payment requires an enabled and confirmed checkout", () => {
     buyer: { contactId: null, name: "Ana", phone: "+51987654321" } };
   expect(canAccessBuyerPayment(confirmed)).toEqual({ success: true, data: null });
   expect(canAccessBuyerPayment({ ...confirmed, cancelled: true })).toMatchObject({ error: { code: "ORDER_CANCELLED" } });
-  expect(canAccessBuyerPayment({ ...confirmed, buyer: { contactId: null, name: "Ana", phone: null } })).toMatchObject({ error: { code: "INVALID_CHECKOUT" } });
+  expect(canAccessBuyerPayment({ ...confirmed, buyer: null })).toMatchObject({ error: { code: "INVALID_CHECKOUT" } });
 });

@@ -42,6 +42,7 @@ export type OrderEditParts = Readonly<{
 export type ItemsPlan = Readonly<{ lookup: readonly VariantId[] }>;
 export type VariantNotFound = Readonly<{ code: "VARIANT_NOT_FOUND"; message: string; variantId: VariantId }>;
 export type ItemsLocked = Readonly<{ code: "ITEMS_LOCKED"; message: string }>;
+export type CustomerRequired = Readonly<{ code: "CUSTOMER_REQUIRED"; message: string }>;
 
 const failure = (code: OrderDomainError["code"], message: string) => err({ code, message });
 
@@ -92,6 +93,13 @@ function checkLocks(order: OrderAggregate, parts: ReadonlySet<OrderPart>): Resul
   if (order.cancelled) return failure("ORDER_CANCELLED", "Order is cancelled");
   const touchesFulfillment = parts.has("items") || parts.has("delivery");
   if (touchesFulfillment && order.deliveryStatus !== "pending") return failure("DELIVERY_LOCKED", "Delivery has progressed");
+  return ok(null);
+}
+
+/** The customer of an order the buyer confirmed can be changed but not cleared: the buyer's own name and phone are part of what they confirmed. */
+function checkCustomerRequired(order: OrderAggregate, input: OrderEditParts): Result<null, CustomerRequired> {
+  if (input.customer?.value === null && order.checkoutConfirmedAt !== null)
+    return err({ code: "CUSTOMER_REQUIRED", message: "The customer of an order confirmed by the buyer cannot be cleared" });
   return ok(null);
 }
 
@@ -162,4 +170,4 @@ function amendDelivery(order: OrderAggregate, amendment: DeliveryAmendment, auth
   return parsed.success ? ok({ ...order, delivery: parsed.data }) : parsed;
 }
 
-export const orderEdit = { isApplied, checkLocks, planItems, applyItems, applyCustomer, amendDelivery } as const;
+export const orderEdit = { isApplied, checkLocks, checkCustomerRequired, planItems, applyItems, applyCustomer, amendDelivery } as const;
