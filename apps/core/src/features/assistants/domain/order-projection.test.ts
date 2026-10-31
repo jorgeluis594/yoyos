@@ -194,3 +194,21 @@ describe("budget", () => {
     expect(full.productos[0]!.producto.endsWith("…")).toBe(true);
   });
 });
+
+describe("pending payment report", () => {
+  test("flags a fully paid order that still has a payment report to review, but not a cancelled one", () => {
+    const payments = [
+      { status: "confirmed" as const, amount: pen(80), method: "digital_wallet" as const, data: { confirmedAt: new Date(), evidence: { kind: "manual" as const } } },
+      { status: "reported" as const, data: { reportedAt: new Date() } },
+    ];
+    expect(toAssistantOrderSummary(order({ payments }), context)).toMatchObject({ estado_pago: "Pagado", pago_por_revisar: true });
+    expect(toAssistantOrderSummary(order({ payments, cancelled: true }), context)).not.toHaveProperty("pago_por_revisar");
+  });
+});
+
+describe("phone-like name predicate", () => {
+  test("is true for six or more digits with spaces, plus, dashes, dots and parentheses, and false otherwise", () => {
+    for (const name of ["987654", "+51 987 654 789", "(01) 987-654", "987.654.789"]) expect(isPhoneLikeName(name), name).toBe(true);
+    for (const name of ["98765", "Carla 987654789", "Local 12", "987654a", "", "٩٨٧٦٥٤"]) expect(isPhoneLikeName(name), name).toBe(false);
+  });
+});

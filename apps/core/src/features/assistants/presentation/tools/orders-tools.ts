@@ -44,17 +44,22 @@ export type OrderToolsDependencies = Readonly<{
   listDispatchQueue: (today: string, page: number, access: AssistantAccess) => Read<DispatchQueueRead>;
 }>;
 
-const day = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, dateFormatMessage).refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value), dateFormatMessage);
-const page = z.number().int("La página debe ser un número entero.").min(1, "La página empieza en 1.").default(1);
+const day = z.string({ error: dateFormatMessage }).regex(/^\d{4}-\d{2}-\d{2}$/, dateFormatMessage).refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value), dateFormatMessage);
+const page = z.number({ error: "La página debe ser un número entero." }).int("La página debe ser un número entero.").min(1, "La página empieza en 1.").default(1);
 
+// Zod words an unknown field in English; the agent gets Spanish, like every other text.
+const unknownField = { error: (issue: { code: string; keys?: string[] }) => issue.code === "unrecognized_keys" ? `No existe el campo ${(issue.keys ?? []).join(", ")}. Usa solo los campos de la herramienta.` : undefined };
 const searchInput = z.strictObject({
-  texto: z.string().trim().max(120).optional(), pago: z.enum(["por cobrar", "pagado"]).optional(), entrega: z.enum(["pendiente", "despachada", "entregada"]).optional(),
-  incluir_cancelados: z.boolean().default(false), courier: z.string().trim().min(1).max(80).optional(),
+  texto: z.string({ error: "texto debe ser un texto." }).trim().max(120, "texto admite como máximo 120 caracteres.").optional(),
+  pago: z.enum(["por cobrar", "pagado"], { error: 'pago admite "por cobrar" o "pagado".' }).optional(),
+  entrega: z.enum(["pendiente", "despachada", "entregada"], { error: 'entrega admite "pendiente", "despachada" o "entregada".' }).optional(),
+  incluir_cancelados: z.boolean({ error: "incluir_cancelados debe ser true o false." }).default(false),
+  courier: z.string({ error: "courier debe ser un texto." }).trim().min(1, "courier no puede estar vacío.").max(80, "courier admite como máximo 80 caracteres.").optional(),
   creado_desde: day.optional(), creado_hasta: day.optional(), despacho_programado_desde: day.optional(), despacho_programado_hasta: day.optional(),
-  sin_fecha_de_despacho: z.boolean().optional(), despachado_desde: day.optional(), despachado_hasta: day.optional(), pagina: page,
-});
-const viewInput = z.strictObject({ numero: z.string().trim().regex(/^#?\d{1,9}$/, "Indica el número del pedido, por ejemplo 1001 o #1001.") });
-const pageInput = z.strictObject({ pagina: page });
+  sin_fecha_de_despacho: z.boolean({ error: "sin_fecha_de_despacho debe ser true o false." }).optional(), despachado_desde: day.optional(), despachado_hasta: day.optional(), pagina: page,
+}, unknownField);
+const viewInput = z.strictObject({ numero: z.string({ error: "Indica el número del pedido, por ejemplo 1001 o #1001." }).trim().regex(/^#?\d{1,9}$/, "Indica el número del pedido, por ejemplo 1001 o #1001.") }, unknownField);
+const pageInput = z.strictObject({ pagina: page }, unknownField);
 
 const text = z.string();
 const summarySchema = z.strictObject({
@@ -112,6 +117,27 @@ const endOf = (value: string | undefined) => (value === undefined ? undefined : 
 const hasMore = (current: number, total: number) => (current * pageSize < total ? moreLine(current + 1) : undefined);
 const withMore = (current: number, total: number) => { const more = hasMore(current, total); return more ? { hay_mas: more } : {}; };
 
+type SearchInput = z.output<typeof searchInput>;
+const deliveryStates = { pendiente: "pending", despachada: "shipped", entregada: "delivered" } as const;
+
+/** Whether the agent narrowed the search: an empty answer to a narrowed search may still belong to a store with orders. */
+const hasFilters = (input: SearchInput): boolean => input.texto !== undefined && input.texto !== "" || input.sin_fecha_de_despacho === true
+  || [input.pago, input.entrega, input.courier, input.creado_desde, input.creado_hasta, input.despacho_programado_desde, input.despacho_programado_hasta,
+    input.despachado_desde, input.despachado_hasta].some((value) => value !== undefined);
+
+function queryOf(input: SearchInput, courierId: string | undefined): SearchOrdersQuery {
+  const createdFrom = startOf(input.creado_desde), createdBefore = endOf(input.creado_hasta);
+  const shippedFrom = startOf(input.despachado_desde), shippedBefore = endOf(input.despachado_hasta);
+  return {
+    page: input.pagina, excludeCancelled: !input.incluir_cancelados,
+    ...(input.texto ? { search: input.texto } : {}), ...(input.pago ? { view: input.pago === "pagado" ? "paid" as const : "unpaid" as const } : {}),
+    ...(input.entrega ? { deliveryStatus: deliveryStates[input.entrega] } : {}), ...(courierId ? { courierId } : {}),
+    ...(createdFrom ? { createdFrom } : {}), ...(createdBefore ? { createdBefore } : {}), ...(shippedFrom ? { shippedFrom } : {}), ...(shippedBefore ? { shippedBefore } : {}),
+    scheduled: { ...(input.despacho_programado_desde ? { from: input.despacho_programado_desde } : {}), ...(input.despacho_programado_hasta ? { through: input.despacho_programado_hasta } : {}),
+      unscheduled: input.sin_fecha_de_despacho === true },
+  };
+}
+
 export type OrderToolsOptions = Readonly<{ display?: Display }>;
 
 export function createOrderToolsModule(deps: OrderToolsDependencies, options: OrderToolsOptions = {}): ToolModule {
@@ -136,33 +162,17 @@ export function createOrderToolsModule(deps: OrderToolsDependencies, options: Or
       if (input.courier !== undefined) {
         const couriers = await deps.listCouriers(access);
         if (!couriers.success) return couriers;
-        const chosen = chooseCourier(input.courier, couriers.data);
+        const chosen = chooseCourier(input.courier, couriers.data.toSorted((a, b) => a.name.localeCompare(b.name, "es")));
         if (!chosen.success) return chosen;
         courierId = chosen.data;
       }
-      const filtered = input.texto !== undefined && input.texto !== "" || input.pago !== undefined || input.entrega !== undefined || courierId !== undefined
-        || input.creado_desde !== undefined || input.creado_hasta !== undefined || input.despacho_programado_desde !== undefined || input.despacho_programado_hasta !== undefined
-        || input.sin_fecha_de_despacho === true || input.despachado_desde !== undefined || input.despachado_hasta !== undefined;
-      const read = await deps.listOrders({
-        page: input.pagina, ...(input.texto ? { search: input.texto } : {}), ...(input.pago ? { view: input.pago === "pagado" ? "paid" as const : "unpaid" as const } : {}),
-        excludeCancelled: !input.incluir_cancelados,
-        ...(input.entrega ? { deliveryStatus: ({ pendiente: "pending", despachada: "shipped", entregada: "delivered" } as const)[input.entrega] } : {}),
-        ...(courierId ? { courierId } : {}),
-        ...(startOf(input.creado_desde) ? { createdFrom: startOf(input.creado_desde)! } : {}), ...(endOf(input.creado_hasta) ? { createdBefore: endOf(input.creado_hasta)! } : {}),
-        ...(startOf(input.despachado_desde) ? { shippedFrom: startOf(input.despachado_desde)! } : {}), ...(endOf(input.despachado_hasta) ? { shippedBefore: endOf(input.despachado_hasta)! } : {}),
-        scheduled: { ...(input.despacho_programado_desde ? { from: input.despacho_programado_desde } : {}), ...(input.despacho_programado_hasta ? { through: input.despacho_programado_hasta } : {}),
-          unscheduled: input.sin_fecha_de_despacho === true },
-      }, access);
+      const read = await deps.listOrders(queryOf(input, courierId), access);
       if (!read.success) return read;
       const frame = { hoy: todayLine(today()), pagina: read.data.page, total: read.data.total };
       if (read.data.items.length === 0 && read.data.total === 0) {
-        let message = noOrdersMessage;
-        if (filtered) {
-          const any = await deps.hasAnyOrder(access);
-          if (!any.success) return any;
-          message = any.data ? noMatchesMessage : noOrdersMessage;
-        }
-        return ok({ output: { ...frame, mensaje: message, pedidos: [] }, empty: true });
+        const any = hasFilters(input) ? await deps.hasAnyOrder(access) : ok(false);
+        if (!any.success) return any;
+        return ok({ output: { ...frame, mensaje: any.data ? noMatchesMessage : noOrdersMessage, pedidos: [] }, empty: true });
       }
       return ok({ output: { ...frame, ...withMore(read.data.page, read.data.total), pedidos: read.data.items.map((order) => toAssistantOrderSummary(order, context)) }, empty: false });
     },

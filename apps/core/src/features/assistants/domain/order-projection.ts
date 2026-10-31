@@ -82,7 +82,10 @@ export function maskPhone(phone: string | null): string | null {
   return digits.length < 3 ? null : `termina en ${digits.slice(-3)}`;
 }
 
-/** A name made only of a phone number (a chat contact saved without a name) counts as no name. */
+/**
+ * A name made only of a phone number (a chat contact saved without a name) counts as no name.
+ * The assistant search applies the same rule in SQL (`phoneLikeName` in orders/infrastructure/order-repository.ts); change both together.
+ */
 export function isPhoneLikeName(name: string): boolean {
   const stripped = name.replace(/[\s+\-.()]/g, "");
   return /^\d+$/.test(stripped) && stripped.length >= 6;
@@ -103,7 +106,7 @@ export function customerLabel(buyer: Contact | null): string {
 }
 
 export function recipientLabel(recipient: Contact): string {
-  return nameOf(recipient.name) ?? customerLabel({ name: null, phone: recipient.phone }).replace("Público general", "Destinatario sin nombre");
+  return nameOf(recipient.name) ?? customerLabel({ name: null, phone: recipient.phone });
 }
 
 const place = ({ district, province, department }: Place) => `${district}, ${province}, ${department}`;
@@ -170,7 +173,7 @@ export function toAssistantOrderSummary(order: ProjectableOrder, context: Projec
     total: display.money(order.total), recibido: display.money(moneyOfCents(received, order.total.currency)),
     estado_pago: paid ? "Pagado" : "Pago pendiente",
     ...(owes ? { por_cobrar: display.money(moneyOfCents(balance, order.total.currency)) } : {}),
-    ...(owes && order.payments.some((payment) => payment.status === "reported") ? { pago_por_revisar: true as const } : {}),
+    ...(!order.cancelled && order.payments.some((payment) => payment.status === "reported") ? { pago_por_revisar: true as const } : {}),
     ...(order.cancelled ? { estado: "Cancelado" as const } : order.completedAt ? { estado: "Completado" as const } : {}),
     estado_entrega: deliveryStateWord[order.deliveryStatus], modalidad: modalityOf(order.delivery),
     ...(courier ? { courier } : {}),

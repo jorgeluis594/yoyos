@@ -62,6 +62,7 @@ export const orderToolsDependencies: OrderToolsDependencies = {
     if (!parsed.success) return err({ code: "NOT_FOUND", message: "" });
     const found = await orders.getAggregateByNumber({ number: parsed.data }, orderAccess(access));
     if (!found.success) return found.error.code === "ORDER_NOT_FOUND" ? err({ code: "NOT_FOUND", message: "" }) : err(failed("ver_pedido", access, found.error));
+    // The order and its stock are read in two snapshots (the stock read is one query for the order); a race only makes the readiness momentarily stale, as the web detail is on load.
     const order = found.data;
     const described = await orders.describeDispatchStock([order]);
     if (!described.success) return err(failed("ver_pedido", access, described.error));

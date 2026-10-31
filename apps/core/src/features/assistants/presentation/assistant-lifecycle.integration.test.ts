@@ -104,7 +104,7 @@ const storePickup = { method: "store", recipient: { name: "Luis Soto", phone: "+
   pickupPoint: { name: "Tienda principal", address: "Av. Lima 1", instructions: null } };
 
 type SeedOrder = Readonly<{ number: number; total: number; quantity?: number; paid?: number; reported?: boolean; date?: string | null; delivery?: object | null;
-  buyer?: Readonly<{ name: string | null; phone: string | null }> | null; fromCatalog?: boolean; confirmed?: boolean }>;
+  buyer?: Readonly<{ name: string | null; phone: string | null }> | null; fromCatalog?: boolean; confirmed?: boolean; cancelled?: boolean; shipped?: boolean }>;
 /** Writes orders of one store; the rows stay behind like the other order integration tests (the company id is random and isolated). */
 async function seedStore(owner: Owner, orders: readonly SeedOrder[], stock = 10) {
   await withTenantIsolation(owner.companyId, async () => {
@@ -116,7 +116,9 @@ async function seedStore(owner: Owner, orders: readonly SeedOrder[], stock = 10)
       const catalog = order.fromCatalog ?? false;
       const confirmed = order.confirmed ?? true;
       await prisma.order.create({ data: { id, number: BigInt(order.number), currency: "PEN", total: new Prisma.Decimal(order.total), itemsTotal: new Prisma.Decimal(order.total),
-        createdAt: new Date("2026-10-20T15:00:00Z"), fromCatalog: catalog, checkoutEnabledAt: catalog ? new Date("2026-10-20T15:00:00Z") : null,
+        createdAt: new Date("2026-10-20T15:00:00Z"), cancelled: order.cancelled ?? false, cancelledAt: order.cancelled ? new Date("2026-10-21T15:00:00Z") : null,
+        deliveryStatus: order.shipped ? "shipped" : "pending", stockDeducted: order.shipped ?? false, stockDeductedAt: order.shipped ? new Date("2026-10-21T15:00:00Z") : null,
+        shippedAt: order.shipped ? new Date("2026-10-21T15:00:00Z") : null, fromCatalog: catalog, checkoutEnabledAt: catalog ? new Date("2026-10-20T15:00:00Z") : null,
         checkoutConfirmedAt: catalog && confirmed ? new Date("2026-10-20T15:00:00Z") : null,
         scheduledDispatchDate: order.date ? new Date(`${order.date}T00:00:00Z`) : null, delivery: (order.delivery ?? Prisma.JsonNull) as never, sellerId: catalog ? null : owner.userId } });
       const buyer = order.buyer === undefined ? { name: "Cliente", phone: "+51911222333" } : order.buyer;
@@ -134,6 +136,8 @@ async function seedStore(owner: Owner, orders: readonly SeedOrder[], stock = 10)
 afterAll(async () => {
   for (const id of companyIds) await withTenantIsolation(id, async () => {
     await prisma.assistantConnection.deleteMany({});
+    await prisma.companyCourier.deleteMany();
+    await prisma.companyDeliverySettings.deleteMany();
     await prisma.payment.deleteMany();
     await prisma.orderItem.deleteMany();
     await prisma.order.deleteMany();
@@ -227,6 +231,62 @@ test("answers the product's examples through tools/call without any phone, stree
   const emptyToken = await connectAgent(empty, await registerClient());
   expect((await callTool(emptyToken, "buscar_pedidos", { entrega: "entregada" })).structuredContent!.mensaje).toBe("Tu tienda todavía no tiene pedidos.");
   expect((await callTool(emptyToken, "pedidos_por_cobrar")).structuredContent!.mensaje).toBe("No tienes pedidos por cobrar.");
+});
+
+test("does not find a buyer whose name is a phone number by the digits of that number, but still by order number", async () => {
+  const rosa = await createOwner("Rosa");
+  await seedStore(rosa, [
+    { number: 2001, total: 40, buyer: { name: "987654789", phone: null } },
+    { number: 2002, total: 40, buyer: { name: "+51 987-654-789", phone: "+51987654789" } },
+    { number: 2003, total: 40, buyer: { name: "Ana Quispe", phone: "+51911222333" } },
+  ]);
+  const token = await connectAgent(rosa, await registerClient());
+  const numbers = async (texto: string) => ((await callTool(token, "buscar_pedidos", { texto })).structuredContent!.pedidos as { numero: string }[]).map((order) => order.numero);
+  for (const texto of ["987654789", "987654", "9876", "51 987", "+51 987-654-789", "654-789"]) expect(await numbers(texto), texto).toEqual([]);
+  expect(await numbers("#2001")).toEqual(["#2001"]);
+  expect(await numbers("2002")).toEqual(["#2002"]);
+  expect(await numbers("ana")).toEqual(["#2003"]);
+  expect((await callTool(token, "ver_pedido", { numero: "2001" })).structuredContent!.cliente).toBe("Cliente que termina en 789");
+});
+
+test("answers agency orders, unassigned delivery, short stock, cancelled orders and a disabled courier through tools/call", async () => {
+  const today = limaCalendarDay(new Date());
+  const rosa = await createOwner("Rosa");
+  const [shalom, olva] = await Promise.all(["shalom", "olva"].map((code) => systemPrisma.courier.findUniqueOrThrow({ where: { code } })));
+  const [shalomId, olvaId] = [randomUUID(), randomUUID()];
+  await withTenantIsolation(rosa.companyId, async () => {
+    await prisma.companyDeliverySettings.create({ data: { storeEnabled: false, version: 1 } });
+    await prisma.companyCourier.create({ data: { id: shalomId, courierId: shalom!.id, enabled: false } });
+    await prisma.companyCourier.create({ data: { id: olvaId, courierId: olva!.id, enabled: true } });
+  });
+  const place = { country: "PE", districtCode: "150101", district: "Cercado", province: "Lima", department: "Lima" };
+  const agency = (courierId: string, courierName: string) => ({ method: "agency", pricing, recordedBy: { kind: "buyer" }, destination: place, courier: { id: courierId, name: courierName },
+    agency: { id: randomUUID(), name: "Agencia Centro", address: "Jr. Unión 450", location: place },
+    recipient: { name: "Luis Soto", phone: "+51999111222", identity: { kind: "document", documentType: "national_id", document: "45678912" } } });
+  await seedStore(rosa, [
+    { number: 1054, total: 80, delivery: agency(olvaId, olva!.name), date: today, reported: true },
+    { number: 1030, total: 80, paid: 80, delivery: agency(shalomId, shalom!.name), shipped: true },
+    { number: 3001, total: 80, date: today, delivery: null },
+    { number: 3002, total: 80, paid: 30, quantity: 4, delivery: home, date: today },
+    { number: 3003, total: 80, paid: 80, delivery: home, date: today, cancelled: true },
+  ], 3);
+  const token = await connectAgent(rosa, await registerClient());
+
+  const queue = (await callTool(token, "pedidos_por_despachar_hoy")).structuredContent!;
+  const rows = Object.fromEntries((queue.pedidos as { numero: string; modalidad: string; courier?: string; preparacion: { texto: string } }[]).map((row) => [row.numero, row]));
+  expect(Object.keys(rows).sort()).toEqual(["#1054", "#3001", "#3002"]);
+  expect(rows["#1054"]).toMatchObject({ modalidad: "Agencia", courier: olva!.name, preparacion: { texto: "Se requiere al menos un pago para despachar. Tiene un pago por revisar." } });
+  expect(rows["#3001"]!.preparacion.texto).toBe("Entrega por definir: falta asignar la entrega.");
+  expect(rows["#3002"]!.preparacion.texto).toBe("Para despachar falta stock de Camisa (M).");
+  const cancelled = (await callTool(token, "ver_pedido", { numero: "3003" })).structuredContent!;
+  expect(cancelled).toMatchObject({ estado: "Cancelado" });
+  expect(cancelled).not.toHaveProperty("preparacion");
+
+  const byCourier = (await callTool(token, "buscar_pedidos", { courier: "Shalom", entrega: "despachada" })).structuredContent!;
+  expect(byCourier.pedidos.map((order: { numero: string }) => order.numero)).toEqual(["#1030"]);
+  const unknown = await callTool(token, "buscar_pedidos", { courier: "Olba" });
+  expect(unknown.isError).toBe(true);
+  expect(unknown.content[0]!.text).toBe(`Tu tienda no tiene el courier "Olba". Couriers: ${[olva!.name, shalom!.name].sort((a, b) => a.localeCompare(b, "es")).join(", ")}.`);
 });
 
 test("a disconnected connection gets 401 on its next call", async () => {

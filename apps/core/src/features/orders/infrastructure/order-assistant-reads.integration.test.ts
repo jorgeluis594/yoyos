@@ -84,6 +84,17 @@ test("search without phone does not match the buyer phone", async () => {
   });
 });
 
+test("assistant search skips buyer names that are phone numbers while the web search still finds them", async () => {
+  await scenario(async ({ seed, access }) => {
+    await seed({ number: 1001, total: 50, buyer: { name: "987654789", phone: null } });
+    await seed({ number: 1002, total: 50, buyer: { name: "+51 987-654-789", phone: "+51987654789" } });
+    await seed({ number: 1003, total: 50, buyer: { name: "Local 987654", phone: null } });
+    for (const search of ["987654789", "987654", "9876", "51 987"]) expect(numbersOf(await orders.listAggregates(page({ search, searchPhone: "exclude" }), access)), search).toEqual(search === "987654" || search === "9876" ? [1003] : []);
+    expect(numbersOf(await orders.listAggregates(page({ search: "#1001", searchPhone: "exclude" }), access))).toEqual([1001]);
+    expect(numbersOf(await orders.listAggregates(page({ search: "987654789" }), access))).toEqual([1001, 1002]);
+  });
+});
+
 test("lists paid and unpaid views over not-cancelled orders and excludes cancelled ones on request", async () => {
   await scenario(async ({ seed, access }) => {
     await seed({ number: 1001, total: 100, payments: [{ amount: 100 }] });
