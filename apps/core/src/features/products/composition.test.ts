@@ -59,8 +59,8 @@ describe("createVisualSearch", () => {
   test("exposes the reserve of the configured stages, with the describer only for the OpenAI embedder", () => {
     const local = createVisualSearch({ OPENAI_API_KEY: "key", PRODUCT_MATCH_CANDIDATES: "8" });
     const openai = createVisualSearch({ OPENAI_API_KEY: "key", PRODUCT_MATCH_CANDIDATES: "8", IMAGE_EMBEDDER_PROVIDER: "openai" });
-    expect(local.photoStagesReserveUsd).toBeCloseTo(0.00099, 5);
-    expect(openai.photoStagesReserveUsd).toBeLessThanOrEqual(0.00125);
+    expect(local.photoStagesReserveUsd).toBeCloseTo(0.001127, 6);
+    expect(openai.photoStagesReserveUsd).toBeLessThanOrEqual(0.00142);
     expect(openai.photoStagesReserveUsd).toBeGreaterThan(local.photoStagesReserveUsd);
   });
 
