@@ -506,7 +506,7 @@ test("a thrown error answers a persistence failure and is logged without persona
 test("does not revalidate after a successful save_changes and uses its result, but revalidates for the lock errors", () => {
   const saved = { operation: "save_changes", applied: ["items"], order: {}, revisions: {}, lineCatalog: null };
   expect(shouldRevalidate({ actionResult: saved, defaultShouldRevalidate: true })).toBe(false);
-  for (const code of ["ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED"]) expect(shouldRevalidate({ actionResult: { operation: "save_changes", code }, defaultShouldRevalidate: true })).toBe(true);
+  for (const code of ["ITEMS_LOCKED", "DELIVERY_LOCKED", "ORDER_CANCELLED", "CUSTOMER_REQUIRED"]) expect(shouldRevalidate({ actionResult: { operation: "save_changes", code }, defaultShouldRevalidate: true })).toBe(true);
   for (const code of ["ORDER_CHANGED", "TOTAL_CHANGED", "INVALID_INPUT", "PERSISTENCE_UNAVAILABLE"]) expect(shouldRevalidate({ actionResult: { operation: "save_changes", code }, defaultShouldRevalidate: true })).toBe(false);
   expect(shouldRevalidate({ actionResult: { operation: "save_changes", lost: "in-doubt" }, defaultShouldRevalidate: true })).toBe(false);
   expect(shouldRevalidate({ actionResult: { url: null, success: true, error: false }, defaultShouldRevalidate: true })).toBe(true);
