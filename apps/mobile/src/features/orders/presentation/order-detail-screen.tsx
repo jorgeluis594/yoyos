@@ -325,7 +325,7 @@ export default function OrderDetailScreen() {
   const nextReasonText = !nextReason || !nextOperation ? null
     : nextReason === "STOCK_WAITING" ? t(`orderFulfillment.STOCK_WAITING_${nextOperation === "ship" ? "SHIP" : "DELIVER"}${shortLines.length ? "" : "_GENERIC"}`, { items: joinLabels(shortLines.map(line => line.label), t("listAnd")) })
     : t(`orderFulfillment.${fulfillmentKey(nextOperation, nextReason)}`);
-  const stockLine = order.stockDeducted ? t("stockDeducted") : isWaitingDue(order.stockDue) ? t("stockWaiting") : order.stockDue?.kind === "deducting" ? t("stockDeducting") : t("stockPending");
+  const stockLine = isWaitingDue(order.stockDue) ? t("stockWaiting") : order.stockDeducted ? t("stockDeducted") : order.stockDue?.kind === "deducting" ? t("stockDeducting") : t("stockPending");
   const cardStyle = { backgroundColor: theme.backgroundElement, borderColor: theme.border };
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <View style={styles.container}>
