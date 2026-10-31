@@ -7,17 +7,17 @@ const deducting = { kind: "deducting" };
 const order = (overrides = {}) => ({ cancelled: false, deliveryStatus: "pending", paidAmount: { amount: 50 }, stockDeducted: false, stockDue: null, ...overrides });
 
 test("ship is blocked only while the order waits for stock", () => {
-  expect(stockFulfillmentBlock({ stockDue: waiting }, "ship")).toEqual({ code: "STOCK_WAITING", variantIds: [variant] });
-  expect(stockFulfillmentBlock({ stockDue: deducting }, "ship")).toBeNull();
-  expect(stockFulfillmentBlock({ stockDue: null }, "ship")).toBeNull();
+  expect(stockFulfillmentBlock({ stockDue: waiting })).toEqual({ code: "STOCK_WAITING", variantIds: [variant] });
+  expect(stockFulfillmentBlock({ stockDue: deducting })).toBeNull();
+  expect(stockFulfillmentBlock({ stockDue: null })).toBeNull();
   expect(orderFulfillmentBlock(order({ stockDue: waiting }), "ship")).toEqual({ code: "STOCK_WAITING", variantIds: [variant] });
   expect(orderFulfillmentBlock(order({ stockDue: deducting }), "ship")).toBeNull();
   expect(orderFulfillmentBlock(order(), "ship")).toBeNull();
 });
 
 test("deliver is blocked while the order waits for stock but not while it is being deducted", () => {
-  expect(stockFulfillmentBlock({ stockDue: waiting }, "deliver")).toEqual({ code: "STOCK_WAITING", variantIds: [variant] });
-  expect(stockFulfillmentBlock({ stockDue: deducting }, "deliver")).toBeNull();
+  expect(stockFulfillmentBlock({ stockDue: waiting })).toEqual({ code: "STOCK_WAITING", variantIds: [variant] });
+  expect(stockFulfillmentBlock({ stockDue: deducting })).toBeNull();
   expect(orderFulfillmentBlock(order({ stockDue: waiting }), "deliver")).toEqual({ code: "STOCK_WAITING", variantIds: [variant] });
   expect(orderFulfillmentBlock(order({ stockDue: deducting }), "deliver")).toBeNull();
 });

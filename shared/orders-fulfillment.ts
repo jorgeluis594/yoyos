@@ -18,7 +18,7 @@ export type StockFulfillmentBlock =
   | Readonly<{ code: "STOCK_WAITING"; variantIds: readonly [string, ...string[]] }>;
 
 /** Ship and deliver are blocked only while the order waits for stock; both deduct it themselves, so «Descontando stock» does not block them. */
-export function stockFulfillmentBlock(order: Readonly<{ stockDue: OrderStockDue | null }>, operation: "ship" | "deliver"): StockFulfillmentBlock | null {
+export function stockFulfillmentBlock(order: Readonly<{ stockDue: OrderStockDue | null }>): StockFulfillmentBlock | null {
   const due = order.stockDue;
   if (due === null) return null;
   if (due.kind === "waiting") {
@@ -31,5 +31,5 @@ export function stockFulfillmentBlock(order: Readonly<{ stockDue: OrderStockDue 
 /** The only function clients call: payment and transition reasons first, then the stock block. */
 export function orderFulfillmentBlock(order: FulfillmentState & Readonly<{ stockDue: OrderStockDue | null }>, operation: "ship" | "deliver") {
   const base = fulfillmentBlock(order, operation);
-  return base === null ? stockFulfillmentBlock(order, operation) : { code: base } as const;
+  return base === null ? stockFulfillmentBlock(order) : { code: base } as const;
 }

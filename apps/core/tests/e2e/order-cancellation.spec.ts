@@ -78,6 +78,9 @@ test("core confirms cancellation, retains payments and updates operational views
       expect((await f.detail(id)).payments).toEqual(before.payments);
       await vi.waitFor(async () => expect(await f.stock()).toBe(stock + (paid ? 1n : 0n)), { timeout: 15000 });
       await page.reload();
+      const card = page.getByRole("region", { name: "Estado del pedido" });
+      if (paid) await browserExpect(card).toContainText("El stock de los productos se devolvió al inventario.");
+      else await browserExpect(card).not.toContainText("devolvió al inventario");
       await browserExpect(page.getByRole("status")).toContainText("Pedido cancelado");
       await page.getByRole("link", { name: "Ver ventas", exact: true }).click();
       await browserExpect(page.getByRole("link", { name: `Pedido #${before.number}`, exact: true })).toBeVisible();
