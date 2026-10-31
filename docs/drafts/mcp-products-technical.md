@@ -10,8 +10,8 @@ The MCP server of MCP 1/4 gains a second read-only tool module, `products:read`,
 agent ──POST /mcp──▶ mcp-routes ─▶ resolveAssistantAccess (unchanged path; ends connections missing a scope)
                                   └▶ tool-registry ─▶ answerToolCall ─▶ products-tools.ts
                                                                          ├─ catalogStorefront.describe(companyId)    1 statement
-                                                                         ├─ products.searchForAssistant(criteria)    2–4 statements, one snapshot
-                                                                         └─ products.findForAssistant(reference)     2–7 statements, one snapshot
+                                                                         ├─ products.searchForAssistant(criteria)    1–4 statements, one snapshot
+                                                                         └─ products.findForAssistant(reference)     1–8 statements, one snapshot
 ```
 
 ## 2. Decisions
@@ -28,7 +28,7 @@ agent ──POST /mcp──▶ mcp-routes ─▶ resolveAssistantAccess (unchang
 | Search contract | Internal to `features/products`: `ProductSearchCriteria` in `application/search-for-assistant.ts`. `shared/contracts/products.ts` (`productListQuerySchema`) does not change. Reason: no second application consumes the filters yet (guide rule 5.2), and the app list's `stock=sold_out` is a product-level rule («every active variant at 0») while the assistant's `agotado` is a variant-level one («at least one active variant at 0»); merging them now would change the app list. When the app list gets the filters, its contract adds fields mapped onto `ProductSearchCriteria` and its handler calls the same use case: the meeting point is the criteria type, not the HTTP schema. |
 | Stock levels | `features/products/domain/stock-level.ts`: `lowStockThreshold = 3` (one constant, the same for every store, changed only by Yoyos; MCP 4/4 owns later changes), `stockLevelOf(quantity)` and the per-variant filter. SQL receives the threshold as a parameter, never as a literal. Not an environment variable: it is a business rule, not an operational value. |
 | «En el catálogo» | At least one variant with `status = 'active'` (`Product.status` is always `active`). Computed in SQL with the same `EXISTS` as the public catalog. |
-| Customer link | `${storeUrl(subdomain)}productos/<id>` (`storeUrl` of `features/catalog`), only when the catalog is published, the product is in the catalog and the product currency is the store currency (the public catalog's own filter, so the link never leads to a missing page). |
+| Customer link | `storeUrl(subdomain, `/productos/${id}`)` (`storeUrl` of `features/catalog`, the path the public catalog and the legacy redirect already use), only when the catalog is published, the product is in the catalog and the product currency is the store currency (the public catalog's own filter, so the link never leads to a missing page). |
 | Text match | `unaccent(lower(x)) LIKE unaccent(lower('%texto%'))` on `Product.name` and on any `ProductVariant.sku` (active or not), with `%`, `_` and `\` escaped, like the public catalog search. One phrase, no word split. |
 | Value match | Exact on the whole name after `matchKeyOf` (NFD, combining marks removed, lower case, trimmed). Done in TypeScript over the store's vocabulary, which yields the matching `ProductOptionValue` ids; SQL filters by ids. There is one normalizer, never a second one in SQL. |
 | Output lengths | As in MCP 1/4: product names shortened to 100 characters and combinations to 50 (`…` at the end); in **Buscar productos** SKUs are shortened to 40 characters; **Ver producto** shows SKUs and option values whole. These maxima are what makes the product draft's 24 KB cases hold (section 15). |
@@ -57,7 +57,9 @@ agent ──POST /mcp──▶ mcp-routes ─▶ resolveAssistantAccess (unchang
 | Product aggregate read | `productRepository.get` (`infrastructure/repository.ts` `readProducts`) | Six batched queries per call, validated rows, `INVALID_STORED_DATA` on bad rows |
 | Saved variant order | `domain/product-structure.ts` `sortVariants`, `orderedAttributes` | Pure, from the aggregate's option and value positions |
 | SKU lookup | `infrastructure/repository.ts` `findSkuOwners`; `order-stock.ts` `findProductIdsOfVariants` | By `lower(btrim(sku))`, served by `ProductVariant_companyId_sku_normalized_key` |
-| Catalog settings | `features/catalog/infrastructure/catalog-settings-repository.ts` `readCatalogSettings`; `storefront-config.ts` `storeUrl` | Published flag, subdomain and company name; no country or currency; `catalogSettings.get` also computes a subdomain suggestion (extra query) |
+| Catalog settings | `features/catalog/infrastructure/catalog-settings-repository.ts` `readCatalogSettings`; `storefront-config.ts` `storeUrl(subdomain, path = "/"): URL` | Published flag, subdomain and company name; no country or currency; `catalogSettings.get` also computes a subdomain suggestion (extra query) |
+| Storefront capability | `features/catalog/composition.ts` `catalogStorefront` | `{ resolve, resolveOwner }` by host; no read by company |
+| Refusal reasons | `application/resolve-assistant-access.ts` `RefusalReason` | `not_ready \| no_connection \| inactive \| password_changed \| scope`; `endConnection` reason `inactive \| password_reset` (also in `connection-access-repository.ts`) |
 | Store currency | `@shared/country` `countryCurrencies[Company.country]` | Used by `resolveSubdomain` |
 | Product indexes | `prisma/migrations/*` | `Product(companyId)`, `Product.name` GIN trigram (global), `ProductVariant` unique `(companyId, id)`, `(companyId, productId, id)`, `(companyId, productId, combinationKey)`, `(companyId, lower(btrim(sku)))` partial, `ProductVariant.sku` GIN trigram (global), `ProductStock` unique `(companyId, variantId)`, `ProductVariantOptionValue` PK `(companyId, variantId, optionId)` and `(companyId, optionId, valueId)`, `ProductOption` unique `(companyId, productId, id)`, `ProductOptionValue` unique `(companyId, optionId, id)`; extensions `pg_trgm`, `unaccent` |
 | Read snapshot | `shared/infrastructure/persistance.ts` | `withinReadSnapshot`, `withinTransaction(…, { isolationLevel, statementTimeoutMs })` |
@@ -90,7 +92,7 @@ export function isConnectionActive(connection: ConnectionWithPasswordChange, now
 
 `consent_outdated` when `assistantScopes.some((scope) => !connection.scopes.includes(scope))`.
 
-`resolveAssistantAccess` (modified): uses `connectionEndReason`; for a non-null reason it calls `endConnection(connection, reason)` and refuses with `RefusalReason` `password_changed`, `consent_outdated` or `inactive`. `endConnection`'s reason type becomes `ConnectionEndReason`. The `orders:read` requirement becomes «the intersection of token and connection scopes is not empty»; a token minted before re-authorization keeps only the tools of its own scopes until it expires (at most one access-token lifetime). No new lookup is added to the path.
+`resolveAssistantAccess` (modified): uses `connectionEndReason`; for a non-null reason it calls `endConnection(connection, reason)` and refuses with `RefusalReason` `password_changed`, `consent_outdated` (new literal of `RefusalReason`) or `inactive`. `endConnection`'s reason type becomes `ConnectionEndReason`. The `orders:read` requirement becomes «the intersection of token and connection scopes is not empty»; a token minted before re-authorization keeps only the tools of its own scopes until it expires (at most one access-token lifetime). No new lookup is added to the path.
 
 `listAssistantConnections`, `createHasActiveConnection` and `saveConnection` are unchanged in code: they call `isConnectionActive`, which now includes the scope rule.
 
@@ -133,7 +135,7 @@ type Read<T> = Promise<Result<T, ToolRunError>>;
 1. `describeStorefront`.
 2. Input is exactly one of `producto` and `sku`. A `producto` that is not a UUID is treated as unknown (same answer as not found, no lookup).
 3. `find({ by: "id", id } | { by: "sku", sku })`; `null` → `NOT_FOUND` with «No encontré ese producto en tu tienda. Búscalo con Buscar productos.».
-4. `toAssistantProduct(found, context)`.
+4. `toAssistantProduct(found, storefront, context)`.
 
 Errors: `ToolRunError` codes `INVALID_INPUT`, `NOT_FOUND`, `FAILURE`; nothing else reaches the agent.
 
@@ -189,9 +191,11 @@ export type FindForAssistantDependencies = Readonly<{
 export async function findForAssistant(reference: ProductReference, access: ProductAccess, deps: FindForAssistantDependencies): Promise<Result<FoundProduct | null, ProductReadError>>;
 ```
 
-Flow inside one snapshot: by SKU, normalize with `lower(trim())` (the unique index's rule, as `findSkuOwners` expects), find the owner variant, then its product id; absent → `ok(null)`. Then `getProduct(id)`; absent → `ok(null)`. Return the product with `variants: sortVariants(product)` and `searchedVariantId` (null by id). Photos are not resolved: the assistant never receives them, and `getProduct`'s image check must not fail a read.
+Flow inside one snapshot: by SKU, normalize as the unique index does (`lower(btrim(sku))`: lower case, surrounding spaces removed; `findSkuOwners` expects values already normalized), find the owner variant, then its product id; absent → `ok(null)`. Then `getProduct(id)`; absent → `ok(null)`. Return the product with `variants: sortVariants(product)` and `searchedVariantId` (null by id). Photos are not resolved: `findForAssistant` calls `productRepository.get` directly, not the `getProduct` use case, so no image URL is signed and `IMAGE_NOT_FOUND` cannot fail a read; the photo ids the aggregate carries are never projected.
 
 ### 5.8 `catalogStorefront.describe` (new, catalog)
+
+The existing `catalogStorefront` object of `features/catalog/composition.ts` gains `describe`; `resolve` and `resolveOwner` are unchanged.
 
 ```ts
 export type StorefrontState = Readonly<{ currency: Currency; catalog:
@@ -322,7 +326,7 @@ All run under the tenant's RLS context and also filter `"companyId" = $companyId
 
 ```sql
 SELECT o.name AS "optionName", ov.name AS "valueName", array_agg(DISTINCT ov.id) AS "valueIds",
-       min(p.rank) AS "productRank", min(ov.position) AS position
+       min(p.rank) AS "productRank", (array_agg(ov.position ORDER BY p.rank, ov.position))[1] AS position
 FROM "ProductVariantOptionValue" l
 JOIN "ProductVariant" v       ON v."companyId" = l."companyId" AND v.id = l."variantId" AND v.status = 'active'
 JOIN "ProductOption" o        ON o."companyId" = l."companyId" AND o."productId" = l."productId" AND o.id = l."optionId"
@@ -332,7 +336,7 @@ WHERE l."companyId" = $c
 GROUP BY o.name, ov.name
 ```
 
-Access: `ProductVariantOptionValue_companyId_optionId_valueId_idx` (leading `companyId`) or the PK, `ProductVariant_companyId_id_key`, `ProductOption_companyId_productId_id_key`, `ProductOptionValue_companyId_optionId_id_key`, `Product_companyId_idx`. Rows scanned: the store's variant links (variants × options); rows returned: distinct spellings (tens to a few hundred).
+Access: `ProductVariantOptionValue_companyId_optionId_valueId_idx` (leading `companyId`) or the PK, `ProductVariant_companyId_id_key`, `ProductOption_companyId_productId_id_key`, `ProductOptionValue_companyId_optionId_id_key`, `Product_companyId_idx`. `position` is the value's position in the newest product holding it, so `(productRank, position)` is one product's saved order and never mixes positions of two products. Rows scanned: the store's variant links (variants × options); rows returned: distinct spellings (tens to a few hundred).
 
 **Page ids, total and store emptiness** (one statement):
 
