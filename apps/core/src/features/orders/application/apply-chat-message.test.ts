@@ -201,9 +201,9 @@ describe("applyChatMessage: photos", () => {
     expect(h.contexts[0]).toMatchObject({ kind: "photo_product", text: "2 en talla M" });
   });
 
-  test("tells the seller about a doubted caption by adding the photo's product", async () => {
+  test("adds the photo's product for a doubted caption without a notice", async () => {
     const h = harness({ message: photoMessage({ caption: "no sé" }), identification: visual(productCap), reader: () => ({ kind: "doubt" }) });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }, { kind: "caption_not_applied", productId: productCap }], noticeDue: true });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }, { kind: "caption_not_applied", productId: productCap }], noticeDue: false });
   });
 
   test("applies the fixed answer with a caption notice for a caption over the text limit", async () => {

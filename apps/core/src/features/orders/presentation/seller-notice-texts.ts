@@ -4,6 +4,7 @@ import { sellerNoticeDataSchema } from "@shared/contracts/seller-notices";
 import type { OrderId } from "@core/src/features/orders/domain/order";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import { sellerNoticeTarget, type SellerNotice } from "@core/src/features/orders/domain/seller-notice";
+import { suggestedQuestionText } from "@core/src/features/orders/presentation/suggested-question-texts";
 import type { NoticeContext, NoticeLocale, RenderedSellerNotice } from "@core/src/features/orders/application/describe-chat-message-notice";
 
 type Text = Readonly<{ title: string; body: string }>;
@@ -27,7 +28,9 @@ type Texts = Readonly<{
   ready: (orderNumber: number | null) => Text;
   newOrder: (orderNumber: number | null, previous: number | null) => Text;
   notApplied: (orderNumber: number | null) => Text;
-  captionNotApplied: (name: string | null, orderNumber: number | null) => Text;
+  paymentRequest: (order: "open" | "closed" | "none", orderNumber: number | null, missing: ProductList) => Text;
+  orderChangedAfterLink: (orderNumber: number | null) => Text;
+  changedAfterLink: string;
   productNotAvailable: (name: string | null) => Text;
   readyWithPendings: (orderNumber: number | null, missing: ProductList) => Text;
   variantForSeveralPendings: (missing: ProductList) => Text;
@@ -61,7 +64,15 @@ const es: Texts = {
   notApplied: (number) => ({ title: "Revisa el chat", body: number === null
     ? "Un cliente escribió algo que no pudimos aplicar a un pedido."
     : `Un cliente escribió algo sobre el pedido #${number} que no pudimos aplicar.` }),
-  captionNotApplied: (name, number) => ({ title: "Revisa el chat", body: `Un cliente envió una foto de ${name ?? "un producto"} y la agregamos ${number === null ? "a un pedido" : `al pedido #${number}`}, pero no pudimos aplicar lo que escribió.` }),
+  paymentRequest: (order, number, { names, more }) => {
+    const missing = names.length ? listWithMore(names, more, " y ", (n) => `${n} más`) : more === 1 ? "un producto" : `${more} productos`;
+    const title = "Revisa el chat";
+    if (order === "closed") return { title, body: `Un cliente quiere pagar, pero el pedido${ref(number)} ya tiene un pago o está cerrado. Revisa el chat.` };
+    if (names.length + more > 0) return { title, body: `Un cliente quiere pagar${number === null ? "" : ` el pedido #${number}`}, pero falta completar ${missing}.` };
+    return { title, body: `Un cliente quiere pagar${number === null ? "" : ` el pedido #${number}`}.` };
+  },
+  orderChangedAfterLink: (number) => ({ title: `Pedido${ref(number)} cambió`, body: `Un cliente cambió el pedido${ref(number)} después de recibir el enlace. Revísalo antes de cobrar.` }),
+  changedAfterLink: "El pedido cambió después de enviar el enlace.",
   productNotAvailable: (name) => ({ title: "Producto no disponible", body: `Un cliente pidió ${name === null ? "un producto" : name}${name === null ? "" : ","} que ya no está a la venta. Revisa el chat.` }),
   readyWithPendings: (number, { names, more }) => ({ title: "Revisa el chat", body: `Un cliente dice que terminó ${number === null ? "su pedido" : `el pedido #${number}`}, pero falta completar ${names.length ? listWithMore(names, more, " y ", (n) => `${n} más`) : more === 1 ? "un producto" : `${more} productos`}.` }),
   variantForSeveralPendings: ({ names, more }) => ({ title: "Revisa el chat", body: `Un cliente mencionó una variante sin decir de cuál ${names.length ? `producto: ${listWithMore(names, more, " y ", (n) => `${n} más`)}` : `de ${more} productos`}.` }),
@@ -93,7 +104,15 @@ const pt: Texts = {
   notApplied: (number) => ({ title: "Veja o chat", body: number === null
     ? "Um cliente escreveu algo que não conseguimos aplicar a um pedido."
     : `Um cliente escreveu algo sobre o pedido #${number} que não conseguimos aplicar.` }),
-  captionNotApplied: (name, number) => ({ title: "Veja o chat", body: `Um cliente enviou uma foto de ${name ?? "um produto"} e a adicionamos ${number === null ? "a um pedido" : `ao pedido #${number}`}, mas não conseguimos aplicar o que escreveu.` }),
+  paymentRequest: (order, number, { names, more }) => {
+    const missing = names.length ? listWithMore(names, more, " e ", (n) => `mais ${n}`) : more === 1 ? "um produto" : `${more} produtos`;
+    const title = "Veja o chat";
+    if (order === "closed") return { title, body: `Um cliente quer pagar, mas o pedido${ref(number)} já tem um pagamento ou está fechado. Veja o chat.` };
+    if (names.length + more > 0) return { title, body: `Um cliente quer pagar${number === null ? "" : ` o pedido #${number}`}, mas falta completar ${missing}.` };
+    return { title, body: `Um cliente quer pagar${number === null ? "" : ` o pedido #${number}`}.` };
+  },
+  orderChangedAfterLink: (number) => ({ title: `Pedido${ref(number)} mudou`, body: `Um cliente mudou o pedido${ref(number)} depois de receber o link. Revise antes de cobrar.` }),
+  changedAfterLink: "O pedido mudou depois de enviar o link.",
   productNotAvailable: (name) => ({ title: "Produto indisponível", body: `Um cliente pediu ${name ?? "um produto"}${name === null ? "" : ","} que não está mais à venda. Veja o chat.` }),
   readyWithPendings: (number, { names, more }) => ({ title: "Veja o chat", body: `Um cliente diz que terminou o pedido${number === null ? "" : ` #${number}`}, mas falta completar ${names.length ? listWithMore(names, more, " e ", (n) => `mais ${n}`) : more === 1 ? "um produto" : `${more} produtos`}.` }),
   variantForSeveralPendings: ({ names, more }) => ({ title: "Veja o chat", body: `Um cliente mencionou uma variante sem dizer de qual ${names.length ? `produto: ${listWithMore(names, more, " e ", (n) => `mais ${n}`)}` : `de ${more} produtos`}.` }),
@@ -147,7 +166,8 @@ function textOf(notice: SellerNotice, texts: Texts, { names }: NoticeContext): T
     }
     case "failed": return texts.failed;
     case "not_applied": return texts.notApplied(orderNumber(notice.orderId));
-    case "caption_not_applied": return texts.captionNotApplied(productName(notice.productId), orderNumber(notice.orderId));
+    case "payment_request": return texts.paymentRequest(notice.order.kind, notice.order.kind === "none" ? null : orderNumber(notice.order.orderId), listOf(notice.productIds, notice.unnamed));
+    case "order_changed_after_link": return texts.orderChangedAfterLink(orderNumber(notice.orderId));
     case "product_not_available": return texts.productNotAvailable(notice.productId === null ? null : productName(notice.productId));
     case "ready_with_pendings": return texts.readyWithPendings(orderNumber(notice.orderId), listOf(notice.productIds, notice.unnamed));
     case "variant_for_several_pendings": return texts.variantForSeveralPendings(listOf(notice.productIds, notice.unnamed));
@@ -160,7 +180,12 @@ function textOf(notice: SellerNotice, texts: Texts, { names }: NoticeContext): T
 /** The texts of a notice in the device's language. A buyer's text, phone or WhatsApp id never reaches them. */
 export function renderSellerNotice(notice: SellerNotice, locale: NoticeLocale, context: NoticeContext): Result<RenderedSellerNotice, Readonly<{ code: "INVALID_NOTICE_DATA"; message: string; retryable: false }>> {
   const texts = textsOf[locale];
-  const { title, body } = textOf(notice, texts, context);
+  const { title, body: ownBody } = textOf(notice, texts, context);
+  // The device's sentence about the link comes first; the question closes the body in the buyer's language.
+  const suffixes = "changedAfterLink" in notice || "question" in notice
+    ? [notice.changedAfterLink ? texts.changedAfterLink : null, notice.question ? suggestedQuestionText(notice.question) : null].flatMap((text) => text ?? [])
+    : [];
+  const body = [ownBody, ...suffixes].join(" ");
   const created = "newOrderId" in notice && notice.newOrderId ? context.names.orderNumbers.get(notice.newOrderId) : undefined;
   // The data is the contract the phone parses on tap: a payload that does not match is never sent.
   const data = sellerNoticeDataSchema.safeParse({ v: 1, companyId: context.companyId, messageId: context.messageId, target: sellerNoticeTarget(notice).kind });
