@@ -80,7 +80,7 @@ No new screen. The existing screens of MCP 1/4 change only these texts. The acce
 | Authorization title, unnamed agent | «Un asistente quiere leer los pedidos y productos de Tienda Rosa» | «Um assistente quer ler os pedidos e produtos de Tienda Rosa» |
 | «Podrá ver», new line after the order lines | «Tus productos: variantes, precios de venta, stock y si están en tu catálogo» | «Seus produtos: variantes, preços de venda, estoque e se estão no seu catálogo» |
 | «Podrá ver», new line | «El precio de compra de tus variantes» | «O preço de compra das suas variantes» |
-| «Nunca podrá», first line | «Crear, cambiar ni cancelar nada, ni cambiar precios o stock» | «Criar, alterar nem cancelar nada, nem mudar preços ou estoque» |
+| «Nunca podrá», first line | «Crear, cambiar ni cancelar pedidos, precios ni stock» | «Criar, alterar nem cancelar pedidos, preços nem estoque» |
 | «Asistentes de IA» intro | «Conecta ChatGPT, Claude u otro asistente para preguntarle por tus pedidos y productos. Solo puede leer: no crea, cambia ni cancela nada.» | «Conecte o ChatGPT, o Claude ou outro assistente para perguntar sobre seus pedidos e produtos. Ele só pode ler: não cria, altera nem cancela nada.» |
 | **Desconectar** description | «Dejará de ver tus pedidos y productos hasta que lo conectes de nuevo.» | «Ele deixará de ver seus pedidos e produtos até você conectá-lo novamente.» |
 
@@ -102,11 +102,11 @@ Optional inputs:
 | `orden` | «recientes» (default), «nombre» | Newest created first, or by name A–Z |
 | `pagina` | 1 or more | Page of 20 |
 
-- **Text and product types:** the description tells the agent that Yoyos has no categories; to find a type of product it searches one short word in singular or its stem («polo», «casac»), and with no result tries a shorter one before telling the owner nothing exists. `texto` is matched as one phrase, not as separate words: «polo azul» finds only names containing «polo azul»; colors and sizes go in `valores`. No plural or synonym rules are applied by Yoyos.
+- **Text and product types:** the description tells the agent that Yoyos has no categories; to find a type of product it searches one short word in singular or its stem, and carries these examples literally: «polo» for «polos», «casac» for «casacas», and with no result tries a shorter one before telling the owner nothing exists. `texto` is matched as one phrase, not as separate words: «polo azul» finds only names containing «polo azul»; colors and sizes go in `valores`. No plural or synonym rules are applied by Yoyos.
 - **Variant filters** (`valores`, price range, `stock`) apply together to one variant: a product matches when at least one of its active variants meets all of them. Example: «Polo básico» has «M / Azul» at S/ 39.90 with 2 units and «L / Rojo» at S/ 45.00 with 10; `valores: ["Azul"]` with `stock: "con stock"` and `precio_hasta: 40` matches through «M / Azul»; `valores: ["Rojo"]` with `precio_hasta: 40` does not match.
 - Variant filters look only at active variants, because a deactivated variant is not sold anywhere. `en_catalogo: "no"` together with a variant filter is refused: «Los filtros de variante (valores, precio y stock) solo miran variantes activas, y los productos que no están en el catálogo no tienen ninguna. Quita esos filtros o en_catalogo.».
 - **Value matching** is exact on the whole name, ignoring case, accents and surrounding spaces: «azul» matches «Azul», «M» does not match «Mostaza». No word lists, synonyms or plural rules: the agent maps the owner's words to the store's values.
-- **Unknown value or option:** the answer lets the agent discover the store's values in one call. It lists every option name of the store's products with its values, grouped by option name, in alphabetical order, at most 100 values in total with «y 20 valores más» when cut:
+- **Unknown value or option:** the answer lets the agent discover the store's values in one call. It lists every option name of the store's products with its values: option names in alphabetical order; within each option, values in the order the seller saved them, taking products newest first, so «S, M, L» stays in that order. A value that differs only in case, accents or surrounding spaces across products is listed once, as written in the newest product. Values held only by deactivated variants are not listed and count as unknown, because they can never match. At most 100 values in total, with «y 20 valores más» when cut:
   - unknown value: «Tu tienda no tiene el valor "Celeste". Valores de tu tienda: Color: Azul, Azul claro, Negro, Rojo · Talla: S, M, L.»;
   - value that exists only under another option: «Tu tienda no tiene el valor "M" en Color. Valores de tu tienda: Color: Azul, Negro, Rojo · Talla: S, M, L.»;
   - unknown option: «Tu tienda no tiene la opción "Material". Valores de tu tienda: Color: …»;
@@ -116,13 +116,14 @@ Optional inputs:
   - name;
   - SKU: the variant's SKU when it has one variant, «Varias variantes» or «Sin SKU»; a product without active variants shows its SKU the same way over all its variants;
   - price over its active variants, as the app list: «S/ 39.90» or «Desde S/ 39.90»; a product without active variants shows «Sin variantes activas» instead of a price;
-  - stock: total of its active variants and the summary of its variant levels (see [Stock levels](#stock-levels)): «Stock: 12 · 1 agotada, 1 con stock bajo», «Stock: 0 · Agotado», «Stock: 6 · 6 con stock bajo»;
+  - stock: total of its active variants and the summary of its variant levels (see [Stock levels](#stock-levels)): «Stock: 12 · 1 agotada, 1 con stock bajo», «Stock: 0 · Agotado», «Stock: 6 · 6 con stock bajo»; a product without active variants has no stock line and no level, never «Agotado»;
   - catalog: «En el catálogo» or «No está en el catálogo: sin variantes activas»;
   - number of variants («6 variantes, 1 desactivada»);
   - Yoyos link `${BETTER_AUTH_URL}/products/<id>`;
   - customer link `https://rosa.yoyos.lat/productos/<id>` («Link para tu cliente»), only when the catalog is published and the product is in the catalog;
   - with a variant filter, the matching variants (combination, SKU, sale price, stock, level), at most 10 per product, then «y 4 variantes más: usa Ver producto».
 - Never the purchase price.
+- **Response budget:** the 24 KB of MCP 1/4 is met by a page of 20 products with every field at its maximum length and no variant filter, and by a page of 20 products with 3 matching variants each at maximum lengths. A larger page (up to 10 matching variants per product) still answers complete: neither the page size nor the 10-variant cap shrinks silently, and it is never answered with the reading-failure text.
 - **Every answer, empty ones included,** carries the catalog line: «Tu catálogo está publicado en https://rosa.yoyos.lat/.», «Tu catálogo está oculto: ahora nadie ve tus productos.» or «Tu catálogo está oculto y no tiene link todavía.». The instructions tell the agent to mention a hidden catalog once per conversation unless the owner asks about the catalog.
 - **Empty answers** say which filters were applied: «No hay productos con esos filtros: texto "polos", stock bajo.»; a store with no products: «Tu tienda todavía no tiene productos.».
 
@@ -161,7 +162,7 @@ Optional inputs:
 
 - The threshold 1 to 3 is the same for every store and adjustable only by Yoyos.
 - The `stock` filter uses these levels per variant: `stock: "stock bajo"` returns products with at least one active variant at 1 to 3 units; `stock: "agotado"`, with at least one at 0; `stock: "con stock"`, with at least one above 0.
-- The product line only summarizes its variants and never applies the threshold to a sum: it counts its active variants at each level («1 agotada, 1 con stock bajo») and says «Agotado» only when every active variant is at 0, the app's and catalog's meaning. A product with one variant shows that variant's level («Stock bajo»). Deactivated variants have no level and do not count.
+- The product line only summarizes its variants and never applies the threshold to a sum: it counts its active variants at each level («1 agotada, 1 con stock bajo») and says «Agotado» only when every active variant is at 0, the app's and catalog's meaning. A product with one variant shows that variant's level («Stock bajo»). Deactivated variants have no level and do not count; a product without active variants has no stock line and no level, never «Agotado».
 - Examples: S = 0, M = 2, L = 10 → «Stock: 12 · 1 agotada, 1 con stock bajo», returned by `stock: "agotado"`, `"stock bajo"` and `"con stock"`; six sizes at 1 unit → «Stock: 6 · 6 con stock bajo», returned by `"stock bajo"` and `"con stock"`, not by `"agotado"`; S = 0, M = 0 → «Stock: 0 · Agotado».
 - **Meeting point with MCP 4/4:** 4/4 owns the threshold and uses these same levels. If 4/4 changes the value or makes it configurable, this filter and these summaries change with it. 4/4's tool adds what **Buscar productos** does not give: one list of variants across products, most urgent first and not grouped by product, and the paid orders waiting for stock with which variant and how much is missing.
 
@@ -235,12 +236,12 @@ Store used unless stated: «Polo básico» (M / Azul S/ 39.90 stock 2; L / Rojo 
 2. `precio_desde: 40`, `precio_hasta: 130` returns «Polo básico» through «L / Rojo» and «Casaca» through «M / Azul»; `precio_hasta: 30` returns «No hay productos con esos filtros: precio hasta S/ 30.00.» with the catalog line.
 3. `stock: "agotado"` returns «Casaca» with «M / Azul» stock 0 and the line «Stock: 0 · Agotado»; «Polo básico» is not returned.
 4. A product «Jean» with S = 0, M = 2, L = 10 shows «Stock: 12 · 1 agotada, 1 con stock bajo» and is returned by `stock: "agotado"`, `"stock bajo"` and `"con stock"`; a product «Vestido» with six sizes at 1 unit shows «Stock: 6 · 6 con stock bajo» and is returned by `"stock bajo"` but not `"agotado"`; a product without options with 2 units shows «Stock bajo».
-5. A product whose variants are all deactivated is returned by `en_catalogo: "no"` with «Sin variantes activas» instead of a price, «No está en el catálogo: sin variantes activas» and no customer link, and not by `en_catalogo: "sí"`; `en_catalogo: "no"` with `stock: "agotado"` is refused with the variant-filter message.
+5. A product whose variants are all deactivated is returned by `en_catalogo: "no"` with «Sin variantes activas» instead of a price, «No está en el catálogo: sin variantes activas», no stock line, no level (never «Agotado») and no customer link, and not by `en_catalogo: "sí"`; `en_catalogo: "no"` with `stock: "agotado"` is refused with the variant-filter message.
 6. `texto: "polo"` combined with `valores: ["Rojo"]`, `stock: "con stock"`, `precio_hasta: 50` and `en_catalogo: "sí"` returns «Polo básico» only, with «L / Rojo».
 7. With 45 matching products, page 1 has 20, the total 45 and «hay más: pide la página 2»; page 3 has 5 and no more line.
-8. `valores: ["Celeste"]` in a store whose colors are Azul, Azul claro, Negro and Rojo and sizes S, M, L answers «Tu tienda no tiene el valor "Celeste". Valores de tu tienda: Color: Azul, Azul claro, Negro, Rojo · Talla: S, M, L.»; in a store with 130 values the list stops at 100 with «y 30 valores más».
+8. `valores: ["Celeste"]` in a store whose colors are saved as Azul, Azul claro, Negro and Rojo and sizes as S, M, L answers «Tu tienda no tiene el valor "Celeste". Valores de tu tienda: Color: Azul, Azul claro, Negro, Rojo · Talla: S, M, L.»; the values keep that saved order, so the sizes read S, M, L and never L, M, S; «azul» in one product and «Azul» in another are listed once; a value «Verde» held only by deactivated variants is not listed and `valores: ["Verde"]` answers the unknown-value text; in a store with 130 values the list stops at 100 with «y 30 valores más».
 9. `valores: ["Color: M"]` answers «Tu tienda no tiene el valor "M" en Color. …» even though a talla «M» exists; `valores: ["Material: Algodón"]` answers the unknown-option text with the store's values; in a store whose products have no options, any `valores` answers «Ningún producto de tu tienda tiene opciones (como color o talla). Busca con texto.».
-10. Category: the description of **Buscar productos** says Yoyos has no categories and how to search a product type; with a product «Polos oversize» added, `texto: "polo"` returns «Polo básico» and «Polos oversize», and `texto: "polos"` returns only «Polos oversize». Manual check: asked «¿qué categorías tengo?», the agent says Yoyos has no categories and offers to search by name.
+10. Category: the description of **Buscar productos** says Yoyos has no categories and how to search a product type, with the examples «polo» and «casac» written literally; with a product «Polos oversize» added, `texto: "polo"` returns «Polo básico» and «Polos oversize», and `texto: "polos"` returns only «Polos oversize». Manual check: asked «¿qué categorías tengo?», the agent says Yoyos has no categories and offers to search by name.
 11. A product with 14 variants matching `valores: ["M"]` lists 10 of them and «y 4 variantes más: usa Ver producto».
 12. Search results never contain a purchase price; each product in the catalog carries «Link para tu cliente» `https://rosa.yoyos.lat/productos/<id>`. With the catalog hidden, no customer link is returned and every answer, empty ones included, carries «Tu catálogo está oculto: ahora nadie ve tus productos.».
 13. In a store with no products, any search answers «Tu tienda todavía no tiene productos.» with the catalog line.
@@ -250,13 +251,14 @@ Store used unless stated: «Polo básico» (M / Azul S/ 39.90 stock 2; L / Rojo 
 17. **Ver producto** of a product with 100 variants lists all of them in saved order, with deactivated ones marked «Desactivada», never a QR or a photo; with 60 variants, a 1,000-character description and every field at maximum length the answer is within 24 KB; with 100 such variants it answers complete.
 18. A connection authorized before this task is not listed in «Asistentes de IA» after release; its next call gets the not-authorized answer; authorizing again shows the normal screen with the product lines and creates one row whose agent lists six tools.
 19. The authorization screen, «Asistentes de IA» intro and **Desconectar** description show the Spanish texts of [Screens](#screens) under `/es-PE/…` and the Portuguese ones under `/pt-BR/…`.
-20. The 61st call in one minute across order and product tools of one store is refused with the store-limit text; another store's calls are unaffected.
-21. Language, verifiable: the server instructions contain the rule to answer in the owner's language and to keep store data unchanged; no server instruction, tool description or message of any module says to answer in Spanish or «tal cual» for readiness reasons. Manual check: an owner writing «Quais camisetas azuis eu tenho?» gets the answer in Portuguese with product names, values and «S/ 39.90» unchanged; asked «O que eu despacho hoje?», gets the order answer in Portuguese, with a readiness reason such as «Se requiere al menos un pago para despachar.» rendered with the same meaning in Portuguese; an owner writing in Spanish gets Spanish.
-22. No product tool changes a product, price or stock: after any sequence of calls the products are identical.
+20. Isolation: store A has colors Azul and Rojo, store B has Verde and Blanco and a product «Polo verde». From A, `texto: "polo verde"` answers «No hay productos con esos filtros: …», `valores: ["Verde"]` answers A's unknown-value text listing only Azul and Rojo, and no answer of A ever contains B's products, values, SKUs or links.
+21. The 61st call in one minute across order and product tools of one store is refused with the store-limit text; another store's calls are unaffected.
+22. Language, verifiable: the server instructions contain the rule to answer in the owner's language and to keep store data unchanged; no server instruction, tool description or message of any module says to answer in Spanish or «tal cual» for readiness reasons. Manual check: an owner writing «Quais camisetas azuis eu tenho?» gets the answer in Portuguese with product names, values and «S/ 39.90» unchanged; asked «O que eu despacho hoje?», gets the order answer in Portuguese, with a readiness reason such as «Se requiere al menos un pago para despachar.» rendered with the same meaning in Portuguese; an owner writing in Spanish gets Spanish.
+23. No product tool changes a product, price or stock: after any sequence of calls the products are identical.
 
 ## Questions decided by the review gate
 
-Answered on 31/10/2026 by the review gate of the implement-task skill (UX/UI and product reviewers agreeing, consolidated by the coordinator). The founder confirms them in the pull request.
+Answered on 31/10/2026 by the review gate of the implement-task skill: round 1 rejected the draft with the answers below (UX/UI and product reviewers agreeing, consolidated by the coordinator); round 2 approved it with no blockers, both reviewers. The founder confirms them in the pull request.
 
 | Question | Answer | Decided by | Reason | Discarded |
 | --- | --- | --- | --- | --- |
@@ -270,7 +272,7 @@ Deferred with real risk, for the founder to decide whether to create a Todoist t
 Decided unless objected:
 - Two tools, **Buscar productos** and **Ver producto**, 20 products per page, newest first or by name.
 - Variant filters (values, price range, stock) apply together to the same active variant; deactivated variants are never matched; combining them with `en_catalogo: "no"` is refused with a remedy.
-- Values match exactly ignoring case, accents and spaces, at most 3 per call, optionally as «Opción: valor»; an unknown value or option answers with every option and value of the store, up to 100 values; a store without options says so.
+- Values match exactly ignoring case, accents and spaces, at most 3 per call, optionally as «Opción: valor»; an unknown value or option answers with every option and its values of active variants, options A–Z and values in saved order, each listed once, up to 100 values; a store without options says so.
 - Text search covers name and SKU as one phrase, like the app list; descriptions are not searched; the agent is told to search one short singular word or stem and retry shorter.
 - «Stock bajo» and «agotado» are per active variant; the product line counts its variants per level and says «Agotado» only when all are at 0.
 - «En el catálogo» means at least one active variant; every answer, empty ones included, states whether the catalog is published or hidden, and the agent mentions a hidden catalog once per conversation.
@@ -282,3 +284,8 @@ Decided unless objected:
 - **Ver producto** by SKU opens the product and marks that variant; the description is cut at 1,000 characters with «(la descripción continúa en Yoyos)»; every variant is listed even above the 24 KB budget.
 - The agent answers in the owner's language; tool names, inputs and messages stay in Spanish and the agent translates them, keeping store data unchanged; this applies to the order tools too.
 - Consent screen and «Asistentes de IA» texts change only to name products, in Spanish and Portuguese as written in [Screens](#screens).
+
+## Open items
+
+- At promotion, `docs/assistants.md` must change: the «Consent scope» row (a new category ends existing connections instead of a «Nuevo permiso» reauthorization), and every line saying tool texts and answers are in Spanish for every store (the Screens paragraph and the server instructions). Memory 3b49cccc (reauthorization under «Nuevo permiso») must be updated the same way.
+- The founder's own existing connections disappear once at release and must be connected again; the pull request says so.
