@@ -251,6 +251,19 @@ test("delivering through PATCH /shipping takes the pending part, or fails short 
   }, { traje: 5, deadpool: 1 });
 });
 
+test("delivering a deducted order with a pending part and only a partial payment takes the part and leaves the balance due", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);
+    unwrap(await s.pay(id, 209));
+    unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 3]) }));
+    await restockSilently(s, s.deadpool, 5);
+    const delivered = unwrap(await s.run(() => orders.deliver(id, s.context)));
+    expect(delivered).toMatchObject({ deliveryStatus: "delivered", completedAt: null });
+    expect(await s.stock(s.deadpool)).toBe(3);
+    expect((await deducted(s, id)).map(([, quantity, units]) => [quantity, units]).sort()).toEqual([[1, 1], [3, 3]]);
+  }, { traje: 5, deadpool: 1 });
+});
+
 test("two simultaneous edits of a deducted order leave the stock consistent with the winning lines", async () => {
   await inShop(async (s) => {
     const id = await s.create([[s.trajeS, 1], [s.deadpool, 1]]);
