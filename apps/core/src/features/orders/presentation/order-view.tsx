@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import { Link } from "react-router";
 import { useTranslation } from "react-i18next";
 import { ChevronRight } from "lucide-react";
@@ -128,6 +128,16 @@ function useHeaderOutOfView() {
   return [ref, outOfView] as const;
 }
 
+/** Tailwind `xl` is 80rem: below it the sticky bar replaces the header actions. The server and the hydration pass render the wide layout. */
+const narrowLayout = "(max-width: 79.99rem)";
+function useNarrowLayout(): boolean {
+  return useSyncExternalStore(
+    (change) => { if (typeof matchMedia !== "function") return () => {}; const media = matchMedia(narrowLayout); media.addEventListener("change", change); return () => media.removeEventListener("change", change); },
+    () => typeof matchMedia === "function" && matchMedia(narrowLayout).matches,
+    () => false,
+  );
+}
+
 const isTypingTarget = (target: EventTarget | null) =>
   target instanceof Element && target.closest("input, textarea, select, [contenteditable=''], [contenteditable='true'], [role='combobox'], [role='textbox']") !== null;
 
@@ -154,6 +164,7 @@ export function OrderView(props: OrderViewProps) {
   const [reloading, setReloading] = useState(false);
   const search = useCatalogSearch({ catalogEpoch: props.catalogEpoch });
   const [headerRef, headerOutOfView] = useHeaderOutOfView();
+  const narrow = useNarrowLayout();
   const noticeRef = useRef<HTMLDivElement>(null);
   const firstMarkTarget = useRef<string | null>(null);
   const { draft } = state;
@@ -201,13 +212,16 @@ export function OrderView(props: OrderViewProps) {
   const discardConfirm = saved ? "orderView.discard.leaveConfirm" : "orderView.discard.saleConfirm";
   const stickyLabel = inDoubt ? "orderView.status.stickyVerifying" : notice?.kind === "success" ? "orderView.status.stickySaved" : saved && unsaved && !order?.cancelled ? "orderView.status.stickyUnsaved" : "orderView.products.total";
   const confirmDiscard = () => { setDiscarding(false); if (saved) saved.onDiscardChanges(); else props.onDiscard?.(); };
+  // Below `xl`, the sticky bar already offers the save once the header has left the view: the header does not repeat it.
+  const stickySaves = saved ? unsaved && !order?.cancelled : hasProducts;
+  const headerSave = !(narrow && headerOutOfView && stickySaves);
   const stickyActions = saved ? unsaved && !order?.cancelled && <>
     <Button type="button" variant="outline" disabled={busy} onClick={() => setDiscarding(true)}>{t("orderView.header.discardChanges")}</Button>
     <Button type="button" disabled={!canSave} onClick={props.onSave}>{saveLabel}</Button></>
     : hasProducts && <Button type="button" disabled={!canSave} onClick={props.onSave}>{saveLabel}</Button>;
 
   return <section className={cn("flex flex-col gap-6 pb-24 xl:pb-0", touchTargets)} aria-labelledby="order-view-title">
-    {saved && order ? <SavedHeader order={order} salesHref={links.sales} format={format} headerRef={headerRef} unsaved={unsaved} busy={busy} saving={saving}
+    {saved && order ? <SavedHeader order={order} salesHref={links.sales} format={format} headerRef={headerRef} unsaved={unsaved} busy={busy} saving={saving} showSave={headerSave}
       onPrint={saved.onPrint} onDiscard={() => setDiscarding(true)} onSave={props.onSave} />
       : <div ref={headerRef} className="flex flex-col gap-3">
         <nav aria-label={t("orderView.header.breadcrumb")}>
@@ -226,7 +240,7 @@ export function OrderView(props: OrderViewProps) {
           <PageHeader.Actions>
             <Button asChild variant="ghost" className="text-muted-foreground"><Link to={links.sales}>{t("orderView.header.viewSales")}</Link></Button>
             <Button type="button" variant="outline" disabled={empty || busy} onClick={() => setDiscarding(true)}>{t("orderView.header.discard")}</Button>
-            <Button type="button" disabled={!canSave} aria-busy={saving || undefined} onClick={props.onSave}>{saveLabel}</Button>
+            {headerSave && <Button type="button" disabled={!canSave} aria-busy={saving || undefined} onClick={props.onSave}>{saveLabel}</Button>}
           </PageHeader.Actions>
         </PageHeader>
       </div>}

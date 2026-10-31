@@ -137,8 +137,6 @@ function applyItems(order: OrderAggregate, lines: readonly OrderLineRequest[], v
       : { id: newItemId(), variantId: variant.variantId, productName: variant.productName, variantAttributes: variant.variantAttributes, sku: variant.sku,
         quantity: line.quantity as number as PositiveInteger, unitPrice: variant.unitPrice, subtotal: variant.unitPrice, mentionedPrice: null, stockDeductedQuantity: 0 });
   }
-  // Items are read back in id order, so the next items are sorted the same way.
-  next.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
   // `appendItems` with no variants rebuilds the items and totals of the order it receives, keeping the delivery charge.
   const rebuilt = orderStateMachine.appendItems({ ...order, items: next as unknown as OrderAggregate["items"] }, [], newItemId);
   if (!rebuilt.success) return rebuilt;

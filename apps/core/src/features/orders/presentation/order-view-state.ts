@@ -431,7 +431,7 @@ function pin(state: OrderViewState, fresh: LoadedOrder, takeFresh: (part: OrderP
   // A kept delivery draft stops mirroring once the fresh order locks the delivery; a fresh one keeps the box the seller left while the customer draft is kept.
   const delivery = take.has("delivery") ? { ...saved.delivery, sameAsCustomer: take.has("customer") ? saved.delivery.sameAsCustomer : !deliveryLocked(fresh.order) && state.draft.delivery.sameAsCustomer }
     : { ...state.draft.delivery, sameAsCustomer: !deliveryLocked(fresh.order) && state.draft.delivery.sameAsCustomer };
-  return { loaded: fresh, base: {
+  return { ...state, loaded: fresh, base: {
     items: take.has("items") ? freshBase.items : base.items, customer: take.has("customer") ? freshBase.customer : base.customer,
     delivery: take.has("delivery") ? freshBase.delivery : base.delivery },
   draft: { ...state.draft, items: take.has("items") ? saved.items : kept, customer: take.has("customer") ? saved.customer : state.draft.customer,

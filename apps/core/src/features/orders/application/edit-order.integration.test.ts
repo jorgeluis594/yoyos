@@ -519,3 +519,19 @@ test("rolls back items and customer when the transaction ends during stock deduc
     expect(await s.run(async () => (await findOrderAggregate(id, s.companyId))).then((found) => found.success && found.data?.stockDeducted)).toBe(false);
   });
 });
+
+test("keeps the lines in the order they were entered when the order is created, edited and read again", async () => {
+  await inShop(async (s) => {
+    const variants = (order: Awaited<ReturnType<Shop["load"]>>["order"]) => order.items.map((item) => item.variantId);
+    const id = await s.create([[s.deadpool, 1], [s.trajeM, 1], [s.trajeS, 1]]);
+    expect(variants((await s.load(id)).order)).toEqual([s.deadpool, s.trajeM, s.trajeS]);
+    const added = unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 2], [s.trajeM, 1]) }));
+    expect(variants(added.order)).toEqual([s.trajeS, s.deadpool, s.trajeM]);
+    expect(variants((await s.load(id)).order)).toEqual([s.trajeS, s.deadpool, s.trajeM]);
+    unwrap(await s.edit(id, { items: s.lines([s.trajeM, 1], [s.deadpool, 2]) }));
+    expect(variants((await s.load(id)).order)).toEqual([s.trajeM, s.deadpool]);
+    const second = await s.create([[s.trajeM, 1], [s.deadpool, 1]]);
+    unwrap(await s.edit(second, { items: s.lines([s.trajeM, 1], [s.deadpool, 1], [s.trajeS, 1]) }));
+    expect(variants((await s.load(second)).order)).toEqual([s.trajeM, s.deadpool, s.trajeS]);
+  });
+});
