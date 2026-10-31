@@ -66,7 +66,7 @@ Context: Todoist 6hrqR5xxq2q9hr3V adds a per-product switch «Ocultar producto»
 1. The seller opens a product (web `/products/:productId`; mobile Productos → the product).
 2. She turns on «Ocultar producto». The form now has unsaved changes, like any other field.
 3. She presses **Guardar cambios** (web) or **Guardar** (mobile). The save is the product's usual all-or-nothing save; the switch and the button are disabled while it reads «Guardando…».
-4. On success the product page shows the usual confirmation (web: «Producto guardado correctamente.»; mobile: the alert «Cambios guardados» with «El producto se actualizó correctamente.») and the switch stays on. If this save left a published catalog with no visible product, the confirmation carries the [last-visible notice](#screens). Back in the list, the product carries «Oculto».
+4. On success the product page shows the usual confirmation (web: «Producto guardado correctamente.»; mobile: the alert «Cambios guardados» with «El producto se actualizó correctamente.») and the switch stays on. If this save turned «Ocultar producto» on and left a published catalog with no visible product, the confirmation carries the [last-visible notice](#screens). Back in the list, the product carries «Oculto».
 5. From that moment, a buyer loading the catalog no longer sees it; its link shows «Este producto ya no está disponible»; a cart that holds it refuses **Continuar** on that line; and messages read after the save never add it.
 6. To show it again, the seller turns the switch off and saves.
 
@@ -93,7 +93,7 @@ Alternative paths:
 - The same row, label and hint, with the native switch used by the «Publicar catálogo» card (`catalog-publication-card`), in the form's main fields, after the photo strip and before «Variantes». Touch target at least 44 pt; the accessible name is «Ocultar producto», the hint is its accessibility hint, and the state is announced as on or off.
 - Saves with **Guardar**; same discard and disabled rules as web.
 
-**Last-visible notice (web and mobile):** only when a save turns a published catalog from showing at least one product to showing none (the saved product was the last visible product with an active variant), the saved confirmation adds «Tu catálogo publicado se quedó sin productos visibles. Tus clientes verán la tienda vacía.» (pt-BR: «Seu catálogo publicado ficou sem produtos visíveis. Seus clientes verão a loja vazia.»). On web it follows «Producto guardado correctamente.» in the same message; on mobile it is a second paragraph of the body of the «Cambios guardados» alert. It informs; it does not block or ask for confirmation. It is not shown when the catalog is not published, when it was already empty before the save, or when the hidden product had no active variant (the catalog did not change). Accepted: once the seller dismisses it there is no persistent cue besides the «Oculto» marks in the list and the buyer's empty catalog; no banner is added.
+**Last-visible notice (web and mobile):** only when a save turned «Ocultar producto» on and took a published catalog from showing at least one product to showing none (the saved product was the last visible product with an active variant), the saved confirmation adds «Tu catálogo publicado se quedó sin productos visibles. Tus clientes verán la tienda vacía.» (pt-BR: «Seu catálogo publicado ficou sem produtos visíveis. Seus clientes verão a loja vazia.»). On web it follows «Producto guardado correctamente.» in the same message; on mobile it is a second paragraph of the body of the «Cambios guardados» alert. It informs; it does not block or ask for confirmation. It is not shown when the catalog is not published, when it was already empty before the save, or when the hidden product had no active variant (the catalog did not change). Emptying the catalog by deleting variants in the form or deactivating them shows no notice, as before this feature. Accepted: once the seller dismisses it there is no persistent cue besides the «Oculto» marks in the list and the buyer's empty catalog; no banner is added.
 
 **Product list, web and mobile:**
 
@@ -249,6 +249,12 @@ The risk the buyer-side rule closes: a hidden product reached by a guessed or ol
    - **Decided by:** the coordinator, on disagreement between the reviewers. The product reviewer proposed this combination; the UX/UI reviewer preferred option 2 and accepted option 1 only with the precedent stated and the limit recorded; both conditions are met in this document. Both reviewers confirmed the answer in rounds 2 and 3, and the coordinator relayed it as the founder's answer when closing.
    - **Reason:** true texts with a remedy and no new notice kind; the not-sellable twins already exist in the staged reader, so `main`'s reader, which is being replaced, does not take that work.
    - **Discarded:** option 2 on `main`, a notice of its own also for a text that only names the product (work in a reader being replaced); option 3, today's «…que ya no está a la venta…» and «Ya no tenemos…» texts (false for a product the store still sells, and the second is sent to the buyer).
+
+2. **Precision from the architecture gate: when does the last-visible notice appear?**
+   - **Answer:** only when the save turned «Ocultar producto» on and left the published catalog without visible products; emptying it by deleting or deactivating variants shows no notice.
+   - **Decided by:** the coordinator, on disagreement in the architecture review gate (design reviewer: only on hiding; performance reviewer: any save), confirmed by both reviewers in round 2.
+   - **Reason:** the product save cannot deactivate variants (variant status has its own action), so «any save» would cover deleting variants in the form but not deactivating them one click away; the notice is tied to hiding.
+   - **Discarded:** any product save that leaves the published catalog empty.
 
 ### Gate record
 

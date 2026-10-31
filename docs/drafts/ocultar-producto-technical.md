@@ -1,6 +1,6 @@
 # Hide a product: technical design
 
-**Status:** draft, round 2 of the architecture review gate; no open questions. Based on `docs/drafts/ocultar-producto.md` (definition ready to implement). Base: `jorgeluis594/ocultar-producto-del-catalogo-y-de-la-ge` at `a802779e` (code identical to `main` at `e89d9bce`). The staged message reader (Todoist 6hv99FVqgMmmJJR3, `origin/jorgeluis594/lector-de-pedidos-por-mensaje-nueva-arqu`, its T0 merged at `2f6af5ca`) is being implemented in parallel; section 9.2 is the meeting contract.
+**Status:** design closed, pending implementation (approved by the architecture review gate in round 2 on 2026-10-31; the founder confirms the gate's answers in the final pull request). Based on `docs/drafts/ocultar-producto.md` (definition ready to implement). Base: `jorgeluis594/ocultar-producto-del-catalogo-y-de-la-ge` at `a802779e` (code identical to `main` at `e89d9bce`). The staged message reader (Todoist 6hv99FVqgMmmJJR3, `origin/jorgeluis594/lector-de-pedidos-por-mensaje-nueva-arqu`, its T0 merged at `2f6af5ca`) is being implemented in parallel; section 9.2 is the meeting contract.
 
 ## 1. Technical goal
 
@@ -26,7 +26,7 @@ Product.hidden ─┬─ offered reads (hidden = false): catalog list/page, cart
 | QR in message reading | No new QR lookup. `findSellableVariantsByQrCodes` keeps finding a hidden product's label; `findProductsForReading` marks that product `hidden` and not sellable, so the existing "add shown product" path (`fixedShownAnswer` → `add` → `resolveAdd` → `freshAdd`, also without a reader call) yields `product_not_available` with reason `hidden`. This closes the product draft's note «needs a QR lookup that recognizes a hidden product's code». |
 | Reader's product | `ProductForReading` gains `hidden: boolean`; a hidden product has `sellable: false`, no variants and no attributes, exactly like a product without active variants, so no reader rule offers its variants. |
 | Notice reason | The outcome `product_not_available` gains `reason: "not_sold" \| "hidden"`, decided at reading time and required in the domain type. The stored schema defaults a missing `reason` to `"not_sold"`: every outcome stored before this feature is a not-sold case, so the default is the true value, development outcomes need no cleanup and the staged branch's stored fixtures keep parsing. The notice text is chosen from the stored reason, not from the product's state when the push is sent, so showing the product again a second later never changes what the seller reads. |
-| Raising a hidden item | Decided by the pure `refusesRaise` in the new `orders/domain/product-availability.ts` and called from `changeQuantity` in `orders/domain/chat-reading.ts`: `increase` on an item whose product is hidden, or `set` above the item's quantity, resolves to `product_not_available` (`hidden`). Variant changes already require `sellable`. The rule lives outside `chat-reading.ts` because the staged reader deletes that file's single-call parts (its T17) and calls the same helper from `domain/reader/request-checks.ts`. |
+| Raising a hidden item | Decided by the pure `refusesRaise` in the new `orders/domain/product-availability.ts` and called from `changeQuantity` in `orders/domain/chat-reading.ts`: `increase_quantity` on an item whose product is hidden, or `set_quantity` above the item's quantity, resolves to `product_not_available` (`hidden`). Variant changes already require `sellable`. The rule lives outside `chat-reading.ts` because the staged reader deletes that file's single-call parts (its T17) and calls the same helper from `domain/reader/request-checks.ts`. |
 | Readiness | `CatalogSearchReadiness` gains `all_products_hidden` (products with an active variant exist, none offered). Shared contract `catalog-search-readiness` gains the value in place (version stays `1`, no customers yet, memory 6ba8e5e6). Text misses stay silent for it as for `no_active_products`. Presence is read with two short-circuit `EXISTS` in one statement, never an aggregate over every product. |
 | Save rule | `hidden` is optional in the save request: omitted = untouched, like `photoIds`. The shared body builder sends it only when the form value differs from the loaded value, so toggling back counts as unchanged. Create always sends it (`false` by default). Writing `hidden` never raises `structureVersion` and never triggers `PRODUCT_CHANGED`. |
 | Last-visible notice | Only when the save turned «Ocultar producto» on (question decided by the review gate, section 17). Products computes `hidLastOffered` inside the save transaction (this save sets `hidden` to true, the product was offered before, and no other offered product of the same currency remains). The presentation layer turns it into `catalogEmptied` only when the storefront is published and the product's currency is the store currency. The product route receives the storefront read as a capability from `src/app.ts` so products does not depend on catalog (catalog already depends on products). |
@@ -118,19 +118,23 @@ Not a use case: a presentation rule over two facts.
 /** apps/core/src/features/products/presentation/catalog-emptied.ts */
 export function catalogEmptied(saved: SavedProduct, storefront: Readonly<{ published: boolean; currency: Currency }>): boolean
 // = saved.hidLastOffered && storefront.published && saved.detail.product.currency === storefront.currency
+
+/** The one helper both callers use: reads the storefront only when needed, decides with `catalogEmptied` and logs the outcome. */
+export async function resolveCatalogEmptied(saved: SavedProduct, access: Readonly<{ companyId: CompanyId }>,
+  describeStorefront: (companyId: CompanyId) => Promise<Result<StorefrontState, Readonly<{ code: string; message: string }>>>): Promise<boolean>
 ```
 
 - The API route `PUT /api/products/:productId` reads the storefront through a capability `describeStorefront(companyId)` that `src/app.ts` passes to `createProductRoutes({ describeStorefront })` (built from `catalogStorefront.describe`). The web action in `app/routes/product-detail.tsx` calls `catalogStorefront` directly (routes may compose features).
-- The storefront is read only when `hidLastOffered` is true, after the save committed. A failed read gives `catalogEmptied: false` and logs `product_catalog_emptied_check_failed`; the save stays a success. Reason: the notice informs, it never decides the save. When `catalogEmptied` is true the caller logs `product_catalog_emptied`.
+- The storefront is read only when `hidLastOffered` is true, after the save committed. A failed read gives `catalogEmptied: false` and logs `product_catalog_emptied_check_failed`; the save stays a success. Reason: the notice informs, it never decides the save. When `catalogEmptied` is true it logs `product_catalog_emptied`. Both logs live in `resolveCatalogEmptied`, so web and mobile saves emit identical events.
 
 ### 5.4 Buyer reads (products, modified)
 
 - `catalog-products-repository.ts` `list` and `find`: add `p.hidden = false` (`hidden: false` in the Prisma `sellable` filter of `find`). List, search, product page and preview inherit it. A hidden product's page is `null` → the existing «Este producto ya no está disponible» 404.
-- New `findOfferedVariants(ids)` in `order-stock.ts`: the same select and shape as `findSellableVariants` with `product: { status: "active", hidden: false }`. Exported from `products/index.ts`. Wired into `catalog/cart-composition.ts` (refresh) and `orders/composition.ts:500` (`createConfiguredCatalogOrder`). `findSellableVariants` stays for every other caller.
+- New `findOfferedVariants(ids)` in `order-stock.ts`: the same select and shape as `findSellableVariants` with `product: { status: "active", hidden: false }`. Defined in T0 and exposed through `products/composition.ts` (not the `products/index.ts` barrel, which `docs/architecture.md` calls debt not to extend); T1 wires it into `catalog/cart-composition.ts` (refresh) and `orders/composition.ts:500` (`createConfiguredCatalogOrder`). `findSellableVariants` stays for every other caller. `createCatalogOrder`'s dependency field is renamed from `findSellableVariants` to `findOfferedVariants` (`create-catalog-order.ts:17`), so the buyer's order reads with the vocabulary of section 2.
 
 ### 5.5 Message reading reads (products, modified)
 
-- `coverageQuery` and its count: add `p.hidden = false` / `AND NOT hidden`. The word cap counts what the statement scans.
+- `coverageQuery` and its count: add `p.hidden = false` / `AND NOT hidden`. The word cap counts the products the statement compares: hidden rows are scanned but never compared, so they are left out of the count. The count keeps today's form (`status = 'active'`, no active-variant test) plus `NOT hidden`, so it may include visible products without active variants, which makes the cap slightly conservative (fewer words), never over budget.
 - `hasIndexedProducts`, `findNearestProductImages`: add `p.hidden = false`. `listProductsMissingEmbedding` is unchanged: hidden products keep being indexed so a shown-again product is recognized at once (product rule «Photos»).
 - `readProductRowsForReading` selects `hidden` in its products query and passes only the visible product ids to the variant query (and so to the option query), keeping three queries whatever the count while not loading rows that are thrown away. `buildProductsForReading` sets `hidden`, and for a hidden product `variants: []`, `attributes: []`, `sellable: false`.
 - `findSellableVariantsByQrCodes`: unchanged (see Decisions).
@@ -143,14 +147,15 @@ The rules live in a new file, `orders/domain/product-availability.ts`, so the st
 /** Why a product the reader knows cannot be added; null (deleted) reads as not sold. */
 export function notAvailableReason(product: Pick<ProductForReading, "hidden"> | null): "hidden" | "not_sold";
 /** Whether a message's quantity change on an item of this product is refused: a hidden product's item can be lowered, removed or set at or below its quantity, never raised. */
-export function refusesRaise(product: Pick<ProductForReading, "hidden"> | null, item: Readonly<{ quantity: number }>, change: Readonly<{ mode: "increase" | "set"; quantity: number }>): boolean;
+export function refusesRaise(product: Pick<ProductForReading, "hidden"> | null, item: Readonly<{ quantity: number }>,
+  change: Pick<Extract<ResolvedChatAction, { kind: "increase_quantity" }>, "kind"> | Pick<Extract<ResolvedChatAction, { kind: "set_quantity" }>, "kind" | "quantity">): boolean;
 ```
 
 `chat-reading.ts` and `pending-transitions.ts` only gain call-site lines:
 
 - `freshAdd`, `changeVariant`: `product_not_available` with `reason: notAvailableReason(product)`.
 - `advancePending` (`pending-transitions.ts:150-152`): same reason; `pending_ended.reason` stays `product_not_available`.
-- `changeQuantity`: with `item = readingItem(action.item, world)` and `product = item?.productId ? world.byProductId.get(item.productId) ?? null : null`, when `item && refusesRaise(product, item, action)`, resolve to `report({ kind: "product_not_available", productId, reason: "hidden" })`. An item whose product is not loaded (context ceiling reached) is not refused (section 15).
+- `changeQuantity`: with `item = readingItem(action.item, world)` and `product = item?.productId ? world.byProductId.get(item.productId) ?? null : null`, when `item && refusesRaise(product, item, resolved)` where `resolved` is the `increase_quantity` / `set_quantity` action `changeQuantity` would return, resolve to `report({ kind: "product_not_available", productId, reason: "hidden" })`. An item whose product is not loaded (context ceiling reached) is not refused, and the check reads the item quantity of the reading snapshot (both in section 15). The input is the resolved action shape (`increase_quantity`, `set_quantity`), which both readers produce, so the staged reader calls it after its own extraction (`add` → `increase_quantity`, `set` → `set_quantity`; a decrease never needs the check).
 - `problemOf` and `ProblemNotice` carry the reason; `seller-notice-texts.ts` gains `productHidden(name)` (es and pt-BR from the product draft) used when `reason === "hidden"`.
 - `silenceTextMisses` (`apply-chat-message.ts`): silences when readiness is `no_active_products` or `all_products_hidden`.
 
@@ -218,7 +223,7 @@ COMMIT;
 ```
 
   `ADD COLUMN` still takes `ACCESS EXCLUSIVE` on `Product`, the most-read table (catalog, message reading, «Nueva venta», point of sale). Without the bound, the statement would queue behind any open reader and every later read would queue behind it. The wrapper follows the database-migrations skill (step 3) and the precedent `20261029014204_add_order_terminal_times`. A lock timeout fails the deploy cleanly, and it is retried. No backfill (existing products are visible). The RLS policy `product_company_isolation` covers the new column unchanged; no grant changes (the restricted app role already has column access to `Product`). No development data is deleted.
-- **Index: none.** Every read that gains the filter already scans the company's products and evaluates a per-row predicate (`status`, `currency`, an `EXISTS` on variants): the catalog list by `companyId` (`@@index([companyId])`), the text coverage by a per-company scan the trigram index cannot serve (memory 6ee53355), the nearest-image query by an exact scan joined from `Product`. `hidden = false` is one more column test on rows already read, and it only removes rows (it cuts the coverage and vector work for hidden products). A partial index `WHERE hidden = false` would not change these plans because the planner still needs `companyId`, and the selectivity is low (most products visible). The performance gate measured it on PostgreSQL 18 under forced RLS, 10k products: identical plans with and without the filter, `NOT hidden` applied on the `Product` scan below `word_similarity` and `<=>`. `booleq` is leakproof, so RLS does not reorder it. Revisit only if `EXPLAIN ANALYZE` on the benchmark catalog shows otherwise (section 15).
+- **Index: none.** Every read that gains the filter already scans the company's products and evaluates a per-row predicate (`status`, `currency`, an `EXISTS` on variants): the catalog list by `companyId` (`@@index([companyId])`), the text coverage by a per-company scan the trigram index cannot serve (memory 6ee53355), the nearest-image query by an exact scan joined from `Product`. `hidden = false` is one more column test on rows already read, and it only removes rows (it cuts the coverage and vector work for hidden products). A partial index (`(companyId) WHERE NOT hidden`) does not help either: the selectivity is low (most products visible), the dominant per-row cost is `word_similarity` or `<=>`, not the row fetch, and `NOT hidden` is already applied on the `Product` scan below that work. If the 90%-hidden shape ever regresses, that `companyId`-led partial index is the alternative to test. The performance gate measured it on PostgreSQL 18 under forced RLS, 10k products: identical plans with and without the filter, `NOT hidden` applied on the `Product` scan below `word_similarity` and `<=>`. `booleq` is leakproof, so RLS does not reorder it. Revisit only if `EXPLAIN ANALYZE` on the benchmark catalog shows otherwise (section 15).
 - **Rows read:** `readProductRowsForReading`'s `productRowSchema` adds `hidden: z.boolean()`; the catalog, search and assistant row schemas add it where they select it.
 - **Writes:** `insertProduct` stores `hidden`; `applyStructureChange` updates `hidden` with the product row when `change.product.hidden !== undefined`.
 
@@ -268,12 +273,12 @@ The staged reader reads products only through `products/composition.ts` (`findMe
 1. `findMentionCandidates` / `searchMentionsByCoverage`: the sellable side keeps `NOT hidden`; the unavailable-twin side counts a hidden product with active variants as a twin (`hidden OR NOT EXISTS active variant`), with the same name-key rule (a visible same-key product wins). Its active-product count and pair budget count hidden products, since the statement scans them.
 2. The twin guard («the company has a product with an active variant») counts hidden products.
 3. The buyer reply for `product_not_available` with `reason: "hidden"` uses the «no está disponible por ahora» texts.
-4. The staged reader's `domain/reader/request-checks.ts` calls `refusesRaise` on its increase and set paths and `notAvailableReason` wherever it builds `product_not_available`.
+4. The staged reader's `domain/reader/request-checks.ts` calls `refusesRaise` with its resolved `increase_quantity` / `set_quantity` actions and `notAvailableReason` wherever it builds `product_not_available`.
 5. «Por resolver» and pendings: no extra code; a hidden pending ends on its next completion attempt with `reason: "hidden"`.
 6. Undo of a removed hidden item uses `findSellableVariants` (visibility ignored); the «ya no se vende» refusal stays for `not_sold` only.
 7. Undo of an ended hidden pending restores it like any pending.
 8. Every switch on `CatalogSearchReadiness` handles `all_products_hidden` like `no_active_products` for text misses.
-9. Textual conflicts expected: the staged branch already edited `chat-message-outcome.ts` (its T0) and will extend `seller-notice.ts` (its T6). Whoever merges second adds `reason` to every `product_not_available` the other side builds (staged `request-checks.ts`, its fixtures and evals), keeps the stored default and keeps both sides' new outcome fields.
+9. Textual conflicts expected: the staged branch already edited `chat-message-outcome.ts` (its T0) and will extend `seller-notice.ts` (its T6). Whoever merges second adds `reason` to every `product_not_available` the other side builds (staged `request-checks.ts`, its fixtures and evals), keeps the stored default and keeps both sides' new outcome fields. It also adds the required `hidden` to every `ProductForReading` / `ReadingProduct` literal the other side builds (staged `orders/domain/chat-reading-fixtures.ts`, `orders/infrastructure/chat-reading-fixtures.ts`, `request-checks.ts` tests, evals). In `products/infrastructure/text-candidates.ts` the staged T10 adds `searchMentionsByCoverage` beside `coverageQuery`, where T2 adds `NOT hidden` to `coverageQuery` and its count: the merge keeps both.
 
 If this task merges second, the same list applies to the staged reader's code on `main` at that time.
 
@@ -326,8 +331,8 @@ No local SQLite change: products are not stored offline. Retries are those of th
 | --- | --- | --- | --- |
 | `product_created` (existing) | info | `product-editing.ts` | adds `["hidden"]` |
 | `product_saved` (existing summary, after commit) | info | `product-editing.ts` | adds `["hiddenChanged", "hidden", "hidLastOffered"]` |
-| `product_catalog_emptied` | info | API route and web action, when `catalogEmptied` is true | `["companyId", "productId"]` |
-| `product_catalog_emptied_check_failed` | warn | `catalog-emptied` callers (API route, web action) | `["companyId", "productId", "errorCode"]` |
+| `product_catalog_emptied` | info | `resolveCatalogEmptied` (used by the API route and the web action), when `catalogEmptied` is true | `["companyId", "productId"]` |
+| `product_catalog_emptied_check_failed` | warn | `resolveCatalogEmptied` | `["companyId", "productId", "errorCode"]` |
 | `message_candidates_found` (existing) | info | `text-candidates.ts` | unchanged; `wordCount` now reflects the visible count |
 | `chat_message_processed` / outcome logs (existing) | info | orders | outcome kinds already logged; `product_not_available` adds `["reason"]` where outcomes are summarized |
 
@@ -342,7 +347,7 @@ Never logged: product names, prices, message text, the buyer's phone, store URLs
 - `saveProduct` with fakes: `test("hiding the last offered product reports that it withdrew the last offered product")`, `test("hiding a product while another is offered does not report it")`, `test("hiding a product without active variants does not report it")`, `test("deleting the last active variants of the last offered product does not report it")`, `test("saving an already hidden product does not report it")`, `test("a save that does not send visibility keeps a product hidden by another device")`.
 - `catalogEmptied`: `test("is true only when the catalog is published and the product is in the store currency")`.
 - `buildProductsForReading`: `test("a hidden product reads as not sellable, hidden and without variants")`.
-- `catalogSearchReadiness`: `test("reports all products hidden when every product with an active variant is hidden")`, `test("reports no searchable photos when only hidden products have indexed photos")`, `test("reports no active products when the company has none with an active variant")`.
+- `catalogSearchReadiness`: `test("reports all products hidden when every product with an active variant is hidden")`, `test("reports no searchable photos when only hidden products have indexed photos")`, `test("reports no active products when the company has none with an active variant")`; `resolveCatalogEmptied`: `test("reads the storefront only when the save hid the last offered product")`, `test("a failed storefront read gives no notice and logs the failure")`.
 - `product-availability`: `test("a hidden product's reason is hidden and a missing product's is not sold")`, `test("raising or setting above the quantity is refused only for a hidden product")`.
 - stored outcome schema: `test("a stored product not available without reason reads as not sold")`.
 - reader (`chat-reading`): `test("adding a hidden product gives product not available with reason hidden")`, `test("a QR label of a hidden product gives product not available with reason hidden")`, `test("one more of a hidden item changes nothing and gives product not available")`, `test("setting a hidden item above its quantity is refused")`, `test("setting a hidden item at or below its quantity applies")`, `test("removing a hidden item applies")`, `test("changing the variant of a hidden item is refused")`, `test("raising an item of a deactivated variant still applies")`.
@@ -367,6 +372,10 @@ Never logged: product names, prices, message text, the buyer's phone, store URLs
 
 - T0: `test("the WhatsApp hint shows the all hidden text with Ir a Productos")`.
 
+### Web component tests (T3)
+
+- `test("the product form saves the hidden switch and omits it when toggled back")`, `test("a changed switch triggers the discard guard and the leave warning")`, `test("Descartar restores the stored visibility")`, `test("the label toggles the switch and the hint is its accessible description")`, `test("the switch is disabled while saving")`, `test("the list shows the Oculto badge with an eye-off icon for a hidden product")`, `test("the saved message adds the last-visible notice after Producto guardado correctamente when the catalog was emptied")`, `test("creating a hidden product opens its page with the switch on and no last-visible notice")`.
+
 ### Web E2E (happy path)
 
 - `test("the seller hides a product and the buyer no longer sees it in the catalog")` (`apps/core/tests/e2e/hide-product.spec.ts`).
@@ -379,10 +388,11 @@ Never logged: product names, prices, message text, the buyer's phone, store URLs
 
 ## 15. Limits and checks during implementation
 
-- Verify with `EXPLAIN ANALYZE` on the benchmark catalog (10,000 products) that `coverageQuery`, `findNearestProductImages`, the catalog `list` and `productPresence` keep their plans and timing with `hidden = false`, in two shapes: all visible (today's fixtures) and 90% hidden (added to `message-candidates-fixtures.ts`). The second shape measures the changed word cap: the cap now counts offered products, so 9k hidden of 10k gives about 25 words × 1k offered ≈ 25k pairs, inside `TEXT_MATCH_PAIR_BUDGET`. Invariant: coverage cost = searched words × offered products; hidden rows are scanned but never compared. Add no index unless a plan regresses.
+- Verify with `EXPLAIN ANALYZE` on the benchmark catalog (10,000 products) that `coverageQuery`, `findNearestProductImages`, `hasIndexedProducts` (worst case: offered products without embeddings, hidden ones with them; it gates the paid embedder, memory 3c8d122d), `hasOtherOfferedProduct`, the catalog `list` and `productPresence` keep their plans and timing with `hidden = false`, in two shapes: all visible (today's fixtures) and 90% hidden (added to `message-candidates-fixtures.ts`). The second shape measures the changed word cap: the cap now counts offered products, so 9k hidden of 10k gives about 25 words × 1k offered ≈ 25k pairs, inside `TEXT_MATCH_PAIR_BUDGET`. Invariant: coverage cost = searched words × offered products; hidden rows are scanned but never compared. Add no index unless a plan regresses.
 - Verify that `prisma migrate dev --create-only` produces only the `ADD COLUMN … DEFAULT false` statement, then wrap it in the `BEGIN; SET LOCAL lock_timeout = '5s'; SET LOCAL statement_timeout = '30s'; … COMMIT;` of section 7.
 - Known limit for a future approximate (HNSW) image index: memory 83a45100 already requires an over-fetch of about k × 8 photos because of `DISTINCT ON`; `NOT hidden` is a second filter applied after the ANN scan, so that over-fetch must also grow with the company's hidden share, or a mostly-hidden store gets too few candidates. Today's exact scan has no such issue.
 - Raising an item whose product did not fit the reader's product ceiling is not refused; items rank before text candidates in `selectReadingProducts`, so this needs more than `maxReaderProducts` shown and pending products. Accepted.
+- **Known limit, `set_quantity` snapshot race.** `refusesRaise` compares with the item quantity of the reading snapshot; `applyChatActions` applies `set_quantity` later to the locked order without comparing again. If the seller lowers a hidden item (×2 → ×1) in the order editor while a «mejor que sean 2» is being read, the set raises it back to 2. Recorded as a limit, not closed at apply time. Reasons: only the seller's own concurrent edit opens the window (seconds of reading); the result is the quantity the buyer asked for, visible to the seller in the order and its trace, not a wrong product; and closing it means adding a ceiling to `set_quantity` and a comparison in `chat-order.ts` apply, which is code the staged reader replaces, against this design's goal of minimal churn there. Same window already exists for every stock and sellability fact read before the transaction («When it takes effect»).
 - `hidLastOffered` compares by the saved product's currency; a product in a currency other than the store's is never offered in the catalog, and `catalogEmptied` requires the store currency.
 - Photo-twin risk for hidden products (product draft, real risk) stays out; no code here.
 
@@ -400,7 +410,7 @@ Every wave-2 task depends only on T0. The shared files each task touches are lis
 ### T0. Visibility stored, saved and returned
 
 **Scope:**
-- Core: migration `add_product_hidden` (with the section 7 wrapper) and `schema.prisma`; `Product.hidden`, `isOffered`; `planProductSave`, `createProduct`, `saveProduct` (`SavedProduct`, `hasOtherOfferedProduct`), repository insert/update/list/detail reads; `catalog-emptied.ts`; `createProductRoutes({ describeStorefront })` and its registration in `src/app.ts`; server side of `app/routes/product-new.tsx` and `product-detail.tsx` actions (return `hidden` and `catalogEmptied`); presenters and request mappers; products observability of section 13.
+- Core: migration `add_product_hidden` (with the section 7 wrapper) and `schema.prisma`; `Product.hidden`, `isOffered`; `planProductSave`, `createProduct`, `saveProduct` (`SavedProduct`, `hasOtherOfferedProduct`), repository insert/update/list/detail reads; `catalog-emptied.ts`; `createProductRoutes({ describeStorefront })` and its registration in `src/app.ts`; server side of `app/routes/product-new.tsx` and `product-detail.tsx` actions (return `hidden` and `catalogEmptied`); presenters and request mappers; products observability of section 13; `findOfferedVariants` in `order-stock.ts`, exposed through `products/composition.ts` (wired by T1); `hidden?: boolean` in `SeedProduct` of `products/infrastructure/product-seed.ts` (the shared integration seed, so T1, T2 and T5 seed hidden products without editing it).
 - Shared: `shared/contracts/products.ts`, `shared/product-variants.ts`, `shared/product-visibility.ts`, `shared/contracts/catalog-search-readiness.ts` (value `all_products_hidden`).
 - Compile-only caller fixes, so both apps stay green: the client calls of `buildCreateProductBody`/`buildSaveProductBody` in `app/routes/product-new.tsx:67`, `product-detail.tsx:98` and `apps/mobile/src/features/products/application/product-operations.ts:30,34` pass `hidden: false` and `visibility: { kind: "unchanged" }` (T3 and T4 replace them with the form value); tests that assert those bodies.
 - The complete mobile WhatsApp hint change (section 10 «WhatsApp hint»): `notices-provider.tsx` types `CatalogReadinessLoader` from the contract state, `catalog-readiness-hint.tsx` shows state 2, `notifications/presentation/translations.ts` gets its es/pt-BR text. It is small and is the only way the contract value compiles without a stub.
@@ -417,7 +427,7 @@ Every wave-2 task depends only on T0. The shared files each task touches are lis
 
 ### T1. Buyer catalog and cart
 
-**Scope:** `catalog-products-repository.ts` (`list`, `find`); `findOfferedVariants` in `order-stock.ts` and `products/index.ts`; `catalog/cart-composition.ts`; `orders/composition.ts:500` (one line, `createConfiguredCatalogOrder`); E2E `tests/e2e/hide-product.spec.ts` (seller hides via the API or a seeded hidden product; buyer view).
+**Scope:** `catalog-products-repository.ts` (`list`, `find`); wiring `products.findOfferedVariants` (from T0) into `catalog/cart-composition.ts` and `orders/composition.ts:500` (`createConfiguredCatalogOrder`); the dependency rename in `orders/application/create-catalog-order.ts`; E2E `tests/e2e/hide-product.spec.ts` (seller hides via the API or a seeded hidden product; buyer view).
 **Out of scope:** product form UI (T3), `findSellableVariants` and its other callers.
 **Acceptance criteria:** product criteria 1, 2, 3, 4, 9, 10, 11, 17 (buyer part), 21.
 **Tests:** integration «catalog» and «manual paths»; E2E.
@@ -427,7 +437,7 @@ Every wave-2 task depends only on T0. The shared files each task touches are lis
 
 **Scope:** `text-candidates.ts` (and the 90%-hidden shape in `message-candidates-fixtures.ts`); `image-embeddings.ts` (`hasIndexedProducts`, `findNearestProductImages`); `catalog-search-readiness.ts` (infrastructure `productPresence`, application, domain value) and `products/composition.ts` readiness wiring; `reading-products.ts`, `find-products-for-reading.ts`, `reading-product.ts`; new `orders/domain/product-availability.ts`; call sites in `orders/domain/chat-reading.ts` and `pending-transitions.ts`; `chat-message-outcome.ts` (with the stored default), `seller-notice.ts`; `orders/application/apply-chat-message.ts` (`silenceTextMisses` only); `orders/presentation/seller-notice-texts.ts`; evals expectations that name `product_not_available`.
 **Out of scope:** the staged reader (section 9.2 is its list); unavailable twins on `main`; QR lookup changes.
-**Acceptance criteria:** product criteria 5 (`main` part), 6, 7, 8, 9 (message part), 11 (message part), 22 (`main` part); `GET /api/products/search-readiness` answers `all_products_hidden` for a store whose products with active variants are all hidden.
+**Acceptance criteria:** product criteria 5 (`main` part), 6, 7, 8, 9 (message part), 11 (message part), 22 (`main` part), 18 (second part: a store with one visible product without indexed photos and hidden products with indexed photos reads `no_searchable_photos`); `GET /api/products/search-readiness` answers `all_products_hidden` for a store whose products with active variants are all hidden.
 **Tests:** unit `product-availability`, stored outcome schema, reader, `advancePending`, readiness, `buildProductsForReading`, notice texts, `silenceTextMisses`; integration «reading»; the section 15 `EXPLAIN ANALYZE` in both shapes, reported in the pull request.
 **Depends on:** T0.
 
@@ -436,7 +446,7 @@ Every wave-2 task depends only on T0. The shared files each task touches are lis
 **Scope:** `products/presentation/product-form.tsx` (switch row, hint, accessibility, draft and discard guard), the client part of `app/routes/product-new.tsx` and `product-detail.tsx` (send `hidden`/`visibility`, show the last-visible notice after «Producto guardado correctamente.»), `app/routes/product-list.tsx` («Oculto» badge with eye-off icon), `app/locales.ts` (es, pt-BR).
 **Out of scope:** server behavior (T0), catalog reads (T1).
 **Acceptance criteria:** product criteria 1 (seller part), 12, 13, 15, 16 (web side), 17 (web notice). Criterion 15 (in doubt) is covered by the existing save-failure tests: the switch adds no failure path.
-**Tests:** component tests in `product-form.test.tsx` and the list route mirroring the mobile titles; manual accessibility check.
+**Tests:** section 14 «Web component tests (T3)» in `product-form.test.tsx` and the product list route tests; manual accessibility check.
 **Depends on:** T0.
 
 ### T4. Mobile form, list, notice and WhatsApp hint
@@ -466,3 +476,20 @@ On the integration branch after all tasks: `scripts/ci.sh`, the web E2E, the man
    - **Decided by:** the coordinator, on disagreement between the reviewers (design reviewer: option 2; performance reviewer: option 1).
    - **Reason:** the design reviewer verified that the product save cannot deactivate variants (variant status goes through `PUT /api/products/:productId/variants/:variantId/status`), so option 1's case does not exist in the save path. Covering deletion in the form but not deactivation one click away would be inconsistent, and full coverage would mean returning `catalogEmptied` from the variant routes and dialogs, which is beyond this product definition. The product text frames the notice around hiding («the saved product was the last visible product with an active variant»; not shown «when the hidden product had no active variant»).
    - **Discarded:** option (1), any save that leaves the catalog with no offered product. Its performance argument (no measurable cost) holds, but it covers only form deletion, an inconsistent partial case.
+
+### Gate record
+
+| Round | Design reviewer | Performance reviewer |
+| --- | --- | --- |
+| 1 | Rejected: the product save cannot deactivate variants (question 1 premise); T0 broke mobile and web typecheck | Rejected: the migration left the `ACCESS EXCLUSIVE` lock wait unbounded |
+| 2 | Approved with eight suggestions (applied: `set_quantity` race recorded as a limit, `hidden` in `product-seed.ts` in T0, meeting-contract additions, `findOfferedVariants` through `products/composition.ts`, dependency rename, T3 titles, criterion 18 in T2, one logging helper) | Approved with three suggestions (applied: `hasIndexedProducts` and `hasOtherOfferedProduct` in the benchmark list, the partial-index wording, the word-cap wording) |
+
+## 18. Deferred items with real risk
+
+The founder decides whether to open a Todoist task for each; none is created by this design.
+
+1. **Photo of a hidden product without its QR label** (money: wrong product). Visual search excludes hidden products, so the photo can match a visible look-alike at 0.8 certainty or more and add it to the chat order. Same risk as a deactivated product today; flagged in the product draft. Trigger: photo twins in identification, or Todoist [6hp3GMrxGGqWCfG3](https://app.todoist.com/app/task/6hp3GMrxGGqWCfG3).
+2. **Staged reader merged without the section 9.2 obligations** (money: a hidden product added from a text). If `findMentionCandidates` replaces `coverageQuery` without `NOT hidden` on its sellable side, messages add hidden products again. Mitigation: the coordinator records section 9.2 on Todoist 6hv99FVqgMmmJJR3, and whichever task merges second applies it; the integration tests of section 14 «reading» fail if the filter is lost.
+3. **`set_quantity` snapshot race** (low: hidden stock raised back to the buyer's stated quantity while the seller edits the same item). Recorded in section 15; closing it means an apply-time ceiling in the staged reader's apply path.
+
+Improvements without real risk (listed, no task needed): a text that only names a hidden product gets «Producto no reconocido» on `main` until the staged reader merges; two simultaneous hides of the last two offered products can both miss the last-visible notice; a future HNSW image index must grow its over-fetch with the hidden share.
