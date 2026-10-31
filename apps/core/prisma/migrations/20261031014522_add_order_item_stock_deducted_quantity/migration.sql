@@ -10,9 +10,6 @@ UPDATE "OrderItem" i SET "stockDeductedQuantity" = i.quantity
 
 ALTER TABLE "OrderItem" ADD CONSTRAINT "OrderItem_stockDeductedQuantity_check" CHECK ("stockDeductedQuantity" >= 0);
 
--- Lines with units still to deduct: the waiting and recovery queries of already deducted orders walk it.
-CREATE INDEX "OrderItem_stock_unsettled_idx" ON "OrderItem" ("companyId", "variantId", "orderId") WHERE "stockDeductedQuantity" < quantity;
-
 -- Also lists the companies with a deducted order whose lines are not settled yet and could be now.
 CREATE OR REPLACE FUNCTION public.list_companies_with_overdue_stock_deductions()
 RETURNS SETOF uuid

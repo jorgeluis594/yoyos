@@ -286,23 +286,24 @@ const rejectTransaction: RejectPaymentDependencies["transaction"] = scopedOrderT
 const immediateTransaction: RegisterImmediateSaleDependencies["transaction"] = producerTransaction;
 const cancellationTransaction: CancelOrderDependencies["transaction"] = scopedOrderTransaction;
 const fulfillmentTransaction: FulfillOrderDependencies["transaction"] = scopedOrderTransaction;
-/** Shipping runs outside any savepoint, so a failed statement there simply ends its transaction: it answers like any other persistence failure. */
-function forShip<A extends unknown[], T>(call: (...args: A) => Promise<Result<T, TransactionEndingError | ContainedFailure>>, stage: string) {
+type FulfillmentOperation = "ship_order" | "deliver_order" | "update_order_shipping";
+/** Shipping and delivering run outside any savepoint, so a failed statement there simply ends its transaction: it answers like any other persistence failure. */
+function forFulfillment<A extends unknown[], T>(operation: FulfillmentOperation, call: (...args: A) => Promise<Result<T, TransactionEndingError | ContainedFailure>>, stage: string) {
   return async (...args: A): Promise<Result<T, Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>>> => {
     const result = await call(...args);
     if (result.success) return result;
     const failure = result.error;
     if (failure.code === "PERSISTENCE_UNAVAILABLE") return err(failure);
-    log.error({ event: "unable_to_deduct_product_stock", operation: "ship_order", stage, errorCode: failure.errorCode, err: failure.cause }, "unable_to_deduct_product_stock");
+    log.error({ event: "unable_to_deduct_product_stock", operation, stage, errorCode: failure.errorCode, err: failure.cause }, "unable_to_deduct_product_stock");
     return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: failure.message });
   };
 }
 
-// Shipping deducts pending stock, so the deduction logs under its own operation like set_order_delivery does.
-const fulfillmentDependencies: FulfillOrderDependencies = { transaction: fulfillmentTransaction, findOrderForUpdate,
+// Shipping and delivering deduct pending stock, so each deduction logs under the operation that asked for it, like set_order_delivery does.
+const fulfillmentDependenciesFor = (operation: FulfillmentOperation): FulfillOrderDependencies => ({ transaction: fulfillmentTransaction, findOrderForUpdate,
   saveFulfillment, clock: () => new Date(),
-  lockVariantStock: forShip(lockVariantStock, "lock_stock"), deductStockBulk: forShip(deductStockBulk, "deduct_stock"),
-  saveStockDeduction: (id, companyId, at) => saveStockDeduction(id, companyId, at, "ship_order") };
+  lockVariantStock: forFulfillment(operation, lockVariantStock, "lock_stock"), deductStockBulk: forFulfillment(operation, deductStockBulk, "deduct_stock"),
+  saveStockDeduction: (id, companyId, at) => saveStockDeduction(id, companyId, at, operation) });
 
 export async function setConfiguredOrderDelivery(input: SetDeliveryInput, context: OrderAccess) {
   const started = performance.now();
@@ -700,11 +701,11 @@ export const orders = {
   /** Pure: the readiness of a full order given its `describeDispatchStock` entry; `null` when it is cancelled or no longer pending. */
   describeDispatchReadiness: (order: OrderAggregate, stock: DispatchStock) => describeDispatchReadiness(toReadinessSubject(order), stock),
   ship: (id: Parameters<typeof registerShipment>[0], context: Parameters<typeof registerShipment>[1]) =>
-    registerShipment(id, context, fulfillmentDependencies),
+    registerShipment(id, context, fulfillmentDependenciesFor("ship_order")),
   updateShipping: (input: Parameters<typeof updateOrderShipping>[0], context: Parameters<typeof updateOrderShipping>[1]) =>
-    updateOrderShipping(input, context, { ...fulfillmentDependencies, saveDispatchSchedule } satisfies UpdateOrderShippingDependencies),
+    updateOrderShipping(input, context, { ...fulfillmentDependenciesFor("update_order_shipping"), saveDispatchSchedule } satisfies UpdateOrderShippingDependencies),
   deliver: (id: Parameters<typeof registerDelivery>[0], context: Parameters<typeof registerDelivery>[1]) =>
-    registerDelivery(id, context, fulfillmentDependencies),
+    registerDelivery(id, context, fulfillmentDependenciesFor("deliver_order")),
   cancel: async (id: Parameters<typeof cancelOrder>[0], context: Parameters<typeof cancelOrder>[1]) => {
     requireNoActiveTransaction();
     let failure: EventBusError | undefined;

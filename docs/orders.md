@@ -81,7 +81,7 @@ An order has three independent dimensions plus a derived status:
 | Serving waiting orders | On a restock, the waiting orders that contain an increased variant are served oldest creation date first; each order whose items all fit the stock left at that moment is deducted, and an order that does not fit is skipped so the next ones are tried. Example: stock left at 3, #1010 needs 5 and #1012 needs 2: #1012 is deducted and #1010 keeps waiting with «hay 1». Reason: simple and predictable, and stock does not sit idle behind a large order (rejected: choosing the order by hand). |
 | Restock in one step | The increase and the deduction of the waiting orders it covers commit in the same transaction, so no newer payment, creation or dispatch can take the increased units in between. A sale paid while units are free is deducted right away. |
 | Guarantee | A due order whose items all fit is never left undeducted, store pickup included: if the deduction did not complete, the recovery job deducts it within a minute, without seller action and without another restock. Meanwhile the order shows «Descontando stock». |
-| Stock source | Stock is never negative and never deducted twice for one order. It is deducted only by this automatic deduction (also after an edit), by shipping, by delivering, and by creation with immediate delivery or shipment; it is restored only by cancellation. There is no standalone deduction operation. Reason: a second path would bypass oldest first. |
+| Stock source | Stock is never negative and never deducted twice for one order. It is deducted only by this automatic deduction (also after an edit), by shipping, by delivering, and by creation with immediate delivery or shipment; it is returned only by cancellation and by an edit of a deducted order that lowers or removes a line (which publishes `product_stock_increased`). There is no standalone deduction operation. Reason: a second path would bypass oldest first. |
 | Ship and deliver | Ship deducts inside its own transaction and answers `INSUFFICIENT_STOCK` when short (also on a partially paid order that is not due). Deliver, by `deliverOrder` (the deliver endpoint and `PATCH /shipping` with `delivered`), requires deducted stock and takes out the part an edit left pending in its own transaction, or answers `INSUFFICIENT_STOCK` with nothing persisted. Reason: a delivered order is no longer due, so nothing else would take those units. |
 | Leaving waiting | A cancelled waiting order leaves the waiting orders and nothing is restored, because nothing was deducted. An order that stops being due (a voided payment, or a delivery or items change that raises the total, and no remaining payment asked to deduct) shows «Stock pendiente» like any unpaid order. |
 
@@ -222,7 +222,7 @@ Web shows «Marcar enviado», «Entregar directamente» and «Marcar entregado»
 | Delivery shipped or delivered | `DELIVERY_LOCKED` | Editable | `DELIVERY_LOCKED` |
 | Stock deducted, delivery pending | Editable: the stock listener settles the difference ([Stock after an edit](#stock-after-an-edit)) | Editable | Editable |
 
-«Descontando stock» is not enforced by core: it is derived and can appear or vanish while the seller edits. A save accepted in that state is harmless, because the items are replaced under the lock and the listener then deducts the new ones. Reason: a lock that depends on a moment would refuse saves for a state the seller cannot see change. The web screen does lock products while stock is deducting ([Order view](order-view.md#what-can-change-when)).
+«Descontando stock» is not enforced by core: it is derived and can appear or vanish while the seller edits. A save accepted in that state is harmless, because the items are replaced under the lock and the listener then deducts the new ones. Reason: a lock that depends on a moment would refuse saves for a state the seller cannot see change.
 
 ### Conflicts
 
@@ -282,7 +282,7 @@ Errors use the envelope `{ code, error, issues? }`; `issues` points to the affec
 | Delivery already progressed / payment not covered | `409 DELIVERY_LOCKED` / `409 PAYMENT_REQUIRED` |
 | Known persistence failure, or a contended stock deduction for immediate delivery | `503 SERVICE_UNAVAILABLE` |
 
-An order of another company responds exactly as a missing one. Outside creation, `INSUFFICIENT_STOCK` remains only for shipping (`/ship` and `PATCH /:id/shipping` with a shipment).
+An order of another company responds exactly as a missing one. Outside creation, `INSUFFICIENT_STOCK` remains only for shipping and delivering (`/ship`, `/deliver` and `PATCH /:id/shipping`).
 
 ### Uncertain responses
 

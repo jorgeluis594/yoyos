@@ -889,9 +889,9 @@ export async function findOrderNumbers(ids: readonly OrderId[]) {
 
 
 /**
- * The due-and-fit rule in SQL, for an order aliased `o`, as two branches so each walks its own partial index: an undeducted order that is paid enough
+ * The due-and-fit rule in SQL, for an order aliased `o`, as two branches: an undeducted order that is paid enough
  * (first line repeats the `Order_undeducted_pending_idx` predicate with the same literals), or a deducted order with pending lines
- * (`OrderItem_stock_unsettled_idx`). Both require every pending unit to fit; the three stock queries and the definer function share it.
+ * (probed through the `(companyId, orderId, variantId)` unique index). Both require every pending unit to fit; the three stock queries and the definer function share it.
  */
 const undeductedDueAndFit = Prisma.sql`NOT o."stockDeducted" AND NOT o.cancelled AND o."deliveryStatus" = 'pending'
   AND (
@@ -907,7 +907,7 @@ const pendingDueAndFit = Prisma.sql`o."stockDeducted" AND NOT o.cancelled AND o.
   AND NOT EXISTS (SELECT 1 FROM "OrderItem" i LEFT JOIN "ProductStock" s ON s."variantId" = i."variantId"
        WHERE i."companyId" = o."companyId" AND i."orderId" = o.id AND i."stockDeductedQuantity" < i.quantity
          AND coalesce(s.quantity, 0) < i.quantity - i."stockDeductedQuantity")`;
-/** Oldest first; the branches are unioned instead of OR-ed so each keeps its index. `filter` is a condition on `o`. */
+/** Oldest first; the branches are unioned instead of OR-ed so the first keeps its partial index. `filter` is a condition on `o`. */
 const dueAndFitIds = (companyId: CompanyId, filter: Prisma.Sql, limit: number) => Prisma.sql`SELECT id FROM (
   SELECT o.id, o."createdAt" FROM "Order" o WHERE o."companyId" = ${companyId}::uuid AND ${filter} AND ${undeductedDueAndFit}
   UNION ALL
