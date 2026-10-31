@@ -18,6 +18,7 @@
     "mcp:validate": "sh scripts/run-tests.sh unit src/composition/assistant-tools.test.ts",
     "eval": "sh scripts/run-evals.sh",
     "eval:report": "tsx evals/scripts/rebuild-report.ts",
+    "eval:compare": "tsx evals/scripts/compare-reports.ts",
     "test:mutation": "stryker run",
     "lint": "eslint .",
     "typecheck": "tsc --noEmit",

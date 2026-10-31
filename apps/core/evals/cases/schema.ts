@@ -105,7 +105,25 @@ export type MessageInput = z.output<typeof messageInput>;
 /** A message of a conversation: the chat's earlier messages are the order; the starting state is the conversation's. */
 const conversationInput = z.strictObject(messageContent).refine(hasOneContent, "A message is a text or a photo").refine(captionNeedsPhoto, "Only a photo has a caption");
 
+/** The decisions of the stage design (technical design 6.3): what a message's change becomes. */
+export const decisionKinds = ["applied", "doubtful", "pending", "urgent", "silent", "notice"] as const;
+export type DecisionKind = (typeof decisionKinds)[number];
+/** The intent stage's answers a case can state. */
+export const intentKinds = ["requests", "no_intent", "unsure"] as const;
+export type IntentKind = (typeof intentKinds)[number];
+
+/** What the stages must read, stated only where a case needs it: the intent kind, the extracted fields (attribute or `quantity`, `price`) and the chosen product. */
+export const stageExpectation = z.strictObject({
+  intent: z.enum(intentKinds).optional(),
+  fields: attributes.optional(),
+  product: productKey.optional(),
+});
+export type StageExpectation = z.output<typeof stageExpectation>;
+
 const expectationFields = {
+  /** The decision the policy must reach; absent means derived from the notice and outcomes (`decisionOf`). */
+  decision: z.enum(decisionKinds).optional(),
+  stages: stageExpectation.optional(),
   /** Outcome kinds, as a multiset, when stated; `[]` means the message was skipped without an outcome. */
   outcomes: z.array(z.enum(outcomeKinds)).optional(),
   /** The open order after the message; absent means unchanged. */

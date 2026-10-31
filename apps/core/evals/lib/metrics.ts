@@ -68,7 +68,11 @@ export function metricsOfRun(records: readonly CaseRecord[]): RunMetrics {
 export function aggregateRuns(runs: readonly RunMetrics[]): AggregatedMetrics {
   return Object.fromEntries(metricNames.map((name) => {
     const values = runs.flatMap((run) => run[name] === null ? [] : [run[name]]);
-    return [name, values.length ? { mean: mean(values)!, min: Math.min(...values), max: Math.max(...values), runs: values.length } : null];
+    if (!values.length) return [name, null];
+    const min = Math.min(...values);
+    const max = Math.max(...values);
+    // Floating-point sums can leave the mean a hair outside identical values.
+    return [name, { mean: Math.min(max, Math.max(min, mean(values)!)), min, max, runs: values.length }];
   })) as AggregatedMetrics;
 }
 

@@ -1,14 +1,10 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { EvalPass } from "@core/evals/cases/schema";
+import type { DecisionKind, EvalPass } from "@core/evals/cases/schema";
 import type { JudgeVerdict } from "@core/evals/lib/claude";
 import type { ModelCall } from "@core/evals/lib/model-meter";
 import type { FieldScores } from "@core/evals/lib/scorers";
 import { privateDirOf } from "@core/evals/cases/private";
-
-/** The decisions of the stage design (technical design 6.3): what a change becomes. */
-export const decisionKinds = ["applied", "doubtful", "pending", "urgent", "silent", "notice"] as const;
-export type DecisionKind = (typeof decisionKinds)[number];
 
 /**
  * What the scoring of one message states for the v2 metrics (lib/metrics.ts). `null` is a stage the case does not state. Only the staged
