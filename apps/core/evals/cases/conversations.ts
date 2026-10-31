@@ -2,8 +2,8 @@ import type { EvalCaseInput } from "@core/evals/cases/schema";
 import { after } from "@core/evals/cases/builders";
 
 /**
- * Conversation cases: one chat, 2 to 4 messages, with events between them. Written from the rules sheet (the closed product draft:
- * Rules, Pendings, Notices, That's all) by someone who does not tune; the wording is the buyer's own, never the draft's examples.
+ * Conversation cases: one chat, 2 to 4 messages, with events between them. Written from the rules in docs/message-to-order.md
+ * by someone who does not tune; the wording is the buyer's own, never the doc's examples.
  *
  * Every step states the notice (`null` is silent) and the chat's latest order after the message. No order exists before the first
  * message: the earlier messages are the order. `kind` is the family of the conversation.
@@ -25,7 +25,7 @@ const gorraRojaOrder = trucker("Rojo");
 const poloLine = { product: "polo-basico", variant: { Talla: "M", Color: "Negro" }, quantity: 1 };
 
 /**
- * New dev conversations of «Message to order without silent losses», written from the closed product definition by someone who does not
+ * New dev conversations of «Message to order without silent losses», written from docs/message-to-order.md by someone who does not
  * tune. The eval conversation has no outgoing step, so «after a seller reply» is covered by T6's integration test, not here. Every id falls
  * in the dev split (cases/new-dev-cases.test.ts). `unnamed-wording` marks the messages that name no product, so T8 can scan the reader's
  * answers for a pending ref on them.
@@ -217,7 +217,7 @@ export const conversationCases: readonly EvalCaseInput[] = [
     { input: text("ya pues blancos M"), expected: { notice: null, order: [polo({ Talla: "M", Color: "Blanco" }, 2)] } },
   ] },
   { id: "conv-unnamed-add-after-photo", pass: "conversation", kind: "replacement", tags: ["unnamed-wording"], steps: [
-    // Relabeled by rule (product definition, «Quantity for the photo just sent»): set wording right after the photo sets what it left, without
+    // Relabeled by rule (docs/message-to-order.md, «Quantity for the photo just sent»): set wording right after the photo sets what it left, without
     // notice, so the pending is ×3 and the color completes it with ×3. Not relabeled from any run.
     { input: photo("gorra-trucker"), expected: { notice: "variant_missing", order: [] } },
     { input: text("pásame 3 de esas"), expected: { notice: null, order: [] } },

@@ -52,7 +52,7 @@ export const countRequestTokens = (contextText: string): number => o200k.count(r
 export type FitReadingContext = (context: ChatReadingContext) => FittedReadingContext | ContextTooLarge;
 
 /**
- * Counts in priority order with early exit (technical design §2 «Reader input-token budget»): the part never cut (the text, the items,
+ * Counts in priority order with early exit (docs/message-to-order.md, «What the reader receives and returns»): the part never cut (the text, the items,
  * the pendings and the shown products) once, then each other product block with its separator, stopping at the first that does not fit;
  * the rest are dropped without being tokenized. The whole rendered request then confirms the fit, dropping products from the tail while it
  * does not. Products keep the order the context gives, which is the selection priority.

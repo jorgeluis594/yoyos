@@ -2,7 +2,7 @@ import type { MessageExpectation } from "@core/evals/cases/schema";
 import { shippedReaderFeatures } from "@core/src/features/orders/infrastructure/shipped-reader-features";
 
 /**
- * The payment-fallback scoring rule (technical design §2 «Payment fallback»): the fallback never decides a gate by case alternatives but by
+ * The payment-fallback scoring rule (docs/message-to-order.md, «Shipped reader features»): the fallback never decides a gate by case alternatives but by
  * rewriting, before matching, what the cases expect, from the reader features that ship.
  * - `paymentRequest` off: the reader maps payment requests to `request_not_allowed`, whose notice is the generic `not_applied`; an expected
  *   notice `payment_request` and an expected outcome `payment_requested` (a multiset, so the outcome too) are rewritten to those.
