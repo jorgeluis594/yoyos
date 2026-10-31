@@ -127,6 +127,16 @@ describe("store-theme.css", () => {
     expect(invalid[0][2]).toContain("var(--destructive)");
   });
 
+  test("draws one focus indicator on fields: the ring hugs the border instead of floating beside it", () => {
+    const field = [...stylesheet.matchAll(/([^{}]*:focus-visible[^{}]*)\{([^{}]*)\}/g)].find(([, selector]) => selector.includes('data-slot="input"'))!;
+    for (const slot of ["input", "select", "select-trigger", "textarea"]) expect(field[1]).toContain(`data-slot="${slot}"`);
+    expect(field[2]).toMatch(/outline-offset:\s*0;/);
+    expect(field[2]).toContain("border-color: var(--ring)");
+    // Buttons and links keep their offset ring; only fields have a border to hug.
+    expect(field[1]).not.toContain('data-slot="button"');
+    expect(stylesheet.indexOf(field[1])).toBeLessThan(stylesheet.indexOf('[aria-invalid="true"]'));
+  });
+
   test("gives a checked payment method and a checked option the selected look and a readable text color", () => {
     const selectedBorder = { "payment-method": "var(--selected)", option: "var(--store-selected-border)" };
     for (const part of ["payment-method", "option"] as const) {

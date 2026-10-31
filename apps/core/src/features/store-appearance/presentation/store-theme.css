@@ -91,9 +91,17 @@
  * with the theme's ring and destructive tokens. A native radio inside an option or payment chip leaves the ring to its parent, so one focus
  * shows one ring.
  */
-[data-store-theme] :is([data-slot="button"], [data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="radio-group-item"]:not(input)):focus-visible {
+[data-store-theme] :is([data-slot="button"], [data-slot="brand-link"], [data-slot="radio-group-item"]:not(input)):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
+}
+
+/* A field has one indicator: the ring hugs its border, which takes the ring color, instead of floating 2px away from it as a second line. */
+[data-store-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="textarea"]):focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 0;
+  /* The invalid rule below has the same specificity and comes later, so an invalid field keeps its destructive border while focused. */
+  border-color: var(--ring);
 }
 
 [data-store-theme] input[data-slot="radio-group-item"]:focus-visible {

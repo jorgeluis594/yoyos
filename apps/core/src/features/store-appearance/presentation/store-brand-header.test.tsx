@@ -2,6 +2,7 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { renderToStaticMarkup } from "react-dom/server";
+import { MemoryRouter } from "react-router";
 import { afterEach, describe, expect, test } from "vitest";
 import { StoreBrandHeader } from "@core/src/features/store-appearance/presentation/store-brand-header";
 
@@ -57,5 +58,17 @@ describe("StoreBrandHeader", () => {
     expect(html).toContain("font-family:var(--store-font-heading, inherit)");
     expect(html).toContain("font-weight:var(--store-weight-heading, 600)");
     expect(html).not.toContain("font-semibold");
+  });
+
+  test("links the logo and the name together to the given path, and is plain without one", () => {
+    const html = renderToStaticMarkup(<MemoryRouter><StoreBrandHeader companyName="Lima Studio" logoUrl="https://cdn.example/logo.png" to="/" /></MemoryRouter>);
+    const doc = new DOMParser().parseFromString(html, "text/html");
+    const links = doc.querySelectorAll("a");
+    expect(links).toHaveLength(1);
+    expect(links[0].getAttribute("href")).toBe("/");
+    expect(links[0].getAttribute("data-slot")).toBe("brand-link");
+    expect(links[0].textContent).toBe("Lima Studio");
+    expect(links[0].querySelector('[data-slot="brand-logo"]')).not.toBeNull();
+    expect(renderToStaticMarkup(<StoreBrandHeader companyName="Lima Studio" logoUrl={null} />)).not.toContain("<a ");
   });
 });
