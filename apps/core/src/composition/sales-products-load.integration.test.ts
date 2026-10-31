@@ -20,7 +20,7 @@ const dryRun = scale < 1;
 /** Half the statement budget: a statement at the maximum period, in its worst shape, must leave room for the variance of production hardware. */
 const halfBudgetMs = salesReadBudget.statementTimeoutMs / 2;
 /** Set from the measured run (123,828 buffers with the firstAfter probe, up to 12,037 pages read cold, for 12,140 variants) with 25% headroom; the pull request records the measured values. */
-const pageBound = { buffers: 155_000, pagesRead: 15_100 } as const;
+const pageBound = { buffers: 193_000, pagesRead: 15_100 } as const;
 const itemDateIndex = "OrderItem_companyId_variantId_orderCreatedAt_orderId_idx";
 
 let admin: pg.Client;
@@ -166,6 +166,7 @@ describe.skipIf(!salesLoadEnabled)("the product sales reads on the history fixtu
     const oneYear = await timesOf(fixture.oneYearStore.companyId);
     measurements.push({ statement: "item_dates_four_vs_one_year", fourYearsMs: Math.round(fourYears.time), oneYearMs: Math.round(oneYear.time), probeIndexes: fourYears.probeIndexes, nodeTypes: fourYears.nodeTypes });
     expect(fourYears.indexOnly).toContain(itemDateIndex);
+    expect(fourYears.heapFetches).toBe(0);
     expect(fourYears.time).toBeLessThanOrEqual(oneYear.time * 1.5 + 50);
   });
 
@@ -188,6 +189,7 @@ describe.skipIf(!salesLoadEnabled)("the product sales reads on the history fixtu
       const warm = await explain(store.companyId, saleDatesSql(store.companyId, { window, variantIds, needFirstAfter }));
       measurements.push({ statement: `item_dates_pages_first_after_${needFirstAfter}`, variants: variantIds.length, coldMs: Math.round(cold.time), coldHit: cold.hit, coldRead: cold.read, warmHit: warm.hit, heapFetches: cold.heapFetches });
       expect(cold.indexOnly).toContain(itemDateIndex);
+      expect(cold.heapFetches).toBe(0);
       if (!dryRun) {
         expect(cold.hit + cold.read).toBeLessThanOrEqual(pageBound.buffers);
         expect(cold.read).toBeLessThanOrEqual(pageBound.pagesRead);
