@@ -4,9 +4,7 @@ import type { CompanyId, UserId } from "@shared/identity";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
-import { loadUserAccess } from "@core/src/features/users/application/load-user-access";
-import { userRepository } from "@core/src/features/users/infrastructure/user-repository";
-import { companyRepository } from "@core/src/features/companies/infrastructure/company-repository";
+import { loadAccountAccess } from "@core/src/composition/assistant-account-access";
 import { isConnectionActive, type ConnectionWithPasswordChange, type OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
 import { endAccountAssistantConnections, type AccountAccess, type PersistenceError, type EndAccountAssistantConnectionsDependencies } from "@core/src/features/assistants/application/disconnect-assistant";
 import { assistantConfig } from "@core/src/features/assistants/infrastructure/assistant-config";
@@ -42,7 +40,7 @@ export function createHasActiveConnection(deps: HasActiveConnectionDependencies)
 }
 
 const loadAccess: EndAccountAssistantConnectionsDependencies["loadAccess"] = async (userId) => {
-  const access = await loadUserAccess(userId, { ...userRepository, findCompany: companyRepository.findCompany });
+  const access = await loadAccountAccess(userId);
   return access.success ? ok(access.data) : err(unavailable);
 };
 
