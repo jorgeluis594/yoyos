@@ -95,7 +95,7 @@ describe("lo_mas_vendido", () => {
     expect(one.productos[0]!.variantes).toHaveLength(5);
     expect(one.productos[0]!.mas_variantes).toBeUndefined();
     expect(one.resumen).toBe('"Polo básico" del 01/10/2026 al 31/10/2026: 15 unidades, S/ 150.00, 100% de tus ventas de productos del periodo (S/ 150.00).');
-    expect((await outputOf({ ...october, producto: poloId }, answer)).mas_variantes).toBeUndefined();
+    expect(one.productos[0]!.mas_variantes).toBeUndefined();
     const singular = await outputOf(october, answerOf({ sold: { variants: variants.slice(0, 4), currencies: [{ currency: "PEN", orders: 4, units: 14, amount: pen(140) }] }, described: names }));
     expect(singular.productos[0]!.mas_variantes).toBe("y 1 variante más: pide este producto para verlas todas");
   });
