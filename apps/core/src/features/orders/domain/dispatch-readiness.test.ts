@@ -15,7 +15,7 @@ const stock = (entries: [VariantId, number][]) => new Map(entries) as unknown as
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
 const day = (value: string) => value as DispatchDate;
 const candidate = (overrides: Partial<DispatchCandidate> = {}): DispatchCandidate => ({ id: id(1) as OrderId, createdAt: new Date("2026-10-20T10:00:00Z"),
-  cancelled: false, stockDeducted: false, deliveryStatus: "pending", total: money(80), items: [{ variantId: camisaM, quantity: 4 as never }],
+  cancelled: false, stockDeducted: false, deliveryStatus: "pending", total: money(80), items: [{ variantId: camisaM, quantity: 4 as never, deducted: 0 as never }],
   confirmedPayments: [{ amount: money(80), deductStockIfPartial: false }], number: 1050 as OrderNumber, scheduledDispatchDate: day("2026-10-30"),
   deliveryMethod: "home", hasReportedPayment: false, ...overrides });
 const classify = (overrides: Partial<DispatchCandidate>, entries: [VariantId, number][] = [[camisaM, 10]]) => classifyDispatchCandidate(candidate(overrides), stock(entries)).readiness;
@@ -40,7 +40,7 @@ test("blocks a store pickup with a pending balance with the full payment reason"
 });
 
 test("blocks an order waiting for stock naming only the short items", () => {
-  const result = classify({ items: [{ variantId: camisaM, quantity: 4 as never }, { variantId: camisaL, quantity: 1 as never }] }, [[camisaM, 3], [camisaL, 5]]);
+  const result = classify({ items: [{ variantId: camisaM, quantity: 4 as never, deducted: 0 as never }, { variantId: camisaL, quantity: 1 as never, deducted: 0 as never }] }, [[camisaM, 3], [camisaL, 5]]);
   expect(result).toEqual({ kind: "blocked", operation: "ship", reason: { code: "STOCK_WAITING", variantIds: [camisaM] } });
 });
 

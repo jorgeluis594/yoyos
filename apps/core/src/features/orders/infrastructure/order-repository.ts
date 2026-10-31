@@ -606,7 +606,7 @@ export async function summarizeUnpaidOrders(companyId: CompanyId) {
 const dispatchCandidateRow = z.object({
   id: z.uuid(), number: z.string().regex(/^\d+$/), createdAt: z.date(), scheduledDispatchDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/), stockDeducted: z.boolean(),
   total: z.string().regex(/^\d+(\.\d+)?$/), currency: z.string(), method: z.enum(["home", "agency", "store"]).nullable(), hasReportedPayment: z.boolean(),
-  items: z.array(z.object({ variantId: z.uuid(), quantity: z.number().int().positive().safe() })).min(1),
+  items: z.array(z.object({ variantId: z.uuid(), quantity: z.number().int().positive().safe(), deducted: z.number().int().nonnegative().safe() })).min(1),
   payments: z.array(z.object({ amount: z.number().positive().finite(), currency: z.string(), deductStockIfPartial: z.boolean() })),
 });
 
@@ -619,7 +619,7 @@ export async function findDispatchCandidates(through: DispatchDate, max: number,
   try {
     const raw = await prisma.$queryRaw<unknown[]>(Prisma.sql`SELECT o.id, o.number::text AS number, o."createdAt", o."scheduledDispatchDate"::text AS "scheduledDispatchDate",
       o."stockDeducted", o.total::text AS total, o.currency, o.delivery ->> 'method' AS method, pay.reported AS "hasReportedPayment",
-      (SELECT coalesce(json_agg(json_build_object('variantId', i."variantId", 'quantity', i.quantity) ORDER BY i.id), '[]'::json)
+      (SELECT coalesce(json_agg(json_build_object('variantId', i."variantId", 'quantity', i.quantity, 'deducted', i."stockDeductedQuantity") ORDER BY i.id), '[]'::json)
          FROM "OrderItem" i WHERE i."companyId" = o."companyId" AND i."orderId" = o.id) AS items,
       pay.confirmed AS payments
       FROM "Order" o
@@ -638,7 +638,7 @@ export async function findDispatchCandidates(through: DispatchDate, max: number,
       if (!parsed.success || !first || !number?.success || !date?.success || !isCurrency(parsed.data.currency) || parsed.data.payments.some((payment) => payment.currency !== parsed.data.currency))
         throw new InvalidStoredOrderError("Invalid stored dispatch candidate");
       const currency = parsed.data.currency;
-      const line = (item: typeof first) => ({ variantId: item.variantId as VariantId, quantity: item.quantity as PositiveInteger });
+      const line = (item: typeof first) => ({ variantId: item.variantId as VariantId, quantity: item.quantity as PositiveInteger, deducted: item.deducted as NonNegativeInteger });
       return { id: parsed.data.id as OrderId, createdAt: parsed.data.createdAt, cancelled: false, stockDeducted: parsed.data.stockDeducted, deliveryStatus: "pending",
         total: { amount: Number(parsed.data.total), currency }, items: [line(first), ...rest.map(line)],
         confirmedPayments: parsed.data.payments.map((payment) => ({ amount: { amount: payment.amount, currency }, deductStockIfPartial: payment.deductStockIfPartial })),

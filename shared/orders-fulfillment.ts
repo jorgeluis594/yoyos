@@ -26,7 +26,7 @@ export type StockFulfillmentBlock =
 export function stockFulfillmentBlock(order: Readonly<{ stockDue: OrderStockDue | null }>, operation: "ship" | "deliver"): StockFulfillmentBlock | null {
   const due = order.stockDue;
   if (due === null) return null;
-  if (due.kind === "waiting") {
+  if (due.kind === "waiting" || due.kind === "partial_waiting") {
     const [first, ...rest] = due.shortItems.map((item) => item.variantId);
     return { code: "STOCK_WAITING", variantIds: [first!, ...rest] };
   }

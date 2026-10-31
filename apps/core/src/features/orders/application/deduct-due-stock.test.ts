@@ -47,6 +47,8 @@ function fixture(orders: StockOrder[], stock: Record<number, unknown>, options: 
       for (const line of lines) quantities.set(line.variantId, Number(quantities.get(line.variantId)) - line.quantity);
       return ok(lines.length);
     },
+    restoreStock: async (units) => { statements.push("restore"); for (const unit of units) quantities.set(unit.variantId, Number(quantities.get(unit.variantId) ?? 0) + unit.quantity); return ok(units.length); },
+    saveLineDeductions: async (_orderId, _company, byVariant) => { statements.push("save_lines"); return ok(byVariant.size); },
     saveStockDeductions: async (ids) => { statements.push("save"); for (const orderId of ids) deducted.add(orderId); return ok(ids.length); },
     listWaitingOrderIds: async (_company, _variants, limit) => { statements.push("list"); return ok(orders.filter((candidate) => !deducted.has(candidate.id)).map((candidate) => candidate.id).slice(0, limit)); },
     limitStatementsToMs: async (ms) => { limits.push(ms); },

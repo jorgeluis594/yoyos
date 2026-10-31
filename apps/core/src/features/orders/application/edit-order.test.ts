@@ -45,6 +45,7 @@ function dependencies(stored: Stored, overrides: Partial<EditOrderDependencies> 
   const saveOrderCustomer = vi.fn<EditOrderDependencies["saveOrderCustomer"]>(async () => { writes.push("customer"); return ok(null); });
   const saveDelivery = vi.fn<EditOrderDependencies["saveDelivery"]>(async () => { writes.push("delivery"); return ok(null); });
   const publishStockEvent = vi.fn<EditOrderDependencies["publishStockEvent"]>(async () => ok({ kind: "not_due" }));
+  const publishStockIncreased = vi.fn<EditOrderDependencies["publishStockIncreased"]>(async () => ok(null));
   const findSellableVariants = vi.fn<EditOrderDependencies["findSellableVariants"]>(async () => ok([sellable(3, 89), sellable(4, 89), sellable(5, 120), sellable(9, 50)]));
   const resolveRatedDelivery = vi.fn<EditOrderDependencies["resolveRatedDelivery"]>(async (_selection, _access, _currency, expectedPrice) => {
     const snapshot = parseDeliverySnapshot({ ...home, recordedBy: { kind: "seller", userId: access.userId } });
@@ -52,9 +53,9 @@ function dependencies(stored: Stored, overrides: Partial<EditOrderDependencies> 
     return ok({ delivery: snapshot.data, cost: expectedPrice });
   });
   const deps: EditOrderDependencies = { transaction: async (_companyId, work) => work(), findOrderForUpdate: async () => ok(stored.current),
-    findSellableVariants, resolveRatedDelivery, saveItemChanges, saveOrderCustomer, saveDelivery, publishStockEvent,
+    findSellableVariants, resolveRatedDelivery, saveItemChanges, saveOrderCustomer, saveDelivery, publishStockEvent, publishStockIncreased,
     findVariantStock: async () => ok(new Map([[variantOf(3), 5n], [variantOf(4), 5n], [variantOf(5), 5n]])), newItemId: () => id(900) as OrderItemId, ...overrides };
-  return { deps, writes, saveItemChanges, saveOrderCustomer, saveDelivery, publishStockEvent, findSellableVariants, resolveRatedDelivery };
+  return { deps, writes, saveItemChanges, saveOrderCustomer, saveDelivery, publishStockEvent, publishStockIncreased, findSellableVariants, resolveRatedDelivery };
 }
 const revisionsOf = (stored: OrderAggregate) => orderRevisions(stored);
 const request = (stored: OrderAggregate, parts: Partial<Record<OrderPart, unknown>>): EditOrderInput => {

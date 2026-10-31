@@ -72,7 +72,7 @@ export type AssistantOrder = AssistantOrderSummary & Readonly<{
   sobrepago?: string; pagos: readonly AssistantPayment[]; entrega: AssistantDelivery; stock?: "Esperando stock" | "Descontando stock";
   preparacion?: ReadinessLine;
 }>;
-export type DispatchStockState = Readonly<{ stockDue: Readonly<{ kind: "waiting" | "deducting" }> | null }>;
+export type DispatchStockState = Readonly<{ stockDue: Readonly<{ kind: "waiting" | "partial_waiting" | "deducting" }> | null }>;
 
 /** Unicode NFKC (fullwidth digits become ASCII), every Unicode space as a plain space, default-ignorable code points (invisible Hangul fillers such as U+3164, variation selectors), format, control, private-use and unassigned characters (zero-width spaces, bidi marks) and the combining marks that follow a numeric character (keycaps, accents on digits) removed; marks on letters stay, so «José» and scripts with vowel signs survive. */
 export function normalizeText(text: string): string {
@@ -252,7 +252,7 @@ export function toAssistantOrder(order: ProjectableOrder, state: DispatchStockSt
     ...(balance < 0 ? { sobrepago: display.money(moneyOfCents(-balance, order.total.currency)) } : {}),
     pagos: order.payments.map((payment) => toAssistantPayment(payment, display)),
     entrega: toAssistantDelivery(order.delivery),
-    ...(state.stockDue?.kind === "waiting" ? { stock: "Esperando stock" as const } : state.stockDue?.kind === "deducting" ? { stock: "Descontando stock" as const } : {}),
+    ...(state.stockDue?.kind === "waiting" || state.stockDue?.kind === "partial_waiting" ? { stock: "Esperando stock" as const } : state.stockDue?.kind === "deducting" ? { stock: "Descontando stock" as const } : {}),
     ...(readiness && !order.cancelled ? { preparacion: toReadinessLine(order, readiness, context) } : {}),
   };
 }

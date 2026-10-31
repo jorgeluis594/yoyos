@@ -293,6 +293,7 @@ test("answers VARIANT_NOT_FOUND when a new variant is deleted between the lookup
       },
       resolveRatedDelivery: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "unused" }),
       saveItemChanges, saveOrderCustomer, saveDelivery, publishStockEvent: (payload) => publishStockEvent("order_edited", payload),
+      publishStockIncreased: (variantIds) => publishStockEvent("product_stock_increased", { companyId: s.companyId, variantIds }),
       findVariantStock, newItemId: () => randomUUID() as OrderItemId };
     const result = await s.run(() => editOrder({ orderId: id, items: { base: revisions.items, lines: s.lines([s.deadpool, 1], [variantId, 1]).lines as never } }, s.context, deps));
     expect(result).toMatchObject({ success: false, error: { code: "VARIANT_NOT_FOUND", variantId } });
@@ -392,6 +393,7 @@ test("rolls back items and customer when the transaction ends during stock deduc
       resolveRatedDelivery: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "unused" }),
       saveItemChanges, saveOrderCustomer, saveDelivery,
       publishStockEvent: async () => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "closed", transactionEnding: true as const }),
+      publishStockIncreased: async () => ok(null),
       findVariantStock, newItemId: () => randomUUID() as OrderItemId };
     const result = await s.run(() => editOrder({ orderId: id, items: { base: revisions.items, lines: s.lines([s.deadpool, 1]).lines as never },
       customer: { base: revisions.customer, value: { name: "Marta", phone: "+51999000111" } as never } }, s.context, deps));
