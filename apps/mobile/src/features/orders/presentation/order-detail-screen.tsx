@@ -62,7 +62,7 @@ type CheckoutLinkState =
   | Readonly<{ kind: "subdomain_required" }>
   | Readonly<{ kind: "error" }>;
 
-/** Shipping needs one confirmed payment while delivering needs the full amount, so the reason differs. */
+/** Both need one confirmed payment, but the reason names the operation. */
 const fulfillmentKey = (operation: "ship" | "deliver" | null, code: string) => operation === "ship" && code === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : code;
 
 export default function OrderDetailScreen() {
@@ -321,7 +321,7 @@ export default function OrderDetailScreen() {
   const nextOperation = order.deliveryStatus === "pending" ? (order.delivery?.method === "store" ? "deliver" : "ship") : order.deliveryStatus === "shipped" ? "deliver" : null;
   const nextBlock = nextOperation ? orderFulfillmentBlock(order, nextOperation) : null;
   const shortLines = shortStockLines(order);
-  const nextReason = nextBlock && ["PAYMENT_REQUIRED", "STOCK_NOT_DEDUCTED", "STOCK_WAITING", "STOCK_DEDUCTING"].includes(nextBlock.code) ? nextBlock.code : null;
+  const nextReason = nextBlock && ["PAYMENT_REQUIRED", "STOCK_WAITING", "STOCK_DEDUCTING"].includes(nextBlock.code) ? nextBlock.code : null;
   const nextReasonText = !nextReason || !nextOperation ? null
     : nextReason === "STOCK_WAITING" ? t(`orderFulfillment.STOCK_WAITING_${nextOperation === "ship" ? "SHIP" : "DELIVER"}${shortLines.length ? "" : "_GENERIC"}`, { items: joinLabels(shortLines.map(line => line.label), t("listAnd")) })
     : t(`orderFulfillment.${fulfillmentKey(nextOperation, nextReason)}`);

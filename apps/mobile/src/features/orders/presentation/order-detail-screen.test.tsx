@@ -393,6 +393,19 @@ test.each([null, "store"] as const)("seller delivers a shipped order with %s del
   expect(mockVoidPayment).not.toHaveBeenCalled();
 });
 
+test("a partial confirmed payment enables delivering a store pickup that still has a balance", async () => {
+  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null, stockDeducted: false,
+    paymentStatus: "pending", paidAmount: { amount: 4, currency: "PEN" }, balanceDue: { amount: 8, currency: "PEN" },
+    delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } } };
+  mockDeliver.mockResolvedValue({ success: true, data: { ...mockOrder, status: "active", deliveryStatus: "delivered", stockDeducted: true, deliveredAt: initialOrder.deliveredAt, completedAt: null } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como entregado" }));
+  await screen.findByText("Pedido marcado como entregado.");
+  expect(mockDeliver).toHaveBeenCalledWith(mockId);
+  expect(screen.queryByText("Venta completada")).toBeNull();
+});
+
 test("seller ships then delivers and sees an updated state after each operation", async () => {
   mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null };
   mockShip.mockResolvedValue({ success: true, data: { ...mockOrder, deliveryStatus: "shipped" } });
@@ -414,7 +427,6 @@ test("seller ships then delivers and sees an updated state after each operation"
 
 test.each([
   { paymentStatus: "pending", paidAmount: { amount: 0, currency: "PEN" }, stockDeducted: true, cancelled: false, deliveryStatus: "pending", reason: "Se requiere al menos un pago para despachar." },
-  { paymentStatus: "paid", stockDeducted: false, cancelled: false, deliveryStatus: "pending", delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } }, reason: "Se requiere descontar el stock antes de entregar." },
   { paymentStatus: "paid", stockDeducted: true, cancelled: true, deliveryStatus: "pending", reason: "El pedido está cancelado; no se puede enviar ni entregar." },
   { paymentStatus: "paid", stockDeducted: true, cancelled: false, deliveryStatus: "delivered", reason: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado." },
 ] as const)("fulfillment is blocked and explained: $reason", async ({ reason, ...state }) => {

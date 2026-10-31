@@ -77,7 +77,7 @@ const es = {
   },
   orderFulfillment: {
     ship: "Marcar enviado", deliver: "Marcar entregado", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregado.",
-    PAYMENT_REQUIRED: "Se requiere el pago completo antes de entregar.", SHIP_PAYMENT_REQUIRED: "Se requiere al menos un pago para despachar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de entregar.", INSUFFICIENT_STOCK: "No hay stock suficiente para despachar este pedido.",
+    PAYMENT_REQUIRED: "Registra al menos un pago para entregar. Puede ser un pago parcial.", SHIP_PAYMENT_REQUIRED: "Registra al menos un pago para despachar. Puede ser un pago parcial.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de entregar.", INSUFFICIENT_STOCK: "No hay stock suficiente para despachar este pedido.",
     STOCK_WAITING_ship: "Para despachar falta stock de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta stock de {{items}}.", STOCK_DEDUCTING: "El stock se está descontando; podrás entregarlo en menos de un minuto.",
     ORDER_CANCELLED: "El pedido está cancelado; no se puede enviar ni entregar.", INVALID_TRANSITION: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado.",
     already_shipped: "El pedido ya está marcado como enviado.", already_delivered: "El pedido ya está marcado como entregado.",
@@ -462,7 +462,7 @@ const pt = {
   },
   orderFulfillment: {
     ship: "Marcar como enviado", deliver: "Marcar como entregue", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregue.",
-    PAYMENT_REQUIRED: "É necessário o pagamento completo antes de entregar.", SHIP_PAYMENT_REQUIRED: "É necessário pelo menos um pagamento para despachar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de entregar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para despachar este pedido.",
+    PAYMENT_REQUIRED: "Registre pelo menos um pagamento para entregar. Pode ser um pagamento parcial.", SHIP_PAYMENT_REQUIRED: "Registre pelo menos um pagamento para despachar. Pode ser um pagamento parcial.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de entregar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para despachar este pedido.",
     STOCK_WAITING_ship: "Para despachar falta estoque de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta estoque de {{items}}.", STOCK_DEDUCTING: "O estoque está sendo descontado; você poderá entregá-lo em menos de um minuto.",
     ORDER_CANCELLED: "O pedido está cancelado; não pode ser enviado nem entregue.", INVALID_TRANSITION: "Só é possível enviar pedidos pendentes e entregar pedidos pendentes ou enviados.",
     already_shipped: "O pedido já está marcado como enviado.", already_delivered: "O pedido já está marcado como entregue.",
