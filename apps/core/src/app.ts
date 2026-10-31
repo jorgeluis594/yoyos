@@ -8,6 +8,7 @@ import { dispatchLabelRoutes } from "@core/src/features/dispatch-labels/presenta
 import { paymentSettingsRoutes } from "@core/src/features/companies/presentation/payment-settings-routes";
 import { auth } from "@core/src/shared/infrastructure/auth";
 import { oauthMetadataRoutes } from "@core/src/features/assistants/presentation/oauth-metadata-routes";
+import { assistantMcpRoutes } from "@core/src/composition/assistant-server";
 import { apiError, loadApiAccess, requireApiCompany, type AuthenticatedLocals, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import type { Response } from "express";
 import { imageRoutes } from "@core/src/shared/images/presentation/routes";
@@ -46,6 +47,8 @@ app.use(brandHostEdge);
 
 app.all("/api/auth/{*splat}", toNodeHandler(auth));
 app.use(oauthMetadataRoutes);
+// The remote MCP endpoint: outside /api, with its own body parser and bearer check.
+app.use(assistantMcpRoutes);
 
 app.use("/api/products", (_request, response, next) => {
   response.set("Cache-Control", "no-store");

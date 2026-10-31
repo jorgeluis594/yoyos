@@ -10,6 +10,8 @@ const assistantEnvSchema = z.object({
   ASSISTANT_REGISTER_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(5),
   ASSISTANT_AUTHORIZE_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(30),
   ASSISTANT_TOKEN_LIMIT_PER_MINUTE: z.coerce.number().int().positive().default(300),
+  ASSISTANT_TOOL_CALL_LIMIT: z.coerce.number().int().positive().default(60),
+  ASSISTANT_REQUEST_LIMIT: z.coerce.number().int().positive().default(300),
   // Addresses or CIDR ranges of the reverse proxies in front of core, used to find the real client IP in x-forwarded-for.
   ASSISTANT_TRUSTED_PROXIES: z.string().default("127.0.0.1,::1,10.0.0.0/8,172.16.0.0/12,192.168.0.0/16,fc00::/7"),
 });
@@ -23,6 +25,8 @@ export type AssistantConfig = Readonly<{
   registerLimitPerMinute: number;
   authorizeLimitPerMinute: number;
   tokenLimitPerMinute: number;
+  toolCallLimitPerMinute: number;
+  requestLimitPerMinute: number;
   trustedProxies: readonly string[];
 }>;
 
@@ -37,6 +41,8 @@ export function parseAssistantConfig(env: Readonly<Record<string, string | undef
     registerLimitPerMinute: parsed.ASSISTANT_REGISTER_LIMIT_PER_MINUTE,
     authorizeLimitPerMinute: parsed.ASSISTANT_AUTHORIZE_LIMIT_PER_MINUTE,
     tokenLimitPerMinute: parsed.ASSISTANT_TOKEN_LIMIT_PER_MINUTE,
+    toolCallLimitPerMinute: parsed.ASSISTANT_TOOL_CALL_LIMIT,
+    requestLimitPerMinute: parsed.ASSISTANT_REQUEST_LIMIT,
     trustedProxies: parsed.ASSISTANT_TRUSTED_PROXIES.split(",").map((entry) => entry.trim()).filter((entry) => entry !== ""),
   };
 }

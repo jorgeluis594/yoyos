@@ -1,5 +1,6 @@
 import { afterAll, expect, test } from "vitest";
 import { app } from "@core/src/app";
+import { auth } from "@core/src/shared/infrastructure/auth";
 import { systemPrisma } from "@core/src/shared/infrastructure/persistance";
 
 const baseUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
@@ -41,6 +42,12 @@ test("serves the authorization server metadata with the OAuth endpoints and S256
   });
 });
 
+test("does not advertise the introspection endpoint, which is disabled", async () => {
+  const document = await (await fetch(`${api}/.well-known/oauth-authorization-server`)).json();
+  expect(Object.keys(document).filter((field) => field.startsWith("introspection_endpoint"))).toEqual([]);
+  expect((await fetch(`${api}/api/auth/oauth2/introspect`, { method: "POST" })).status).toBe(404);
+});
+
 test("serves the protected resource metadata of the MCP endpoint", async () => {
   for (const path of ["/.well-known/oauth-protected-resource/mcp", "/.well-known/oauth-protected-resource"]) {
     const response = await fetch(`${api}${path}`);
@@ -79,7 +86,10 @@ test("answers 404 on the plugin endpoints this version does not use, also for a 
 
   const create = await post("/api/auth/oauth2/create-client", { client_name: "Evil", redirect_uris: ["https://evil.example/cb"] }, { cookie });
   expect(create.status).toBe(404);
-  for (const path of ["/oauth2/get-clients", "/oauth2/public-client", "/oauth2/userinfo", "/oauth2/introspect", "/oauth2/get-consents"]) {
+  // Every entry of the configured list, not a sample: a path added to the list must really answer 404.
+  const disabledPaths = auth.options.disabledPaths ?? [];
+  expect(disabledPaths).toContain("/oauth2/introspect");
+  for (const path of disabledPaths) {
     const response = await fetch(`${api}/api/auth${path}`, { headers: { cookie } });
     expect(response.status, path).toBe(404);
   }

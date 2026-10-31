@@ -1,21 +1,11 @@
 import { log } from "@core/src/shared/infrastructure/logger";
+import { createFixedWindowLimiter } from "@core/src/shared/infrastructure/fixed-window-limiter";
 
-type Window = { windowStart: number; count: number };
-
-// shortcut: per process, resets on deploy; move to PostgreSQL or Redis when there is more than one web instance.
+/** Boolean view of the shared fixed-window limiter, keeping the catalog's call shape. */
 export function createRateLimiter(limit: number, windowMs: number, now: () => number = Date.now, onFirstRejection?: (key: string) => void) {
-  const windows = new Map<string, Window>();
-  return (key: string): boolean => {
-    const at = now();
-    for (const [stale, window] of windows) if (at - window.windowStart >= windowMs) windows.delete(stale);
-    const window = windows.get(key) ?? { windowStart: at, count: 0 };
-    window.count += 1;
-    windows.set(key, window);
-    if (window.count === limit + 1) onFirstRejection?.(key);
-    return window.count <= limit;
-  };
+  const decide = createFixedWindowLimiter(limit, windowMs, now, onFirstRejection);
+  return (key: string): boolean => decide(key).allowed;
 }
-
 const configuredLimit = (name: string, fallback: number) => {
   const configured = Number(process.env[name]);
   return Number.isInteger(configured) && configured > 0 ? configured : fallback;
