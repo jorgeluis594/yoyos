@@ -139,3 +139,6 @@ export function listUnsoldProducts(checked: readonly ProjectableStockedProduct[]
   const start = (options.page - 1) * productsPerPage;
   return { checked: checked.length, total: unsold.length, page: options.page, items: unsold.slice(start, start + productsPerPage) };
 }
+
+/** Names and combinations are shortened for the agent: the text cut to `max` characters with an ellipsis. */
+export const clipText = (text: string, max: number): string => (text.length > max ? `${text.slice(0, max - 1)}…` : text);
