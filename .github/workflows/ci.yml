@@ -17,7 +17,7 @@ jobs:
           node-version: 24
       - uses: pnpm/action-setup@v6
         with:
-          version: 12.5.1
+          version: 12.15.0
       - run: pnpm --dir shared install --frozen-lockfile
       - run: pnpm --dir apps/core install --frozen-lockfile
       - run: pnpm --dir apps/mobile install --frozen-lockfile
@@ -63,7 +63,7 @@ jobs:
           node-version: 24
       - uses: pnpm/action-setup@v6
         with:
-          version: 12.5.1
+          version: 12.15.0
       - run: pnpm --dir shared install --frozen-lockfile
       - run: pnpm --dir apps/mobile install --frozen-lockfile
       - run: pnpm lint
@@ -86,7 +86,7 @@ jobs:
           node-version: 24
       - uses: pnpm/action-setup@v6
         with:
-          version: 12.5.1
+          version: 12.15.0
       - run: pnpm --dir landing install --frozen-lockfile
       - run: cp .env.example .env
         working-directory: landing
