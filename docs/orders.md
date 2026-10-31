@@ -137,7 +137,7 @@ Transitions: `reported → confirmed`, `reported → rejected`, `confirmed → v
 
 ### Web «Pagos» card
 
-- A summary line, hidden on a cancelled order: «Sin pagos · necesario para despachar», «Pago parcial · falta S/ 148.00», «Pagado» or «Pagado · Exceso recibido: S/ 12.00», plus «Pago por revisar» while a report is pending. The card is part of the [order view](order-view.md#pagos).
+- A summary line, hidden on a cancelled order: «Sin pagos · necesario para enviar», «Pago parcial · falta S/ 148.00», «Pagado» or «Pagado · Exceso recibido: S/ 12.00», plus «Pago por revisar» while a report is pending. The card is part of the [order view](order-view.md#pagos).
 - Rows, newest first, one per payment. Reported: receipt thumbnail, «Pago reportado, pendiente de revisión», report date, «Ver captura», **Rechazar** and **Aprobar**, with no amount or method because the buyer does not declare them. Confirmed: amount and method, «Pago confirmado», «Ver captura» when it came from a report, **Anular pago**. Rejected: «Pago rechazado», date, reason and «Ver captura», no actions. Voided: «Pago anulado», no actions. A saved payment has no remove icon.
 - The manual payment is a separate action: one **Agregar <wallet>** button per wallet of the country's catalog (`shared/wallet-providers`; in Peru **Agregar Yape** and **Agregar Plin**) and **Transferencia bancaria**. Each opens the payment form with the method preset and «Importe recibido» prefilled with the balance. They show only while the order is not cancelled, has a product and the balance is above zero. A report can still be approved with a zero balance. Reason: one form per decision, so the seller never confuses a report with a manual payment.
 - **Aprobar** from the row opens a short dialog with «Importe recibido» prefilled with the balance, «Medio de pago» and the partial stock box under the rule above. **Rechazar** asks «¿Rechazar este comprobante?» with «Motivo (opcional, lo verá el comprador)».
@@ -159,7 +159,7 @@ Transitions: `reported → confirmed`, `reported → rejected`, `confirmed → v
 ### Notice
 
 - **Web:** a warning notice between the page header (with its badges) and the cards, above the cancel button. **Mobile:** a warning notice in the scroll content, right after the heading block (date, status, buyer) and the pending-reports notice when there is one, before the products card.
-- Waiting: title «Esperando stock», one line per short item in the order of the products card, and «Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede despachar ni entregar.». Each line shows the product name, the combination in each platform's format ([Products · Combination text](products.md#combination-text); just the name without options), the quantity and the current stock: web «Camisa (M · Azul): 4 en el pedido, hay 3.», mobile «Camisa (Talla: M · Color: Azul): 4 en el pedido, hay 3.». The wording is neutral because the buyer may have made the order (catalog, chat).
+- Waiting: title «Esperando stock», one line per short item in the order of the products card, and «Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede enviar ni entregar.». Each line shows the product name, the combination in each platform's format ([Products · Combination text](products.md#combination-text); just the name without options), the quantity and the current stock: web «Camisa (M · Azul): 4 en el pedido, hay 3.», mobile «Camisa (Talla: M · Color: Azul): 4 en el pedido, hay 3.». The wording is neutral because the buyer may have made the order (catalog, chat).
 - Deducting: title «Descontando stock» and «Ya hay stock para este pedido; se descontará en menos de un minuto.». No refresh control: the order shows the result when it reloads on focus (mobile) or navigation (web).
 - Deducted and not due orders show no notice. The notice has no action, is static (not announced as an alert on every load), has its title as a header, and uses the warning surface and text color plus an icon, never color alone.
 - The notice appears only on the order detail; there is no list filter or badge, label batches list and print waiting orders unmarked, and no notification is sent when a waiting order is deducted.
@@ -177,16 +177,16 @@ A cancelled order shows no stock state on web, because its stock was restored or
 
 ### Fulfillment buttons
 
-Web shows «Marcar enviado» and «Marcar entregado» at the top of the «Entrega» card; mobile shows the single next action, «Marcar como despachado» or, for store pickup, «Marcar como entregado». Both platforms decide with `orderFulfillmentBlock` (`shared/orders-fulfillment.ts`): payment and transition reasons first, then the stock block.
+Web shows «Marcar enviado» and «Marcar entregado» at the top of the «Entrega» card; mobile shows the single next action, «Marcar como enviado» or, for store pickup, «Marcar como entregado». Both platforms decide with `orderFulfillmentBlock` (`shared/orders-fulfillment.ts`): payment and transition reasons first, then the stock block.
 
 | Order | Ship | Deliver (store pickup included) |
 | --- | --- | --- |
-| Waiting | Disabled: «Para despachar falta stock de Camisa (M · Azul).» | Disabled: «Para entregar falta stock de Camisa (M · Azul).» |
+| Waiting | Disabled: «Para enviar falta stock de Camisa (M · Azul).» | Disabled: «Para entregar falta stock de Camisa (M · Azul).» |
 | Deducting | Enabled: shipping deducts the stock itself | Disabled: «El stock se está descontando; podrás entregarlo en menos de un minuto.» |
 
 - The reasons name only the short items, as a list («Camisa (M) y Polo (L)», «Camisa (M), Polo (L) y Short (S)»); the quantities stay in the notice. Reason: the notice and the buttons must agree, and mobile would otherwise repeat the notice a few rows below.
 - «Se requiere descontar el stock antes de entregar.» remains only for an order that is not due; an unpaid order shows the payment reason first.
-- If stock changed after the screen loaded and a tap still meets short stock, «No hay stock suficiente para despachar este pedido.» is shown and the order reloads. A partially paid order with short stock and no deduction request is not waiting: it shows no notice, ship stays enabled and the tap fails with that text.
+- If stock changed after the screen loaded and a tap still meets short stock, «No hay stock suficiente para enviar este pedido.» is shown and the order reloads. A partially paid order with short stock and no deduction request is not waiting: it shows no notice, ship stays enabled and the tap fails with that text.
 
 ### Delivery
 
@@ -320,10 +320,10 @@ Creating and reviewing an order share one screen, described in [Order view](orde
 - "Nueva venta" holds two stages, products and review, in one route so the selection survives moving between them. The cart is in memory only: leaving with items asks to discard them; there is no persistent draft.
 - Products are searched by name; a variant is chosen and a quantity set. The shown price and stock guide the seller but do not reserve units. Only active variants, and products with at least one, are offered, in saved option and value order. A search returns up to 20 products with all their active variants, which is accepted at current catalog sizes.
 - Variants and items show their combination as «Talla: M · Color: Azul» on mobile and «M · Azul» on web ([Products · Combination text](products.md#combination-text)).
-- A line above the shown stock warns «Solo hay 3 disponibles. Puedes guardarlo y cobrarlo; si lo cobras, quedará esperando stock y no podrás despacharlo hasta que se descuente.» («Solo hay 1 disponible. …» for one unit).
+- A line above the shown stock warns «Solo hay 3 disponibles. Puedes guardarlo y cobrarlo; si lo cobras, quedará esperando stock y no podrás enviarlo hasta que se descuente.» («Solo hay 1 disponible. …» for one unit).
 - A sale rejected with `VARIANT_NOT_FOUND`, sent directly or from the queue, returns to the review stage with the item marked «L / Azul ya no está disponible.»; the seller removes or changes it and confirms again.
 - The review stage sets payments, delivery, delivered/pending and scheduled dispatch date. When payments would deduct stock (they cover the total, or one deducts stock if partial) and a quantity exceeds the shown stock, an inline warning stays above **Guardar**: «Falta stock: se guardará con los pagos y quedará esperando stock.». **Guardar** saves directly with every payment; there is no stock dialog. Reason: it produces the same order, and a dialog only adds a tap. The warning uses the shown stock, so a sale whose server stock dropped after the screen loaded saves as waiting with no warning, and the detail it opens shows the notice; one whose server stock rose saves already deducted.
-- Marking the order delivered requires the balance to be covered and quantities within the shown stock; with short stock saving stays disabled with «Reduce la cantidad para guardarlo como entregado.». Dispatch at creation with short stock stays blocked with «Para despachar falta stock de …». A pending order without payments that deduct saves regardless of stock.
+- Marking the order delivered requires the balance to be covered and quantities within the shown stock; with short stock saving stays disabled with «Reduce la cantidad para guardarlo como entregado.». Dispatch at creation with short stock stays blocked with «Para enviar falta stock de …». A pending order without payments that deduct saves regardless of stock.
 - Confirming requires a connection. While offline the cart stays editable.
 - The order detail reloads when the screen gains focus, after **Obtener enlace** (so items and total next to the link are current), and when a seller notice for that chat arrives while it is open, at most once every 2 s.
 - Before sending, mobile stores the request in a per-company queue in secure storage (`infrastructure/pending-order-confirmation.ts`); if it cannot store it, it does not send. A double tap and the background sync share one request per sale.

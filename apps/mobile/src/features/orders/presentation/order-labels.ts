@@ -13,7 +13,7 @@ export function rateLabel(rate: Readonly<{ name: string; zoneName: string }>, ra
 
 const labels = {
   es: { active: "Orden activa", cancelled: "Orden cancelada", completed: "Venta completada",
-    pending: "Entrega pendiente", shipped: "Despachado", delivered: "Entregado",
+    pending: "Entrega pendiente", shipped: "Enviado", delivered: "Entregado",
     national_id: "Documento de identidad", passport: "Pasaporte", foreign_id: "Documento de extranjería",
     home: "Domicilio", agency: "Agencia", store: "Tienda" },
   en: { active: "Active order", cancelled: "Cancelled order", completed: "Completed sale",

@@ -68,7 +68,7 @@ A late response from an earlier attempt does not change the screen.
 
 - The text is direct, with no «Pago:» or «Entrega:» prefix. Header and list share one icon per dimension (card, truck, check or cross); the state shows in the text and in the color (warning for pending, info for shipped, success for paid, delivered and completed, muted for cancelled). Color is never the only signal.
 - The sales list keeps its compact control (icons that open to show the text, which is also the accessible name and tooltip). An active order with a balance reads «Pago pendiente: S/ 148.00». A completed order shows only «Venta completada»; a cancelled one only «Pedido cancelado», with no payment, balance or delivery label. The buyer-confirmation line under the order number ([Checkout](checkout.md#link-and-access)) and the list's «Desde el catálogo» badge are unchanged.
-- The shipped delivery state reads «Enviada», and the list filter «Enviado desde». Mobile says «Despachado».
+- The shipped delivery state reads «Enviada», and the list filter «Enviado desde». Mobile says «Enviado» and «Enviado desde» in the same way.
 
 ## What can change when
 
@@ -111,7 +111,7 @@ A late response from an earlier attempt does not change the screen.
 
 ## Pagos
 
-- Summary: «Sin pagos · necesario para despachar», «Pago parcial · falta S/ 148.00», «Pagado», «Pagado · Exceso recibido: S/ 12.00», plus «Pago por revisar» while a report is pending. The rows and their actions are described in [Orders · Web «Pagos» card](orders.md#web-pagos-card).
+- Summary: «Sin pagos · necesario para enviar», «Pago parcial · falta S/ 148.00», «Pagado», «Pagado · Exceso recibido: S/ 12.00», plus «Pago por revisar» while a report is pending. The rows and their actions are described in [Orders · Web «Pagos» card](orders.md#web-pagos-card).
 - One **Agregar <wallet>** button per wallet of the country's catalog (**Agregar Yape**, **Agregar Plin** in Peru) and **Transferencia bancaria**, while the order is not cancelled, has a product and has a balance. Without products: «Agrega productos para registrar pagos.». Empty: «Aún no hay pagos registrados.».
 - **Saved order:** each action opens the payment form with the method preset and «Importe recibido» prefilled with the balance; the partial stock box follows its [rule](orders.md#payments). Payment actions refresh the order afterwards.
 - **New sale:** each action adds a draft row prefilled with the balance at that moment and editable, with **Quitar** until **Guardar venta**. A later product change does not touch an amount already typed. An invalid draft amount is marked on its field.
