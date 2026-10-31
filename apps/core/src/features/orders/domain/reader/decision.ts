@@ -18,7 +18,8 @@ export type Agreement = "agree" | "disagree" | "not_run";
 
 /** The problems an urgent decision can name: the problem outcomes of a message. */
 export const problemKinds = ["not_identified", "not_clear", "variant_missing", "variant_not_available", "quantity_above_limit", "unclear_item", "unnamed_add",
-  "variant_only", "no_open_order", "order_closed", "product_not_available", "variant_for_several_pendings", "request_not_allowed", "reader_doubt"] as const;
+  "variant_only", "no_open_order", "order_closed", "product_not_available", "variant_for_several_pendings", "request_not_allowed", "reader_doubt", "payment_requested",
+  "image_with_request", "invalid_action", "ready_with_pendings"] as const;
 export type ProblemKind = (typeof problemKinds)[number];
 
 export type OriginalDoubtReason =
