@@ -116,6 +116,34 @@ describe("product tools through the MCP server", () => {
     expect(JSON.stringify(output)).not.toContain("Luis");
   });
 
+  test("answers the combined call polo, Rojo, con stock, precio hasta 50 and en el catálogo with Polo básico L / Rojo only", async () => {
+    const result = await call(rosa, "buscar_productos", { texto: "polo", valores: ["Rojo"], stock: "con stock", precio_hasta: 50, en_catalogo: "sí" });
+    expect(result.isError).toBeFalsy();
+    const output = result.structuredContent!;
+    expect(output.productos.map((item) => item.nombre)).toEqual(["Polo básico"]);
+    expect(output.productos[0].variantes_coincidentes).toEqual([expect.objectContaining({ combinacion: "L / Rojo", sku: "POL-L-RJ" })]);
+  });
+
+  test("answers store A's no-match text for «polo verde» and an unknown-value text listing only A's values, never store B's", async () => {
+    await seed(luis, { name: "Polo verde", variants: [variant("M", "Verde", 10, 5, "LUIS-VERDE"), variant("L", "Blanco", 10, 5, "LUIS-BLANCO")] });
+    try {
+      const none = await call(rosa, "buscar_productos", { texto: "polo verde" });
+      expect(none.isError).toBeFalsy();
+      expect(none.structuredContent).toMatchObject({ total: 0, productos: [] });
+      expect(none.structuredContent!.mensaje).toContain("No hay productos con esos filtros");
+      expect(none.structuredContent!.mensaje).toContain("polo verde");
+      const unknown = await call(rosa, "buscar_productos", { valores: ["Verde"] });
+      const text = JSON.stringify(unknown);
+      expect(text).toContain("Azul");
+      expect(text).toContain("Rojo");
+      for (const foreign of ["Blanco", "Luis", "LUIS-VERDE"]) expect(text).not.toContain(foreign);
+    } finally {
+      // The other tests expect Luis to own only «Polo de Luis».
+      await withTenantIsolation(luis.companyId, () => deleteSeededProducts());
+      luisProductId = (await seed(luis, { name: "Polo de Luis", variants: [variant("M", "Azul", 10, 5, "LUIS-1")] })).productId;
+    }
+  });
+
   test("carries «Tu catálogo está oculto: ahora nadie ve tus productos.» and no customer link in a page and in an empty answer of a hidden catalog", async () => {
     const page = (await call(luis, "buscar_productos")).structuredContent!;
     expect(page.catalogo).toBe("Tu catálogo está oculto: ahora nadie ve tus productos.");
