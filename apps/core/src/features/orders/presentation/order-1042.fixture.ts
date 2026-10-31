@@ -30,7 +30,7 @@ export const yape = {
 export function order1042(patch: Partial<OrderAggregateResponse> = {}): OrderAggregateResponse {
   return {
     checkoutEnabledAt: null, checkoutConfirmedAt: null, number: 1042, id: orderId, companyId, sellerId: "user-1", buyer: { contactId: null, name: "Jorge Gonzalez", phone: "+51977909427" },
-    source: "manual", createdAt: "2026-10-30T09:10:00.000Z", scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, status: "active",
+    source: "manual", createdAt: "2026-10-30T09:10:00.000Z", scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelledAt: null, stockDeductedAt: null, status: "active",
     paymentStatus: "pending", paidAmount: pen(150), balanceDue: pen(148), overpaidAmount: pen(0), cancelled: false, delivery: homeDelivery, deliveryStatus: "pending",
     stockDeducted: false, stockDue: null,
     items: [item("00000000-0000-4000-8000-000000000001", trajeM, "Traje de Príncipe Azul", "M", 89), item("00000000-0000-4000-8000-000000000002", trajeL, "Traje de Príncipe Azul", "L", 89),
