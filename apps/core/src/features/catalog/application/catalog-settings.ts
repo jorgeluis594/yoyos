@@ -1,5 +1,6 @@
 import { err, ok } from "@shared/functional";
 import { isReservedCatalogSubdomain, parseCatalogSubdomain, suggestCatalogSubdomain, type CatalogSubdomain, type SubdomainFormatReason } from "@shared/catalog-subdomain";
+import type { Currency } from "@shared/money";
 import type { Result } from "@shared/result";
 import type { CatalogStore } from "@core/src/features/catalog/application/browse-catalog";
 
@@ -13,6 +14,10 @@ export type SubdomainAvailability =
   | Readonly<{ status: "available" | "current" | "in_use"; subdomain: CatalogSubdomain }>
   | Readonly<{ status: "reserved" }>
   | Readonly<{ status: "invalid"; reason: SubdomainFormatReason }>;
+export type StorefrontState = Readonly<{ currency: Currency; catalog:
+  | Readonly<{ kind: "published"; subdomain: CatalogSubdomain }>
+  | Readonly<{ kind: "hidden"; subdomain: CatalogSubdomain }>
+  | Readonly<{ kind: "hidden_without_link" }> }>;
 export type SubdomainChange = "unchanged" | "first" | "replaced";
 
 export type CatalogSettingsError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string }>;
