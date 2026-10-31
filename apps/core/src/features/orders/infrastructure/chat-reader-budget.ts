@@ -14,8 +14,8 @@ export const readerOutputTokenLimit = 1000;
 /** A photo budget under this fails at startup: the usual captioned photo is about 3,400 tokens. */
 const minPhotoInputTokens = 8000;
 /**
- * Billed input tokens over the o200k count (a proxy: no tokenizer is published for gpt-6-luna). 1.00 until the tuning measures
- * `inputTokens / countedInputTokens` in `chat_reader_completed` and sets the largest observed ratio, rounded up to 0.01.
+ * Billed input tokens over the o200k count (a proxy: no tokenizer is published for gpt-6-luna). The dev calls (Latin, about 3,000 tokens)
+ * bill 0.97 of the count, below 1.00, so it stays 1.00; nothing is measured at the 25,000-token budget or in a non-Latin script.
  */
 export const tokenizerRatio = 1;
 
