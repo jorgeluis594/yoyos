@@ -5,8 +5,10 @@ import { err, ok } from "@shared/functional";
 import { prisma, systemPrisma, withLockedForUpdate, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { applyChatMessage, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
 import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, findOrderAggregate, recordProcessedMessage, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
-import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
-import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { createFitReadingContext, readerTokenBudget } from "@core/src/features/orders/infrastructure/chat-reader-budget";
+import { findOutcome, insertFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
+import { recordFailedChatMessage } from "@core/src/features/orders/application/record-failed-chat-message";
+import { findChatPendings, findChatPendingsForUpdate, saveChatPendings, saveLastIncomingPhotoOfMessageChat } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatReadingContext, ReaderAction, ReaderAnswer } from "@core/src/features/orders/domain/chat-reading";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts/infrastructure/contact-repository";
@@ -69,6 +71,8 @@ async function message(f: Fixture, content: { codes: readonly string[] } | { tex
   return messageId;
 }
 
+const fit = createFitReadingContext({ budget: readerTokenBudget({ photoStagesReserveUsd: 0.001 }) });
+
 function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = {}): ApplyChatMessageDependencies {
   const companyId = f.companyId as CompanyId;
   return {
@@ -105,6 +109,8 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
     newPendingId: () => randomUUID() as ChatPendingId,
     clock: () => clockNow(),
     limits: { maxItemQuantity: 99 as PositiveInteger, pendingTtlMs: 7 * 86_400_000, maxReaderProducts: 24, maxReaderItems: 40, maxReaderTextChars: 2000 },
+    fitReadingContext: (context) => { const fitted = fit(context); return "code" in fitted ? err(fitted) : ok(fitted); },
+    photoStageTimeoutMs: 40_000,
     ...over,
   };
 }
@@ -342,7 +348,7 @@ const variantOf = (catalog: Catalog["polo"], talla: string, color: string) => ca
 /** Applies a text through the real use case at the simulated time with the reader given. */
 async function say(f: Fixture, text: string, reader: Reader, over: Partial<ApplyChatMessageDependencies> = {}) {
   const messageId = await message(f, { text });
-  const result = await apply(f, messageId, { readChatMessage: asReader(reader), findMessageCandidates: async () => ok({ productIds: [], matchCount: 0, durationMs: 0, timedOut: false }), ...over });
+  const result = await apply(f, messageId, { readChatMessage: asReader(reader), findMessageCandidates: async () => ok({ unavailableProductIds: [], productIds: [], matchCount: 0, durationMs: 0, timedOut: false }), ...over });
   if (!result.success) throw new Error(`${result.error.code}: ${result.error.message}`);
   return { messageId, applied: result.data };
 }
@@ -441,10 +447,10 @@ test("an orderless pending joins the order another message creates and ends when
   try {
     const catalog = await seedCatalog(f);
     setNow("2026-10-01T10:00:00Z");
-    await say(f, "un polo", addProduct(catalog.polo.productId), { findMessageCandidates: async () => ok({ productIds: [catalog.polo.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) });
+    await say(f, "un polo", addProduct(catalog.polo.productId), { findMessageCandidates: async () => ok({ unavailableProductIds: [], productIds: [catalog.polo.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) });
     expect(await pendingCount(f)).toBe(1);
     setNow("2026-10-01T10:05:00Z");
-    await say(f, "y una gorra", addProduct(catalog.gorra.productId), { findMessageCandidates: async () => ok({ productIds: [catalog.gorra.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) });
+    await say(f, "y una gorra", addProduct(catalog.gorra.productId), { findMessageCandidates: async () => ok({ unavailableProductIds: [], productIds: [catalog.gorra.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) });
     const [order] = await chatOrders(f);
     expect(order!.items.map((item) => item.variantId)).toEqual(catalog.gorra.variantIds);
     expect((await storedPendings(f))!.pendings).toMatchObject([{ order: { orderId: order!.id, attachedAt: "2026-10-01T10:05:00.000Z" } }]);
@@ -460,7 +466,7 @@ test("a pending without order expires after eight days and a partial completion 
   const f = await fixture();
   try {
     const catalog = await seedCatalog(f);
-    const withPolo = { findMessageCandidates: async () => ok({ productIds: [catalog.polo.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) };
+    const withPolo = { findMessageCandidates: async () => ok({ unavailableProductIds: [], productIds: [catalog.polo.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) };
     setNow("2026-10-01T10:00:00Z");
     await say(f, "dos polos", addProduct(catalog.polo.productId, {}, 2), withPolo);
     setNow("2026-10-07T10:00:00Z");
@@ -538,7 +544,7 @@ test("two orderless pendings follow the two different orders reopened after each
   const f = await fixture();
   try {
     const catalog = await seedCatalog(f);
-    const withPolo = { findMessageCandidates: async () => ok({ productIds: [catalog.polo.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) };
+    const withPolo = { findMessageCandidates: async () => ok({ unavailableProductIds: [], productIds: [catalog.polo.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) };
     setNow("2026-10-01T10:00:00Z");
     await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
     const [first] = await chatOrders(f);
@@ -654,7 +660,7 @@ test("eleven pendings end the first silently", async () => {
     let last: Awaited<ReturnType<typeof say>> | null = null;
     for (const [n, product] of seeded.entries()) {
       setNow(`2026-10-01T10:${String(n).padStart(2, "0")}:00Z`);
-      last = await say(f, `quiero producto ${n}`, addProduct(product.productId), { findMessageCandidates: async () => ok({ productIds: [product.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) });
+      last = await say(f, `quiero producto ${n}`, addProduct(product.productId), { findMessageCandidates: async () => ok({ unavailableProductIds: [], productIds: [product.productId as ProductId], matchCount: 1, durationMs: 0, timedOut: false }) });
     }
     expect(await pendingCount(f)).toBe(10);
     expect(outcomeKindsOf(last!)).toEqual(["pending_created", "variant_missing", "pending_ended"]);
@@ -678,5 +684,157 @@ test("two concurrent runs of one message write one item and one outcome", async 
     const [order] = await chatOrders(f);
     expect(order!.items.map((item) => Number(item.quantity))).toEqual([1]);
     expect(await inTenant(f, () => prisma.chatMessageOutcome.count({ where: { messageId } }))).toBe(1);
+  } finally { await f.cleanup(); }
+});
+
+// ---- The photo just sent, the payment request and the not-sellable product. ----
+
+const unnamedSet = (quantity: number): Reader => () => actions({ kind: "change_quantity", target: { kind: "unnamed" }, mode: "set", quantity });
+const storedMemory = async (f: Fixture) => (await storedPendings(f))?.lastIncomingPhoto ?? null;
+const pendingQuantities = async (f: Fixture) => ((await storedPendings(f))?.pendings as { quantity: number }[] | undefined ?? []).map(({ quantity }) => quantity);
+const outgoing = (f: Fixture, text: string) => inTenant(f, async () => {
+  const id = randomUUID();
+  await prisma.chatMessage.create({ data: { id, chatId: f.chatId, externalId: `ext-${id}`, whatsappMessageId: `wa-${id}`, direction: "outgoing", source: "seller", type: "text", text,
+    uploadedByUserId: f.sellerId, sentAt: new Date(), receivedAt: new Date() } });
+  return id as ChatMessageId;
+});
+const itemQuantities = async (f: Fixture) => (await chatOrders(f)).flatMap((order) => order.items.map((item) => Number(item.quantity)));
+
+test("a photo then «quiero 3 de esos» sets the photo's pending to 3 without a notice", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    await showProduct(f, catalog.polo.productId);
+    expect(await storedMemory(f)).toMatchObject({ left: { kind: "pending" } });
+    const done = await say(f, "quiero 3 de esos", unnamedSet(3));
+    expect(outcomeKindsOf(done)).toEqual(["pending_updated"]);
+    expect(noticeDue(done)).toBe(false);
+    expect(await pendingQuantities(f)).toEqual([3]);
+    expect(await storedMemory(f)).toBeNull();
+  } finally { await f.cleanup(); }
+});
+
+test("a photo of a single-variant product then a set quantity sets the item without a notice", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    await showProduct(f, catalog.gorra.productId);
+    expect(await itemQuantities(f)).toEqual([1]);
+    const done = await say(f, "quiero 3 de esos", unnamedSet(3));
+    expect(noticeDue(done)).toBe(false);
+    expect(await itemQuantities(f)).toEqual([3]);
+  } finally { await f.cleanup(); }
+});
+
+test("a photo, an outgoing seller reply and an emoji text, then a set quantity still apply to the photo", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    await showProduct(f, catalog.polo.productId);
+    const reply = await outgoing(f, "¡Claro! ¿Qué talla?");
+    expect(await apply(f, reply)).toMatchObject({ success: true, data: { kind: "skipped", reason: "outgoing_message" } });
+    expect(outcomeKindsOf(await say(f, "👍", noIntent))).toEqual(["skipped"]);
+    const done = await say(f, "quiero 3 de esos", unnamedSet(3));
+    expect(noticeDue(done)).toBe(false);
+    expect(await pendingQuantities(f)).toEqual([3]);
+  } finally { await f.cleanup(); }
+});
+
+test("two photos in a row then a set quantity change nothing and notify an unnamed add", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    await showProduct(f, catalog.polo.productId);
+    await showProduct(f, catalog.polo.productId);
+    const before = await pendingQuantities(f);
+    const done = await say(f, "quiero 3 de esos", unnamedSet(3));
+    expect(outcomeKindsOf(done)).toContain("unnamed_add");
+    expect(noticeDue(done)).toBe(true);
+    expect(await pendingQuantities(f)).toEqual(before);
+  } finally { await f.cleanup(); }
+});
+
+test("a photo then a second photo with caption «quiero 3» leaves the first photo's pending unchanged and gives the second photo's product quantity 3", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    await showProduct(f, catalog.polo.productId);
+    const done = await showProduct(f, catalog.gorra.productId, unnamedSet(3), "quiero 3");
+    expect(noticeDue(done)).toBe(false);
+    expect(await pendingQuantities(f)).toEqual([1]);
+    expect(await itemQuantities(f)).toEqual([3]);
+  } finally { await f.cleanup(); }
+});
+
+test("a photo then a text too long then a set quantity notify an unnamed add", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    await showProduct(f, catalog.polo.productId);
+    const long = await say(f, "a".repeat(2001), noIntent);
+    expect(outcomeKindsOf(long)).toEqual(["invalid_action"]);
+    expect(await storedMemory(f)).toBeNull();
+    const done = await say(f, "quiero 3 de esos", unnamedSet(3));
+    expect(outcomeKindsOf(done)).toContain("unnamed_add");
+    expect(await pendingQuantities(f)).toEqual([1]);
+  } finally { await f.cleanup(); }
+});
+
+test("a photo then «gracias» then a set quantity notify an unnamed add", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    await showProduct(f, catalog.polo.productId);
+    await say(f, "gracias", noIntent);
+    const done = await say(f, "quiero 3 de esos", unnamedSet(3));
+    expect(outcomeKindsOf(done)).toContain("unnamed_add");
+    expect(noticeDue(done)).toBe(true);
+    expect(await pendingQuantities(f)).toEqual([1]);
+  } finally { await f.cleanup(); }
+});
+
+test("a failed message after a photo makes a following set quantity an unnamed add", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    await showProduct(f, catalog.polo.productId);
+    const failedId = await message(f, { text: "algo" });
+    const recorded = await inTenant(f, () => recordFailedChatMessage({ transaction: (work) => withinTransaction(work), insertFailedOutcome, saveLastIncomingPhotoOfMessageChat })(failedId, "INVALID_AI_RESPONSE"));
+    expect(recorded).toEqual({ success: true, data: { publishNotice: true } });
+    expect(await storedMemory(f)).toEqual({ left: null });
+    const done = await say(f, "quiero 3 de esos", unnamedSet(3));
+    expect(outcomeKindsOf(done)).toContain("unnamed_add");
+    expect(await pendingQuantities(f)).toEqual([1]);
+  } finally { await f.cleanup(); }
+});
+
+test("a payment request with an open order and a pending left records the payment outcome and its notice is due", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    await showProduct(f, catalog.gorra.productId);
+    await showProduct(f, catalog.polo.productId);
+    const done = await say(f, "¿cómo te pago?", () => actions({ kind: "payment_request" }));
+    const [order] = await chatOrders(f);
+    expect(done.applied).toMatchObject({ kind: "applied", noticeDue: true,
+      outcomes: [{ kind: "payment_requested", order: { kind: "open", orderId: order!.id }, productIds: [catalog.polo.productId], unnamed: 0 }] });
+    expect(await itemQuantities(f)).toEqual([1]);
+  } finally { await f.cleanup(); }
+});
+
+test("a named product whose variants are all inactive reports product not available", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    const old = await inTenant(f, () => seedProduct({ name: "Casaca denim antigua", variants: [{ attributes: { Talla: "M" }, salePrice: 90 }] }));
+    await inTenant(f, () => prisma.productVariant.updateMany({ where: { productId: old.productId }, data: { status: "inactive" } }));
+    const done = await say(f, "quiero la casaca denim antigua", (context) => {
+      const entry = context.products.find(({ productId }) => productId === old.productId);
+      expect(entry).toMatchObject({ sellable: false });
+      return actions({ kind: "add", product: { kind: "ref", ref: entry!.ref }, attributes: [], quantity: null, price: null });
+    }, { findMessageCandidates: (text) => products.findMessageCandidates(text) });
+    expect(outcomeKindsOf(done)).toEqual(["product_not_available"]);
+    expect(noticeDue(done)).toBe(true);
+    expect(catalog.polo.productId).not.toBe(old.productId);
   } finally { await f.cleanup(); }
 });

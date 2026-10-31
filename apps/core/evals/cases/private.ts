@@ -64,7 +64,7 @@ function readJson(dir: string, file: string): unknown {
   return invalid(file, () => JSON.parse(readFileSync(real, "utf8")));
 }
 
-/** Loads `<dir>/catalog.json` and `<dir>/cases.json` with the committed schemas. Photo passes are not available without photos. */
+/** Loads `<dir>/catalog.json` and `<dir>/cases.json` with the committed schemas. Photos are described by the case (`shows`); photo files are refused because a private run has none. */
 export function loadPrivateData(dir: string): PrivateData {
   const real = privateDirOf(dir);
   const catalog = invalid("catalog.json", () => evalCatalogSchema.parse(readJson(real, "catalog.json")));

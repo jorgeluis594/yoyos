@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
-import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
+import { findOutcome, insertFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import type { ChatMessageOutcomes } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 
@@ -53,49 +54,61 @@ test("reads stored outcomes that do not match the schema as invalid stored data"
   } finally { await f.cleanup(); }
 });
 
+const insertFailed = (messageId: ChatMessageId, code: Parameters<typeof insertFailedOutcome>[1]) => withinTransaction(() => insertFailedOutcome(messageId, code));
+
 test("outcome queries never see another company's messages", async () => {
   const [a, b] = [await fixture(), await fixture()];
   try {
     await withTenantIsolation(a.companyId, () => withinTransaction(() => recordOutcome({ messageId: a.messageId, outcomes: noIntent })));
     await withTenantIsolation(b.companyId, async () => {
       expect(await findOutcome(a.messageId)).toEqual({ success: true, data: null });
-      expect(await recordFailedOutcome(a.messageId, "INVALID_AI_RESPONSE")).toEqual({ success: true, data: { publishNotice: false } });
+      expect(await insertFailed(a.messageId, "INVALID_AI_RESPONSE")).toEqual({ success: true, data: { inserted: false, stored: null } });
       expect(await prisma.chatMessageOutcome.count()).toBe(0);
     });
   } finally { await a.cleanup(); await b.cleanup(); }
 });
 
-test("records a failed outcome once and asks for its notice only the first time", async () => {
+test("inserting a failed outcome writes it once and returns what is stored", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
-      expect(await recordFailedOutcome(f.messageId, "RETRIES_EXHAUSTED")).toEqual({ success: true, data: { publishNotice: true } });
-      expect(await findOutcome(f.messageId)).toMatchObject({ success: true, data: { outcomes: [{ kind: "failed", errorCode: "RETRIES_EXHAUSTED" }], noticeSentAt: null } });
-      expect(await recordFailedOutcome(f.messageId, "INVALID_AI_RESPONSE")).toEqual({ success: true, data: { publishNotice: true } }); // existing, notice still unclaimed
-      await prisma.chatMessageOutcome.updateMany({ data: { noticeSentAt: new Date() } });
-      expect(await recordFailedOutcome(f.messageId, "RETRIES_EXHAUSTED")).toEqual({ success: true, data: { publishNotice: false } });
+      const failed = [{ kind: "failed", errorCode: "RETRIES_EXHAUSTED" }];
+      expect(await insertFailed(f.messageId, "RETRIES_EXHAUSTED")).toEqual({ success: true, data: { inserted: true, stored: { outcomes: failed, noticeSentAt: null } } });
+      expect(await findOutcome(f.messageId)).toMatchObject({ success: true, data: { outcomes: failed, noticeSentAt: null } });
+      expect(await insertFailed(f.messageId, "INVALID_AI_RESPONSE")).toEqual({ success: true, data: { inserted: false, stored: { outcomes: failed, noticeSentAt: null } } });
+      const claimedAt = new Date();
+      await prisma.chatMessageOutcome.updateMany({ data: { noticeSentAt: claimedAt } });
+      expect(await insertFailed(f.messageId, "RETRIES_EXHAUSTED")).toMatchObject({ success: true, data: { inserted: false, stored: { noticeSentAt: claimedAt } } });
       expect(await prisma.chatMessageOutcome.count()).toBe(1);
     });
   } finally { await f.cleanup(); }
 });
 
-test("an existing outcome without a notice due is kept and asks for none", async () => {
+test("inserting a failed outcome for a message with an outcome writes nothing and returns the stored one", async () => {
   const f = await fixture();
   try {
     await withTenantIsolation(f.companyId, async () => {
       await withinTransaction(() => recordOutcome({ messageId: f.messageId, outcomes: noIntent }));
-      expect(await recordFailedOutcome(f.messageId, "RETRIES_EXHAUSTED")).toEqual({ success: true, data: { publishNotice: false } });
+      expect(await insertFailed(f.messageId, "RETRIES_EXHAUSTED")).toEqual({ success: true, data: { inserted: false, stored: { outcomes: noIntent, noticeSentAt: null } } });
       expect(await findOutcome(f.messageId)).toMatchObject({ success: true, data: { outcomes: noIntent } });
     });
   } finally { await f.cleanup(); }
 });
 
-test("a message that does not exist leaves no outcome and no notice", async () => {
+test("inserting a failed outcome for a missing message writes nothing, logs chat_message_outcome_without_message and keeps the transaction usable", async () => {
   const f = await fixture();
+  const warn = vi.spyOn(log, "warn").mockImplementation(() => undefined);
   try {
     await withTenantIsolation(f.companyId, async () => {
-      expect(await recordFailedOutcome(randomUUID() as ChatMessageId, "MESSAGE_NOT_FOUND")).toEqual({ success: true, data: { publishNotice: false } });
+      const result = await withinTransaction(async () => {
+        const inserted = await insertFailedOutcome(randomUUID() as ChatMessageId, "MESSAGE_NOT_FOUND");
+        // The transaction is still usable after the insert found no message.
+        const count = await prisma.chatMessageOutcome.count();
+        return { success: true as const, data: { inserted, count } };
+      });
+      expect(result).toEqual({ success: true, data: { inserted: { success: true, data: { inserted: false, stored: null } }, count: 0 } });
+      expect(warn).toHaveBeenCalledWith(expect.objectContaining({ event: "chat_message_outcome_without_message" }), "chat_message_outcome_without_message");
       expect(await prisma.chatMessageOutcome.count()).toBe(0);
     });
-  } finally { await f.cleanup(); }
+  } finally { warn.mockRestore(); await f.cleanup(); }
 });

@@ -1,5 +1,8 @@
 import OpenAI from "openai";
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
+import { log } from "@core/src/shared/infrastructure/logger";
+import { countRequestTokens } from "@core/src/features/orders/infrastructure/chat-reader-budget";
+import { describeReadingContext } from "@core/src/features/orders/infrastructure/chat-reader-context-text";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { CompanyId } from "@core/src/features/orders/domain/order";
@@ -8,7 +11,7 @@ import { createOpenAiChatReader, readerRequestSettings } from "@core/src/feature
 import { readerInstructions } from "@core/src/features/orders/infrastructure/chat-reader-text";
 
 const meta = { companyId: "company" as CompanyId, messageId: "message" as ChatMessageId };
-const context: ChatReadingContext = { kind: "text", text: "dos polos en M y ya", items: [], pendings: [], products: [], truncated: false };
+const context: ChatReadingContext = { kind: "text", text: "dos polos en M y ya", latestOrder: "none", items: [], pendings: [], products: [], photoJustSent: null, truncated: false };
 const noFields = { product: null, pendingProduct: null, attributes: null, quantity: null, price: null, pending: null, item: null, amount: null, mode: null, pendings: null };
 const strictAnswer = { outcome: "actions", moreActions: false, actions: [
   { ...noFields, kind: "add", product: { kind: "ref", ref: "P1", refs: null }, attributes: [{ name: "Talla", value: "M" }], quantity: 2 },
@@ -36,6 +39,39 @@ const readWith = (response: () => Response | Promise<Response>, signal = new Abo
   const { read, sent } = readerWith(async () => response());
   return read(context, meta, signal).then((result) => ({ result, sent }));
 };
+
+describe("createOpenAiChatReader observe", () => {
+  const observed = async (response: () => Response, ...extra: unknown[]) => {
+    const seen: unknown[] = [];
+    const client = new OpenAI({ apiKey: "test-key", fetch: async () => response() });
+    const read = createOpenAiChatReader({ client, model: "gpt-6-luna", timeoutMs: 1000, observe: (output) => seen.push(output) });
+    return { result: await read(context, meta, new AbortController().signal), seen, extra };
+  };
+
+  test("receives the raw parsed JSON before validation", async () => {
+    const { result, seen } = await observed(() => answerResponse(strictAnswer));
+    expect(result.success).toBe(true);
+    expect(seen).toEqual([strictAnswer]);
+  });
+
+  test("receives an answer that does not match the schema, which ends as an invalid response", async () => {
+    const wrong = { outcome: "teleport" };
+    const { result, seen } = await observed(() => answerResponse(wrong));
+    expect(result).toMatchObject({ success: false, error: { code: "INVALID_AI_RESPONSE" } });
+    expect(seen).toEqual([wrong]);
+  });
+
+  test("receives the raw text when the answer is not JSON", async () => {
+    const { result, seen } = await observed(() => completed([{ type: "output_text", text: "not json {", annotations: [] }]));
+    expect(result).toMatchObject({ success: false, error: { code: "INVALID_AI_RESPONSE" } });
+    expect(seen).toEqual(["not json {"]);
+  });
+
+  test("is not called when there is no answer text", async () => {
+    const { seen } = await observed(() => completed([{ type: "refusal", refusal: "no" }]));
+    expect(seen).toEqual([]);
+  });
+});
 
 describe("createOpenAiChatReader", () => {
   test("maps a recorded strict response with an add and a ready to the reader answer", async () => {
@@ -65,7 +101,7 @@ describe("createOpenAiChatReader", () => {
   });
 
   test("sends byte-identical instructions and schema for two different contexts and only the input changes", async () => {
-    const other: ChatReadingContext = { ...context, kind: "photo_not_product", text: "otro mensaje", items: [{ ref: "I1", variantId: "v" as VariantId, productId: null, productName: "Casaca", variantAttributes: {}, quantity: 1, unitPrice: { amount: 10, currency: "PEN" } }] };
+    const other: ChatReadingContext = { ...context, kind: "photo_not_product", text: "otro mensaje", items: [{ ref: "I1", variantId: "v" as VariantId, productId: null, productName: "Casaca", variantAttributes: {}, quantity: 1, unitPrice: { amount: 10, currency: "PEN" }, photoJustSent: false }] };
     const { read, sent } = readerWith(async () => answerResponse(strictAnswer));
     await read(context, meta, new AbortController().signal);
     await read(other, meta, new AbortController().signal);
@@ -83,6 +119,23 @@ describe("createOpenAiChatReader", () => {
     expect(body.reasoning).toEqual({ effort: readerRequestSettings.reasoningEffort });
     expect(body.max_output_tokens).toBe(readerRequestSettings.maxOutputTokens);
     expect(body.text).toMatchObject({ format: { type: "json_schema", strict: true, name: "chat_reader_answer" } });
+  });
+
+  test("limits the answer to 1,000 tokens", async () => {
+    const { sent } = await readWith(() => answerResponse(strictAnswer));
+    expect(readerRequestSettings.maxOutputTokens).toBe(1000);
+    expect(sent[0]!.body.max_output_tokens).toBe(1000);
+  });
+
+  test("logs the tokens it counted for the request beside the billed ones, so their ratio is measurable", async () => {
+    const info = vi.spyOn(log, "info");
+    try {
+      await readWith(() => answerResponse(strictAnswer));
+      const completedLog = info.mock.calls.map(([fields]) => fields as Record<string, unknown>).find((fields) => fields.event === "chat_reader_completed");
+      expect(completedLog).toMatchObject({ inputTokens: 5200, countedInputTokens: countRequestTokens(describeReadingContext(context)), budget: "text" });
+    } finally {
+      info.mockRestore();
+    }
   });
 
   test("maps a timeout, a 429 and a 5xx to provider unavailable", async () => {

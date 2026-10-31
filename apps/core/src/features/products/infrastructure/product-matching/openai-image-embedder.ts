@@ -8,6 +8,8 @@ import { parseEmbeddingModel, parseEmbeddingVector, type EmbeddingModel, type Im
 // OpenAI has no image embedding endpoint: a vision model describes the product and a text model embeds the description.
 // store: false keeps product photos and customer screenshots out of OpenAI's stored responses (docs/image-product-search.md).
 const dimensions = 1536;
+/** The description is at most 80 words (about 110 tokens); the cap bounds its billed output, and effort none leaves no reasoning tokens inside it. */
+export const describeMaxOutputTokens = 300;
 const describePrompt = "Describe the product shown in this image so it can be matched against catalog photos: "
   + "category, shape, colors, materials, patterns, printed text or logos and distinctive details. "
   + "Ignore the background, people, hands, prices and app interface elements. Answer in English in at most 80 words, without preamble.";
@@ -30,7 +32,7 @@ function failure(cause: unknown) {
 export function createOpenAiImageEmbedder(options: OpenAiImageEmbedderOptions): Readonly<{ model: EmbeddingModel; embedImage: EmbedImage }> {
   const model = parseEmbeddingModel(`openai/${options.describeModel}+${options.embedModel}`);
   if (!model) throw new Error("Invalid IMAGE_DESCRIBE_MODEL or IMAGE_EMBEDDER_MODEL");
-  const embedImage: EmbedImage = async (image) => {
+  const embedImage: EmbedImage = async (image, signal) => {
     const started = performance.now();
     const fail = (code: "EMBEDDER_UNAVAILABLE" | "INVALID_EMBEDDING", message: string, httpStatus?: number, cause?: unknown) => {
       log.warn({ event: "product_image_embedding_failed", companyId: options.currentCompanyId(), model, errorCode: code, httpStatus,
@@ -42,11 +44,12 @@ export function createOpenAiImageEmbedder(options: OpenAiImageEmbedderOptions): 
     catch (cause) { return fail("INVALID_EMBEDDING", "Image cannot be decoded", undefined, cause); }
     let values: number[];
     try {
-      const described = await options.client.responses.create({ model: options.describeModel, store: false, input: [{ role: "user", content: [
-        { type: "input_text", text: describePrompt }, { type: "input_image", image_url: imageUrl, detail: "auto" }] }] });
+      const described = await options.client.responses.create({ model: options.describeModel, store: false, max_output_tokens: describeMaxOutputTokens,
+        reasoning: { effort: "none" }, input: [{ role: "user", content: [
+          { type: "input_text", text: describePrompt }, { type: "input_image", image_url: imageUrl, detail: "auto" }] }] }, { signal });
       const description = described.output_text.trim();
       if (!description) return fail("EMBEDDER_UNAVAILABLE", "Vision model returned no description");
-      const embedded = await options.client.embeddings.create({ model: options.embedModel, input: description, dimensions, encoding_format: "float" });
+      const embedded = await options.client.embeddings.create({ model: options.embedModel, input: description, dimensions, encoding_format: "float" }, { signal });
       values = embedded.data[0]?.embedding ?? [];
     } catch (cause) {
       const { code, httpStatus } = failure(cause);

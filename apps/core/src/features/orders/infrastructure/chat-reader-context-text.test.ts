@@ -2,7 +2,8 @@ import { describe, expect, test } from "vitest";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { context, id, pending, productId, readingProduct } from "@core/src/features/orders/infrastructure/chat-reading-fixtures";
-import { describeReadingContext } from "@core/src/features/orders/infrastructure/chat-reader-context-text";
+import { shippedReaderFeatures } from "@core/src/features/orders/infrastructure/shipped-reader-features";
+import { describeReadingContext, productBlock } from "@core/src/features/orders/infrastructure/chat-reader-context-text";
 
 describe("describeReadingContext", () => {
   test("describes pendings with their known values and missing attributes", () => {
@@ -11,8 +12,8 @@ describe("describeReadingContext", () => {
     const text = describeReadingContext(context({
       products: [polo, gorra],
       pendings: [
-        { ref: "Q1", pending: pending(1, { known: { Talla: "M" }, quantity: 3 as PositiveInteger, price: { amount: { amount: 35, currency: "PEN" }, per: "unit", forQuantity: 3 as PositiveInteger } }) },
-        { ref: "Q2", pending: pending(2, { subject: { kind: "product", candidates: [productId(1), productId(2)] } }) },
+        { ref: "Q1", photoJustSent: false, pending: pending(1, { known: { Talla: "M" }, quantity: 3 as PositiveInteger, price: { amount: { amount: 35, currency: "PEN" }, per: "unit", forQuantity: 3 as PositiveInteger } }) },
+        { ref: "Q2", photoJustSent: false, pending: pending(2, { subject: { kind: "product", candidates: [productId(1), productId(2)] } }) },
       ],
     }));
     expect(text).toContain("Q1: Polo básico (P1). Known: Talla M. Missing: Color. Quantity: 3. Stated price: PEN 35.00 per unit");
@@ -50,7 +51,7 @@ describe("describeReadingContext", () => {
     const archived = readingProduct(3, "Chompa", [[{ Talla: "M" }, 90]], { sellable: false });
     const text = describeReadingContext(context({
       products: [archived],
-      items: [{ ref: "I1", variantId: id(1) as VariantId, productId: productId(3), productName: "Chompa", variantAttributes: { Talla: "M" }, quantity: 2, unitPrice: { amount: 90, currency: "PEN" } }],
+      items: [{ ref: "I1", variantId: id(1) as VariantId, productId: productId(3), productName: "Chompa", variantAttributes: { Talla: "M" }, quantity: 2, unitPrice: { amount: 90, currency: "PEN" }, photoJustSent: false }],
     }));
     expect(text).toContain("I1: Chompa (P3) · Talla M · quantity 2 · PEN 90.00 each");
     expect(text).toContain("P3 Chompa — not for sale");
@@ -67,8 +68,46 @@ describe("describeReadingContext", () => {
 
   test("never writes ids, phones or order numbers and puts the buyer's text last", () => {
     const text = describeReadingContext(context({ text: "quiero 2", products: [readingProduct(1, "Polo", [[{}, 40]])],
-      items: [{ ref: "I1", variantId: id(7) as VariantId, productId: productId(1), productName: "Polo", variantAttributes: {}, quantity: 1, unitPrice: { amount: 40, currency: "PEN" } }] }));
+      items: [{ ref: "I1", variantId: id(7) as VariantId, productId: productId(1), productName: "Polo", variantAttributes: {}, quantity: 1, unitPrice: { amount: 40, currency: "PEN" }, photoJustSent: false }] }));
     expect(text).not.toMatch(/0000-4000|#\d/);
     expect(text.endsWith("Buyer's message:\nquiero 2")).toBe(true);
+  });
+
+  test("tells the reader when the chat's latest order is closed, instead of saying only that there is no open order", () => {
+    const closed = describeReadingContext(context({ latestOrder: "closed" }));
+    const none = describeReadingContext(context({ latestOrder: "none" }));
+    expect(none).toContain("The chat has no open order.");
+    if (shippedReaderFeatures.closedOrderLine) expect(closed).toMatch(/latest order is closed/);
+    else expect(closed).toBe(none);
+    expect(describeReadingContext(context({ latestOrder: "open" }))).not.toMatch(/closed/);
+  });
+
+  test("marks the item or pending the photo just sent left, and nothing else", () => {
+    const polo = readingProduct(1, "Polo", [[{ Talla: "M" }, 40]]);
+    const line = (ref: string, photoJustSent: boolean) => ({ ref, variantId: id(1) as VariantId, productId: productId(1), productName: "Polo", variantAttributes: { Talla: "M" }, quantity: 1, unitPrice: { amount: 40, currency: "PEN" as const }, photoJustSent });
+    const text = describeReadingContext(context({
+      products: [polo], items: [line("I1", true), line("I2", false)],
+      pendings: [{ ref: "Q1", photoJustSent: true, pending: pending(1, {}) }, { ref: "Q2", photoJustSent: false, pending: pending(2, {}) }],
+    }));
+    const marked = text.split("\n").filter((row) => /photo just sent/.test(row));
+    expect(marked.map((row) => row.slice(0, 3))).toEqual(["I1:", "Q1:"]);
+  });
+
+  test("names an item or pending whose product was dropped, without a reference", () => {
+    const gorra = readingProduct(2, "Gorra", [[{}, 15]]);
+    const text = describeReadingContext(context({
+      products: [gorra],
+      items: [{ ref: "I1", variantId: id(1) as VariantId, productId: productId(1), productName: "Polo", variantAttributes: {}, quantity: 1, unitPrice: { amount: 40, currency: "PEN" }, photoJustSent: false }],
+      pendings: [{ ref: "Q1", photoJustSent: false, pending: pending(1, { subject: { kind: "variant", productId: productId(1) } }) }, { ref: "Q2", photoJustSent: false, pending: pending(2, { subject: { kind: "product", candidates: [productId(1), productId(3)] } }) }],
+    }));
+    expect(text).toContain("I1: Polo · quantity 1");
+    expect(text).toContain("Q1: a product that is not listed.");
+    expect(text).toContain("Q2: several products that are not listed.");
+  });
+
+  test("renders a product block equal to its lines in the full text", () => {
+    const polo = readingProduct(1, "Polo", [[{ Talla: "S" }, 40], [{ Talla: "M" }, 45]]);
+    const gorra = readingProduct(2, "Gorra", [[{}, 15]]);
+    expect(describeReadingContext(context({ products: [polo, gorra] }))).toContain(`Products:\n${productBlock(polo)}\n${productBlock(gorra)}\nBuyer's message:`);
   });
 });

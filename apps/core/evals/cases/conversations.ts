@@ -2,8 +2,8 @@ import type { EvalCaseInput } from "@core/evals/cases/schema";
 import { after } from "@core/evals/cases/builders";
 
 /**
- * Conversation cases: one chat, 2 to 4 messages, with events between them. Written from the rules sheet (the closed product draft:
- * Rules, Pendings, Notices, That's all) by someone who does not tune; the wording is the buyer's own, never the draft's examples.
+ * Conversation cases: one chat, 2 to 4 messages, with events between them. Written from the rules in docs/message-to-order.md
+ * by someone who does not tune; the wording is the buyer's own, never the doc's examples.
  *
  * Every step states the notice (`null` is silent) and the chat's latest order after the message. No order exists before the first
  * message: the earlier messages are the order. `kind` is the family of the conversation.
@@ -16,6 +16,154 @@ const photo = (shows: string, caption?: string) => ({ photo: { shows }, ...(capt
 const text = (value: string) => ({ text: value });
 const trucker = (color: "Negro" | "Rojo", quantity = 1) => after("gorra-trucker", { Color: color }, quantity);
 const polo = (variant: Variant, quantity = 1) => after("polo-basico", variant, quantity);
+
+const polera = (variant: Variant, quantity = 1) => after("polera-capucha", variant, quantity);
+const snapback = (quantity = 1) => after("gorra-snapback", { Color: "Azul" }, quantity);
+const chompaTejida = (quantity = 1) => after("chompa-tejida", { Talla: "Única" }, quantity);
+const correaNegra = after("correa-cuero", { Color: "Negro" });
+const gorraRojaOrder = trucker("Rojo");
+const poloLine = { product: "polo-basico", variant: { Talla: "M", Color: "Negro" }, quantity: 1 };
+
+/**
+ * New dev conversations of «Message to order without silent losses», written from docs/message-to-order.md by someone who does not
+ * tune. The eval conversation has no outgoing step, so «after a seller reply» is covered by T6's integration test, not here. Every id falls
+ * in the dev split (cases/new-dev-cases.test.ts). `unnamed-wording` marks the messages that name no product, so T8 can scan the reader's
+ * answers for a pending ref on them.
+ */
+export const newDevConversationCases: readonly EvalCaseInput[] = [
+  // Quantity for the photo just sent. Rules «Quantity for the photo just sent».
+  { id: "conv-photo-set-with-values", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
+    { input: photo("polo-basico"), expected: { notice: "variant_missing", order: [] } },
+    { input: text("quiero 3 de esos en M negro"), expected: { notice: null, order: [polo({ Talla: "M", Color: "Negro" }, 3)] } },
+  ] },
+  { id: "conv-photo-set-then-complete-other-only-item", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"],
+    order: [{ product: "gorra-trucker", variant: { Color: "Negro" }, quantity: 1 }], steps: [
+      { input: photo("polera-capucha"), expected: { notice: "variant_missing", order: [trucker("Negro")] } },
+      { input: text("que sean 3"), expected: { notice: null, order: [trucker("Negro")] } },
+      { input: text("gris M"), expected: { notice: null, order: [trucker("Negro"), polera({ Talla: "M", Color: "Gris" }, 3)] } },
+    ] },
+  { id: "conv-photo-set-grows-only-item", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"],
+    order: [{ product: "gorra-snapback", variant: { Color: "Azul" }, quantity: 1 }], steps: [
+      { input: photo("gorra-snapback"), expected: { notice: null, order: [snapback(2)] } },
+      { input: text("quiero 3 de esas"), expected: { notice: null, order: [snapback(3)] } },
+    ] },
+  { id: "conv-photo-add-wording-grown-item", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"],
+    order: [{ product: "gorra-snapback", variant: { Color: "Azul" }, quantity: 1 }], steps: [
+      { input: photo("gorra-snapback"), expected: { notice: null, order: [snapback(2)] } },
+      { input: text("otros 2"), expected: { notice: "unnamed_add", order: [snapback(2)] } },
+    ] },
+  { id: "conv-photo-set-new-single-variant", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
+    { input: photo("chompa-tejida"), expected: { notice: null, order: [chompaTejida()] } },
+    { input: text("mándame 3 de esas mismas"), expected: { notice: null, order: [chompaTejida(3)] } },
+  ] },
+  { id: "conv-photo-set-above-99", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
+    { input: photo("chompa-tejida"), expected: { notice: null, order: [chompaTejida()] } },
+    { input: text("quiero 150 de esas"), expected: { notice: "quantity_above_limit", order: [chompaTejida()] } },
+  ] },
+  { id: "conv-photo-add-wording-pending", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
+    { input: photo("polera-capucha"), expected: { notice: "variant_missing", order: [] } },
+    { input: text("dame 2 más de esas"), expected: { notice: "unnamed_add", order: [] }, expectsRepeatNotice: true },
+    { input: text("gris L"), expected: { notice: null, order: [polera({ Talla: "L", Color: "Gris" })] } },
+  ] },
+  { id: "conv-photo-after-thanks-set-b", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
+    { input: photo("polo-premium"), expected: { notice: "variant_missing", order: [] } },
+    { input: text("gracias, muy amable"), expected: { notice: null, order: [] } },
+    { input: text("quiero 3 de esos"), expected: { notice: "unnamed_add", order: [] }, expectsRepeatNotice: true },
+    { input: text("blanco L"), expected: { notice: null, order: [after("polo-premium", { Talla: "L", Color: "Blanco" })] } },
+  ] },
+  { id: "conv-photo-burst-set", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
+    { input: photo("polo-rayas"), expected: { notice: "variant_missing", order: [] } },
+    { input: photo("polera-cuello-redondo"), expected: { notice: "variant_missing", order: [] } },
+    { input: text("pásame 2 de esos"), expected: { notice: "unnamed_add", order: [] }, expectsRepeatNotice: true },
+    { input: text("el de rayas en M"), expected: { notice: null, order: [after("polo-rayas", { Talla: "M", Color: "Azul" })] } },
+  ] },
+  { id: "conv-photo-declined-caption-set-2", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
+    { input: photo("polera-capucha", "no la quiero, gracias, solo mostraba"), expected: { notice: null, order: [] } },
+    { input: text("dame 3 de ese"), expected: { notice: "unnamed_add", order: [] } },
+  ] },
+  { id: "conv-photo-no-intent-caption-pending-set", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
+    { input: photo("polo-oversize", "uy qué buena onda"), expected: { notice: "variant_missing", order: [] } },
+    { input: text("quiero 2 de esos en XL"), expected: { notice: null, order: [after("polo-oversize", { Talla: "XL", Color: "Verde" }, 2)] } },
+  ] },
+
+  // Payment request with a pending left. Rules «With a pending left»; criterion 34.
+  { id: "conv-pay-pending-with-ready-then-complete-2", pass: "conversation", kind: "payment-with-pending", tags: [],
+    order: [{ product: "gorra-trucker", variant: { Color: "Rojo" }, quantity: 1 }], steps: [
+      { input: photo("polo-premium"), expected: { notice: "variant_missing", order: [gorraRojaOrder] } },
+      { input: text("ya acabé con mi pedido, ¿a dónde te pago?"), expected: { notice: "payment_request", order: [gorraRojaOrder] } },
+      { input: text("M blanco"), expected: { notice: "ready", order: [gorraRojaOrder, after("polo-premium", { Talla: "M", Color: "Blanco" })] } },
+    ] },
+  { id: "conv-pay-pending-alone-then-complete-2", pass: "conversation", kind: "payment-with-pending", tags: [],
+    order: [{ product: "gorra-trucker", variant: { Color: "Rojo" }, quantity: 1 }], steps: [
+      { input: photo("polera-capucha"), expected: { notice: "variant_missing", order: [gorraRojaOrder] } },
+      { input: text("¿cómo te pago?"), expected: { notice: "payment_request", order: [gorraRojaOrder] } },
+      { input: text("negra L"), expected: { notice: null, order: [gorraRojaOrder, polera({ Talla: "L", Color: "Negro" })] } },
+    ] },
+  { id: "conv-pay-pending-no-order", pass: "conversation", kind: "payment-with-pending", tags: [], steps: [
+    { input: photo("polo-rayas"), expected: { notice: "variant_missing", order: [] } },
+    { input: text("pásame tu número para yapearte"), expected: { notice: "payment_request", order: [] } },
+    { input: text("S"), expected: { notice: null, order: [after("polo-rayas", { Talla: "S", Color: "Azul" })] } },
+  ] },
+  { id: "conv-pay-closed-then-new-order", pass: "conversation", kind: "payment-closed", tags: [],
+    order: [poloLine], orderState: "closed", steps: [
+      { input: text("mándame el enlace de pago"), expected: { notice: "payment_request", order: [polo({ Talla: "M", Color: "Negro" })] } },
+      { input: text("y suma una gorra trucker en rojo, envíame el enlace"), expected: { notice: "payment_request", order: [gorraRojaOrder] } },
+    ] },
+  { id: "conv-ready-then-lower-last-pending-to-zero", pass: "conversation", kind: "pending-quantity", tags: [],
+    order: [{ product: "correa-cuero", variant: { Color: "Negro" }, quantity: 1 }], steps: [
+      { input: text("quiero 2 polos premium"), expected: { notice: "variant_missing", order: [correaNegra] } },
+      { input: text("eso es todo"), expected: { notice: "ready_with_pendings", order: [correaNegra] }, expectsRepeatNotice: true },
+      { input: text("quítale los 2 polos"), expected: { notice: "ready", order: [correaNegra] } },
+    ] },
+
+  // Quantity on a named pending. Rules «Quantity»; criterion 13.
+  { id: "conv-pending-lower-by-one", pass: "conversation", kind: "pending-quantity", tags: [], steps: [
+    { input: text("quiero 2 poleras con capucha"), expected: { notice: "variant_missing", order: [] } },
+    { input: text("quítale una a la polera"), expected: { notice: null, order: [] } },
+    { input: text("gris L"), expected: { notice: null, order: [polera({ Talla: "L", Color: "Gris" })] } },
+  ] },
+  { id: "conv-pending-lower-to-zero", pass: "conversation", kind: "pending-quantity", tags: [], steps: [
+    { input: text("quiero 2 poleras con capucha"), expected: { notice: "variant_missing", order: [] } },
+    { input: text("quítale las 2 poleras"), expected: { notice: null, order: [] } },
+    { input: text("gris L"), expected: { notice: "variant_only", order: [] } },
+  ] },
+  { id: "conv-pending-set-by-name-2", pass: "conversation", kind: "pending-quantity", tags: [], steps: [
+    { input: photo("polo-premium"), expected: { notice: "variant_missing", order: [] } },
+    { input: text("del polo premium que sean 4"), expected: { notice: null, order: [] } },
+    { input: text("negro M"), expected: { notice: null, order: [after("polo-premium", { Talla: "M", Color: "Negro" }, 4)] } },
+  ] },
+
+  // Declines. The WhatsApp test's F2 and cleanup: a named decline ends a pending left without an order; with no pending it is silent.
+  { id: "conv-no-intent-caption-then-named-decline", pass: "conversation", kind: "decline", tags: [], steps: [
+    { input: photo("polera-capucha", "me encanta"), expected: { notice: "variant_missing", order: [] } },
+    { input: text("ya no quiero la polera con capucha"), expected: { notice: null, order: [] } },
+    { input: text("ya no quiero la correa de cuero"), expected: { notice: null, order: [] } },
+  ] },
+  { id: "conv-named-decline-then-late-variant", pass: "conversation", kind: "decline", tags: [], steps: [
+    { input: photo("polo-rayas", "se ve genial"), expected: { notice: "variant_missing", order: [] } },
+    { input: text("ya no quiero el polo a rayas"), expected: { notice: null, order: [] } },
+    { input: text("talla S"), expected: { notice: "variant_only", order: [] } },
+  ] },
+
+  // Product no longer sellable named in a text. Rules «Product no longer sellable named in a text».
+  { id: "conv-named-deactivated-product-2", pass: "conversation", kind: "product-unavailable", tags: [], steps: [
+    { input: text("quiero una chompa tejida"), expected: { notice: null, order: [chompaTejida()] } },
+    { event: "deactivate_product", product: "polo-premium" },
+    { input: text("quiero el polo premium blanco en L"), expected: { notice: "product_not_available", order: [chompaTejida()] } },
+  ] },
+  { id: "conv-named-deactivated-similar-active", pass: "conversation", kind: "product-unavailable", tags: [], steps: [
+    { input: text("agrega una correa negra"), expected: { notice: null, order: [correaNegra] } },
+    { event: "deactivate_product", product: "polo-oversize" },
+    { input: text("quiero el polo oversize en XL"), expected: { notice: "product_not_available", order: [correaNegra] } },
+  ] },
+
+  // A change after a closed order. Rules «Notices»: the closed-order text (accepted by scoring when only the generic body ships).
+  { id: "conv-change-after-confirmed-payment", pass: "conversation", kind: "closed-order", tags: [], steps: [
+    { input: text("quiero un polo premium negro M"), expected: { notice: null, order: [after("polo-premium", { Talla: "M", Color: "Negro" })] } },
+    { event: "confirm_payment" },
+    { input: text("prefiero que sea talla L"), expected: { notice: "order_closed", order: [after("polo-premium", { Talla: "M", Color: "Negro" })] } },
+  ] },
+];
 
 export const conversationCases: readonly EvalCaseInput[] = [
   // Photo then size. Rules: «Pendings» (what becomes a pending; completing), «Photos».
@@ -68,10 +216,12 @@ export const conversationCases: readonly EvalCaseInput[] = [
     { input: text("polos básicos rojos, serían 2"), expected: { notice: "variant_not_available", order: [] }, expectsRepeatNotice: true },
     { input: text("ya pues blancos M"), expected: { notice: null, order: [polo({ Talla: "M", Color: "Blanco" }, 2)] } },
   ] },
-  { id: "conv-unnamed-add-after-photo", pass: "conversation", kind: "replacement", tags: [], steps: [
+  { id: "conv-unnamed-add-after-photo", pass: "conversation", kind: "replacement", tags: ["unnamed-wording"], steps: [
+    // Relabeled by rule (docs/message-to-order.md, «Quantity for the photo just sent»): set wording right after the photo sets what it left, without
+    // notice, so the pending is ×3 and the color completes it with ×3. Not relabeled from any run.
     { input: photo("gorra-trucker"), expected: { notice: "variant_missing", order: [] } },
-    { input: text("pásame 3 de esas"), expected: { notice: "unnamed_add", order: [] }, expectsRepeatNotice: true },
-    { input: text("en rojo"), expected: { notice: null, order: [trucker("Rojo")] } },
+    { input: text("pásame 3 de esas"), expected: { notice: null, order: [] } },
+    { input: text("en rojo"), expected: { notice: null, order: [trucker("Rojo", 3)] } },
   ] },
   { id: "conv-variant-not-available-then-other", pass: "conversation", kind: "replacement", tags: [], steps: [
     { input: text("polo básico en rojo talla M"), expected: { notice: "variant_not_available", order: [] } },
@@ -221,4 +371,6 @@ export const conversationCases: readonly EvalCaseInput[] = [
     { event: "deactivate_product", product: "polera-capucha" },
     { input: text("gris L"), expected: { notice: "product_not_available", order: [] } },
   ] },
+
+  ...newDevConversationCases,
 ];

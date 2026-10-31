@@ -46,3 +46,24 @@ test("returns EMBEDDER_UNAVAILABLE when the embedding call fails after the descr
   const bytes = new Uint8Array(await sharp({ create: { width: 4, height: 4, channels: 3, background: "#000" } }).png().toBuffer());
   expect(await embedder.embedImage({ bytes, contentType: "image/png" })).toMatchObject({ success: false, error: { code: "EMBEDDER_UNAVAILABLE" } });
 });
+
+test("the describer request sets max_output_tokens 300 and effort none", async () => {
+  const bodies: Array<Record<string, unknown>> = [];
+  const respond = answering(Array.from({ length: 1536 }, () => 0.1));
+  const embedder = build(async (input, init) => { bodies.push(JSON.parse(String(init?.body))); return respond(input, init); });
+  const bytes = new Uint8Array(await sharp({ create: { width: 4, height: 4, channels: 3, background: "#000" } }).png().toBuffer());
+  await embedder.embedImage({ bytes, contentType: "image/png" });
+  expect(bodies[0]).toMatchObject({ max_output_tokens: 300, reasoning: { effort: "none" } });
+});
+
+test("the signal reaches both requests of the embedder", async () => {
+  const signals: Array<AbortSignal | null | undefined> = [];
+  const respond = answering(Array.from({ length: 1536 }, () => 0.1));
+  const embedder = build(async (input, init) => { signals.push(init?.signal); return respond(input, init); });
+  const bytes = new Uint8Array(await sharp({ create: { width: 4, height: 4, channels: 3, background: "#000" } }).png().toBuffer());
+  const controller = new AbortController();
+  expect((await embedder.embedImage({ bytes, contentType: "image/png" }, controller.signal)).success).toBe(true);
+  expect(signals).toHaveLength(2);
+  controller.abort();
+  expect(signals.every((signal) => signal?.aborted)).toBe(true);
+});

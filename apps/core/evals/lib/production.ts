@@ -1,10 +1,10 @@
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
-import { ok } from "@shared/functional";
+import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { prisma, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createVisualSearch, products, type ImageEmbedder } from "@core/src/features/products/composition";
-import { identifyProductsInImage, type IdentifyProductsDependencies, type ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
+import { identifyProductsInImage, type IdentifyProductsDependencies, type ImageIdentification, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
 import { catalogSearchReadiness } from "@core/src/features/products/application/catalog-search-readiness";
 import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
 import { hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
@@ -28,6 +28,8 @@ import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate,
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { createFitReadingContext, readerTokenBudget } from "@core/src/features/orders/infrastructure/chat-reader-budget";
+import { readChatReaderEnv } from "@core/src/features/orders/infrastructure/chat-reader-env";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPending, ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
@@ -39,7 +41,7 @@ import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import { metered, type ModelCall } from "@core/evals/lib/model-meter";
 import { catalogOf, describeVariantId, findVariant, productById, productIdOf, variantIdOf, type CatalogScope, type ProductKey } from "@core/evals/fixtures/catalog";
 import type { EventStep, MessageInput, MessageStep, OrderLine, PendingSeed } from "@core/evals/cases/schema";
-import { evalCompanyId, privateCompanyId, readRegisteredImage, registerImageFile, scopeOfCompany, sellerOfCompany } from "@core/evals/lib/eval-catalog";
+import { evalCompanyId, privateCompanyId, readRegisteredImage, readRegisteredImages, registerImageFile, scopeOfCompany, sellerOfCompany } from "@core/evals/lib/eval-catalog";
 import { SimulatedClock, runConversationSteps, type StepResult } from "@core/evals/lib/conversation";
 
 /**
@@ -49,21 +51,22 @@ import { SimulatedClock, runConversationSteps, type StepResult } from "@core/eva
  */
 
 /**
- * A model certainty and the production gate it is compared with. Only the visual search has a gate on reading a message (technical
- * design §2): `visual_none` is the vision chooser's «none», reported apart, and `shows_product` its probability that the photo shows a
+ * A model certainty and the production gate it is compared with. Only the visual search has a gate on reading a message (see
+ * evals/README.md): `visual_none` is the vision chooser's «none», reported apart, and `shows_product` its probability that the photo shows a
  * product, at its 0.5 gate, with «product» or «not_product» as pick.
  */
 export type CertaintySource = "visual" | "visual_none" | "shows_product";
 /** `pick` is the model's own answer, independent of what the gate then decided: the product key chosen for a photo (null for «none»). */
 export type Certainty = Readonly<{ source: CertaintySource; confidence: number; gate: number; pick?: string | null; detail?: string }>;
 
-/** What the models decided while one case ran. */
-export type Observation = { certainties: Certainty[] };
+/** What the models decided while one case ran: the visual certainties and, when diagnostics are on, the reader's raw answers (one per call). */
+export type Observation = { certainties: Certainty[]; readerAnswers: unknown[] };
 
-const newObservation = (): Observation => ({ certainties: [] });
+const newObservation = (): Observation => ({ certainties: [], readerAnswers: [] });
 const observed = new AsyncLocalStorage<Observation>();
 const current = () => observed.getStore();
 const observe = (certainty: Certainty) => current()?.certainties.push(certainty);
+const observeReaderAnswer = (answer: unknown) => current()?.readerAnswers.push(answer);
 
 /** Runs `work` and returns what the models decided during it. */
 export async function observing<T>(work: () => Promise<T>): Promise<Readonly<{ value: T; observation: Observation }>> {
@@ -92,11 +95,13 @@ type Env = Readonly<Record<string, string | undefined>>;
 export type ProductionPath = ReturnType<typeof createProductionPath>;
 
 /** Builds the real clients from the env once per suite; throws when the providers are not configured. */
-export function createProductionPath(env: Env) {
-  const readChatMessage = createChatReaderFromEnv(env);
+export function createProductionPath(env: Env, options: Readonly<{ diagnostics?: boolean }> = {}) {
+  // The reader's raw answers are observed only when diagnostics are on (dev split, not private): the production reader is otherwise untouched.
+  const readChatMessage = createChatReaderFromEnv(env, options.diagnostics ? { observe: observeReaderAnswer } : {});
   const visualSetup = createVisualSearch(env);
   if (!readChatMessage || !visualSetup.visual || !visualSetup.embedder) throw new Error("The production path needs OPENAI_API_KEY");
-  const visual = { ...visualSetup.visual, readImage: readRegisteredImage, chooseProduct: async (input: Parameters<NonNullable<typeof visualSetup.visual>["chooseProduct"]>[0], signal?: AbortSignal) => {
+  // Typed so a port the visual search no longer has (it read `readImage` before `readImages`) fails the typecheck instead of silently reading the real storage.
+  const visual: VisualSearch = { ...visualSetup.visual, readImages: readRegisteredImages, chooseProduct: async (input: Parameters<NonNullable<typeof visualSetup.visual>["chooseProduct"]>[0], signal?: AbortSignal) => {
     const choice = await visualSetup.visual!.chooseProduct(input, signal);
     // Every answer is recorded: the product or «none» (gated at the match confidence) and whether the photo shows a product (at 0.5).
     if (choice.success) {
@@ -118,7 +123,10 @@ export function createProductionPath(env: Env) {
   };
   const readiness = { visualModel: visual.model, hasActiveProducts, hasIndexedProducts };
   const limits = readChatMessageLimits(env);
-  const wiring: Wiring = { readChatMessage, readiness, imageIdentification, limits };
+  // The same budget production derives: the reader model's prices and the photo stages' reserve at the configured bounds.
+  const fitToBudget = createFitReadingContext({ budget: readerTokenBudget({ photoStagesReserveUsd: visualSetup.photoStagesReserveUsd, model: readChatReaderEnv(env).AI_READER_MODEL }) });
+  const fitReadingContext: ApplyChatMessageDependencies["fitReadingContext"] = (context) => { const fitted = fitToBudget(context); return "code" in fitted ? err(fitted) : ok(fitted); };
+  const wiring: Wiring = { readChatMessage, readiness, imageIdentification, limits, fitReadingContext, photoStageTimeoutMs: visualSetup.photoStageTimeoutMs };
 
   return {
     /** The production gate of the visual search. */
@@ -143,10 +151,12 @@ type Wiring = Readonly<{
   readiness: Parameters<typeof catalogSearchReadiness>[0];
   imageIdentification: IdentifyProductsDependencies;
   limits: ApplyChatMessageDependencies["limits"];
+  fitReadingContext: ApplyChatMessageDependencies["fitReadingContext"];
+  photoStageTimeoutMs: number;
 }>;
 
 /** What seeding a start needs of the wiring: label photos pass through `applyChatMessage` with no reader, so no model is called. */
-type SeedWiring = Pick<Wiring, "readChatMessage" | "readiness" | "limits">;
+type SeedWiring = Pick<Wiring, "readChatMessage" | "readiness" | "limits" | "fitReadingContext" | "photoStageTimeoutMs">;
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
@@ -190,6 +200,8 @@ function dependencies(wiring: SeedWiring, identify: ApplyChatMessageDependencies
     newPendingId: () => randomUUID() as ChatPendingId,
     clock,
     limits: wiring.limits,
+    fitReadingContext: wiring.fitReadingContext,
+    photoStageTimeoutMs: wiring.photoStageTimeoutMs,
   };
 }
 
@@ -268,9 +280,9 @@ async function addOrderLines(chat: Chat, lines: readonly OrderLine[], wiring: Se
   }
 }
 
-/** Saves the pendings through the repository, attached to the chat's order when it has one (a pending created while the order was open). */
+/** Saves the pendings through the repository, attached to the chat's order when it has one (a pending created while the order was open), and clears the photo memory. */
 async function seedPendings(chat: Chat, pendings: readonly PendingSeed[], company: EvalCompany): Promise<void> {
-  if (!pendings.length) return;
+  // Saved even when empty: the label photos that seeded the order left a photo memory, and a seeded start has no photo just sent.
   const order = await orderOfChat(chat.chatId, company);
   const now = new Date();
   const productId = (product: ProductKey) => productIdOf(product, company.scope) as ProductId;
@@ -285,7 +297,7 @@ async function seedPendings(chat: Chat, pendings: readonly PendingSeed[], compan
       lastChangedAt: now, sourceMessageId: randomUUID() as ChatMessageId, requestId: id,
     };
   });
-  const saved = await inTenant(company, () => withinTransaction(() => saveChatPendings(chat.chatId as ChatId, { pendings: seeded, readyRemembered: false })));
+  const saved = await inTenant(company, () => withinTransaction(() => saveChatPendings(chat.chatId as ChatId, { pendings: seeded, readyRemembered: false, lastIncomingPhoto: null })));
   if (!saved.success) throw new Error(`Seeding the pendings failed: ${saved.error.code}`);
 }
 
@@ -327,6 +339,7 @@ async function chatOrderLines(chatId: string, company: EvalCompany): Promise<rea
 async function photoIdentification(photo: NonNullable<MessageInput["photo"]>, wiring: Wiring, company: EvalCompany): Promise<ApplyChatMessageDependencies["identifyProductsInImage"]> {
   if ("file" in photo) return (image, signal) => identifyProductsInImage(image, wiring.imageIdentification, signal);
   if (photo.shows === "not_product") return fixed({ kind: "not_product" });
+  if (photo.shows === "not_found") return fixed({ kind: "not_found", reason: "no_visual_match" });
   if ("label" in photo && photo.label) return fixed(await labelIdentification(photo.shows, photo.label, company));
   return fixed({ kind: "found", method: "visual", productId: productIdOf(photo.shows, company.scope) as ProductId, confidence: 0.95 as MatchConfidence, candidates: 1, topDistance: 0 });
 }
@@ -404,6 +417,16 @@ async function applyConversation(steps: readonly ConversationStepInput[], wiring
     return { results: done, error: null };
   } catch (cause) {
     return { results: done, error: cause instanceof Error ? cause : new Error(String(cause)) };
+  } finally {
+    // The catalog is shared by every case: a product a conversation deactivated is sold again for the next one.
+    for (const step of steps) {
+      if (!("event" in step) || step.event !== "deactivate_product") continue;
+      const catalogProduct = catalogOf(company.scope).products.find(({ key }) => key === step.product);
+      for (const variant of catalogProduct?.active ? catalogProduct.variants.filter(({ active }) => active) : []) {
+        // A failure here must not replace the recorded results: it is only logged and the remaining variants are still reactivated.
+        try { await setProductStatus(step.product, variant.attributes, "active", company); } catch (cause) { console.error(`Could not reactivate ${step.product}`, cause); }
+      }
+    }
   }
 }
 
@@ -488,6 +511,8 @@ export async function seedChatStart(start: ChatStart, scope: CatalogScope = "eva
     readChatMessage: async () => { throw new Error("Seeding a start calls no model"); },
     readiness: { visualModel: "none" as never, hasActiveProducts, hasIndexedProducts },
     limits: readChatMessageLimits({}),
+    fitReadingContext: () => { throw new Error("Seeding a start calls no model"); },
+    photoStageTimeoutMs: 40_000,
   };
   const chat = await newChat(company);
   await seedStart(chat, start, wiring, company);

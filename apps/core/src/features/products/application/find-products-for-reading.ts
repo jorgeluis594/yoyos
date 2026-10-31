@@ -1,4 +1,5 @@
 import { ok } from "@shared/functional";
+import { productNameKey } from "@core/src/features/products/domain/product-name-key";
 import type { Result } from "@shared/result";
 import type { Money } from "@shared/money";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -57,7 +58,7 @@ export function buildProductsForReading(productIds: readonly ProductId[], rows: 
       variantAttributes: Object.fromEntries(options.map((option) => [option.optionName, option.valueName])),
     }));
     return [{
-      productId, name: product.name, sellable: items.length > 0,
+      productId, name: product.name, nameKey: productNameKey(product.name), sellable: items.length > 0,
       attributes: [...attributes].sort(([, left], [, right]) => left.position - right.position)
         .map(([name, { values }]) => ({ name, values: [...values].sort(([, left], [, right]) => left - right).map(([value]) => value) })),
       variants: items,

@@ -17,7 +17,7 @@ const seed: NewChatOrderSeed = { number: 1024 as OrderNumber, companyId: id(2) a
 let counter = 200;
 let pendingCounter = 300;
 const ids = { newOrderId: () => id(900) as OrderId, newItemId: () => id(counter++) as OrderItemId, newPendingId: () => id(pendingCounter++) as ChatPendingId };
-const noPendings: ChatPendings = { pendings: [], readyRemembered: false };
+const noPendings: ChatPendings = { pendings: [], readyRemembered: false, lastIncomingPhoto: null };
 
 type Item = ChatOrderCatalogItem;
 const poloM: Item = { variantId: id(11) as VariantId, productName: "Polo", variantAttributes: { Talla: "M" }, sku: null, unitPrice: money(35) };
@@ -286,19 +286,19 @@ describe("applyChatActions with chat pendings", () => {
 
   test("increases the item quantity by the stated units for «uno más» and sets it for «que sean»", () => {
     const chat = withPolo();
-    chat.say(say({ kind: "change_quantity", item: { kind: "ref", ref: ref(1) }, mode: "increase", quantity: 1 }));
+    chat.say(say({ kind: "change_quantity", target: { kind: "ref", ref: ref(1) }, mode: "increase", quantity: 1 }));
     expect(chat.items()).toEqual(["Polo básico · M · Negro · ×3"]);
-    chat.say(say({ kind: "change_quantity", item: { kind: "unnamed" }, mode: "set", quantity: 5 }));
+    chat.say(say({ kind: "change_quantity", target: { kind: "unnamed" }, mode: "set", quantity: 5 }));
     expect(chat.items()).toEqual(["Polo básico · M · Negro · ×5"]);
   });
 
   test("reports quantity above limit when «uno más» would pass 99", () => {
     const chat = createChat({ items: [["polo", { Talla: "M", Color: "Negro" }, 99]] });
-    expect(chat.say(say({ kind: "change_quantity", item: { kind: "unnamed" }, mode: "increase", quantity: 1 })).kinds).toEqual(["quantity_above_limit"]);
+    expect(chat.say(say({ kind: "change_quantity", target: { kind: "unnamed" }, mode: "increase", quantity: 1 })).kinds).toEqual(["quantity_above_limit"]);
   });
 
   test("creates the chat order when a pending completes without an open order", () => {
-    const pendings = { pendings: [pendingOf("polo")], readyRemembered: false };
+    const pendings = { pendings: [pendingOf("polo")], readyRemembered: false, lastIncomingPhoto: null };
     const chat = createChat({ pendings: pendings.pendings });
     const actions = chat.say(say(complete(1, { Talla: "M", Color: "Negro" }))).actions;
     expect(chat.order).not.toBeNull();
@@ -347,7 +347,7 @@ describe("applyChatActions with chat pendings", () => {
   test("sends nothing when the buyer declines the last pending with no items after a remembered ready", () => {
     const chat = createChat({ pendings: [pendingOf("polo")], readyRemembered: true });
     expect(chat.say(say(reader.decline(1))).kinds).toEqual(["pending_ended"]);
-    expect(chat.pendings).toEqual({ pendings: [], readyRemembered: false });
+    expect(chat.pendings).toEqual({ pendings: [], readyRemembered: false, lastIncomingPhoto: null });
   });
 
   test("drops the remembered ready when a later message adds a new item", () => {
@@ -378,5 +378,123 @@ describe("applyChatActions with chat pendings", () => {
     const chat = createChat();
     chat.say(say(add({ product: "gorra", attributes: { Color: "Rojo" } }), { kind: "remove", item: { kind: "unnamed" }, amount: "all" }));
     expect(chat.items()).toEqual(["Gorra trucker · Rojo · ×1"]);
+  });
+});
+
+describe("applyChatActions: lowering quantities", () => {
+  const lower = (target: ChatOrderTarget, quantity: number) => run(target, { kind: "lower_quantity", target: named(poloM), quantity: quantity as PositiveInteger });
+
+  test("lowering an item by N leaves the rest and reports quantity_lowered", () => {
+    const result = lower(open([poloM, 3], [gorra, 1]), 1);
+    expect(lines(finalOrder(result))).toEqual([["Polo M", 2], ["Gorra", 1]]);
+    expect(result.outcomes).toEqual([{ kind: "quantity_lowered", variantId: poloM.variantId, namedItem: true }]);
+  });
+
+  test("lowering an item to exactly zero removes it", () => {
+    const result = lower(open([poloM, 3], [gorra, 1]), 3);
+    expect(lines(finalOrder(result))).toEqual([["Gorra", 1]]);
+    expect(result.outcomes).toEqual([{ kind: "removed", variantId: poloM.variantId, namedItem: true }]);
+  });
+
+  test("lowering the only item to exactly zero keeps it and reports only_item_kept", () => {
+    const result = lower(open([poloM, 2]), 2);
+    expect(lines(finalOrder(result))).toEqual([["Polo M", 2]]);
+    expect(result.outcomes).toEqual([{ kind: "only_item_kept", orderId: id(1) }]);
+  });
+
+  test("lowering an item by more than it has changes nothing and reports quantity_below_zero", () => {
+    const result = lower(open([poloM, 2], [gorra, 1]), 5);
+    expect(lines(finalOrder(result))).toEqual([["Polo M", 2], ["Gorra", 1]]);
+    expect(result.outcomes).toEqual([{ kind: "invalid_action", orderId: id(1), reason: "quantity_below_zero" }]);
+  });
+
+  test("lowering with no open order reports the closed order or no order", () => {
+    expect(lower(closed, 1).outcomes).toEqual([{ kind: "order_closed", orderId: id(1) }]);
+    expect(lower({ kind: "none" }, 1).outcomes).toEqual([{ kind: "no_open_order" }]);
+  });
+});
+
+describe("applyChatActions: fallbacks of quantity changes", () => {
+  const unnamedAdd: ResolvedChatAction = { kind: "report", outcome: { kind: "unnamed_add" } };
+  const setMarked = (expectedQuantity: number, orderId = id(1)): ResolvedChatAction =>
+    ({ kind: "set_marked_item_quantity", orderId: orderId as OrderId, variantId: poloM.variantId, expectedQuantity: expectedQuantity as PositiveInteger, quantity: 5, otherwise: unnamedAdd });
+
+  test("a pending quantity change on a pending that ended applies its fallback", () => {
+    const result = run(open([gorra, 1]), { kind: "change_pending_quantity", pendingId: id(999) as ChatPendingId, mode: "set", quantity: 3, otherwise: unnamedAdd });
+    expect(result.outcomes).toEqual([{ kind: "unnamed_add" }]);
+  });
+
+  test("a set on the remembered item sets it when the order and quantity are the ones remembered", () => {
+    const result = run(open([poloM, 2]), setMarked(2));
+    expect(lines(finalOrder(result))).toEqual([["Polo M", 5]]);
+    expect(result.outcomes).toMatchObject([{ kind: "quantity_changed", quantity: 5 }]);
+  });
+
+  test("a set on the remembered item applies its fallback when the item's quantity changed or its order closed under the lock", () => {
+    const changed = run(open([poloM, 3]), setMarked(2));
+    expect(lines(finalOrder(changed))).toEqual([["Polo M", 3]]);
+    expect(changed.outcomes).toEqual([{ kind: "unnamed_add" }]);
+    expect(run(closed, setMarked(2)).outcomes).toEqual([{ kind: "unnamed_add" }]);
+    expect(run(open([poloM, 2]), setMarked(2, id(77))).outcomes).toEqual([{ kind: "unnamed_add" }]);
+  });
+
+  test("a set on the remembered item whose item an earlier action of the same message changed applies its fallback", () => {
+    const result = run(open([poloM, 2]), { kind: "increase_quantity", target: named(poloM), quantity: 1 as PositiveInteger }, setMarked(2));
+    expect(lines(finalOrder(result))).toEqual([["Polo M", 3]]);
+    expect(result.outcomes.map((outcome) => outcome.kind)).toEqual(["quantity_changed", "unnamed_add"]);
+  });
+
+  test("lowering the last pending to zero with listo remembered marks the order ready", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo")], readyRemembered: true });
+    expect(chat.say(reader.say(reader.change("Q1", "decrease", 1))).kinds).toEqual(["pending_ended", "ready"]);
+    expect(chat.pendings).toMatchObject({ pendings: [], readyRemembered: false });
+  });
+
+  test("lowering a pending to zero without listo remembered ends it silently", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo")] });
+    expect(chat.say(reader.say(reader.change("Q1", "set", 0))).kinds).toEqual(["pending_ended"]);
+  });
+});
+
+describe("applyChatActions: payment requests", () => {
+  const payment: ResolvedChatAction = { kind: "report", outcome: { kind: "payment_requested", order: { kind: "none" }, productIds: [], unnamed: 0 } };
+
+  test("a payment request with an open order records the order it went to", () => {
+    expect(run(open([gorra, 1]), payment).outcomes).toEqual([{ kind: "payment_requested", order: { kind: "open", orderId: id(1) }, productIds: [], unnamed: 0 }]);
+  });
+
+  test("a payment request that also creates a new order after a closed one records the new order", () => {
+    const result = run(closed, add(gorra), payment);
+    expect(result.outcomes).toContainEqual({ kind: "payment_requested", order: { kind: "open", orderId: id(900) }, productIds: [], unnamed: 0 });
+  });
+
+  test("a payment request after a closed order records the closed order", () => {
+    expect(run(closed, payment).outcomes).toEqual([{ kind: "payment_requested", order: { kind: "closed", orderId: id(1) }, productIds: [], unnamed: 0 }]);
+  });
+
+  test("a payment request with no order records none", () => {
+    expect(run({ kind: "none" }, payment).outcomes).toEqual([{ kind: "payment_requested", order: { kind: "none" }, productIds: [], unnamed: 0 }]);
+    expect(run({ kind: "cancelled" }, payment).outcomes).toEqual([{ kind: "payment_requested", order: { kind: "none" }, productIds: [], unnamed: 0 }]);
+  });
+
+  test("a payment request with a pending left records the pending's products", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo", { n: 1 }), doubtfulPendingOf(["gorra", "polera"], 2)] });
+    const said = chat.say(reader.say(reader.payment));
+    expect(said.outcomes).toEqual([{ kind: "payment_requested", order: { kind: "open", orderId: id(1) }, productIds: [scenarioProductId("polo")], unnamed: 1 }]);
+    expect(chat.pendings.pendings).toHaveLength(2);
+  });
+
+  test("a payment request with listo and a pending left keeps listo remembered", () => {
+    const chat = createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo")] });
+    const said = chat.say(reader.say(reader.ready, reader.payment));
+    expect(said.kinds).toEqual(expect.arrayContaining(["payment_requested", "ready_with_pendings"]));
+    expect(said.kinds).not.toContain("ready");
+    expect(chat.pendings.readyRemembered).toBe(true);
+  });
+
+  test("a payment request changes no payment of the order", () => {
+    const target = open([gorra, 1]);
+    const result = run(target, payment);
+    expect(finalOrder(result)?.payments).toEqual((target as { order: OrderAggregate }).order.payments);
   });
 });

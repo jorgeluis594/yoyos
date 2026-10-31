@@ -20,35 +20,60 @@ const variantPending = {
 
 describe("chatPendingsSchema", () => {
   test("parses stored pendings and rejects an unknown subject kind as invalid stored data", () => {
-    const parsed = chatPendingsSchema.parse({ pendings: [variantPending], readyRemembered: true });
+    const parsed = chatPendingsSchema.parse({ pendings: [variantPending], readyRemembered: true, lastIncomingPhoto: null });
     expect(parsed.readyRemembered).toBe(true);
     expect(parsed.pendings[0]).toMatchObject({ lastChangedAt: new Date("2026-10-28T12:00:00.000Z"), order: null, known: { Talla: "M" } });
-    expect(chatPendingsSchema.safeParse({ pendings: [{ ...variantPending, subject: { kind: "other", productId: id(2) } }], readyRemembered: false }).success).toBe(false);
+    expect(chatPendingsSchema.safeParse({ pendings: [{ ...variantPending, subject: { kind: "other", productId: id(2) } }], readyRemembered: false, lastIncomingPhoto: null }).success).toBe(false);
   });
 
   test("parses a doubtful-product pending attached to an order", () => {
     const doubtful = { ...variantPending, id: id(4), requestId: id(4), price: null,
       subject: { kind: "product", candidates: [id(5), id(6)] }, order: { orderId: id(7), attachedAt: "2026-10-28T13:00:00.000Z" } };
-    expect(chatPendingsSchema.parse({ pendings: [doubtful], readyRemembered: false }).pendings[0]).toMatchObject({
+    expect(chatPendingsSchema.parse({ pendings: [doubtful], readyRemembered: false, lastIncomingPhoto: null }).pendings[0]).toMatchObject({
       subject: { kind: "product", candidates: [id(5), id(6)] }, order: { orderId: id(7), attachedAt: new Date("2026-10-28T13:00:00.000Z") } });
   });
 
   test.each([
-    ["more than ten pendings", { pendings: Array.from({ length: 11 }, (_, n) => ({ ...variantPending, id: id(100 + n), requestId: id(100 + n) })), readyRemembered: false }],
-    ["a doubtful pending with a single candidate", { pendings: [{ ...variantPending, subject: { kind: "product", candidates: [id(5)] } }], readyRemembered: false }],
-    ["a doubtful pending with more than four candidates", { pendings: [{ ...variantPending, subject: { kind: "product", candidates: [5, 6, 7, 8, 9].map(id) } }], readyRemembered: false }],
-    ["a zero quantity", { pendings: [{ ...variantPending, quantity: 0 }], readyRemembered: false }],
-    ["a fractional quantity", { pendings: [{ ...variantPending, quantity: 1.5 }], readyRemembered: false }],
-    ["a date that is not ISO", { pendings: [{ ...variantPending, lastChangedAt: "yesterday" }], readyRemembered: false }],
-    ["an unknown field", { pendings: [{ ...variantPending, text: "quiero una polera" }], readyRemembered: false }],
-    ["an unknown price basis", { pendings: [{ ...variantPending, price: { ...variantPending.price, per: "dozen" } }], readyRemembered: false }],
-    ["a missing ready flag", { pendings: [] }],
+    ["more than ten pendings", { pendings: Array.from({ length: 11 }, (_, n) => ({ ...variantPending, id: id(100 + n), requestId: id(100 + n) })), readyRemembered: false, lastIncomingPhoto: null }],
+    ["a doubtful pending with a single candidate", { pendings: [{ ...variantPending, subject: { kind: "product", candidates: [id(5)] } }], readyRemembered: false, lastIncomingPhoto: null }],
+    ["a doubtful pending with more than four candidates", { pendings: [{ ...variantPending, subject: { kind: "product", candidates: [5, 6, 7, 8, 9].map(id) } }], readyRemembered: false, lastIncomingPhoto: null }],
+    ["a zero quantity", { pendings: [{ ...variantPending, quantity: 0 }], readyRemembered: false, lastIncomingPhoto: null }],
+    ["a fractional quantity", { pendings: [{ ...variantPending, quantity: 1.5 }], readyRemembered: false, lastIncomingPhoto: null }],
+    ["a date that is not ISO", { pendings: [{ ...variantPending, lastChangedAt: "yesterday" }], readyRemembered: false, lastIncomingPhoto: null }],
+    ["an unknown field", { pendings: [{ ...variantPending, text: "quiero una polera" }], readyRemembered: false, lastIncomingPhoto: null }],
+    ["an unknown price basis", { pendings: [{ ...variantPending, price: { ...variantPending.price, per: "dozen" } }], readyRemembered: false, lastIncomingPhoto: null }],
+    ["a missing ready flag", { pendings: [], lastIncomingPhoto: null }],
+    ["a missing last incoming photo", { pendings: [], readyRemembered: false }],
   ])("rejects %s", (_title, stored) => {
     expect(chatPendingsSchema.safeParse(stored).success).toBe(false);
   });
 
+  test("a stored pendings row with a last incoming photo reads back equal", () => {
+    const parse = (lastIncomingPhoto: unknown) => chatPendingsSchema.parse({ pendings: [], readyRemembered: false, lastIncomingPhoto });
+    for (const lastIncomingPhoto of [
+      { left: { kind: "pending", pendingId: id(1) } },
+      { left: { kind: "item", orderId: id(7), variantId: id(8), quantity: 3 } },
+      { left: null },
+    ]) expect(parse(lastIncomingPhoto)).toEqual({ pendings: [], readyRemembered: false, lastIncomingPhoto });
+  });
+
+  test("a stored last incoming photo with an item of quantity 0 reads as invalid stored data", () => {
+    expect(chatPendingsSchema.safeParse({ pendings: [], readyRemembered: false, lastIncomingPhoto: { left: { kind: "item", orderId: id(7), variantId: id(8), quantity: 0 } } }).success).toBe(false);
+  });
+
+  test.each([
+    ["a quantity of 100", { left: { kind: "item", orderId: id(7), variantId: id(8), quantity: 100 } }],
+    ["a fractional quantity", { left: { kind: "item", orderId: id(7), variantId: id(8), quantity: 1.5 } }],
+    ["a pending id that is not a uuid", { left: { kind: "pending", pendingId: "Q1" } }],
+    ["an unknown kind", { left: { kind: "order", orderId: id(7) } }],
+    ["an extra field", { left: null, messageId: id(9) }],
+    ["a missing left", {}],
+  ])("rejects a last incoming photo with %s", (_title, lastIncomingPhoto) => {
+    expect(chatPendingsSchema.safeParse({ pendings: [], readyRemembered: false, lastIncomingPhoto }).success).toBe(false);
+  });
+
   test("accepts an empty set", () => {
-    expect(chatPendingsSchema.parse({ pendings: [], readyRemembered: false })).toEqual({ pendings: [], readyRemembered: false });
+    expect(chatPendingsSchema.parse({ pendings: [], readyRemembered: false, lastIncomingPhoto: null })).toEqual({ pendings: [], readyRemembered: false, lastIncomingPhoto: null });
   });
 });
 
@@ -77,7 +102,7 @@ const none: ChatOrderTarget = { kind: "none" };
 const pending = (n: number, lastChangedAt: Date, order: ChatPending["order"] = null): ChatPending => ({ ...(variantPending as unknown as ChatPending),
   id: id(n) as ChatPendingId, requestId: id(n) as ChatPendingId, subject: { kind: "variant", productId: id(2) as ProductId }, price: null, order, lastChangedAt, sourceMessageId: id(3) as ChatMessageId });
 const life = (pendings: ChatPending[], target: ChatOrderTarget, openedSince: OrderAggregate[], now: Date) =>
-  pendingLife({ pendings, readyRemembered: false }, { target, openedSince }, now, ttl);
+  pendingLife({ pendings, readyRemembered: false, lastIncomingPhoto: null }, { target, openedSince }, now, ttl);
 const summary = (result: ReturnType<typeof life>) => ({ alive: result.alive.map((item) => Number(item.id.slice(-12))), ended: result.ended.map((item) => [Number(item.id.slice(-12)), item.reason]) });
 
 describe("pendingLife", () => {
@@ -333,7 +358,7 @@ describe("pending transitions", () => {
 
   test("reports variant only when the pending the reader completed ended under the lock", () => {
     const chat = createChat({ pendings: [pendingOf("polo")] });
-    const said = chat.say(say(complete(1, { Talla: "M" })), { underLock: { pendings: [], readyRemembered: false } });
+    const said = chat.say(say(complete(1, { Talla: "M" })), { underLock: { pendings: [], readyRemembered: false, lastIncomingPhoto: null } });
     expect(said.outcomes).toEqual([{ kind: "variant_only" }]);
     expect(chat.items()).toEqual([]);
   });
@@ -467,3 +492,67 @@ describe("pending transitions", () => {
 function fixedShownAnswerOf(chat: ReturnType<typeof createChat>, reading: Parameters<ReturnType<typeof createChat>["context"]>[0]) {
   return fixedShownAnswer(chat.context(reading));
 }
+
+describe("changePendingQuantity", () => {
+  const { say, change } = reader;
+  const lot = { amount: { amount: 70, currency: "PEN" as const }, per: "lot" as const, forQuantity: 2 as PositiveInteger };
+  const chatWith = (quantity: number) => createChat({ items: [["gorra", { Color: "Negro" }, 1]], pendings: [pendingOf("polo", { known: { Talla: "M" }, quantity, price: lot })] });
+
+  test("setting a pending's quantity keeps its values and price and sends no notice", () => {
+    const chat = chatWith(2);
+    expect(chat.say(say(change("Q1", "set", 3))).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendings.pendings[0]).toMatchObject({ quantity: 3, known: { Talla: "M" }, price: lot, lastChangedAt: chat.now });
+  });
+
+  test("raising a pending by one adds a unit", () => {
+    const chat = chatWith(2);
+    expect(chat.say(say(change("Q1", "increase", 1))).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendings.pendings[0]?.quantity).toBe(3);
+  });
+
+  test("lowering a pending by one leaves the rest", () => {
+    const chat = chatWith(2);
+    expect(chat.say(say(change("Q1", "decrease", 1))).kinds).toEqual(["pending_updated"]);
+    expect(chat.pendings.pendings[0]?.quantity).toBe(1);
+  });
+
+  test("lowering a pending to zero ends it as declined", () => {
+    const chat = chatWith(2);
+    const said = chat.say(say(change("Q1", "decrease", 2)));
+    expect(said.outcomes).toEqual([{ kind: "pending_ended", pendingId: id(301) as ChatPendingId, reason: "declined" }]);
+    expect(chat.pendings.pendings).toEqual([]);
+  });
+
+  test("lowering a pending below zero changes nothing and reports quantity_below_zero", () => {
+    const chat = chatWith(2);
+    expect(chat.say(say(change("Q1", "decrease", 3))).outcomes).toEqual([{ kind: "invalid_action", orderId: id(1), reason: "quantity_below_zero" }]);
+    expect(chat.pendings.pendings[0]?.quantity).toBe(2);
+  });
+
+  test("setting a pending above 99 changes nothing and reports quantity_above_limit", () => {
+    const chat = chatWith(98);
+    expect(chat.say(say(change("Q1", "increase", 2))).outcomes).toEqual([{ kind: "quantity_above_limit", productId: productIdOf("polo"), identification: null }]);
+    expect(chat.say(say(change("Q1", "set", 100))).kinds).toEqual(["quantity_above_limit"]);
+    expect(chat.pendings.pendings[0]?.quantity).toBe(98);
+  });
+
+  test("a doubtful pending changes its quantity too and names its first candidate above the limit", () => {
+    const chat = createChat({ pendings: [doubtfulPendingOf(["polo", "oversize"])] });
+    expect(chat.say(say(change("Q1", "set", 4))).kinds).toEqual(["pending_updated"]);
+    expect(chat.say(say(change("Q1", "set", 100))).outcomes).toEqual([{ kind: "quantity_above_limit", productId: productIdOf("polo"), identification: null }]);
+  });
+});
+
+describe("chatPendingsSchema: last incoming photo", () => {
+  const stored = (lastIncomingPhoto: unknown) => ({ pendings: [], readyRemembered: false, lastIncomingPhoto });
+
+  test("a stored pendings row with a last incoming photo reads back equal", () => {
+    const pendingLeft = { left: { kind: "pending", pendingId: id(5) } };
+    const itemLeft = { left: { kind: "item", orderId: id(6), variantId: id(7), quantity: 3 } };
+    for (const photo of [pendingLeft, itemLeft, { left: null }]) expect(chatPendingsSchema.parse(stored(photo)).lastIncomingPhoto).toEqual(photo);
+  });
+
+  test("a stored last incoming photo with an item of quantity 0 reads as invalid stored data", () => {
+    expect(chatPendingsSchema.safeParse(stored({ left: { kind: "item", orderId: id(6), variantId: id(7), quantity: 0 } })).success).toBe(false);
+  });
+});

@@ -6,7 +6,7 @@ import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-orde
 import { messageOpenIntervals, type MessageOpenInterval } from "@core/src/features/orders/domain/message-order";
 import type { OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
-import type { ProductId } from "@core/src/features/products/domain/product";
+import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 
 /** A chat keeps at most this many pendings; the schema rejects more. */
 export const maxChatPendings = 10;
@@ -35,7 +35,16 @@ export type ChatPending = Readonly<{
   /** The buyer's request this pending comes from: its own id at creation, copied to the parts a split creates. A lot price belongs to one request. */
   requestId: ChatPendingId;
 }>;
-export type ChatPendings = Readonly<{ pendings: readonly ChatPending[]; readyRemembered: boolean }>;
+/** What the last photo the chat processed left, while it still counts as the photo just sent. */
+export type PhotoLeft =
+  | Readonly<{ kind: "pending"; pendingId: ChatPendingId }>
+  | Readonly<{ kind: "item"; orderId: OrderId; variantId: VariantId; quantity: PositiveInteger }>;
+/** The last processed incoming message was a photo (or failed, which counts as a photo that left nothing). Null after a read text. */
+export type LastIncomingPhoto = Readonly<{
+  /** Null when the photo does not count as the photo just sent: no single shown product, right after another photo, or it left nothing. */
+  left: PhotoLeft | null;
+}>;
+export type ChatPendings = Readonly<{ pendings: readonly ChatPending[]; readyRemembered: boolean; lastIncomingPhoto: LastIncomingPhoto | null }>;
 
 /** What pendingLife reads: the chat's order target (locked or not, same shape) and, when an orderless pending exists, the chat orders that may have opened since the oldest orderless change. */
 export type PendingLifeFacts = Readonly<{ target: ChatOrderTarget; openedSince: readonly OrderAggregate[] }>;
@@ -48,6 +57,7 @@ const uuid = z.uuid();
 const pendingId = uuid.transform((value) => value as ChatPendingId);
 const productId = uuid.transform((value) => value as ProductId);
 const positiveInteger = z.number().int().min(1).transform((value) => value as PositiveInteger);
+const variantId = uuid.transform((value) => value as VariantId);
 const date = z.iso.datetime().transform((value) => new Date(value));
 const money = z.strictObject({ amount: z.number().finite().positive(), currency: z.enum(currencies) });
 const candidates = z.array(productId).min(2).max(maxPendingCandidates) as unknown as z.ZodType<readonly [ProductId, ProductId, ...ProductId[]]>;
@@ -67,10 +77,18 @@ const pendingSchema = z.strictObject({
   requestId: pendingId,
 });
 
+export const lastIncomingPhotoSchema = z.strictObject({
+  left: z.discriminatedUnion("kind", [
+    z.strictObject({ kind: z.literal("pending"), pendingId }),
+    z.strictObject({ kind: z.literal("item"), orderId: uuid.transform((value) => value as OrderId), variantId, quantity: z.number().int().min(1).max(99).transform((value) => value as PositiveInteger) }),
+  ]).nullable(),
+});
+
 /** Validates the pendings JSON on write and on read (dates as ISO strings); a stored mismatch is `INVALID_STORED_DATA`. */
 export const chatPendingsSchema: z.ZodType<ChatPendings> = z.strictObject({
   pendings: z.array(pendingSchema).max(maxChatPendings),
   readyRemembered: z.boolean(),
+  lastIncomingPhoto: lastIncomingPhotoSchema.nullable(),
 });
 
 /**

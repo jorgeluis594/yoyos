@@ -21,7 +21,7 @@ export const outcomeKinds = ["added", "removed", "quantity_lowered", "quantity_c
   "order_closed", "no_intent", "variant_only", "unnamed_add", "image_with_request", "no_open_order", "not_identified", "not_clear",
   "variant_missing", "variant_not_available", "quantity_above_limit", "unclear_item", "new_order_after_closed", "failed",
   "pending_created", "pending_updated", "pending_completed", "pending_split", "pending_ended", "reader_doubt", "request_not_allowed", "invalid_action",
-  "product_not_available", "variant_for_several_pendings", "ready_with_pendings", "caption_not_applied"] as const;
+  "product_not_available", "variant_for_several_pendings", "ready_with_pendings", "caption_not_applied", "payment_requested"] as const;
 export type OutcomeKind = (typeof outcomeKinds)[number];
 /**
  * Compile-time check: every outcome kind of the domain can be expected. Kinds named «ambiguous_…» are the one the domain union still
@@ -77,14 +77,17 @@ export const finalLine = orderLine.extend({ mentionedPrice: mentionedPrice.nulla
 export type FinalLine = z.output<typeof finalLine>;
 
 /** A photo the interpretation pass identifies by hand (`shows`), so only the reader runs; `label` is a printed QR label. */
-const shownPhoto = z.strictObject({ shows: productKey, label: attributes.optional() });
+const shownPhoto = z.strictObject({ shows: productKey, label: attributes.optional() })
+  .refine(({ shows }) => shows !== "not_found" && shows !== "not_product", "A photo that matched nothing or is not a product takes no label");
 const notProductPhoto = z.strictObject({ shows: z.literal("not_product") });
+/** A photo the identification matched to nothing (a product the catalog does not have, or no match): the reader is told the photo was not found. No label. */
+const notFoundPhoto = z.strictObject({ shows: z.literal("not_found") });
 /** A photo file the end-to-end pass reads with the real identification cascade; relative to the photo folder (images/README.md) or to `apps/core`. */
 const photoFile = z.strictObject({ file: z.string() });
 
 const messageContent = {
   text: z.string().optional(),
-  photo: z.union([notProductPhoto, shownPhoto, photoFile]).optional(),
+  photo: z.union([notProductPhoto, notFoundPhoto, shownPhoto, photoFile]).optional(),
   caption: z.string().optional(),
 };
 const hasOneContent = (input: Readonly<{ text?: string; photo?: unknown; caption?: string }>) => (input.text === undefined) !== (input.photo === undefined);
@@ -196,7 +199,7 @@ const pendingProducts = (pending: PendingSeed): readonly string[] => "product" i
 /** Every catalog product a case names, to check them against the catalog it runs on. */
 export function productsOf(testCase: EvalCase): readonly string[] {
   const lines = (order: readonly Readonly<{ product: string }>[] | undefined) => order?.map(({ product }) => product) ?? [];
-  const shown = (photo: MessageInput["photo"]) => photo && "shows" in photo && photo.shows !== "not_product" ? [photo.shows] : [];
+  const shown = (photo: MessageInput["photo"]) => photo && "shows" in photo && photo.shows !== "not_product" && photo.shows !== "not_found" ? [photo.shows] : [];
   const start = startOf(testCase);
   const seeded = [...lines(start.order), ...start.pendings.flatMap(pendingProducts)];
   if (testCase.pass === "image") return testCase.expected.flatMap((expectation) => expectation.kind === "found" ? [expectation.product] : []);
@@ -240,6 +243,13 @@ export function parseCases(input: readonly EvalCaseInput[], catalog: EvalCatalog
   assertKnownProducts(catalog, cases.flatMap(productsOf));
   for (const testCase of cases) assertKnownStart(catalog, testCase);
   return cases;
+}
+
+/** A message case with a photo, or a conversation with a photo in any step: the cases the report counts apart (`CaseRecord.photoCase`). */
+export function isPhotoCase(testCase: EvalCase): boolean {
+  if (testCase.pass === "image") return true;
+  if (testCase.pass === "conversation") return testCase.steps.some((step) => isMessageStep(step) && step.input.photo !== undefined);
+  return testCase.input.photo !== undefined;
 }
 
 /**

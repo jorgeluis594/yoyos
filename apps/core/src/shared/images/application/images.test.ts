@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { getImage, getImages, readImageBytes, uploadImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
+import { getImage, getImages, readImageBytes, readImagesBytes, uploadImage, type ImageRepository, type ImageStorage } from "@core/src/shared/images/application/images";
 
 const id = crypto.randomUUID();
 const input = { bytes: new Uint8Array([255, 216, 255]), filename: "a.jpg", contentType: "image/jpeg" };
@@ -183,5 +183,49 @@ describe("readImageBytes", () => {
     const { storage, repository } = setup();
     vi.mocked(repository.find).mockResolvedValueOnce({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "down" } });
     expect(await readImageBytes(id, storage, repository)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+  });
+});
+
+describe("readImagesBytes", () => {
+  const other = crypto.randomUUID();
+
+  it("reads several images with one record lookup and gives each storage read the signal", async () => {
+    const { storage, repository } = setup();
+    vi.mocked(repository.findMany).mockResolvedValueOnce({ success: true, data: [{ id, storageKey: "a" }, { id: other, storageKey: "b" }] });
+    const signal = new AbortController().signal;
+    const read = await readImagesBytes([id, other], storage, repository, { signal });
+    expect(read).toEqual({ success: true, data: [
+      { success: true, data: { bytes: new Uint8Array([1, 2]), contentType: "image/jpeg" } },
+      { success: true, data: { bytes: new Uint8Array([1, 2]), contentType: "image/jpeg" } }] });
+    expect(repository.findMany).toHaveBeenCalledTimes(1);
+    expect(repository.find).not.toHaveBeenCalled();
+    expect(storage.read).toHaveBeenCalledWith("a", { signal });
+    expect(storage.read).toHaveBeenCalledWith("b", { signal });
+  });
+
+  it("reports an image without a record as not found and keeps the others, in the requested order", async () => {
+    const { storage, repository } = setup();
+    vi.mocked(repository.findMany).mockResolvedValueOnce({ success: true, data: [{ id: other, storageKey: "b" }] });
+    const read = await readImagesBytes([id, other], storage, repository);
+    expect(read).toMatchObject({ success: true, data: [{ success: false, error: { code: "IMAGE_NOT_FOUND" } }, { success: true }] });
+  });
+
+  it("reports a storage failure per image and a timeout when the signal aborted", async () => {
+    const { storage, repository } = setup();
+    const controller = new AbortController();
+    vi.mocked(repository.findMany).mockResolvedValueOnce({ success: true, data: [{ id, storageKey: "a" }] });
+    vi.mocked(storage.read).mockImplementationOnce(async () => {
+      controller.abort();
+      return { success: false, error: { code: "IMAGE_STORAGE_UNAVAILABLE", message: "aborted" } };
+    });
+    expect(await readImagesBytes([id], storage, repository, { signal: controller.signal })).toMatchObject({ success: true, data: [{ success: false, error: { storageCode: "IMAGE_STORAGE_TIMEOUT" } }] });
+  });
+
+  it("fails as a whole when the records cannot be read, and reads nothing for no ids", async () => {
+    const { storage, repository } = setup();
+    vi.mocked(repository.findMany).mockResolvedValueOnce({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "down" } });
+    expect(await readImagesBytes([id], storage, repository)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    expect(await readImagesBytes([], storage, repository)).toEqual({ success: true, data: [] });
+    expect(storage.read).not.toHaveBeenCalled();
   });
 });

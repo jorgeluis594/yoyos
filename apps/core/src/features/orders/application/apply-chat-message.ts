@@ -4,6 +4,7 @@ import type { Result } from "@shared/result";
 import { applyChatActions, needsNewChatOrder, type ChatOrderTarget, type ChatOrderLimits, type ReportOutcome, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
 import type { OrderItemChanges } from "@core/src/features/orders/domain/order-edit";
 import { pendingLife, type ChatPendingId, type ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
+import { nextLastIncomingPhoto, photoJustSentOf } from "@core/src/features/orders/domain/photo-just-sent";
 import { checkReaderAnswer, fixedShownAnswer, type ChatReadingContext, type ReaderAnswer } from "@core/src/features/orders/domain/chat-reading";
 import type { ChatMessageFailureCode, ChatMessageOutcome, ChatMessageOutcomes, StoredChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
 import { chooseSellerNotice, isNoticeDue } from "@core/src/features/orders/domain/seller-notice";
@@ -11,7 +12,7 @@ import type { ChatId, OrderChatSource } from "@core/src/features/orders/domain/m
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { OrderAggregate, OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, ContactId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
-import type { ReadChatMessage, ReaderError, ReaderUsage } from "@core/src/features/orders/application/read-chat-message";
+import type { ContextTooLarge, FittedReadingContext, ReadChatMessage, ReaderError, ReaderUsage } from "@core/src/features/orders/application/read-chat-message";
 import { buildReadingContext, listedItems, selectReadingProducts, type ShownProduct } from "@core/src/features/orders/application/reading-context";
 import type { IdentifyProductsError, ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import type { ImageBytes } from "@core/src/features/products/domain/image-identification";
@@ -50,6 +51,12 @@ export type ReadingTrace = Readonly<{
   actionKinds: readonly string[];
   usage: ReaderUsage | null;
   contextTruncated: boolean;
+  /** The message was read with a photo just sent marker. */
+  photoJustSent: boolean;
+  /** The o200k count of the fitted request; null when no reader call was fitted. */
+  countedInputTokens: number | null;
+  /** Products the input-token budget cut from the context. */
+  droppedForBudget: number;
   candidateMs: number | null;
   candidateMatchCount: number | null;
   candidatesTimedOut: boolean;
@@ -103,7 +110,11 @@ export type ApplyChatMessageDependencies = Readonly<{
   identifyProductsInImage: (image: ImageBytes, signal: AbortSignal) => Promise<Result<ImageIdentification, IdentifyProductsError>>;
   findProductsForReading: (productIds: readonly ProductId[]) => Promise<Result<readonly ProductForReading[], PersistenceError | InvalidStoredData>>;
   /** A statement timeout is not an error: it returns no ids with timedOut true. */
-  findMessageCandidates: (text: string) => Promise<Result<Readonly<{ productIds: readonly ProductId[]; matchCount: number; durationMs: number; timedOut: boolean }>, PersistenceError>>;
+  findMessageCandidates: (text: string) => Promise<Result<Readonly<{ productIds: readonly ProductId[]; unavailableProductIds: readonly ProductId[]; matchCount: number; durationMs: number; timedOut: boolean }>, PersistenceError>>;
+  /** Reader infrastructure: the context whose whole request fits the input-token budget of its kind (a photo's is smaller by the photo stages' reserve), keeping products in priority order. */
+  fitReadingContext: (context: ChatReadingContext) => Result<FittedReadingContext, ContextTooLarge>;
+  /** The whole photo stage (image read, QR, description, candidate reads, chooser) ends at this deadline: `2 × PRODUCT_MATCH_TIMEOUT_MS`. */
+  photoStageTimeoutMs: number;
   catalogSearchReadiness: () => Promise<Result<CatalogSearchReadiness, PersistenceError>>; // miss paths only
   /** Null without a model provider: captions are ignored and texts are skipped. */
   readChatMessage: ReadChatMessage | null;
@@ -125,19 +136,20 @@ export type ApplyChatMessageDependencies = Readonly<{
 
 type Input = Readonly<{ companyId: CompanyId; messageId: ChatMessageId }>;
 type RunError = PersistenceError | InvalidStoredData | ContactNotFound | SellerUnavailable | MessageAlreadyProcessed | OrderDomainError;
-type Run = (actions: readonly ResolvedChatAction[]) => Promise<Result<AppliedChatMessage, RunError>>;
+/** Runs the actions in the message transaction; `shownProductIds` are the products a photo showed (none for a text). */
+type Run = (actions: readonly ResolvedChatAction[], shownProductIds?: readonly ProductId[]) => Promise<Result<AppliedChatMessage, RunError>>;
 type Staged = Readonly<{ applied: AppliedChatMessage; trace: ReadingTrace }>;
 type Stage = Result<Staged, StageError>;
 
 /** Placeholder of `NewChatOrderSeed.number` when `needsNewChatOrder` says no order is created. */
 const unusedNumber = 0 as OrderNumber;
-const noReading: ReadingTrace = { readerCalls: 0, answer: "no_intent", actionKinds: [], usage: null, contextTruncated: false, candidateMs: null, candidateMatchCount: null, candidatesTimedOut: false };
+const noReading: ReadingTrace = { readerCalls: 0, answer: "no_intent", actionKinds: [], usage: null, contextTruncated: false, photoJustSent: false, countedInputTokens: null, droppedForBudget: 0, candidateMs: null, candidateMatchCount: null, candidatesTimedOut: false };
 const fixedReading: ReadingTrace = { ...noReading, answer: "fixed" };
 
 const noticeDueOf = (stored: StoredChatMessageOutcome) => isNoticeDue(stored.outcomes, stored.noticeSentAt);
 const hasChanges = (changes: OrderItemChanges) => changes.added.length + changes.updated.length + changes.removedItemIds.length > 0;
-/** A text or caption the reader can read: not blank. */
-export const hasReadableText = (text: string | null): text is string => text !== null && text.trim() !== "";
+/** A text or caption the reader can read: it has at least one letter or digit. Emoji and punctuation only are not a message. */
+export const hasReadableText = (text: string | null): text is string => text !== null && /[\p{L}\p{N}]/u.test(text);
 
 /** Reads one message of a chat, decides what it asks of the chat's order and pendings and applies it in one transaction. */
 export async function applyChatMessage(input: Input, deps: ApplyChatMessageDependencies, signal: AbortSignal): Promise<Result<ApplyChatMessageOutcome, ApplyChatMessageError>> {
@@ -153,7 +165,7 @@ export async function applyChatMessage(input: Input, deps: ApplyChatMessageDepen
   if (!message.imageId && !deps.readChatMessage) return ok({ kind: "skipped", reason: "reader_disabled" });
   const state = await loadChatState(message.chatId, deps);
   if (!state.success) return err(toApplyError(state.error));
-  const run: Run = (actions) => deps.transaction(input.companyId, () => applyInTransaction(message, actions, deps));
+  const run: Run = (actions, shownProductIds = []) => deps.transaction(input.companyId, () => applyInTransaction(message, actions, shownProductIds, deps));
   const staged = message.imageId ? await applyPhoto(message, message.imageId, state.data, run, deps, signal) : await applyText(message, state.data, run, deps, signal);
   if (!staged.success) return staged.error.code === "MESSAGE_ALREADY_PROCESSED" ? rereadProcessed(input.messageId, deps) : err(toApplyError(staged.error));
   const { applied, trace } = staged.data;
@@ -204,43 +216,56 @@ function productsOf(identified: ImageIdentification): readonly IdentifiedProduct
   return labels.filter((label, index) => labels.findIndex(({ productId }) => productId === label.productId) === index);
 }
 
-type Answered = Readonly<{ answer: ReaderAnswer; captionDoubt: boolean; trace: ReadingTrace }>;
 type ReadingInputs = Readonly<{ kind: ChatReadingContext["kind"]; text: string | null; shown: readonly ShownProduct[] }>;
+type CandidateTrace = Pick<ReadingTrace, "candidateMs" | "candidateMatchCount" | "candidatesTimedOut">;
 
 /** The context of one reading: the products wanted by the message, its pendings and its order, within the ceilings. */
-async function readingContextOf(inputs: ReadingInputs, state: ChatState, deps: ApplyChatMessageDependencies): Promise<Result<Readonly<{ context: ChatReadingContext; candidates: Pick<ReadingTrace, "candidateMs" | "candidateMatchCount" | "candidatesTimedOut"> }>, PersistenceError | InvalidStoredData>> {
+async function readingContextOf(inputs: ReadingInputs, state: ChatState, deps: ApplyChatMessageDependencies): Promise<Result<Readonly<{ context: ChatReadingContext; candidates: CandidateTrace }>, PersistenceError | InvalidStoredData>> {
   const candidates = inputs.kind === "text" && inputs.text !== null ? await deps.findMessageCandidates(inputs.text) : null;
   if (candidates && !candidates.success) return candidates;
   const { limits } = deps;
   const selection = selectReadingProducts({ shown: inputs.shown, pendings: state.pendings.pendings,
     itemProductIds: listedItems(state.target, limits.maxReaderItems).flatMap(({ productId }) => (productId ? [productId] : [])),
-    candidateIds: candidates?.data.productIds ?? [], maxProducts: limits.maxReaderProducts });
+    candidateIds: candidates?.data.productIds ?? [], unavailableIds: candidates?.data.unavailableProductIds ?? [], maxProducts: limits.maxReaderProducts });
   const loaded = selection.productIds.length ? await deps.findProductsForReading(selection.productIds) : ok<readonly ProductForReading[]>([]);
   if (!loaded.success) return loaded;
   const timedOut = candidates?.data.timedOut ?? false;
   const context = buildReadingContext({ kind: inputs.kind, text: inputs.text, target: state.target, pendings: state.pendings.pendings, shown: inputs.shown,
-    productIds: selection.productIds, found: loaded.data, truncated: selection.truncated || timedOut, maxItems: limits.maxReaderItems });
+    productIds: selection.productIds, found: loaded.data, truncated: selection.truncated || timedOut, maxItems: limits.maxReaderItems,
+    photoJustSent: photoJustSentOf(inputs.kind === "text" ? "text" : "photo", state.pendings.lastIncomingPhoto, state.target, state.pendings.pendings) });
   return ok({ context, candidates: { candidateMs: candidates?.data.durationMs ?? null, candidateMatchCount: candidates?.data.matchCount ?? null, candidatesTimedOut: timedOut } });
 }
 
 const actionKindsOf = (answer: ReaderAnswer) => (answer.kind === "actions" ? answer.actions.map(({ kind }) => kind) : []);
 
-/** One reader call, or the photo's fixed answer when there is nothing to read. */
+/** What the message asks, resolved against the context the reader saw. */
+type Answered = Readonly<{ actions: readonly ResolvedChatAction[]; trace: ReadingTrace }>;
+
+const contextTooLarge = (): ResolvedChatAction => ({ kind: "report", outcome: { kind: "invalid_action", orderId: null, reason: "context_too_large" } });
+
+/** One reader call, or the photo's fixed answer when there is nothing to read; the check reads the same fitted context the reader saw. */
 async function answerFor(context: ChatReadingContext, deps: ApplyChatMessageDependencies, meta: Readonly<{ companyId: CompanyId; messageId: ChatMessageId }>, signal: AbortSignal,
-  candidates: Pick<ReadingTrace, "candidateMs" | "candidateMatchCount" | "candidatesTimedOut">): Promise<Result<Answered, ReaderError>> {
-  const base = { contextTruncated: context.truncated, ...candidates };
+  candidates: CandidateTrace): Promise<Result<Answered, ReaderError>> {
+  const base = { contextTruncated: context.truncated, photoJustSent: context.photoJustSent !== null, ...candidates };
   const caption = context.text;
   const reader = deps.readChatMessage;
   const tooLong = caption !== null && caption.length > deps.limits.maxReaderTextChars;
-  if (context.kind === "photo_product" && (caption === null || !reader || tooLong)) {
-    return ok({ answer: fixedShownAnswer(context), captionDoubt: tooLong && reader !== null, trace: { ...fixedReading, ...base } });
-  }
-  if (!reader || caption === null || tooLong) return ok({ answer: { kind: "no_intent" }, captionDoubt: false, trace: { ...noReading, ...base } });
+  const fixed = (captionDoubt: boolean, fitted: ChatReadingContext = context): Answered =>
+    ({ actions: checkReaderAnswer(fixedShownAnswer(fitted), fitted, { captionDoubt }), trace: { ...fixedReading, ...base } });
+  if (context.kind === "photo_product" && (caption === null || !reader || tooLong)) return ok(fixed(tooLong && reader !== null));
+  if (!reader || caption === null || tooLong) return ok({ actions: checkReaderAnswer({ kind: "no_intent" }, context, { captionDoubt: false }), trace: { ...noReading, ...base } });
   if (signal.aborted) return err({ code: "DEADLINE_EXCEEDED", message: "The attempt deadline passed" });
-  const reading = await reader(context, meta, signal);
+  const fitted = deps.fitReadingContext(context);
+  if (!fitted.success) {
+    // The caption of a product photo that does not fit is doubted like a too-long one; anything else is an invalid action.
+    if (context.kind === "photo_product") return ok(fixed(true));
+    return ok({ actions: [contextTooLarge()], trace: { ...noReading, ...base } });
+  }
+  const reading = await reader(fitted.data.context, meta, signal);
   if (!reading.success) return reading;
   const { answer, usage } = reading.data;
-  return ok({ answer, captionDoubt: false, trace: { readerCalls: 1, answer: answer.kind, actionKinds: actionKindsOf(answer), usage, ...base } });
+  return ok({ actions: checkReaderAnswer(answer, fitted.data.context, { captionDoubt: false }), trace: { readerCalls: 1, answer: answer.kind, actionKinds: actionKindsOf(answer), usage,
+    ...base, contextTruncated: fitted.data.context.truncated, countedInputTokens: fitted.data.countedInputTokens, droppedForBudget: fitted.data.droppedProducts } });
 }
 
 const textTooLong = (): ResolvedChatAction => ({ kind: "report", outcome: { kind: "invalid_action", orderId: null, reason: "text_too_long" } });
@@ -252,8 +277,7 @@ async function applyText(message: ChatSourceMessage, state: ChatState, run: Run,
   if (!read.success) return read;
   const answered = await answerFor(read.data.context, deps, { companyId: message.companyId, messageId: message.id }, signal, read.data.candidates);
   if (!answered.success) return answered;
-  const actions = checkReaderAnswer(answered.data.answer, read.data.context, { captionDoubt: answered.data.captionDoubt });
-  const silenced = await silenceTextMisses(actions, deps);
+  const silenced = await silenceTextMisses(answered.data.actions, deps);
   if (!silenced.success) return silenced;
   return reportActions(silenced.data, run, answered.data.trace);
 }
@@ -270,26 +294,32 @@ async function silenceTextMisses(actions: readonly ResolvedChatAction[], deps: A
     ? { ...action, outcome: { ...action.outcome, silent: true } } : action));
 }
 
-async function reportActions(actions: readonly ResolvedChatAction[], run: Run, trace: ReadingTrace): Promise<Stage> {
-  const applied = await run(actions);
+async function reportActions(actions: readonly ResolvedChatAction[], run: Run, trace: ReadingTrace, shownProductIds: readonly ProductId[] = []): Promise<Stage> {
+  const applied = await run(actions, shownProductIds);
   return applied.success ? ok({ applied: applied.data, trace }) : applied;
 }
 
-async function reportOnly(outcome: ReportOutcome, run: Run): Promise<Stage> {
-  return reportActions([{ kind: "report", outcome }], run, noReading);
+async function reportOnly(outcome: ReportOutcome, run: Run, shownProductIds: readonly ProductId[] = []): Promise<Stage> {
+  return reportActions([{ kind: "report", outcome }], run, noReading, shownProductIds);
 }
 
+/** A stage cut by its own deadline reports the deadline, not the provider or storage failure the abort looks like. */
+const deadlineOr = <T extends Readonly<{ code: string; message: string }>>(error: T, stageSignal: AbortSignal): T | ReaderError =>
+  stageSignal.aborted && retryableCodes.has(error.code) ? { code: "DEADLINE_EXCEEDED", message: "The photo stage deadline passed" } : error;
+
 async function applyPhoto(message: ChatSourceMessage, imageId: ImageId, state: ChatState, run: Run, deps: ApplyChatMessageDependencies, signal: AbortSignal): Promise<Stage> {
-  const image = await deps.readImage(imageId, signal);
-  if (!image.success) return image;
-  const identified = await deps.identifyProductsInImage(image.data, signal);
-  if (!identified.success) return identified;
+  const stageSignal = AbortSignal.any([signal, AbortSignal.timeout(deps.photoStageTimeoutMs)]);
+  const image = await deps.readImage(imageId, stageSignal);
+  if (!image.success) return err(deadlineOr(image.error, stageSignal));
+  const identified = await deps.identifyProductsInImage(image.data, stageSignal);
+  if (!identified.success) return err(deadlineOr(identified.error, stageSignal));
   if (signal.aborted) return err({ code: "DEADLINE_EXCEEDED", message: "The attempt deadline passed" });
   const caption = hasReadableText(message.caption) && deps.readChatMessage ? message.caption : null;
   const products = productsOf(identified.data);
   if (products === "not_found") return reportMiss(run, deps);
   if (products === "not_product" && !caption) return reportOnly({ kind: "no_intent" }, run);
   const shown = products === "not_product" ? [] : products;
+  const shownProductIds = shown.map(({ productId }) => productId);
   const read = await readingContextOf({ kind: products === "not_product" ? "photo_not_product" : "photo_product", text: caption, shown }, state, deps);
   if (!read.success) return read;
   const { context } = read.data;
@@ -297,11 +327,10 @@ async function applyPhoto(message: ChatSourceMessage, imageId: ImageId, state: C
   const present = new Set(context.products.map(({ productId }) => productId));
   const missing = shown.filter(({ productId }) => !present.has(productId))
     .map((entry): ResolvedChatAction => ({ kind: "report", outcome: { kind: "not_identified", source: "photo", identification: entry.identification, silent: false } }));
-  if (shown.length && missing.length === shown.length) return reportActions(missing, run, noReading);
+  if (shown.length && missing.length === shown.length) return reportActions(missing, run, noReading, shownProductIds);
   const answered = await answerFor(context, deps, { companyId: message.companyId, messageId: message.id }, signal, read.data.candidates);
   if (!answered.success) return answered;
-  const actions = checkReaderAnswer(answered.data.answer, context, { captionDoubt: answered.data.captionDoubt });
-  return reportActions([...missing, ...actions], run, answered.data.trace);
+  return reportActions([...missing, ...answered.data.actions], run, answered.data.trace, shownProductIds);
 }
 
 /** A photo that matched nothing is a miss; it stays silent while the catalog cannot recognize photos at all. */
@@ -311,7 +340,7 @@ async function reportMiss(run: Run, deps: ApplyChatMessageDependencies): Promise
   return reportOnly({ kind: "not_identified", source: "photo", identification: null, silent: readiness.data !== "ready" }, run);
 }
 
-async function applyInTransaction(message: ChatSourceMessage, actions: readonly ResolvedChatAction[], deps: ApplyChatMessageDependencies): Promise<Result<AppliedChatMessage, RunError>> {
+async function applyInTransaction(message: ChatSourceMessage, actions: readonly ResolvedChatAction[], shownProductIds: readonly ProductId[], deps: ApplyChatMessageDependencies): Promise<Result<AppliedChatMessage, RunError>> {
   const locked = await deps.lockContact(message.contactId);
   if (!locked.success) return locked;
   const again = await deps.findOutcome(message.id);
@@ -346,8 +375,11 @@ async function applyInTransaction(message: ChatSourceMessage, actions: readonly 
     const saved = await deps.saveItemChanges(changedOrder, changes);
     if (!saved.success) return saved;
   }
-  if (!isDeepStrictEqual(applied.data.pendings, stored.data)) {
-    const savedPendings = await deps.saveChatPendings(message.chatId, applied.data.pendings);
+  // A photo stores what it left; a read text clears it.
+  const lastIncomingPhoto = nextLastIncomingPhoto({ kind: message.imageId ? "photo" : "text", previous: stored.data.lastIncomingPhoto, shownProductIds, applied: applied.data });
+  const nextPendings: ChatPendings = { ...applied.data.pendings, lastIncomingPhoto };
+  if (!isDeepStrictEqual(nextPendings, stored.data)) {
+    const savedPendings = await deps.saveChatPendings(message.chatId, nextPendings);
     if (!savedPendings.success) return savedPendings;
   }
   const orderId = createdOrder?.id ?? changedOrder?.id ?? null;
@@ -357,5 +389,5 @@ async function applyInTransaction(message: ChatSourceMessage, actions: readonly 
   }
   const recorded = await deps.recordOutcome({ messageId: message.id, outcomes });
   if (!recorded.success) return recorded;
-  return ok({ orderId, createdOrder: createdOrder !== null, outcomes, pendingsBefore: stored.data.pendings.length, pendingsAfter: applied.data.pendings.pendings.length });
+  return ok({ orderId, createdOrder: createdOrder !== null, outcomes, pendingsBefore: stored.data.pendings.length, pendingsAfter: nextPendings.pendings.length });
 }

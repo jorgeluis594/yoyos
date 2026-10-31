@@ -1,4 +1,5 @@
 import { describe, expect, test } from "vitest";
+import { shippedReaderFeatures } from "@core/src/features/orders/infrastructure/shipped-reader-features";
 import { readerJsonSchema, readerSchema, toReaderAnswer } from "@core/src/features/orders/infrastructure/chat-reader-schema";
 
 const price = { amount: "40", currency: "PEN", per: "unit" } as const;
@@ -60,7 +61,7 @@ describe("readerSchema", () => {
       [{ kind: "decline_pending", pending: "Q1" }, { kind: "decline_pending", pending: "Q1" }],
       [{ kind: "decline_shown" }, { kind: "decline_shown" }],
       [{ kind: "remove", item, amount: "one" }, { kind: "remove", item, amount: "one" }],
-      [{ kind: "change_quantity", item: nullRefItem("unnamed"), mode: "set", quantity: 3 }, { kind: "change_quantity", item: { kind: "unnamed" }, mode: "set", quantity: 3 }],
+      [{ kind: "change_quantity", item: nullRefItem("unnamed"), mode: "set", quantity: 3 }, { kind: "change_quantity", target: { kind: "unnamed" }, mode: "set", quantity: 3 }],
       [{ kind: "change_variant", item, attributes: [{ name: "Talla", value: "L" }], price: null }, { kind: "change_variant", item, attributes: [{ name: "Talla", value: "L" }], price: null }],
       [{ kind: "set_price", item: nullRefItem("not_in_order"), price }, { kind: "set_price", item: { kind: "not_in_order" }, price }],
       [{ kind: "variant_only" }, { kind: "variant_only" }],
@@ -74,6 +75,33 @@ describe("readerSchema", () => {
       expect(parsed.success, JSON.stringify(parsed.error?.issues)).toBe(true);
       if (parsed.success) expect(toReaderAnswer(parsed.data)).toEqual({ kind: "actions", moreActions: false, actions: [expected] });
     }
+  });
+
+  test("maps a payment_request action", () => {
+    const parsed = parse(answer([full({ kind: "payment_request" })]));
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(toReaderAnswer(parsed.data)).toEqual({ kind: "actions", moreActions: false, actions: [{ kind: "payment_request" }] });
+  });
+
+  test("maps a change_quantity on a pending reference with mode decrease", () => {
+    const parsed = parse(answer([full({ kind: "change_quantity", pending: "Q1", mode: "decrease", quantity: 1 })]));
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(toReaderAnswer(parsed.data)).toEqual({ kind: "actions", moreActions: false, actions: [{ kind: "change_quantity", target: { kind: "pending", ref: "Q1" }, mode: "decrease", quantity: 1 }] });
+  });
+
+  test("a change_quantity with both an item and a pending, or with neither, is malformed", () => {
+    const both = full({ kind: "change_quantity", item: { kind: "ref", ref: "I1" }, pending: "Q1", mode: "set", quantity: 2 });
+    const neither = full({ kind: "change_quantity", mode: "set", quantity: 2 });
+    const emptyPending = full({ kind: "change_quantity", pending: "", mode: "set", quantity: 2 });
+    const parsed = parse(answer([both, neither, emptyPending, full(ready)]));
+    expect(parsed.success).toBe(true);
+    if (parsed.success) expect(toReaderAnswer(parsed.data)).toEqual({ kind: "actions", moreActions: false, actions: [{ kind: "malformed" }, { kind: "malformed" }, { kind: "malformed" }, { kind: "ready" }] });
+  });
+
+  test("derives the action kinds and the closed-order wording from the shipped reader features", () => {
+    const kinds = ((readerJsonSchema as { properties: { actions: { items: { properties: { kind: { enum: string[] } } } } } }).properties.actions.items.properties.kind.enum);
+    expect(kinds.includes("payment_request")).toBe(shippedReaderFeatures.paymentRequest);
+    expect(kinds).toContain("not_allowed");
   });
 
   test("turns an action missing a field its kind needs into a malformed action and keeps the others", () => {

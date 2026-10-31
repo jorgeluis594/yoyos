@@ -7,6 +7,8 @@ type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: str
 
 export type MessageCandidates = Readonly<{
   productIds: readonly ProductId[];
+  /** Products with no active variant that match the words: the reader gets them as not sellable. Empty until the products query returns them. */
+  unavailableProductIds: readonly ProductId[];
   /** Products that matched at least one word, before the cut to the top candidates. */
   matchCount: number;
   durationMs: number;
@@ -24,6 +26,6 @@ export type FindMessageCandidatesDependencies = Readonly<{
 /** Up to the top candidates whose name matches the words of a message, with no model call. A message without words has no candidates. */
 export async function findMessageCandidates(text: string, deps: FindMessageCandidatesDependencies): Promise<Result<MessageCandidates, PersistenceError>> {
   const words = searchedWords(text);
-  if (!words.length) return ok({ productIds: [], matchCount: 0, durationMs: 0, timedOut: false, wordsSearched: 0 });
+  if (!words.length) return ok({ productIds: [], unavailableProductIds: [], matchCount: 0, durationMs: 0, timedOut: false, wordsSearched: 0 });
   return deps.searchByCoverage(words);
 }

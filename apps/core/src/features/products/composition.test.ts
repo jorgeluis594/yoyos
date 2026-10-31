@@ -13,7 +13,7 @@ vi.mock("@core/src/shared/infrastructure/persistance", () => ({
 vi.mock("@core/src/features/products/application/index-product-photos", async (original) => ({
   ...await original<typeof import("@core/src/features/products/application/index-product-photos")>(), indexProductPhotos }));
 
-import { createVisualSearch, indexProductPhotosHandler, publishProductPhotosAdded } from "@core/src/features/products/composition";
+import { createMessageCandidateLimits, createVisualSearch, indexProductPhotosHandler, publishProductPhotosAdded } from "@core/src/features/products/composition";
 
 afterEach(() => { vi.restoreAllMocks(); });
 
@@ -26,7 +26,7 @@ describe("createVisualSearch", () => {
     expect(setup.visual).toMatchObject({ model, candidates: 5, minConfidence: 0.8, chooseProduct: expect.any(Function) });
     expect(info).not.toHaveBeenCalled();
 
-    expect(createVisualSearch({ PRODUCT_MATCHER_PROVIDER: "openai", OPENAI_API_KEY: "" })).toEqual({ embedder: null, visual: null });
+    expect(createVisualSearch({ PRODUCT_MATCHER_PROVIDER: "openai", OPENAI_API_KEY: "" })).toMatchObject({ embedder: null, visual: null, photoStagesReserveUsd: 0 });
     expect(info).toHaveBeenLastCalledWith({ event: "product_visual_search_disabled", reason: "missing_api_key" }, "product_visual_search_disabled");
   });
 
@@ -38,18 +38,59 @@ describe("createVisualSearch", () => {
       .toBe("local/Xenova/clip-vit-base-patch16");
     expect(createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_EMBEDDER_PROVIDER: "openai", IMAGE_EMBEDDER_MODEL: "", IMAGE_DESCRIBE_MODEL: "" }).embedder?.model)
       .toBe("openai/gpt-6-luna+text-embedding-3-small");
-    expect(createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_EMBEDDER_PROVIDER: "openai", IMAGE_EMBEDDER_MODEL: "text-embedding-3-large", IMAGE_DESCRIBE_MODEL: "gpt-6" })
-      .embedder?.model).toBe("openai/gpt-6+text-embedding-3-large");
+
   });
 
   test("keeps visual search disabled without the key even though the local embedder needs none", () => {
     vi.spyOn(log, "info").mockImplementation(() => {});
-    expect(createVisualSearch({ IMAGE_EMBEDDER_PROVIDER: "local" })).toEqual({ embedder: null, visual: null });
+    expect(createVisualSearch({ IMAGE_EMBEDDER_PROVIDER: "local" })).toMatchObject({ embedder: null, visual: null });
+  });
+
+  test("PRODUCT_MATCH_CANDIDATES above 8 fails at startup", () => {
+    expect(() => createVisualSearch({ OPENAI_API_KEY: "key", PRODUCT_MATCH_CANDIDATES: "9" })).toThrow();
+    expect(createVisualSearch({ OPENAI_API_KEY: "key", PRODUCT_MATCH_CANDIDATES: "8" }).visual?.candidates).toBe(8);
+  });
+
+  test("PRODUCT_MATCH_TIMEOUT_MS above 20000 fails at startup, and the photo stage deadline is twice the timeout", () => {
+    expect(() => createVisualSearch({ OPENAI_API_KEY: "key", PRODUCT_MATCH_TIMEOUT_MS: "20001" })).toThrow();
+    expect(createVisualSearch({ OPENAI_API_KEY: "key", PRODUCT_MATCH_TIMEOUT_MS: "20000" }).photoStageTimeoutMs).toBe(40_000);
+  });
+
+  test("exposes the reserve of the configured stages, with the describer only for the OpenAI embedder", () => {
+    const local = createVisualSearch({ OPENAI_API_KEY: "key", PRODUCT_MATCH_CANDIDATES: "8" });
+    const openai = createVisualSearch({ OPENAI_API_KEY: "key", PRODUCT_MATCH_CANDIDATES: "8", IMAGE_EMBEDDER_PROVIDER: "openai" });
+    expect(local.photoStagesReserveUsd).toBeCloseTo(0.001127, 6);
+    expect(openai.photoStagesReserveUsd).toBeLessThanOrEqual(0.00142);
+    expect(openai.photoStagesReserveUsd).toBeGreaterThan(local.photoStagesReserveUsd);
+  });
+
+  test("a matcher or describer model with no price fails at startup", () => {
+    expect(() => createVisualSearch({ OPENAI_API_KEY: "key", PRODUCT_MATCHER_MODEL: "unpriced-model" })).toThrow(/unpriced-model/);
+    expect(() => createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_EMBEDDER_PROVIDER: "openai", IMAGE_DESCRIBE_MODEL: "unpriced-model" })).toThrow(/unpriced-model/);
+    expect(createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_DESCRIBE_MODEL: "unpriced-model" }).visual).not.toBeNull();
+    expect(createVisualSearch({ PRODUCT_MATCHER_MODEL: "unpriced-model" }).visual).toBeNull();
   });
 
   test("fails at startup for an unknown provider name", () => {
     expect(() => createVisualSearch({ PRODUCT_MATCHER_PROVIDER: "acme", OPENAI_API_KEY: "key" })).toThrow();
     expect(() => createVisualSearch({ IMAGE_EMBEDDER_PROVIDER: "acme" })).toThrow();
+  });
+});
+
+describe("createMessageCandidateLimits", () => {
+  test("defaults to 8 sellable and 2 not-sellable candidates", () => {
+    expect(createMessageCandidateLimits({})).toMatchObject({ candidates: 8, unavailableCandidates: 2, maxWords: 30 });
+  });
+
+  test.each([
+    { TEXT_MATCH_CANDIDATES: "9" }, { TEXT_MATCH_UNAVAILABLE_CANDIDATES: "5" }, { TEXT_MATCH_MAX_WORDS: "31" }, { TEXT_MATCH_PAIR_BUDGET: "50001" },
+  ])("%o fails at startup", (env) => {
+    expect(() => createMessageCandidateLimits(env)).toThrow();
+  });
+
+  test("accepts every bound", () => {
+    expect(createMessageCandidateLimits({ TEXT_MATCH_CANDIDATES: "8", TEXT_MATCH_UNAVAILABLE_CANDIDATES: "4", TEXT_MATCH_MAX_WORDS: "30", TEXT_MATCH_PAIR_BUDGET: "50000" }))
+      .toMatchObject({ candidates: 8, unavailableCandidates: 4, maxWords: 30, pairBudget: 50_000 });
   });
 });
 

@@ -19,7 +19,7 @@ const values = (attributes: Record<string, string>[]) => {
   return [...byName].map(([name, list]) => ({ name, values: list }));
 };
 export const readingProduct = (n: number, name: string, combinations: [Record<string, string>, number][], over: Partial<ReadingProduct> = {}): ReadingProduct => ({
-  productId: productId(n), name, sellable: true, ref: `P${n}`, shown: false, shownVariantId: null, identification: null,
+  productId: productId(n), name, nameKey: name.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase(), sellable: true, ref: `P${n}`, shown: false, shownVariantId: null, identification: null,
   attributes: values(combinations.map(([attributes]) => attributes)),
   variants: combinations.map(([attributes, amount], index) => variant(n * 100 + index, name, attributes, amount)),
   ...over,
@@ -28,4 +28,4 @@ export const pending = (n: number, over: Partial<ChatPending>): ChatPending => (
   id: id(5000 + n) as ChatPendingId, subject: { kind: "variant", productId: productId(1) }, known: {}, quantity: 1 as PositiveInteger, price: null,
   order: null, lastChangedAt: new Date("2026-10-28T10:00:00Z"), sourceMessageId: id(9) as ChatMessageId, requestId: id(5000 + n) as ChatPendingId, ...over,
 });
-export const context = (over: Partial<ChatReadingContext>): ChatReadingContext => ({ kind: "text", text: "hola", items: [], pendings: [], products: [], truncated: false, ...over });
+export const context = (over: Partial<ChatReadingContext>): ChatReadingContext => ({ kind: "text", text: "hola", latestOrder: "none", items: [], pendings: [], products: [], photoJustSent: null, truncated: false, ...over });

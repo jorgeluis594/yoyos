@@ -13,16 +13,16 @@ const candidate = (productId: ProductId, n: number): VisualCandidate => ({ produ
 
 function harness(options: Readonly<{ decoded?: readonly string[]; qrError?: "UNREADABLE_IMAGE" | "QR_READER_UNAVAILABLE"; qrVariants?: (CatalogItem & { productId: ProductId; qrCode: VariantQrCode })[]; visual?: Partial<VisualSearch> | null }> = {}) {
   const calls: string[] = [];
-  const asked: { products: ProductId[]; signal?: AbortSignal; embedded?: ImageBytes; query?: ImageBytes; detail?: Readonly<{ kind: string; image: ImageBytes }> } = { products: [] };
+  const asked: { products: ProductId[]; signal?: AbortSignal; embedSignal?: AbortSignal; readSignal?: AbortSignal; readIds: ImageId[][]; embedded?: ImageBytes; query?: ImageBytes; detail?: Readonly<{ kind: string; image: ImageBytes }> } = { products: [], readIds: [] };
   const called = <T>(name: string, value: T): T => { calls.push(name); return value; };
   const visual: VisualSearch = {
     model: "openai/test" as EmbeddingModel, candidates: 5, minConfidence: 0.8 as MatchConfidence,
     hasIndexedProducts: async () => called("hasIndexedProducts", ok(true)),
-    embedImage: async (embedded) => { asked.embedded = embedded; return called("embedImage", ok([0.1, 0.2] as unknown as EmbeddingVector)); },
+    embedImage: async (embedded, signal) => { asked.embedded = embedded; asked.embedSignal = signal; return called("embedImage", ok([0.1, 0.2] as unknown as EmbeddingVector)); },
     brightenDimPhoto: async () => null,
     cropPostPhoto: async () => null,
     findNearestProductImages: async () => called("findNearestProductImages", ok([candidate(productP, 1), candidate(productQ, 2)])),
-    readImage: async () => called("readImage", ok(image)),
+    readImages: async (ids, signal) => { asked.readIds.push([...ids]); asked.readSignal = signal; return called("readImages", ok(ids.map(() => ok(image)))); },
     chooseProduct: async (input, signal) => { Object.assign(asked, { signal, products: input.candidates.map(({ productId }) => productId), query: input.query, detail: input.detail }); return called("chooseProduct", ok({ kind: "product", productId: productP, confidence: 0.9 as MatchConfidence, showsProduct: 0.95 })); },
     ...options.visual,
   };
@@ -58,7 +58,7 @@ describe("identifyProductsInImage", () => {
   test("runs visual search when the image has no QR code", async () => {
     const h = harness();
     expect(await h.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
-    expect(h.calls).toEqual(["readQrCodes", "hasIndexedProducts", "embedImage", "findNearestProductImages", "readImage", "readImage", "chooseProduct"]);
+    expect(h.calls).toEqual(["readQrCodes", "hasIndexedProducts", "embedImage", "findNearestProductImages", "readImages", "chooseProduct"]);
   });
 
   test("passes the attempt's signal to the visual chooser", async () => {
@@ -66,6 +66,32 @@ describe("identifyProductsInImage", () => {
     const signal = new AbortController().signal;
     await h.run(signal);
     expect(h.asked.signal).toBe(signal);
+  });
+
+  test("the embedder receives the signal of the identification", async () => {
+    const h = harness();
+    const signal = new AbortController().signal;
+    await h.run(signal);
+    expect(h.asked.embedSignal).toBe(signal);
+  });
+
+  test("candidate images are read with one record lookup and their storage reads receive the signal", async () => {
+    const h = harness();
+    const signal = new AbortController().signal;
+    await h.run(signal);
+    expect(h.calls.filter((call) => call === "readImages")).toHaveLength(1);
+    expect(h.asked.readIds).toEqual([[id(11), id(12)]]);
+    expect(h.asked.readSignal).toBe(signal);
+  });
+
+  test("an aborted signal ends the stage without a chooser call", async () => {
+    const controller = new AbortController();
+    const h = harness({ visual: { readImages: async (ids) => { controller.abort(); return ok(ids.map(() => ok(image))); } } });
+    expect(await h.run(controller.signal)).toMatchObject({ success: false, error: { code: "DEADLINE_EXCEEDED" } });
+    expect(h.calls).not.toContain("chooseProduct");
+    const before = harness();
+    expect(await before.run(AbortSignal.abort())).toMatchObject({ success: false, error: { code: "DEADLINE_EXCEEDED" } });
+    expect(before.calls).not.toContain("chooseProduct");
   });
 
   test("returns not product without calling visual search when the image only has non-product QR codes", async () => {
@@ -97,10 +123,10 @@ describe("identifyProductsInImage", () => {
   });
 
   test("drops candidates whose image no longer exists and asks the model with the rest", async () => {
-    const h = harness({ visual: { readImage: async (imageId) => imageId === id(12) ? err({ code: "IMAGE_NOT_FOUND", message: "gone" }) : ok(image) } });
+    const h = harness({ visual: { readImages: async (ids) => ok(ids.map((imageId) => imageId === id(12) ? err({ code: "IMAGE_NOT_FOUND" as const, message: "gone" }) : ok(image))) } });
     expect(await h.run()).toMatchObject({ success: true, data: { kind: "found", candidates: 1 } });
     expect(h.asked.products).toEqual([productP]);
-    const none = harness({ visual: { readImage: async () => err({ code: "IMAGE_NOT_FOUND", message: "gone" }) } });
+    const none = harness({ visual: { readImages: async (ids) => ok(ids.map(() => err({ code: "IMAGE_NOT_FOUND" as const, message: "gone" }))) } });
     expect(await none.run()).toEqual(ok({ kind: "not_found", reason: "no_indexed_products" }));
   });
 
@@ -163,7 +189,7 @@ describe("identifyProductsInImage", () => {
       [{ embedImage: async () => err({ code: "INVALID_EMBEDDING", message: "x" }) }, "INVALID_EMBEDDING"],
       [{ chooseProduct: async () => err({ code: "PRODUCT_MATCHER_UNAVAILABLE", message: "x" }) }, "PRODUCT_MATCHER_UNAVAILABLE"],
       [{ chooseProduct: async () => err({ code: "INVALID_MATCHER_RESPONSE", message: "x" }) }, "INVALID_MATCHER_RESPONSE"],
-      [{ readImage: async () => err({ code: "IMAGE_STORAGE_UNAVAILABLE", storageCode: "IMAGE_STORAGE_UNAVAILABLE", message: "x" }) }, "IMAGE_STORAGE_UNAVAILABLE"],
+      [{ readImages: async (ids) => ok(ids.map(() => err({ code: "IMAGE_STORAGE_UNAVAILABLE" as const, storageCode: "IMAGE_STORAGE_UNAVAILABLE" as const, message: "x" }))) }, "IMAGE_STORAGE_UNAVAILABLE"],
       [{ findNearestProductImages: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "x" }) }, "PERSISTENCE_UNAVAILABLE"],
     ];
     for (const [visual, code] of failures) expect(await harness({ visual }).run()).toMatchObject({ success: false, error: { code } });

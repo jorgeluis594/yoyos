@@ -13,7 +13,7 @@ export function summaryOf(records: readonly CaseRecord[]): CaseRecord {
 
 /** A record with no input, product, judge reason or error text: only scores and counts remain. */
 export function redacted(record: CaseRecord): CaseRecord {
-  return { ...record, caseId: "", baseId: "", kind: "", tags: [], input: "", expected: null, actual: null, signature: "", certainties: [], noticeProducts: [], previousOrder: [],
+  return { ...record, caseId: "", baseId: "", kind: "", tags: [], input: "", expected: null, actual: null, signature: "", certainties: [], readerAnswer: null, invalidReasons: null, noticeProducts: [], previousOrder: [],
     conversationId: null, judge: record.judge ? { ...record.judge, reason: "" } : null, error: record.error ? "error" : null };
 }
 

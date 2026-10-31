@@ -57,7 +57,7 @@ describe("seeding the start of a case", () => {
     const state = await seen(chatId);
 
     expect(state.target).toEqual({ kind: "none" });
-    expect(state.stored).toEqual({ pendings: [], readyRemembered: false });
+    expect(state.stored).toEqual({ pendings: [], readyRemembered: false, lastIncomingPhoto: null });
   });
 
   test("an order is open with its lines and quantities", async () => {
@@ -81,6 +81,13 @@ describe("seeding the start of a case", () => {
     expect(target.kind === "open" && stored.pendings.every((pending) => pending.order?.orderId === target.order.id)).toBe(true);
     expect(life.alive).toHaveLength(2);
     expect(life.ended).toEqual([]);
+  });
+
+  test("a seeded order leaves no photo just sent: the label photos that built it are not remembered", async () => {
+    const { chatId } = await seedChatStart(start({ order: [line("camisa", { Color: "Negro", Talla: "M" })] }), "private");
+    const { stored } = await seen(chatId);
+
+    expect(stored.lastIncomingPhoto).toBeNull();
   });
 
   test("pendings without an order stay orderless and alive", async () => {

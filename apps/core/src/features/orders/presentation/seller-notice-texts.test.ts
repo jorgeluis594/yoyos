@@ -159,4 +159,46 @@ describe("renderSellerNotice with the single reader", () => {
     expect(es(notice(null)).body).toBe("Un cliente escribió algo que no pudimos aplicar a un pedido.");
     expect(pt(notice(order(9))).body).toBe("Um cliente escreveu algo que não conseguimos aplicar a um pedido.");
   });
+
+  describe("payment request", () => {
+    const payment = (orderState: Extract<SellerNotice, { kind: "payment_request" }>["order"], productIds: ProductId[] = [], unnamed = 0, newOrderId: OrderId | null = null): SellerNotice =>
+      ({ kind: "payment_request", order: orderState, productIds, unnamed, newOrderId });
+    const open = { kind: "open", orderId: order(1) } as const;
+    const closed = { kind: "closed", orderId: order(1) } as const;
+    const none = { kind: "none" } as const;
+
+    test("renders every payment request body in es and pt-BR", () => {
+      expect(es(payment(open))).toMatchObject({ title: "Revisa el chat", body: "Un cliente quiere pagar el pedido #1023.", data: { target: "message" } });
+      expect(pt(payment(open))).toMatchObject({ title: "Veja o chat", body: "Um cliente quer pagar o pedido #1023." });
+      expect(es(payment(none)).body).toBe("Un cliente quiere pagar.");
+      expect(pt(payment(none)).body).toBe("Um cliente quer pagar.");
+      expect(es(payment(closed)).body).toBe("Un cliente quiere pagar, pero el pedido #1023 ya tiene un pago o está cerrado. Revisa el chat.");
+      expect(pt(payment(closed)).body).toBe("Um cliente quer pagar, mas o pedido #1023 já tem um pagamento ou está fechado. Veja o chat.");
+      expect(es(payment(open, [product(1)])).body).toBe("Un cliente quiere pagar el pedido #1023, pero falta completar Polo básico.");
+      expect(pt(payment(open, [product(1)])).body).toBe("Um cliente quer pagar o pedido #1023, mas falta completar Polo básico.");
+      expect(es(payment(none, [product(1), product(2)])).body).toBe("Un cliente quiere pagar, pero falta completar Polo básico y Polo premium.");
+      expect(pt(payment(none, [product(1), product(2)])).body).toBe("Um cliente quer pagar, mas falta completar Polo básico e Polo premium.");
+    });
+
+    test("lists up to three names and counts the rest and the unnamed pendings", () => {
+      expect(es(payment(open, [product(1), product(2), product(3), product(4)], 1)).body)
+        .toBe("Un cliente quiere pagar el pedido #1023, pero falta completar Polo básico, Polo premium, Gorra y 2 más.");
+      expect(pt(payment(none, [], 2)).body).toBe("Um cliente quer pagar, mas falta completar 2 produtos.");
+    });
+
+    test("the closed-order payment body is used whether or not a pending is left", () => {
+      expect(es(payment(closed, [product(1)])).body).toBe(es(payment(closed)).body);
+    });
+
+    test("a payment request that created a new order ends with the new-order note", () => {
+      expect(es(payment(open, [], 0, order(2))).body).toBe("Un cliente quiere pagar el pedido #1023. Se creó el pedido nuevo #1024.");
+      expect(pt(payment(open, [], 0, order(2))).body).toBe("Um cliente quer pagar o pedido #1023. Foi criado o novo pedido #1024.");
+    });
+
+    test("a payment request on a deleted order renders the body without an order", () => {
+      expect(es(payment({ kind: "open", orderId: order(99) })).body).toBe("Un cliente quiere pagar.");
+      expect(es(payment({ kind: "closed", orderId: order(99) }, [product(1)])).body).toBe("Un cliente quiere pagar, pero falta completar Polo básico.");
+      expect(pt(payment({ kind: "open", orderId: order(99) })).body).toBe("Um cliente quer pagar.");
+    });
+  });
 });

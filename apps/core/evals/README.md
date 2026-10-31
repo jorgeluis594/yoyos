@@ -28,10 +28,10 @@ and only `smoke.eval.ts` runs. It refuses to run when `CI` is set, and it is not
 | `EVAL_MAX_CASES` | Hard cap of cases per run, taken round-robin over the passes; unset runs all. |
 | `EVAL_CASES` | Comma-separated case ids; a base id also selects its paraphrases. |
 | `EVAL_REPEATS` | Runs of each repeated case (default 3; 1 turns the repeats off). |
-| `EVAL_REPEAT_TAGS` | Comma-separated tags whose cases are repeated (default `consistency`; `consistency,pinned-miss` also repeats the pinned misses). The first run is the one every gate counts; flips are reported apart. |
+| `EVAL_REPEAT_TAGS` | Comma-separated tags whose cases are repeated (default `consistency`; `consistency,pinned-miss` also repeats the pinned misses; `all` repeats every case). The first run is the one every gate counts; flips are reported apart. |
 | `EVAL_PRIVATE_DIR` | Absolute path of a folder outside the repository with a private `catalog.json` and `cases.json` (see «Private files format»). Set it in the shell. |
 | `EVAL_SKIP_PARAPHRASES` | `1` runs base cases only. |
-| `EVAL_SPLIT` | `dev`, `test` or `all` (default): the split of the cases to run (see «Dev and test splits»). |
+| `EVAL_SPLIT` | `dev`, `test` or `all` (default): the split of the cases to run (see «Dev and test splits»). With `dev` and no `EVAL_PRIVATE_DIR`, records also keep the reader's raw answer and the invalid action reasons (see «Report»). |
 | `EVAL_IMAGES_DIR` | Photo folder with its `manifest.json`, relative to `apps/core` (default `evals/fixtures/images`). |
 | `EVAL_LOCAL_IMAGES_DIR` | Local, gitignored folder of real captures with its own manifest, merged at run time (default `evals/fixtures/images-local`). Never commit real captures. |
 
@@ -41,8 +41,8 @@ The local image embedder needs its model files: `pnpm --dir apps/core models:fet
 
 Every model eval calls OpenAI and, for judged cases and the failure grouping, Anthropic; both are billed to the keys' accounts.
 The run summary prints the number of model calls by the system and to Claude, tokens and an estimated cost per model. Prices
-are constants in `lib/model-meter.ts` with the date they were checked; a model without a price is reported as unknown, never
-as free. Run evals on purpose, never in a loop.
+of the system's models come from `src/shared/infrastructure/model-prices.ts`, the one table production reads too, and Claude's are constants
+in `lib/model-meter.ts` with the date they were checked; a model without a price is reported as unknown, never as free. Run evals on purpose, never in a loop.
 
 ## What runs and what is faked
 
@@ -97,7 +97,7 @@ prompts and rules on `EVAL_SPLIT=dev` (with `EVAL_CASES` and tags for subsets) a
 never while tuning. A full run (`all`) is read per split with `EVAL_SPLIT=dev pnpm exec tsx evals/scripts/rebuild-report.ts
 eval-results/<run>.json`, which writes `<run>.dev.json` and leaves the run as it is (the classifier's cost stays in the run).
 `cases/holdout-v1.ts` is the first holdout, used once to judge T16: it is now an ordinary table, split like the others; its
-`probe` rows target risks beyond the design and are reported under `tag:probe`.
+`probe` rows target risks beyond the documented rules and are reported under `tag:probe`.
 
 ## Pinned misses
 
@@ -142,7 +142,15 @@ Notice kind, outcomes (as a multiset), product, variant, quantity and mentioned 
 that unit prices are the catalog prices. A case passes when it matches one acceptable expectation. A doubt is always a notice, so no
 outcome stands in for `no_intent` when the reader is unsure. Claude judges only message cases with several acceptable expectations or marked `ambiguous`, with a `{pass, score,
 reason}` verdict; for an `ambiguous` case the judge's pass also counts. Price integrity can never be overruled by the judge.
-Besides pass or fail, each message is counted for the acceptance gate of the product draft:
+The cases state the shipped design (`payment_request`, `order_closed`); the fallback that may ship instead never decides a gate by case
+alternatives but by a scoring rule (`lib/shipped-expectations.ts`), which reads `shippedReaderFeatures` of
+`src/features/orders/infrastructure/shipped-reader-features.ts` and rewrites what every message case and conversation step expects before
+matching, repository tables and private folders alike. With `paymentRequest` off, an expected notice `payment_request` becomes `not_applied`
+and an expected outcome `payment_requested` becomes `request_not_allowed`. With `closedOrderLine` off, an expectation whose notice is
+`order_closed` also accepts notice `not_applied` with the same order and its outcomes unstated. The alternative lives inside the exact matcher
+only: whether the judge looks at a case is decided from the case as written, so the rule adds no judge call. The report header says which
+variant was scored.
+Besides pass or fail, each message is counted for the acceptance gate:
 
 - **Ignored action**: something the buyer asked for (a change, «listo» or a pending) that produced neither its effect nor any notice
   for the message, counted per action. A removal applied with «listo» lost and no notice is one. With outcomes stated, each asked
@@ -155,11 +163,19 @@ Besides pass or fail, each message is counted for the acceptance gate of the pro
 ## Report
 
 `eval-results/<run>.json` holds `report` and every case `record` (input, expected, actual, fields, judge verdict, the visual-search
-certainties with their gate, the counts above, latency, retries, model calls with cached and reasoning tokens). The report has:
+certainties with their gate, the counts above, latency, retries, model calls with cached and reasoning tokens). Every record says whether it
+is a photo case (a run from before this field rebuilds with an empty photo partition: all its messages count as without photo). In a dev-split run that is not private (diagnostics on), a record also keeps `readerAnswer`, the reader's raw answer
+before validation, and `invalidReasons`, the reasons of the `invalid_action` outcomes; in a test-split, all-split or private run both are `null`. The report has:
 
-- **The gate**, over the first run of each scored message, whole and per family (`kind`): right count and percentage, ignored actions,
-  conversations with two notices for one product, wrong silent changes, extra notices as a share of the messages expected silent.
+- **The gate**, over the first run of each scored message, whole, without photo cases (`gate.withoutPhoto`), for photo cases only
+  (`gate.photo`) and per family (`kind`): right count and percentage, ignored actions, conversations with two notices for one product,
+  wrong silent changes, extra notices as a share of the messages expected silent. A photo case is a message with a photo; a conversation
+  with a photo in any step counts all its records as photo case (`photoCase` of the record);
   Repeated runs (see `EVAL_REPEAT_TAGS`) never count toward it; cases whose repeats gave another result are listed as flips apart;
+- **consistency**: of the repeated cases, how many gave one result (one signature) in every run, whole and per family;
+- **tag metrics** (`tagMetrics`), counts without case ids: silent adds on messages tagged `question-caption`, payment requests that ended
+  inside a several-problems count, and the notices by kind (`noticesByKind`, `none` for a silent message); the header carries the
+  `shippedReaderFeatures` scored;
 - the cost per scored message against the US$0.003 target (a reported target, not a gate) with input, cached, output and reasoning
   tokens, the p95 latency per message, and the model calls per message kind (text, photo, photo with caption) against what the
   design allows (the reader and the vision chooser are not told apart);
@@ -182,8 +198,11 @@ tags applied; Claude's error groups and cost are kept. The first rebuild keeps t
 With `EVAL_PRIVATE_DIR` set, only the private cases of each pass run, against a second eval company seeded with the private catalog
 (its ids are separate from the committed company's). Its catalog counts as searchable once it has active products. Records, the
 judge's and the classifier's output and the report go under `<dir>/runs/` and nowhere else. The test names are «case N», the
-vitest-evals report carries scores only, and stdout prints the aggregate gate lines (whole run and per family), cost and latency:
-no case id, case text, product or judge reason. Photo cases and photo files are not available in a private run.
+vitest-evals report carries scores only, and stdout prints the aggregate gate lines (whole run, without photo cases, photo cases and per
+family), consistency, silent adds on question captions, payment requests inside a count, notices by kind, cost and latency: no case id, case
+text, product or judge reason. Photos described in text run and are reported apart as photo cases; photo files are not available in a private
+run. Before a run, `pnpm exec tsx evals/scripts/check-private.ts <dir>` validates the two files with the loader and prints counts (cases per
+pass, photo cases): no model call and no case text.
 
 ## Private files format
 
@@ -203,7 +222,8 @@ true) and `variants` (non-empty list). A variant has `attributes` (an object who
   acceptable expectations), and optionally `ambiguous` (a string). `input` has either `text` or `photo`, plus `caption` only with a
   photo, and the chat's starting state before the message, all optional: `order` (the open order: a list of order lines, default
   empty), `pendings` (a list of pendings, default empty) and `orderState` (only `"closed"`). A `photo` is `{ shows }` with a product
-  `key` of the catalog or `not_product`, plus optional `label` (an attributes object: the photo is a printed label of that variant).
+  `key` of the catalog, `not_product` or `not_found` (the photo is described as matched to nothing; no label), plus optional `label` with a
+  product `key` (an attributes object: the photo is a printed label of that variant).
 - A conversation has `steps`: a list with 2 to 4 message steps and any number of event steps. Next to `steps` it may have the same
   starting state, applied before the first step: `order`, `pendings` and `orderState` (same fields and values as in a message
   case's `input`). A message step has `input` (as above, with no `order`, `pendings` or `orderState`), `expected` and optionally
@@ -230,7 +250,7 @@ true) and `variants` (non-empty list). A variant has `attributes` (an object who
 - An expectation has `notice` (a seller notice kind or `null` for silent), and optionally `order` (the open order after the message;
   absent means unchanged) and `outcomes` (a list of outcome kinds, as a multiset). A message case needs `notice` or `outcomes`; a
   conversation step always has `notice`.
-- Seller notice kinds: `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `unnamed_add`, `variant_only`, `image_with_request`, `no_open_order`, `failed`, `order_closed`, `several_problems`, `only_item_kept`, `ready`, `new_order`, `not_applied`, `caption_not_applied`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`.
-- Outcome kinds: `added`, `removed`, `quantity_lowered`, `quantity_changed`, `variant_changed`, `mentioned_price_set`, `ready`, `only_item_kept`, `order_closed`, `no_intent`, `variant_only`, `unnamed_add`, `image_with_request`, `no_open_order`, `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `new_order_after_closed`, `failed`, `pending_created`, `pending_updated`, `pending_completed`, `pending_split`, `pending_ended`, `reader_doubt`, `request_not_allowed`, `invalid_action`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`, `caption_not_applied`.
+- Seller notice kinds: `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `unnamed_add`, `variant_only`, `image_with_request`, `no_open_order`, `failed`, `order_closed`, `several_problems`, `only_item_kept`, `ready`, `new_order`, `not_applied`, `caption_not_applied`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`, `payment_request`.
+- Outcome kinds: `added`, `removed`, `quantity_lowered`, `quantity_changed`, `variant_changed`, `mentioned_price_set`, `ready`, `only_item_kept`, `order_closed`, `no_intent`, `variant_only`, `unnamed_add`, `image_with_request`, `no_open_order`, `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `new_order_after_closed`, `failed`, `pending_created`, `pending_updated`, `pending_completed`, `pending_split`, `pending_ended`, `reader_doubt`, `request_not_allowed`, `invalid_action`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`, `caption_not_applied`, `payment_requested`.
 
 Every product named by a case must exist in `catalog.json`. A file inside the repository, or reached through a link into it, is refused.

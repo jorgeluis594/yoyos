@@ -12,7 +12,7 @@ type PrismaState = {
   companies: AsyncLocalStorage<string>;
   transactions: AsyncLocalStorage<TransactionScope>;
 };
-/** The adapter ignores URL pool parameters, so the pool size comes from DATABASE_POOL_MAX (worker 24, web server unset = driver default 10). */
+/** The adapter ignores URL pool parameters, so the pool size comes from DATABASE_POOL_MAX (worker 28, web server unset = driver default 10). */
 export function prismaPoolConfig(env: Record<string, string | undefined> = process.env): { connectionString: string; max?: number } {
   const connectionString = env.DATABASE_URL ?? "";
   const configured = env.DATABASE_POOL_MAX;

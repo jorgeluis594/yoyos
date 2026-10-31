@@ -1,7 +1,7 @@
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
 import { applyChatActions, type ChatOrderLimits, type ChatOrderTarget, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
-import { pendingLife } from "@core/src/features/orders/domain/chat-pendings";
+import { pendingLife, type PhotoLeft } from "@core/src/features/orders/domain/chat-pendings";
 import { checkReaderAnswer, type ChatReadingContext, type ReaderAction, type ReaderAnswer, type ReadingItem, type ReadingProduct } from "@core/src/features/orders/domain/chat-reading";
 import type { ChatPending, ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
@@ -34,9 +34,12 @@ const combinations = (attributes: Attributes): readonly Readonly<Record<string, 
   Object.entries(attributes).reduce<readonly Readonly<Record<string, string>>[]>(
     (rows, [name, values]) => rows.flatMap((row) => values.map((value) => ({ ...row, [name]: value }))), [{}]);
 
+/** The key products supplies with a product: lower case without accents (the fixtures stand in for `productNameKey`). */
+export const nameKeyOf = (name: string) => name.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
 const buildProduct = (key: ProductKey, index: number): ReadingProduct => {
   const spec: ProductSpec = specs[key];
-  return { ref: `P${index + 1}`, shown: false, shownVariantId: null, identification: null, productId: id(100 + index) as ProductId, name: spec.name, sellable: true,
+  return { ref: `P${index + 1}`, shown: false, shownVariantId: null, identification: null, productId: id(100 + index) as ProductId, name: spec.name, nameKey: nameKeyOf(spec.name), sellable: true,
     attributes: Object.entries(spec.attributes).map(([name, values]) => ({ name, values })),
     variants: combinations(spec.attributes).map((variantAttributes, variant) => ({ variantId: id(1000 + index * 20 + variant) as VariantId, productName: spec.name,
       variantAttributes, sku: null, unitPrice: money(spec.price) })) };
@@ -69,6 +72,11 @@ export const reader = {
     ({ kind: "complete_pending", pending: `Q${pending}`, product: product ? catalog[product].ref : null, attributes: choices(attributes), quantity, price }),
   decline: (pending: number): ReaderAction => ({ kind: "decline_pending", pending: `Q${pending}` }),
   ready: { kind: "ready" } as ReaderAction,
+  payment: { kind: "payment_request" } as ReaderAction,
+  notAllowed: { kind: "not_allowed" } as ReaderAction,
+  /** A quantity change on an item (`I1…`), a pending (`Q1…`) or no named line. */
+  change: (target: `I${number}` | `Q${number}` | "unnamed" | "not_in_order", mode: "increase" | "set" | "decrease", quantity: number): ReaderAction => ({ kind: "change_quantity", mode, quantity,
+    target: target === "unnamed" || target === "not_in_order" ? { kind: target } : target.startsWith("Q") ? { kind: "pending", ref: target } : { kind: "ref", ref: target } }),
   say: (...actions: ReaderAction[]): ReaderAnswer => {
     const [first, ...rest] = actions;
     if (!first) throw new Error("An answer needs an action");
@@ -78,6 +86,8 @@ export const reader = {
 export const stated = (amount: string, per: StatedPrice["per"] = "not_explicit"): StatedPrice => ({ amount, currency: "not_named", per });
 
 export type Reading = Readonly<{ kind?: ChatReadingContext["kind"]; shown?: readonly (readonly [ProductKey, Readonly<Record<string, string>>?])[]; captionDoubt?: boolean; after?: number;
+  /** What the photo just sent left, as the use case would give it to the reader. */
+  photoJustSent?: PhotoLeft | null;
   /** The pendings the transaction finds under the lock, when they differ from the ones the reader saw. */
   underLock?: ChatPendings }>;
 export type Said = Readonly<{ outcomes: readonly ChatMessageOutcome[]; kinds: readonly ChatMessageOutcome["kind"][]; actions: readonly ResolvedChatAction[] }>;
@@ -89,7 +99,7 @@ export type ChatStart = Readonly<{ items?: readonly (readonly [ProductKey, Reado
 export function createChat(start: ChatStart = {}) {
   let now = t0;
   let counter = 500;
-  let pendings: ChatPendings = { pendings: start.pendings ?? [], readyRemembered: start.readyRemembered ?? false };
+  let pendings: ChatPendings = { pendings: start.pendings ?? [], readyRemembered: start.readyRemembered ?? false, lastIncomingPhoto: null };
   /** Every order of the chat, oldest first; the last one is the chat's latest. */
   let orders: OrderAggregate[] = start.orders ? [...start.orders] : start.items?.length ? [orderOf(start.items)] : [];
   const unsellable = new Set(start.unsellable ?? []);
@@ -99,7 +109,7 @@ export function createChat(start: ChatStart = {}) {
 
   const latest = (): OrderAggregate | null => orders.at(-1) ?? null;
   const readingItems = (): readonly ReadingItem[] => (latest()?.items ?? []).map((item, index) => ({ ref: `I${index + 1}`, variantId: item.variantId, productId: productByVariant.get(item.variantId) ?? null,
-    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice }));
+    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice, photoJustSent: false }));
 
   const productsFor = (reading: Reading): readonly ReadingProduct[] => productKeys.filter((key) => !deleted.has(key)).map((key) => {
     const shown = reading.shown?.find(([shownKey]) => shownKey === key);
@@ -126,8 +136,8 @@ export function createChat(start: ChatStart = {}) {
     get now() { return now; },
     advance(ms: number) { now = new Date(now.getTime() + ms); },
     context(reading: Reading = {}): ChatReadingContext {
-      return { kind: reading.kind ?? (reading.shown ? "photo_product" : "text"), text: "message", items: readingItems(), products: productsFor(reading), truncated: false,
-        pendings: pendings.pendings.map((pending, index) => ({ ref: `Q${index + 1}`, pending })) };
+      return { kind: reading.kind ?? (reading.shown ? "photo_product" : "text"), text: "message", latestOrder: target().kind === "open" ? "open" : target().kind === "closed" ? "closed" : "none", items: readingItems(), photoJustSent: reading.photoJustSent ?? null, products: productsFor(reading), truncated: false,
+        pendings: pendings.pendings.map((pending, index) => ({ ref: `Q${index + 1}`, pending, photoJustSent: false })) };
     },
     say(answer: ReaderAnswer, reading: Reading = {}): Said {
       if (reading.after) now = new Date(now.getTime() + reading.after);

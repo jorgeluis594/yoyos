@@ -1,7 +1,9 @@
-/** Limits of the message candidate search (technical design §5.3). */
+/** Limits of the message candidate search (docs/message-to-order.md, «What the reader receives and returns», candidates for a text). */
 export type TextMatchLimits = Readonly<{
-  /** Products returned. */
+  /** Sellable products returned. */
   candidates: number;
+  /** Products with no active variant returned, beside a sellable product of the company. */
+  unavailableCandidates: number;
   /** A (word, name) pair matches from this `word_similarity`. */
   minSimilarity: number;
   /** Words × company products the statement may compare. */
@@ -10,8 +12,8 @@ export type TextMatchLimits = Readonly<{
   maxWords: number;
 }>;
 
-/** The pair budget is 25,000, not the design's 40,000: measured as core_app with forced RLS, a pair costs about 4.5 µs on the dev host, not 3 µs. T10 may change these by measurement. */
-export const defaultTextMatchLimits: TextMatchLimits = { candidates: 8, minSimilarity: 0.3, pairBudget: 25_000, minWords: 3, maxWords: 30 };
+/** The pair budget is 25,000, not 40,000: measured as core_app with forced RLS, a pair costs about 4.5 µs on the dev host, not 3 µs. T10 may change these by measurement. */
+export const defaultTextMatchLimits: TextMatchLimits = { candidates: 8, unavailableCandidates: 2, minSimilarity: 0.3, pairBudget: 25_000, minWords: 3, maxWords: 30 };
 
 const minWordLength = 3;
 

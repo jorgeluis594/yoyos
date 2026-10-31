@@ -1,5 +1,5 @@
 import type { ChatReadingContext, ReadingProduct } from "@core/src/features/orders/domain/chat-reading";
-import type { ChatPending } from "@core/src/features/orders/domain/chat-pendings";
+import type { ChatPending, PhotoLeft } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order-target";
 import type { ProductIdentification } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -15,12 +15,14 @@ export type ProductSelectionInput = Readonly<{
   itemProductIds: readonly ProductId[];
   /** Products whose name matches the text, best first. */
   candidateIds: readonly ProductId[];
+  /** Products with no active variant that the text names, best first: the lowest priority, so the budget drops them first. */
+  unavailableIds?: readonly ProductId[];
   maxProducts: number;
 }>;
 
 /**
  * The products the reader gets, in priority order and without repeats, cut at the ceiling:
- * shown products, variant pendings' products, doubtful pendings' candidates round robin, items' products, then the text candidates.
+ * shown products, variant pendings' products, doubtful pendings' candidates round robin, items' products, the text candidates, then the not-sellable candidates.
  */
 export function selectReadingProducts(input: ProductSelectionInput): Readonly<{ productIds: readonly ProductId[]; truncated: boolean }> {
   const wanted = new Set<ProductId>();
@@ -31,6 +33,7 @@ export function selectReadingProducts(input: ProductSelectionInput): Readonly<{ 
   for (let round = 0; round < rounds; round += 1) for (const candidates of doubtful) if (candidates[round]) wanted.add(candidates[round]!);
   for (const productId of input.itemProductIds) wanted.add(productId);
   for (const productId of input.candidateIds) wanted.add(productId);
+  for (const productId of input.unavailableIds ?? []) wanted.add(productId);
   const all = [...wanted];
   return { productIds: all.slice(0, input.maxProducts), truncated: all.length > input.maxProducts };
 }
@@ -46,12 +49,17 @@ export type ReadingContextInput = Readonly<{
   found: readonly ProductForReading[];
   truncated: boolean;
   maxItems: number;
+  /** What the photo just sent left, still alive; always null for a photo message. */
+  photoJustSent: PhotoLeft | null;
 }>;
 
 /** The items listed to the reader: at most `maxItems`, with the product of each. */
 export function listedItems(target: ChatOrderTarget, maxItems: number) {
   return target.kind === "open" ? target.order.items.slice(0, maxItems).map((item) => ({ item, productId: target.productIds.get(item.variantId) ?? null })) : [];
 }
+
+/** The reader is told about the latest order only as open, closed or none: a cancelled order counts as none. */
+const latestOrderOf = (target: ChatOrderTarget): ChatReadingContext["latestOrder"] => (target.kind === "open" ? "open" : target.kind === "closed" ? "closed" : "none");
 
 /** Gives short refs (P1, I1, Q1) to what the reader is shown; they are valid for this reading only. */
 export function buildReadingContext(input: ReadingContextInput): ChatReadingContext {
@@ -63,8 +71,9 @@ export function buildReadingContext(input: ReadingContextInput): ChatReadingCont
     const shown = shownById.get(productId);
     return [{ ...product, ref: "", shown: shown !== undefined, shownVariantId: shown?.preselectedVariantId ?? null, identification: shown?.identification ?? null }];
   }).map((product, index) => ({ ...product, ref: `P${index + 1}` }));
+  const left = input.photoJustSent;
   const items = listedItems(input.target, input.maxItems).map(({ item, productId }, index) => ({ ref: `I${index + 1}`, variantId: item.variantId, productId,
-    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice }));
-  const pendings = input.pendings.map((pending, index) => ({ ref: `Q${index + 1}`, pending }));
-  return { kind: input.kind, text: input.text, items, pendings, products, truncated: input.truncated };
+    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity, unitPrice: item.unitPrice, photoJustSent: left?.kind === "item" && left.variantId === item.variantId }));
+  const pendings = input.pendings.map((pending, index) => ({ ref: `Q${index + 1}`, pending, photoJustSent: left?.kind === "pending" && left.pendingId === pending.id }));
+  return { kind: input.kind, text: input.text, latestOrder: latestOrderOf(input.target), items, pendings, products, photoJustSent: input.kind === "text" ? left : null, truncated: input.truncated };
 }
