@@ -37,13 +37,11 @@ const cents = (expression: Prisma.Sql, filter: Prisma.Sql = Prisma.sql`true`) =>
  * the pending reports of the current window and whether the store has any visible order. A not cancelled order feeds sales, received, owed and overpaid; a cancelled one
  * feeds only the cancelled counters. Bounds are untyped parameters, never `::timestamptz`: under the forced RLS policy that comparison is not leakproof and loses the index.
  */
-export async function readSalesFigures(input: SummarizeSalesInput, companyId: CompanyId): Promise<Result<SalesSummary, SalesReadFailure>> {
-  if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+export function salesFiguresStatement(input: SummarizeSalesInput, companyId: CompanyId): Prisma.Sql {
   const { current, previous } = input;
-  try {
-    const balance = orderBalance(Prisma.sql`w.total`, Prisma.sql`w.confirmed`);
-    const notCancelled = Prisma.sql`NOT w.cancelled`, cancelledOnly = Prisma.sql`w.cancelled`;
-    const rows = await prisma.$queryRaw<unknown[]>(Prisma.sql`
+  const balance = orderBalance(Prisma.sql`w.total`, Prisma.sql`w.confirmed`);
+  const notCancelled = Prisma.sql`NOT w.cancelled`, cancelledOnly = Prisma.sql`w.cancelled`;
+  return Prisma.sql`
       WITH win AS (
         SELECT o.id, o.currency, o.total, o."itemsTotal", o."deliveryCharge", o.cancelled, (o."createdAt" >= ${current.from} AND o."createdAt" < ${current.before}) AS "isCurrent"
         FROM "Order" o
@@ -74,7 +72,13 @@ export async function readSalesFigures(input: SummarizeSalesInput, companyId: Co
       FROM w WHERE w."isCurrent" AND NOT w.cancelled AND w.reports > 0
       UNION ALL
       SELECT 'exists', NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL,
-        EXISTS (SELECT 1 FROM "Order" o WHERE o."companyId" = ${companyId}::uuid AND ${visibleOrder})`);
+        EXISTS (SELECT 1 FROM "Order" o WHERE o."companyId" = ${companyId}::uuid AND ${visibleOrder})`;
+}
+
+export async function readSalesFigures(input: SummarizeSalesInput, companyId: CompanyId): Promise<Result<SalesSummary, SalesReadFailure>> {
+  if (getCompanyId() !== companyId) throw new Error("Order company differs from tenant context");
+  try {
+    const rows = await prisma.$queryRaw<unknown[]>(salesFiguresStatement(input, companyId));
     const parsed = z.array(salesRow).safeParse(rows);
     if (!parsed.success) {
       log.error({ event: "sales_summary_invalid_row", errorCode: "INVALID_STORED_ORDER" }, "Invalid sales summary row");
