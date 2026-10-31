@@ -1,10 +1,10 @@
 # Sales and best sellers in the AI assistant: technical design
 
-**Status:** draft with open questions. Based on [`docs/drafts/mcp-finances.md`](mcp-finances.md) (product definition closed at `177d3b0b`). Base: `jorgeluis594/mcp-3-4-finanzas-por-periodo-y-lo-mas-ve` at `177d3b0b`, on top of the merged MCP 1/4 and 2/4 documented in [AI assistants](../assistants.md).
+**Status:** draft, round 2 after review gate round 1 (rejected; section 18 lists how every finding was resolved); no open question. Based on [`docs/drafts/mcp-finances.md`](mcp-finances.md) (product definition closed at `177d3b0b`). Base: `jorgeluis594/mcp-3-4-finanzas-por-periodo-y-lo-mas-ve` at `177d3b0b`, on top of the merged MCP 1/4 and 2/4 documented in [AI assistants](../assistants.md).
 
 ## 1. Technical goal
 
-Core adds three read-only tools to the MCP server, `resumen_de_ventas`, `lo_mas_vendido` and `productos_sin_ventas`, in one new tool module that requires both current scopes (`orders:read` and `products:read`). Each call goes through the unchanged per-call pipeline (connection, tenant context, store limit, «Último uso», input validation), resolves a period of whole Lima days, reads aggregates over orders, items, payments, variants and stock in one budgeted RepeatableRead snapshot, and returns a strict Spanish projection within 24 KB. No scope literal is added, no connection ends, nothing is written and no contract in `shared/` changes.
+Core adds three read-only tools to the MCP server, `resumen_de_ventas`, `lo_mas_vendido` and `productos_sin_ventas`, in one new tool module that requires both current scopes (`orders:read` and `products:read`). Each call goes through the unchanged per-call pipeline (connection, tenant context, store limit, «Último uso», input validation), resolves a period of whole Lima days, reads aggregates over orders, items, payments, variants and stock in one budgeted RepeatableRead snapshot (4 to 5 statements, every one bounded by the windows read or by the catalog, section 7.1), and returns a strict Spanish projection within 24 KB. No scope literal is added, no connection ends, nothing is written and no contract in `shared/` changes.
 
 ```text
 agent ── tools/call ──▶ /mcp (unchanged transport, auth, limiter)
@@ -16,11 +16,12 @@ agent ── tools/call ──▶ /mcp (unchanged transport, auth, limiter)
    src/composition/assistant-sales-capabilities.ts
      sales read slot (2 per process) ─▶ orders.readSalesForAssistant (budgeted snapshot)
         ├─ catalogStorefront.describe            (store currency)
-        ├─ orders.summarizeSales                 (Order + Payment)
+        ├─ orders.summarizeSales                 (Order + Payment, one statement)
         ├─ orders.summarizeSoldVariants          (Order + OrderItem)
-        ├─ orders.findVariantSaleDates           (Order + OrderItem)
+        ├─ orders.summarizeVariantActivity       (Order + OrderItem, period + 183 days back)
+        ├─ orders.findVariantSaleDates           (OrderItem + Order, the page's variants only)
         ├─ products.describeVariantsForAssistant (Product + ProductVariant + values)
-        └─ products.listStockedForAssistant      (Product + ProductVariant + ProductStock)
+        └─ products.listStockedForAssistant      (Product + ProductVariant + ProductStock, one statement)
                  │
                  ▼
      pure projections in assistants/domain ─▶ strict output schema ─▶ ≤ 24 KB JSON
@@ -32,21 +33,24 @@ agent ── tools/call ──▶ /mcp (unchanged transport, auth, limiter)
 | --- | --- |
 | Tool module scopes | `ToolModule.scope` becomes `scopes: readonly [AssistantScope, ...AssistantScope[]]`. The registry offers a module's tools and paragraph only when the connection holds every scope of the module. Orders and products modules declare one scope each; the sales module declares both. No scope literal is added and `assistantScopes` is unchanged. |
 | Module | One module, `features/assistants/presentation/tools/sales-tools.ts`, with its own paragraph of server instructions, reading-failure text «No pudimos leer tus ventas en este momento. Inténtalo de nuevo en unos segundos.» and the too-many-orders text. |
-| Who owns each read | The orders feature owns every read that decides what a sale is (not cancelled, visible, created in the period): `summarizeSales`, `summarizeSoldVariants`, `findVariantSaleDates`, and the snapshot opener `readSalesForAssistant`. The products feature owns product identity, current names, combinations, the text match and stock: `describeVariantsForAssistant`, `listStockedForAssistant`. Orders returns variant ids; products never reads orders; the composition joins them in memory. |
-| Snapshot | One RepeatableRead snapshot per call opened by `orders.readSalesForAssistant`, with its own fixed budget `salesReadBudget = { maxWait: 1000, timeout: 10000, statementTimeoutMs: 1500, maxStatements: 6 }` and JIT off. The generic budgeted snapshot is extracted from `products/infrastructure/assistant-read.ts` to `src/shared/infrastructure/budgeted-snapshot.ts`, and products keeps its own constants. |
-| In-flight limit | At most 2 sales reads in flight per process, with a 300 ms wait for a slot, separate from the 3 product slots. The counting semaphore moves from `assistant-product-capabilities.ts` to `src/composition/assistant-read-slots.ts`. See question 1. |
+| Who owns each read | The orders feature owns every read that decides what a sale is (not cancelled, visible, created in the period): `summarizeSales`, `summarizeSoldVariants`, `summarizeVariantActivity`, `findVariantSaleDates`, and the snapshot opener `readSalesForAssistant`. The products feature owns product identity, current names, combinations, the text match and stock: `describeVariantsForAssistant`, `listStockedForAssistant`. Orders returns variant ids; products never reads orders; the composition joins them in memory. |
+| Snapshot | One RepeatableRead snapshot per call opened by `orders.readSalesForAssistant`, with its own fixed budget `salesReadBudget = { maxWait: 1000, timeout: 10000, statementTimeoutMs: 1500, maxStatements: 6 }` and JIT off. The budget is the same for every tool and is fixed here, not discovered in T1/T2 (section 11 counts the statements of every path: 4, 5 and 5, one statement of margin). The generic budgeted snapshot is extracted from `products/infrastructure/assistant-read.ts` to `src/shared/infrastructure/budgeted-snapshot.ts`; it classifies failures and reports them to an `onFailure` callback, and each caller logs its own event (products keeps `product_search_failed` and its own constants; sales logs in the composition guard). |
+| Statement counting | As memory 03011cbe: a counted statement is one that runs under the statement timeout, so the two `set_config` statements (tenant and timeout, `jit` off) and the storefront read count; `BEGIN`, `SET TRANSACTION` and `COMMIT` do not. Overhead is 2 statements, 3 with the storefront read. |
+| In-flight limit | At most 2 sales reads in flight per process, separate from the 3 product slots (question 1, option 1). A call waits up to 2,000 ms for a sales slot; the wait runs before any transaction, holds no pool connection and costs nothing in pool terms, so an agent that asks for the summary and the ranking in parallel, plus a third call, still gets all three answers at normal volume. Product slots keep their 300 ms. The counting semaphore moves from `assistant-product-capabilities.ts` to `src/composition/assistant-read-slots.ts` with the wait as a parameter. The slots are shared by every store in the process (section 11). |
 | Too many orders | The «demasiados pedidos» text is answered when the snapshot fails with `STATEMENT_TIMEOUT` and the period read has more than 31 days. `TRANSACTION_TIMEOUT` (pool wait or Prisma timer), `PERSISTENCE_UNAVAILABLE`, a 31-day-or-shorter period over budget and a busy slot answer the sales reading-failure text. Reason: the budget makes the statement limit fire before the transaction timer, so only a statement timeout means the period itself is too heavy. |
-| Maximum period | 366 days, constant `salesPeriodMaxDays` (initial value). The load check (section 14) runs the heaviest statement of each tool at the expected maximum volume; the value is lowered only if a 366-day read exceeds half its statement budget there. |
-| Expected maximum volume | 60,000 orders in 366 days (about 165 per day), 2 items and 1.2 payments per order, 3,000 products with 4 variants. Initial value, adjustable; above any current store and above the 50,000 orders `summarizeUnpaidOrders` was measured with. |
-| Index | `Order_companyId_createdAt_idx` on `"Order"("companyId", "createdAt")`, created concurrently. Reason: without it a period read scans the store's whole order history, so a month costs the same as five years and the 366-day rule could not be calibrated by period. It also serves the existing created-date filter and newest-first sort of **Buscar pedidos**. |
+| Maximum period | 366 days, constant `salesPeriodMaxDays` (initial value). Each tool's load check (section 14) runs every statement of the tool on the history fixture below at the maximum period; the value is lowered only if a statement exceeds half its statement budget (750 ms) there. |
+| Expected maximum volume | 60,000 orders a year (about 165 per day), 2 items and 1.2 payments per order, 3,000 products with 4 variants. The load fixture (T0) seeds four years at that rate: the 366-day period, the 366-day previous period read by the summary (732 days) and two years of earlier history, with 240,000 orders, 480,000 items and 290,000 payments; 30% of the variants have no sale in the last 549 days and 20 of them hold 3,000 old items each. Initial value, adjustable; above any current store and above the 50,000 orders `summarizeUnpaidOrders` was measured with. |
+| Index | `Order_companyId_createdAt_idx` on `"Order"("companyId", "createdAt")`, created concurrently. Reason: without it a period read scans the store's whole order history, so a month costs the same as five years and the 366-day rule could not be calibrated by period (section 7.1). It also serves the existing created-date filter and newest-first sort of **Buscar pedidos**. |
 | Period rules | Pure functions in `features/assistants/domain/sales-period.ts` over calendar days `AAAA-MM-DD`: defaults, cut to today, refusals, length, previous period (three cases). Day bounds become instants with `limaMidnightUtc` and `nextCalendarDay` of `shared/orders-date.ts` (`salesTimeZone`), the same helpers as **Buscar pedidos**. |
-| Money | Sums are computed in SQL as `numeric`, returned as decimal text, validated with Zod and converted to `Money`, as `summarizeUnpaidOrders` does. Average ticket and percents are computed in integer cents with half-up rounding in pure functions; no floating-point division decides a rounded figure. Currencies are grouped, never added. |
+| Money | Sums are computed in SQL as `numeric`, returned as decimal text and validated with Zod. Orders converts the text to integer cents exactly with `decimal.js` (`new Decimal(text).times(100)`, already a dependency of `shared`; never `Number(text) * 100`) and builds `Money` as `cents / 100`; the assistants domain reads cents back with `Math.round(amount * 100)`, exact for two-decimal amounts. Average ticket and percents are computed in integer cents with half-up rounding of the magnitude, the sign reapplied (−14.5% → −15%), in pure functions; no floating-point division decides a rounded figure. The ticket comparison uses the two rounded averages, so the displayed figures and the difference reconcile. Currencies are grouped, never added. |
 | Payment method labels | `walletProviderLabel` of `shared/wallet-providers.ts` (the country catalog) for a provider, «Transferencia bancaria» for `bank_transfer`, «Billetera digital sin especificar» for a wallet payment without provider. No country literal in the sales code. |
 | Text match | `texto` reuses the product search's accent- and case-insensitive partial match on the product name or any variant SKU, extracted to one function in `products/infrastructure` used by the search and the new reads. |
-| Other-currency line with a filter | With `texto` or `producto`, the other-currency line names units and amount, without an order count, as the product draft's `producto` example. See question 2. |
+| Other-currency line with a filter | With `texto` or `producto`, the other-currency line names units and amount, without an order count, as the product draft's `producto` example (decided by the review gate, section 17). |
+| Owed rule | One SQL fragment, `orderBalance`, in `features/orders/infrastructure/order-balance.ts`, extracted from `summarizeUnpaidOrders` (`total − confirmed` for an order whose `confirmed < total`) and used by it and by the summary, so «Por cobrar de estas ventas» and **Pedidos por cobrar** cannot drift. |
+| Last sale of unsold products | The exact «Última venta antes del periodo» and «Volvió a venderse» dates would need every older item of every checked variant. The design reads them only for the variants of the 20 products on the page; the order of the list uses the last sale found in the 183 days before the period (`salesLookBackDays`). See section 7.1 and «Decided unless objected». |
 | Server instructions | The orders paragraph drops «Este conector todavía no da totales de ventas ni finanzas…». The sales paragraph carries only the four rules of the product draft and stays within 700 characters, pinned by a unit test. |
 | Shared contracts | None change. Inputs and outputs are internal to `features/assistants`, as the order and product tools. |
-| Deferred | Everything the product draft lists under «Out of this version». MCP 4/4 adds its own module and reuses `scopes`. |
+| Deferred | A per-variant last-sale date kept up to date (a column on `OrderItem` or a read model); everything the product draft lists under «Out of this version». MCP 4/4 adds its own module and reuses `scopes`. |
 
 ## 3. Verified current state
 
@@ -63,11 +67,11 @@ agent ── tools/call ──▶ /mcp (unchanged transport, auth, limiter)
 | Budgeted product snapshot | `features/products/infrastructure/assistant-read.ts` (`assistantSnapshot`, `assistantReadBudget`, `assistantReadFailure`), `statement-timeout.ts` | Generic part extracted, behavior unchanged |
 | Product read slots | `createSlots` local to `src/composition/assistant-product-capabilities.ts` (3 slots, 300 ms) | Extracted, behavior unchanged |
 | Store currency | `catalogStorefront.describe(companyId)` → `StorefrontState.currency` | Reused |
-| Visible-order rule | `visibleOrder` (`NOT (o."fromCatalog" AND o."checkoutConfirmedAt" IS NULL)`), not exported, in `features/orders/infrastructure/order-repository.ts` | Moved to its own file and shared by the new reads |
-| Unpaid summary SQL | `summarizeUnpaidOrders` in `order-repository.ts` (payments grouped once and hash-joined, rows validated with Zod) | Pattern reused |
+| Visible-order rule | `visibleOrder` (`NOT (o."fromCatalog" AND o."checkoutConfirmedAt" IS NULL)`), not exported, in `features/orders/infrastructure/order-repository.ts`; `existsOrder` (`EXISTS … AND visibleOrder`, line 564) | Moved to its own file and shared by the new reads |
+| Unpaid summary SQL | `summarizeUnpaidOrders` in `order-repository.ts` (groups every payment of the company, because it reads every unpaid order; rows validated with Zod) | Only the balance fragment is reused (`order-balance.ts`); its company-wide payment grouping is not (section 7.1) |
 | Rethrow inside a snapshot | `products/infrastructure/ordered-variants.ts` rethrows database failures inside an active transaction so the snapshot classifies them | Pattern reused by every new read |
 | Order, payment, item tables | `prisma/schema.prisma`: `Order` (`currency`, `total`, `itemsTotal`, `deliveryCharge`, `deliveryCost`, `cancelled`, `fromCatalog`, `checkoutConfirmedAt`, `createdAt`), `Payment` (`status`, `amount`, `currency`, `method`, `walletProvider`), `OrderItem` (`variantId`, `quantity`, `subtotal`) | Read only. A payment's currency always equals its order's (`order-state-machine.ts`) |
-| Order indexes | `(companyId, id)`, `(companyId, number)`, `(companyId, chatId)`, `(companyId, completedAt, id)`, partial `Order_undeducted_pending_idx`, `Order_dispatch_queue_idx`; none on `(companyId, createdAt)` | Index added |
+| Order indexes | `(companyId, id)`, `(companyId, number)`, `(companyId, chatId)`, `(companyId, completedAt, id)`, partial `Order_undeducted_pending_idx`, `Order_dispatch_queue_idx`; none on `(companyId, createdAt)` | Index added; precedent `20261030230316_add_order_dispatch_queue_index` |
 | Item and payment indexes | `OrderItem (companyId, orderId, variantId)` unique, `OrderItem (companyId, variantId)`, `Payment (companyId, orderId, id)` | Reused |
 | Product, variant, stock | `Product` (`name`, `currency`, `createdAt`), `ProductVariant` (`status`, `sku`), `ProductStock` (`quantity`), values through `ProductVariantOptionValue`; text match with `unaccent(lower(…)) LIKE` in `product-search-repository.ts` | Read only; match extracted |
 | Stock levels | `features/products/domain/stock-level.ts` (`stockLevelOf`), product line summary in `assistants/domain/product-projection.ts` | Reused |
@@ -78,10 +82,10 @@ agent ── tools/call ──▶ /mcp (unchanged transport, auth, limiter)
 
 1. A module cannot require two scopes (section 6.1).
 2. No read aggregates sales of a period by currency with received, owed, overpaid, method breakdown, pending reports and cancelled lines (5.2).
-3. No read sums units and amounts per variant sold in a period, nor the last and next sale dates of a variant (5.3, 5.4).
+3. No read sums units and amounts per variant sold in a period, nor tells which variants sold or the last and next sale dates of a variant (5.3, 5.4).
 4. No products read returns current product names and combinations for a set of variants, nor the products with stock today created by a date with their variants (5.3, 5.4).
-5. No snapshot spans orders, products and catalog reads with a budget, and the budgeted snapshot lives inside products (6.3, 11).
-6. No index lets a period read cost in proportion to the period (7).
+5. No snapshot spans orders, products and catalog reads with a budget that fits every tool's statements, and the budgeted snapshot lives inside products (6.3, 11).
+6. No index lets a period read cost in proportion to the period, and no read bounds the history it looks at (7, 7.1).
 7. No pure rule computes the period, the previous period, the comparison lines, half-up shares or the ranking (6.2, 6.4).
 8. The server instructions say there are no totals (12).
 
@@ -95,7 +99,7 @@ The `run` function of each `RegisteredTool`. Input: the parsed tool input. Acces
 
 1. Resolve the period with `resolveSalesPeriod(input, today)` (6.2); a refusal answers `INVALID_INPUT` with its text and reads nothing.
 2. `lo_mas_vendido` with a `producto` that is not a UUID answers the not-found text without reading.
-3. Call the port, which takes a sales slot and runs every read of the call in one snapshot.
+3. Call the port, which takes a sales slot and runs every read of the call in one snapshot, in the sequences of 11.
 4. Project with the pure functions of 6.4 and return `{ output, empty }`; empty answers are `empty: true`.
 5. A port failure answers `FAILURE` with the text the port chose (too many orders or reading failure).
 
@@ -113,21 +117,20 @@ export type SalesFigures = Readonly<{
   cancelled: Readonly<{ orders: number; total: Money; confirmed: Money }>;
 }>;
 export type SalesSummary = Readonly<{
-  current: readonly SalesFigures[]; previous: readonly SalesFigures[];      // one entry per currency with sales or cancelled orders in that window
+  current: readonly SalesFigures[]; previous: readonly SalesFigures[];      // one entry per currency with orders (sales or cancelled) in that window
   pendingReports: Readonly<{ reports: number; orders: number }>;           // current window, not cancelled
-  storeHasOrders: boolean;
+  storeHasOrders: boolean;                                                  // an order visible to the seller exists, in any date
 }>;
 export type SummarizeSalesError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_ORDER"; message: string }>;
 export type SummarizeSalesDependencies = Readonly<{
-  readFigures: (input: SummarizeSalesInput, companyId: CompanyId) => Promise<Result<Readonly<{ current: readonly SalesFigures[]; previous: readonly SalesFigures[]; pendingReports: SalesSummary["pendingReports"] }>, SummarizeSalesError>>;
-  hasAnyOrder: (companyId: CompanyId) => Promise<Result<boolean, SummarizeSalesError>>;
+  readFigures: (input: SummarizeSalesInput, companyId: CompanyId) => Promise<Result<SalesSummary, SummarizeSalesError>>;
 }>;
 export async function summarizeSales(input: SummarizeSalesInput, access: OrderAccess, deps: SummarizeSalesDependencies): Promise<Result<SalesSummary, SummarizeSalesError>>
 ```
 
-1. `readFigures` runs two statements over orders visible and created in `[previous.from, current.before)`: the figures per window and currency (with the cancelled and pending-report filters), and confirmed payments per window, currency, method and provider.
-2. When both windows have no order at all, `hasAnyOrder` tells «Tu tienda todavía no tiene pedidos.» apart from an empty period; otherwise it is not called.
-3. Per order: `confirmed` is the sum of `confirmed` payments; `owed = max(total − confirmed, 0)`, `overpaid = max(confirmed − total, 0)`. Not cancelled orders feed sales, received, owed, overpaid and `receivedBy`; cancelled orders feed only `cancelled` (count, total, confirmed). Reported, rejected and voided payments never add money. Pending reports count `reported` payments of not cancelled orders and the distinct orders holding them.
+1. `readFigures` runs one statement, with one CTE of the orders visible and created in `[previous.from, current.before)` read through `Order_companyId_createdAt_idx`, one CTE of the payments of those orders only (section 7.1), and `UNION ALL` branches that return typed rows (`kind`): the figures per window and currency with the cancelled counters, the confirmed payments per window, currency, method and provider, the pending reports of the current window, and `EXISTS (… visibleOrder)` for `storeHasOrders`. One Zod discriminated union validates the rows. A summary is therefore 1 read statement, always the same count.
+2. `storeHasOrders` is what separates «Tu tienda todavía no tiene pedidos.» from an empty period. It applies `visibleOrder` as `existsOrder` does, so an unconfirmed catalog order never makes the text disappear.
+3. Per order: `confirmed` is the sum of `confirmed` payments; `owed` and `overpaid` come from the shared `orderBalance` fragment (`owed = max(total − confirmed, 0)`, `overpaid = max(confirmed − total, 0)`), the same balance `summarizeUnpaidOrders` uses for **Pedidos por cobrar**. Not cancelled orders feed sales, received, owed, overpaid and `receivedBy`; cancelled orders feed only `cancelled` (count, total, confirmed). Reported, rejected and voided payments never add money. Pending reports count `reported` payments of not cancelled orders and the distinct orders holding them.
 
 ### 5.3 `summarizeSoldVariants` (orders, application)
 
@@ -141,31 +144,42 @@ export async function summarizeSoldVariants(input: SummarizeSoldVariantsInput, a
 }>): Promise<Result<SoldVariantsSummary, SummarizeSalesError>>
 ```
 
-One statement with `GROUPING SETS ((currency, variantId), (currency))` over the items of visible, not cancelled orders of the window. `currencies` is always unfiltered: it is the denominator of every share and the unfiltered other-currency line. Rows hold at most one entry per variant of the store that sold in the window.
+One statement over the items of visible, not cancelled orders of the window, the orders read first through the createdAt index and their items probed through `OrderItem (companyId, orderId, variantId)`. A `GROUPING SETS ((currency, variantId), (currency))` of `sum(quantity)` and `sum(subtotal)` only, which PostgreSQL can hash; the order count per currency is `count(*)` over the window CTE of the same statement (every order has at least one item), joined as one more row kind, never `count(DISTINCT …)`. `currencies` is always unfiltered: it is the denominator of every share and the unfiltered other-currency line. Rows hold at most one entry per variant of the store that sold in the window, so at most the catalog's variants.
 
-### 5.4 `findVariantSaleDates` (orders, application)
+### 5.4 `summarizeVariantActivity` and `findVariantSaleDates` (orders, application)
 
 ```ts
-export type VariantSaleDates = Readonly<{ variantId: string; soldInWindow: boolean; lastBefore: Date | null; firstAfter: Date | null }>;
-export type FindVariantSaleDatesInput = Readonly<{ window: SalesWindow; variantIds: readonly string[] }>;
+export type VariantActivityInput = Readonly<{ window: SalesWindow; lookBackFrom: Date }>;       // lookBackFrom: Lima midnight, salesLookBackDays before window.from
+export type VariantActivity = Readonly<{ variantId: string; soldInWindow: boolean; lastBefore: Date | null }>;   // lastBefore: latest sale in [lookBackFrom, window.from)
+export async function summarizeVariantActivity(input: VariantActivityInput, access: OrderAccess, deps: Readonly<{
+  readActivity: (input: VariantActivityInput, companyId: CompanyId) => Promise<Result<readonly VariantActivity[], SummarizeSalesError>>;
+}>): Promise<Result<readonly VariantActivity[], SummarizeSalesError>>
+
+export type VariantSaleDates = Readonly<{ variantId: string; lastBefore: Date | null; firstAfter: Date | null }>;   // exact, in any date
+export type FindVariantSaleDatesInput = Readonly<{ window: SalesWindow; variantIds: readonly string[] }>;           // the variants of one page
 export async function findVariantSaleDates(input: FindVariantSaleDatesInput, access: OrderAccess, deps: Readonly<{
   readSaleDates: (input: FindVariantSaleDatesInput, companyId: CompanyId) => Promise<Result<readonly VariantSaleDates[], SummarizeSalesError>>;
 }>): Promise<Result<readonly VariantSaleDates[], SummarizeSalesError>>
 ```
 
-One statement over `unnest($variantIds::uuid[])` joined to items of visible, not cancelled orders, probing `OrderItem (companyId, variantId)`: `bool_or` in the window, `max(createdAt)` before it, `min(createdAt)` at or after its end. A unit in any currency counts. Variants without any sale are absent from the result.
+- `summarizeVariantActivity`: one statement over the items of visible, not cancelled orders created in `[lookBackFrom, window.before)` (at most 366 + 183 = 549 days, read through the createdAt index and `OrderItem (companyId, orderId, variantId)`), grouped by variant: `bool_or` inside the window and `max(createdAt)` before it. It takes no variant ids: its rows are the variants that sold in that span, at most the catalog's variants, so no id list travels to the database. A unit in any currency counts. Variants without a sale in the span are absent.
+- `findVariantSaleDates`: one statement over `unnest($variantIds::uuid[])` with, per variant, a correlated `max(createdAt)` before `window.from` and `min(createdAt)` at or after `window.before` over `OrderItem (companyId, variantId)` joined to the order by its primary key, visible and not cancelled. It is exact, in any date, and its cost is the older items of the variants of one page (at most 20 products), never of the whole store (section 7.1). The composition skips it when the page is empty.
 
 ### 5.5 `describeVariantsForAssistant` (products, application)
 
 ```ts
 export type DescribedVariant = Readonly<{ variantId: string; productId: ProductId; productName: string; values: readonly string[]; matchesText: boolean }>;
-export type DescribeVariantsInput = Readonly<{ variantIds: readonly string[]; text?: string }>;   // text trimmed, 1..120
+export type DescribeVariantsInput =
+  | Readonly<{ by: "variants"; variantIds: readonly string[]; text?: string }>      // text trimmed, 1..120
+  | Readonly<{ by: "product"; productId: ProductId }>;
 export async function describeVariantsForAssistant(input: DescribeVariantsInput, deps: Readonly<{
   readVariants: (input: DescribeVariantsInput, companyId: CompanyId) => Promise<Result<readonly DescribedVariant[], ProductReadError>>;
 }>): Promise<Result<readonly DescribedVariant[], ProductReadError>>
 ```
 
-One statement: current product name, the variant's values in option order (empty for a product without options), and whether the product matches `text` (name or any variant SKU, active or not). Another company's variant id is absent. Deactivated variants are described.
+One statement: current product name, the variant's values in option order (empty for a product without options), and whether the product matches `text` (name or any variant SKU, active or not).
+- `by: "variants"` describes the given ids (the variants that sold). Another company's variant id is absent; deactivated variants are described. The values come from one join over those variants, bounded by the catalog (at most 12,000 variants, about 2 values each); the answer shows at most 20 × 3 of them, but splitting the read in two would add a statement to a path that has one of margin, so it is not split. The T2 load check measures it with a 12,000-id list (about 450 KB of text) and decides on the measure (section 15).
+- `by: "product"` is the light read of `producto`: the product of this store by id and all its variants with their values, in one statement, with none of the detail `findForAssistant` loads (prices, purchase prices, SKUs, stock, options of the storefront). An unknown or foreign product returns no row, which the composition answers with the not-found text without reading orders.
 
 ### 5.6 `listStockedForAssistant` (products, application)
 
@@ -185,16 +199,17 @@ export async function listStockedForAssistant(input: ListStockedInput, deps: Rea
 }>): Promise<Result<StockedProducts, ProductReadError>>
 ```
 
-Two statements: the counts, and the checked products with their stock and variant ids. `checked` is complete (not paged): the order depends on sale dates that only orders knows.
+One statement: a row per product matching `text` (all when none) with its active-stock summary and variant ids, plus `EXISTS (any product)` for `storeHasProducts`; `matching`, `withStock` and `checked` are derived from those rows in the application. Bounded by the catalog (3,000 products, 12,000 variant ids), not by orders. `checked` is complete (not paged): the order depends on sale dates that only orders knows.
 
 ### 5.7 `readSalesForAssistant` (orders, composition)
 
-`orders.readSalesForAssistant(work, operation)` opens the budgeted snapshot of 6.3 with `salesReadBudget` and runs `work`, in which every read of 5.2–5.6 and `catalogStorefront.describe` join the open transaction. `operation` is `summary`, `best_sellers` or `unsold`. It returns `Result<T, E | SalesReadError>` and logs `sales_read_failed` once.
+`orders.readSalesForAssistant(work)` opens the budgeted snapshot of 6.3 with `salesReadBudget` and no `onFailure`, and runs `work`, in which every read of 5.2–5.6 and `catalogStorefront.describe` join the open transaction. It returns `Result<T, E | SalesReadError>` with the failure classification and nothing logged. The composition guard `salesRead` (6.5) logs `sales_read_failed` once, because it alone knows the operation, the period read and the answer chosen, which is product policy and must not live in `src/shared/infrastructure`.
 
 ### Existing use cases that change
 
 - `buildToolDefinitions`, `createToolRegistry().createServer` and `checkToolModules`: per module `scopes` instead of `scope` (6.1).
-- `assistantSnapshot` of products: becomes `budgetedSnapshot(assistantReadBudget, "product_search_failed")`, same behavior and log.
+- `assistantSnapshot` of products: becomes `budgetedSnapshot(assistantReadBudget, onFailure)` with an `onFailure` that logs `product_search_failed` with the same fields, same behavior and log.
+- `summarizeUnpaidOrders` takes its balance from the shared `orderBalance` fragment and `visibleOrder` from `order-visibility.ts`; its results do not change.
 
 ## 6. Domain and typing
 
@@ -221,10 +236,12 @@ export type PeriodRefusal =
   | Readonly<{ kind: "from_after_today"; from: string; today: string }>
   | Readonly<{ kind: "too_long"; maxDays: number }>;
 export const salesPeriodMaxDays = 366;                                                              // initial value
+export const salesLookBackDays = 183;                                                               // how far back the order of Productos sin ventas looks
 export function resolveSalesPeriod(input: Readonly<{ desde?: string; hasta?: string }>, today: string): Result<SalesPeriod, PeriodRefusal>;
 export function previousPeriod(period: SalesPeriod): PreviousPeriod;
 export function periodDays(period: Readonly<{ from: string; through: string }>): number;
 export function windowOf(period: Readonly<{ from: string; through: string }>): Readonly<{ from: Date; before: Date }>;
+export function lookBackFrom(period: Readonly<{ from: string }>): Date;                           // Lima midnight salesLookBackDays before period.from
 ```
 
 `resolveSalesPeriod` checks in this order: only `hasta`; reversed (on the input dates); `desde` after today; defaults (no dates: first of today's month to today; only `desde`: to today); `hasta` after today is cut to today with `cutToToday: true`; length over `salesPeriodMaxDays` on the period read. Format errors are refused earlier by the input schema. `previousPeriod` applies the three cases of the product draft in order: (1) `from` is a 1st and `through` the last day of its month: the same number of whole months just before, with `month` set only when it is one month; (2) `from` is a 1st: moved back by the number of calendar months it touches, same day numbers, end cut to that month's last day; (3) otherwise the same number of days just before. Days are computed on UTC calendar arithmetic of the strings, never on instants. Justification: a new type because no existing type carries a period with its cut flag; `DispatchDate` stays for dispatch.
@@ -237,17 +254,24 @@ export type BudgetedReadError =
   | Readonly<{ code: "STATEMENT_TIMEOUT"; message: string }>
   | Readonly<{ code: "TRANSACTION_TIMEOUT"; message: string }>
   | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
-export function budgetedSnapshot(budget: ReadBudget, failureEvent: string, fields: () => Record<string, unknown>):
+export function budgetedSnapshot(budget: ReadBudget, onFailure?: (failure: BudgetedReadError, cause: unknown, durationMs: number) => void):
   <T, E extends AppError>(read: () => Promise<Result<T, E>>) => Promise<Result<T, E | BudgetedReadError>>;
 ```
 
-The body, the failure classification and `isStatementTimeout` move from products unchanged; products' `assistantSnapshot(operation)` becomes a call with `assistantReadBudget` and `product_search_failed`. Orders defines `salesReadBudget` and `SalesReadError = BudgetedReadError` in `features/orders/infrastructure/sales-read.ts`. A unit test pins `maxStatements × statementTimeoutMs + maxWait ≤ timeout` for both budgets (6 × 1500 + 1000 = 10,000).
+The body, the failure classification and `isStatementTimeout` move from products unchanged; products' `assistantSnapshot(operation)` becomes a call with `assistantReadBudget` and an `onFailure` that logs `product_search_failed`. Orders defines, in `features/orders/infrastructure/sales-read.ts`, `salesReadBudget`, `SalesReadError = BudgetedReadError` and the statements of each path:
+
+```ts
+export const salesReadBudget = { maxWait: 1000, timeout: 10000, statementTimeoutMs: 1500, maxStatements: 6 } as const;
+export const salesPathStatements = { summary: 4, best_sellers: 5, unsold: 5 } as const;   // overhead 2 + storefront 1 where the tool reads it, plus its reads (section 11)
+```
+
+Unit tests pin, for both budgets, `maxStatements × statementTimeoutMs + maxWait ≤ timeout` (6 × 1500 + 1000 = 10,000), and for the sales budget that every `salesPathStatements` value is at most `maxStatements − 1`, so each path keeps one statement of margin and the invariant holds on every path. Only T0 edits these constants; a tool whose measured count differs escalates instead of editing them.
 
 ### 6.4 Projections (pure, `features/assistants/domain`)
 
-- `sales-figures.ts` (shared by the three tools): `roundHalfUp(numerator, denominator)` on integers; `sharePercent(part, whole)` → `{ kind: "percent"; value } | { kind: "under_one" }`; `averageCents(totalCents, orders)`; `compareFigure(current, previous)` → `{ kind: "same" } | { kind: "more" | "less"; difference; percent: number | "under_one" | null }` (`null` when the previous figure is 0); `counted(n, singular, plural)`. Percent of a comparison is relative to the previous figure, half up, with the sign of the difference.
-- `sales-projection.ts` (summary): `SalesSummaryOutput` from `SalesSummary`, the period, the previous period and the store currency: blocks ordered store currency first then code A–Z, a block per currency with sales in either window, the meaning line once, method lines largest first then label A–Z, the comparison or the previous figures alone, the open-period line when `through` is today, the cancelled lines, the singular forms.
-- `product-sales-projection.ts` (both product tools): `rankSoldProducts(variants, described, { order, page, storeCurrency, text })` groups store-currency variant rows by product, keeps matching products, sorts (units: units, amount, name; amount: amount, units, name; names with `Intl.Collator("es", { sensitivity: "base" })`), pages 20 and caps variants at 3 (units, amount, combination); `listUnsoldProducts(checked, dates, { page, periodEndedBeforeToday })` keeps products none of whose variants sold in the window, folds dates per product (latest before, earliest after), sorts by stock, last sale before (none first), name, and pages 20.
+- `sales-figures.ts` (shared by the three tools): `centsOf(money)`; `roundHalfUp(numerator, denominator)` on integers, rounding the magnitude and reapplying the sign; `sharePercent(part, whole)` → `{ kind: "percent"; value } | { kind: "under_one" }`; `averageCents(totalCents, orders)`; `compareFigure(current, previous)` → `{ kind: "same" } | { kind: "more" | "less"; difference; percent: number | "under_one" | null }` (`null` when the previous figure is 0); `counted(n, singular, plural)`. Percent of a comparison is relative to the previous figure, half up, with the sign of the difference. The ticket comparison compares the two rounded averages.
+- `sales-projection.ts` (summary): `SalesSummaryOutput` from `SalesSummary`, the period, the previous period and the store currency: blocks ordered store currency first then code A–Z, a block per currency with sales in either window or with cancelled orders in the current window (a block with only cancelled orders opens with «No hay ventas en USD del …» as the product draft's block without sales, then its cancelled lines, so the money-on-cancelled remedy is never lost; an assumption recorded in section 17), the meaning line once, method lines largest first then label A–Z, the comparison or the previous figures alone, the open-period line when `through` is today, the cancelled lines, the singular forms.
+- `product-sales-projection.ts` (both product tools): `rankSoldProducts(variants, described, { order, page, storeCurrency, text })` groups store-currency variant rows by product, keeps matching products, sorts (units: units, amount, name; amount: amount, units, name; names with `Intl.Collator("es", { sensitivity: "base" })`), pages 20 and caps variants at 3 (units, amount, combination); `listUnsoldProducts(checked, activity, { page })` keeps products none of whose variants sold in the window, folds the activity per product (latest `lastBefore`), sorts by stock, last sale found in the look-back (none first), name, and pages 20; `foldSaleDates(page, dates, { periodEndedBeforeToday })` then replaces the look-back date with the exact dates of `findVariantSaleDates` for the products of the page.
 
 ### 6.5 Layers
 
@@ -256,13 +280,28 @@ The body, the failure classification and `isStatementTimeout` move from products
 | `features/orders` | What a sale is and every money figure: `SalesFigures`, `SoldVariantsSummary`, `VariantSaleDates`; rows validated with Zod (`INVALID_STORED_ORDER` on an invalid row) |
 | `features/products` | Product identity, current names, combinations, text match, stock: `DescribedVariant`, `StockedProducts` |
 | `features/assistants/domain` | Period, previous period, comparisons, shares, ranking, wording; its own `Projectable*` types, no import from orders or products |
-| `src/composition/assistant-sales-capabilities.ts` | The only place that sees both sides: maps feature types onto assistant types, joins variants with products in memory, chooses the failure text |
+| `src/composition/assistant-sales-capabilities.ts` | The only place that sees both sides: maps feature types onto assistant types, joins variants with products in memory, chooses the failure text and logs `sales_read_failed` once |
 
 ## 7. Persistence
 
-One migration, generated with the Prisma CLI per the [Database migrations](../../.agents/skills/database-migrations/SKILL.md) skill: `@@index([companyId, createdAt])` on `Order`, migration `add_order_company_created_at_index`, edited to `CREATE INDEX CONCURRENTLY IF NOT EXISTS "Order_companyId_createdAt_idx"` in its own migration file, as `Order_companyId_chatId_idx`. Plain columns, so row-level security does not prevent its use (no non-leakproof function in the key). No table, column, constraint or policy changes; no data is deleted.
+One migration, generated with the Prisma CLI per the [Database migrations](../../.agents/skills/database-migrations/SKILL.md) skill: `@@index([companyId, createdAt])` on `Order` (a plain index, so it is declared in `schema.prisma`, unlike the partial indexes of memory a20f16a6), migration `add_order_company_created_at_index`, edited to follow `20261030230316_add_order_dispatch_queue_index`: alone in its file, `RESET lock_timeout; RESET statement_timeout;` first, a comment with the recovery (`DROP INDEX CONCURRENTLY IF EXISTS "Order_companyId_createdAt_idx"; prisma migrate resolve --rolled-back <migration>`; deploy again) and `CREATE INDEX CONCURRENTLY IF NOT EXISTS "Order_companyId_createdAt_idx" ON "Order" ("companyId", "createdAt")`. `IF NOT EXISTS` silently keeps an INVALID index left by a failed build and the planner ignores it, so T0's acceptance checks `pg_index.indisvalid`. After adding the `@@index`, a no-change `prisma migrate dev --create-only` must emit nothing. Plain columns, so row-level security does not prevent its use (no non-leakproof function in the key). No table, column, constraint or policy changes; no data is deleted.
 
 Every new query filters `"companyId" = $companyId` explicitly besides RLS, repeats `visibleOrder` from the shared file, and validates its rows with a Zod schema (decimal strings `^\d+(\.\d+)?$`, integer counts, currencies with `isCurrency`). Database failures inside the snapshot are rethrown, as `findOrderedVariantIds` does, so the snapshot classifies them; outside a transaction they map to `PERSISTENCE_UNAVAILABLE`.
+
+### 7.1 Read bounds
+
+Every statement is bounded by the windows it reads, by the catalog, or by a list of at most one page; none depends on the store's whole history. «Window» is the period, plus the previous period for the summary: at most 366 + 366 = 732 days.
+
+| Statement | Bound | How it is bounded |
+| --- | --- | --- |
+| Summary figures (one statement) | Orders of `[previous.from, current.before)`, at most 732 days | Orders through `Order_companyId_createdAt_idx`. Payments only of those orders: the payment CTE joins the window's orders and is served by `Payment (companyId, orderId, id)`; the `WHERE "companyId" = …` grouping of every payment that `summarizeUnpaidOrders` uses is forbidden here. If the plan on the history fixture reads `Payment` with a sequential scan, the statement uses a correlated `LATERAL` probe per order, as `findDispatchCandidates` does |
+| `storeHasOrders` | One row | `EXISTS` stops at the first visible order of the company |
+| Sold variants | Orders of the period, at most 366 days | Same index; their items probed through `OrderItem (companyId, orderId, variantId)`, driven by the window and not by a hash of every item of the store |
+| Variant activity | Orders of `[lookBackFrom, window.before)`, at most 549 days | Same index and item probes; rows at most the catalog's variants |
+| Exact sale dates | Variants of one page (≤ 20 products) | `OrderItem (companyId, variantId)` then the order by primary key, per variant; its cost is the older items of those variants, not of the store. The fixture holds 20 stale variants with 3,000 old items each to measure the worst page |
+| Product descriptions, stocked products | The catalog (3,000 products, 12,000 variants) | Joins on product and variant keys |
+
+Why the sale dates of unsold products are not exact for every product: the last sale before the period of every checked variant has no index that skips history (`OrderItem` has no date of its own, so each older item costs a heap read of its order). On a store with years of history and the default 30 days, that statement would grow with the history and would fail on every call as the generic reading failure, which the too-many-orders rule cannot distinguish for a short period. Reading the page's variants only keeps the displayed dates exact. Only the order inside the list uses the 183-day look-back: among products with the same stock, those with no sale in the look-back are ordered by name instead of by an older last-sale date. A kept per-variant last-sale date (a column and index on `OrderItem`, or a read model) would make both exact; it is deferred (section 2) and recorded in «Decided unless objected».
 
 ## 9. Events and cross-feature integration
 
@@ -270,8 +309,8 @@ No event. Cross-feature capabilities, all composed operations:
 
 | Capability | Owner | Consumer |
 | --- | --- | --- |
-| `orders.readSalesForAssistant`, `orders.summarizeSales`, `orders.summarizeSoldVariants`, `orders.findVariantSaleDates` | orders | `src/composition/assistant-sales-capabilities.ts` |
-| `products.describeVariantsForAssistant`, `products.listStockedForAssistant`, `products.findForAssistant` (existing, for `producto`) | products | same |
+| `orders.readSalesForAssistant`, `orders.summarizeSales`, `orders.summarizeSoldVariants`, `orders.summarizeVariantActivity`, `orders.findVariantSaleDates` | orders | `src/composition/assistant-sales-capabilities.ts` |
+| `products.describeVariantsForAssistant`, `products.listStockedForAssistant` | products | same |
 | `catalogStorefront.describe` (existing) | catalog | same |
 
 `features/assistants` imports nothing from orders, products or catalog; it declares `SalesToolsDependencies` with plain data and its own projectable types.
@@ -280,49 +319,66 @@ No event. Cross-feature capabilities, all composed operations:
 
 Read-only. Each call:
 
-1. Takes a sales slot (2 per process); after 300 ms without one it answers the sales reading-failure text and logs `assistant_sales_reads_busy`.
-2. Opens one RepeatableRead transaction in the connection's tenant context with `salesReadBudget`, sets `jit` off and the statement timeout.
-3. Runs the tool's reads (statement counts below), all in the same snapshot, so figures, ranking, names and stock never disagree with a concurrent save.
+1. Takes a sales slot (2 per process); after 2,000 ms without one it answers the sales reading-failure text and logs `assistant_sales_reads_busy`. The wait holds no connection.
+2. Opens one RepeatableRead transaction in the connection's tenant context with `salesReadBudget` (`set_config` for tenant and timeout, `set_config` for `jit` off).
+3. Runs the tool's reads in order, all in the same snapshot, so figures, ranking, names and stock never disagree with a concurrent save.
 4. Commits (nothing to write) and releases the slot in `finally`.
 
-| Tool | Statements in the snapshot (initial count, measured in T1/T2) |
-| --- | --- |
-| `resumen_de_ventas` | `set_config`, storefront currency, figures, received by method, and `hasAny` only when both windows are empty: at most 5 plus the storefront read |
-| `lo_mas_vendido` | `set_config`, storefront currency, `findForAssistant` only with `producto`, sold variants, variant descriptions |
-| `productos_sin_ventas` | `set_config`, stocked counts, checked products, sale dates |
+Statements per path, counted as in section 2 (overhead 2, storefront 1 where the tool reads the store currency). `salesPathStatements` pins the totals and each integration test asserts the measured count equals it:
 
-`maxStatements` is set to the measured worst case. Concurrent writes are invisible to the snapshot; repeating a call returns the figures of that moment. No lock, no duplicate policy.
+| Path | Statements | Total |
+| --- | --- | --- |
+| `resumen_de_ventas` | overhead 2, storefront currency, figures (includes `storeHasOrders`) | 4 |
+| `lo_mas_vendido`, ranking (with or without `texto`) | overhead 2, storefront currency, sold variants, descriptions of the sold variants | 5 |
+| `lo_mas_vendido` with `producto` | overhead 2, storefront currency, product description (light read), sold variants narrowed to its variants | 5 |
+| `productos_sin_ventas` | overhead 2, stocked products, variant activity, exact dates of the page's variants (skipped for an empty page) | 5 |
+
+The worst path has 5 statements against `maxStatements: 6`: one statement of margin on every path, and `6 × 1,500 + 1,000 = 10,000 ≤ 10,000`, so on every path the statement limit fires before the transaction timer. A call holds a pool connection at most 10 s, and only in a failure; a normal call holds it for hundreds of milliseconds.
+
+Pool: sales reads (2 slots, ≤ 10 s) and product reads (3 slots, ≤ 5 s) can hold 5 of the 10 connections in the worst case, so the reserve is 5, not 7. The reserve is shared by the web app, the order tools (they have no slots) and the per-call pipeline (`touchConnection`, token checks), and it is reached only when 5 assistant reads are in flight at once. The sales slots are shared by every store of the process: two heavy summaries of one store make another store's sales call wait up to 2 s and then answer the reading-failure text; it is the same class of risk `docs/assistants.md` lists for product slots, and T4 records both.
+
+Concurrent writes are invisible to the snapshot; repeating a call returns the figures of that moment. No lock, no duplicate policy.
 
 ## 12. Code organization
 
+Wave-2 tasks never edit the same file: everything both would touch is finished in T0 through stubs that T1 and T2 fill in their own files, and everything that needs both is in T3.
+
 | File | Change | Task |
 | --- | --- | --- |
-| `features/assistants/presentation/tool-module.ts` | `scopes` | T0 |
+| `features/assistants/presentation/tool-module.ts` | `scopes`; the doc comment («A later category adds a module file, a scope literal…») corrected: a group over several categories declares several scopes and no literal is added | T0 |
 | `features/assistants/presentation/tool-registry.ts` (+ test) | Scopes filter, validator checks | T0 |
 | `features/assistants/presentation/tools/orders-tools.ts`, `products-tools.ts` | `scopes: ["orders:read"]`, `scopes: ["products:read"]`; `day`, `page`, `unknownField` imported from `tools/input-fields.ts` | T0 |
 | `features/assistants/presentation/tools/input-fields.ts` | New: `day`, `page`, `unknownField` moved from orders and products tools | T0 |
 | `features/assistants/presentation/tools/orders-texts.ts` | Drops the no-totals sentence | T0 |
 | `features/assistants/presentation/tools/sales-tools.ts`, `sales-texts.ts` | New: `createSalesToolsModule(tools)`, paragraph, period refusal texts, reading-failure and too-many texts | T0 |
 | `features/assistants/domain/sales-period.ts`, `sales-figures.ts` (+ tests) | New, pure | T0 |
-| `src/shared/infrastructure/budgeted-snapshot.ts` (+ test) | New: moved from products | T0 |
+| `src/shared/infrastructure/budgeted-snapshot.ts` (+ test) | New: moved from products, with `onFailure` | T0 |
 | `features/products/infrastructure/assistant-read.ts`, `statement-timeout.ts` | Use the shared snapshot; `statement-timeout.ts` moves | T0 |
-| `src/composition/assistant-read-slots.ts` | New: `createReadSlots` moved from product capabilities | T0 |
+| `src/composition/assistant-read-slots.ts` | New: `createReadSlots(count, waitMs)` moved from product capabilities | T0 |
 | `src/composition/assistant-product-capabilities.ts` | Imports `createReadSlots` | T0 |
-| `src/composition/assistant-sales-capabilities.ts` | New: sales slot, `salesRead(tool, operation, access, period, work)` guard with the failure-text choice | T0 |
-| `src/composition/assistant-tools.ts` | Sales module entry with an empty tool list in T0; T1 adds one tool, T2 two | T0, T1, T2 |
-| `features/orders/infrastructure/order-visibility.ts` | New: `visibleOrder` moved from `order-repository.ts` | T0 |
-| `features/orders/infrastructure/sales-read.ts` | New: `salesReadBudget`, snapshot opener | T0 |
-| `features/orders/composition.ts` | `readSalesForAssistant` (T0); `summarizeSales` after `summarizeUnpaid` (T1); `summarizeSoldVariants`, `findVariantSaleDates` after `listDispatchQueue` (T2) | T0, T1, T2 |
+| `src/composition/assistant-sales-capabilities.ts` (+ integration test) | New: sales slot (2, 2,000 ms), `salesRead(operation, access, period, work)` guard: failure-text choice, `sales_read_failed` and `assistant_sales_reads_busy` logs | T0 |
+| `src/composition/assistant-sales-summary-capabilities.ts` | New in T0 exporting `salesSummaryTools = []`; T1 fills it | T0, T1 |
+| `src/composition/assistant-product-sales-capabilities.ts` | New in T0 exporting `productSalesTools = []`; T2 fills it | T0, T2 |
+| `src/composition/assistant-tools.ts` | Sales module entry `createSalesToolsModule([...salesSummaryTools, ...productSalesTools])`; never edited again | T0 |
+| `src/composition/assistant-tools.test.ts` | Expected names derived: the six existing tools plus the tools of the sales module; T3 pins the nine names | T0, T3 |
+| `features/orders/infrastructure/order-visibility.ts`, `order-balance.ts` | New: `visibleOrder` moved from `order-repository.ts`; `orderBalance` fragment extracted from `summarizeUnpaidOrders` | T0 |
+| `features/orders/infrastructure/order-repository.ts` | Imports both fragments; no behavior change | T0 |
+| `features/orders/infrastructure/sales-read.ts` | New: `salesReadBudget`, `salesPathStatements`, snapshot opener | T0 |
+| `features/orders/infrastructure/decimal-cents.ts` (+ test) | New: exact decimal text → cents | T0 |
+| `features/orders/composition.ts` | `readSalesForAssistant`; spreads `salesSummaryOperations` and `soldVariantsOperations`; never edited again | T0 |
+| `features/orders/composition-sales-summary.ts`, `composition-sold-variants.ts` | New in T0 exporting `{}`; T1 and T2 fill them | T0, T1, T2 |
 | `prisma/schema.prisma`, `prisma/migrations/<ts>_add_order_company_created_at_index/` | Index | T0 |
+| `tests/support/sales-load-fixture.ts` (+ `sales-load-fixture.integration.test.ts`) | New: the history fixture of section 2 (opt-in, `SALES_LOAD=1`) and the checks of the index (`indisvalid`, plan on four years of history) | T0 |
 | `features/orders/application/summarize-sales.ts` (+ test), `infrastructure/sales-summary-repository.ts` (+ integration test) | New | T1 |
 | `features/assistants/domain/sales-projection.ts` (+ test), `presentation/tools/sales-summary-tool.ts` (+ test) | New | T1 |
-| `src/composition/assistant-sales-summary-capabilities.ts` | New: summary port | T1 |
-| `features/orders/application/summarize-sold-variants.ts`, `find-variant-sale-dates.ts` (+ tests), `infrastructure/sold-variants-repository.ts` (+ integration test) | New | T2 |
+| `src/composition/sales-summary-tool.integration.test.ts`, `sales-summary-load.integration.test.ts` | New: summary through `/mcp` with its statement count; load check on the T0 fixture | T1 |
+| `features/orders/application/summarize-sold-variants.ts`, `summarize-variant-activity.ts`, `find-variant-sale-dates.ts` (+ tests), `infrastructure/sold-variants-repository.ts` (+ integration test) | New | T2 |
 | `features/products/application/describe-variants-for-assistant.ts`, `list-stocked-for-assistant.ts` (+ tests), `infrastructure/product-sales-repository.ts` (+ integration test), `infrastructure/product-text-match.ts` | New; `product-search-repository.ts` uses the extracted match | T2 |
 | `features/products/composition.ts` | Two operations | T2 |
 | `features/assistants/domain/product-sales-projection.ts` (+ test), `presentation/tools/best-sellers-tool.ts`, `unsold-products-tool.ts` (+ tests) | New | T2 |
-| `src/composition/assistant-product-sales-capabilities.ts` | New: best-sellers and unsold ports | T2 |
-| `docs/assistants.md`, drafts | Promotion | T3 |
+| `src/composition/sales-product-tools.integration.test.ts`, `sales-products-load.integration.test.ts` | New: both tools through `/mcp` with their statement counts; load check on the T0 fixture | T2 |
+| `src/composition/sales-tools.integration.test.ts` | New: nine tools, store limit, example store end to end | T3 |
+| `docs/assistants.md`, drafts | Promotion | T4 |
 
 ## 13. Observability
 
@@ -331,10 +387,10 @@ Events follow [Logging](../logging.md). Never logged: tool inputs and outputs, d
 | Event | Level | Where | Fields |
 | --- | --- | --- | --- |
 | `assistant_tool_called` (existing) | info | registry | `["companyId", "connectionId", "tool", "outcome", "durationMs"]`; a too-many answer is `failure` |
-| `sales_read_failed` | error | `budgetedSnapshot` with the sales budget | `["companyId", "operation", "errorCode", "periodDays", "answer", "durationMs"]`; `operation` `summary`/`best_sellers`/`unsold`, `errorCode` `STATEMENT_TIMEOUT`/`TRANSACTION_TIMEOUT`/`PERSISTENCE_UNAVAILABLE`, `answer` `too_many_orders`/`read_failure` |
-| `assistant_sales_reads_busy` | warn | `assistant-sales-capabilities.ts` | `["companyId", "connectionId", "tool", "waitedMs"]` |
+| `sales_read_failed` | error | the `salesRead` guard in `assistant-sales-capabilities.ts`, once per failed call (the shared snapshot logs nothing for sales) | `["companyId", "operation", "errorCode", "periodDays", "answer", "durationMs"]`; `operation` `summary`/`best_sellers`/`unsold`, `errorCode` `STATEMENT_TIMEOUT`/`TRANSACTION_TIMEOUT`/`PERSISTENCE_UNAVAILABLE`, `answer` `too_many_orders`/`read_failure` |
+| `assistant_sales_reads_busy` | warn | `assistant-sales-capabilities.ts` | `["companyId", "connectionId", "tool", "waitedMs"]` (up to 2,000 ms) |
 | `assistant_tool_failed` (existing) | error | capabilities, registry | `["companyId", "connectionId", "tool", "errorCode"]` for `INVALID_STORED_ORDER`, an output that fails its schema, or an unexpected code |
-| `product_search_failed` (existing) | error | products snapshot | unchanged |
+| `product_search_failed` (existing) | error | the `onFailure` that products pass to the shared snapshot | unchanged |
 
 `periodDays` is the number of days read, not the dates. `assistant_tool_called` with `tool: "resumen_de_ventas"` measures the product hypothesis.
 
