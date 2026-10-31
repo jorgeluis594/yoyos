@@ -19,6 +19,8 @@ type Store = { companyId: string; userId: string; connectionId: string; subdomai
 const rosa: Store = { companyId: randomUUID(), userId: `rosa-${suffix}`, connectionId: randomUUID(), subdomain: `rosa${suffix.slice(0, 8)}` };
 const luis: Store = { companyId: randomUUID(), userId: `luis-${suffix}`, connectionId: randomUUID(), subdomain: `luis${suffix.slice(0, 8)}` };
 
+const mara: Store = { companyId: randomUUID(), userId: `mara-${suffix}`, connectionId: randomUUID(), subdomain: `mara${suffix.slice(0, 8)}` };
+
 const servers: Server[] = [];
 let base: string;
 async function serve(): Promise<string> {
@@ -77,6 +79,7 @@ beforeAll(async () => {
   base = await serve();
   await createStore(rosa, "Tienda Rosa", { published: true, linked: true });
   await createStore(luis, "Tienda Luis", { published: false, linked: true });
+  await createStore(mara, "Tienda Mara", { published: false, linked: false });
   poloId = (await seed(rosa, { name: "Polo básico", createdAt: new Date("2026-10-01"), variants: [variant("M", "Azul", 39.9, 2, "POL-M-AZ", 20), variant("L", "Rojo", 45, 10, "POL-L-RJ")] })).productId;
   await seed(rosa, { name: "Casaca", createdAt: new Date("2026-10-02"), variants: [variant("M", "Azul", 120, 0, "CAS-M-AZ")] });
   luisProductId = (await seed(luis, { name: "Polo de Luis", variants: [variant("M", "Azul", 10, 5, "LUIS-1")] })).productId;
@@ -85,7 +88,7 @@ beforeAll(async () => {
 afterEach(() => vi.restoreAllMocks());
 
 afterAll(async () => {
-  for (const store of [rosa, luis]) {
+  for (const store of [rosa, luis, mara]) {
     await withTenantIsolation(store.companyId, async () => {
       await deleteSeededProducts();
       await prisma.assistantConnection.deleteMany();
@@ -135,32 +138,49 @@ describe("product tools through the MCP server", () => {
     }
   });
 
+  test("answers «Tu tienda todavía no tiene productos.» in a store without products, also when values are sent", async () => {
+    for (const args of [{}, { texto: "polo" }, { valores: ["Azul"] }, { valores: ["Talla: M"], precio_desde: 10, stock: "con stock" }]) {
+      const result = await call(mara, "buscar_productos", args);
+      expect(result.isError).toBeFalsy();
+      expect(result.structuredContent).toMatchObject({ catalogo: "Tu catálogo está oculto y no tiene link todavía.", total: 0, productos: [], mensaje: "Tu tienda todavía no tiene productos." });
+    }
+  });
+
   test("counts product calls in the store limit shared with order tools", async () => {
     const info = vi.spyOn(log, "info");
-    const limited: Store = rosa;
-    // Earlier tests of this file used part of the minute's window; fill it with cheap calls until one is refused.
+    // Mara has her own store, so using up her minute window touches no other test; fill it with mixed calls until one is refused.
     let refused: ToolResult | undefined;
     for (let attempt = 0; attempt < 70 && !refused; attempt++) {
-      const result = await call(limited, attempt % 2 === 0 ? "buscar_productos" : "pedidos_por_cobrar", attempt % 2 === 0 ? { texto: "polo" } : {});
+      const result = await call(mara, attempt % 2 === 0 ? "buscar_productos" : "pedidos_por_cobrar", attempt % 2 === 0 ? { texto: "polo" } : {});
       if (result.isError && /límite de 60 consultas/.test(result.content[0].text)) refused = result;
     }
     expect(refused).toBeDefined();
     const tools = info.mock.calls.map(([fields]) => fields as { event?: string; tool?: string; outcome?: string }).filter((fields) => fields.event === "assistant_tool_called");
-    expect(tools.some((fields) => fields.tool === "buscar_productos" && fields.outcome === "answered")).toBe(true);
+    expect(tools.some((fields) => fields.tool === "buscar_productos" && fields.outcome !== "rate_limited")).toBe(true);
     expect(tools.some((fields) => fields.tool === "pedidos_por_cobrar")).toBe(true);
     expect(tools.at(-1)).toMatchObject({ outcome: "rate_limited" });
+    // Another store keeps answering: the limit is per store.
+    const other = await call(luis, "buscar_productos", { texto: "polo" });
+    expect(other.isError).toBeFalsy();
+    expect(other.structuredContent?.productos).toHaveLength(1);
   }, 60_000);
 
   test("leaves every product, price and stock unchanged after any sequence of calls", async () => {
-    const snapshot = () => withTenantIsolation(rosa.companyId, async () => ({
+    const snapshot = (store: Store) => withTenantIsolation(store.companyId, async () => ({
       products: await prisma.product.findMany({ orderBy: { id: "asc" } }),
       variants: await prisma.productVariant.findMany({ orderBy: { id: "asc" } }),
       stock: await prisma.productStock.findMany({ orderBy: { variantId: "asc" } }),
     }));
-    const before = await snapshot();
-    await call(luis, "buscar_productos", { texto: "polo" });
-    await call(luis, "ver_producto", { sku: "luis-1" });
-    const after = await snapshot();
-    expect(after).toEqual(before);
+    const stores = [rosa, luis];
+    const before = await Promise.all(stores.map(snapshot));
+    expect(before[0].products.length).toBeGreaterThan(0);
+    expect(before[1].products.length).toBeGreaterThan(0);
+    // Each account calls both tools on its own store, the second round hitting the first one's results.
+    for (const store of stores) {
+      expect((await call(store, "buscar_productos", { texto: "polo", valores: ["Azul"], stock: "con stock" })).isError).toBeFalsy();
+      expect((await call(store, "buscar_productos", { en_catalogo: "sí", orden: "nombre" })).isError).toBeFalsy();
+      expect((await call(store, "ver_producto", { sku: store === rosa ? "pol-m-az" : "luis-1" })).isError).toBeFalsy();
+    }
+    expect(await Promise.all(stores.map(snapshot))).toEqual(before);
   });
 });
