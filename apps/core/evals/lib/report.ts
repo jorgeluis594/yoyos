@@ -36,11 +36,11 @@ export type EvalReport = Readonly<{
   byTag: Readonly<Record<string, Tally>>;
   fields: Readonly<Record<string, Tally>>;
   judge: Readonly<{ judged: number; passed: number; rescued: readonly string[]; disagreed: readonly string[] }>;
-  /** The acceptance gate of the product draft, over the first repetition of each scored message; whole run and per family (`kind`). */
+  /** The acceptance gate (evals/README.md), over the first repetition of each scored message; whole run and per family (`kind`). */
   gate: Readonly<{ whole: GateLines; withoutPhoto: GateLines; photo: GateLines; byFamily: Readonly<Record<string, GateLines>> }>;
   /** Cost per scored message against the reported target, with cached and reasoning tokens. */
   cost: CostLine;
-  /** Model calls per message kind against technical design §8. */
+  /** Model calls per message kind against what evals/README.md allows. */
   readerCalls: Readonly<Record<string, ReaderCallLine>>;
   /** Cases tagged `pinned-miss`: the actions ignored per repetition. */
   pinnedMiss: readonly Readonly<{ caseId: string; repeats: readonly Readonly<{ repeat: number; ignoredActions: number }>[]; ignoredInAnyRepeat: boolean }>[];
@@ -57,7 +57,7 @@ export type EvalReport = Readonly<{
   /** Repeated cases (run more than once) whose runs all share one signature, whole and per family. `flipped` names the others. */
   consistency: Readonly<ConsistencyLine & { cases: number; repeats: number; flipped: readonly Readonly<{ caseId: string; signatures: readonly string[] }>[];
     byFamily: Readonly<Record<string, ConsistencyLine>> }>;
-  /** Counts the gates do not hold (technical design §12.1); no case id or text. */
+  /** Counts the gates do not hold (evals/README.md); no case id or text. */
   tagMetrics: TagMetrics;
   injection: Readonly<{ total: number; allowed: number; priceChanged: readonly string[] }>;
   latencyMs: Readonly<Record<string, Readonly<{ p50: number; p95: number }>>>;
@@ -103,10 +103,10 @@ export type CostLine = Readonly<{ perScoredMessageUsd: number | null; targetUsd:
   cachedTokens: number; reasoningTokens: number }>;
 export type ReaderCallLine = Readonly<{ messages: number; maxCalls: number; meanCalls: number; allowed: number; withinDesign: boolean }>;
 
-/** The cost target per message of the product draft (a reported target, not a gate). */
+/** The cost target per message (a reported target, not a gate). */
 export const costTargetUsd = 0.003;
 /**
- * Model calls a message may make (technical design §8): a text 1 reader call; a photo without a caption 0 reader calls and at most
+ * Model calls a message may make (evals/README.md): a text 1 reader call; a photo without a caption 0 reader calls and at most
  * the visual chooser; a photo with a caption the visual chooser and 1 reader call. The reader and the chooser are not told apart.
  */
 export const allowedCalls = { text: 1, photo: 1, photo_caption: 2 } as const;

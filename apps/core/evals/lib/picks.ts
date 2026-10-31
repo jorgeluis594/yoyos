@@ -3,7 +3,7 @@ import type { CaseRecord } from "@core/evals/lib/case-record";
 
 /**
  * Grades the visual-search model's own pick against what the case expects, whatever the gate then did with it. Only the visual
- * sources are graded: the reading of text has no certainty gate (technical design §2). True or false when the case says what the right
+ * sources are graded: the reading of text has no certainty gate (evals/README.md). True or false when the case says what the right
  * pick is, null when it cannot tell.
  */
 

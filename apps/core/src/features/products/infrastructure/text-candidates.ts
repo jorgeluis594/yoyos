@@ -27,7 +27,7 @@ function isStatementTimeout(cause: unknown): boolean {
 const coverageRowSchema = z.object({ id: z.uuid(), sellable: z.boolean(), matches: z.coerce.number().int().min(0) });
 
 /**
- * The company's products ranked by coverage, the sum of `word_similarity` over the words their name matches (design §5.2):
+ * The company's products ranked by coverage, the sum of `word_similarity` over the words their name matches (docs/message-to-order.md, «What the reader receives and returns», candidates for a text):
  * the sellable ones (an active variant) and, apart, the ones with no active variant, which the reader gets as not sellable.
  * Scans the company's products as the app role under RLS, because the trigram index cannot serve these matches;
  * the cost is words × products, so the words are capped from the catalog size. A statement timeout is a result, not an error.

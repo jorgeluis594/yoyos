@@ -97,7 +97,7 @@ prompts and rules on `EVAL_SPLIT=dev` (with `EVAL_CASES` and tags for subsets) a
 never while tuning. A full run (`all`) is read per split with `EVAL_SPLIT=dev pnpm exec tsx evals/scripts/rebuild-report.ts
 eval-results/<run>.json`, which writes `<run>.dev.json` and leaves the run as it is (the classifier's cost stays in the run).
 `cases/holdout-v1.ts` is the first holdout, used once to judge T16: it is now an ordinary table, split like the others; its
-`probe` rows target risks beyond the design and are reported under `tag:probe`.
+`probe` rows target risks beyond the documented rules and are reported under `tag:probe`.
 
 ## Pinned misses
 
@@ -150,7 +150,7 @@ and an expected outcome `payment_requested` becomes `request_not_allowed`. With 
 `order_closed` also accepts notice `not_applied` with the same order and its outcomes unstated. The alternative lives inside the exact matcher
 only: whether the judge looks at a case is decided from the case as written, so the rule adds no judge call. The report header says which
 variant was scored.
-Besides pass or fail, each message is counted for the acceptance gate of the product draft:
+Besides pass or fail, each message is counted for the acceptance gate:
 
 - **Ignored action**: something the buyer asked for (a change, «listo» or a pending) that produced neither its effect nor any notice
   for the message, counted per action. A removal applied with «listo» lost and no notice is one. With outcomes stated, each asked

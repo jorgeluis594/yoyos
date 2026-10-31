@@ -51,8 +51,8 @@ import { SimulatedClock, runConversationSteps, type StepResult } from "@core/eva
  */
 
 /**
- * A model certainty and the production gate it is compared with. Only the visual search has a gate on reading a message (technical
- * design §2): `visual_none` is the vision chooser's «none», reported apart, and `shows_product` its probability that the photo shows a
+ * A model certainty and the production gate it is compared with. Only the visual search has a gate on reading a message (see
+ * evals/README.md): `visual_none` is the vision chooser's «none», reported apart, and `shows_product` its probability that the photo shows a
  * product, at its 0.5 gate, with «product» or «not_product» as pick.
  */
 export type CertaintySource = "visual" | "visual_none" | "shows_product";

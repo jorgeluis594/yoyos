@@ -22,8 +22,7 @@ const correa = line("correa-cuero", { Color: "Negro" });
 const rojoTrucker = { Color: "Rojo" };
 
 /**
- * New dev cases of «Message to order without silent losses», written from its product definition (now in docs/message-to-order.md)
- * and docs/message-to-order.md by someone who does not tune, with their own products, colors and wording. Every id falls in the dev split
+ * New dev cases of «Message to order without silent losses», written from docs/message-to-order.md by someone who does not tune, with their own products, colors and wording. Every id falls in the dev split
  * (cases/new-dev-cases.test.ts). `kind` is the family; the dev equivalents of the cited holdout cases are covered by family, never copied.
  * Notices state the shipped design: the generic body is accepted by the scoring rule when the fallback ships, so no case lists it.
  */
@@ -285,7 +284,7 @@ export const interpretationCases: readonly EvalCaseInput[] = [
   { id: "int-photo-size-color", pass: "interpretation", criterion: 4, kind: "caption", input: { photo: { shows: "polo-basico" }, caption: "talla M negro" },
     expected: [{ outcomes: ["added"], order: [after("polo-basico", M_NEGRO)] }] },
   { id: "int-photo-emoji-caption", pass: "interpretation", criterion: 1, kind: "caption", input: { photo: { shows: "polo-basico" }, caption: "😍😍" },
-    // Relabeled by rule (product definition, «Photos» and «Messages that count»): a caption without letters or digits is not read, so the photo
+    // Relabeled by rule (docs/message-to-order.md, «Messages that count»): a caption without letters or digits is not read, so the photo
     // is a photo without caption: a pending without its variant. The paraphrases keep this expectation.
     expected: [{ outcomes: ["pending_created", "variant_missing"], notice: "variant_missing" }] },
   { id: "int-photo-label-other-size", pass: "interpretation", criterion: 4, kind: "caption", input: { photo: { shows: "polo-basico", label: M_NEGRO }, caption: "en talla L" },

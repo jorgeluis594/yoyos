@@ -7,7 +7,7 @@ import { createChat, id, productId, reader, stated, type Chat, type ProductKey, 
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 
 /**
- * The acceptance criteria of the product draft that read a message end to end: fixed reader answers go through the real
+ * The acceptance criteria of docs/message-to-order.md that read a message end to end: fixed reader answers go through the real
  * order transitions, the notice the outcomes call for is chosen and its text is written, as the seller's phone would show it.
  */
 const { add, say } = reader;

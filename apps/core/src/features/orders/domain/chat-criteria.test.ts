@@ -7,7 +7,7 @@ import type { OrderId, PaymentId, PositiveInteger, UserId } from "@core/src/feat
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 
-/** The acceptance criteria of the product draft, as domain scenarios with fixed reader answers. */
+/** The acceptance criteria of docs/message-to-order.md, as domain scenarios with fixed reader answers. */
 const { add, complete, say } = reader;
 const DAY = 24 * 3600_000;
 const M_NEGRO = { Talla: "M", Color: "Negro" } as const;

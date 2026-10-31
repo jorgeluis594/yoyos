@@ -25,7 +25,7 @@ export type CaseRecord = Readonly<{
   /** May point past `expected` when a shipped-features alternative matched (lib/shipped-expectations.ts). */
   expectationIndex: number;
   judge: JudgeVerdict | null;
-  /** What the message was, for the reader calls the design allows it (technical design §8); null outside message passes. */
+  /** What the message was, for the reader calls a message may make (evals/README.md); null outside message passes. */
   messageKind: "text" | "photo" | "photo_caption" | null;
   conversationId: string | null;
   /** The message number inside its conversation, from 1. */

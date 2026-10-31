@@ -2,7 +2,7 @@ import { priceOf, type ModelPrice } from "@core/src/shared/infrastructure/model-
 import { describeMaxOutputTokens } from "@core/src/features/products/infrastructure/product-matching/openai-image-embedder";
 
 /**
- * Worst billed tokens of the model calls a photo message makes besides the reader (design §10.1, «Photo stages»).
+ * Worst billed tokens of the model calls a photo message makes besides the reader (docs/message-to-order.md, «What the reader receives and returns», input-token budget).
  * Initial values came from the recorded chooser calls (about 910 billed tokens per image). The tuning measured square 1,024 × 1,024
  * images with direct calls and pinned the larger value: a chooser call with the customer image, a detail image and 8 candidates billed
  * 10,769 input tokens (twice) and one description billed 1,297 input and 29 output tokens (embedding of it: 25).
