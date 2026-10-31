@@ -53,3 +53,22 @@ test("refuses a reversed price range and a variant filter outside the catalog be
   expect(await searchForAssistant({ stock: "low", inCatalog: false, sort: "recent", page: 1 }, deps)).toMatchObject({ success: false, error: { code: "VARIANT_FILTER_OUTSIDE_CATALOG" } });
   expect(deps.searchPage).not.toHaveBeenCalled();
 });
+
+test("answers an empty page, not the no-options text, when values are sent to a store without products", async () => {
+  const deps = dependencies({ readVocabulary: vi.fn(async () => ok([])), searchPage: vi.fn(async () => ok({ ...emptyPage, storeHasProducts: false })) });
+  const result = await searchForAssistant({ values: ["Azul"], priceFromCents: 4000, sort: "recent", page: 1 }, deps);
+  expect(result).toEqual({ success: true, data: { ...emptyPage, storeHasProducts: false } });
+  expect(deps.searchPage).toHaveBeenCalledOnce();
+  expect(deps.searchPage).toHaveBeenCalledWith(expect.objectContaining({ valueSets: [], offset: 0, limit: 1 }));
+});
+
+test("keeps the no-options rejection for a store that has products without options", async () => {
+  const deps = dependencies({ readVocabulary: vi.fn(async () => ok([])), searchPage: vi.fn(async () => ok({ ...emptyPage, storeHasProducts: true })) });
+  const result = await searchForAssistant({ values: ["Azul"], sort: "recent", page: 1 }, deps);
+  expect(result).toMatchObject({ success: false, error: { code: "VALUE_REJECTED", rejection: { kind: "no_options" } } });
+});
+
+test("returns the failure of the probe for an empty vocabulary", async () => {
+  const deps = dependencies({ readVocabulary: async () => ok([]), searchPage: async () => err({ code: "STATEMENT_TIMEOUT", message: "slow" }) });
+  expect(await searchForAssistant({ values: ["Azul"], sort: "recent", page: 1 }, deps)).toMatchObject({ success: false, error: { code: "STATEMENT_TIMEOUT" } });
+});

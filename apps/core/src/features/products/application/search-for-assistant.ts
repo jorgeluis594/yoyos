@@ -50,6 +50,12 @@ export async function searchForAssistant(input: AssistantProductSearch, deps: Se
       const resolved = resolveValues(values, buildVocabulary(rows.data));
       if (!resolved.success) {
         const { message, ...rejection } = resolved.error;
+        if (rejection.kind === "no_options") {
+          // An empty vocabulary is also what a store without products has: that store answers an empty page, whatever the filters.
+          const probe = await deps.searchPage({ valueSets: [], sort, offset: 0, limit: 1, lowStockThreshold, matchingVariantCap });
+          if (!probe.success) return probe;
+          if (!probe.data.storeHasProducts) return ok({ items: [], page, total: 0, storeHasProducts: false });
+        }
         return err({ code: "VALUE_REJECTED", rejection, message });
       }
       valueSets = resolved.data;

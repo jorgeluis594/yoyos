@@ -273,6 +273,8 @@ Flow:
    2. `searchPage({ text, valueSets, priceFrom, priceTo, stock, inCatalog, sort, offset: (page - 1) * 20, limit: 20, lowStockThreshold, matchingVariantCap: 10 })`.
 3. Return the page.
 
+**Implementation note (T5, review round 1).** The flow above never said what a store without products answers when `values` is sent: its vocabulary is empty, so `resolveValues` returned `no_options` before the page could report `storeHasProducts: false`, and the agent got «Ningún producto de tu tienda tiene opciones…» instead of «Tu tienda todavía no tiene productos.» (product acceptance 13). Step 2.1 now treats `no_options` specially: it runs one probe `searchPage` (no filters, `offset: 0`, `limit: 1`) in the same snapshot. If the store has no products, the use case returns an empty page with `storeHasProducts: false` (the requested page number, `total: 0`); otherwise it ends with the `no_options` rejection as before. The probe costs at most 2 extra statements (page and, only when the store has products, summaries) and only on this path, so the worst-case search of section 7.3 (7 statements) is unchanged and `maxStatements` holds.
+
 ### 5.7 `findForAssistant` (new, products application)
 
 File `features/products/application/find-for-assistant.ts`.
