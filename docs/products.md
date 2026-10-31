@@ -51,6 +51,10 @@ Code: `apps/core/src/features/products/` (core), `apps/mobile/src/features/produ
 | Parity | Web and mobile apply the same rules, limits, texts and error codes; core is the source of truth. Reason: the seller works from both. |
 | Concurrency | See [Concurrency](#concurrency). |
 
+### Stock levels
+
+A variant's stock has three levels: «Agotado» (0 units), «Stock bajo» (1 to 3 units) and available (4 or more). They apply to one active variant, never to a product total. The threshold is one constant for every store, changed only by Yoyos (`features/products/domain/stock-level.ts`). A product is «Agotado» only when every active variant is at 0, as in the list and the public catalog. The seller screens do not filter by «stock bajo» yet; the [AI assistants](assistants.md#stock-levels) filter and summarize with these levels. Reason: one meaning of «stock bajo» for every surface that adds it.
+
 ### Statuses
 
 | Status | Meaning | Seller can | Seller sees | Buyer sees |

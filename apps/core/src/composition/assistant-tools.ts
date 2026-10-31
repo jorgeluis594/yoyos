@@ -1,9 +1,11 @@
 import type { ToolModule } from "@core/src/features/assistants/presentation/tool-module";
 import { createOrderToolsModule } from "@core/src/features/assistants/presentation/tools/orders-tools";
 import { orderToolsDependencies } from "@core/src/composition/assistant-order-capabilities";
+import { createProductToolsModule } from "@core/src/features/assistants/presentation/tools/products-tools";
+import { productToolsDependencies } from "@core/src/composition/assistant-product-capabilities";
 
 /**
- * The tool modules the MCP server offers, one per data category. MCP 2/4-4/4 each add their module file and one entry here;
+ * The tool modules the MCP server offers, one per data category. MCP 3/4-4/4 each add their module file and one entry here;
  * `assistant-tools.test.ts` (also `pnpm --dir apps/core mcp:validate`) checks every entry against the rules of the registry.
  */
-export const toolModules: readonly ToolModule[] = [createOrderToolsModule(orderToolsDependencies)];
+export const toolModules: readonly ToolModule[] = [createOrderToolsModule(orderToolsDependencies), createProductToolsModule(productToolsDependencies)];

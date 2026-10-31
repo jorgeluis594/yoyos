@@ -24,7 +24,7 @@ const rosa: Store = { companyId: randomUUID(), userId: `rosa-${suffix}`, connect
 const luis: Store = { companyId: randomUUID(), userId: `luis-${suffix}`, connectionId: randomUUID() };
 
 const fixtureModule: ToolModule = {
-  scope: "orders:read", access: "read", instructions: "Las herramientas de prueba solo leen.",
+  scope: "orders:read", access: "read", instructions: "Las herramientas de prueba solo leen.", readFailureMessage: "No pudimos leer los datos de prueba.",
   tools: [{
     name: "consulta_de_prueba", title: "Consulta de prueba", description: "Devuelve un total fijo para probar el servidor.",
     inputSchema: z.strictObject({ texto: z.string().max(20).optional() }),
@@ -50,7 +50,7 @@ async function mint(subject: string, claims: Record<string, unknown> = {}, heade
   return signJWT({ context: await auth.$context } as never, {
     options: {}, header,
     payload: {
-      sub: subject, aud: mcpResourceUrl, client_id: clientId, azp: clientId, scope: "orders:read offline_access", iss: authIssuer,
+      sub: subject, aud: mcpResourceUrl, client_id: clientId, azp: clientId, scope: "orders:read products:read offline_access", iss: authIssuer,
       iat: now, exp: now + 3600, jti: randomUUID(), ...claims,
     },
   } as never);
@@ -82,7 +82,7 @@ async function createStore(store: Store, name: string) {
 async function connect(store: Store, data: Record<string, unknown> = {}) {
   await withTenantIsolation(store.companyId, async () => await prisma.assistantConnection.create({ data: {
     id: store.connectionId, authorizedByUserId: store.userId, oauthClientId: clientId, agentName: "Claude", returnKind: "web", returnDomain: "claude.ai",
-    scopes: ["orders:read"], authorizedAt: new Date(Date.now() - 10 * day), ...data,
+    scopes: ["orders:read", "products:read"], authorizedAt: new Date(Date.now() - 10 * day), ...data,
   } }));
 }
 // Prisma promises are lazy: await inside the tenant callback so the query runs with the company context.

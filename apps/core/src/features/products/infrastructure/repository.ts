@@ -129,6 +129,12 @@ async function readProducts(ids: readonly string[], inTransaction = false): Prom
   }
 }
 
+/** The aggregate read of an assistant call, inside its snapshot: a timeout is rethrown for the snapshot to report, and no image is signed. */
+export async function readProductInSnapshot(id: ProductId): Promise<Result<Product | null, ProductReadError>> {
+  const read = await readProducts([id], true);
+  return read.success ? ok(read.data[0] ?? null) : read;
+}
+
 const unavailable = (message: string) => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message });
 
 /**
