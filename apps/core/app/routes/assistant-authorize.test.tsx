@@ -151,6 +151,13 @@ test("the loader reads the request for a ready account and names the store, the 
   expect(authorization.read).toHaveBeenCalledWith("client_id=c1&exp=9&sig=abc");
 });
 
+test("the loader shows the agent name without format or bidi control characters", async () => {
+  resolveCurrentAccess.mockResolvedValue({ success: true, data: rosa });
+  getSession.mockResolvedValue({ user: { email: "rosa@ejemplo.com" } });
+  authorization.read.mockResolvedValue({ success: true, data: { oauthClientId: "c1", clientName: "Chat\u202EGPT\u200B", redirectUri: "https://evil.example/cb" } });
+  expect(await callLoader(loaderRequest())).toMatchObject({ agentName: "ChatGPT" });
+});
+
 test("the loader shows the invalid, expired and no store states", async () => {
   resolveCurrentAccess.mockResolvedValue({ success: true, data: rosa });
   getSession.mockResolvedValue({ user: { email: "rosa@ejemplo.com" } });

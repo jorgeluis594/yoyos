@@ -12,7 +12,7 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { auth } from "@core/src/shared/infrastructure/auth";
 import { resolveCurrentAccess } from "@core/src/shared/infrastructure/current-user";
 import { authorizationFor } from "@core/src/features/assistants/composition";
-import { returnTargetOf } from "@core/src/features/assistants/domain/assistant-connection";
+import { parseAgentName, returnTargetOf } from "@core/src/features/assistants/domain/assistant-connection";
 import type { AssistantOwnerAccess, AuthorizeAssistantError, SignedAuthorizationRequest } from "@core/src/features/assistants/application/authorize-assistant";
 import type { CompanyId, UserId } from "@shared/identity";
 
@@ -53,7 +53,7 @@ export async function loader({ request }: LoaderFunctionArgs): Promise<Screen> {
   const session = await auth.api.getSession({ headers: request.headers });
   if (session === null) throw redirect(`${localePrefix(url.pathname)}/login?${signed}`);
   const returnTarget = returnTargetOf(read.data.redirectUri) ?? { kind: "this_device" as const };
-  return { state: "ready", agentName: read.data.clientName?.trim() || null, returnTarget, storeName: result.data.company.name, email: session.user.email, signed };
+  return { state: "ready", agentName: parseAgentName(read.data.clientName), returnTarget, storeName: result.data.company.name, email: session.user.email, signed };
 }
 
 const formSchema = z.object({ intent: z.enum(["allow", "deny", "switch_account"]), request: z.string().min(1) });

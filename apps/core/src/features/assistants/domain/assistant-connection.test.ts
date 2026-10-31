@@ -56,6 +56,12 @@ describe("parseAgentName", () => {
     expect(parseAgentName("😀".repeat(81))).toBeNull();
   });
 
+  test("removes Unicode format and bidi control characters so the consent screen cannot be spoofed", () => {
+    expect(parseAgentName("Chat\u202EGPT")).toBe("ChatGPT");
+    expect(parseAgentName("Cla\u200Bude\u200D\u2066\u2069\uFEFF")).toBe("Claude");
+    expect(parseAgentName("\u202E\u200B")).toBeNull();
+  });
+
   test("trims the name and removes control characters", () => {
     expect(parseAgentName("  Cla\u0000ude\n ")).toBe("Claude");
   });

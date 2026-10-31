@@ -38,7 +38,8 @@ export function agentNameLengthIsValid(name: string): boolean {
 
 export function parseAgentName(raw: string | null | undefined): AgentName | null {
   if (raw === null || raw === undefined) return null;
-  const name = raw.replace(/\p{Cc}/gu, "").trim();
+  // Control (Cc) and format (Cf) characters go: a bidi override (U+202E) or a zero-width space could spoof the name on the consent screen.
+  const name = raw.replace(/[\p{Cc}\p{Cf}]/gu, "").trim();
   return agentNameLengthIsValid(name) ? (name as AgentName) : null;
 }
 
