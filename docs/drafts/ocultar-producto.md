@@ -29,7 +29,12 @@ The seller can hide a product with one switch: a hidden product is not offered t
 - Showing it again (switch off) returns it to the catalog and to message reading for every read after the save, with nothing else to redo.
 - Everything goes into one slice, web and mobile together.
 
-Meeting point with [message to order without silent losses](https://app.todoist.com/app/task/6hrq6p7vJHRmJcwV) (in progress on its own branch): that feature gives the reader up to 2 products that are no longer sold, name only, so a text naming one gets «Producto no disponible». Whatever question 1 decides, hidden products are handled in that same place and never as sellable candidates; this feature only adds them there.
+This task ships against the message reader on `main` ([message-to-order](../message-to-order.md): one model call per message, candidates by name search, QR and visual search, outcome `product_not_available` «Producto no disponible»). Meeting point with the [staged message reader](https://app.todoist.com/app/task/6hv99FVqgMmmJJR3) (design closed, being implemented on `jorgeluis594/lector-de-pedidos-por-mensaje-nueva-arqu`), which replaces that reader and reuses its outcomes, pendings and notices. A hidden product follows these of its rules, and this task does not build any of them:
+
+- **Resolution:** the staged reader finds products only through the catalog search and the photo identification. Hidden products are not results of the search used for message reading, nor candidates of visual search, so the staged reader never resolves to one; that comes from the same exclusion this task adds, with nothing extra on its side.
+- **«Por resolver» points:** a pending of a product that becomes hidden stays a point until its pending ends, as any pending ([Rules](#rules)). Its «agrégalo desde la web» remedy is true: the seller can add a hidden product by hand.
+- **Outcome `product_not_available`:** whatever question 1 decides is carried on that same outcome, so the staged reader keeps it urgent as it does today. Its suggested buyer reply «Ya no tenemos la Casaca jean. ¿Te muestro otra opción?» is not true for a hidden product the store still has; the reply for a hidden product is set by whichever of the two tasks merges second (proposal: «La Casaca jean no está disponible por ahora. ¿Te muestro otra opción?»).
+- **Undo in «Cambios por mensajes»:** its refusal «La Gorra trucker · Negro ya no se vende.» is for something no longer sold (a deactivated variant or a product without active variants). A hidden product is still sold by the seller, so undoing a message that removed one restores it, as the seller could add it by hand; the undo rule is not refused for hiding. Whichever task merges second checks it.
 
 ## Out of this version
 
@@ -99,14 +104,15 @@ Alternative paths:
 | Pending catalog order (created by **Continuar**, not yet confirmed) | Keeps working: the buyer can reopen it with **Continuar**, confirm and pay it. The seller settles it in the chat. Same rule as an order with a deactivated variant ([Products](../products.md)). |
 | Shared product links | A link already sent (`https://rosa.yoyos.lat/productos/<id>`) shows «Este producto ya no está disponible» while hidden and works again when shown. |
 | Orders already created | Never change: catalog, chat and manual orders that contain the product are shown, edited, paid, shipped and cancelled as before. Their checkout links keep working. |
-| Message reading: adding | No message adds a hidden product: not by text, QR, visual search, caption or pending completion. Example: the buyer of chat order #1023 sends «quiero la casaca jean en M» and «Casaca jean» is hidden: nothing is added. What the seller is told depends on question 1. |
-| Message reading: items already in the open order | An item of a hidden product added before it was hidden stays. The buyer can lower, remove or set its quantity («mejor que sean 1»). Raising it («uno más de la casaca») or changing its variant is an add to a hidden product: nothing changes. Same rule as an item of a product no longer sold. |
-| Message reading: pendings | A pending of a product that becomes hidden ends when a message tries to complete it, as for a product no longer sold; it does not come back when the product is shown again. |
-| Message reading: never a substitute | A hidden product is never replaced by a similar visible one: «casaca jean» never adds «Casaca denim». |
+| Message reading: adding | No message adds a hidden product: not by text, QR, visual search, caption or pending completion. Example: the buyer of chat order #1023 sends «quiero la casaca jean en M» and «Casaca jean» is hidden: the jacket is not added. For the reader on `main` a hidden product is treated as not sellable: it is not a text candidate, its QR matches no sellable variant and it is not a visual-search candidate. What the seller is told depends on question 1. |
+| Message reading: items already in the open order | An item of a hidden product added before it was hidden stays. The buyer can lower, remove or set its quantity («mejor que sean 1»). Raising it («uno más de la casaca») or changing its variant is an add to a hidden product: nothing changes and the seller gets the question 1 notice. Same rule as an item of a product no longer sold on `main` (`product_not_available`). |
+| Message reading: pendings | A pending of a product that becomes hidden ends when a message tries to complete it, with the question 1 notice, as a pending of a product no longer sold does on `main`; it does not come back when the product is shown again. |
+| Message reading: similar products | The reader on `main` chooses among the visible candidates it is given, so «quiero la casaca jean» could add a visible «Casaca denim» if the reader judges it is what the buyer named, and a photo of the hidden jacket could match a visible look-alike at 0.8 certainty or more. This is the same risk as today for a deactivated product or one the store never loaded, and is accepted; the staged reader's certainty marks («Con duda») are what reduce it. |
 | Seller editing a chat order | The order editor picker and mobile editing offer hidden products. A hidden product the seller adds by hand to a chat order stays like any manual item; later messages can lower or remove it, not raise it. |
 | «Nueva venta» and point of sale | Unchanged: hidden products are offered and their QR is read. |
 | Stock, prices, variants | Hiding changes none of them. Stock is neither reserved nor released. |
 | Photos | Hiding does not remove or reindex photos; a shown-again product is recognizable at once. |
+| Mobile catalog hint | The WhatsApp screen's catalog hint counts only visible products. With products whose active variants all belong to hidden products it says «Todos tus productos están ocultos. Muestra alguno para que Yoyos arme pedidos con los mensajes de tus clientes» with **Ir a Productos**; photo and text misses stay silent in that state, as with no products. |
 | Deactivated variants | Independent rule: a visible product with all variants deactivated stays out of the catalog as today; hiding a product does not deactivate anything. |
 
 ## States
@@ -166,7 +172,7 @@ The risk the buyer-side rule closes: a hidden product reached by a guessed or ol
 | The switch saves with the product form, not on its own | One save model for the product page; the discard guard covers it. |
 | A hidden product's URL answers like a missing product | The buyer cannot tell hidden from deleted. |
 | Pending catalog orders and created orders with a hidden product keep working | Same rule as deactivated variants: what was already agreed is honored and settled in the chat. |
-| A hidden product is never replaced by a similar visible one in message reading | Guessing another product is worse than adding nothing. |
+| For message reading a hidden product is not sellable; for the seller it is | One exclusion covers the reader on `main` and the staged reader's catalog search; the seller's manual actions (picker, «Nueva venta», undo) keep it. |
 
 ## Acceptance criteria
 
@@ -174,9 +180,9 @@ The risk the buyer-side rule closes: a hidden product reached by a guessed or ol
 2. A buyer had «Casaca jean · M» and «Polo básico · S» in the cart before it was hidden; pressing **Continuar** marks the jacket line «Ya no está disponible», shows «Algunos productos ya no están disponibles. Quítalos para continuar» and creates no order; after removing the line, **Continuar** creates the order with the polo only.
 3. A buyer pressed **Continuar** with «Casaca jean · M» (pending catalog order #1050) before the product was hidden; reopening the cart and pressing **Continuar** returns order #1050 unchanged, and the buyer confirms and pays it.
 4. The seller opens «Nueva venta» on mobile, searches «casaca» and adds «Casaca jean · L» while it is hidden; the sale is saved and its stock is deducted as usual.
-5. With «Casaca jean» hidden, a buyer writes «quiero la casaca jean en M» in a chat with open order #1023: the order does not change and no other product is added in its place.
-6. With «Casaca jean» hidden, a buyer sends a photo of its printed QR label: nothing is added to the chat order.
-7. Order #1023 had «Casaca jean · M · ×2» before the product was hidden; the buyer writes «mejor que sea 1»: the item goes to 1. The buyer writes «una más de la casaca»: the item stays at 1.
+5. With «Casaca jean» hidden and no other casaca in the catalog, a buyer writes «quiero la casaca jean en M» in a chat with open order #1023: the order does not change and the seller gets «Producto no reconocido» («Un cliente pidió un producto que no encontramos en tu catálogo. Revisa el chat.»), with options 1 and 3 of question 1.
+6. With «Casaca jean» hidden, a buyer sends a photo of its printed QR label: nothing is added to the chat order and the seller gets the question 1 notice for a product the reader knows (with option 1: «Producto no disponible», «Un cliente pidió Casaca jean, que tienes oculto en tu catálogo. Revisa el chat.»).
+7. Order #1023 had «Casaca jean · M · ×2» before the product was hidden; the buyer writes «mejor que sea 1»: the item goes to 1. The buyer writes «una más de la casaca»: the item stays at 1 and the seller gets the same notice as in criterion 6.
 8. The seller turns «Ocultar producto» off and saves: the jacket appears again in the catalog grid in its usual place (newest first by creation date), its old link opens the product page, and a later «quiero la casaca jean en M» adds it to the chat order.
 9. The seller creates «Muestra polo» with «Ocultar producto» on: it never appears in the catalog and appears in «Nueva venta».
 10. The seller turns the switch on and leaves the page without saving: «¿Descartar cambios?» appears; discarding leaves the product visible.
@@ -189,10 +195,10 @@ The risk the buyer-side rule closes: a hidden product reached by a guessed or ol
 
 Questions (answer with the option number):
 
-1. When a buyer's message asks for a hidden product (names it, sends its QR label or a photo of it), what does the seller get?
-   (1) Nothing is added and the seller gets a notice of its own, «Producto oculto»: «Un cliente pidió Casaca jean, que está oculta. Revisa el chat.». Hidden products are still identified (as name-only candidates for texts, and by QR and visual search for photos) only to say this. Recommended: the buyer asked for a real product the seller can still sell by hand, and a photo of a hidden product is never matched to a look-alike visible one. Adds one notice kind and joins the «Producto no disponible» path of the in-progress message-to-order task.
-   (2) Hidden products do not exist for message reading: a text naming one is treated like a product not in the catalog and a photo like one that matched nothing («Producto no reconocido»), or matches a similar visible product above the 0.8 certainty. Less work; the seller gets a confusing «no reconocido», and a look-alike can be added. The mobile catalog hint also needs a new text for a store whose products are all hidden.
-   (3) Same as (1) but reusing «Producto no disponible» and its text («…que ya no está a la venta…»). No new notice kind; the text is false for a product the seller still sells.
+1. When a buyer's message asks for a hidden product, what does the seller get? Today on `main`: a text naming a product that is not among the sellable candidates gets «Producto no reconocido» («…un producto que no encontramos en tu catálogo»), and a product the reader already knows (its QR label, an item of the order, a pending) gets `product_not_available`, «Producto no disponible» («Un cliente pidió Casaca jean, que ya no está a la venta. Revisa el chat.»). The staged reader keeps both outcomes and adds the buyer reply «Ya no tenemos la Casaca jean. ¿Te muestro otra opción?».
+   (1) Same outcomes as a product no longer sold, with a true text for the hidden case: where the reader knows the product (QR, item, pending) it is `product_not_available` with the title «Producto no disponible» and the body «Un cliente pidió Casaca jean, que tienes oculto en tu catálogo. Revisa el chat.»; a text that only names it, or a photo without its QR, gets «Producto no reconocido» like any product outside the catalog. On `main` the QR lookup learns to tell a hidden product from an unknown code, so its label gives this notice instead of «Producto no reconocido». Recommended: no new notice kind, no change to how the reader finds products by name, true texts on `main`, and the staged reader inherits it through the same outcome (only its buyer reply for this case is set when the second task merges, see the meeting point).
+   (2) A notice of its own, «Producto oculto», also when a text only names the hidden product. Needs the hidden products given to the reader on `main` by name and to the staged reader's catalog search, which that task owns; more work in a reader that is being replaced.
+   (3) Reuse `product_not_available` with today's text («…que ya no está a la venta…») and the staged reader's «Ya no tenemos la Casaca jean…». No text work; both texts are false for a product the store still sells, and the second one is sent to the buyer.
 
 Decided unless objected:
 - The switch is «Ocultar producto» (on = hidden), off by default, with the hint «Si lo ocultas, no aparece en tu catálogo y Yoyos no lo agrega a pedidos desde los chats. Puedes seguir vendiéndolo en Nueva venta.».
@@ -203,6 +209,9 @@ Decided unless objected:
 - The cart and pending catalog orders follow the deactivated-variant rules: lines blocked at **Continuar**, an existing pending order can still be confirmed and paid.
 - Hidden products are offered with no mark in «Nueva venta», the point of sale and the order editor picker, also when editing a chat order.
 - Items of a hidden product already in a chat order can be lowered or removed by messages, never raised; pendings of it end on their next completion attempt and do not come back.
+- For message reading a hidden product is not sellable on `main` (not a text candidate, its QR matches nothing sellable, not a visual candidate); a visible look-alike may still be chosen, the same accepted risk as today.
+- When every product with an active variant is hidden, the mobile WhatsApp catalog hint says «Todos tus productos están ocultos. Muestra alguno para que Yoyos arme pedidos con los mensajes de tus clientes» with **Ir a Productos**, instead of «Aún no tienes productos…».
+- Meeting point with the staged reader: it finds no hidden product through its catalog search; its «Por resolver» points for a hidden product last as any pending; its undo is not refused for a hidden product (the seller still sells it); its buyer reply for a hidden product is set by whichever task merges second.
 - The «Apariencia de la tienda» preview leaves hidden products out.
 - The AI assistants say «No está en el catálogo: oculto», include hidden products in `en_catalogo: "no"` and never give their customer link.
 - Products that exist when this ships stay visible; no transition.
