@@ -1,9 +1,13 @@
 import { ScrollView, TextInput } from "react-native";
-import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, configure, fireEvent, render, waitFor } from "@testing-library/react-native";
 import { err, ok } from "@shared/functional";
 import { deliverySettings } from "@mobile/features/delivery-settings/composition";
 import DeliverySettingsScreen from "@mobile/features/delivery-settings/presentation/delivery-settings-screen";
 import "@mobile/i18n";
+
+// A reload re-renders the whole screen; on a loaded host it exceeds the 1 s default of findBy/waitFor and the 5 s of a test.
+configure({ asyncUtilTimeout: 5000 });
+jest.setTimeout(15000);
 
 jest.mock("@mobile/features/delivery-settings/composition", () => ({ deliverySettings: { get: jest.fn(), getCourierCatalog: jest.fn(), save: jest.fn(), getZones: jest.fn(), saveZones: jest.fn(), getAgencyCatalog: jest.fn() } }));
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready", company: { id: "company", country: "PE" } } }) }));
@@ -368,4 +372,15 @@ test("the agency warning disappears after saving a zone option with an eligible 
   await screen.findByText("Zona guardada.");
   await waitFor(() => expect(screen.queryByText("Falta una opción de agencia activa con cobertura")).toBeNull());
   expect(get).toHaveBeenCalledTimes(2);
+});
+
+test("delivery settings screen renders the loading state and then the warning without changing the hook order", async () => {
+  let release: (value: Awaited<ReturnType<typeof get>>) => void = () => undefined;
+  get.mockReturnValue(new Promise(resolve => { release = resolve; }));
+  getZones.mockResolvedValue(ok({ ...zonesState, home: { enabled: true }, zones: [] }));
+  const screen = render(<DeliverySettingsScreen />);
+  await screen.findByText("Cargando configuración…");
+  expect(screen.queryByText("Falta una opción de domicilio activa con cobertura")).toBeNull();
+  await act(async () => { release(ok({ ...empty, home: { enabled: true } })); });
+  expect(await screen.findByText("Falta una opción de domicilio activa con cobertura")).toBeTruthy();
 });

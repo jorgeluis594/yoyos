@@ -5,7 +5,7 @@ import { useTranslation } from "react-i18next";
 import { err, ok } from "@shared/functional";
 import type { CourierCatalogResponse, DeliveryZonesResponse, SaveDeliveryZonesRequest, DeliverySettingsResponse } from "@shared/contracts/delivery-settings";
 import { deliverySettings } from "@mobile/features/delivery-settings/composition";
-import { DeliveryZonesSection, lacksCoverage } from "@mobile/features/delivery-settings/presentation/delivery-zones-section";
+import { DeliveryZonesSection, coverageWarnings, useZonesCoverage } from "@mobile/features/delivery-settings/presentation/delivery-zones-section";
 import { useInstantDeliverySettings } from "@mobile/features/delivery-settings/presentation/use-instant-delivery-settings";
 import type { PickupField, RowSaveState } from "@mobile/features/delivery-settings/application/delivery-settings";
 import { useAccess } from "@mobile/features/users/presentation/access-provider";
@@ -17,6 +17,7 @@ import { Input } from "@mobile/components/ui/input";
 import { ScreenState } from "@mobile/components/ui/screen-state";
 import { useTheme } from "@mobile/hooks/use-theme";
 
+const noCouriers: DeliverySettingsResponse["couriers"] = [];
 const pickupMaxLength = { name: 120, address: 500, instructions: 1000 } as const;
 
 /** The save state of one method, under its description. */
@@ -84,13 +85,15 @@ export default function DeliverySettingsScreen() {
     setZonesBusy(false);
     return result;
   };
+  // Before any early return, so the hook order does not change between the loading state and the ready one.
+  const zonesCoverage = useZonesCoverage(zones?.zones ?? null, zones?.agencies ?? null, settings?.couriers ?? noCouriers);
   if (state.status !== "ready") return null;
   if (!settings) return loading ? <ScreenState status="loading" title={t("loadingDeliverySettings")} />
     : <ScreenState status="error" title={t("deliverySettingsLoadError")} description={t(error)} onRetry={() => void load()} />;
   const goToZones = () => scroll.current?.scrollTo({ y: zonesTop.current, animated: true });
   const zonesState = zones && { ...zones, version: settings.version, home: settings.home, agency: settings.agency };
-  const lacks = (method: "home" | "agency") => zonesState !== null && lacksCoverage(method, zonesState, settings.couriers);
-  const coverage = (method: "home" | "agency") => lacks(method) ? <View style={styles.heading}>
+  const warnings = coverageWarnings(zonesCoverage, { home: settings.home.enabled, agency: settings.agency.enabled });
+  const coverage = (method: "home" | "agency") => warnings[method] ? <View style={styles.heading}>
     <ThemedText type="small" themeColor="textSecondary">{t(method === "home" ? "zonesMissingHome" : "zonesMissingAgency")}</ThemedText>
     <Button variant="ghost" onPress={goToZones}>{t("goToZones")}</Button></View> : null;
   const section = [styles.section, { backgroundColor: theme.backgroundElement, borderColor: theme.border }];

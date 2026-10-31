@@ -77,12 +77,16 @@ test("accepts a checkout buyer with a null phone", () => {
   expect(confirmCheckoutSchema.safeParse({ ...valid, buyer: { name: "Ana", phone: null } }).success).toBe(false);
 });
 
-test("checkout delivery options require an agency coverage flag and reject extra fields", () => {
-  const options = { home: { enabled: true }, agency: { enabled: true, covered: false }, store: { enabled: false, pickupPoint: null } };
+test("checkout delivery options contract accepts offered methods with places and rejects offered without places, unknown codes and extra fields", () => {
+  const places = { departmentCodes: [], provinceCodes: ["1501"], districtCodes: ["040101"] };
+  const options = { home: { offered: true, places }, agency: { offered: false }, store: { enabled: false, pickupPoint: null } };
   expect(checkoutDeliveryOptionsSchema.safeParse(options).success).toBe(true);
-  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { enabled: true } }).success).toBe(false);
-  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { ...options.agency, zones: [] } }).success).toBe(false);
-  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { ...options.agency, covered: "yes" } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { offered: true } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { offered: false, places } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, home: { offered: true, places: { ...places, districtCodes: ["999999"] } } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, home: { offered: true, places: { ...places, districtCodes: [] }, name: "Zone" } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, home: { enabled: true } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, home: { offered: true, places: { departmentCodes: [], provinceCodes: [], districtCodes: [] } } }).success).toBe(false);
 });
 
 test("the other-recipient flag is a form-only boolean that defaults to the buyer receiving", () => {

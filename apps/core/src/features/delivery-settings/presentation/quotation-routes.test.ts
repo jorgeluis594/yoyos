@@ -6,16 +6,21 @@ import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import { orders } from "@core/src/features/orders";
 import type { QuotationWithRates } from "@core/src/features/delivery-settings/domain/quotation";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
+import * as apiAuth from "@core/src/shared/infrastructure/api-auth-middleware";
+import { log } from "@core/src/shared/infrastructure/logger";
 import { quotationRoutes } from "@core/src/features/delivery-settings/presentation/quotation-routes";
 
 const companyId = "00000000-0000-4000-8000-000000000001" as CompanyId;
 const orderId = "00000000-0000-4000-8000-000000000002" as OrderId;
 const servers: import("node:http").Server[] = [];
-async function request() {
+async function request(extra: Record<string, unknown> = {}, districtCode = "150122", buyer = true) {
   const app = express();
   app.use(express.json());
   // The buyer's quotation is served on the brand host of the order's company.
-  app.use((_request, response, next) => { response.locals.brandHostCompanyId = companyId; next(); });
+  app.use((_request, response, next) => {
+    if (buyer) response.locals.brandHostCompanyId = companyId;
+    next();
+  });
   app.use("/api/quotations", quotationRoutes);
   const server = app.listen(0, "127.0.0.1");
   servers.push(server);
@@ -23,7 +28,7 @@ async function request() {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("No test port");
   const response = await fetch(`http://127.0.0.1:${address.port}/api/quotations`, { method: "POST", headers: { "content-type": "application/json" },
-    body: JSON.stringify({ orderId, destination: { country: "PE", districtCode: "150122" } }) });
+    body: JSON.stringify({ ...(buyer ? { orderId } : {}), ...extra, destination: { country: "PE", districtCode } }) });
   return { status: response.status, body: await response.json() };
 }
 function authorize() {
@@ -93,4 +98,43 @@ test("quotation authorization reads the checkout without looking up product phot
   await request();
   expect(orders.getCheckoutView).toHaveBeenCalledOnce();
   expect(withPhotos).not.toHaveBeenCalled();
+});
+
+const rateId = (value: number) => `00000000-0000-4000-8000-${String(value).padStart(12, "0")}`;
+function quoted(districtCode: string, rates: readonly unknown[]) {
+  return ok({ quotation: { id: rateId(11), companyId, destination: { country: "PE", districtCode, address: null, instructions: null }, createdAt: new Date(0) }, rates } as unknown as QuotationWithRates);
+}
+const homeRate = { rate: { id: rateId(10), companyId, quotationId: rateId(11), method: "home", price: { amount: 5, currency: "PEN" }, settingsVersion: 1, createdAt: new Date(0), optionId: rateId(12), districtCode: "080101" }, name: "Home", zoneName: "Zone" };
+const shalom = { rate: { ...homeRate.rate, id: rateId(13), method: "agency" }, name: "Shalom", zoneName: "Zone", agencies: [{ agency: { id: rateId(20), courierId: rateId(30), name: "Branch",
+  address: "Av. Test 123", districtCode: "040101", enabled: true, courierEnabled: true }, courier: { id: rateId(31), catalogId: rateId(30), name: "Shalom", enabled: true, catalogEnabled: true } }] };
+
+test("buyer quotation logs trigger, rate counts and agency rates in the destination department without the order id", async () => {
+  authorize();
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  const create = vi.spyOn(deliverySettings, "createQuotation");
+  create.mockResolvedValueOnce(quoted("150506", []));
+  expect((await request({}, "150506")).status).toBe(201);
+  create.mockResolvedValueOnce(quoted("150506", []));
+  expect((await request({ trigger: "automatic" }, "150506")).status).toBe(201);
+  create.mockResolvedValueOnce(quoted("080101", [homeRate, shalom]));
+  expect((await request({ trigger: "picked" }, "080101")).status).toBe(201);
+  const events = info.mock.calls.map(([fields]) => fields as Record<string, unknown>).filter(fields => fields.event === "buyer_quotation_created");
+  expect(events).toEqual([
+    { event: "buyer_quotation_created", quotationId: rateId(11), trigger: "picked", homeRateCount: 0, agencyRateCount: 0, agencyRateInDepartmentCount: 0 },
+    { event: "buyer_quotation_created", quotationId: rateId(11), trigger: "automatic", homeRateCount: 0, agencyRateCount: 0, agencyRateInDepartmentCount: 0 },
+    { event: "buyer_quotation_created", quotationId: rateId(11), trigger: "picked", homeRateCount: 1, agencyRateCount: 1, agencyRateInDepartmentCount: 0 },
+  ]);
+  expect(JSON.stringify(info.mock.calls)).not.toContain(orderId);
+});
+
+test("seller quotation does not log the buyer quotation event", async () => {
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  vi.spyOn(apiAuth, "loadApiAccess").mockImplementation(async (_request, response, next) => {
+    response.locals.auth = { status: "ready", company: { id: companyId } } as unknown as typeof response.locals.auth;
+    next();
+  });
+  vi.spyOn(apiAuth, "requireApiCompany").mockImplementation((_request, _response, next) => next());
+  vi.spyOn(deliverySettings, "createQuotation").mockResolvedValue(quoted("080101", [homeRate]));
+  expect((await request({}, "080101", false)).status).toBe(201);
+  expect(info.mock.calls.some(([fields]) => (fields as { event?: string }).event === "buyer_quotation_created")).toBe(false);
 });

@@ -1,7 +1,8 @@
 import express, { type Response } from "express";
 import { createQuotationRequestSchema, quotationApiErrorSchema, quotationResponseSchema, type CreateQuotationRequest } from "@shared/contracts/quotations";
 import { orders } from "@core/src/features/orders";
-import { peruDeliveryDistrict } from "@shared/peru-geography";
+import { peruDeliveryDistrict, type PeruDistrictCode } from "@shared/peru-geography";
+import { agencyRatesInDestinationDepartment } from "@core/src/features/delivery-settings/domain/quotation-metrics";
 import type { QuotedDeliveryRate } from "@core/src/features/delivery-settings/domain/quotation";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import type { BrandHostLocals } from "@core/src/shared/infrastructure/brand-host-locals";
@@ -26,7 +27,7 @@ quotationRoutes.post("/", (request, response, next) => {
   if (!parsed.success) return apiError(response, 400, "INVALID_INPUT", "Invalid quotation request");
   response.locals.quotationInput = parsed.data;
   return next();
-}, async (request, response: Response<unknown, AuthenticatedLocals & { quotationInput: CreateQuotationRequest; quotationCompanyId: string }>, next) => {
+}, async (request, response: Response<unknown, AuthenticatedLocals & { quotationInput: CreateQuotationRequest; quotationCompanyId: string; quotationOrigin: "buyer" | "seller" }>, next) => {
   const input = response.locals.quotationInput as CreateQuotationRequest;
   // Order-link authorization takes precedence over any seller session.
   // The buyer's quotation is served on the brand host of the order's company; the seller's, on the app host only.
@@ -45,12 +46,14 @@ quotationRoutes.post("/", (request, response, next) => {
         checkout.error.code === "CHECKOUT_UNAVAILABLE" ? "CHECKOUT_UNAVAILABLE" : "INTERNAL_ERROR", "Checkout unavailable");
     if (checkout.data.state.kind === "cancelled") return apiError(response, 422, "ORDER_CANCELLED", "Order cancelled");
     response.locals.quotationCompanyId = access.data.companyId;
+    response.locals.quotationOrigin = "buyer";
     return withTenantIsolation(access.data.companyId, next);
   }
   return loadApiAccess(request, response, () => requireApiCompany(request, response, () => {
     const access = response.locals.auth;
     if (access.status !== "ready") return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
     response.locals.quotationCompanyId = access.company.id;
+    response.locals.quotationOrigin = "seller";
     next();
   }));
 }, async (_request, response) => {
@@ -70,6 +73,13 @@ quotationRoutes.post("/", (request, response, next) => {
   if (!output.success) {
     log.error({ event: "quotation_response_invalid", companyId }, "Invalid quotation response");
     return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
+  }
+  if (response.locals.quotationOrigin === "buyer") {
+    const homeRateCount = result.data.rates.filter(({ rate }) => rate.method === "home").length;
+    log.info({ event: "buyer_quotation_created", quotationId: output.data.id, trigger: input.trigger ?? "picked", homeRateCount,
+      agencyRateCount: result.data.rates.length - homeRateCount,
+      agencyRateInDepartmentCount: agencyRatesInDestinationDepartment(result.data.rates, result.data.quotation.destination.districtCode as PeruDistrictCode) },
+    "Buyer quotation created");
   }
   return response.status(201).json(output.data);
 });

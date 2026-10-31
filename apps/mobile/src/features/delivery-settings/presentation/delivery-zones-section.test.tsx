@@ -1,7 +1,7 @@
-import { fireEvent, render, waitFor } from "@testing-library/react-native";
+import { fireEvent, render, renderHook, waitFor } from "@testing-library/react-native";
 import { ok } from "@shared/functional";
 import type { DeliveryZonesResponse } from "@shared/contracts/delivery-settings";
-import { DeliveryZonesSection } from "@mobile/features/delivery-settings/presentation/delivery-zones-section";
+import { DeliveryZonesSection, coverageWarnings, useZonesCoverage, zonesCoverage } from "@mobile/features/delivery-settings/presentation/delivery-zones-section";
 import "@mobile/i18n";
 
 jest.mock("@expo/ui/community/menu", () => ({
@@ -80,4 +80,56 @@ test("a draft with a district inside a complete department is reported as invali
   expect(screen.queryByText("Selecciona al menos un distrito, provincia o departamento.")).toBeNull();
   expect(screen.getByText(/Ingresa nombre, distritos y opciones/)).toBeTruthy();
   expect(onSave).not.toHaveBeenCalled();
+});
+
+const arequipaDistrict = "040101";
+const cuscoDistrict = "080101";
+const shalomId = "00000000-0000-4000-8000-000000000101";
+const agencyIn = (n: number, districtCode: string, enabled = true): DeliveryZonesResponse["agencies"][number] => ({ id: `00000000-0000-4000-8000-0000000003${n}0`, courierId: shalomId,
+  name: `Agencia ${n}`, address: "Av. 1", enabled, location: { country: "PE", districtCode, district: "D", province: "P", department: "X" } });
+const viaAgencies = (...agencies: DeliveryZonesResponse["agencies"]) => ({ id: "00000000-0000-4000-8000-0000000000b1", method: "agency" as const, name: "Shalom", enabled: true,
+  price: { amount: 8, currency: "PEN" as const }, agencyIds: agencies.map(agency => agency.id) });
+const agencyWarning = (areas: Partial<Pick<Zone, "departmentCodes" | "provinceCodes" | "districtCodes">>, agencies: DeliveryZonesResponse["agencies"], enabledCourier = true) =>
+  coverageWarnings(zonesCoverage([{ ...zone("00000000-0000-4000-8000-000000000030", "Zona", true, areas), options: [viaAgencies(...agencies)] }], agencies,
+    [{ courierId: shalomId, name: "Shalom", enabled: enabledCourier }]), { home: true, agency: true }).agency;
+
+test("agency coverage warning appears when the only zone covers Cusco and its agencies are all in Arequipa", () => {
+  expect(agencyWarning({ departmentCodes: ["08"] }, [agencyIn(1, arequipaDistrict)])).toBe(true);
+});
+
+test("agency coverage warning disappears after adding an eligible agency in Cusco", () => {
+  expect(agencyWarning({ departmentCodes: ["08"] }, [agencyIn(1, arequipaDistrict), agencyIn(2, cuscoDistrict)])).toBe(false);
+});
+
+test("agency coverage warning appears when the only agency is inactive because its catalog courier was retired", () => {
+  expect(agencyWarning({ districtCodes: [arequipaDistrict] }, [agencyIn(1, arequipaDistrict, false)])).toBe(true);
+  expect(agencyWarning({ districtCodes: [arequipaDistrict] }, [agencyIn(1, arequipaDistrict)], false)).toBe(true);
+});
+
+test("a zone over Arequipa, Cusco and Puno with agencies in Arequipa shows no warning", () => {
+  expect(agencyWarning({ departmentCodes: ["04", "08", "21"] }, [agencyIn(1, arequipaDistrict)])).toBe(false);
+});
+
+test("home coverage warning follows the switch and the loaded zones", () => {
+  const covered = zonesCoverage([zone("00000000-0000-4000-8000-000000000031", "Lima", true, { districtCodes: ["150122"] })], [], []);
+  expect(coverageWarnings(covered, { home: true, agency: false })).toEqual({ home: false, agency: false });
+  expect(coverageWarnings(zonesCoverage([], [], []), { home: true, agency: false })).toEqual({ home: true, agency: false });
+  expect(coverageWarnings(zonesCoverage([], [], []), { home: false, agency: false })).toEqual({ home: false, agency: false });
+  expect(coverageWarnings(null, { home: true, agency: true })).toEqual({ home: false, agency: false });
+});
+
+test("zones coverage hook returns the same object while zones and couriers keep their identity", () => {
+  const zones = [zone("00000000-0000-4000-8000-000000000032", "Lima", true, { districtCodes: ["150122"] })];
+  const couriers: { courierId: string; name: string; enabled: boolean }[] = [];
+  const agencies: DeliveryZonesResponse["agencies"] = [];
+  const hook = renderHook((props: { loaded: boolean; couriers: typeof couriers }) => useZonesCoverage(props.loaded ? zones : null, props.loaded ? agencies : null, props.couriers),
+    { initialProps: { loaded: false, couriers } });
+  expect(hook.result.current).toBeNull();
+  hook.rerender({ loaded: true, couriers });
+  const first = hook.result.current;
+  expect(first).not.toBeNull();
+  hook.rerender({ loaded: true, couriers });
+  expect(hook.result.current).toBe(first);
+  hook.rerender({ loaded: true, couriers: [...couriers] });
+  expect(hook.result.current).not.toBe(first);
 });

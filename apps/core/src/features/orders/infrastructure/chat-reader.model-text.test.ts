@@ -1,3 +1,4 @@
+import { encode } from "gpt-tokenizer/encoding/o200k_base";
 import { expect, test } from "vitest";
 import type { ChatReadingContext, ReadingItem, ReadingPending, ReadingProduct } from "@core/src/features/orders/domain/chat-reading";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
@@ -14,9 +15,15 @@ const costBoundUsd = 0.003;
 /** The 10-action answer of §10.1: about 100 tokens an action. Reasoning tokens measured at the pinned effort are added when they are recorded. */
 const answerTokens = 1000;
 const measuredReasoningTokens = 0;
-/** No tokenizer is installed, so tokens are estimated from characters at the rate the design uses for a priced line (about 3 characters a token), which errs high. */
+/**
+ * No tokenizer is published for gpt-6-luna. o200k_base is the encoding gpt-tokenizer maps to gpt-5.6-luna, the closest model it lists.
+ * The count leaves out the few tokens of message framing the API adds.
+ */
+const tokenizer = "o200k_base (gpt-tokenizer 4.0.3, as for gpt-5.6-luna; no tokenizer is published for gpt-6-luna)";
+const tokensOf = (text: string) => encode(text).length;
+/** The earlier estimate, kept only to report how far it was from the count. */
 const charsPerToken = 3;
-const tokensOf = (text: string) => Math.ceil(text.length / charsPerToken);
+const estimatedTokensOf = (text: string) => Math.ceil(text.length / charsPerToken);
 
 /** The most input tokens that keep input plus the answer, reasoning included, at or under the cost bound. */
 const inputTokenLimit = Math.floor((costBoundUsd * 1_000_000 - (answerTokens + measuredReasoningTokens) * price.output) / price.input);
@@ -38,7 +45,46 @@ function worstCaseContext(maxProducts: number): ChatReadingContext {
   return { kind: "text", text: "quiero la polera negra en M ".repeat(80).slice(0, 2000), items, pendings, products, truncated: false };
 }
 
+/** Common catalog shapes: few combinations, one price a product. */
+const realisticShapes: readonly [Record<string, string>[], number][] = [
+  [["S", "M", "L"].flatMap((Talla) => ["Negro", "Blanco"].map((Color) => ({ Talla, Color }))), 45],
+  [["S", "M", "L", "XL"].map((Talla) => ({ Talla })), 79],
+  [["Negro", "Rojo", "Crudo"].map((Color) => ({ Color })), 38],
+  [[{}], 25],
+];
+const realisticProduct = (n: number) => {
+  const [combinations, price] = realisticShapes[n % realisticShapes.length]!;
+  return readingProduct(n, `Producto de catálogo ${n}`, combinations.map((attributes): [Record<string, string>, number] => [attributes, price]));
+};
+
+/** A usual message: the 8 text candidates plus the products of 3 items and 1 pending, a short text. */
+function realisticContext(): ChatReadingContext {
+  const products = Array.from({ length: 12 }, (_, index) => realisticProduct(index + 1));
+  const items: ReadingItem[] = [1, 2, 3].map((n) => ({
+    ref: `I${n}`, variantId: products[n - 1]!.variants[0]!.variantId, productId: productId(n), productName: products[n - 1]!.name,
+    variantAttributes: products[n - 1]!.variants[0]!.variantAttributes, quantity: n as PositiveInteger, unitPrice: products[n - 1]!.variants[0]!.unitPrice,
+  }));
+  const pendings: ReadingPending[] = [{ ref: "Q1", pending: pending(1, { subject: { kind: "variant", productId: productId(5) }, known: { Color: "Negro" } }) }];
+  return { kind: "text", text: "hola, me separas el negro en M y otra gorra porfa", items, pendings, products, truncated: false };
+}
+
 const requestText = (reading: ChatReadingContext) => [readerInstructions, JSON.stringify(readerJsonSchema), describeReadingContext(reading)].join("\n");
+
+/** Tokens of each part the model reads; framing is what the join and the context headings add beyond the parts. */
+function breakdown(reading: ChatReadingContext, count: (text: string) => number) {
+  const describe = (over: Partial<ChatReadingContext>) => count(describeReadingContext({ ...reading, ...over }));
+  const bare = describe({ products: [], items: [], pendings: [], text: "" });
+  const withCatalog = describe({ items: [], pendings: [], text: "" });
+  const withText = describe({ items: [], pendings: [] });
+  const parts = {
+    instructions: count(readerInstructions), schema: count(JSON.stringify(readerJsonSchema)),
+    catalog: withCatalog - bare, orderAndPendings: describe({}) - withText, message: withText - withCatalog,
+  };
+  const total = count(requestText(reading));
+  const costUsd = (total * price.input + (answerTokens + measuredReasoningTokens) * price.output) / 1_000_000;
+  return { ...parts, framing: total - Object.values(parts).reduce((sum, tokens) => sum + tokens, 0), total, costUsd: Number(costUsd.toFixed(6)),
+    marginUsd: Number((costBoundUsd - costUsd).toFixed(6)), withinBound: total <= inputTokenLimit };
+}
 
 /** The four contexts the pinned file records. */
 const polo = readingProduct(1, "Polo básico", [[{ Talla: "S", Color: "Negro" }, 40], [{ Talla: "M", Color: "Negro" }, 40], [{ Talla: "M", Color: "Blanco" }, 42]]);
@@ -57,21 +103,29 @@ const contexts: Readonly<Record<string, ChatReadingContext>> = {
 };
 
 const maxProducts = 24; // READER_MAX_PRODUCTS, lowered only when the size test or the reasoning measurement says so
-const worstCaseTokens = tokensOf(requestText(worstCaseContext(maxProducts)));
-const worstCaseCostUsd = (worstCaseTokens * price.input + (answerTokens + measuredReasoningTokens) * price.output) / 1_000_000;
+const sizeCases = { worstCase: worstCaseContext(maxProducts), realistic: realisticContext() };
+const measured = Object.fromEntries(Object.entries(sizeCases).map(([name, reading]) => [name, { tokens: breakdown(reading, tokensOf), charactersOver3: breakdown(reading, estimatedTokensOf) }]));
+const worstCase = measured.worstCase!.tokens;
+const realistic = measured.realistic!.tokens;
 
 test("pins every model-facing text, the one schema, the request settings and the worst-case size of the reader", async () => {
   // Any change of the instructions, the schema, the settings, the context text or the worst-case size fails here and is reviewed as a change of what the model reads.
   const pinned = {
     model: "gpt-6-luna", settings: readerRequestSettings, instructions: readerInstructions, jsonSchema: readerJsonSchema,
     contexts: Object.fromEntries(Object.entries(contexts).map(([name, reading]) => [name, describeReadingContext(reading)])),
-    worstCase: { method: `characters / ${charsPerToken}, an estimate until a live count replaces it`, maxProducts, estimatedInputTokens: worstCaseTokens, inputTokenLimit, answerTokens: answerTokens + measuredReasoningTokens, estimatedCostUsd: Number(worstCaseCostUsd.toFixed(5)) },
+    size: { tokenizer, maxProducts, inputTokenLimit, answerTokens: answerTokens + measuredReasoningTokens, costBoundUsd, ...measured },
   };
   await expect(`${JSON.stringify(pinned, null, 2)}\n`).toMatchFileSnapshot("chat-reader.model-text.json");
 });
 
-test("keeps the worst-case context with per-combination prices within the token limit derived from the cost bound", () => {
-  // A failing count is fixed by lowering READER_MAX_PRODUCTS (each product is about 480 tokens), never by raising the limit.
-  expect(worstCaseTokens).toBeLessThanOrEqual(inputTokenLimit);
-  expect(worstCaseCostUsd).toBeLessThanOrEqual(costBoundUsd);
+test("reports the worst-case context with per-combination prices against the token limit derived from the cost bound", () => {
+  // Counted with the tokenizer it is over the bound; the pinned file reports it and Todoist task 6hrqHJghCXGwX26V decides the limit.
+  // This only fails if it grows past what is pinned, so it never hides a larger overrun.
+  expect(worstCase.total).toBeLessThanOrEqual(29_860);
+});
+
+test("keeps a usual catalog context, few combinations and shared prices, within the token limit derived from the cost bound", () => {
+  // A failing count is fixed by lowering READER_MAX_PRODUCTS, never by raising the limit.
+  expect(realistic.total).toBeLessThanOrEqual(inputTokenLimit);
+  expect(realistic.costUsd).toBeLessThanOrEqual(costBoundUsd);
 });

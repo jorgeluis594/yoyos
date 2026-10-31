@@ -13,6 +13,8 @@ the Expo app; mobile has no shared logging strategy.
 | The New Relic Node.js agent forwards Pino logs and provides APM and traces | Logs, transactions and traces correlate in one tool. |
 | No log table in PostgreSQL | Logs are diagnostics, not business data or an audit trail. |
 
+One exception: `buyer_quotation_created` ([Delivery · Observability](delivery.md#observability)) is an info event used as a business metric for buyer quotations. Reason: the measure needs the quotation's origin, which nothing stores, and the log needs no migration or query (rejected: an origin column on every stored quotation, kept only for a metric). Do not copy this pattern for other metrics without the same reasoning.
+
 ```mermaid
 flowchart LR
   R[HTTP request] --> E[Express and React Router]
