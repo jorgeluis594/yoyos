@@ -30,6 +30,7 @@ import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-messa
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import { seedProduct, deleteSeededProducts } from "@core/src/features/products/infrastructure/product-seed";
+import { removeStores, seedStore } from "@core/tests/support/sales-load-fixture";
 
 
 async function fixture() {
@@ -579,8 +580,8 @@ test("separates companies and blocks cross-company references", async () => {
       await expect(prisma.order.create({ data: { number: 1001n, id: randomUUID(), companyId: a.companyId, sellerId: a.sellerId,
         buyer: { create: { contactId: b.contactId, phone: "+51999999999" } }, currency: "PEN", total: 1, itemsTotal: 1,
         completedAt: new Date(), createdAt: new Date() } })).rejects.toThrow();
-      await expect(prisma.orderItem.create({ data: { orderId: foreignOrderId, variantId: a.variantIds[0], productName: "Foreign order",
-        variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow(/OrderItem_companyId_orderId_fkey/);
+      await expect(prisma.orderItem.create({ data: { orderId: foreignOrderId, orderCreatedAt: new Date(), variantId: a.variantIds[0], productName: "Foreign order",
+        variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow(/OrderItem_companyId_orderId_orderCreatedAt_fkey/);
     });
   } finally { await a.cleanup(); await b.cleanup(); }
 });
@@ -655,7 +656,7 @@ test("database constraints reject invalid completed sale writes", async () => {
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { unitPrice: 0 } })).rejects.toThrow();
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { subtotal: 0 } })).rejects.toThrow();
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { variantAttributes: { Size: 42 } } })).rejects.toThrow(/OrderItem_attributes_object/);
-      await expect(prisma.orderItem.create({ data: { orderId: id, variantId: f.variantIds[0], productName: "Duplicate", variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow(/OrderItem_companyId_orderId_variantId_key/);
+      await expect(prisma.orderItem.create({ data: { orderId: id, orderCreatedAt: item.orderCreatedAt, variantId: f.variantIds[0], productName: "Duplicate", variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow(/OrderItem_companyId_orderId_variantId_key/);
       expect(await prisma.orderItem.count()).toBe(1);
     });
   } finally { await f.cleanup(); }
@@ -2346,4 +2347,99 @@ test("saveItemChanges names the variant that was deleted before the insert", asy
         .toEqual({ success: false, error: { code: "VARIANT_NOT_FOUND", message: expect.any(String), variantId: ghost } });
     });
   } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("an item created with its order and one added by an edit carry the order's createdAt", async () => {
+  const f = await fixture();
+  try {
+    const chat = await chatFixture(f);
+    const order = chatOrder(f, { createdAt: new Date("2026-10-12T15:30:00.123Z") });
+    await withTenantIsolation(f.companyId, async () => {
+      await withinTransaction(() => savePendingOrder(order, chat.source));
+      const extra = randomUUID() as VariantId;
+      await seedProduct({ name: "Added", variants: [{ id: extra, attributes: { Size: "XL" }, salePrice: 5, qrCode: extra, stock: 3n }] });
+      const added = orderStateMachine.appendItems(order, [{ variantId: extra, productName: "Sample", variantAttributes: {}, sku: null, unitPrice: { amount: 5, currency: "PEN" as const } }], () => randomUUID() as never);
+      if (!added.success) throw new Error(added.error.message);
+      const existing = new Set(order.items.map((item) => item.id));
+      expect(await withinTransaction(() => saveItemChanges(added.data, { added: added.data.items.filter((item) => !existing.has(item.id)), updated: [], removedItemIds: [] }))).toEqual(ok(null));
+      const items = await prisma.orderItem.findMany({ where: { orderId: order.id } });
+      expect(items).toHaveLength(order.items.length + 1);
+      expect(items.every((item) => item.orderCreatedAt.getTime() === order.createdAt.getTime())).toBe(true);
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("the database refuses an item whose orderCreatedAt differs from its order's createdAt, and a raw insert without the column", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const id = randomUUID();
+      expect(await immediateSale({ id, items: [{ variantId: f.variantIds[0], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId })).toMatchObject({ success: true });
+      const stored = await prisma.order.findUniqueOrThrow({ where: { id } });
+      const item = { orderId: id, variantId: f.variantIds[1], productName: "Other", variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 };
+      await expect(prisma.orderItem.create({ data: { ...item, orderCreatedAt: new Date(stored.createdAt.getTime() + 1) } })).rejects.toThrow(/OrderItem_companyId_orderId_orderCreatedAt_fkey/);
+      await expect(prisma.$executeRaw`INSERT INTO "OrderItem" (id, "orderId", "variantId", "productName", "variantAttributes", quantity, "unitPrice", subtotal)
+        VALUES (gen_random_uuid(), ${id}::uuid, ${f.variantIds[1]}::uuid, 'Other', '{}'::json, 1, 1, 1)`).rejects.toThrow(/orderCreatedAt/);
+      await expect(prisma.orderItem.create({ data: { ...item, orderCreatedAt: stored.createdAt } })).resolves.toMatchObject({ orderId: id });
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("moving an order's createdAt moves its items' orderCreatedAt", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const id = randomUUID();
+      expect(await immediateSale({ id, items: [{ variantId: f.variantIds[0], quantity: 1 }, { variantId: f.variantIds[1], quantity: 1 }] }, { companyId: f.companyId, sellerId: f.sellerId })).toMatchObject({ success: true });
+      const moved = new Date("2026-09-01T10:00:00.000Z");
+      await prisma.order.update({ where: { id }, data: { createdAt: moved } });
+      const items = await prisma.orderItem.findMany({ where: { orderId: id } });
+      expect(items).toHaveLength(2);
+      expect(items.every((item) => item.orderCreatedAt.getTime() === moved.getTime())).toBe(true);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("the created-date filter and newest-first order of the order search use Order_companyId_createdAt_id_key", async () => {
+  const admin = new pg.Client({ connectionString: process.env.MIGRATION_TEST_DATABASE_URL });
+  await admin.connect();
+  const store = await seedStore(admin, { companyId: randomUUID(), start: "2025-01-01", end: "2027-01-01", ordersPerDay: 6, products: 30 });
+  try {
+    await admin.query('ANALYZE "Order"');
+    const companyId = store.companyId as CompanyId;
+    const captured = vi.spyOn(prisma, "$queryRaw");
+    await withTenantIsolation(companyId, async () => {
+      // Only the statement matters here: the seeded rows are bulk SQL and need not map to aggregates.
+      await findOrderAggregates({ page: 1, customer: { kind: "all" }, createdFrom: new Date("2026-03-01T05:00:00Z"), createdBefore: new Date("2026-03-08T05:00:00Z") }, companyId);
+      const [statement] = captured.mock.calls[0]!;
+      captured.mockRestore();
+      const rows = await prisma.$queryRaw<{ "QUERY PLAN": unknown }[]>(Prisma.sql`EXPLAIN (FORMAT JSON) ${statement as Prisma.Sql}`);
+      expect(JSON.stringify(rows[0]!["QUERY PLAN"])).toContain("Order_companyId_createdAt_id_key");
+    });
+  } finally { await removeStores(admin, [store.companyId]); await admin.end(); }
+});
+
+test("summarizeUnpaidOrders gives the same figures after taking its balance and visibility from the shared fragments", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const createdAt = new Date("2026-10-20T15:00:00.000Z");
+      let number = 5001n;
+      const sell = async (total: number, extra: Partial<Prisma.OrderUncheckedCreateInput> = {}, paid?: number) => {
+        const id = randomUUID();
+        await prisma.order.create({ data: { id, number: number++, sellerId: f.sellerId, currency: "PEN", total, itemsTotal: total, createdAt, ...extra } });
+        await prisma.orderItem.create({ data: { orderId: id, orderCreatedAt: createdAt, variantId: f.variantIds[0], productName: "Camisa", variantAttributes: {}, quantity: 1n, unitPrice: total, subtotal: total } });
+        if (paid !== undefined) await prisma.payment.create({ data: { id: randomUUID(), orderId: id, status: "confirmed", amount: new Prisma.Decimal(paid), currency: "PEN", method: "bank_transfer",
+          data: { confirmedAt: "2026-10-21T15:00:00.000Z", confirmedBy: { kind: "seller", userId: f.sellerId }, evidence: { kind: "manual" } } } });
+      };
+      await sell(100, {}, 40);                                                 // owes 60
+      await sell(50);                                                          // owes 50
+      await sell(30, {}, 30);                                                  // paid
+      await sell(20, {}, 25);                                                  // overpaid: owes nothing
+      await sell(80, { cancelled: true, cancelledAt: createdAt });             // cancelled: not counted
+      await sell(70, { fromCatalog: true, sellerId: null, checkoutEnabledAt: createdAt });  // unconfirmed catalog order: does not exist
+      expect(await orders.summarizeUnpaid({}, { companyId: f.companyId as CompanyId, userId: f.sellerId as UserId }))
+        .toEqual({ success: true, data: { count: 2, withPendingReport: 0, owed: [{ amount: 110, currency: "PEN" }] } });
+    });
+  } finally { await f.cleanup(); }
 });

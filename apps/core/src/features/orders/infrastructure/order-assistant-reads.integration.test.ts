@@ -26,8 +26,9 @@ async function scenario<T>(work: (ctx: { companyId: CompanyId; access: { company
       const id = randomUUID();
       const quantity = order.quantity ?? 1;
       const confirmed = order.confirmed ?? true;
+      const createdAt = order.createdAt ?? new Date("2026-10-20T15:00:00Z");
       await prisma.order.create({ data: { id, number: BigInt(order.number), currency: "PEN", total: new Prisma.Decimal(order.total), itemsTotal: new Prisma.Decimal(order.total),
-        createdAt: order.createdAt ?? new Date("2026-10-20T15:00:00Z"), cancelled: order.cancelled ?? false, cancelledAt: order.cancelled ? new Date("2026-10-21T15:00:00Z") : null,
+        createdAt, cancelled: order.cancelled ?? false, cancelledAt: order.cancelled ? new Date("2026-10-21T15:00:00Z") : null,
         deliveryStatus: order.deliveryStatus ?? "pending", stockDeducted: order.deliveryStatus === "shipped", stockDeductedAt: order.deliveryStatus === "shipped" ? new Date("2026-10-21T15:00:00Z") : null,
         shippedAt: order.deliveryStatus === "shipped" ? new Date("2026-10-21T15:00:00Z") : null, fromCatalog: order.fromCatalog ?? false, checkoutEnabledAt: order.fromCatalog ? new Date("2026-10-20T15:00:00Z") : null,
         checkoutConfirmedAt: order.fromCatalog && confirmed ? new Date("2026-10-20T15:00:00Z") : null,
@@ -35,7 +36,7 @@ async function scenario<T>(work: (ctx: { companyId: CompanyId; access: { company
         sellerId: order.fromCatalog ? null : sellerId } });
       const buyer = order.buyer ?? (order.fromCatalog && confirmed ? { name: "Ana Quispe", phone: "+51987654321" } : null);
       if (buyer) await prisma.orderBuyer.create({ data: { orderId: id, name: buyer.name, phone: buyer.phone } });
-      await prisma.orderItem.create({ data: { orderId: id, variantId: variant, productName: "Camisa", variantAttributes: { Talla: "M" }, quantity: BigInt(quantity),
+      await prisma.orderItem.create({ data: { orderId: id, orderCreatedAt: createdAt, variantId: variant, productName: "Camisa", variantAttributes: { Talla: "M" }, quantity: BigInt(quantity),
         unitPrice: new Prisma.Decimal(order.total / quantity), subtotal: new Prisma.Decimal(order.total) } });
       for (const payment of order.payments ?? []) await prisma.payment.create({ data: { id: randomUUID(), orderId: id, status: payment.status ?? "confirmed",
         amount: payment.status === "reported" ? null : new Prisma.Decimal(payment.amount), currency: "PEN", method: payment.status === "reported" ? null : "bank_transfer",

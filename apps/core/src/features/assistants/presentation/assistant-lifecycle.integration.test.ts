@@ -146,7 +146,7 @@ async function seedStore(owner: Owner, orders: readonly SeedOrder[], stock = 10)
         scheduledDispatchDate: order.date ? new Date(`${order.date}T00:00:00Z`) : null, delivery: (order.delivery ?? Prisma.JsonNull) as never, sellerId: catalog ? null : owner.userId } });
       const buyer = order.buyer === undefined ? { name: "Cliente", phone: "+51911222333" } : order.buyer;
       if (buyer) await prisma.orderBuyer.create({ data: { orderId: id, name: buyer.name, phone: buyer.phone } });
-      await prisma.orderItem.create({ data: { orderId: id, variantId: variant, productName: "Camisa", variantAttributes: { Talla: "M" }, quantity: BigInt(quantity),
+      await prisma.orderItem.create({ data: { orderId: id, orderCreatedAt: new Date("2026-10-20T15:00:00Z"), variantId: variant, productName: "Camisa", variantAttributes: { Talla: "M" }, quantity: BigInt(quantity),
         unitPrice: new Prisma.Decimal(order.total / quantity), subtotal: new Prisma.Decimal(order.total) } });
       if (order.paid) await prisma.payment.create({ data: { id: randomUUID(), orderId: id, status: "confirmed", amount: new Prisma.Decimal(order.paid), currency: "PEN", method: "bank_transfer",
         data: { confirmedAt: "2026-10-21T15:00:00.000Z", confirmedBy: { kind: "seller", userId: owner.userId }, evidence: { kind: "manual" } } } });

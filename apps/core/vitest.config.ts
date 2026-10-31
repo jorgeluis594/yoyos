@@ -12,7 +12,7 @@ export default defineConfig({
     reporters: ["minimal"],
     projects: [
       { extends: true, test: { name: "unit", include: ["src/**/*.{test,spec}.{ts,tsx}", "evals/**/*.test.ts", "app/**/*.{test,spec}.{ts,tsx}", "../../shared/*.spec.mjs"], exclude: ["src/**/*.integration.test.ts", "evals/**/*.integration.test.ts"] } },
-      { extends: true, test: { name: "integration", include: ["src/**/*.test.mjs", "src/**/*.integration.test.ts", "evals/**/*.integration.test.ts", "scripts/**/*.test.ts"], testTimeout: 60_000 } },
+      { extends: true, test: { name: "integration", include: ["src/**/*.test.mjs", "src/**/*.integration.test.ts", "evals/**/*.integration.test.ts", "scripts/**/*.test.ts", "tests/support/**/*.integration.test.ts"], testTimeout: 60_000 } },
       { extends: true, test: { name: "e2e", include: ["tests/e2e/**/*.spec.ts"], testTimeout: 60_000, maxWorkers: 1, globalSetup: ["./tests/e2e/server-setup.ts"] } },
     ],
   },

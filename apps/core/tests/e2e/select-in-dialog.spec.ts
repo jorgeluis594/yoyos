@@ -17,8 +17,9 @@ async function prepareOrder(page: Page, email: string) {
     const productId = randomUUID();
     const variantId = randomUUID();
     await seedProduct({ id: productId, name: "Camisa", qrCode: productId, variants: [{ id: variantId, attributes: { Talla: "M" }, sku: `SKU-${variantId}`, salePrice: 10, qrCode: variantId }] });
-    await prisma.order.create({ data: { id: orderId, number: 3001n, sellerId: seller.id, currency: "PEN", total: 10, itemsTotal: 10, delivery: delivery as object, createdAt: new Date() } });
-    await prisma.orderItem.create({ data: { orderId, variantId, productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1n, unitPrice: 10, subtotal: 10 } });
+    const createdAt = new Date();
+    await prisma.order.create({ data: { id: orderId, number: 3001n, sellerId: seller.id, currency: "PEN", total: 10, itemsTotal: 10, delivery: delivery as object, createdAt } });
+    await prisma.orderItem.create({ data: { orderId, orderCreatedAt: createdAt, variantId, productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1n, unitPrice: 10, subtotal: 10 } });
   });
   return { companyId, orderId };
 }

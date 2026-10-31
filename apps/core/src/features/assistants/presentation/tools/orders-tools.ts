@@ -9,9 +9,10 @@ import {
   maxCombination, maxProductName, maxRejectionReason, toAssistantDispatchEntry, toAssistantOrder, toAssistantOrderSummary,
   type AssistantDispatchEntry, type AssistantOrder, type AssistantOrderSummary, type Display, type DispatchStockState, type ProjectableOrder, type ProjectableReadiness, type ProjectionContext,
 } from "@core/src/features/assistants/domain/order-projection";
+import { day, page, unknownField } from "@core/src/features/assistants/presentation/tools/input-fields";
 import { display as defaultDisplay } from "@core/src/features/assistants/presentation/display";
 import {
-  ambiguousCourierMessage, dateFormatMessage, dispatchSummaryLine, dispatchTodayDescription, moreLine, noDispatchMessage, noMatchesMessage, noOrderMessage, noOrdersMessage,
+  ambiguousCourierMessage, dispatchSummaryLine, dispatchTodayDescription, moreLine, noDispatchMessage, noMatchesMessage, noOrderMessage, noOrdersMessage,
   noUnpaidMessage, orderReadFailureMessage, orderToolsInstructions, pendingReportsLine, readinessText, reversedRangeMessage, searchOrdersDescription, todayLine, undatedLine,
   unknownCourierMessage, unpaidOrdersDescription, unpaidSummaryLine, viewOrderDescription,
 } from "@core/src/features/assistants/presentation/tools/orders-texts";
@@ -44,11 +45,6 @@ export type OrderToolsDependencies = Readonly<{
   listDispatchQueue: (today: string, page: number, access: AssistantAccess) => Read<DispatchQueueRead>;
 }>;
 
-const day = z.string({ error: dateFormatMessage }).regex(/^\d{4}-\d{2}-\d{2}$/, dateFormatMessage).refine((value) => !Number.isNaN(Date.parse(`${value}T00:00:00Z`)) && new Date(`${value}T00:00:00Z`).toISOString().startsWith(value), dateFormatMessage);
-const page = z.number({ error: "La página debe ser un número entero." }).int("La página debe ser un número entero.").min(1, "La página empieza en 1.").default(1);
-
-// Zod words an unknown field in English; the agent gets Spanish, like every other text.
-const unknownField = { error: (issue: { code: string; keys?: string[] }) => issue.code === "unrecognized_keys" ? `No existe el campo ${(issue.keys ?? []).join(", ")}. Usa solo los campos de la herramienta.` : undefined };
 const searchInput = z.strictObject({
   texto: z.string({ error: "texto debe ser un texto." }).trim().max(120, "texto admite como máximo 120 caracteres.").optional(),
   pago: z.enum(["por cobrar", "pagado"], { error: 'pago admite "por cobrar" o "pagado".' }).optional(),
@@ -220,7 +216,7 @@ export function createOrderToolsModule(deps: OrderToolsDependencies, options: Or
     },
   };
 
-  return { scope: "orders:read", access: "read", instructions: orderToolsInstructions, readFailureMessage: orderReadFailureMessage, tools: [searchOrders, viewOrder, unpaidOrders, dispatchToday] };
+  return { scopes: ["orders:read"], access: "read", instructions: orderToolsInstructions, readFailureMessage: orderReadFailureMessage, tools: [searchOrders, viewOrder, unpaidOrders, dispatchToday] };
 }
 
 // Sample outputs for the static validator: maximum-length texts, so the 24 KB budget is checked on realistic worst cases.
