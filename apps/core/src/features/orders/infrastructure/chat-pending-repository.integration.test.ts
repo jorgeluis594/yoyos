@@ -33,6 +33,7 @@ const variantPending: ChatPending = {
   id: pendingId, subject: { kind: "variant", productId: randomUUID() as ProductId }, known: { Talla: "M" }, quantity: 2 as PositiveInteger,
   price: { amount: { amount: 70, currency: "PEN" }, per: "lot", forQuantity: 2 as PositiveInteger },
   order: null, lastChangedAt: new Date("2026-10-28T12:00:00.000Z"), sourceMessageId: randomUUID() as ChatMessageId, requestId: pendingId,
+  doubt: null, pointSince: new Date("2026-10-28T12:00:00.000Z"), acknowledgedAt: null,
 };
 const empty: ChatPendings = { pendings: [], readyRemembered: false };
 

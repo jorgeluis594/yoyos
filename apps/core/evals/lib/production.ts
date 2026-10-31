@@ -282,7 +282,7 @@ async function seedPendings(chat: Chat, pendings: readonly PendingSeed[], compan
         : { kind: "product", candidates: pending.candidates.map(productId) as [ProductId, ProductId, ...ProductId[]] },
       known: pending.known, quantity: pending.quantity as PositiveInteger, price: null,
       order: order ? { orderId: order.id as OrderId, attachedAt: now } : null,
-      lastChangedAt: now, sourceMessageId: randomUUID() as ChatMessageId, requestId: id,
+      lastChangedAt: now, sourceMessageId: randomUUID() as ChatMessageId, requestId: id, doubt: null, pointSince: now, acknowledgedAt: null,
     };
   });
   const saved = await inTenant(company, () => withinTransaction(() => saveChatPendings(chat.chatId as ChatId, { pendings: seeded, readyRemembered: false })));
