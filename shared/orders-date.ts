@@ -1,3 +1,5 @@
+import type { DispatchDate } from "@shared/dispatch-date";
+
 /** The zone every store sells in until a company time zone exists. */
 export const salesTimeZone = "America/Lima";
 
@@ -11,4 +13,9 @@ export function nextCalendarDay(day: string): string {
   const date = new Date(`${day}T00:00:00.000Z`);
   date.setUTCDate(date.getUTCDate() + 1);
   return date.toISOString().slice(0, 10);
+}
+
+/** The calendar day it is in `salesTimeZone` at this instant. */
+export function limaCalendarDay(now: Date): DispatchDate {
+  return new Intl.DateTimeFormat("en-CA", { timeZone: salesTimeZone, year: "numeric", month: "2-digit", day: "2-digit" }).format(now) as DispatchDate;
 }
