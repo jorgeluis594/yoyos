@@ -55,7 +55,8 @@ test("core confirms cancellation, retains payments and updates operational views
       await page.goto(`/es-PE/orders/${id}`);
       await page.getByRole("button", { name: "Cancelar pedido", exact: true }).click();
       const dialog = page.getByRole("dialog");
-      await browserExpect(dialog).toContainText("después de cancelar");
+      if (paid) await browserExpect(dialog).toContainText("El stock descontado de los productos volverá al inventario");
+      else await browserExpect(dialog).not.toContainText("volverá al inventario");
       await browserExpect(dialog).toContainText("No podrás reabrir");
       await dialog.getByRole("button", { name: "Conservar pedido" }).click();
       await browserExpect(dialog).toBeHidden();
