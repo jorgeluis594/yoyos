@@ -1,5 +1,5 @@
 import { err, ok } from "@shared/functional";
-import type { Result } from "@shared/result";
+import type { AppError, Result } from "@shared/result";
 import type { CompanyId, UserId } from "@shared/identity";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
@@ -7,8 +7,8 @@ import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistenc
 import { loadUserAccess } from "@core/src/features/users/application/load-user-access";
 import { userRepository } from "@core/src/features/users/infrastructure/user-repository";
 import { companyRepository } from "@core/src/features/companies/infrastructure/company-repository";
-import { isConnectionActive, type OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
-import { endAccountAssistantConnections, type PersistenceError, type EndAccountAssistantConnectionsDependencies } from "@core/src/features/assistants/application/disconnect-assistant";
+import { isConnectionActive, type ConnectionWithPasswordChange, type OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
+import { endAccountAssistantConnections, type AccountAccess, type PersistenceError, type EndAccountAssistantConnectionsDependencies } from "@core/src/features/assistants/application/disconnect-assistant";
 import { assistantConfig } from "@core/src/features/assistants/infrastructure/assistant-config";
 import { connectionRepository } from "@core/src/features/assistants/infrastructure/connection-repository";
 import { findConnectionForClient } from "@core/src/features/assistants/infrastructure/connection-lookup";
@@ -22,17 +22,38 @@ import { createOAuthBeforeHook } from "@core/src/features/assistants/infrastruct
 
 const unavailable = { code: "PERSISTENCE_UNAVAILABLE", message: "Assistant connections unavailable" } as const;
 
-async function hasActiveConnection(userId: string, oauthClientId: string): Promise<Result<boolean, PersistenceError>> {
-  const access = await loadUserAccess(userId, { ...userRepository, findCompany: companyRepository.findCompany });
-  if (!access.success) return err(unavailable);
-  // An account that is not ready (no store) has no connection to keep a consent alive.
-  if (access.data === null || access.data.status !== "ready") return ok(false);
-  const found = await withTenantIsolation(access.data.company.id, () => findConnectionForClient(oauthClientId as OAuthClientId, userId as UserId));
-  if (!found.success) return err(unavailable);
-  return ok(found.data !== null && isConnectionActive(found.data, new Date(), assistantConfig.connectionInactivityDays));
+export type HasActiveConnectionDependencies = Readonly<{
+  loadAccess: (userId: UserId) => Promise<Result<AccountAccess | null, PersistenceError>>;
+  findConnection: (companyId: CompanyId, oauthClientId: OAuthClientId, userId: UserId) => Promise<Result<ConnectionWithPasswordChange | null, AppError>>;
+  now: () => Date;
+  inactivityDays: number;
+}>;
+
+export function createHasActiveConnection(deps: HasActiveConnectionDependencies) {
+  return async (userId: UserId, oauthClientId: OAuthClientId): Promise<Result<boolean, PersistenceError>> => {
+    const access = await deps.loadAccess(userId);
+    if (!access.success) return err(unavailable);
+    // An account that is not ready (no store) has no connection to keep a consent alive.
+    if (access.data === null || access.data.status !== "ready") return ok(false);
+    const found = await deps.findConnection(access.data.company.id as CompanyId, oauthClientId, userId);
+    if (!found.success) return err(unavailable);
+    return ok(found.data !== null && isConnectionActive(found.data, deps.now(), deps.inactivityDays));
+  };
 }
 
-async function dropConsent(userId: string, oauthClientId: string): Promise<Result<number, PersistenceError>> {
+const loadAccess: EndAccountAssistantConnectionsDependencies["loadAccess"] = async (userId) => {
+  const access = await loadUserAccess(userId, { ...userRepository, findCompany: companyRepository.findCompany });
+  return access.success ? ok(access.data) : err(unavailable);
+};
+
+const hasActiveConnection = createHasActiveConnection({
+  loadAccess,
+  findConnection: (companyId, oauthClientId, userId) => withTenantIsolation(companyId, () => findConnectionForClient(oauthClientId, userId)),
+  now: () => new Date(),
+  inactivityDays: assistantConfig.connectionInactivityDays,
+});
+
+async function dropConsent(userId: UserId, oauthClientId: OAuthClientId): Promise<Result<number, PersistenceError>> {
   try {
     const dropped = await systemPrisma.oauthConsent.deleteMany({ where: { userId, clientId: oauthClientId } });
     if (dropped.count > 0) log.info({ event: "assistant_stale_consent_dropped", userId, oauthClientId }, "assistant_stale_consent_dropped");
@@ -67,10 +88,7 @@ export function createPasswordResetCleanup(end: EndAccountConnections) {
 }
 
 const accountConnections: EndAccountAssistantConnectionsDependencies = {
-  loadAccess: async (userId) => {
-    const access = await loadUserAccess(userId, { ...userRepository, findCompany: companyRepository.findCompany });
-    return access.success ? ok(access.data) : err(unavailable);
-  },
+  loadAccess,
   deleteAccountConnections: (companyId: CompanyId, userId: UserId) => connectionRepository.deleteAccountConnections(companyId, userId),
   revokeClientGrant: revokeEndedConnectionGrant,
 };

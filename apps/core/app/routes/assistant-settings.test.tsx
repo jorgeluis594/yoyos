@@ -134,7 +134,8 @@ test("a failed disconnect shows the error next to the row, announced, with focus
   await tick();
   const row = container.querySelector("li[data-connection]")!;
   expect(row.textContent).toContain("No pudimos desconectarlo. Inténtalo de nuevo.");
-  expect(row.querySelector('[role="alert"], [aria-live]')).not.toBeNull();
+  expect(row.querySelector('[role="alert"]')).toBeNull();
+  expect(row.querySelector('[aria-live="polite"]')?.textContent).toContain("No pudimos desconectarlo");
   expect(document.activeElement).toBe(row.querySelector("button"));
 });
 

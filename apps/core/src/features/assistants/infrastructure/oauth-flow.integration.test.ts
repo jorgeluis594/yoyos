@@ -377,11 +377,15 @@ test("a password reset ends the connections that account authorized and not the 
   const luisScreen = await authorizeGet(clientId, luis.cookie);
   expect((await authorizationFor(requestOf(luis.cookie)).allow(luisScreen.signed, accessFor({ ...luis, companyId: rosa.companyId }))).success).toBe(true);
   expect(await connectionsOf(rosa)).toHaveLength(2);
+  const authorizedAt = (await connectionsOf(rosa)).map((row) => row.authorizedAt).sort((a, b) => a.getTime() - b.getTime())[0];
 
   const token = randomUUID();
   await systemPrisma.verification.create({ data: { id: randomUUID(), identifier: `reset-password:${token}`, value: rosa.userId, expiresAt: new Date(Date.now() + 60_000) } });
   expect((await post("/api/auth/reset-password", { newPassword: "a-new-password-456", token })).status).toBe(200);
 
+  // Better Auth stamps the credential account on a reset: the guarantee rule reads that date.
+  const credential = await systemPrisma.account.findFirstOrThrow({ where: { userId: rosa.userId, providerId: "credential" } });
+  expect(credential.updatedAt.getTime()).toBeGreaterThan(authorizedAt.getTime());
   expect((await connectionsOf(rosa)).map((row) => row.authorizedByUserId)).toEqual([luis.userId]);
   expect((await refresh(clientId, tokens.refresh_token)).status).toBe(400);
 });

@@ -13,12 +13,27 @@ test("checkout boundaries reject extra authority, malformed UUIDs and invalid mo
   expect(checkoutPathSchema.safeParse({ orderId: "1001" }).success).toBe(false);
 });
 
+test("public response accepts a confirmed checkout with no buyer or with an empty name and phone", () => {
+  const view = { companyName: "Store", number: 1001, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: valid.expectedTotal, total: valid.expectedTotal,
+    items: [{ productName: "Product", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }],
+    state: { kind: "confirmed", confirmedAt: "2026-01-01T00:00:00.000Z" } };
+  for (const buyer of [null, { name: null, phone: null }, valid.buyer]) expect(publicCheckoutSchema.safeParse({ ...view, buyer }).success).toBe(true);
+});
+
+test("public response rejects a confirmed buyer with only a name or an invalid phone", () => {
+  const view = { companyName: "Store", number: 1001, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: valid.expectedTotal, total: valid.expectedTotal,
+    items: [{ productName: "Product", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }],
+    state: { kind: "confirmed", confirmedAt: "2026-01-01T00:00:00.000Z" } };
+  for (const buyer of [{ name: "Ana", phone: null }, { name: null, phone: "+51987654321" }, { name: "Ana", phone: "123" }])
+    expect(publicCheckoutSchema.safeParse({ ...view, buyer }).success).toBe(false);
+});
+
 test("public response validates confirmed buyers and excludes private aggregate fields", () => {
   const view = { companyName: "Store", number: 1001, buyer: null, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: valid.expectedTotal, total: valid.expectedTotal,
     items: [{ productName: "Product", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }], state: { kind: "pending" } };
   expect(publicCheckoutSchema.safeParse(view).success).toBe(true);
   for (const response of [{ ...view, sellerId: "seller" }, { ...view, payments: [] }, { ...view, deliveryCost: valid.expectedTotal },
-    { ...view, buyer: { ...valid.buyer, contactId: "contact" } }, { ...view, state: { kind: "confirmed", confirmedAt: "2026-01-01T00:00:00.000Z" } }])
+    { ...view, buyer: { ...valid.buyer, contactId: "contact" } }])
     expect(publicCheckoutSchema.safeParse(response).success).toBe(false);
 });
 
