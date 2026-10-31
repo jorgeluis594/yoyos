@@ -621,6 +621,8 @@ model Payment {
 
   @@unique([companyId, id])
   @@index([companyId, orderId, id])
+  // Built in SQL as (companyId, orderId) INCLUDE (status, amount, method, walletProvider), which Prisma can only declare as one index over all six columns (migration add_payment_order_covering_index).
+  @@index([companyId, orderId, status, amount, method, walletProvider], map: "Payment_companyId_orderId_covering_idx")
 }
 
 model OrderItem {
