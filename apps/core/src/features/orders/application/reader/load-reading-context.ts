@@ -1,4 +1,4 @@
-import { err, ok } from "@shared/functional";
+import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { RecentChatMessage, RecentChatMessagesQuery } from "@core/src/features/chats/composition";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
@@ -19,9 +19,9 @@ export type LoadReadingContextError = PersistenceError | InvalidStoredData;
 export type ReadingMessage = ChatSourceMessage & Readonly<{ sentAt: Date | null; receivedAt: Date }>;
 
 export type LoadReadingContextDependencies = Readonly<{
-  findRecentChatMessages: (query: RecentChatMessagesQuery) => Promise<Result<readonly RecentChatMessage[], PersistenceError>>;
+  findRecentChatMessages: (query: RecentChatMessagesQuery) => Promise<Result<readonly RecentChatMessage[], LoadReadingContextError>>;
   /** The stored masks of the messages; a message without one is absent. */
-  findMaskedTexts: (messageIds: readonly ChatMessageId[]) => Promise<Result<ReadonlyMap<ChatMessageId, string>, PersistenceError>>;
+  findMaskedTexts: (messageIds: readonly ChatMessageId[]) => Promise<Result<ReadonlyMap<ChatMessageId, string>, LoadReadingContextError>>;
   findOutcome: (messageId: ChatMessageId) => Promise<Result<StoredChatMessageOutcome | null, LoadReadingContextError>>;
   findChatOrdersOpenedSince: (chatId: ChatId, since: Date) => Promise<Result<readonly OrderAggregate[], LoadReadingContextError>>;
   clock: () => Date;
