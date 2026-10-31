@@ -98,6 +98,44 @@ test("returns a product for agotado, stock bajo and con stock through different 
   expect(await mixed("in_stock")).toEqual([["M", "low"], ["L", "available"]]);
 });
 
+test("returns «Vestido» with six sizes at 1 unit for stock bajo and not for agotado", async () => {
+  const id = await newStore();
+  await seed(id, { name: "Vestido", variants: ["XS", "S", "M", "L", "XL", "XXL"].map((talla) => variant(talla, "Negro", 80, 1)) });
+  expect(names(await pageOf(id, { stock: "low" }))).toEqual(["Vestido"]);
+  expect((await pageOf(id, { stock: "sold_out" })).total).toBe(0);
+  expect(names(await pageOf(id, { stock: "in_stock" }))).toEqual(["Vestido"]);
+});
+
+test("returns only Polo básico with L / Rojo for the combined call polo, Rojo, con stock, precio hasta 50 and en el catálogo", async () => {
+  const page = await pageOf(store, { text: "polo", values: ["Rojo"], stock: "in_stock", priceToCents: 5000, inCatalog: true });
+  expect(names(page)).toEqual(["Polo básico"]);
+  expect(page.total).toBe(1);
+  expect(page.items[0]?.matching?.variants.map((line) => line.values)).toEqual([["L", "Rojo"]]);
+});
+
+test("finds both products for «polo» and only «Polos oversize» for «polos»", async () => {
+  const id = await newStore();
+  await seed(id, { name: "Polo básico", createdAt: new Date("2026-10-01"), variants: [variant("M", "Azul", 39.9, 2)] });
+  await seed(id, { name: "Polos oversize", createdAt: new Date("2026-10-03"), variants: [variant("L", "Negro", 59, 6)] });
+  expect(names(await pageOf(id, { text: "polo", sort: "name" }))).toEqual(["Polo básico", "Polos oversize"]);
+  expect(names(await pageOf(id, { text: "polos" }))).toEqual(["Polos oversize"]);
+});
+
+test("answers store A with no match for «polo verde» and with only its own values for Verde while store B has Polo verde", async () => {
+  const a = await newStore();
+  const b = await newStore();
+  await seed(a, { name: "Polo básico", variants: [variant("M", "Azul", 39.9, 2), variant("L", "Rojo", 45, 10)] });
+  await seed(b, { name: "Polo verde", variants: [variant("M", "Verde", 30, 4, "VERDE-B"), variant("L", "Blanco", 30, 4)] });
+  expect(await pageOf(a, { text: "polo verde" })).toMatchObject({ items: [], total: 0, storeHasProducts: true });
+  const rejected = await search(a, { values: ["Verde"] });
+  expect(rejected).toMatchObject({ success: false, error: { code: "VALUE_REJECTED", rejection: { kind: "unknown_value", written: "Verde" } } });
+  const vocabulary = !rejected.success && rejected.error.code === "VALUE_REJECTED" && "vocabulary" in rejected.error.rejection ? rejected.error.rejection.vocabulary : [];
+  const listed = vocabulary.flatMap((option) => option.values.map((value) => value.name));
+  expect(listed.sort()).toEqual(["Azul", "L", "M", "Rojo"]);
+  expect(JSON.stringify(rejected)).not.toMatch(/Verde"?[^"]*Blanco|Blanco|VERDE-B/);
+  expect(names(await pageOf(b, { text: "polo verde" }))).toEqual(["Polo verde"]);
+});
+
 test("never matches a deactivated variant", async () => {
   const id = await newStore();
   await seed(id, { name: "Con baja", variants: [variant("M", "Verde", 10, 5, undefined, "inactive"), variant("S", "Negro", 99, 5)] });
