@@ -1,9 +1,10 @@
 import { log } from "@core/src/shared/infrastructure/logger";
-import { createLocalJWKSet, jwtVerify, errors, type JSONWebKeySet } from "jose";
+import { jwtVerify, errors, type JSONWebKeySet } from "jose";
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { auth, authIssuer } from "@core/src/shared/infrastructure/auth";
+import { createJwksCache, type JwtKeys } from "@core/src/shared/infrastructure/jwks-cache";
 import { systemPrisma } from "@core/src/shared/infrastructure/persistance";
 import type { AuthenticatedPrincipal, AuthenticationError } from "@core/src/shared/infrastructure/current-user";
 
@@ -16,19 +17,11 @@ const claimsSchema = z.object({
   exp: z.number().int().positive(),
 }).strict().refine((claims) => claims.exp > claims.iat && claims.exp - claims.iat <= 900);
 
-let cachedKeys: { verify: ReturnType<typeof createLocalJWKSet>; until: number } | undefined;
-
-async function keys(refresh = false) {
-  if (!refresh && cachedKeys && cachedKeys.until > Date.now()) return cachedKeys.verify;
-  const jwks = await auth.api.getJwks();
-  const verify = createLocalJWKSet(jwks as JSONWebKeySet);
-  cachedKeys = { verify, until: Date.now() + 60_000 };
-  return verify;
-}
+export const jwksCache = createJwksCache(async () => (await auth.api.getJwks()) as JSONWebKeySet);
 
 export async function authenticateJwt(token: string): Promise<Result<AuthenticatedPrincipal, AuthenticationError>> {
-  let verify: ReturnType<typeof createLocalJWKSet>;
-  try { verify = await keys(); }
+  let verify: JwtKeys;
+  try { verify = await jwksCache.get(); }
   catch (cause) {
     log.error({ event: "unable_to_load_jwt_public_keys", err: cause }, "unable_to_load_jwt_public_keys");
     return err({ code: "AUTH_SERVICE_UNAVAILABLE", message: "Unable to load JWT public keys" });
@@ -40,7 +33,7 @@ export async function authenticateJwt(token: string): Promise<Result<Authenticat
   } catch (cause) {
     if (cause instanceof errors.JWKSNoMatchingKey) {
       try {
-        ({ payload } = await jwtVerify(token, await keys(true), { algorithms: ["EdDSA"], issuer: authIssuer, audience: "yoyos-core-api" }));
+        ({ payload } = await jwtVerify(token, await jwksCache.refresh(), { algorithms: ["EdDSA"], issuer: authIssuer, audience: "yoyos-core-api" }));
       } catch (retryCause) {
         if (!(retryCause instanceof errors.JOSEError)) {
           log.error({ event: "unable_to_refresh_jwt_public_keys", err: retryCause }, "unable_to_refresh_jwt_public_keys");
