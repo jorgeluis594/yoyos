@@ -141,6 +141,20 @@ describe("checkReaderAnswer: items", () => {
     expect(chat.items()).toHaveLength(2);
   });
 
+  // Rules sheet, «Without an open order»: with no open order, removing or changing an item reports `no_open_order`.
+  test("reports no open order for a variant change, a mentioned price and a removal when the chat has no order", () => {
+    const chat = createChat();
+    expect(chat.say(say({ kind: "change_variant", item: { kind: "unnamed" }, attributes: [{ name: "Talla", value: "M" }], price: null })).kinds).toEqual(["no_open_order"]);
+    expect(chat.say(say({ kind: "change_variant", item: { kind: "not_in_order" }, attributes: [{ name: "Talla", value: "M" }], price: null })).kinds).toEqual(["no_open_order"]);
+    expect(chat.say(say({ kind: "set_price", item: { kind: "unnamed" }, price: stated("35", "unit") })).kinds).toEqual(["no_open_order"]);
+    expect(chat.say(say({ kind: "remove", item: { kind: "unnamed" }, amount: "all" })).kinds).toEqual(["no_open_order"]);
+  });
+
+  test("reports a still-open order's unclear item for a variant change that names nothing in it", () => {
+    const chat = withGorraAndPolo();
+    expect(chat.say(say({ kind: "change_variant", item: { kind: "unnamed" }, attributes: [{ name: "Talla", value: "M" }], price: null })).kinds).toEqual(["unclear_item"]);
+  });
+
   test("reports a negative or fractional set quantity as invalid", () => {
     const chat = withGorraAndPolo();
     expect(chat.say(say({ kind: "change_quantity", target: item("I1"), mode: "set", quantity: -2 })).outcomes).toEqual([{ kind: "invalid_action", orderId: chat.order?.id, reason: "quantity_not_whole" }]);

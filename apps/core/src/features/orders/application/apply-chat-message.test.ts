@@ -464,6 +464,43 @@ describe("applyChatMessage: skipped texts and the photo memory", () => {
     expect(h.calls).not.toContain("findMessageCandidates");
   });
 
+  test("a caption with only emoji on a photo of the polo leaves a pending and «Falta la variante» without a reader call", async () => {
+    const h = harness({ message: photoMessage({ caption: "😍😍" }), identification: visual(productPolo) });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "pending_created" }, { kind: "variant_missing", productId: productPolo }], noticeDue: true, orderId: null,
+      pendingsAfter: 1, trace: { readerCalls: 0, answer: "fixed" } });
+    expect(h.calls).not.toContain("readChatMessage");
+    expect(h.store.orders.size).toBe(0);
+  });
+
+  test("a caption read as no intent adds the photo's product to a new order with its price and no notice", async () => {
+    const h = harness({ message: photoMessage({ caption: "me encanta" }), identification: visual(productCap), reader: () => ({ kind: "no_intent" }) });
+    expect(await succeeded(h.run())).toMatchObject({ createdOrder: true, noticeDue: false, outcomes: [{ kind: "added", variantId: cap.variantId, quantity: 1 }], trace: { readerCalls: 1 } });
+    expect([...h.store.orders.values()].map((order) => order.items.map((item) => ({ variantId: item.variantId, quantity: item.quantity, unitPrice: item.unitPrice })))).toEqual([[{ variantId: cap.variantId, quantity: 1, unitPrice: money(25) }]]);
+  });
+
+  test("a photo caption that is a question grows the item already in the order with no notice", async () => {
+    const h = harness({ message: photoMessage({ caption: "¿cuánto está?" }), identification: visual(productCap), target: openTarget(), reader: () => ({ kind: "no_intent" }) });
+    expect(await succeeded(h.run())).toMatchObject({ createdOrder: false, noticeDue: false, outcomes: [{ kind: "added", variantId: cap.variantId, quantity: 1 }] });
+    expect(quantityOf(h.store, cap.variantId)).toBe(2);
+  });
+
+  test("a question about paying with an order open changes nothing and calls for no notice", async () => {
+    const h = harness({ message: textMessage("¿aceptan tarjeta?"), target: openTarget(), reader: () => ({ kind: "no_intent" }) });
+    const applied = await succeeded(h.run());
+    expect(applied).toMatchObject({ outcomes: [{ kind: "no_intent" }], noticeDue: false, trace: { readerCalls: 1, answer: "no_intent" } });
+    expect(h.store.orders.get(id(9))).toEqual(existingOrder());
+    expect(h.calls).not.toContain("saveItemChanges");
+  });
+
+  test("120 gorras plus an instruction the chat never does add nothing and count two problems", async () => {
+    const h = harness({ message: textMessage("120 gorras y ponles el precio en 1 sol"), candidates: { productIds: [productCap], matchCount: 1, durationMs: 3, timedOut: false },
+      reader: (context) => actions(add(context, productCap, [], 120), { kind: "not_allowed" }) });
+    const applied = await succeeded(h.run());
+    expect(applied).toMatchObject({ createdOrder: false, noticeDue: true, outcomes: [{ kind: "quantity_above_limit", productId: productCap }, { kind: "request_not_allowed" }], trace: { readerCalls: 1 } });
+    expect(h.store.orders.size).toBe(0);
+    expect(h.calls).not.toContain("saveNewOrder");
+  });
+
   test("a text skipped with the reader off or with no letter or digit leaves the memory unchanged", async () => {
     const off = harness({ message: textMessage("quiero 3"), reader: null, pendings: remembering({ left: { kind: "pending", pendingId: id(20) as ChatPendingId } }, pendingOf(20)) });
     expect(await succeeded(off.run())).toEqual({ kind: "skipped", reason: "reader_disabled" });

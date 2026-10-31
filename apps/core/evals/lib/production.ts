@@ -4,7 +4,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { prisma, withinTransaction, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
 import { createVisualSearch, products, type ImageEmbedder } from "@core/src/features/products/composition";
-import { identifyProductsInImage, type IdentifyProductsDependencies, type ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
+import { identifyProductsInImage, type IdentifyProductsDependencies, type ImageIdentification, type VisualSearch } from "@core/src/features/products/application/identify-products-in-image";
 import { catalogSearchReadiness } from "@core/src/features/products/application/catalog-search-readiness";
 import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
 import { hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
@@ -41,7 +41,7 @@ import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import { metered, type ModelCall } from "@core/evals/lib/model-meter";
 import { catalogOf, describeVariantId, findVariant, productById, productIdOf, variantIdOf, type CatalogScope, type ProductKey } from "@core/evals/fixtures/catalog";
 import type { EventStep, MessageInput, MessageStep, OrderLine, PendingSeed } from "@core/evals/cases/schema";
-import { evalCompanyId, privateCompanyId, readRegisteredImage, registerImageFile, scopeOfCompany, sellerOfCompany } from "@core/evals/lib/eval-catalog";
+import { evalCompanyId, privateCompanyId, readRegisteredImage, readRegisteredImages, registerImageFile, scopeOfCompany, sellerOfCompany } from "@core/evals/lib/eval-catalog";
 import { SimulatedClock, runConversationSteps, type StepResult } from "@core/evals/lib/conversation";
 
 /**
@@ -100,7 +100,8 @@ export function createProductionPath(env: Env, options: Readonly<{ diagnostics?:
   const readChatMessage = createChatReaderFromEnv(env, options.diagnostics ? { observe: observeReaderAnswer } : {});
   const visualSetup = createVisualSearch(env);
   if (!readChatMessage || !visualSetup.visual || !visualSetup.embedder) throw new Error("The production path needs OPENAI_API_KEY");
-  const visual = { ...visualSetup.visual, readImage: readRegisteredImage, chooseProduct: async (input: Parameters<NonNullable<typeof visualSetup.visual>["chooseProduct"]>[0], signal?: AbortSignal) => {
+  // Typed so a port the visual search no longer has (it read `readImage` before `readImages`) fails the typecheck instead of silently reading the real storage.
+  const visual: VisualSearch = { ...visualSetup.visual, readImages: readRegisteredImages, chooseProduct: async (input: Parameters<NonNullable<typeof visualSetup.visual>["chooseProduct"]>[0], signal?: AbortSignal) => {
     const choice = await visualSetup.visual!.chooseProduct(input, signal);
     // Every answer is recorded: the product or «none» (gated at the match confidence) and whether the photo shows a product (at 0.5).
     if (choice.success) {
