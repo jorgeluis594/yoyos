@@ -8,9 +8,9 @@ import { readerInstructions } from "@core/src/features/orders/infrastructure/cha
 import { priceOf } from "@core/src/shared/infrastructure/model-prices";
 
 /** The cost of one message never exceeds this (US dollars), whatever the catalog: the reader's input is fitted to it before every call. */
-export const messageCostBoundUsd = 0.003;
+export const messageCostBoundUsd = 0.005;
 /** The answer limit: a 10-action answer of about 100 tokens an action. With effort `none` there are no reasoning tokens, which would count inside it anyway. */
-export const readerOutputTokenLimit = 1000;
+export const readerOutputTokenLimit = 4000;
 /** A photo budget under this fails at startup: the usual captioned photo is about 3,400 tokens. */
 const minPhotoInputTokens = 8000;
 /**
