@@ -25,9 +25,10 @@ model User {
   oauthaccesstokens  OauthAccessToken[]
   oauthconsents OauthConsent[]
   assistantConnections AssistantConnection[]
+  orderReviews         OrderReview[]
+  orderLinkActions     OrderLinkAction[]
 
   @@unique([companyId, id])
-
   @@map("user")
 }
 
@@ -133,6 +134,12 @@ model Company {
   orderMessages OrderMessage[]
   chatMessageOutcomes ChatMessageOutcome[]
   chatPendings ChatPendings[]
+  orderItemChanges           OrderItemChange[]
+  orderReviews               OrderReview[]
+  orderLinkActions           OrderLinkAction[]
+  messageTraces              MessageTrace[]
+  messageMaskedTexts         MessageMaskedText[]
+  messageTraceReads          MessageTraceRead[]
   orderBuyers OrderBuyer[]
   orderItems OrderItem[]
   payments Payment[]
@@ -342,10 +349,12 @@ enum MessageDirection {
   incoming
   outgoing
 }
+
 enum MessageSource {
   contact
   seller
 }
+
 enum MessageType {
   text
   image
@@ -362,8 +371,8 @@ model Image {
   checkoutAppearances CompanyCheckoutAppearance[]
   embeddings         ImageEmbedding[]
 
-  @@index([companyId])
   @@unique([companyId, id])
+  @@index([companyId])
 }
 
 model Product {
@@ -503,9 +512,9 @@ model Contact {
   customerId String? @db.Uuid
   customer   Customer? @relation(fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
 
-  @@index([companyId, customerId])
   @@unique([companyId, id])
   @@unique([companyId, whatsappAccountId, whatsappLid])
+  @@index([companyId, customerId])
 }
 
 model Customer {
@@ -556,6 +565,9 @@ model ChatMessage {
   registeredBySessionId String?
   orderMessages       OrderMessage[]
   outcome             ChatMessageOutcome?
+  orderItemChanges      OrderItemChange[]
+  trace                 MessageTrace?
+  maskedText            MessageMaskedText?
 
   @@unique([companyId, id])
   @@unique([companyId, chatId, whatsappMessageId])
@@ -595,11 +607,16 @@ model Order {
   customer Customer? @relation(fields: [companyId, customerId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
   chatId String? @db.Uuid
   chat Chat? @relation(fields: [companyId, chatId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  /// The last items edit, undo or confirmed review by the seller.
+  sellerActedAt         DateTime?         @db.Timestamptz(3)
   messages OrderMessage[]
+  itemChanges           OrderItemChange[]
+  reviews               OrderReview[]
+  linkActions           OrderLinkAction[]
 
   @@unique([companyId, id])
   @@unique([companyId, number])
-  @@index([companyId, chatId])
+  @@index([companyId, chatId, createdAt(sort: Desc)])
   @@index([companyId, completedAt(sort: Desc), id])
   @@index([fromCatalog, checkoutConfirmedAt, createdAt])
 }
@@ -666,6 +683,10 @@ model ChatPendings {
   chat            Chat     @relation(fields: [companyId, chatId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
   pendings        Json
   readyRemembered Boolean  @default(false)
+  /// The photo memory (`lastIncomingPhotoSchema`).
+  lastIncomingPhoto Json?
+  /// The last message read with intent `requests`.
+  lastRequestAt     DateTime? @db.Timestamptz(3)
   updatedAt       DateTime @db.Timestamptz(3)
 
   @@id([companyId, chatId])
@@ -679,9 +700,16 @@ model OrderMessage {
   messageId String      @db.Uuid
   message   ChatMessage @relation(fields: [companyId, messageId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
   createdAt DateTime
+  /// The pendings this message changed, before and after, by id (stored JSON, validated by `pendingsSnapshotSchema`).
+  pendingsBefore   Json?
+  pendingsAfter    Json?
+  undoneAt         DateTime?   @db.Timestamptz(3)
+  undoneById       String?
+  /// The message's notice closes the «Pedido #N cambió» cycle. The partial index that arms it lives in the SQL migration.
+  linkChangeNotice Boolean     @default(false)
 
   @@id([companyId, messageId])
-  @@index([companyId, orderId])
+  @@index([companyId, orderId, createdAt])
 }
 
 model OrderBuyer {
@@ -886,4 +914,162 @@ model AssistantConnection {
 
   @@unique([companyId, oauthClientId, authorizedByUserId])
   @@index([companyId, authorizedByUserId])
+}
+
+enum OrderItemChangeKind {
+  added
+  removed
+  quantity_changed
+  variant_changed
+  mentioned_price_set
+}
+
+enum OrderItemChangeDecision {
+  applied
+  doubtful
+}
+
+enum OrderItemChangeVerdict {
+  kept
+  quantity_changed
+  removed
+  undone
+  not_reviewed
+}
+
+enum OrderReviewOrigin {
+  link
+  detail
+}
+
+enum OrderLinkActionKind {
+  copy
+  share
+  open
+}
+
+enum MessageTraceTextState {
+  masked
+  withheld
+}
+
+/// One row per item change a message made. The check constraints, row level security and the partial index live in the SQL migration.
+model OrderItemChange {
+  id             String                  @id @default(uuid()) @db.Uuid
+  companyId      String                  @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company        Company                 @relation(fields: [companyId], references: [id])
+  orderId        String                  @db.Uuid
+  order          Order                   @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
+  messageId      String                  @db.Uuid
+  message        ChatMessage             @relation(fields: [companyId, messageId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  position       Int
+  /// Per order, assigned under the order lock as the previous highest plus one.
+  seq            Int
+  kind           OrderItemChangeKind
+  /// No foreign key: edits replace lines.
+  itemId         String?                 @db.Uuid
+  before         Json?
+  after          Json?
+  decision       OrderItemChangeDecision
+  doubt          Json?
+  quoteId        Int?
+  supersededById String?                 @db.Uuid
+  reviewId       String?                 @db.Uuid
+  review         OrderReview?            @relation(fields: [companyId, reviewId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  verdict        OrderItemChangeVerdict?
+  verdictAt      DateTime?               @db.Timestamptz(3)
+  createdAt      DateTime                @default(now()) @db.Timestamptz(3)
+
+  @@unique([companyId, messageId, orderId, position])
+  @@unique([companyId, orderId, seq])
+  @@index([companyId, orderId, createdAt])
+  @@index([companyId, reviewId])
+}
+
+model OrderReview {
+  id               String            @id @db.Uuid
+  companyId        String            @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company          Company           @relation(fields: [companyId], references: [id])
+  orderId          String            @db.Uuid
+  order            Order             @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
+  reviewedById     String
+  reviewedBy       User              @relation(fields: [companyId, reviewedById], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  origin           OrderReviewOrigin
+  shownPoints      Json
+  correctedItems   Int
+  /// The high-water marks at load and at confirm, so a repeat rebuilds the same «changed meanwhile».
+  changesThrough   Int
+  confirmedThrough Int
+  confirmedAt      DateTime          @db.Timestamptz(3)
+  itemChanges      OrderItemChange[]
+
+  @@unique([companyId, id])
+  @@index([companyId, orderId, confirmedAt])
+}
+
+model OrderLinkAction {
+  id        String              @id @db.Uuid
+  companyId String              @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company             @relation(fields: [companyId], references: [id])
+  orderId   String              @db.Uuid
+  order     Order               @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
+  userId    String
+  user      User                @relation(fields: [companyId, userId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  action    OrderLinkActionKind
+  reviewId  String?             @db.Uuid
+  takenAt   DateTime            @db.Timestamptz(3)
+
+  @@index([companyId, orderId, takenAt])
+}
+
+/// One per message read, written after commit. Masked texts live in MessageMaskedText. Deleted once `expiresAt` passes.
+model MessageTrace {
+  companyId         String                @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company           Company               @relation(fields: [companyId], references: [id])
+  messageId         String                @db.Uuid
+  message           ChatMessage           @relation(fields: [companyId, messageId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
+  messageReceivedAt DateTime              @db.Timestamptz(3)
+  expiresAt         DateTime              @db.Timestamptz(3)
+  startedAt         DateTime              @db.Timestamptz(3)
+  decidedAt         DateTime?             @db.Timestamptz(3)
+  queuedMs          Int
+  shadowWaitMs      Int?
+  textState         MessageTraceTextState
+  contextMessageIds String[]              @db.Uuid
+  photo             Json?
+  stages            Json
+  quotes            Json
+  decisions         Json
+  shadow            Json?
+  costUsd           Decimal?              @db.Decimal(12, 8)
+  createdAt         DateTime              @default(now()) @db.Timestamptz(3)
+
+  @@id([companyId, messageId])
+  @@index([companyId, expiresAt])
+}
+
+model MessageMaskedText {
+  companyId String      @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company   Company     @relation(fields: [companyId], references: [id])
+  messageId String      @db.Uuid
+  message   ChatMessage @relation(fields: [companyId, messageId], references: [companyId, id], onDelete: Cascade, onUpdate: NoAction)
+  text      String
+  expiresAt DateTime    @db.Timestamptz(3)
+  createdAt DateTime    @default(now()) @db.Timestamptz(3)
+
+  @@id([companyId, messageId])
+  @@index([companyId, expiresAt])
+}
+
+/// Audit of every trace read through the CLI. It holds no text, so it is kept.
+model MessageTraceRead {
+  id         String   @id @default(uuid()) @db.Uuid
+  companyId  String   @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
+  company    Company  @relation(fields: [companyId], references: [id])
+  readerName String
+  osUser     String
+  messageIds String[] @db.Uuid
+  readAt     DateTime @default(now()) @db.Timestamptz(3)
+
+  @@index([companyId, readAt])
 }
