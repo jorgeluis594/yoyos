@@ -4,7 +4,6 @@ export const variantFilterOutsideCatalogMessage =
   "Los filtros de variante (valores, precio y stock) solo miran variantes activas, y los productos que no están en el catálogo no tienen ninguna. Quita esos filtros o en_catalogo.";
 export const reversedPriceMessage = (to: string, from: string) => `El precio hasta (${to}) es menor que el precio desde (${from}).`;
 export const pageOutOfRangeMessage = (total: number) => `Esa página no existe: hay ${total} ${total === 1 ? "producto" : "productos"} en total, 20 por página.`;
-export const unknownFieldMessage = (fields: string) => `No existe el campo ${fields}. Usa solo los campos de la herramienta.`;
 
 export const productToolsInstructions = [
   "Este conector lee los productos de una sola tienda, la que autorizó la conexión, y no puede cambiar nada.",

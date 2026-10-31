@@ -43,7 +43,7 @@ function setup(overrides: Partial<OrderToolsDependencies> = {}) {
 describe("buscar_pedidos", () => {
   test("lists exactly the four tools of the orders scope", () => {
     expect(setup().module.tools.map((tool) => tool.name)).toEqual(["buscar_pedidos", "ver_pedido", "pedidos_por_cobrar", "pedidos_por_despachar_hoy"]);
-    expect(setup().module).toMatchObject({ scope: "orders:read", access: "read" });
+    expect(setup().module).toMatchObject({ scopes: ["orders:read"], access: "read" });
   });
 
   test("states today's Lima date in every list", async () => {
