@@ -92,17 +92,49 @@ describe("OrderStatusCard", () => {
     expect(text()).toContain("Entregado el 30 oct, 16:40.");
   });
 
-  test("cancelled: red end step, stock sentence only when stock had been deducted", () => {
+  test("cancelled: red end step, stock sentence whenever stock had been deducted, even once it was restored", () => {
     const cancelled = { cancelled: true, status: "cancelled" as const, cancelledAt: "2026-10-29T23:40:00.000Z" };
-    mount({ ...cancelled, stockDeducted: true });
+    // The cancellation listener clears stockDeducted but keeps stockDeductedAt.
+    mount({ ...cancelled, stockDeducted: false, stockDeductedAt: "2026-10-29T20:00:00.000Z" });
     expect(document.querySelector("[data-testid=order-status-badge]")?.textContent).toBe("Cancelado");
-    expect(steps().map(step => step.textContent)).toEqual(["PendienteHoy 04:10", "Cancelado29 oct"]);
+    expect(steps().map(step => step.textContent)).toEqual(["PendienteHoy 04:10", "Cancelado29 oct 18:40"]);
     expect(document.querySelectorAll("button")).toHaveLength(0);
     expect(text()).toContain("Pedido cancelado el 29 oct, 18:40. El stock de los productos se devolvió al inventario.");
     expect(text()).not.toContain("Reabrir");
     act(() => root!.unmount()); document.body.innerHTML = "";
-    mount({ ...cancelled, stockDeducted: false });
+    mount({ ...cancelled, stockDeducted: false, stockDeductedAt: null });
     expect(text()).toContain("Pedido cancelado el 29 oct, 18:40."); expect(text()).not.toContain("devolvió");
+  });
+
+  test.each([["agency", agencyDelivery], ["store", storeDelivery]] as const)("%s: shipped, delivered and cancelled states", (modality, delivery) => {
+    const cancelled = { cancelled: true, status: "cancelled" as const, cancelledAt: "2026-10-29T23:40:00.000Z", stockDeductedAt: "2026-10-29T20:00:00.000Z" };
+    if (modality === "agency") {
+      mount({ delivery, deliveryStatus: "shipped", shippedAt: "2026-10-30T14:25:00.000Z", stockDeducted: true });
+      expect(document.querySelector("[data-testid=order-status-badge]")?.textContent).toBe("Enviado");
+      expect(button("Marcar entregado")).toBeDefined();
+      for (const absent of ["Marcar enviado", "Entregar directamente", "Cancelar pedido"]) expect(button(absent)).toBeUndefined();
+      act(() => root!.unmount()); document.body.innerHTML = "";
+    }
+    mount({ delivery, deliveryStatus: "delivered", shippedAt: modality === "agency" ? "2026-10-29T14:25:00.000Z" : null, deliveredAt: "2026-10-30T21:40:00.000Z", stockDeducted: true });
+    expect(document.querySelector("[data-testid=order-status-badge]")?.textContent).toBe("Entregado");
+    expect(document.querySelectorAll("button")).toHaveLength(0);
+    expect(steps()).toHaveLength(modality === "agency" ? 3 : 2);
+    expect(text()).toContain("Entregado a Jorge Gonzalez el 30 oct, 16:40.");
+    expect(document.querySelector("strong")?.textContent).toBe("Jorge Gonzalez");
+    act(() => root!.unmount()); document.body.innerHTML = "";
+    mount({ delivery, ...cancelled });
+    expect(document.querySelector("[data-testid=order-status-badge]")?.textContent).toBe("Cancelado");
+    expect(document.querySelectorAll("button")).toHaveLength(0);
+    expect(steps().map(step => step.textContent)).toEqual(["PendienteHoy 04:10", "Cancelado29 oct 18:40"]);
+    expect(text()).toContain("El stock de los productos se devolvió al inventario.");
+  });
+
+  test("the blocked primary is visually distinct from the enabled one and the links are neutral", () => {
+    mount();
+    expect(button("Marcar enviado")!.className).toContain("aria-disabled:bg-muted-foreground/30");
+    const links = [...document.querySelectorAll("button")].map(item => item.textContent);
+    expect(links).toEqual(["Marcar enviado", "Entregar directamente", "Cancelar pedido"]);
+    expect(button("Cancelar pedido")!.className).not.toContain("text-primary");
   });
 
   test("without a confirmed payment the actions are disabled with an amber note and a link to Pagos, but cancelling stays enabled", () => {

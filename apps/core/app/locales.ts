@@ -60,7 +60,8 @@ const es = {
   },
   orderCancellation: {
     cancel: "Cancelar pedido", keep: "Conservar pedido", confirm: "¿Cancelar este pedido?",
-    effects: "El stock descontado de los productos volverá al inventario después de cancelar. Los pagos registrados se conservarán; cancelar no realiza un reembolso. No podrás reabrir este pedido.",
+    effectsWithStock: "El stock descontado de los productos volverá al inventario después de cancelar. Los pagos registrados se conservarán; cancelar no realiza un reembolso. No podrás reabrir este pedido.",
+    effects: "Los pagos registrados se conservarán; cancelar no realiza un reembolso. No podrás reabrir este pedido.",
     saved: "Pedido cancelado. Los pagos registrados se conservan; no se realizó un reembolso. No se puede reabrir.",
     submitting: "Cancelando pedido…", verifying: "Consultando estado…", check: "Consultar estado", refreshFailed: "El pedido está cancelado, pero no se pudo actualizar el detalle. Recarga para consultarlo.",
     uncertain: "No pudimos confirmar si se canceló. Consulta el estado antes de realizar otra operación.",
@@ -89,7 +90,7 @@ const es = {
     badge: { pending: "Pendiente", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado" },
     step: { pending: "Pendiente", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado" },
     paymentNote: { ship: "Registra al menos un pago para enviar. Puede ser un pago parcial.", deliver: "Registra al menos un pago para entregar. Puede ser un pago parcial." },
-    deliveredTo: "Entregado a {{name}} el {{date}}.", delivered: "Entregado el {{date}}.",
+    deliveredTo: "Entregado a <b>{{name}}</b> el {{date}}.", delivered: "Entregado el {{date}}.",
     cancelled: "Pedido cancelado.", cancelledOn: "Pedido cancelado el {{date}}.", stockReturned: "El stock de los productos se devolvió al inventario.",
   },
   orderDelivery: {
@@ -475,7 +476,8 @@ const pt = {
   },
   orderCancellation: {
     cancel: "Cancelar pedido", keep: "Manter pedido", confirm: "Cancelar este pedido?",
-    effects: "O estoque descontado dos produtos voltará ao inventário depois de cancelar. Os pagamentos registrados serão mantidos; cancelar não realiza um reembolso. Você não poderá reabrir este pedido.",
+    effectsWithStock: "O estoque descontado dos produtos voltará ao inventário depois de cancelar. Os pagamentos registrados serão mantidos; cancelar não realiza um reembolso. Você não poderá reabrir este pedido.",
+    effects: "Os pagamentos registrados serão mantidos; cancelar não realiza um reembolso. Você não poderá reabrir este pedido.",
     saved: "Pedido cancelado. Os pagamentos registrados foram mantidos; nenhum reembolso foi realizado. Não é possível reabrir.",
     submitting: "Cancelando pedido…", verifying: "Consultando estado…", check: "Consultar estado", refreshFailed: "O pedido foi cancelado, mas não foi possível atualizar os detalhes. Recarregue para consultá-los.",
     uncertain: "Não foi possível confirmar se o pedido foi cancelado. Consulte o estado antes de realizar outra operação.",
@@ -504,7 +506,7 @@ const pt = {
     badge: { pending: "Pendente", shipped: "Enviado", delivered: "Entregue", cancelled: "Cancelado" },
     step: { pending: "Pendente", shipped: "Enviado", delivered: "Entregue", cancelled: "Cancelado" },
     paymentNote: { ship: "Registre pelo menos um pagamento para enviar. Pode ser um pagamento parcial.", deliver: "Registre pelo menos um pagamento para entregar. Pode ser um pagamento parcial." },
-    deliveredTo: "Entregue a {{name}} em {{date}}.", delivered: "Entregue em {{date}}.",
+    deliveredTo: "Entregue a <b>{{name}}</b> em {{date}}.", delivered: "Entregue em {{date}}.",
     cancelled: "Pedido cancelado.", cancelledOn: "Pedido cancelado em {{date}}.", stockReturned: "O estoque dos produtos voltou ao inventário.",
   },
   orderDelivery: {

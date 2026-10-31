@@ -455,7 +455,7 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
     {!order.cancelled && <StockDueNotice order={order} />}
     <Dialog open={cancelOpen} onOpenChange={setCancelOpen}>
       <DialogContent>
-        <DialogHeader><DialogTitle>{t("orderCancellation.confirm")}</DialogTitle><DialogDescription>{t("orderCancellation.effects")}</DialogDescription></DialogHeader>
+        <DialogHeader><DialogTitle>{t("orderCancellation.confirm")}</DialogTitle><DialogDescription>{t(order.stockDeducted ? "orderCancellation.effectsWithStock" : "orderCancellation.effects")}</DialogDescription></DialogHeader>
         <DialogFooter>
           <Button type="button" variant="outline" onClick={() => setCancelOpen(false)}>{t("orderCancellation.keep")}</Button>
           <Form method="post" onSubmit={event => { if (blocked) event.preventDefault(); else setCancelOpen(false); }}>

@@ -1,8 +1,9 @@
 import type { ReactNode } from "react";
-import { useTranslation } from "react-i18next";
+import { Trans, useTranslation } from "react-i18next";
 import { Check, CircleAlert, Truck, X } from "lucide-react";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import { orderFulfillmentBlock } from "@shared/orders-fulfillment";
+import { salesTimeZone as timeZone } from "@shared/orders-date";
 import { cn } from "cn";
 import { Badge } from "@core/app/components/ui/badge";
 import { Button } from "@core/app/components/ui/button";
@@ -10,7 +11,6 @@ import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/u
 import { textLinkClass } from "@core/app/components/ui/text-link";
 import { fulfillmentReason } from "@core/src/features/orders/presentation/stock-due";
 
-const timeZone = "America/Lima";
 type Operation = "ship" | "deliver";
 type Modality = "home" | "agency" | "store" | "none";
 type StepKey = "pending" | "shipped" | "delivered" | "cancelled";
@@ -57,7 +57,8 @@ function useStatusDates(now: Date) {
 }
 
 const badgeVariant = { pending: "warning", shipped: "info", delivered: "success", cancelled: "destructive" } as const;
-const toneClass: Record<StatusStep["tone"], string> = {
+const toneClass: Record<StatusStep["tone"] | "currentInfo", string> = {
+  currentInfo: "border-[var(--info)] bg-[var(--info-surface)] text-[var(--info)]",
   done: "border-[var(--success)] bg-[var(--success-surface)] text-[var(--success)]",
   current: "border-[var(--warning)] bg-[var(--warning-surface)] text-[var(--warning)]",
   todo: "border-border text-muted-foreground",
@@ -83,6 +84,7 @@ function Stepper({ order, now }: Readonly<{ order: OrderAggregateResponse; now: 
   const { t } = useTranslation();
   const dates = useStatusDates(now);
   const steps = statusSteps(order);
+  const stepDate = (step: StatusStep) => step.key === "cancelled" ? dates.full(step.at!).replace(",", "") : dates.step(step.at!);
   const skippedShipment = order.deliveryStatus === "delivered" && order.shippedAt === null;
   return <ol className="flex items-start" aria-label={t("orderStatus.title")}>
     {steps.map((step, index) => {
@@ -91,10 +93,10 @@ function Stepper({ order, now }: Readonly<{ order: OrderAggregateResponse; now: 
       return <li key={step.key} className={cn("flex min-w-0 items-start", index > 0 && "flex-1")} aria-current={step.current ? "step" : undefined}>
         {index > 0 && <span aria-hidden="true" className={cn("mx-1 mt-4 h-0.5 flex-1", connector)} />}
         <div className="flex w-20 shrink-0 flex-col items-center gap-1 text-center">
-          <span aria-hidden="true" className={cn("flex size-8 items-center justify-center rounded-full border-2 text-sm font-medium", toneClass[step.tone])}>
+          <span aria-hidden="true" className={cn("flex size-8 items-center justify-center rounded-full border-2 text-sm font-medium", toneClass[step.tone === "current" && step.key === "shipped" ? "currentInfo" : step.tone])}>
             {step.tone === "done" || step.tone === "muted" ? <Check className="size-4" /> : step.tone === "cancelled" ? <X className="size-4" /> : index + 1}</span>
           <span className={cn("text-sm", step.reached ? "font-medium text-foreground" : "text-muted-foreground")}>{t(`orderStatus.step.${step.key}`)}</span>
-          <span className="min-h-4 text-xs text-muted-foreground">{step.at && step.reached ? dates.step(step.at) : null}</span>
+          <span className="min-h-4 text-xs text-muted-foreground">{step.at && step.reached ? stepDate(step) : null}</span>
           {step.key === "shipped" && skippedShipment && <span className="sr-only">{t("orderStatus.skipped")}</span>}
         </div>
       </li>;
@@ -117,7 +119,9 @@ export function OrderStatusCard({ order, unsaved, busy, onFulfill, onCancel, onA
   const noteText = unsaved || !reason || !primary ? null : noPayment ? t(`orderStatus.paymentNote.${primary}`) : t(reason.key, { items: reason.items });
   const run = (operation: Operation) => { if (!fulfillDisabled) onFulfill(operation); };
   const recipient = order.delivery?.recipient.name;
-  const link = cn(textLinkClass, "min-h-touch inline-flex items-center aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:no-underline");
+  const link = "min-h-touch inline-flex items-center text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground aria-disabled:cursor-not-allowed aria-disabled:opacity-50 aria-disabled:no-underline aria-disabled:hover:text-muted-foreground";
+
+  const cancelLink = canCancel ? <button type="button" className={link} aria-disabled={waiting || undefined} onClick={() => { if (!waiting) onCancel(); }}>{t("orderCancellation.cancel")}</button> : <span />;
 
   return <Card id="order-status" role="region" aria-labelledby="order-status-title" className="min-w-0">
     <CardHeader className="flex-row items-start justify-between gap-3">
@@ -125,28 +129,28 @@ export function OrderStatusCard({ order, unsaved, busy, onFulfill, onCancel, onA
         <CardTitle id="order-status-title">{t("orderStatus.title")}</CardTitle>
         {(modality !== "none" || status === "pending") && <p className="text-sm text-muted-foreground">{t(`orderStatus.modality.${modality}`)}</p>}
       </div>
-      <Badge variant={badgeVariant[status]} data-testid="order-status-badge">{t(`orderStatus.badge.${status}`)}</Badge>
+      <Badge variant={badgeVariant[status]} data-testid="order-status-badge"><span aria-hidden="true" className="size-1.5 rounded-full bg-current" />{t(`orderStatus.badge.${status}`)}</Badge>
     </CardHeader>
     <CardContent className="flex flex-col gap-4">
       <Stepper order={order} now={now} />
       {primary && <div className="flex flex-col gap-3">
-        <Button type="button" size="lg" variant="outline" className="w-full" aria-disabled={fulfillDisabled || undefined}
+        <Button type="button" size="lg" className="w-full aria-disabled:cursor-not-allowed aria-disabled:bg-muted-foreground/30 aria-disabled:text-foreground/60 aria-disabled:hover:bg-muted-foreground/30" aria-disabled={fulfillDisabled || undefined}
           aria-describedby={noteText || unsaved ? "order-status-note" : undefined} onClick={() => run(primary)}>
           {primary === "ship" ? <Truck data-icon="inline-start" /> : <Check data-icon="inline-start" />}{t(`orderFulfillment.${primary}`)}</Button>
         {unsaved && <p id="order-status-note" className="sr-only">{t("orderView.status.saveFirst")}</p>}
         {noteText && <div id="order-status-note" className="flex items-start gap-2 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning-surface)] p-3 text-sm text-[var(--warning)]">
           <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <p>{noteText}{noPayment && <> <button type="button" className={cn(textLinkClass, "text-inherit")} onClick={onAddPayment}>{t("orderStatus.addPayment")}</button></>}</p>
+          <p>{noteText}{noPayment && <> <button type="button" className={cn(textLinkClass, "text-inherit pointer-coarse:inline-flex pointer-coarse:min-h-touch pointer-coarse:items-center")} onClick={onAddPayment}>{t("orderStatus.addPayment")}</button></>}</p>
         </div>}
         <div className="flex flex-wrap items-center justify-between gap-x-4">
-          {canCancel ? <button type="button" className={link} aria-disabled={waiting || undefined} onClick={() => { if (!waiting) onCancel(); }}>{t("orderCancellation.cancel")}</button> : <span />}
-          {primary === "ship" ? <button type="button" className={link} aria-disabled={fulfillDisabled || undefined} onClick={() => run("deliver")}>{t("orderStatus.deliverDirectly")}</button>
-            : modality === "store" && order.deliveryStatus === "pending" && <span className="text-sm text-muted-foreground">{t("orderStatus.pickupNoShipping")}</span>}
+          {primary === "ship" ? <button type="button" className={link} aria-disabled={fulfillDisabled || undefined} onClick={() => run("deliver")}>{t("orderStatus.deliverDirectly")}</button> : cancelLink}
+          {primary === "ship" ? cancelLink
+            : modality === "store" && order.deliveryStatus === "pending" ? <span className="text-sm text-muted-foreground">{t("orderStatus.pickupNoShipping")}</span> : <span />}
         </div>
       </div>}
       {order.deliveryStatus === "delivered" && !order.cancelled && order.deliveredAt
-        && <p className="text-sm">{recipient ? t("orderStatus.deliveredTo", { name: recipient, date: dates.full(order.deliveredAt) }) : t("orderStatus.delivered", { date: dates.full(order.deliveredAt) })}</p>}
-      {order.cancelled && <p className="text-sm">{order.cancelledAt ? t("orderStatus.cancelledOn", { date: dates.full(order.cancelledAt) }) : t("orderStatus.cancelled")}{order.stockDeducted && ` ${t("orderStatus.stockReturned")}`}</p>}
+        && <p className="text-sm">{recipient ? <Trans i18nKey="orderStatus.deliveredTo" values={{ name: recipient, date: dates.full(order.deliveredAt) }} components={{ b: <strong /> }} /> : t("orderStatus.delivered", { date: dates.full(order.deliveredAt) })}</p>}
+      {order.cancelled && <p className="text-sm">{order.cancelledAt ? t("orderStatus.cancelledOn", { date: dates.full(order.cancelledAt) }) : t("orderStatus.cancelled")}{order.stockDeductedAt !== null && ` ${t("orderStatus.stockReturned")}`}</p>}
       {feedback}
     </CardContent>
   </Card>;
