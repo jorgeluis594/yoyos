@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
-  customerLabel, destinationLabel, displayName, isPhoneLikeName, maskDigitRuns, maskPhone, recipientLabel, shortItemNames, toAssistantDispatchEntry, toAssistantOrder, toAssistantOrderSummary,
+  customerLabel, destinationLabel, displayName, isPhoneLikeName, maskDigitRuns, maskPhone, normalizeText, recipientLabel, shortItemNames, toAssistantDispatchEntry, toAssistantOrder, toAssistantOrderSummary,
   type ProjectableDelivery, type ProjectableOrder, type ProjectionContext,
 } from "@core/src/features/assistants/domain/order-projection";
 import { display } from "@core/src/features/assistants/presentation/display";
@@ -240,6 +240,36 @@ describe("names never carry a complete phone", () => {
     expect(isPhoneLikeName("❾❽❼❻❺❹❸❷❶")).toBe(true);
     expect(customerLabel({ name: "❾❽❼❻❺❹❸❷❶", phone: null })).toBe("Cliente que termina en ❸❷❶");
   });
+
+  test("removes invisible Hangul fillers and other default-ignorable code points", () => {
+    for (const filler of ["\u3164", "\uffa0", "\u115f", "\u1160", "\u034f", "\ufe0f"]) {
+      expect(maskDigitRuns(`Carla 987${filler}654${filler}321`), filler.codePointAt(0)!.toString(16)).toBe("Carla •••321");
+    }
+    expect(customerLabel({ name: "987\u3164654\u3164321", phone: null })).toBe("Cliente que termina en 321");
+    expect(maskDigitRuns("김민지")).toBe("김민지");
+  });
+
+  test("keeps the last three numeric characters as whole code points", () => {
+    expect(maskDigitRuns("𐄇𐄈𐄉𐄊𐄋𐄌𐄍𐄎𐄏")).toBe("•••𐄍𐄎𐄏");
+  });
+
+  test("no code point lets the nine digits of a phone be read in order", () => {
+    const digits = "987654321";
+    const numeric = (text: string) => Array.from(text.normalize("NFKC")).filter((char) => /\p{N}/u.test(char)).join("");
+    const failures: string[] = [];
+    let checked = 0;
+    for (let code = 0; code <= 0x10ffff; code++) {
+      const char = String.fromCodePoint(code);
+      const visible = normalizeText(char);
+      if (/[\p{L}\p{N}]/u.test(visible)) continue; // a visible letter breaks a run on purpose; a digit is not a separator
+      checked++;
+      const output = customerLabel({ name: `Carla 987${char}654${char}321`, phone: null });
+      const readable = numeric(output);
+      if (readable.length > 3 || !digits.endsWith(readable)) failures.push(`U+${code.toString(16)} → ${output}`);
+    }
+    expect(checked).toBeGreaterThan(900_000);
+    expect(failures.slice(0, 20)).toEqual([]);
+  }, 60_000);
 
   test("keeps combining marks on letters while removing them after numeric characters", () => {
     expect(maskDigitRuns("Jose\u0301 Pérez")).toBe("José Pérez");
