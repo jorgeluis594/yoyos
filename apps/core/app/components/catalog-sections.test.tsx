@@ -9,7 +9,7 @@ const clasico = { logoUrl: null, theme: "classic" } as const;
 
 describe("CatalogShell", () => {
   test("paints the public catalog in the store theme with the company logo", () => {
-    const html = renderToStaticMarkup(<CatalogShell appearance={{ logoUrl: "https://cdn.example/logo.png", theme: "boutique" }} storeName="Lima Studio"><p>Productos</p></CatalogShell>);
+    const html = renderToStaticMarkup(<MemoryRouter><CatalogShell appearance={{ logoUrl: "https://cdn.example/logo.png", theme: "boutique" }} storeName="Lima Studio"><p>Productos</p></CatalogShell></MemoryRouter>);
     expect(html).toContain('data-store-theme-id="boutique"');
     expect(html).toContain("<style>");
     expect(html).toContain('data-store-part="header"');
@@ -17,13 +17,19 @@ describe("CatalogShell", () => {
     expect(html).toContain("Lima Studio");
   });
 
+  test("links the store logo and name to the catalog home, unless the shell is inert", () => {
+    const shell = (linkHome?: boolean) => renderToStaticMarkup(<MemoryRouter><CatalogShell appearance={{ logoUrl: "https://cdn.example/logo.png", theme: "classic" }} storeName="Lima Studio" linkHome={linkHome}><p>Productos</p></CatalogShell></MemoryRouter>);
+    expect(shell()).toMatch(/<a data-store-part="header-brand" data-slot="brand-link"[^>]*href="\/"[^>]*>.*Lima Studio/);
+    expect(shell(false)).not.toContain("<a ");
+  });
+
   test("renders Noche dark inside the shell", () => {
-    const html = renderToStaticMarkup(<CatalogShell appearance={{ logoUrl: null, theme: "noche" }} storeName="Lima Studio"><p>Productos</p></CatalogShell>);
+    const html = renderToStaticMarkup(<MemoryRouter><CatalogShell appearance={{ logoUrl: null, theme: "noche" }} storeName="Lima Studio"><p>Productos</p></CatalogShell></MemoryRouter>);
     expect(html).toMatch(/data-store-theme-id="noche" class="dark /);
   });
 
   test("shows only the store name when the company has no logo", () => {
-    const html = renderToStaticMarkup(<CatalogShell appearance={clasico} storeName="Lima Studio"><p>Productos</p></CatalogShell>);
+    const html = renderToStaticMarkup(<MemoryRouter><CatalogShell appearance={clasico} storeName="Lima Studio"><p>Productos</p></CatalogShell></MemoryRouter>);
     expect(html).not.toContain("<img");
     expect(html).toContain("Lima Studio");
   });

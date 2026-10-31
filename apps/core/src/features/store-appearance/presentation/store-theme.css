@@ -91,7 +91,7 @@
  * with the theme's ring and destructive tokens. A native radio inside an option or payment chip leaves the ring to its parent, so one focus
  * shows one ring.
  */
-[data-store-theme] :is([data-slot="button"], [data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="radio-group-item"]:not(input)):focus-visible {
+[data-store-theme] :is([data-slot="button"], [data-slot="brand-link"], [data-slot="radio-group-item"]:not(input)):focus-visible {
   outline: 2px solid var(--ring);
   outline-offset: 2px;
 }
@@ -100,10 +100,37 @@
   outline: none;
 }
 
-[data-store-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"])[aria-invalid="true"] {
+/* The invalid look at rest comes first: the focus rule below has the same specificity and recolors it. */
+[data-store-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="textarea"])[aria-invalid="true"] {
   border-color: var(--destructive);
   /* Themes without a field border (Boutique, Noche) show the state as an underline. */
   box-shadow: inset 0 -2px 0 var(--destructive);
+}
+
+/*
+ * A field has one focus indicator. Bordered fields get a 2px ring hugging the border (`--store-focus-box`); fields drawn as an underline
+ * (no side borders, no padding: Boutique, Noche) get that underline thicker (`--store-focus-underline`), with no box to touch the text.
+ * Either one takes the ring color, or the destructive color when the field is invalid, so an error never loses its red.
+ */
+[data-store-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="textarea"]) {
+  --store-focus-color: var(--ring);
+}
+
+[data-store-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="textarea"])[aria-invalid="true"] {
+  --store-focus-color: var(--destructive);
+}
+
+[data-store-theme] :is([data-slot="input"], [data-slot="select"], [data-slot="select-trigger"], [data-slot="textarea"]):focus-visible {
+  outline: var(--store-focus-box) solid var(--store-focus-color);
+  outline-offset: 0;
+  border-color: var(--store-focus-color);
+  box-shadow: inset 0 calc(-1 * var(--store-focus-underline)) 0 var(--store-focus-color);
+}
+
+/* The catalog search keeps its own box in every theme, so it takes the ring even where checkout fields take the underline. */
+[data-store-theme] [data-store-part="catalog-search"]:focus-visible {
+  outline-width: 2px;
+  box-shadow: var(--store-input-shadow);
 }
 
 /* Header */

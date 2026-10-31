@@ -22,7 +22,7 @@ export function CatalogPreview({ appearance, storeName, catalog }: CatalogPrevie
   // The cart button stands for one unit of the first card that can be added, as the real button does with one line in the cart.
   const units = cards?.some((card) => !card.soldOut) ? 1 : 0;
   return <div aria-hidden="true" inert data-slot="catalog-preview">
-    <CatalogShell appearance={appearance} storeName={storeName} cart={<CatalogCartButtonFace units={units} tabIndex={-1} />}>
+    <CatalogShell appearance={appearance} storeName={storeName} linkHome={false} cart={<CatalogCartButtonFace units={units} tabIndex={-1} />}>
       <div><CatalogSearchField value="" readOnly tabIndex={-1} /></div>
       {cards
         ? <CatalogGrid>{cards.map((card) => <li key={card.id}><CatalogProductCard item={card} /></li>)}</CatalogGrid>
