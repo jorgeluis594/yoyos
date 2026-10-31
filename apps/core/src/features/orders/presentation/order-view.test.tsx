@@ -289,6 +289,52 @@ describe("OrderView (saved order)", () => {
     expect(bar().textContent).toMatch(/S\/\s418\.00/);
   });
 
+  describe("Guardar cambios shown once per breakpoint", () => {
+    let notify: (entries: { isIntersecting: boolean }[]) => void = () => {};
+    const viewport = (narrow: boolean) => {
+      vi.stubGlobal("IntersectionObserver", class { constructor(callback: typeof notify) { notify = callback; } observe() {} disconnect() {} });
+      vi.stubGlobal("matchMedia", (query: string) => ({ matches: narrow && query.startsWith("(max-width"), addEventListener() {}, removeEventListener() {} }));
+    };
+    const saveButtons = () => [...container.querySelectorAll("button")].filter((element) => element.textContent === "Guardar cambios");
+
+    test("below 1280 px the header gives it up to the sticky bar once the header leaves the view, and takes it back when it returns", async () => {
+      viewport(true);
+      await mountSaved(edited());
+      expect(saveButtons()).toHaveLength(1);
+      expect(container.querySelector(".fixed")).toBeNull();
+      await act(async () => notify([{ isIntersecting: false }]));
+      expect(saveButtons()).toHaveLength(1);
+      expect(container.querySelector(".fixed")!.contains(saveButtons()[0]!)).toBe(true);
+      await act(async () => notify([{ isIntersecting: true }]));
+      expect(saveButtons()).toHaveLength(1);
+      expect(container.querySelector(".fixed")).toBeNull();
+    });
+
+    test("from 1280 px the header keeps it, whether or not the header is in view", async () => {
+      viewport(false);
+      await mountSaved(edited());
+      await act(async () => notify([{ isIntersecting: false }]));
+      expect(saveButtons().filter((element) => !element.closest(".fixed"))).toHaveLength(1);
+    });
+
+    test("keeps the disabled header button while the sticky bar has no save to offer", async () => {
+      viewport(true);
+      await mountSaved();
+      await act(async () => notify([{ isIntersecting: false }]));
+      expect(saveButtons()).toHaveLength(1);
+      expect(saveButtons()[0]!.disabled).toBe(true);
+    });
+
+    test("does the same for Guardar venta of a new sale", async () => {
+      viewport(true);
+      await mount(withLine(empty()));
+      await act(async () => notify([{ isIntersecting: false }]));
+      const buttons = [...container.querySelectorAll("button")].filter((element) => element.textContent === "Guardar venta");
+      expect(buttons).toHaveLength(1);
+      expect(container.querySelector(".fixed")!.contains(buttons[0]!)).toBe(true);
+    });
+  });
+
   test("lets the sticky bar wrap so Guardar cambios never leaves the screen", async () => {
     let notify: (entries: { isIntersecting: boolean }[]) => void = () => {};
     vi.stubGlobal("IntersectionObserver", class { constructor(callback: typeof notify) { notify = callback; } observe() {} disconnect() {} });

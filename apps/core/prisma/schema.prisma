@@ -633,6 +633,8 @@ model OrderItem {
   productName String
   variantAttributes Json @db.Json
   sku String?
+  /// Place of the line in the order, in the order the seller entered it.
+  position Int @default(0)
   quantity BigInt
   unitPrice Decimal @db.Decimal(11, 2)
   subtotal Decimal @db.Decimal(15, 2)

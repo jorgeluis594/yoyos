@@ -23,7 +23,7 @@ import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-orde
 import type { OrderItemChanges } from "@core/src/features/orders/domain/order-edit";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 
-const aggregateInclude = { buyer: true, items: { orderBy: { id: "asc" as const } }, payments: { orderBy: { id: "asc" as const } } };
+const aggregateInclude = { buyer: true, items: { orderBy: [{ position: "asc" as const }, { id: "asc" as const }] }, payments: { orderBy: { id: "asc" as const } } };
 type DbAggregate = Prisma.OrderGetPayload<{ include: typeof aggregateInclude }>;
 class InvalidStoredOrderError extends Error {}
 class InvalidStoredDeliveryError extends InvalidStoredOrderError {}
@@ -191,6 +191,7 @@ function isMissingVariantViolation(cause: unknown): boolean {
 export function savePendingOrder(order: OrderAggregate): Promise<Result<null, PendingOrderFailure>>;
 export function savePendingOrder(order: OrderAggregate, source: OrderChatSource): Promise<Result<null, Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }> | SellerUnavailable>>;
 export async function savePendingOrder(order: OrderAggregate, source?: OrderChatSource): Promise<Result<null, PendingOrderFailure | SellerUnavailable>> {
+  const positions = new Map(order.items.map((item, position) => [item.id, position]));
   const items = [...order.items].sort((a, b) => a.variantId.localeCompare(b.variantId));
   let inserting: string | null = null;
   try {
@@ -212,7 +213,7 @@ export async function savePendingOrder(order: OrderAggregate, source?: OrderChat
     for (const item of items) {
       inserting = item.variantId;
       await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, companyId: order.companyId, variantId: item.variantId, productName: item.productName,
-        variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
+        variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, position: positions.get(item.id) ?? 0, quantity: BigInt(item.quantity),
         unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()),
         ...mentionedPriceColumns(item.mentionedPrice) } });
     }
@@ -708,7 +709,7 @@ type ItemChangesFailure = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: s
 
 /**
  * Applies the row changes of an item edit to the locked order and stores its recalculated totals, in a fixed number of statements:
- * one delete, one update of every changed quantity, one insert of the added items and the totals.
+ * one delete, one update of every changed quantity, one insert of the added items, one update of the line positions and the totals.
  */
 export async function saveItemChanges(order: OrderAggregate, changes: OrderItemChanges): Promise<Result<null, ItemChangesFailure>> {
   requireActiveTransaction(order.companyId);
@@ -742,6 +743,10 @@ export async function saveItemChanges(order: OrderAggregate, changes: OrderItemC
     if (inserts.length) await prisma.orderItem.createMany({ data: inserts.map((item) => ({ id: item.id, orderId: order.id, variantId: item.variantId, productName: item.productName,
       variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
       unitPrice: money(item.unitPrice.amount), subtotal: money(item.subtotal.amount), ...mentionedPriceColumns(item.mentionedPrice) })) });
+    // The lines keep the order the seller entered them in: the stored position follows the order of the aggregate.
+    const places = Prisma.join(order.items.map((item, position) => Prisma.sql`(${item.id}::uuid, ${position}::int)`));
+    await prisma.$executeRaw`UPDATE "OrderItem" i SET "position" = v.position FROM (VALUES ${places}) AS v(id, position)
+      WHERE i.id = v.id AND i."orderId" = ${order.id}::uuid AND i."companyId" = ${order.companyId}::uuid AND i."position" <> v.position`;
     const updated = await prisma.order.updateMany({ where: { id: order.id, companyId: order.companyId, cancelled: false },
       data: { itemsTotal: money(order.itemsTotal.amount), total: money(order.total.amount) } });
     if (updated.count !== 1) throw new Error("Locked order was not available for item changes");
