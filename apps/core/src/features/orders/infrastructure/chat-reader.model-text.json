@@ -308,20 +308,20 @@
     "tokenizer": "o200k_base (gpt-tokenizer 4.0.3, as for gpt-5.6-luna; no tokenizer is published for gpt-6-luna)",
     "bound": 0.003,
     "reserves": {
-      "localEmbedder": 0.00099,
-      "openAiDescriber": 0.00125
+      "localEmbedder": 0.0008129000000000001,
+      "openAiDescriber": 0.0010988999999999999
     },
     "localEmbedder": {
       "maxOutputTokens": 1000,
       "tokenizerRatio": 1,
       "textInputTokens": 25000,
-      "photoInputTokens": 15100
+      "photoInputTokens": 16871
     },
     "openAiDescriber": {
       "maxOutputTokens": 1000,
       "tokenizerRatio": 1,
       "textInputTokens": 25000,
-      "photoInputTokens": 12500
+      "photoInputTokens": 14011
     }
   },
   "size": {
@@ -375,7 +375,7 @@
       },
       "latin/no_sold_list/photo_product": {
         "fits": false,
-        "countedInputTokens": 12501
+        "countedInputTokens": 14012
       },
       "latin/sold_list/text": {
         "fits": true,
@@ -385,7 +385,7 @@
       },
       "latin/sold_list/photo_product": {
         "fits": false,
-        "countedInputTokens": 12501
+        "countedInputTokens": 14012
       },
       "cjk/no_sold_list/text": {
         "fits": false,
@@ -393,7 +393,7 @@
       },
       "cjk/no_sold_list/photo_product": {
         "fits": false,
-        "countedInputTokens": 12501
+        "countedInputTokens": 14012
       },
       "cjk/sold_list/text": {
         "fits": false,
@@ -401,7 +401,7 @@
       },
       "cjk/sold_list/photo_product": {
         "fits": false,
-        "countedInputTokens": 12501
+        "countedInputTokens": 14012
       },
       "emoji/no_sold_list/text": {
         "fits": false,
@@ -409,7 +409,7 @@
       },
       "emoji/no_sold_list/photo_product": {
         "fits": false,
-        "countedInputTokens": 12501
+        "countedInputTokens": 14012
       },
       "emoji/sold_list/text": {
         "fits": false,
@@ -417,7 +417,7 @@
       },
       "emoji/sold_list/photo_product": {
         "fits": false,
-        "countedInputTokens": 12501
+        "countedInputTokens": 14012
       },
       "cjkSupplementary/no_sold_list/text": {
         "fits": false,
@@ -425,7 +425,7 @@
       },
       "cjkSupplementary/no_sold_list/photo_product": {
         "fits": false,
-        "countedInputTokens": 12501
+        "countedInputTokens": 14012
       },
       "cjkSupplementary/sold_list/text": {
         "fits": false,
@@ -433,7 +433,7 @@
       },
       "cjkSupplementary/sold_list/photo_product": {
         "fits": false,
-        "countedInputTokens": 12501
+        "countedInputTokens": 14012
       }
     }
   }

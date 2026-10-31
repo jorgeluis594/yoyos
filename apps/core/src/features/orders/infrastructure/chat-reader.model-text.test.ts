@@ -1,5 +1,9 @@
 import { countTokens, encode } from "gpt-tokenizer/encoding/o200k_base";
-import { expect, test } from "vitest";
+import { expect, test, vi } from "vitest";
+vi.mock("@core/src/composition/event-bus", () => ({ applicationEventBus: () => ({ publishEvent: vi.fn() }) }));
+vi.mock("@core/src/shared/infrastructure/persistance", () => ({
+  getCompanyId: () => "00000000-0000-4000-8000-000000000001", withTenantIsolation: (_company: string, work: () => unknown) => work() }));
+import { createVisualSearch } from "@core/src/features/products/composition";
 import type { ChatReadingContext, ReadingItem, ReadingPending, ReadingProduct } from "@core/src/features/orders/domain/chat-reading";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
@@ -16,8 +20,11 @@ import { readerRequestSettings } from "@core/src/features/orders/infrastructure/
 
 const model = "gpt-6-luna";
 const price = priceOf(model)!;
-/** The photo stages' reserve at the initial measurements: local embedder (default) and OpenAI describer (T1's `visual-stages-cost.ts` pins the live values). */
-const reserves = { localEmbedder: 0.00099, openAiDescriber: 0.00125 };
+/** The photo stages' live reserve with the default settings: the local embedder (default) and the OpenAI describer. */
+const reserves = {
+  localEmbedder: createVisualSearch({ OPENAI_API_KEY: "key" }).photoStagesReserveUsd,
+  openAiDescriber: createVisualSearch({ OPENAI_API_KEY: "key", IMAGE_EMBEDDER_PROVIDER: "openai" }).photoStagesReserveUsd,
+};
 /**
  * No tokenizer is published for gpt-6-luna. o200k_base is the encoding gpt-tokenizer maps to gpt-5.6-luna, the closest model it lists.
  * The count leaves out the few tokens of message framing the API adds.
