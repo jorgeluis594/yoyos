@@ -1,9 +1,7 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { CompanyId, UserId } from "@shared/identity";
-import { loadUserAccess } from "@core/src/features/users";
-import { userRepository } from "@core/src/features/users/infrastructure/user-repository";
-import { companyRepository } from "@core/src/features/companies/infrastructure/company-repository";
+import { loadAccountAccess } from "@core/src/composition/assistant-account-access";
 import { authIssuer, mcpResourceUrl } from "@core/src/shared/infrastructure/auth";
 import { jwksCache } from "@core/src/shared/infrastructure/jwt-verifier";
 import { createFixedWindowLimiter } from "@core/src/shared/infrastructure/fixed-window-limiter";
@@ -22,7 +20,7 @@ const clock = () => new Date();
 const unavailable = (): ResolveAssistantAccessError => ({ code: "PERSISTENCE_UNAVAILABLE", message: "Assistant access unavailable" });
 
 async function loadAccess(userId: UserId) {
-  const access = await loadUserAccess(userId, { ...userRepository, findCompany: companyRepository.findCompany });
+  const access = await loadAccountAccess(userId);
   return access.success ? access : err(unavailable());
 }
 

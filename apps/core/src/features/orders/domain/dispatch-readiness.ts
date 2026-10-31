@@ -1,4 +1,3 @@
-import type { OrderStockDue } from "@shared/contracts/orders";
 import { orderFulfillmentBlock } from "@shared/orders-fulfillment";
 import type { DispatchDate } from "@shared/dispatch-date";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
@@ -27,6 +26,8 @@ export type ClassifiedCandidate = Readonly<{ candidate: DispatchCandidate; readi
 export type DispatchQueueSummary = Readonly<{ overdue: number; overdueReady: number; today: number; todayReady: number }>;
 export type OrderedDispatchQueue = Readonly<{ members: readonly (ClassifiedCandidate & Readonly<{ group: DispatchGroup }>)[]; summary: DispatchQueueSummary }>;
 
+/** The shared fulfillment rule reads the due stock as plain arrays; copying keeps this domain free of the transport contract. */
+const mutableStockDue = (due: StockDue | null) => due?.kind === "waiting" ? { kind: "waiting" as const, shortItems: [...due.shortItems] } : due;
 const cents = (amount: number) => Math.round(amount * 100);
 const confirmedCents = (order: StockOrder) => order.confirmedPayments.reduce((sum, payment) => sum + cents(payment.amount.amount), 0);
 
@@ -50,7 +51,7 @@ export function describeDispatchReadiness(order: ReadinessSubject, stock: Dispat
   const operation = order.deliveryMethod === "store" ? "deliver" : "ship";
   const paid = confirmedCents(order);
   const block = orderFulfillmentBlock({ cancelled: order.cancelled, deliveryStatus: order.deliveryStatus, paymentStatus: paid >= cents(order.total.amount) ? "paid" : "pending",
-    paidAmount: { amount: paid / 100 }, stockDeducted: order.stockDeducted, stockDue: stock.stockDue as OrderStockDue | null }, operation);
+    paidAmount: { amount: paid / 100 }, stockDeducted: order.stockDeducted, stockDue: mutableStockDue(stock.stockDue) }, operation);
   if (block !== null) {
     if (block.code === "PAYMENT_REQUIRED") return { kind: "blocked", operation,
       reason: { code: operation === "ship" ? "SHIP_PAYMENT_REQUIRED" : "PAYMENT_REQUIRED", pendingReport: order.hasReportedPayment } };
