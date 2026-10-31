@@ -84,6 +84,8 @@ async function readRpc(response: Response) {
   const text = await response.text();
   return JSON.parse(response.headers.get("content-type")?.includes("text/event-stream") ? text.split("\n").find((line) => line.startsWith("data:"))?.slice(5) ?? "" : text);
 }
+// The tests read the structured output by path; its shape is checked by the tools' own output schemas.
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 type ToolResult = { isError?: boolean; structuredContent?: Record<string, any>; content: { text: string }[] };
 async function callTool(token: string, name: string, args: unknown = {}) {
   const response = await mcp(token, rpc("tools/call", { name, arguments: args }));
