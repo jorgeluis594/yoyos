@@ -147,7 +147,7 @@ Use it only when the handler:
 
 Everything else stays on pg-boss after commit. The first and only users are the
 stock events of orders: `payment_confirmed`, `order_delivery_changed`,
-`order_stock_deduction_overdue` and `product_stock_increased`, so a payment
+`order_edited`, `order_stock_deduction_overdue` and `product_stock_increased`, so a payment
 answers with the stock already deducted and a restock deducts the orders it
 covers in the same step ([Orders · Stock deduction](orders.md#stock-deduction)).
 
