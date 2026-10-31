@@ -20,7 +20,7 @@ vi.mock("@core/src/features/orders/infrastructure/checkout-repository", () => ({
 vi.mock("@core/src/features/orders/infrastructure/order-repository", () => ({
   allocateOrderNumber: async () => ok(1001 as OrderNumber), orderExists: async () => ok(false), savePendingOrder: async () => ok(null), savePayment: async () => ok(null),
   saveStockDeduction: async () => ok(null), loadStockOrders: vi.fn(), listCompaniesWithOverdueStockDeductions: vi.fn(), listOverdueOrderIds: vi.fn(), lockOrdersSkipLocked: vi.fn(), saveStockDeductions: vi.fn(), listWaitingOrderIds: vi.fn(), findOrders: vi.fn(), findOrderForUpdate: vi.fn(), findOrderAggregate: vi.fn(), saveFulfillment: async () => ok(null),
-  findChatOrderTarget: vi.fn(), findChatOrdersOpenedSince: vi.fn(), findChatOrderTargetForUpdate: vi.fn(), saveItemChanges: vi.fn(), recordProcessedMessage: vi.fn(), saveCancellation: vi.fn(),
+  findChatOrderTarget: vi.fn(), findOrderAggregateByNumber: vi.fn(), existsOrder: vi.fn(), summarizeUnpaidOrders: vi.fn(), findDispatchCandidates: vi.fn(), countUndatedPendingOrders: vi.fn(), findChatOrdersOpenedSince: vi.fn(), findChatOrderTargetForUpdate: vi.fn(), saveItemChanges: vi.fn(), recordProcessedMessage: vi.fn(), saveCancellation: vi.fn(),
 }));
 vi.mock("@core/src/features/products", () => ({
   findSellableVariants: async (variantIds: readonly string[]) => ok(variantIds.map((variantId) => ({ variantId, productName: "Product", variantAttributes: {}, sku: null,

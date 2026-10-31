@@ -1,0 +1,71 @@
+import { describe, expect, test, vi } from "vitest";
+import { log } from "@core/src/shared/infrastructure/logger";
+import { parseAssistantConnectionRow, parseEndedConnectionRow } from "@core/src/features/assistants/infrastructure/connection-rows";
+
+const row = {
+  id: "6c0f5d2e-6a63-4a38-9f07-3b8f7a1c0001",
+  companyId: "6c0f5d2e-6a63-4a38-9f07-3b8f7a1c0002",
+  authorizedByUserId: "user-1",
+  oauthClientId: "client-1",
+  agentName: "Claude",
+  returnKind: "web",
+  returnDomain: "claude.ai",
+  scopes: ["orders:read"],
+  authorizedAt: new Date("2026-10-30T12:00:00.000Z"),
+  lastUsedAt: null,
+};
+
+describe("parseAssistantConnectionRow", () => {
+  test("reads a stored web connection", () => {
+    const parsed = parseAssistantConnectionRow(row);
+    expect(parsed).toMatchObject({ success: true, data: { agentName: "Claude", returnTarget: { kind: "web", domain: "claude.ai" }, scopes: ["orders:read"], lastUsedAt: null } });
+  });
+
+  test("reads a stored this-device connection without a name", () => {
+    const parsed = parseAssistantConnectionRow({ ...row, agentName: null, returnKind: "this_device", returnDomain: null });
+    expect(parsed).toMatchObject({ success: true, data: { agentName: null, returnTarget: { kind: "this_device" } } });
+  });
+
+  test("measures the agent name in code points like the database check", () => {
+    expect(parseAssistantConnectionRow({ ...row, agentName: "😀".repeat(80) })).toMatchObject({ success: true });
+    const diagnostic = vi.spyOn(log, "error").mockImplementation(() => undefined);
+    try {
+      expect(parseAssistantConnectionRow({ ...row, agentName: "😀".repeat(81) })).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+    } finally { diagnostic.mockRestore(); }
+  });
+
+  test("answers invalid stored data and logs once when the row breaks the schema", () => {
+    const diagnostic = vi.spyOn(log, "error").mockImplementation(() => undefined);
+    try {
+      for (const broken of [
+        { ...row, scopes: [] },
+        { ...row, scopes: ["orders:write"] },
+        { ...row, returnKind: "web", returnDomain: null },
+        { ...row, returnKind: "this_device", returnDomain: "claude.ai" },
+        { ...row, agentName: "" },
+        { ...row, extra: true },
+      ]) {
+        expect(parseAssistantConnectionRow(broken)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+      }
+      expect(diagnostic).toHaveBeenCalledTimes(6);
+    } finally { diagnostic.mockRestore(); }
+  });
+});
+
+describe("parseEndedConnectionRow", () => {
+  const ended = { id: row.id, companyId: row.companyId, oauthClientId: row.oauthClientId, authorizedByUserId: row.authorizedByUserId };
+
+  test("reads the columns a delete returns", () => {
+    expect(parseEndedConnectionRow(ended)).toEqual({ success: true, data: ended });
+  });
+
+  test("answers invalid stored data and logs once when a returned column breaks the schema", () => {
+    const diagnostic = vi.spyOn(log, "error").mockImplementation(() => undefined);
+    try {
+      for (const broken of [{ ...ended, id: "not-a-uuid" }, { ...ended, oauthClientId: "" }, { ...ended, extra: true }, { id: ended.id }]) {
+        expect(parseEndedConnectionRow(broken)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+      }
+      expect(diagnostic).toHaveBeenCalledTimes(4);
+    } finally { diagnostic.mockRestore(); }
+  });
+});
