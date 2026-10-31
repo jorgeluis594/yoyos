@@ -25,7 +25,7 @@ function fixtureTool(overrides: Partial<RegisteredTool<Input, Output>> = {}): Re
 }
 
 function fixtureModule(tools: readonly RegisteredTool<Input, Output>[] = [fixtureTool()], overrides: Partial<ToolModule> = {}): ToolModule {
-  return { scope: "orders:read", access: "read", instructions: "Las herramientas de prueba solo leen.", tools, ...overrides };
+  return { scope: "orders:read", access: "read", instructions: "Las herramientas de prueba solo leen.", readFailureMessage: "No pudimos leer los datos de prueba.", tools, ...overrides };
 }
 
 const access: AssistantAccess = {

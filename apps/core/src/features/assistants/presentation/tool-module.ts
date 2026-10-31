@@ -11,6 +11,7 @@ export type ToolModule = Readonly<{
   scope: AssistantScope;                 // a connection without it does not see these tools
   access: "read";                        // the only value this version accepts; a write module needs its own design
   instructions: string;                  // paragraph appended to the server instructions
+  readFailureMessage: string;            // what the agent receives when a read of this module fails or its output breaks the schema; names the module's own data
   // The tool list is heterogeneous (each tool has its own input and output types), so the registry holds them without their type arguments.
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   tools: readonly RegisteredTool<any, any>[];

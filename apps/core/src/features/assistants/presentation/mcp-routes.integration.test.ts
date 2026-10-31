@@ -24,7 +24,7 @@ const rosa: Store = { companyId: randomUUID(), userId: `rosa-${suffix}`, connect
 const luis: Store = { companyId: randomUUID(), userId: `luis-${suffix}`, connectionId: randomUUID() };
 
 const fixtureModule: ToolModule = {
-  scope: "orders:read", access: "read", instructions: "Las herramientas de prueba solo leen.",
+  scope: "orders:read", access: "read", instructions: "Las herramientas de prueba solo leen.", readFailureMessage: "No pudimos leer los datos de prueba.",
   tools: [{
     name: "consulta_de_prueba", title: "Consulta de prueba", description: "Devuelve un total fijo para probar el servidor.",
     inputSchema: z.strictObject({ texto: z.string().max(20).optional() }),
