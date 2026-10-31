@@ -43,6 +43,6 @@ export async function endConnection(connection: AssistantConnection, reason: "in
     return err(unavailable());
   }
   log.info({ event: "assistant_connection_ended", companyId: connection.companyId, connectionId: connection.id, reason }, "assistant_connection_ended");
-  await revokeClientGrant({ oauthClientId: connection.oauthClientId, userId: connection.authorizedByUserId, companyId: connection.companyId, connectionId: connection.id });
+  await revokeClientGrant({ oauthClientId: connection.oauthClientId, userId: connection.authorizedByUserId, companyId: connection.companyId, connectionId: connection.id, revokedAt: new Date() });
   return ok(null);
 }
