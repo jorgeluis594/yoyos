@@ -80,14 +80,16 @@ const and = (conditions: readonly Prisma.Sql[]) => Prisma.join(conditions, " AND
 
 /** Names of the options and values held by active variants, one row per distinct spelling, with the saved-order key of the newest product that holds it. */
 export function vocabularySql(companyId: string): Prisma.Sql {
+  // The existence test stops at the first active variant that holds each value, instead of joining every variant link of the store.
   return Prisma.sql`SELECT o.name AS "optionName", ov.name AS "valueName",
       (min(p.rank))::int AS "productRank", ((array_agg(ov.position ORDER BY p.rank, ov.position))[1])::int AS position
-    FROM "ProductVariantOptionValue" l
-    JOIN "ProductVariant" v ON v."companyId" = l."companyId" AND v.id = l."variantId" AND v.status = 'active'
-    JOIN "ProductOption" o ON o."companyId" = l."companyId" AND o."productId" = l."productId" AND o.id = l."optionId"
-    JOIN "ProductOptionValue" ov ON ov."companyId" = l."companyId" AND ov."optionId" = l."optionId" AND ov.id = l."valueId"
-    JOIN (SELECT id, row_number() OVER (ORDER BY "createdAt" DESC, id) AS rank FROM "Product" WHERE "companyId" = ${companyId}::uuid) p ON p.id = l."productId"
-    WHERE l."companyId" = ${companyId}::uuid
+    FROM "ProductOption" o
+    JOIN "ProductOptionValue" ov ON ov."companyId" = o."companyId" AND ov."optionId" = o.id
+    JOIN (SELECT id, row_number() OVER (ORDER BY "createdAt" DESC, id) AS rank FROM "Product" WHERE "companyId" = ${companyId}::uuid) p ON p.id = o."productId"
+    WHERE o."companyId" = ${companyId}::uuid
+      AND EXISTS (SELECT 1 FROM "ProductVariantOptionValue" l
+        JOIN "ProductVariant" v ON v."companyId" = l."companyId" AND v.id = l."variantId" AND v.status = 'active'
+        WHERE l."companyId" = ov."companyId" AND l."optionId" = ov."optionId" AND l."valueId" = ov.id)
     GROUP BY o.name, ov.name`;
 }
 
