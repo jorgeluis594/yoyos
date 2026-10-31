@@ -46,13 +46,25 @@ test("does not see another store's connection or an unknown client", async () =>
   expect(await withTenantIsolation(companyA, () => findConnectionForClient("unknown" as OAuthClientId, userId as UserId))).toEqual({ success: true, data: null });
 });
 
-test("the database keeps one connection per store, client and account and rejects rows that break the checks", async () => {
-  await expect(withTenantIsolation(companyA, async () => await prisma.assistantConnection.create({ data: connectionData() }))).rejects.toThrow();
-  for (const bad of [{ returnKind: "web", returnDomain: null }, { returnKind: "this_device", returnDomain: "claude.ai" }, { returnKind: "app", returnDomain: null }, { agentName: "" }, { scopes: [] }]) {
-    await expect(withTenantIsolation(companyB, async () => await prisma.assistantConnection.create({ data: connectionData({ oauthClientId: `bad-${randomUUID()}`, ...bad }) }))).rejects.toThrow();
-  }
+const checkViolation = (constraint: string) => `Code: \`23514\`. Message: \`new row for relation "AssistantConnection" violates check constraint "${constraint}"\``;
+
+test("the database keeps one connection per store, client and account", async () => {
+  await expect(withTenantIsolation(companyA, async () => await prisma.assistantConnection.create({ data: connectionData() })))
+    .rejects.toThrow("Unique constraint failed on the constraint: `AssistantConnection_companyId_oauthClientId_authorizedByUse_key`");
+});
+
+test.each([
+  ["a web return without a domain", { returnKind: "web", returnDomain: null }, "AssistantConnection_return_domain_matches_kind"],
+  ["a this-device return with a domain", { returnKind: "this_device", returnDomain: "claude.ai" }, "AssistantConnection_return_domain_matches_kind"],
+  ["an unknown return kind", { returnKind: "app", returnDomain: null }, "AssistantConnection_return_kind_valid"],
+  ["an empty agent name", { agentName: "" }, "AssistantConnection_agent_name_length"],
+  ["no scopes", { scopes: [] }, "AssistantConnection_scopes_not_empty"],
+])("the database rejects %s", async (_title, bad, constraint) => {
+  await expect(withTenantIsolation(companyB, async () => await prisma.assistantConnection.create({ data: connectionData({ oauthClientId: `bad-${randomUUID()}`, ...bad }) })))
+    .rejects.toThrow(checkViolation(constraint));
 });
 
 test("row level security refuses a row for another company", async () => {
-  await expect(withTenantIsolation(companyB, async () => await prisma.assistantConnection.create({ data: connectionData({ companyId: companyA, oauthClientId: `other-${randomUUID()}` }) }))).rejects.toThrow();
+  await expect(withTenantIsolation(companyB, async () => await prisma.assistantConnection.create({ data: connectionData({ companyId: companyA, oauthClientId: `other-${randomUUID()}` }) })))
+    .rejects.toThrow('Code: `42501`. Message: `new row violates row-level security policy for table "AssistantConnection"`');
 });

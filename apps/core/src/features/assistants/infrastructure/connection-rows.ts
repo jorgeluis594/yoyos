@@ -4,7 +4,7 @@ import type { Result } from "@shared/result";
 import type { CompanyId, UserId } from "@shared/identity";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { assistantScopes } from "@core/src/features/assistants/domain/scopes";
-import type { AgentName, AssistantConnection, AssistantConnectionId, OAuthClientId, ReturnTarget } from "@core/src/features/assistants/domain/assistant-connection";
+import { agentNameLengthIsValid, type AgentName, AssistantConnection, AssistantConnectionId, OAuthClientId, ReturnTarget } from "@core/src/features/assistants/domain/assistant-connection";
 
 export type InvalidConnectionRow = Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
 
@@ -13,7 +13,7 @@ const connectionRowSchema = z.strictObject({
   companyId: z.uuid(),
   authorizedByUserId: z.string().min(1),
   oauthClientId: z.string().min(1),
-  agentName: z.string().min(1).max(80).nullable(),
+  agentName: z.string().refine(agentNameLengthIsValid).nullable(),
   returnKind: z.enum(["web", "this_device"]),
   returnDomain: z.string().min(1).max(253).nullable(),
   scopes: z.array(z.enum(assistantScopes)).min(1),

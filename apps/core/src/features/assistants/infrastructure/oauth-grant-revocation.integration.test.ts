@@ -11,6 +11,7 @@ const clients = [`revoke-client-a-${suffix}`, `revoke-client-b-${suffix}`];
 const [userA, userB] = users;
 const [clientA, clientB] = clients;
 const alreadyRevoked = new Date("2026-01-01T00:00:00.000Z");
+const revokedAt = new Date("2026-10-30T15:00:00.000Z");
 
 const emptyClient = (clientId: string) => ({ id: clientId, clientId, scopes: [], contacts: [], redirectUris: [], postLogoutRedirectUris: [], grantTypes: [], responseTypes: [] });
 const refreshToken = (clientId: string, userId: string, revoked: Date | null = null) =>
@@ -36,7 +37,7 @@ afterAll(async () => {
 test("revoking a client's grant revokes its tokens and consent for that account only and keeps earlier revocations", async () => {
   const result = await revokeClientGrant({
     oauthClientId: clientA as OAuthClientId, userId: userA as UserId,
-    companyId: randomUUID() as CompanyId, connectionId: randomUUID() as AssistantConnectionId,
+    companyId: randomUUID() as CompanyId, connectionId: randomUUID() as AssistantConnectionId, revokedAt,
   });
   expect(result).toEqual({ success: true, data: { refreshTokens: 1, accessTokens: 1, consents: 1 } });
 
@@ -49,6 +50,10 @@ test("revoking a client's grant revokes its tokens and consent for that account 
   expect(await state(clientB, userA)).toEqual({ refresh: [false], access: [false], consents: 1 });
   expect(await state(clientA, userB)).toEqual({ refresh: [false], access: [false], consents: 1 });
 
+  const newlyRevoked = await systemPrisma.oauthRefreshToken.count({ where: { clientId: clientA, userId: userA, revoked: revokedAt } });
+  expect(newlyRevoked).toBe(1);
+  expect(await systemPrisma.oauthAccessToken.count({ where: { clientId: clientA, userId: userA, revoked: revokedAt } })).toBe(1);
+
   const earlier = await systemPrisma.oauthRefreshToken.findMany({ where: { clientId: clientA, userId: userA, revoked: alreadyRevoked } });
   expect(earlier).toHaveLength(1);
   expect(await systemPrisma.oauthAccessToken.count({ where: { clientId: clientA, userId: userA, revoked: alreadyRevoked } })).toBe(1);
@@ -57,7 +62,7 @@ test("revoking a client's grant revokes its tokens and consent for that account 
 test("revoking a grant that has nothing left to revoke succeeds and changes nothing", async () => {
   const result = await revokeClientGrant({
     oauthClientId: clientA as OAuthClientId, userId: userA as UserId,
-    companyId: randomUUID() as CompanyId, connectionId: randomUUID() as AssistantConnectionId,
+    companyId: randomUUID() as CompanyId, connectionId: randomUUID() as AssistantConnectionId, revokedAt,
   });
   expect(result).toEqual({ success: true, data: { refreshTokens: 0, accessTokens: 0, consents: 0 } });
 });

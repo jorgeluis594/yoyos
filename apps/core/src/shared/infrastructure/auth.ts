@@ -9,6 +9,7 @@ import { accountEmails } from "@core/src/features/users/composition";
 import { isAllowedRedirectUri } from "@core/src/features/assistants/domain/assistant-connection";
 import { oauthScopes } from "@core/src/features/assistants/domain/scopes";
 import { assistantConfig } from "@core/src/features/assistants/infrastructure/assistant-config";
+import { oauthBeforeHook, onPasswordReset } from "@core/src/features/assistants/auth-hooks";
 
 export const authIssuer = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
 // The one protected resource of the OAuth server: the remote MCP endpoint.
@@ -43,6 +44,7 @@ export const auth = betterAuth({
     autoSignIn: false,
     resetPasswordTokenExpiresIn: 60 * 30,
     revokeSessionsOnPasswordReset: true,
+    onPasswordReset,
     sendResetPassword: async ({ user, url }) => accountEmails.sendReset(user.email, url),
     onExistingUserSignUp: async ({ user }) => {
       if (!user.emailVerified) {
@@ -70,6 +72,7 @@ export const auth = betterAuth({
     ipAddress: { ipAddressHeaders: ["x-forwarded-for"], trustedProxies: [...assistantConfig.trustedProxies] },
   },
   disabledPaths: disabledOAuthPaths,
+  hooks: { before: oauthBeforeHook },
   session: { expiresIn: 60 * 60 * 24 * 30, updateAge: 60 * 60 * 24 },
   trustedOrigins: [authIssuer, "yoyos://", ...(process.env.NODE_ENV === "development" ? ["exp://**"] : [])],
   plugins: [expo(), jwt({
@@ -88,6 +91,8 @@ export const auth = betterAuth({
     grantTypes: ["authorization_code", "refresh_token"],
     clientRegistrationDefaultResources: [mcpResourceUrl],
     clientRegistrationDefaultScopes: [...oauthScopes],
+    // A client registering a loopback http redirect (MCP Inspector, desktop agents) is a native app; the plugin refuses it as a web client.
+    clientRegistrationDefaultApplicationType: "infer",
     allowDynamicClientRegistration: true,
     allowUnauthenticatedClientRegistration: true,
     accessTokenExpiresIn: assistantConfig.accessTokenTtlSeconds,

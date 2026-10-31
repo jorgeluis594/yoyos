@@ -30,10 +30,17 @@ export type NewAssistantConnection = Omit<AssistantConnection, "lastUsedAt">;
 const maxAgentNameLength = 80;
 const day = 24 * 60 * 60 * 1000;
 
+// Counted in code points, like the database's char_length check.
+export function agentNameLengthIsValid(name: string): boolean {
+  const length = Array.from(name).length;
+  return length >= 1 && length <= maxAgentNameLength;
+}
+
 export function parseAgentName(raw: string | null | undefined): AgentName | null {
   if (raw === null || raw === undefined) return null;
-  const name = raw.replace(/\p{Cc}/gu, "").trim();
-  return name.length >= 1 && name.length <= maxAgentNameLength ? (name as AgentName) : null;
+  // Control (Cc) and format (Cf) characters go: a bidi override (U+202E) or a zero-width space could spoof the name on the consent screen.
+  const name = raw.replace(/[\p{Cc}\p{Cf}]/gu, "").trim();
+  return agentNameLengthIsValid(name) ? (name as AgentName) : null;
 }
 
 // Active while it was used (or authorized, if never used) within the inactivity window and
@@ -45,7 +52,13 @@ export function isConnectionActive(connection: ConnectionWithPasswordChange, now
   return recentlyUsed && afterPasswordChange;
 }
 
-const loopbackHosts: ReadonlySet<string> = new Set(["127.0.0.1", "[::1]", "localhost"]);
+// The URL parser already normalizes numeric hosts: 127.1 becomes 127.0.0.1 and ::ffff:127.0.0.1 becomes [::ffff:7f00:1].
+const ipv4LoopbackBlock = /^127(\.\d{1,3}){3}$/;
+const ipv4MappedLoopback = /^\[::ffff:7f[0-9a-f]{2}:[0-9a-f]{1,4}\]$/;
+
+function isLoopbackHost(hostname: string): boolean {
+  return hostname === "localhost" || hostname === "localhost." || hostname === "[::1]" || ipv4LoopbackBlock.test(hostname) || ipv4MappedLoopback.test(hostname);
+}
 
 function parseRedirectUri(uri: string): URL | null {
   try {
@@ -61,15 +74,17 @@ function parseRedirectUri(uri: string): URL | null {
 export function isAllowedRedirectUri(uri: string): boolean {
   const url = parseRedirectUri(uri);
   if (url === null) return false;
-  const loopback = loopbackHosts.has(url.hostname);
+  const loopback = isLoopbackHost(url.hostname);
   if (url.protocol === "https:") return !loopback;
   return url.protocol === "http:" && loopback;
 }
 
-export function returnTargetOf(uri: string): ReturnTarget {
+// Null for a URI that is not allowed: it must never be shown as "this device".
+export function returnTargetOf(uri: string): ReturnTarget | null {
+  if (!isAllowedRedirectUri(uri)) return null;
   const url = parseRedirectUri(uri);
-  if (url !== null && url.protocol === "https:" && !loopbackHosts.has(url.hostname)) return { kind: "web", domain: url.hostname };
-  return { kind: "this_device" };
+  if (url === null) return null;
+  return url.protocol === "https:" ? { kind: "web", domain: url.hostname } : { kind: "this_device" };
 }
 
 const minute = 60 * 1000;

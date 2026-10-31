@@ -26,6 +26,14 @@ describe("parseAssistantConnectionRow", () => {
     expect(parsed).toMatchObject({ success: true, data: { agentName: null, returnTarget: { kind: "this_device" } } });
   });
 
+  test("measures the agent name in code points like the database check", () => {
+    expect(parseAssistantConnectionRow({ ...row, agentName: "😀".repeat(80) })).toMatchObject({ success: true });
+    const diagnostic = vi.spyOn(log, "error").mockImplementation(() => undefined);
+    try {
+      expect(parseAssistantConnectionRow({ ...row, agentName: "😀".repeat(81) })).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+    } finally { diagnostic.mockRestore(); }
+  });
+
   test("answers invalid stored data and logs once when the row breaks the schema", () => {
     const diagnostic = vi.spyOn(log, "error").mockImplementation(() => undefined);
     try {

@@ -18,6 +18,7 @@ test("authentication translations exist in both languages and preserve localized
   expect(Object.keys(resources.pt.translation.deliverySettings).sort()).toEqual(Object.keys(resources.es.translation.deliverySettings).sort());
   expect(Object.keys(resources.pt.translation.dispatchSender).sort()).toEqual(Object.keys(resources.es.translation.dispatchSender).sort());
   expect(Object.keys(resources.pt.translation.orderDelivery).sort()).toEqual(Object.keys(resources.es.translation.orderDelivery).sort());
+  expect(Object.keys(resources.pt.translation.assistants).sort()).toEqual(Object.keys(resources.es.translation.assistants).sort());
   const i18n = createInstance();
   await i18n.init({ lng: "pt", resources });
   expect(i18n.t("orders.status.active")).toBe("Pedido ativo");
