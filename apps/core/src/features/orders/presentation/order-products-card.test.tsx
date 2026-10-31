@@ -247,5 +247,8 @@ describe("OrderProductsCard", () => {
     const short = order({ stockDeducted: true });
     await mount(saved({ order: { ...short, stockDue: { kind: "partial_waiting", shortItems: [{ variantId: short.items[0]!.variantId, available: 0 }] } } }));
     expect(text()).toContain("Se guardó el cambio, pero no hay stock suficiente de Traje de Príncipe Azul (M). Se descontará cuando haya.");
+    const notice = [...document.body.querySelectorAll("[role=note]")].find((el) => el.textContent?.includes("no hay stock suficiente"));
+    expect(notice?.className).toContain("bg-[var(--warning-surface)]");
+    expect(notice?.className).not.toContain("bg-warning/");
   });
 });
