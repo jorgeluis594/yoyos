@@ -6,7 +6,6 @@ import type { OrderRevision } from "@core/src/features/orders/domain/order-revis
 import type { DoubtReason } from "@core/src/features/orders/domain/reader/decision";
 import type { SuggestedQuestion } from "@core/src/features/orders/domain/suggested-question";
 
-export type OrderReviewId = string & { readonly __brand: "OrderReviewId" };
 export type OrderLinkActionId = string & { readonly __brand: "OrderLinkActionId" };
 export type UndoRefusal = "order_moved_on" | "later_change" | "would_empty" | "not_sold";
 

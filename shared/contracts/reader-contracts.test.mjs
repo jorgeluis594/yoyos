@@ -75,6 +75,10 @@ test("the confirm request carries the idempotency id, what the review showed and
   assert.equal(confirmOrderReviewRequestSchema.safeParse({ ...request, corrections: [{ itemId: id(1), quantity: -1 }] }).success, false);
   assert.equal(confirmOrderReviewRequestSchema.safeParse({ ...request, corrections: [{ itemId: id(1), quantity: 10000 }] }).success, false);
   assert.equal(confirmOrderReviewRequestSchema.safeParse({ ...request, loaded: { ...loaded, changesThrough: undefined } }).success, false);
+  assert.equal(confirmOrderReviewRequestSchema.safeParse({ ...request, corrections: [{ itemId: id(1), quantity: 1 }, { itemId: id(1), quantity: 2 }] }).success, false);
+  assert.equal(confirmOrderReviewRequestSchema.safeParse({ ...request, corrections: Array.from({ length: 101 }, (_, n) => ({ itemId: id(n), quantity: 1 })) }).success, false);
+  assert.equal(confirmOrderReviewRequestSchema.safeParse({ ...request, loaded: { ...loaded, changeIds: Array.from({ length: 501 }, (_, n) => id(n)) } }).success, false);
+  assert.equal(confirmOrderReviewRequestSchema.safeParse({ ...request, loaded: { ...loaded, points: Array.from({ length: 11 }, () => loaded.points[0]) } }).success, false);
 });
 
 test("the confirm response lists what changed meanwhile and the review errors name their codes", () => {

@@ -114,6 +114,13 @@ test("the expired lookup lists the companies with an expired trace or masked tex
         SELECT * FROM message_change_verdict_counts(${new Date(Date.now() - 3_600_000)}, ${new Date(Date.now() + 3_600_000)})`;
       expect(Object.keys(counts[0]!).sort()).toEqual(["count", "decision", "doubt_kind", "verdict"]);
       expect(counts).toContainEqual({ decision: "applied", doubt_kind: null, verdict: null, count: expect.any(BigInt) });
+      const day = 86_400_000;
+      const window = (since: number, until: number) => prisma.$queryRaw`SELECT * FROM message_change_verdict_counts(${new Date(since)}, ${new Date(until)})`;
+      const now = Date.now();
+      await expect(window(now, now)).rejects.toThrow(/invalid verdict window/);
+      await expect(window(now, now - day)).rejects.toThrow(/invalid verdict window/);
+      await expect(window(now - 367 * day, now)).rejects.toThrow(/invalid verdict window/);
+      await expect(window(now - 366 * day, now)).resolves.toBeDefined();
       await prisma.messageMaskedText.deleteMany();
     });
   } finally { await f.cleanup(); }

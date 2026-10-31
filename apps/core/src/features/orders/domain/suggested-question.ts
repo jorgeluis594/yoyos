@@ -1,5 +1,5 @@
 import { z } from "zod";
-import type { BuyerLanguage } from "@core/src/features/orders/domain/reader/readings";
+import type { BuyerLanguage } from "@core/src/features/orders/domain/reader/refs";
 
 /** A question the seller may send the buyer, as structured data; presentation renders it in the buyer's language. Never holds buyer text. */
 export type SuggestedQuestion = Readonly<{ language: BuyerLanguage } & (

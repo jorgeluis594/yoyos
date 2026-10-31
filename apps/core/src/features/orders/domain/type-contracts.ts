@@ -3,10 +3,8 @@ import type { AgencyRecipient, CourierId, DeliveryAuthor, DeliverySnapshot, Rate
 import type { StoreDeliverySettings } from "@core/src/features/delivery-settings";
 import type { Currency } from "@shared/money";
 import type { VariantId } from "@core/src/features/products/domain/product";
-import type { ReaderStages } from "@core/src/features/orders/application/reader/stages";
-import type { ChangeSeq, OrderItemChange, OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
-import type { OrderReviewId, OrderReviewProjection } from "@core/src/features/orders/domain/order-review";
-import type { ReaderStage } from "@core/src/features/orders/domain/reader/readings";
+import type { ChangeSeq, OrderItemChange, OrderItemChangeId, OrderReviewId } from "@core/src/features/orders/domain/message-changes";
+import type { OrderReviewProjection } from "@core/src/features/orders/domain/order-review";
 
 type Assert<T extends true> = T;
 type Equal<A, B> = (<T>() => T extends A ? 1 : 2) extends (<T>() => T extends B ? 1 : 2) ? true : false;
@@ -34,8 +32,7 @@ export type OrderContracts = [
   Assert<Equal<Extract<DeliveryAuthor, { kind: "seller" }>["userId"], UserId>>,
   Assert<Equal<Extract<DeliverySnapshot, { method: "store" }>["pickupPoint"] extends null ? true : false, false>>,
   Assert<Equal<{ enabled: true; pickupPoint: null } extends StoreDeliverySettings ? true : false, false>>,
-  // The staged reader: one confirming flag per stage, and change rows that cannot be mixed up with other ids or counters.
-  Assert<Equal<keyof ReaderStages["confirms"], ReaderStage>>,
+  // The staged reader: change rows that cannot be mixed up with other ids or counters.
   Assert<Equal<OrderItemChangeId extends OrderReviewId ? true : false, false>>,
   Assert<Equal<number extends ChangeSeq ? true : false, false>>,
   Assert<Equal<OrderItemChange["decision"]["kind"], "applied" | "doubtful">>,

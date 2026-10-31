@@ -1,12 +1,12 @@
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ChatPending } from "@core/src/features/orders/domain/chat-pendings";
 import type { OrderId, OrderItemId, PositiveInteger, MentionedPrice } from "@core/src/features/orders/domain/order";
-import type { OrderReviewId } from "@core/src/features/orders/domain/order-review";
 import type { ChangeDecision } from "@core/src/features/orders/domain/reader/decision";
 import type { QuoteId } from "@core/src/features/orders/domain/reader/readings";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { Money } from "@shared/money";
 
+export type OrderReviewId = string & { readonly __brand: "OrderReviewId" };
 export type OrderItemChangeId = string & { readonly __brand: "OrderItemChangeId" };
 /** Per-order, assigned under the order lock as the order's previous highest plus one. */
 export type ChangeSeq = number & { readonly __brand: "ChangeSeq" };

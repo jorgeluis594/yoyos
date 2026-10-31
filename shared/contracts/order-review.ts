@@ -1,8 +1,11 @@
 import { z } from "zod";
 import { mentionedPriceSchema, moneySchema, orderAggregateSchema, orderStockDueSchema } from "@shared/contracts/orders";
 import { orderRevisionSchema } from "@shared/contracts/order-revisions";
-import { maxOrderLineQuantity } from "@shared/orders-edit";
+import { maxOrderLineQuantity, maxOrderLines } from "@shared/orders-edit";
 
+/** A review shows at most this many changes and as many points as a chat keeps pendings. */
+const maxReviewChangeIds = 500;
+const maxReviewPoints = 10;
 const date = z.iso.datetime();
 const count = z.number().int().nonnegative().safe();
 
@@ -45,7 +48,7 @@ export const reviewPointSchema = z.strictObject({
 });
 /** What the client sends back unchanged: the snapshot the review was shown against. */
 export const reviewLoadedSchema = z.strictObject({
-  changesThrough: count, changeIds: z.array(z.uuid()), points: z.array(reviewPointKeySchema), itemsRevision: orderRevisionSchema,
+  changesThrough: count, changeIds: z.array(z.uuid()).max(maxReviewChangeIds), points: z.array(reviewPointKeySchema).max(maxReviewPoints), itemsRevision: orderRevisionSchema,
 });
 
 /** `GET /api/orders/:orderId/review[?rows=all]`: 200, 404, 503. */
@@ -75,7 +78,8 @@ export const confirmOrderReviewRequestSchema = z.strictObject({
   origin: z.enum(["link", "detail"]),
   linkAction: z.strictObject({ id: z.uuid(), action: z.enum(["copy", "share", "open"]) }).nullable(),
   loaded: reviewLoadedSchema,
-  corrections: z.array(z.strictObject({ itemId: z.uuid(), quantity: z.number().int().min(0).max(maxOrderLineQuantity) })),
+  corrections: z.array(z.strictObject({ itemId: z.uuid(), quantity: z.number().int().min(0).max(maxOrderLineQuantity) })).max(maxOrderLines)
+    .refine((corrections) => new Set(corrections.map((correction) => correction.itemId)).size === corrections.length, { message: "An item is corrected once" }),
 });
 export type ConfirmOrderReviewRequest = z.infer<typeof confirmOrderReviewRequestSchema>;
 

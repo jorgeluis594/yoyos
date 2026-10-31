@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { PositiveInteger } from "@core/src/features/orders/domain/order";
-import type { QuoteId } from "@core/src/features/orders/domain/reader/readings";
+import type { QuoteId } from "@core/src/features/orders/domain/reader/refs";
 import { suggestedQuestionSchema, type SuggestedQuestion } from "@core/src/features/orders/domain/suggested-question";
 
 export type CertaintySignals = Readonly<{

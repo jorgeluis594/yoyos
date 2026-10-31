@@ -4,13 +4,9 @@ import type { LastIncomingPhoto } from "@core/src/features/orders/domain/chat-pe
 import type { OrderItemId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 
-/** Short references the prompts use for what the reading may point at: `M1…` context messages, `R1…` requests, `I1…` items, `Q1…` pendings. */
-export type ContextMessageRef = string & { readonly __brand: "ContextMessageRef" };
-export type RequestRef = string & { readonly __brand: "RequestRef" };
-export type ItemRef = string & { readonly __brand: "ItemRef" };
-export type PendingRef = string & { readonly __brand: "PendingRef" };
-/** Position of a justifying quote in the trace's quote list of a message. */
-export type QuoteId = number & { readonly __brand: "QuoteId" };
+import type { BuyerLanguage, ContextMessageRef, ItemRef, PendingRef, QuoteId, RequestRef } from "@core/src/features/orders/domain/reader/refs";
+
+export type { BuyerLanguage, ContextMessageRef, ItemRef, PendingRef, QuoteId, RequestRef };
 
 export type ReaderStage = "intent" | "extraction" | "resolution";
 export type Reading = "primary" | "confirming";
@@ -20,7 +16,6 @@ export type StageCall = Readonly<{ stage: ReaderStage; reading: Reading; provide
   usage: ModelUsage | null; costUsd: number | null; durationMs: number; attempts: 1 | 2 }>;
 
 export type Quote = Readonly<{ source: "current" } | { source: "context"; ref: ContextMessageRef }> & Readonly<{ text: string }>;
-export type BuyerLanguage = "es" | "pt";
 export type RequestKind = "add" | "remove" | "change_quantity" | "change_variant" | "complete_pending" | "decline"
   | "mention_price" | "ready" | "payment_request" | "not_allowed";
 export type NoIntentReason = "greeting" | "thanks" | "question" | "payment_report" | "other";
