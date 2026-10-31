@@ -55,9 +55,21 @@ async function registerClient() {
 
 /** The real flow: authorize → screen → Permitir acceso → code → token for the MCP resource. */
 async function connectAgent(owner: Owner, clientId: string) {
+  return (await connectAgentTokens(owner, clientId)).access_token as string;
+}
+
+async function authorizeLocation(clientId: string, cookie: string | null) {
+  const query = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: redirectUri, scope: "orders:read products:read offline_access",
+    code_challenge: createHash("sha256").update("verifier").digest("base64url"), code_challenge_method: "S256", state: "state-1", resource });
+  const authorize = await fetch(`${api}/api/auth/oauth2/authorize?${query}`, { headers: cookie ? { cookie } : {}, redirect: "manual" });
+  const location = authorize.headers.get("location") ?? (await authorize.json().catch(() => null))?.url ?? "";
+  return new URL(location, baseUrl);
+}
+
+async function connectAgentTokens(owner: Owner, clientId: string) {
   const verifier = randomBytes(32).toString("base64url");
   const challenge = createHash("sha256").update(verifier).digest("base64url");
-  const query = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: redirectUri, scope: "orders:read offline_access", code_challenge: challenge,
+  const query = new URLSearchParams({ response_type: "code", client_id: clientId, redirect_uri: redirectUri, scope: "orders:read products:read offline_access", code_challenge: challenge,
     code_challenge_method: "S256", state: "state-1", resource });
   const authorize = await fetch(`${api}/api/auth/oauth2/authorize?${query}`, { headers: { cookie: owner.cookie }, redirect: "manual" });
   // A navigation answers 302 with a Location; any other fetch gets the same redirect as `{ url }`.
@@ -72,8 +84,19 @@ async function connectAgent(owner: Owner, clientId: string) {
     body: new URLSearchParams({ grant_type: "authorization_code", code: new URL(allowed.data).searchParams.get("code") ?? "", redirect_uri: redirectUri, client_id: clientId, code_verifier: verifier, resource }),
   });
   expect(exchanged.status).toBe(200);
-  return (await exchanged.json()).access_token as string;
+  return await exchanged.json();
 }
+
+/** An agent registered before products: its client holds only the order scopes and its connection only orders:read. */
+async function makeOrdersOnly(owner: Owner, clientId: string) {
+  await systemPrisma.oauthClient.update({ where: { clientId }, data: { scopes: ["orders:read", "offline_access"] } });
+  await withTenantIsolation(owner.companyId, async () => await prisma.assistantConnection.updateMany({ data: { scopes: ["orders:read"] } }));
+}
+
+const refresh = (clientId: string, refreshToken: string) => fetch(`${api}/api/auth/oauth2/token`, {
+  method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" },
+  body: new URLSearchParams({ grant_type: "refresh_token", refresh_token: refreshToken, client_id: clientId, resource }),
+});
 
 const rpc = (method: string, params: unknown = {}) => ({ jsonrpc: "2.0", id: 1, method, params });
 const mcp = (token: string, body: unknown) => fetch(`${api}/mcp`, {
@@ -157,6 +180,53 @@ test("lists the four order tools for a connected store", async () => {
   const tools = response.result.tools as { name: string; annotations: Record<string, boolean> }[];
   expect(tools.map((tool) => tool.name).sort()).toEqual(["buscar_pedidos", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "ver_pedido"]);
   for (const tool of tools) expect(tool.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
+});
+
+test("hides an orders-only connection from the list, ends it on its next call and shows the screen again", async () => {
+  const rosa = await createOwner("Rosa");
+  const clientId = await registerClient();
+  const token = await connectAgent(rosa, clientId);
+  await makeOrdersOnly(rosa, clientId);
+  const access = { companyId: rosa.companyId, userId: rosa.userId };
+  const listed = await withTenantIsolation(rosa.companyId, async () => await assistantConnections.list(access));
+  expect(listed.success && listed.data).toEqual([]);
+
+  const response = await mcp(token, rpc("tools/call", { name: "buscar_pedidos", arguments: {} }));
+  expect(response.status).toBe(401);
+  expect(await withTenantIsolation(rosa.companyId, async () => await prisma.assistantConnection.count())).toBe(0);
+  // Access tokens are JWTs with no stored row; the refresh tokens are the stored part of the grant.
+  const tokens = await systemPrisma.oauthRefreshToken.findMany({ where: { clientId, userId: rosa.userId } });
+  expect(tokens.length).toBeGreaterThan(0);
+  expect(tokens.every((row) => row.revoked !== null)).toBe(true);
+
+  expect((await authorizeLocation(clientId, null)).pathname).toBe("/login");
+  expect((await authorizeLocation(clientId, rosa.cookie)).pathname).toBe("/assistants/authorize");
+});
+
+test("re-authorizes an agent registered before products with its own client", async () => {
+  const rosa = await createOwner("Rosa");
+  const clientId = await registerClient();
+  await connectAgent(rosa, clientId);
+  await makeOrdersOnly(rosa, clientId);
+  const token = await connectAgent(rosa, clientId);
+  const rows = await withTenantIsolation(rosa.companyId, async () => await prisma.assistantConnection.findMany());
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.scopes.toSorted()).toEqual(["orders:read", "products:read"]);
+  expect((await systemPrisma.oauthClient.findUniqueOrThrow({ where: { clientId } })).scopes.toSorted()).toEqual(["offline_access", "orders:read", "products:read"]);
+  const tools = (await readRpc(await mcp(token, rpc("tools/list")))).result.tools as { name: string }[];
+  expect(tools.map((tool) => tool.name)).toEqual(expect.arrayContaining(["buscar_pedidos", "ver_pedido"]));
+});
+
+test("revokes the old grant's refresh tokens when an orders-only connection is re-authorized before its next call", async () => {
+  const rosa = await createOwner("Rosa");
+  const clientId = await registerClient();
+  const first = await connectAgentTokens(rosa, clientId);
+  expect(typeof first.refresh_token).toBe("string");
+  await makeOrdersOnly(rosa, clientId);
+  const second = await connectAgentTokens(rosa, clientId);
+  // The new grant first: presenting a revoked token makes the plugin invalidate the whole refresh family.
+  expect((await refresh(clientId, second.refresh_token)).status).toBe(200);
+  expect((await refresh(clientId, first.refresh_token)).status).toBeGreaterThanOrEqual(400);
 });
 
 test("never returns another store's order for the same number", async () => {

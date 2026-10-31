@@ -10,14 +10,14 @@ import {
 const now = new Date("2026-10-30T12:00:00.000Z");
 const daysAgo = (days: number) => new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
 const companyId = "6c0f5d2e-6a63-4a38-9f07-3b8f7a1c0002" as CompanyId;
-const token: VerifiedAssistantToken = { userId: "user-1" as UserId, oauthClientId: "client-1" as OAuthClientId, scopes: ["orders:read"] };
+const token: VerifiedAssistantToken = { userId: "user-1" as UserId, oauthClientId: "client-1" as OAuthClientId, scopes: ["orders:read", "products:read"] };
 
 const ready = { status: "ready", user: { id: "user-1", name: "Rosa", emailVerified: true, companyId }, company: { id: companyId } } as unknown as UserAccess;
 
 function connection(overrides: Partial<ConnectionWithPasswordChange> = {}): ConnectionWithPasswordChange {
   return {
     id: "6c0f5d2e-6a63-4a38-9f07-3b8f7a1c0001" as AssistantConnectionId, companyId, authorizedByUserId: "user-1" as UserId,
-    oauthClientId: "client-1" as OAuthClientId, agentName: null, returnTarget: { kind: "this_device" }, scopes: ["orders:read"],
+    oauthClientId: "client-1" as OAuthClientId, agentName: null, returnTarget: { kind: "this_device" }, scopes: ["orders:read", "products:read"],
     authorizedAt: daysAgo(20), lastUsedAt: daysAgo(1), passwordChangedAt: null, ...overrides,
   };
 }
@@ -37,7 +37,7 @@ function dependencies(overrides: Partial<ResolveAssistantAccessDependencies> = {
 describe("resolveAssistantAccess", () => {
   test("resolves the store, connection and scopes of an active connection", async () => {
     const result = await resolveAssistantAccess(token, dependencies());
-    expect(result).toEqual({ success: true, data: { companyId, userId: "user-1", connectionId: "6c0f5d2e-6a63-4a38-9f07-3b8f7a1c0001", scopes: ["orders:read"], lastUsedAt: daysAgo(1) } });
+    expect(result).toEqual({ success: true, data: { companyId, userId: "user-1", connectionId: "6c0f5d2e-6a63-4a38-9f07-3b8f7a1c0001", scopes: ["orders:read", "products:read"], lastUsedAt: daysAgo(1) } });
   });
 
   test("refuses access when the account is not ready, has no connection or the connection is inactive", async () => {
@@ -64,6 +64,19 @@ describe("resolveAssistantAccess", () => {
     const result = await resolveAssistantAccess(token, dependencies({ findConnection: async () => ok(changed), endConnection }));
     expect(result).toMatchObject({ success: false, error: { reason: "password_changed" } });
     expect(endConnection).toHaveBeenCalledWith(changed, "password_reset");
+  });
+
+  test("ends an orders-only connection on its next call and refuses it as consent_outdated", async () => {
+    const endConnection = vi.fn(async () => ok(null));
+    const ordersOnly = connection({ scopes: ["orders:read"] });
+    const result = await resolveAssistantAccess(token, dependencies({ findConnection: async () => ok(ordersOnly), endConnection }));
+    expect(result).toMatchObject({ success: false, error: { code: "NOT_AUTHORIZED", reason: "consent_outdated", companyId } });
+    expect(endConnection).toHaveBeenCalledWith(ordersOnly, "consent_outdated");
+  });
+
+  test("exposes only the scopes held by both the token and the connection", async () => {
+    const result = await resolveAssistantAccess({ ...token, scopes: ["products:read"] }, dependencies());
+    expect(result).toMatchObject({ success: true, data: { scopes: ["products:read"] } });
   });
 
   test("refuses a token without the orders scope or a connection without it", async () => {

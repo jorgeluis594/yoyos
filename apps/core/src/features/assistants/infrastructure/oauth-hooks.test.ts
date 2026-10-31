@@ -7,7 +7,7 @@ import {
   type OAuthHookContext, type OAuthHookDependencies,
 } from "@core/src/features/assistants/infrastructure/oauth-hooks";
 
-const normalized = "orders:read offline_access";
+const normalized = "orders:read products:read offline_access";
 const clientId = "client-1" as OAuthClientId;
 const userId = "user-1" as UserId;
 
@@ -15,7 +15,8 @@ function dependencies(overrides: Partial<OAuthHookDependencies> = {}): OAuthHook
   return {
     readSessionUserId: vi.fn(async () => ok(userId)),
     hasActiveConnection: vi.fn(async () => ok(false)),
-    dropConsent: vi.fn(async () => ok(1)),
+    alignClientScopes: vi.fn(async () => ok("unchanged" as const)),
+    revokePriorGrant: vi.fn(async () => ok({ refreshTokens: 1, accessTokens: 1, consents: 1 })),
     reportFailure: vi.fn(),
     reportRefusedConsent: vi.fn(),
     ...overrides,
@@ -61,24 +62,24 @@ describe("authorize hook", () => {
     expect(await dispatchOAuthHook(ctx, dependencies())).toEqual({ context: { query: { scope: normalized } } });
   });
 
-  test("drops the stored consent when the signed-in account has no active connection", async () => {
+  test("revokes the prior grant instead of only the consent when the signed-in account has no active connection", async () => {
     const deps = dependencies();
     await dispatchOAuthHook(get(authorizeQuery), deps);
     expect(deps.hasActiveConnection).toHaveBeenCalledWith(userId, clientId);
-    expect(deps.dropConsent).toHaveBeenCalledWith(userId, clientId);
+    expect(deps.revokePriorGrant).toHaveBeenCalledWith(userId, clientId);
   });
 
   test("keeps the stored consent while the connection is active", async () => {
     const deps = dependencies({ hasActiveConnection: async () => ok(true) });
     await dispatchOAuthHook(get(authorizeQuery), deps);
-    expect(deps.dropConsent).not.toHaveBeenCalled();
+    expect(deps.revokePriorGrant).not.toHaveBeenCalled();
   });
 
   test("leaves the request to the plugin when nobody is signed in", async () => {
     const deps = dependencies({ readSessionUserId: async () => ok(null) });
     expect(await dispatchOAuthHook(get(authorizeQuery), deps)).toEqual({ context: { query: { scope: normalized } } });
     expect(deps.hasActiveConnection).not.toHaveBeenCalled();
-    expect(deps.dropConsent).not.toHaveBeenCalled();
+    expect(deps.revokePriorGrant).not.toHaveBeenCalled();
   });
 
   test("keeps the fresh consent in the authorize nested in the owner's own allow", async () => {
@@ -86,14 +87,14 @@ describe("authorize hook", () => {
     const result = await withConsentMarker({ oauthClientId: clientId, userId }, () =>
       dispatchOAuthHook(get(authorizeQuery, { method: "POST", authorizeSettings: { postLogin: false } }), deps));
     expect(result).toEqual({ context: { query: { scope: normalized } } });
-    expect(deps.dropConsent).not.toHaveBeenCalled();
+    expect(deps.revokePriorGrant).not.toHaveBeenCalled();
   });
 
   test("a marker for another client or account does not protect the consent", async () => {
     const deps = dependencies();
     await withConsentMarker({ oauthClientId: "other-client", userId }, () => dispatchOAuthHook(get(authorizeQuery), deps));
     await withConsentMarker({ oauthClientId: clientId, userId: "other-user" }, () => dispatchOAuthHook(get(authorizeQuery), deps));
-    expect(deps.dropConsent).toHaveBeenCalledTimes(2);
+    expect(deps.revokePriorGrant).toHaveBeenCalledTimes(2);
   });
 
   test("refuses an authorize whose parameters do not parse without running the plugin", async () => {
@@ -115,8 +116,29 @@ describe("authorize hook", () => {
   });
 
   test("refuses an authorize when dropping the stale consent fails", async () => {
-    const deps = dependencies({ dropConsent: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) });
+    const deps = dependencies({ revokePriorGrant: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) });
     await expect(dispatchOAuthHook(get(authorizeQuery), deps)).rejects.toMatchObject({ status: "SERVICE_UNAVAILABLE" });
+  });
+
+  test("aligns the client's scopes before the session is read on authorize", async () => {
+    const order: string[] = [];
+    const deps = dependencies({
+      alignClientScopes: vi.fn(async () => { order.push("align"); return ok("aligned" as const); }),
+      readSessionUserId: vi.fn(async () => { order.push("session"); return ok(null); }),
+    });
+    await dispatchOAuthHook(get(authorizeQuery), deps);
+    expect(order).toEqual(["align", "session"]);
+    expect(deps.alignClientScopes).toHaveBeenCalledWith(clientId);
+  });
+
+  test("answers 503 when the client scopes cannot be aligned or the prior grant cannot be revoked", async () => {
+    const alignFails = dependencies({ alignClientScopes: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) });
+    await expect(dispatchOAuthHook(get(authorizeQuery), alignFails)).rejects.toMatchObject({ status: "SERVICE_UNAVAILABLE", body: { error: "server_error" } });
+    expect(alignFails.reportFailure).toHaveBeenCalledWith({ userId: "unknown", oauthClientId: clientId, errorCode: "PERSISTENCE_UNAVAILABLE" });
+    expect(alignFails.readSessionUserId).not.toHaveBeenCalled();
+    const revokeFails = dependencies({ revokePriorGrant: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) });
+    await expect(dispatchOAuthHook(get(authorizeQuery), revokeFails)).rejects.toMatchObject({ status: "SERVICE_UNAVAILABLE" });
+    expect(revokeFails.reportFailure).toHaveBeenCalledWith({ userId, oauthClientId: clientId, errorCode: "PERSISTENCE_UNAVAILABLE" });
   });
 });
 

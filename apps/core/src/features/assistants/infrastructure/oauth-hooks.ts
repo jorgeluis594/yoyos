@@ -4,6 +4,7 @@ import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/a
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { grantedOAuthScope } from "@core/src/features/assistants/domain/scopes";
+import type { RevokedGrant } from "@core/src/features/assistants/infrastructure/oauth-grant-revocation";
 import type { UserId } from "@shared/identity";
 import { isAllowedRedirectUri, type OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
 
@@ -36,7 +37,10 @@ export type OAuthHookDependencies = Readonly<{
   readSessionUserId: () => Promise<Result<UserId | null, HookFailure>>;
   /** Whether (client, account) has an active connection. An account without a store has none. */
   hasActiveConnection: (userId: UserId, oauthClientId: OAuthClientId) => Promise<Result<boolean, HookFailure>>;
-  dropConsent: (userId: UserId, oauthClientId: OAuthClientId) => Promise<Result<number, HookFailure>>;
+  /** Sets the registered client's scopes to the granted set when they differ; global table, so it runs without a company. */
+  alignClientScopes: (oauthClientId: OAuthClientId) => Promise<Result<"aligned" | "unchanged", HookFailure>>;
+  /** Revokes the client's refresh and access tokens for this account and deletes its consent. */
+  revokePriorGrant: (userId: UserId, oauthClientId: OAuthClientId) => Promise<Result<RevokedGrant, HookFailure>>;
   reportFailure: (failure: Readonly<{ userId: string; oauthClientId: string; errorCode: string }>) => void;
   reportRefusedConsent: (refusal: Readonly<{ userId: string | null; oauthClientId: string | null }>) => void;
 }>;
@@ -67,6 +71,13 @@ async function authorizeHook(ctx: OAuthHookContext, deps: OAuthHookDependencies)
   const oauthClientId = parameters.data.client_id as OAuthClientId;
   const rewritten: OAuthHookResult = { context: { [source]: normalizedScope } };
 
+  // Before the session read: the plugin checks the client's scopes before it reads the session, so a signed-out agent would get invalid_scope.
+  const aligned = await deps.alignClientScopes(oauthClientId);
+  if (!aligned.success) {
+    deps.reportFailure({ userId: "unknown", oauthClientId, errorCode: aligned.error.code });
+    throw oauthError("SERVICE_UNAVAILABLE", "server_error", "Unable to continue the authorization");
+  }
+
   const session = await deps.readSessionUserId();
   if (!session.success) {
     deps.reportFailure({ userId: "unknown", oauthClientId, errorCode: session.error.code });
@@ -85,9 +96,9 @@ async function authorizeHook(ctx: OAuthHookContext, deps: OAuthHookDependencies)
     throw oauthError("SERVICE_UNAVAILABLE", "server_error", "Unable to continue the authorization");
   }
   if (active.data) return rewritten;
-  const dropped = await deps.dropConsent(userId, oauthClientId);
-  if (!dropped.success) {
-    deps.reportFailure({ userId, oauthClientId, errorCode: dropped.error.code });
+  const revoked = await deps.revokePriorGrant(userId, oauthClientId);
+  if (!revoked.success) {
+    deps.reportFailure({ userId, oauthClientId, errorCode: revoked.error.code });
     throw oauthError("SERVICE_UNAVAILABLE", "server_error", "Unable to continue the authorization");
   }
   return rewritten;

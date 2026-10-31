@@ -12,6 +12,7 @@ import {
 import type { AuthorizeAssistantError, SaveConnectionOutcome } from "@core/src/features/assistants/application/authorize-assistant";
 import type { EndedConnection, PersistenceError } from "@core/src/features/assistants/application/disconnect-assistant";
 import type { ListConnectionsError } from "@core/src/features/assistants/application/list-assistant-connections";
+import { assistantScopes } from "@core/src/features/assistants/domain/scopes";
 import { assistantConfig } from "@core/src/features/assistants/infrastructure/assistant-config";
 import { parseAssistantConnectionRow, parseEndedConnectionRow } from "@core/src/features/assistants/infrastructure/connection-rows";
 
@@ -56,7 +57,7 @@ async function saveConnection(connection: NewAssistantConnection): Promise<Resul
       const parsed = parseAssistantConnectionRow(existing);
       if (!parsed.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: parsed.error.message });
       const passwordChangedAt = (await passwordChanges([connection.authorizedByUserId])).get(connection.authorizedByUserId) ?? null;
-      if (isConnectionActive({ ...parsed.data, passwordChangedAt }, connection.authorizedAt, assistantConfig.connectionInactivityDays)) return ok({ outcome: "unchanged" as const, id: parsed.data.id });
+      if (isConnectionActive({ ...parsed.data, passwordChangedAt }, connection.authorizedAt, assistantConfig.connectionInactivityDays, assistantScopes)) return ok({ outcome: "unchanged" as const, id: parsed.data.id });
       await prisma.$executeRaw`
         UPDATE "AssistantConnection"
         SET "agentName" = ${connection.agentName}, "returnKind" = ${returnKind}, "returnDomain" = ${returnDomain},
@@ -66,7 +67,7 @@ async function saveConnection(connection: NewAssistantConnection): Promise<Resul
     }));
     if (!outcome.success) return outcome;
     if (outcome.data.outcome !== "unchanged") {
-      log.info({ event: "assistant_connection_created", companyId: connection.companyId, connectionId: outcome.data.id, userId: connection.authorizedByUserId, oauthClientId: connection.oauthClientId, returnKind }, "assistant_connection_created");
+      log.info({ event: "assistant_connection_created", companyId: connection.companyId, connectionId: outcome.data.id, userId: connection.authorizedByUserId, oauthClientId: connection.oauthClientId, returnKind, outcome: outcome.data.outcome }, "assistant_connection_created");
     }
     return ok(outcome.data.outcome);
   } catch (cause) {

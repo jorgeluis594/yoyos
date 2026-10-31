@@ -40,13 +40,29 @@ async function mount(loaded: Loaded, action?: () => unknown) {
 const button = (label: string) => [...container.querySelectorAll("button")].find((element) => element.textContent?.includes(label));
 const click = (label: string) => act(async () => { button(label)!.click(); });
 
+test("shows the Portuguese texts of the products consent", async () => {
+  await i18n.changeLanguage("pt");
+  try {
+    await mount(ready);
+    expect(container.querySelector("h1")?.textContent).toBe("ChatGPT quer ler os pedidos e produtos de Tienda Rosa");
+    expect(container.textContent).toContain("Seus produtos: variantes, preços de venda, estoque e se estão no seu catálogo");
+    expect(container.textContent).toContain("O preço de compra das suas variantes");
+    expect(container.textContent).toContain("Criar, alterar nem cancelar pedidos, preços nem estoque");
+  } finally {
+    await i18n.changeLanguage("es");
+  }
+});
+
 test("shows the agent, the verified return domain, what it can and never do, and the account", async () => {
   await mount(ready);
-  expect(container.querySelector("h1")?.textContent).toBe("ChatGPT quiere leer los pedidos de Tienda Rosa");
+  expect(container.querySelector("h1")?.textContent).toBe("ChatGPT quiere leer los pedidos y productos de Tienda Rosa");
   expect(container.textContent).toContain("(nombre indicado por el asistente)");
   expect(container.textContent).toContain("Volverá a chatgpt.com");
   expect([...container.querySelectorAll("h2")].map((heading) => heading.textContent)).toEqual(["Podrá ver", "Nunca podrá"]);
-  expect(container.querySelectorAll("ul li")).toHaveLength(5);
+  expect(container.querySelectorAll("ul li")).toHaveLength(7);
+  expect(container.textContent).toContain("Tus productos: variantes, precios de venta, stock y si están en tu catálogo");
+  expect(container.textContent).toContain("El precio de compra de tus variantes");
+  expect(container.textContent).toContain("Crear, cambiar ni cancelar pedidos, precios ni stock");
   expect(container.textContent).toContain("Conectado como rosa@ejemplo.com");
   expect(button("Usar otra cuenta")).toBeDefined();
   expect(button("Permitir acceso")).toBeDefined();
@@ -62,7 +78,7 @@ test("Usar otra cuenta keeps the button's flex display so its touch target appli
 
 test("says the return line alone when the agent declared no name, and names a loopback return as this device", async () => {
   await mount({ ...ready, agentName: null, returnTarget: { kind: "this_device" } });
-  expect(container.querySelector("h1")?.textContent).toBe("Un asistente quiere leer los pedidos de Tienda Rosa");
+  expect(container.querySelector("h1")?.textContent).toBe("Un asistente quiere leer los pedidos y productos de Tienda Rosa");
   expect(container.textContent).not.toContain("(nombre indicado por el asistente)");
   expect(container.textContent).toContain("Volverá a una aplicación de este equipo");
 });
