@@ -12,12 +12,12 @@ const errorStatuses = { INVALID_INPUT: 400, INVALID_DISTRICT: 422, INVALID_DESTI
   INVALID_DELIVERY_SETTINGS: 422, INVALID_DELIVERY_RATE: 422, CHECKOUT_UNAVAILABLE: 404, ORDER_CANCELLED: 422,
   SERVICE_UNAVAILABLE: 503, INTERNAL_ERROR: 500 } as const;
 
-export async function requestDeliveryQuotation(input: Readonly<{ districtCode: string; orderId?: string }>, signal?: AbortSignal,
+export async function requestDeliveryQuotation(input: Readonly<{ districtCode: string; orderId?: string; trigger?: "picked" | "automatic" }>, signal?: AbortSignal,
   fetcher: typeof fetch = fetch): Promise<Result<QuotationResponse, QuotationRequestError>> {
   const district = parsePeruDistrictCode(input.districtCode);
   if (!district.success) return district;
   const request = createQuotationRequestSchema.safeParse({ ...(input.orderId === undefined ? {} : { orderId: input.orderId }),
-    destination: { country: "PE", districtCode: district.data } });
+    destination: { country: "PE", districtCode: district.data }, ...(input.trigger === undefined ? {} : { trigger: input.trigger }) });
   if (!request.success) return err({ code: "INVALID_INPUT", message: "Invalid quotation request" });
   const cancelled = () => err<QuotationRequestError>({ code: "CANCELLED", message: "Quotation request cancelled" });
   if (signal?.aborted) return cancelled();

@@ -1,7 +1,8 @@
 import { isDeepStrictEqual } from "node:util";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { applyChatActions, needsNewChatOrder, type ChatOrderTarget, type ChatOrderItemChanges, type ChatOrderLimits, type ReportOutcome, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
+import { applyChatActions, needsNewChatOrder, type ChatOrderTarget, type ChatOrderLimits, type ReportOutcome, type ResolvedChatAction } from "@core/src/features/orders/domain/chat-order";
+import type { OrderItemChanges } from "@core/src/features/orders/domain/order-edit";
 import { pendingLife, type ChatPendingId, type ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
 import { nextLastIncomingPhoto, photoJustSentOf } from "@core/src/features/orders/domain/photo-just-sent";
 import { checkReaderAnswer, fixedShownAnswer, type ChatReadingContext, type ReaderAnswer } from "@core/src/features/orders/domain/chat-reading";
@@ -123,7 +124,7 @@ export type ApplyChatMessageDependencies = Readonly<{
   findChatOrderTargetForUpdate: (chatId: ChatId) => Promise<Result<ChatOrderTarget, PersistenceError | InvalidStoredData>>;
   allocateNumber: () => Promise<Result<OrderNumber, PersistenceError>>;
   saveNewOrder: (order: OrderAggregate, link: OrderChatSource) => Promise<Result<null, PersistenceError | SellerUnavailable>>;
-  saveItemChanges: (order: OrderAggregate, changes: ChatOrderItemChanges) => Promise<Result<null, PersistenceError>>;
+  saveItemChanges: (order: OrderAggregate, changes: OrderItemChanges) => Promise<Result<null, PersistenceError>>;
   recordOrderMessage: (orderId: OrderId, messageId: ChatMessageId) => Promise<Result<null, PersistenceError | MessageAlreadyProcessed>>;
   recordOutcome: (record: Readonly<{ messageId: ChatMessageId; outcomes: ChatMessageOutcomes }>) => Promise<Result<null, PersistenceError | InvalidStoredData | MessageAlreadyProcessed>>;
   newOrderId: () => OrderId;
@@ -146,7 +147,7 @@ const noReading: ReadingTrace = { readerCalls: 0, answer: "no_intent", actionKin
 const fixedReading: ReadingTrace = { ...noReading, answer: "fixed" };
 
 const noticeDueOf = (stored: StoredChatMessageOutcome) => isNoticeDue(stored.outcomes, stored.noticeSentAt);
-const hasChanges = (changes: ChatOrderItemChanges) => changes.added.length + changes.updated.length + changes.removedItemIds.length > 0;
+const hasChanges = (changes: OrderItemChanges) => changes.added.length + changes.updated.length + changes.removedItemIds.length > 0;
 /** A text or caption the reader can read: it has at least one letter or digit. Emoji and punctuation only are not a message. */
 export const hasReadableText = (text: string | null): text is string => text !== null && /[\p{L}\p{N}]/u.test(text);
 

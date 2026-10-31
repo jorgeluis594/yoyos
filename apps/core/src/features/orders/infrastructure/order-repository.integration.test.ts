@@ -13,7 +13,7 @@ import { ok, err } from "@shared/functional";
 import { orders, createConfiguredOrder, publishStockEvent } from "@core/src/features/orders/composition";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { buildPendingOrder, orderStateMachine, parseRatedDeliverySelection } from "@core/src/features/orders/domain/order-state-machine";
-import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, recordProcessedMessage, saveItemChanges, saveDelivery, savePendingOrder, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
+import { findOpenChatOrderCandidate, findOrderAggregate, findOrderAggregates, findOrders, findOrderForUpdate, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, recordProcessedMessage, saveItemChanges, saveOrderCustomer, saveDelivery, savePendingOrder, saveStockDeductions } from "@core/src/features/orders/infrastructure/order-repository";
 import { storefrontConfig } from "@core/src/features/catalog/infrastructure/storefront-config";
 import { deliverySettings } from "@core/src/features/delivery-settings/composition";
 import type { DeliveryZone } from "@core/src/features/delivery-settings/domain/delivery-zone";
@@ -1791,10 +1791,11 @@ test("saveItemChanges inserts the new items in variant order whatever the order 
       if (!added.success) throw new Error(added.error.message);
       const existing = new Set(order.items.map((item) => item.id));
       const changes = { added: added.data.items.filter((item) => !existing.has(item.id)), updated: [], removedItemIds: [] };
-      const created = vi.spyOn(prisma.orderItem, "create");
+      const created = vi.spyOn(prisma.orderItem, "createMany");
       try {
         expect(await withinTransaction(() => saveItemChanges(added.data, changes))).toEqual(ok(null));
-        const inserted = created.mock.calls.map(([args]) => args.data.variantId).filter((id) => id === low || id === high);
+        expect(created).toHaveBeenCalledTimes(1);
+        const inserted = (created.mock.calls[0]?.[0].data as { variantId: string }[]).map((row) => row.variantId);
         expect(inserted).toEqual([low, high]);
       } finally { created.mockRestore(); }
     });
@@ -2261,4 +2262,88 @@ test("renaming a seeded value keeps old order items and a new order reads the ne
       expect(await findOrderAggregate(second, context.companyId)).toMatchObject({ data: { items: [{ variantAttributes: { Size: "Medium" } }] } });
     });
   } finally { await f.cleanup(); }
+});
+
+test("saveOrderCustomer upserts and deletes the buyer only within the company", async () => {
+  const f = await fixture();
+  const other = await fixture();
+  try {
+    const order = chatOrder(f);
+    await withTenantIsolation(f.companyId, async () => {
+      await withinTransaction(() => savePendingOrder(order));
+      const buyer = { contactId: f.contactId as ContactId, name: "Ana", phone: "+51987654321" };
+      expect(await withinTransaction(() => saveOrderCustomer(order.id, f.companyId as CompanyId, buyer))).toEqual(ok(null));
+      expect(await prisma.orderBuyer.findUniqueOrThrow({ where: { orderId: order.id } })).toMatchObject(buyer);
+      expect(await withinTransaction(() => saveOrderCustomer(order.id, f.companyId as CompanyId, { contactId: f.contactId as ContactId, name: null, phone: null }))).toEqual(ok(null));
+      expect(await prisma.orderBuyer.findUniqueOrThrow({ where: { orderId: order.id } })).toMatchObject({ contactId: f.contactId, name: null, phone: null });
+    });
+    await withTenantIsolation(other.companyId, async () => {
+      // Another company neither sees nor changes the buyer, and a delete finds nothing to remove.
+      expect(await withinTransaction(() => saveOrderCustomer(order.id, other.companyId as CompanyId, null))).toEqual(ok(null));
+      expect(await withinTransaction(() => saveOrderCustomer(order.id, other.companyId as CompanyId, { contactId: null, name: "Eve", phone: "+51900000000" })))
+        .toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+    });
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await prisma.orderBuyer.findUniqueOrThrow({ where: { orderId: order.id } })).toMatchObject({ contactId: f.contactId, name: null });
+      expect(await withinTransaction(() => saveOrderCustomer(order.id, f.companyId as CompanyId, null))).toEqual(ok(null));
+      expect(await prisma.orderBuyer.count({ where: { orderId: order.id } })).toBe(0);
+    });
+  } finally { await chatCleanup(f, other); await f.cleanup(); await other.cleanup(); }
+});
+
+test("saveItemChanges stores each changed quantity with a subtotal equal to quantity times unit price and keeps the mentioned price", async () => {
+  const f = await fixture();
+  try {
+    const order = chatOrder(f);
+    await withTenantIsolation(f.companyId, async () => {
+      await withinTransaction(() => savePendingOrder(order));
+      const [first] = order.items;
+      if (!first) throw new Error("Expected an item");
+      const updated = { ...first, quantity: 4 as PositiveInteger, subtotal: { amount: 40, currency: "PEN" as const }, mentionedPrice: { amount: { amount: 12.5, currency: "PEN" as const }, units: 4 } };
+      const next = { ...order, items: [updated] as never, itemsTotal: { amount: 40, currency: "PEN" as const }, total: { amount: 40, currency: "PEN" as const } };
+      expect(await withinTransaction(() => saveItemChanges(next, { added: [], updated: [updated], removedItemIds: [] }))).toEqual(ok(null));
+      const row = await prisma.orderItem.findUniqueOrThrow({ where: { id: first.id } });
+      expect([row.quantity, row.subtotal.toNumber(), row.unitPrice.toNumber(), row.mentionedPriceAmount?.toNumber(), row.mentionedPriceUnits]).toEqual([4n, 40, 10, 12.5, 4]);
+      const cleared = { ...updated, quantity: 2 as PositiveInteger, subtotal: { amount: 20, currency: "PEN" as const }, mentionedPrice: null };
+      const again = { ...next, items: [cleared] as never, itemsTotal: { amount: 20, currency: "PEN" as const }, total: { amount: 20, currency: "PEN" as const } };
+      expect(await withinTransaction(() => saveItemChanges(again, { added: [], updated: [cleared], removedItemIds: [] }))).toEqual(ok(null));
+      const after = await prisma.orderItem.findUniqueOrThrow({ where: { id: first.id } });
+      expect([after.quantity, after.subtotal.toNumber(), after.mentionedPriceAmount, after.mentionedPriceUnits]).toEqual([2n, 20, null, null]);
+      expect(await prisma.order.findUniqueOrThrow({ where: { id: order.id } })).toMatchObject({ itemsTotal: new Prisma.Decimal(20), total: new Prisma.Decimal(20) });
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("saveItemChanges updates no item of another order or company", async () => {
+  const f = await fixture();
+  try {
+    const order = chatOrder(f);
+    const neighbour = chatOrder(f);
+    await withTenantIsolation(f.companyId, async () => {
+      await withinTransaction(() => savePendingOrder(order));
+      await withinTransaction(() => savePendingOrder(neighbour));
+      const [foreign] = neighbour.items;
+      if (!foreign) throw new Error("Expected an item");
+      const hijacked = { ...foreign, quantity: 9 as PositiveInteger, subtotal: { amount: 90, currency: "PEN" as const } };
+      const result = await withinTransaction(() => saveItemChanges(order, { added: [], updated: [hijacked], removedItemIds: [] }));
+      expect(result).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
+      expect(await prisma.orderItem.findUniqueOrThrow({ where: { id: foreign.id } })).toMatchObject({ quantity: 1n });
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
+});
+
+test("saveItemChanges names the variant that was deleted before the insert", async () => {
+  const f = await fixture();
+  try {
+    const order = chatOrder(f);
+    await withTenantIsolation(f.companyId, async () => {
+      await withinTransaction(() => savePendingOrder(order));
+      const [first] = order.items;
+      if (!first) throw new Error("Expected an item");
+      const ghost = randomUUID() as VariantId;
+      const added = { ...first, id: randomUUID() as never, variantId: ghost };
+      expect(await withinTransaction(() => saveItemChanges(order, { added: [added], updated: [], removedItemIds: [] })))
+        .toEqual({ success: false, error: { code: "VARIANT_NOT_FOUND", message: expect.any(String), variantId: ghost } });
+    });
+  } finally { await chatCleanup(f); await f.cleanup(); }
 });

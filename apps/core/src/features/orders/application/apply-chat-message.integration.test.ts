@@ -4,7 +4,7 @@ import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import { prisma, systemPrisma, withLockedForUpdate, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
 import { applyChatMessage, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
-import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, findOrderAggregate, recordProcessedMessage, saveItemChanges, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
+import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, findOrderAggregate, recordProcessedMessage, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
 import { createFitReadingContext, readerTokenBudget } from "@core/src/features/orders/infrastructure/chat-reader-budget";
 import { findOutcome, insertFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import { recordFailedChatMessage } from "@core/src/features/orders/application/record-failed-chat-message";
@@ -14,6 +14,7 @@ import type { ChatReadingContext, ReaderAction, ReaderAnswer } from "@core/src/f
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts/infrastructure/contact-repository";
 import { findProductIdsOfVariants, findSellableVariantsByQrCodes } from "@core/src/features/products";
 import { products } from "@core/src/features/products/composition";
+import { saveChatItemChanges } from "@core/src/features/orders/composition";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 import { identifyProductsInImage } from "@core/src/features/products/application/identify-products-in-image";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
@@ -100,7 +101,7 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
     findChatOrderTargetForUpdate: (chatId) => findChatOrderTargetForUpdate(chatId, findProductIdsOfVariants),
     allocateNumber: () => allocateOrderNumber(companyId),
     saveNewOrder: savePendingOrder,
-    saveItemChanges,
+    saveItemChanges: saveChatItemChanges,
     recordOrderMessage: recordProcessedMessage,
     recordOutcome,
     newOrderId: () => randomUUID() as OrderId,

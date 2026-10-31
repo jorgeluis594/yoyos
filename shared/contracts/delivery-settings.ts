@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { currencies } from "@shared/money";
 import { moneySchema } from "@shared/contracts/money";
-import { peruDeliveryDistrictSchema } from "@shared/contracts/peru-location";
+import { peruDeliveryDistrictSchema, peruDepartmentCodeSchema, peruProvinceCodeSchema, peruDistrictCodeSchema } from "@shared/contracts/peru-location";
 
 export const pickupPointSchema = z.strictObject({
   name: z.string().trim().min(1).max(120),
@@ -52,9 +52,6 @@ export const agencyCatalogSchema = z.strictObject({ agencies: z.array(catalogAge
 export type CatalogAgencyContract = z.infer<typeof catalogAgencySchema>;
 export type AgencyCatalogResponse = z.infer<typeof agencyCatalogSchema>;
 
-const peruDepartmentCodeSchema = z.string().regex(/^\d{2}$/);
-const peruProvinceCodeSchema = z.string().regex(/^\d{4}$/);
-const peruDistrictCodeSchema = z.string().regex(/^\d{6}$/);
 const optionFields = { name: z.string().trim().min(1).max(120), enabled: z.boolean(), price: moneySchema };
 export const deliveryOptionSchema = z.discriminatedUnion("method", [
   z.strictObject({ id: z.uuid(), method: z.literal("home"), ...optionFields }),
@@ -68,7 +65,7 @@ export const deliveryZoneSchema = z.strictObject({
 export const deliveryZonesSchema = z.object({ // not strict at the root: older mobile builds must ignore fields added later
   home: z.strictObject({ enabled: z.boolean() }), agency: z.strictObject({ enabled: z.boolean() }),
   version: z.number().int().min(0).max(2147483647), currency: z.enum(currencies), zones: z.array(deliveryZoneSchema),
-  agencies: z.array(catalogAgencySchema), // referenced by the options' agencyIds, including disabled ones
+  agencies: z.array(catalogAgencySchema), // referenced by the options' agencyIds, including disabled ones; `enabled` means usable: the catalog agency and its catalog courier are enabled
 });
 const optionInputFields = { name: z.string(), enabled: z.boolean(), price: moneySchema };
 const homeOptionInput = { method: z.literal("home"), ...optionInputFields };

@@ -7,6 +7,7 @@ import { advancePending, attachOrderless, changePendingQuantity, declinePending,
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { ChatMessageOutcome, ChatMessageOutcomes, PaymentOrder, ProductIdentification } from "@core/src/features/orders/domain/chat-message-outcome";
+import type { OrderItemChanges } from "@core/src/features/orders/domain/order-edit";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CompanyId, ContactId, MentionedPrice, OrderId, OrderItem, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
@@ -61,12 +62,9 @@ export type NewChatOrderSeed = Readonly<{ number: OrderNumber; companyId: Compan
   /** The message being applied: the source of the pendings it creates. */
   messageId: ChatMessageId }>;
 
-/** Row changes of the chat's open order: items are compared by id, and a replaced variant is a removed item plus an added one. */
-export type ChatOrderItemChanges = Readonly<{ added: readonly OrderItem[]; updated: readonly OrderItem[]; removedItemIds: readonly OrderItemId[] }>;
-
 export type ChatOrderLimits = Readonly<{ maxItemQuantity: PositiveInteger }>;
 export type ChatOrderIds = Readonly<{ newOrderId: () => OrderId; newItemId: () => OrderItemId; newPendingId: () => ChatPendingId }>;
-export type AppliedChatActions = Readonly<{ target: ChatOrderTarget; createdOrder: OrderAggregate | null; changes: ChatOrderItemChanges; pendings: ChatPendings; outcomes: ChatMessageOutcomes }>;
+export type AppliedChatActions = Readonly<{ target: ChatOrderTarget; createdOrder: OrderAggregate | null; changes: OrderItemChanges; pendings: ChatPendings; outcomes: ChatMessageOutcomes }>;
 
 type State = {
   /** The target as it was before this message, which item actions resolve against even after an add created a new order. */
@@ -359,8 +357,8 @@ function changeVariant(state: State, action: Extract<ResolvedChatAction, { kind:
   });
 }
 
-function diffItems(original: ChatOrderTarget, state: State): ChatOrderItemChanges {
-  const empty: ChatOrderItemChanges = { added: [], updated: [], removedItemIds: [] };
+function diffItems(original: ChatOrderTarget, state: State): OrderItemChanges {
+  const empty: OrderItemChanges = { added: [], updated: [], removedItemIds: [] };
   if (original.kind !== "open" || state.target.kind !== "open" || state.target.order.id !== original.order.id) return empty;
   const before = new Map(original.order.items.map((item) => [item.id, item]));
   const after = state.target.order.items;

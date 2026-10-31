@@ -35,3 +35,9 @@ test("agency rates carry at least one eligible agency with its courier and catal
   }
   expect(quotationResponseSchema.safeParse({ ...base, rates: [{ ...rate, method: "home" }] }).success).toBe(false);
 });
+test("quotation request accepts an optional trigger and rejects unknown values", () => {
+  expect(createQuotationRequestSchema.safeParse({ destination, trigger: "picked" }).success).toBe(true);
+  expect(createQuotationRequestSchema.safeParse({ destination, trigger: "automatic" }).success).toBe(true);
+  expect(createQuotationRequestSchema.safeParse({ destination }).success).toBe(true);
+  for (const trigger of ["manual", "", null, 1]) expect(createQuotationRequestSchema.safeParse({ destination, trigger }).success).toBe(false);
+});

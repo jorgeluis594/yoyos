@@ -13,12 +13,27 @@ test("checkout boundaries reject extra authority, malformed UUIDs and invalid mo
   expect(checkoutPathSchema.safeParse({ orderId: "1001" }).success).toBe(false);
 });
 
+test("public response accepts a confirmed checkout with no buyer or with an empty name and phone", () => {
+  const view = { companyName: "Store", number: 1001, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: valid.expectedTotal, total: valid.expectedTotal,
+    items: [{ productName: "Product", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }],
+    state: { kind: "confirmed", confirmedAt: "2026-01-01T00:00:00.000Z" } };
+  for (const buyer of [null, { name: null, phone: null }, valid.buyer]) expect(publicCheckoutSchema.safeParse({ ...view, buyer }).success).toBe(true);
+});
+
+test("public response rejects a confirmed buyer with only a name or an invalid phone", () => {
+  const view = { companyName: "Store", number: 1001, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: valid.expectedTotal, total: valid.expectedTotal,
+    items: [{ productName: "Product", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }],
+    state: { kind: "confirmed", confirmedAt: "2026-01-01T00:00:00.000Z" } };
+  for (const buyer of [{ name: "Ana", phone: null }, { name: null, phone: "+51987654321" }, { name: "Ana", phone: "123" }])
+    expect(publicCheckoutSchema.safeParse({ ...view, buyer }).success).toBe(false);
+});
+
 test("public response validates confirmed buyers and excludes private aggregate fields", () => {
   const view = { companyName: "Store", number: 1001, buyer: null, delivery: null, deliveryCharge: { amount: 0, currency: "PEN" }, itemsTotal: valid.expectedTotal, total: valid.expectedTotal,
     items: [{ productName: "Product", variantAttributes: {}, sku: null, imageUrl: null, quantity: 1, unitPrice: valid.expectedTotal, subtotal: valid.expectedTotal }], state: { kind: "pending" } };
   expect(publicCheckoutSchema.safeParse(view).success).toBe(true);
   for (const response of [{ ...view, sellerId: "seller" }, { ...view, payments: [] }, { ...view, deliveryCost: valid.expectedTotal },
-    { ...view, buyer: { ...valid.buyer, contactId: "contact" } }, { ...view, state: { kind: "confirmed", confirmedAt: "2026-01-01T00:00:00.000Z" } }])
+    { ...view, buyer: { ...valid.buyer, contactId: "contact" } }])
     expect(publicCheckoutSchema.safeParse(response).success).toBe(false);
 });
 
@@ -62,12 +77,16 @@ test("accepts a checkout buyer with a null phone", () => {
   expect(confirmCheckoutSchema.safeParse({ ...valid, buyer: { name: "Ana", phone: null } }).success).toBe(false);
 });
 
-test("checkout delivery options require an agency coverage flag and reject extra fields", () => {
-  const options = { home: { enabled: true }, agency: { enabled: true, covered: false }, store: { enabled: false, pickupPoint: null } };
+test("checkout delivery options contract accepts offered methods with places and rejects offered without places, unknown codes and extra fields", () => {
+  const places = { departmentCodes: [], provinceCodes: ["1501"], districtCodes: ["040101"] };
+  const options = { home: { offered: true, places }, agency: { offered: false }, store: { enabled: false, pickupPoint: null } };
   expect(checkoutDeliveryOptionsSchema.safeParse(options).success).toBe(true);
-  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { enabled: true } }).success).toBe(false);
-  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { ...options.agency, zones: [] } }).success).toBe(false);
-  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { ...options.agency, covered: "yes" } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { offered: true } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, agency: { offered: false, places } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, home: { offered: true, places: { ...places, districtCodes: ["999999"] } } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, home: { offered: true, places: { ...places, districtCodes: [] }, name: "Zone" } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, home: { enabled: true } }).success).toBe(false);
+  expect(checkoutDeliveryOptionsSchema.safeParse({ ...options, home: { offered: true, places: { departmentCodes: [], provinceCodes: [], districtCodes: [] } } }).success).toBe(false);
 });
 
 test("the other-recipient flag is a form-only boolean that defaults to the buyer receiving", () => {
