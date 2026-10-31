@@ -89,16 +89,16 @@ async function findConnections(companyId: CompanyId): Promise<Result<readonly Co
   }
 }
 
-type DeletedRow = Readonly<{ id: string; oauthClientId: string; authorizedByUserId: string }>;
+type DeletedRow = Readonly<{ id: string; companyId: string; oauthClientId: string; authorizedByUserId: string }>;
 const endedOf = (row: DeletedRow): EndedConnection => ({
-  id: row.id as AssistantConnectionId, oauthClientId: row.oauthClientId as EndedConnection["oauthClientId"], authorizedByUserId: row.authorizedByUserId as UserId,
+  id: row.id as AssistantConnectionId, companyId: row.companyId as CompanyId, oauthClientId: row.oauthClientId as EndedConnection["oauthClientId"], authorizedByUserId: row.authorizedByUserId as UserId,
 });
 
 async function deleteConnection(id: AssistantConnectionId, companyId: CompanyId): Promise<Result<EndedConnection | null, PersistenceError>> {
   try {
     const rows = await withTenantIsolation(companyId, async () => await prisma.$queryRaw<DeletedRow[]>(Prisma.sql`
       DELETE FROM "AssistantConnection" WHERE "id" = ${id}::uuid AND "companyId" = ${companyId}::uuid
-      RETURNING "id", "oauthClientId", "authorizedByUserId"`));
+      RETURNING "id", "companyId", "oauthClientId", "authorizedByUserId"`));
     if (rows.length === 0) return ok(null);
     log.info({ event: "assistant_connection_ended", companyId, connectionId: id, reason: "disconnected" }, "assistant_connection_ended");
     return ok(endedOf(rows[0]));
@@ -111,7 +111,7 @@ async function deleteAccountConnections(companyId: CompanyId, userId: UserId): P
   try {
     const rows = await withTenantIsolation(companyId, async () => await prisma.$queryRaw<DeletedRow[]>(Prisma.sql`
       DELETE FROM "AssistantConnection" WHERE "companyId" = ${companyId}::uuid AND "authorizedByUserId" = ${userId}
-      RETURNING "id", "oauthClientId", "authorizedByUserId"`));
+      RETURNING "id", "companyId", "oauthClientId", "authorizedByUserId"`));
     for (const row of rows) log.info({ event: "assistant_connection_ended", companyId, connectionId: row.id, reason: "password_reset" }, "assistant_connection_ended");
     return ok(rows.map(endedOf));
   } catch (cause) {

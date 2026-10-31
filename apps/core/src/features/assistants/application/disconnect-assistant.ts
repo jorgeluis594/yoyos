@@ -4,7 +4,7 @@ import type { CompanyId, UserId } from "@shared/identity";
 import type { AssistantConnectionId, OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
 import type { AssistantOwnerAccess } from "@core/src/features/assistants/application/authorize-assistant";
 
-export type EndedConnection = Readonly<{ id: AssistantConnectionId; oauthClientId: OAuthClientId; authorizedByUserId: UserId }>;
+export type EndedConnection = Readonly<{ id: AssistantConnectionId; companyId: CompanyId; oauthClientId: OAuthClientId; authorizedByUserId: UserId }>;
 export type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 export type RevokeClientGrant = (grant: EndedConnection) => Promise<Result<unknown, Readonly<{ code: "REVOCATION_FAILED"; message: string }>>>;
 

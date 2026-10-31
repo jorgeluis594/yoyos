@@ -97,7 +97,7 @@ test("deleting another store's connection id answers no row and changes nothing"
 test("deleting a connection returns the client and account it belonged to, and a second delete finds nothing", async () => {
   const [row] = await rowsOf(companyA, client("one"));
   expect(await connectionRepository.deleteConnection(row.id as AssistantConnectionId, companyA)).toEqual({
-    success: true, data: { id: row.id, oauthClientId: client("one"), authorizedByUserId: userA },
+    success: true, data: { id: row.id, companyId: companyA, oauthClientId: client("one"), authorizedByUserId: userA },
   });
   expect(await connectionRepository.deleteConnection(row.id as AssistantConnectionId, companyA)).toEqual({ success: true, data: null });
 });

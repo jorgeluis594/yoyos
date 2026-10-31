@@ -5,6 +5,7 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import { systemPrisma } from "@core/src/shared/infrastructure/persistance";
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import type { AssistantConnectionId, OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
+import type { EndedConnection } from "@core/src/features/assistants/application/disconnect-assistant";
 
 export type RevokeClientGrantInput = Readonly<{
   oauthClientId: OAuthClientId;
@@ -39,4 +40,12 @@ export async function revokeClientGrant(input: RevokeClientGrantInput): Promise<
     log.warn({ event: "assistant_grant_revocation_failed", companyId: input.companyId, connectionId: input.connectionId, err: cause }, "assistant_grant_revocation_failed");
     return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to revoke the assistant grant" });
   }
+}
+
+/** The disconnect use cases' port: revokes the grant of an ended connection, stamped with the current time. */
+export async function revokeEndedConnectionGrant(grant: EndedConnection): Promise<Result<RevokedGrant, Readonly<{ code: "REVOCATION_FAILED"; message: string }>>> {
+  const revoked = await revokeClientGrant({
+    oauthClientId: grant.oauthClientId, userId: grant.authorizedByUserId, companyId: grant.companyId, connectionId: grant.id, revokedAt: new Date(),
+  });
+  return revoked.success ? revoked : err({ code: "REVOCATION_FAILED", message: revoked.error.message });
 }

@@ -34,7 +34,7 @@ describe("listAssistantConnections", () => {
   });
 });
 
-const ended: EndedConnection = { id: "6c0f5d2e-6a63-4a38-9f07-3b8f7a1c0001" as AssistantConnectionId, oauthClientId: "client-1" as OAuthClientId, authorizedByUserId: "user-1" as UserId };
+const ended: EndedConnection = { id: "6c0f5d2e-6a63-4a38-9f07-3b8f7a1c0001" as AssistantConnectionId, companyId: ownerAccess.companyId, oauthClientId: "client-1" as OAuthClientId, authorizedByUserId: "user-1" as UserId };
 
 describe("disconnectAssistant", () => {
   test("deletes the connection and revokes the client's grant", async () => {
