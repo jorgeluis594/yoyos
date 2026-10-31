@@ -1,5 +1,19 @@
 export const orderDetailTranslations = {
   es: {
+    itemsEdit: {
+      edit: 'Editar productos', quantity: 'Cantidad de {{name}}', decrease: 'Disminuir cantidad de {{name}}', increase: 'Aumentar cantidad de {{name}}',
+      remove: 'Quitar', removeLabel: 'Quitar {{name}}', lastItem: 'El pedido necesita al menos un producto. Si ya no va, cancélalo.',
+      quantityInvalid: 'Escribe una cantidad de 1 a 9999.', unsaved: 'Cambios sin guardar', editing: 'Editando productos',
+      discard: 'Descartar cambios', save: 'Guardar cambios', saving: 'Guardando…', discardTitle: '¿Descartar los cambios?', keepEditing: 'Seguir editando',
+      saved: 'Cambios guardados.', savedWaiting: 'Cambios guardados. El pedido queda esperando stock.', saveFirst: 'Guarda o descarta los cambios primero.',
+      offline: 'No se pudieron guardar los cambios. Revisa tu conexión e inténtalo de nuevo.', inDoubt: 'No sabemos si los cambios se guardaron. Verificando…',
+      checkFailed: 'No pudimos comprobar si se guardó. Revisa tu conexión y vuelve a comprobar.', checkAgain: 'Comprobar de nuevo',
+      conflict: 'Este pedido cambió mientras lo editabas. Tus cambios siguen aquí; recarga para ver la versión actual.', reload: 'Recargar pedido',
+      reloadTitle: '¿Descartar tus cambios y ver la versión actual?', reloadConfirm: 'Descartar y recargar', reloadKeep: 'Seguir viendo mis cambios',
+      lockedShipped: 'El pedido ya se envió; los productos ya no se pueden cambiar.', lockedDelivered: 'El pedido ya se entregó; los productos ya no se pueden cambiar.',
+      saveShipped: 'El pedido ya se envió; no se guardaron los cambios.', saveDelivered: 'El pedido ya se entregó; no se guardaron los cambios.', saveCancelled: 'El pedido está cancelado; no se guardaron los cambios.',
+      deactivated: 'Este producto ya no se vende; puedes bajar la cantidad o quitarlo.',
+    },
     orderCancellation: {
       title: '¿Cancelar este pedido?', cancel: 'Cancelar pedido', keep: 'Conservar pedido',
       description: 'La devolución del stock descontado se procesará después de cancelar. Los pagos registrados se conservarán; cancelar no realiza un reembolso. No podrás reabrir este pedido.',
@@ -38,6 +52,20 @@ export const orderDetailTranslations = {
     rejectCancelled: 'El pedido está cancelado y ya no admite revisar comprobantes.', rejectReasonTooLong: 'El motivo admite hasta 200 caracteres.',
   },
   'pt-BR': {
+    itemsEdit: {
+      edit: 'Editar produtos', quantity: 'Quantidade de {{name}}', decrease: 'Diminuir quantidade de {{name}}', increase: 'Aumentar quantidade de {{name}}',
+      remove: 'Remover', removeLabel: 'Remover {{name}}', lastItem: 'O pedido precisa de pelo menos um produto. Se não vai mais, cancele-o.',
+      quantityInvalid: 'Digite uma quantidade de 1 a 9999.', unsaved: 'Alterações não salvas', editing: 'Editando produtos',
+      discard: 'Descartar alterações', save: 'Salvar alterações', saving: 'Salvando…', discardTitle: 'Descartar as alterações?', keepEditing: 'Continuar editando',
+      saved: 'Alterações salvas.', savedWaiting: 'Alterações salvas. O pedido fica aguardando estoque.', saveFirst: 'Salve ou descarte as alterações primeiro.',
+      offline: 'Não foi possível salvar as alterações. Verifique sua conexão e tente de novo.', inDoubt: 'Não sabemos se as alterações foram salvas. Verificando…',
+      checkFailed: 'Não conseguimos verificar se foi salvo. Verifique sua conexão e tente verificar de novo.', checkAgain: 'Verificar de novo',
+      conflict: 'Este pedido mudou enquanto você o editava. Suas alterações continuam aqui; recarregue para ver a versão atual.', reload: 'Recarregar pedido',
+      reloadTitle: 'Descartar suas alterações e ver a versão atual?', reloadConfirm: 'Descartar e recarregar', reloadKeep: 'Continuar vendo minhas alterações',
+      lockedShipped: 'O pedido já foi enviado; os produtos não podem mais ser alterados.', lockedDelivered: 'O pedido já foi entregue; os produtos não podem mais ser alterados.',
+      saveShipped: 'O pedido já foi enviado; as alterações não foram salvas.', saveDelivered: 'O pedido já foi entregue; as alterações não foram salvas.', saveCancelled: 'O pedido está cancelado; as alterações não foram salvas.',
+      deactivated: 'Este produto não é mais vendido; você pode diminuir a quantidade ou removê-lo.',
+    },
     orderCancellation: {
       title: 'Cancelar este pedido?', cancel: 'Cancelar pedido', keep: 'Manter pedido',
       description: 'A devolução do estoque descontado será processada após cancelar. Os pagamentos registrados serão mantidos; cancelar não realiza um reembolso. Você não poderá reabrir este pedido.',

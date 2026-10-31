@@ -344,3 +344,23 @@ test("an order response keeps variantAttributes in option order after parsing", 
   const result = await createOrderApi(async () => ok(order)).getAggregate(id(1));
   expect(result.success && Object.entries(result.data.items[0].variantAttributes)).toEqual([["Talla", "L"], ["Color", "Azul"], ["Manga", "Larga"]]);
 });
+
+test("order API sends the items edit with its base revision and keeps the refusal codes of core", async () => {
+  const revision = "R".repeat(43);
+  const edit = { base: revision, lines: [{ variantId: id(2), quantity: 2 }] };
+  const calls: [string, RequestInit | undefined][] = [];
+  const refused = (status: number, body: unknown) => createOrderApi(async (path, init) => { calls.push([path, init]); return err({ code: "API_ERROR", message: "API error", http: { status, body } }); });
+  expect(await refused(409, { code: "ORDER_CHANGED", error: "changed" }).editOrderItems(id(1), edit)).toMatchObject({ success: false, error: { code: "ORDER_CHANGED" } });
+  expect(calls[0][0]).toBe(`/api/orders/${id(1)}/items`);
+  expect(calls[0][1]?.method).toBe("PATCH");
+  expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ version: 1, ...edit });
+  expect(await refused(409, { code: "DELIVERY_LOCKED", error: "locked" }).editOrderItems(id(1), edit)).toMatchObject({ error: { code: "DELIVERY_LOCKED" } });
+  expect(await refused(422, { code: "VARIANT_NOT_FOUND", error: "gone", variantId: id(2) }).editOrderItems(id(1), edit)).toMatchObject({ error: { code: "VARIANT_NOT_FOUND", variantId: id(2) } });
+  // A code with the wrong status is not trusted.
+  expect(await refused(200, { code: "ORDER_CHANGED", error: "changed" }).editOrderItems(id(1), edit)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(await refused(404, { code: "ORDER_NOT_FOUND", error: "missing" }).editOrderItems(id(1), edit)).toMatchObject({ error: { code: "ORDER_NOT_FOUND" } });
+  const invalid = createOrderApi(async () => ok({ unexpected: true }));
+  expect(await invalid.editOrderItems(id(1), edit)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(await invalid.editOrderItems(id(1), { base: "x", lines: [] })).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  expect(await invalid.editOrderItems("not-an-id", edit)).toMatchObject({ error: { code: "INVALID_INPUT" } });
+});
