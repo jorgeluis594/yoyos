@@ -74,14 +74,14 @@ export type AssistantOrder = AssistantOrderSummary & Readonly<{
 }>;
 export type DispatchStockState = Readonly<{ stockDue: Readonly<{ kind: "waiting" | "deducting" }> | null }>;
 
-/** Unicode NFKC (fullwidth digits become ASCII), every Unicode space as a plain space, format and control characters (zero-width spaces, bidi marks) removed. */
+/** Unicode NFKC (fullwidth digits become ASCII), every Unicode space as a plain space, format and control characters (zero-width spaces, bidi marks) and combining marks (keycaps, accents on digits) removed. */
 export function normalizeText(text: string): string {
-  return text.normalize("NFKC").replace(/[\s\p{Z}]/gu, " ").replace(/[\p{Cf}\p{Cc}]/gu, "").replace(/ +/g, " ").trim();
+  return text.normalize("NFKC").replace(/[\s\p{Z}]/gu, " ").replace(/[\p{Cf}\p{Cc}\p{M}]/gu, "").replace(/ +/g, " ").trim();
 }
 
 const digitsOf = (text: string) => normalizeText(text).replace(/[^\p{Nd}]/gu, "");
-// A run of digits, allowing spaces, dots, hyphens, slashes, parentheses and plus signs between them, with the brackets or plus sign that open or close it.
-const digitRun = /[+(]*\p{Nd}(?:[\s.\-/()+]*\p{Nd})*\)*/gu;
+// A run of digits, allowing any characters other than letters and digits between them (spaces, any dash, underscore, comma, dots, slashes, brackets, plus signs, emoji), with the brackets or plus sign that open or close it.
+const digitRun = /[+(]*\p{Nd}(?:[^\p{L}\p{Nd}]*\p{Nd})*\)*/gu;
 const maskedRun = "•••";
 
 /** `"termina en 789"`; `null` when the phone has fewer than three digits. */

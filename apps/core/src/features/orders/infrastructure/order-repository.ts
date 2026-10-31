@@ -508,7 +508,7 @@ export async function findOrderAggregates(criteria: AggregateCriteria, companyId
     const byNumber = Number.isSafeInteger(number) ? Prisma.sql`o.number = ${BigInt(number)}` : Prisma.sql`false`;
     if (criteria.searchPhone === "exclude") {
       // Assistant search: digits never match a customer name, so a hidden phone cannot be rebuilt by probing. A query with any digit searches the order number only.
-      predicates.push(/\p{Nd}/u.test(criteria.search) ? byNumber : Prisma.sql`strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0`);
+      predicates.push(/\p{Nd}/u.test(criteria.search.normalize("NFKC")) ? byNumber : Prisma.sql`strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0`);
     } else {
       predicates.push(Prisma.sql`(strpos(lower(coalesce(b.name, '')), lower(${criteria.search})) > 0 OR strpos(b.phone, ${criteria.search}) > 0
         ${Number.isSafeInteger(number) ? Prisma.sql`OR o.number = ${BigInt(number)}` : Prisma.empty})`);

@@ -12,7 +12,7 @@ const t = translations.getFixedT("es", "translation");
  */
 export function readinessText(readiness: ProjectableReadiness, shortItems: readonly string[], owed: string | null): string {
   if (readiness.kind === "ready") return readiness.operation === "ship" ? "Listo para despachar" : "Listo para entregar";
-  if (readiness.kind === "delivery_unassigned") return `${t("orderDelivery.undefined")}: falta asignar la entrega.`;
+  if (readiness.kind === "delivery_unassigned") return "Entrega por definir: falta asignar la entrega.";
   const { reason, operation } = readiness;
   switch (reason.code) {
     case "SHIP_PAYMENT_REQUIRED": return `${t("orderFulfillment.SHIP_PAYMENT_REQUIRED")}${reason.pendingReport ? ` ${pendingReportSentence}` : ""}`;

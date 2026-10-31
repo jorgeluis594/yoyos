@@ -223,6 +223,21 @@ describe("names never carry a complete phone", () => {
     expect(maskDigitRuns("\u202e987654555\u202c")).toBe("•••555");
   });
 
+  test("treats any dash, underscore, comma, dot, colon, apostrophe or asterisk between digits as a separator", () => {
+    for (const separator of ["\u2010", "\u2011", "\u2013", "\u2014", "\u2212", "_", ",", "·", "'", ":", "*", " - ", "\u2012"]) {
+      expect(maskDigitRuns(`987${separator}654${separator}321`), separator).toBe("•••321");
+    }
+  });
+
+  test("ignores keycap emoji digits and combining marks on digits", () => {
+    expect(maskDigitRuns("Carla 9\ufe0f\u20e38\ufe0f\u20e37\ufe0f\u20e36\ufe0f\u20e35\ufe0f\u20e34\ufe0f\u20e33\ufe0f\u20e32\ufe0f\u20e31\ufe0f\u20e3")).toBe("Carla •••321");
+    expect(maskDigitRuns("9\u03018\u03017\u03016\u03015\u03014\u03013\u0301")).toBe("•••543");
+  });
+
+  test("keeps short numbers separated from other numbers by letters", () => {
+    expect(maskDigitRuns("Local 12 - Piso 3")).toBe("Local 12 - Piso 3");
+  });
+
   test("keeps a name with a short number", () => {
     expect(maskDigitRuns("Tienda 24")).toBe("Tienda 24");
     expect(displayName("Tienda 24")).toBe("Tienda 24");
