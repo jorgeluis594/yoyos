@@ -261,6 +261,11 @@ test("cancellation validates ID and complete state then exposes only the applica
   }
 });
 
+test("delivering keeps the INSUFFICIENT_STOCK code instead of an invalid response", async () => {
+  const api = createOrderApi(async () => err({ code: "API_ERROR", message: "Failed", http: { status: 409, body: { code: "INSUFFICIENT_STOCK", error: "No stock" } } }));
+  expect(await api.deliver(id(1))).toMatchObject({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+});
+
 test("cancellation errors must match both HTTP status and the operation", async () => {
   for (const [code, status] of [["INVALID_INPUT", 400], ["ORDER_NOT_FOUND", 404], ["INVALID_TRANSITION", 409],
     ["INVALID_ORDER", 422], ["INVALID_PAYMENT", 422], ["CURRENCY_MISMATCH", 422], ["INTERNAL_ERROR", 500]] as const) {

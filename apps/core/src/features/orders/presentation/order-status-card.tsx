@@ -51,6 +51,7 @@ function useStatusDates(now: Date) {
   return {
     /** «Hoy 09:10» for today, «29 oct» otherwise. */
     step: (iso: string) => { const date = new Date(iso); return dayKey(date) === dayKey(now) ? `${t("orderStatus.today")} ${time(date)}` : day(date); },
+    isToday: (iso: string) => dayKey(new Date(iso)) === dayKey(now),
     /** «30 oct, 16:40». */
     full: (iso: string) => { const date = new Date(iso); return `${day(date)}, ${time(date)}`; },
   };
@@ -84,7 +85,7 @@ function Stepper({ order, now }: Readonly<{ order: OrderAggregateResponse; now: 
   const { t } = useTranslation();
   const dates = useStatusDates(now);
   const steps = statusSteps(order);
-  const stepDate = (step: StatusStep) => step.key === "cancelled" ? dates.full(step.at!).replace(",", "") : dates.step(step.at!);
+  const stepDate = (step: StatusStep) => step.key === "cancelled" && !dates.isToday(step.at!) ? dates.full(step.at!).replace(",", "") : dates.step(step.at!);
   const skippedShipment = order.deliveryStatus === "delivered" && order.shippedAt === null;
   return <ol className="flex items-start" aria-label={t("orderStatus.title")}>
     {steps.map((step, index) => {
@@ -140,7 +141,7 @@ export function OrderStatusCard({ order, unsaved, busy, onFulfill, onCancel, onA
         {unsaved && <p id="order-status-note" className="sr-only">{t("orderView.status.saveFirst")}</p>}
         {noteText && <div id="order-status-note" className="flex items-start gap-2 rounded-lg border border-[var(--warning)]/40 bg-[var(--warning-surface)] p-3 text-sm text-[var(--warning)]">
           <CircleAlert aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
-          <p>{noteText}{noPayment && <> <button type="button" className={cn(textLinkClass, "text-inherit pointer-coarse:inline-flex pointer-coarse:min-h-touch pointer-coarse:items-center")} onClick={onAddPayment}>{t("orderStatus.addPayment")}</button></>}</p>
+          <p>{noteText}{noPayment && <> <button type="button" data-slot="inline-action" className={cn(textLinkClass, "text-inherit")} onClick={onAddPayment}>{t("orderStatus.addPayment")}</button></>}</p>
         </div>}
         <div className="flex flex-wrap items-center justify-between gap-x-4">
           {primary === "ship" ? <button type="button" className={link} aria-disabled={fulfillDisabled || undefined} onClick={() => run("deliver")}>{t("orderStatus.deliverDirectly")}</button> : cancelLink}

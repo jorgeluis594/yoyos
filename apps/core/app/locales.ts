@@ -78,7 +78,7 @@ const es = {
   },
   orderFulfillment: {
     ship: "Marcar enviado", deliver: "Marcar entregado", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregado.",
-    PAYMENT_REQUIRED: "Registra al menos un pago para entregar. Puede ser un pago parcial.", SHIP_PAYMENT_REQUIRED: "Se requiere al menos un pago para enviar.", INSUFFICIENT_STOCK: "No hay stock suficiente para enviar este pedido.",
+    PAYMENT_REQUIRED: "Registra al menos un pago para entregar. Puede ser un pago parcial.", SHIP_PAYMENT_REQUIRED: "Se requiere al menos un pago para enviar.", INSUFFICIENT_STOCK: "No hay stock suficiente para enviar este pedido.", DELIVER_INSUFFICIENT_STOCK: "No hay stock suficiente para entregar este pedido.",
     STOCK_WAITING_ship: "Para enviar falta stock de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta stock de {{items}}.",
     ORDER_CANCELLED: "El pedido está cancelado; no se puede enviar ni entregar.", INVALID_TRANSITION: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado.",
     already_shipped: "El pedido ya está marcado como enviado.", already_delivered: "El pedido ya está marcado como entregado.",
@@ -494,7 +494,7 @@ const pt = {
   },
   orderFulfillment: {
     ship: "Marcar como enviado", deliver: "Marcar como entregue", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregue.",
-    PAYMENT_REQUIRED: "Registre pelo menos um pagamento para entregar. Pode ser um pagamento parcial.", SHIP_PAYMENT_REQUIRED: "É necessário pelo menos um pagamento para enviar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para enviar este pedido.",
+    PAYMENT_REQUIRED: "Registre pelo menos um pagamento para entregar. Pode ser um pagamento parcial.", SHIP_PAYMENT_REQUIRED: "É necessário pelo menos um pagamento para enviar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para enviar este pedido.", DELIVER_INSUFFICIENT_STOCK: "Não há estoque suficiente para entregar este pedido.",
     STOCK_WAITING_ship: "Para enviar falta estoque de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta estoque de {{items}}.",
     ORDER_CANCELLED: "O pedido está cancelado; não pode ser enviado nem entregue.", INVALID_TRANSITION: "Só é possível enviar pedidos pendentes e entregar pedidos pendentes ou enviados.",
     already_shipped: "O pedido já está marcado como enviado.", already_delivered: "O pedido já está marcado como entregue.",

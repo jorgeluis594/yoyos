@@ -406,6 +406,19 @@ test("a partial confirmed payment enables delivering a store pickup that still h
   expect(screen.queryByText("Venta completada")).toBeNull();
 });
 
+test("reloads the order when delivering meets short stock and names delivering", async () => {
+  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null, stockDeducted: false,
+    paymentStatus: "pending", paidAmount: { amount: 4, currency: "PEN" }, balanceDue: { amount: 8, currency: "PEN" },
+    delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } } };
+  mockDeliver.mockResolvedValue({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  const loads = mockLoads;
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como entregado" }));
+  await screen.findByText("No hay stock suficiente para entregar este pedido.");
+  await waitFor(() => expect(mockLoads).toBeGreaterThan(loads));
+});
+
 test("seller ships then delivers and sees an updated state after each operation", async () => {
   mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null };
   mockShip.mockResolvedValue({ success: true, data: { ...mockOrder, deliveryStatus: "shipped" } });

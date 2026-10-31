@@ -49,7 +49,7 @@ export function describeDispatchReadiness(order: ReadinessSubject, stock: Dispat
   if (order.deliveryMethod === null) return { kind: "delivery_unassigned" };
   const operation = order.deliveryMethod === "store" ? "deliver" : "ship";
   const paid = confirmedCents(order);
-  const block = orderFulfillmentBlock({ cancelled: order.cancelled, deliveryStatus: order.deliveryStatus, paidAmount: { amount: paid / 100 }, stockDeducted: order.stockDeducted, stockDue: mutableStockDue(stock.stockDue) }, operation);
+  const block = orderFulfillmentBlock({ cancelled: order.cancelled, deliveryStatus: order.deliveryStatus, paidAmount: { amount: paid / 100 }, stockDue: mutableStockDue(stock.stockDue) }, operation);
   if (block !== null) {
     if (block.code === "PAYMENT_REQUIRED") return { kind: "blocked", operation,
       reason: { code: operation === "ship" ? "SHIP_PAYMENT_REQUIRED" : "PAYMENT_REQUIRED", pendingReport: order.hasReportedPayment } };

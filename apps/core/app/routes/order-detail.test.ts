@@ -378,6 +378,15 @@ test("reloads the order when shipping meets short stock", async () => {
   expect(resources.es.translation.orderFulfillment.INSUFFICIENT_STOCK).toBe("No hay stock suficiente para enviar este pedido.");
 });
 
+test("reloads the order when delivering meets short stock and the copy names delivering", async () => {
+  vi.spyOn(orders, "deliver").mockResolvedValue(err({ code: "INSUFFICIENT_STOCK", message: "Short" }));
+  const result = await action(args({ operation: "deliver" }));
+  expect(result).toEqual({ operation: "deliver", url: null, success: false, error: "INSUFFICIENT_STOCK" });
+  expect(shouldRevalidate({ actionResult: result, defaultShouldRevalidate: false })).toBe(true);
+  expect(resources.es.translation.orderFulfillment.DELIVER_INSUFFICIENT_STOCK).toBe("No hay stock suficiente para entregar este pedido.");
+  expect(resources.pt.translation.orderFulfillment.DELIVER_INSUFFICIENT_STOCK).toBe("Não há estoque suficiente para entregar este pedido.");
+});
+
 test("chooses the payment success text from the returned order", async () => {
   const { order, id } = builtOrder();
   const paymentId = id(6);

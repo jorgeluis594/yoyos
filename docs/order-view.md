@@ -49,7 +49,7 @@ A late response from an earlier attempt does not change the screen.
 
 ## Layout and header
 
-- Two columns on wide screens. On narrow ones one column: «Productos», «Pagos», «Cliente», «Estado del pedido» (saved orders), «Enlace del pedido», «Entrega». Every control has a touch target of at least 44 px.
+- Two columns on wide screens. On narrow ones one column: «Estado del pedido» (saved orders, right after the header), «Productos», «Pagos», «Cliente», «Enlace del pedido», «Entrega». Every control has a touch target of at least 44 px.
 - **Sticky bar on narrow screens**, once the header has scrolled out of view: for a new sale with products, the total and **Guardar venta**; for a saved order with unsaved changes, «Cambios sin guardar», the total, **Descartar cambios** and **Guardar cambios**; otherwise only the total. A cancelled order shows only the total. It wraps its actions to a second row instead of overflowing.
 - **Breadcrumb:** Ventas › «Nueva venta» or Ventas › «Pedido #1042».
 - **New sale:** chip «Sin guardar», hint «Completa los productos, pagos, cliente y entrega. Todo se puede editar después.», actions **Ver ventas**, **Descartar** and **Guardar venta** (disabled until there is a product; «Guardando…» while sending).

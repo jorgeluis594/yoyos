@@ -4,7 +4,6 @@ type FulfillmentState = Readonly<{
   cancelled: boolean;
   deliveryStatus: "pending" | "shipped" | "delivered";
   paidAmount: Readonly<{ amount: number }>;
-  stockDeducted: boolean;
 }>;
 
 /** Shipping and delivering need a confirmed payment, partial or full, and deduct pending stock themselves. */

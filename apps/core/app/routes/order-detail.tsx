@@ -473,7 +473,7 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
   </div>;
 
   const fulfillmentFeedback = <>
-    {fulfillment?.error && <Alert variant="destructive"><AlertDescription>{t(`orderFulfillment.${fulfillment.operation === "ship" && fulfillment.error === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : fulfillment.error}`, { defaultValue: t("orderFulfillment.saveError") })}</AlertDescription></Alert>}
+    {fulfillment?.error && <Alert variant="destructive"><AlertDescription>{t(`orderFulfillment.${fulfillment.operation === "ship" && fulfillment.error === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : fulfillment.operation === "deliver" && fulfillment.error === "INSUFFICIENT_STOCK" ? "DELIVER_INSUFFICIENT_STOCK" : fulfillment.error}`, { defaultValue: t("orderFulfillment.saveError") })}</AlertDescription></Alert>}
     {fulfillment?.success && <Alert variant="success"><AlertDescription>{t(`orderFulfillment.${fulfillment.operation}Saved`)}</AlertDescription></Alert>}
   </>;
   const statusCard = <OrderStatusCard order={order} unsaved={unsaved} busy={blocked} feedback={fulfillmentFeedback}

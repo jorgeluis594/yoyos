@@ -62,8 +62,9 @@ type CheckoutLinkState =
   | Readonly<{ kind: "subdomain_required" }>
   | Readonly<{ kind: "error" }>;
 
-/** Both need one confirmed payment, but the reason names the operation. */
-const fulfillmentKey = (operation: "ship" | "deliver" | null, code: string) => operation === "ship" && code === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED" : code;
+/** Both need one confirmed payment and both deduct stock, but the reason names the operation. */
+const fulfillmentKey = (operation: "ship" | "deliver" | null, code: string) => operation === "ship" && code === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED"
+  : operation === "deliver" && code === "INSUFFICIENT_STOCK" ? "DELIVER_INSUFFICIENT_STOCK" : code;
 
 export default function OrderDetailScreen() {
   const router = useRouter();

@@ -106,6 +106,11 @@ describe("OrderStatusCard", () => {
     expect(text()).toContain("Pedido cancelado el 29 oct, 18:40."); expect(text()).not.toContain("devolvió");
   });
 
+  test("cancelled today uses the same «Hoy HH:MM» as the other steps", () => {
+    mount({ cancelled: true, status: "cancelled" as const, cancelledAt: "2026-10-30T14:40:00.000Z" });
+    expect(steps().map(step => step.textContent)).toEqual(["PendienteHoy 04:10", "CanceladoHoy 09:40"]);
+  });
+
   test.each([["agency", agencyDelivery], ["store", storeDelivery]] as const)("%s: shipped, delivered and cancelled states", (modality, delivery) => {
     const cancelled = { cancelled: true, status: "cancelled" as const, cancelledAt: "2026-10-29T23:40:00.000Z", stockDeductedAt: "2026-10-29T20:00:00.000Z" };
     if (modality === "agency") {
