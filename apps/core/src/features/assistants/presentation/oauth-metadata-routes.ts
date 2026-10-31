@@ -14,13 +14,13 @@ async function sendWebResponse(response: ExpressResponse, webResponse: Response)
 }
 
 // The plugin advertises endpoints from its configuration, not from `disabledPaths`; the introspection endpoint answers 404 here, so it is not advertised.
-const unservedEndpointFields = ["introspection_endpoint"];
+const isUnservedEndpointField = (field: string) => field.startsWith("introspection_endpoint");
 
 async function withoutUnservedEndpoints(webResponse: Response): Promise<Response> {
   if (webResponse.status !== 200) return webResponse;
   const document: unknown = await webResponse.json();
   if (typeof document !== "object" || document === null || Array.isArray(document)) throw new Error("Authorization server metadata is not an object");
-  const served = Object.fromEntries(Object.entries(document).filter(([field]) => !unservedEndpointFields.includes(field)));
+  const served = Object.fromEntries(Object.entries(document).filter(([field]) => !isUnservedEndpointField(field)));
   const headers = new Headers(webResponse.headers);
   headers.delete("content-length");
   return new Response(JSON.stringify(served), { status: webResponse.status, headers });

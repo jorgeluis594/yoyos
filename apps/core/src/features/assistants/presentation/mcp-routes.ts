@@ -5,11 +5,10 @@ import { z } from "zod";
 import type { Result } from "@shared/result";
 import type { CompanyId, UserId } from "@shared/identity";
 import { bindCompanyToRequest, log } from "@core/src/shared/infrastructure/logger";
-import type { LimiterDecision } from "@core/src/shared/infrastructure/fixed-window-limiter";
+import type { LimiterDecision } from "@core/src/shared/application/limiter-decision";
 import { assistantScopes } from "@core/src/features/assistants/domain/scopes";
 import type { AssistantConnectionId } from "@core/src/features/assistants/domain/assistant-connection";
-import type { AssistantAccess, RefusalReason, ResolveAssistantAccessError, VerifiedAssistantToken } from "@core/src/features/assistants/application/resolve-assistant-access";
-import type { AssistantTokenError, VerifiedToken } from "@core/src/features/assistants/infrastructure/assistant-token-verifier";
+import type { AssistantAccess, AssistantTokenError, RefusalReason, ResolveAssistantAccessError, VerifiedAssistantToken, VerifiedToken } from "@core/src/features/assistants/application/resolve-assistant-access";
 
 type AccessRefusal = "missing_token" | "invalid_token" | "request_limit" | RefusalReason;
 
@@ -46,7 +45,7 @@ export function mcpRoutes(deps: McpRoutesDependencies): Router {
     createMcpHandler(
       (context) => deps.createServer(assistantAccessOf(context.authInfo)),
       // No stateless streams: every call is an independent read, and a listen subscription would hold a connection open for nothing.
-      { responseMode: "json", maxSubscriptions: 0, onerror: (error) => log.warn({ event: "mcp_handler_error", err: error }, "mcp_handler_error") },
+      { maxSubscriptions: 0, onerror: (error) => log.warn({ event: "mcp_handler_error", err: error }, "mcp_handler_error") },
     ),
     { onerror: (error) => log.error({ event: "mcp_adapter_failed", err: error }, "mcp_adapter_failed") },
   );
@@ -91,7 +90,7 @@ export function mcpRoutes(deps: McpRoutesDependencies): Router {
       const resolved = await deps.resolveAccess(token);
       if (!resolved.success) {
         if (resolved.error.code === "PERSISTENCE_UNAVAILABLE") return refuse(response, 503, "invalid_token");
-        return refuse(response, 401, resolved.error.reason, { oauthClientId: token.oauthClientId, userId: token.userId });
+        return refuse(response, 401, resolved.error.reason, { oauthClientId: token.oauthClientId, userId: token.userId, companyId: resolved.error.companyId });
       }
       const access = resolved.data;
       bindCompanyToRequest(access.companyId);

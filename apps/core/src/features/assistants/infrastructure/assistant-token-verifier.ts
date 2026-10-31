@@ -7,10 +7,8 @@ import { log } from "@core/src/shared/infrastructure/logger";
 import type { JwksCache } from "@core/src/shared/infrastructure/jwks-cache";
 import type { OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
 import { assistantScopes, type AssistantScope } from "@core/src/features/assistants/domain/scopes";
-import type { VerifiedAssistantToken } from "@core/src/features/assistants/application/resolve-assistant-access";
+import type { AssistantTokenError, VerifiedToken } from "@core/src/features/assistants/application/resolve-assistant-access";
 
-export type AssistantTokenError = Readonly<{ code: "INVALID_TOKEN" | "AUTH_SERVICE_UNAVAILABLE"; message: string }>;
-export type VerifiedToken = VerifiedAssistantToken & Readonly<{ expiresAt: number }>;
 export type AssistantTokenVerifier = Readonly<{ verify: (token: string) => Promise<Result<VerifiedToken, AssistantTokenError>> }>;
 export type AssistantTokenVerifierOptions = Readonly<{
   keys: JwksCache;

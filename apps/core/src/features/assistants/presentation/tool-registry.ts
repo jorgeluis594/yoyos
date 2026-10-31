@@ -66,8 +66,9 @@ export const readFailureMessage = "No pudimos leer tus pedidos en este momento. 
 export const limitMessage = (limit: number, seconds: number) =>
   `Llegaste al límite de ${limit} consultas por minuto de tu tienda. No reintentes antes de ${seconds} segundos.`;
 
-function errorResult(message: string, structuredContent?: Record<string, unknown>): CallToolResult {
-  return { isError: true, content: [{ type: "text", text: message }], ...(structuredContent ? { structuredContent } : {}) };
+// An error result carries no structuredContent: clients on the v1 SDK validate it against the output schema even when isError is set.
+function errorResult(message: string, _meta?: Record<string, unknown>): CallToolResult {
+  return { isError: true, content: [{ type: "text", text: message }], ...(_meta ? { _meta } : {}) };
 }
 
 export type ToolRegistry = Readonly<{

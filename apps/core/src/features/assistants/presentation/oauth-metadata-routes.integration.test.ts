@@ -44,7 +44,7 @@ test("serves the authorization server metadata with the OAuth endpoints and S256
 
 test("does not advertise the introspection endpoint, which is disabled", async () => {
   const document = await (await fetch(`${api}/.well-known/oauth-authorization-server`)).json();
-  expect(document).not.toHaveProperty("introspection_endpoint");
+  expect(Object.keys(document).filter((field) => field.startsWith("introspection_endpoint"))).toEqual([]);
   expect((await fetch(`${api}/api/auth/oauth2/introspect`, { method: "POST" })).status).toBe(404);
 });
 

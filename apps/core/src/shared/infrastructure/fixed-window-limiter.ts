@@ -1,4 +1,6 @@
-export type LimiterDecision = Readonly<{ allowed: true }> | Readonly<{ allowed: false; retryAfterSeconds: number }>;
+import type { LimiterDecision } from "@core/src/shared/application/limiter-decision";
+
+export type { LimiterDecision };
 
 type Window = { windowStart: number; count: number };
 

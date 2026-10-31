@@ -491,6 +491,8 @@ Every list output carries `hoy` («Hoy es 30/10/2026»), `pagina`, `total` and `
 
 Per process, reset on deploy (accepted by the founder); more than one web instance needs a shared store.
 
+Known behavior: the shared JWKS cache throttles forced reloads for an unknown `kid` to one per 30 seconds, counted from the last load, so after a manual key rotation a token signed with the new key can be refused for up to 30 seconds (the keys only rotate by hand).
+
 ## 10. Web (React Router)
 
 | Route | File | Behavior |

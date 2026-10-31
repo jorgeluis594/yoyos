@@ -11,6 +11,7 @@ import { app } from "@core/src/app";
 import { auth, authIssuer, mcpResourceUrl } from "@core/src/shared/infrastructure/auth";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { prisma, systemPrisma, withTenantIsolation } from "@core/src/shared/infrastructure/persistance";
+import { userRepository } from "@core/src/features/users/infrastructure/user-repository";
 import { createAssistantMcpRoutes } from "@core/src/composition/assistant-server";
 import type { ToolModule } from "@core/src/features/assistants/presentation/tool-module";
 
@@ -139,15 +140,28 @@ describe("authentication", () => {
   test("ignores the session cookie on /mcp", async () => {
     await connect(rosa);
     const base = await serveFixture();
-    const response = await post(base, null, rpc("tools/list"), { cookie: "better-auth.session_token=anything" });
-    expect(response.status).toBe(401);
+    // A real signed-in session of the store's owner is still no credential for /mcp.
+    const email = `${rosa.userId}-cookie@example.test`;
+    const password = "mcp-cookie-password-123";
+    const headers = { origin: authIssuer, "content-type": "application/json" };
+    expect((await fetch(`${appBase}/api/auth/sign-up/email`, { method: "POST", headers, body: JSON.stringify({ name: "Cookie", email, password }) })).status).toBe(200);
+    await systemPrisma.user.update({ where: { email }, data: { emailVerified: true } });
+    const signedIn = await fetch(`${appBase}/api/auth/sign-in/email`, { method: "POST", headers, body: JSON.stringify({ email, password }) });
+    const cookie = signedIn.headers.get("set-cookie")?.split(";")[0] ?? "";
+    expect(cookie).not.toBe("");
+    try {
+      const response = await post(base, null, rpc("tools/list"), { cookie });
+      expect(response.status).toBe(401);
+    } finally {
+      await systemPrisma.user.deleteMany({ where: { email } });
+    }
   });
 
   test("answers 401 when the connection row is gone or unused for 90 days", async () => {
     const base = await serveFixture();
     const token = await mint(rosa.userId);
     expect((await callTool(base, token)).status).toBe(401);
-    await connect(rosa, { lastUsedAt: new Date(Date.now() - 91 * day) });
+    await connect(rosa, { lastUsedAt: new Date(Date.now() - 90 * day) });
     expect((await callTool(base, token)).status).toBe(401);
     expect(await connectionRows(rosa)).toEqual([]);
   });
@@ -199,7 +213,7 @@ describe("calls", () => {
     const refused = await callResult(await callTool(base, rosaToken));
     expect(refused.isError).toBe(true);
     expect(refused.content[0].text).toMatch(/^Llegaste al límite de 60 consultas por minuto de tu tienda\. No reintentes antes de \d+ segundos\.$/);
-    expect(refused.structuredContent).toMatchObject({ retryAfterSeconds: expect.any(Number) });
+    expect(refused.structuredContent).toBeUndefined();
     expect((await callResult(await callTool(base, await mint(luis.userId)))).isError).toBeFalsy();
     const called = info.mock.calls.map(([fields]) => fields as { event?: string; outcome?: string }).filter((fields) => fields.event === "assistant_tool_called");
     expect(called).toHaveLength(62);
@@ -228,12 +242,14 @@ describe("calls", () => {
     expect(getJwks.mock.calls.length).toBeLessThanOrEqual(1);
   });
 
-  test("answers 429 past the request limit before resolving access", async () => {
+  test("answers 429 past the request limit without reading the database", async () => {
     const base = await serveFixture();
     const info = vi.spyOn(log, "info");
     const token = await mint(rosa.userId);
     for (let request = 1; request <= 300; request++) expect((await post(base, token, rpc("ping"))).status).toBe(401);
+    const readUser = vi.spyOn(userRepository, "findUser");
     const limited = await post(base, token, rpc("ping"));
+    expect(readUser).not.toHaveBeenCalled();
     expect(limited.status).toBe(429);
     expect(Number(limited.headers.get("retry-after"))).toBeGreaterThan(0);
     const reasons = info.mock.calls.map(([fields]) => fields as { event?: string; reason?: string }).filter((fields) => fields.event === "assistant_access_refused").map((fields) => fields.reason);

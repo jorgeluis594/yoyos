@@ -9,12 +9,14 @@ import {
 import type { AssistantScope } from "@core/src/features/assistants/domain/scopes";
 
 export type VerifiedAssistantToken = Readonly<{ userId: UserId; oauthClientId: OAuthClientId; scopes: readonly AssistantScope[] }>;
+export type VerifiedToken = VerifiedAssistantToken & Readonly<{ expiresAt: number }>;
+export type AssistantTokenError = Readonly<{ code: "INVALID_TOKEN" | "AUTH_SERVICE_UNAVAILABLE"; message: string }>;
 export type AssistantAccess = Readonly<{
   companyId: CompanyId; userId: UserId; connectionId: AssistantConnectionId; scopes: readonly AssistantScope[]; lastUsedAt: Date | null;
 }>;
 export type RefusalReason = "not_ready" | "no_connection" | "inactive" | "password_changed" | "scope";
 export type ResolveAssistantAccessError =
-  | Readonly<{ code: "NOT_AUTHORIZED"; reason: RefusalReason; message: string }>
+  | Readonly<{ code: "NOT_AUTHORIZED"; reason: RefusalReason; message: string; companyId?: CompanyId }>
   | Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 export type ResolveAssistantAccessDependencies = Readonly<{
   loadUserAccess: (userId: UserId) => Promise<Result<UserAccess | null, ResolveAssistantAccessError>>;
@@ -25,7 +27,8 @@ export type ResolveAssistantAccessDependencies = Readonly<{
   inactivityDays: number;
 }>;
 
-const notAuthorized = (reason: RefusalReason) => err({ code: "NOT_AUTHORIZED" as const, reason, message: "Assistant access is not authorized" });
+const notAuthorized = (reason: RefusalReason, companyId?: CompanyId) =>
+  err({ code: "NOT_AUTHORIZED" as const, reason, message: "Assistant access is not authorized", ...(companyId ? { companyId } : {}) });
 
 /**
  * Turns a verified token into the access of one store: the same `loadUserAccess` as cookies and mobile tokens, then the active
@@ -41,16 +44,16 @@ export async function resolveAssistantAccess(
   return dependencies.inTenant(companyId, async () => {
     const found = await dependencies.findConnection(token.oauthClientId, token.userId);
     if (!found.success) return found;
-    if (found.data === null) return notAuthorized("no_connection");
+    if (found.data === null) return notAuthorized("no_connection", companyId);
     const connection = found.data;
     if (!isConnectionActive(connection, dependencies.clock(), dependencies.inactivityDays)) {
       const passwordChanged = connection.passwordChangedAt !== null && connection.authorizedAt.getTime() <= connection.passwordChangedAt.getTime();
       const ended = await dependencies.endConnection(connection, passwordChanged ? "password_reset" : "inactive");
       if (!ended.success) return ended;
-      return notAuthorized(passwordChanged ? "password_changed" : "inactive");
+      return notAuthorized(passwordChanged ? "password_changed" : "inactive", companyId);
     }
     const scopes = token.scopes.filter((scope) => connection.scopes.includes(scope));
-    if (!scopes.includes("orders:read")) return notAuthorized("scope");
+    if (!scopes.includes("orders:read")) return notAuthorized("scope", companyId);
     return ok({ companyId, userId: token.userId, connectionId: connection.id, scopes, lastUsedAt: connection.lastUsedAt });
   });
 }

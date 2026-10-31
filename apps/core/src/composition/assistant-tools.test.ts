@@ -142,6 +142,8 @@ describe("the server built by the registry", () => {
     const { client, close } = await connect([fixtureModule()]);
     const result = await client.callTool({ name: "buscar_de_prueba", arguments: { texto: "x".repeat(121) } });
     expect(result.isError).toBe(true);
+    // v1 SDK clients validate structuredContent against the output schema even on errors, so an error result carries none.
+    expect(result.structuredContent).toBeUndefined();
     expect(JSON.stringify(result.content)).toContain("texto");
     expect(client.getInstructions()).toContain("Las herramientas de prueba solo leen.");
     await close();

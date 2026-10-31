@@ -3,7 +3,7 @@ import type { Result } from "@shared/result";
 import type { AssistantConnectionId } from "@core/src/features/assistants/domain/assistant-connection";
 import { sameMinute } from "@core/src/features/assistants/domain/assistant-connection";
 import type { AssistantAccess } from "@core/src/features/assistants/application/resolve-assistant-access";
-import type { LimiterDecision } from "@core/src/shared/infrastructure/fixed-window-limiter";
+import type { LimiterDecision } from "@core/src/shared/application/limiter-decision";
 import type { CompanyId } from "@shared/identity";
 
 export type ToolRunError = Readonly<{ code: "NOT_FOUND" | "INVALID_INPUT" | "FAILURE"; message: string }>;
