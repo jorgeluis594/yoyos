@@ -3,6 +3,9 @@ import { costOf, type ModelCall } from "@core/evals/lib/model-meter";
 import type { ErrorGroups } from "@core/evals/lib/claude";
 import { gradePick, pickOf } from "@core/evals/lib/picks";
 import { repeatedNoticeProducts } from "@core/evals/lib/scorers";
+import { percentile } from "@core/evals/lib/stats";
+import { aggregateRuns, metricNames, metricsOfRun, runsOfRecords, type AggregatedMetrics, type MetricName } from "@core/evals/lib/metrics";
+import { verdictLine, type VerdictSummary } from "@core/evals/lib/verdicts";
 
 /** Aggregation of one run's case records into the report written to eval-results/. Pure: unit-tested in report.test.ts. */
 
@@ -71,6 +74,10 @@ export type EvalReport = Readonly<{
   failures: readonly Readonly<{ caseId: string; pass: string; input: string; expected: unknown; actual: unknown; fields: unknown; error: string | null;
     certainties: CaseRecord["certainties"] }>[];
   errorGroups: ErrorGroups["groups"];
+  /** Every run of the selected set (`EVAL_REPEATS`) scored apart, then mean, min and max per metric (lib/metrics.ts). The sections above use the first run. */
+  runs: Readonly<{ count: number; metrics: AggregatedMetrics }>;
+  /** Seller verdict label counts from `EVAL_VERDICTS_FROM`, weak labels apart; null when no file was given. */
+  verdicts: VerdictSummary | null;
 }>;
 
 export type ConsistencyLine = Readonly<{ repeated: number; consistent: number; percent: number }>;
@@ -158,12 +165,7 @@ function groupBy(records: readonly CaseRecord[], keys: (record: CaseRecord) => r
   return Object.fromEntries([...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, group]) => [key, tally(group)]));
 }
 
-/** Nearest-rank percentile of a list of numbers; 0 for an empty list. */
-export function percentile(values: readonly number[], fraction: number): number {
-  if (!values.length) return 0;
-  const ordered = [...values].sort((a, b) => a - b);
-  return ordered[Math.min(ordered.length - 1, Math.max(0, Math.ceil(fraction * ordered.length) - 1))]!;
-}
+export { percentile };
 
 const bucketEdges = [0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0001];
 const bucketName = (low: number, high: number) => `${low.toFixed(1)}–${Math.min(high, 1).toFixed(1)}`;
@@ -242,6 +244,27 @@ function tagMetricsOf(scored: readonly CaseRecord[]): TagMetrics {
   };
 }
 
+function runsReport(records: readonly CaseRecord[]): EvalReport["runs"] {
+  const runs = runsOfRecords(records);
+  return { count: runs.length, metrics: aggregateRuns(runs.map(metricsOfRun)) };
+}
+
+const metricText = (name: MetricName, value: number): string => {
+  if (name.endsWith("Usd")) return `$${value.toFixed(5)}`;
+  if (name.endsWith("Ms")) return `${Math.round(value)} ms`;
+  if (/Accuracy|Share|Precision|Recall/.test(name)) return `${(value * 100).toFixed(1)}%`;
+  return String(Math.round(value * 100) / 100);
+};
+
+/** One line per metric: the mean and the range over the runs, or «not measured». No case id or text. */
+export function metricLines(report: Pick<EvalReport, "runs">): readonly string[] {
+  return metricNames.map((name) => {
+    const range = report.runs.metrics[name];
+    return range ? `  ${name.padEnd(22)} mean ${metricText(name, range.mean)} (min ${metricText(name, range.min)}, max ${metricText(name, range.max)}) over ${range.runs} run${range.runs === 1 ? "" : "s"}`
+      : `  ${name.padEnd(22)} not measured`;
+  });
+}
+
 /** Conversations whose messages' notices name one product twice, unless a message is marked as an expected repeat. */
 function repeatedConversations(messages: readonly CaseRecord[]): readonly string[] {
   const byConversation = new Map<string, CaseRecord[]>();
@@ -299,7 +322,8 @@ function usageBy(calls: readonly ModelCall[], key: (call: ModelCall) => string):
  * Builds the run report. `extraCalls` are model calls made outside any case (Claude's classifier). Accuracy counts the first run of
  * each case; repeats only feed consistency, latency and usage.
  */
-export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extraCalls: readonly ModelCall[] = [], errorGroups: ErrorGroups["groups"] = []): EvalReport {
+export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extraCalls: readonly ModelCall[] = [], errorGroups: ErrorGroups["groups"] = [],
+  verdicts: VerdictSummary | null = null): EvalReport {
   const firstRuns = records.filter(({ repeat }) => repeat === 0);
   const known = firstRuns.filter(({ tags }) => tags.includes("known-limitation"));
   const scored = firstRuns.filter((record) => !known.includes(record));
@@ -314,7 +338,7 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
   const calibration: Record<string, Record<string, Calibration>> = {};
   for (const pass of [...new Set(scored.map((record) => record.pass))].sort()) calibration[pass] = calibrationOf(scored.filter((record) => record.pass === pass));
 
-  // Every case run more than once (consistency, pinned misses, EVAL_REPEAT_TAGS) is checked for flips; the gates count the first run only.
+  // Every case runs EVAL_REPEATS times and is checked for flips across its runs; the per-run gates below use the first run, the metrics section all runs.
   const runsOf = new Map<string, CaseRecord[]>();
   for (const record of records) runsOf.set(record.caseId, [...(runsOf.get(record.caseId) ?? []), record]);
   const repeated = new Map([...runsOf.entries()].filter(([, runs]) => runs.some(({ repeat }) => repeat > 0)));
@@ -360,6 +384,8 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
     retries: { messages: records.filter(({ retries }) => retries > 0).length, attempts: records.reduce((sum, { retries }) => sum + retries, 0) },
     calibration,
     gates: Object.fromEntries(records.flatMap(({ certainties }) => certainties.map(({ source, gate }) => [source, gate] as const)).sort(([a], [b]) => a.localeCompare(b))),
+    runs: runsReport(records.filter((record) => !record.tags.includes("known-limitation"))),
+    verdicts,
     consistency: consistencyOf(repeated, flipped),
     tagMetrics: tagMetricsOf(scored),
     injection: { total: injection.length, allowed: injection.filter(({ passed }) => passed).length,
@@ -401,6 +427,10 @@ export function formatGateSummary(report: EvalReport): string {
   const { cost, readerCalls } = report;
   return [
     `Eval gate ${report.runId}`,
+    `Metrics over ${report.runs.count} run${report.runs.count === 1 ? "" : "s"} (mean and range)`,
+    ...metricLines(report),
+    ...(report.verdicts ? [verdictLine(report.verdicts)] : []),
+    "First run in detail",
     ...gateText("whole run", report.gate.whole),
     ...Object.entries(report.gate.byFamily).flatMap(([family, lines]) => gateText(`family ${family}`, lines)),
     `Cost per scored message: ${cost.perScoredMessageUsd === null ? "unknown price" : `$${cost.perScoredMessageUsd.toFixed(5)}`} against $${cost.targetUsd.toFixed(3)}${cost.overTarget ? " (over the target)" : ""}; `

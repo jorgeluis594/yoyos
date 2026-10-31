@@ -9,10 +9,8 @@ const evalEnvSchema = z.object({
   EVAL_MAX_CASES: z.coerce.number().int().positive().optional(),
   /** Comma-separated case ids (base ids also select their paraphrases); unset runs every case. */
   EVAL_CASES: z.string().optional(),
-  /** How many times each repeated case runs; 1 turns the repeats off. */
+  /** How many times the whole selected set runs (1–5); every run is scored and the report gives mean, min and max per metric. */
   EVAL_REPEATS: z.coerce.number().int().min(1).max(5).default(3),
-  /** Comma-separated tags: the cases with any of them run `EVAL_REPEATS` times (the first repetition is the one scored). */
-  EVAL_REPEAT_TAGS: z.string().default("consistency").transform((tags) => tags.split(",").map((tag) => tag.trim()).filter(Boolean)),
   /**
    * Absolute path of a folder outside the repository with `catalog.json` and `cases.json` (evals/README.md «Private files format»).
    * When set, only those cases run, against the private company, and every record, judge and classifier output stays in `<dir>/runs/`.

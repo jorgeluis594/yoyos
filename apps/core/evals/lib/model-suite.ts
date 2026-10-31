@@ -42,7 +42,7 @@ export function defineModelSuite<Pass extends EvalPass>(name: string, pass: Pass
   if (blocker) console.warn(`${name}: ${blocker}`);
   const cases = casesOfPass(privateData ? privateData.cases : selectCases(allCases, { maxCases: env.EVAL_MAX_CASES, ids: env.EVAL_CASES?.split(",").map((id) => id.trim()),
     skipParaphrases: env.EVAL_SKIP_PARAPHRASES === "1", split: env.EVAL_SPLIT === "all" ? undefined : env.EVAL_SPLIT }), pass);
-  const runs = labelledRuns(runsOf(cases, env.EVAL_REPEATS, env.EVAL_REPEAT_TAGS), privateRun);
+  const runs = labelledRuns(runsOf(cases, env.EVAL_REPEATS), privateRun);
   let context: RunCaseContext | null = null;
 
   const harness = createHarness<(typeof runs)[number], JsonValue>({

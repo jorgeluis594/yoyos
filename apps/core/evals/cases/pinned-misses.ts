@@ -2,7 +2,7 @@ import type { EvalCaseInput } from "@core/evals/cases/schema";
 
 /**
  * The 28 suite misses of the Todoist task, pinned by id (see evals/README.md): run with 3 repetitions and scored
- * per action. They carry `pinned-miss` so `EVAL_REPEAT_TAGS=consistency,pinned-miss` repeats them.
+ * per action. They carry `pinned-miss` so the report lists their ignored actions per run.
  */
 export const pinnedMissIds = {
   dev: ["hold-photo-color-qty", "int-photo-label-other-size", "int-photo-label-other-size~p2", "hold-price-bundle-en", "hold-qty-trio", "int-ready~p1",

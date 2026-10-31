@@ -1,10 +1,7 @@
-/** One run of a case: `repeat` 0 is the scored one; the others only feed the flip check, latency and usage. */
-export type CaseRun<Case extends Readonly<{ id: string; tags: readonly string[] }>> = Readonly<{ testCase: Case; repeat: number; label: string }>;
+/** One run of a case: `repeat` 0 is the first of the `EVAL_REPEATS` full runs. Every run is scored; the report aggregates them (lib/metrics.ts). */
+export type CaseRun<Case extends Readonly<{ id: string }>> = Readonly<{ testCase: Case; repeat: number; label: string }>;
 
-/** The scored run of every selected case, then the extra runs of the cases tagged with any of `repeatTags`. */
-export function runsOf<Case extends Readonly<{ id: string; tags: readonly string[] }>>(cases: readonly Case[], repeats: number, repeatTags: readonly string[]): readonly CaseRun<Case>[] {
-  const first = cases.map((testCase) => ({ testCase, repeat: 0, label: testCase.id }));
-  const again = cases.filter(({ tags }) => tags.some((tag) => repeatTags.includes(tag)))
-    .flatMap((testCase) => Array.from({ length: repeats - 1 }, (_, index) => ({ testCase, repeat: index + 1, label: `${testCase.id} (repeat ${index + 1})` })));
-  return [...first, ...again];
+/** The whole selected set once per repeat, in order: all cases of run 0, then all of run 1… */
+export function runsOf<Case extends Readonly<{ id: string }>>(cases: readonly Case[], repeats: number): readonly CaseRun<Case>[] {
+  return Array.from({ length: repeats }, (_, repeat) => cases.map((testCase) => ({ testCase, repeat, label: repeat === 0 ? testCase.id : `${testCase.id} (repeat ${repeat})` }))).flat();
 }

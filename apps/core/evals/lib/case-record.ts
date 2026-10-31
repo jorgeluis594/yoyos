@@ -6,6 +6,39 @@ import type { ModelCall } from "@core/evals/lib/model-meter";
 import type { FieldScores } from "@core/evals/lib/scorers";
 import { privateDirOf } from "@core/evals/cases/private";
 
+/** The decisions of the stage design (technical design 6.3): what a change becomes. */
+export const decisionKinds = ["applied", "doubtful", "pending", "urgent", "silent", "notice"] as const;
+export type DecisionKind = (typeof decisionKinds)[number];
+
+/**
+ * What the scoring of one message states for the v2 metrics (lib/metrics.ts). `null` is a stage the case does not state. Only the staged
+ * path and the fake mode fill it (T16 wires the staged pipeline); older records have none and keep the gate flags.
+ */
+export type StageFacts = Readonly<{
+  intent: boolean | null;
+  fields: boolean | null;
+  resolution: boolean | null;
+  decision: boolean | null;
+  decisionExpected: DecisionKind;
+  decisionActual: DecisionKind;
+  /** The buyer asked for something (a request, «listo» or a payment request). */
+  requested: boolean;
+  /** What the message left: a change in the order, a «Con duda» mark, a «Por resolver» point, a seller notice. */
+  changeApplied: boolean;
+  marked: boolean;
+  point: boolean;
+  noticed: boolean;
+  /** The order after the message equals the expected one; null when the case states no order. */
+  orderMatches: boolean | null;
+  /** The notice was «Pedido #N cambió»: counted apart from the urgent ones. */
+  changedNotice: boolean;
+  /** From the start of the reading to the decision, without the wait behind earlier messages of the chat, which is `queuedMs`. */
+  readingMs: number;
+  queuedMs: number;
+  /** Cost of each stage in US$ (`intent`, `extraction`, `confirming_extraction`, `resolution`, `confirming_resolution`, `photo_qr`, `photo_visual`). */
+  stageCostsUsd: Readonly<Record<string, number>>;
+}>;
+
 /** What one run of one case (or one message of a conversation) left: scores, the actual result, latency and model calls. Plain JSON. */
 export type CaseRecord = Readonly<{
   /** A conversation's record is one message: `<conversation id>#<message number>`. */
@@ -34,6 +67,8 @@ export type CaseRecord = Readonly<{
   wrongSilentChange: boolean;
   extraNotice: boolean;
   expectedSilent: boolean;
+  /** The v2 metric inputs; absent in records of the legacy reader path. */
+  facts?: StageFacts;
   /** The products the message's notice names; a conversation checks that no product is named by two notices. */
   noticeProducts: readonly string[];
   expectsRepeatNotice: boolean;
