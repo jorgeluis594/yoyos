@@ -46,6 +46,9 @@ import { assistantSnapshot, type AssistantReadError, type AssistantReadOperation
 export type { AssistantReadOperation };
 import { findSkuOwner, readVocabulary, searchPage } from "@core/src/features/products/infrastructure/product-search-repository";
 import { readProductInSnapshot } from "@core/src/features/products/infrastructure/repository";
+import { describeVariantsForAssistant, type DescribeVariantsInput } from "@core/src/features/products/application/describe-variants-for-assistant";
+import { listStockedForAssistant, type ListStockedInput } from "@core/src/features/products/application/list-stocked-for-assistant";
+import { readDescribedVariants, readStockedProducts } from "@core/src/features/products/infrastructure/product-sales-repository";
 
 const imageStorage = createR2ImageStorage({
   endpoint: process.env.R2_ENDPOINT ?? "", bucket: process.env.R2_BUCKET ?? "",
@@ -204,6 +207,10 @@ export const products = {
   /** One product by identifier or SKU with its variants in saved order; `null` when it does not exist. */
   findForAssistant: (reference: AssistantProductReference) =>
     findForAssistant(reference, { snapshot: assistantSnapshot("detail"), findSkuOwner, readProduct: readProductInSnapshot }),
+  /** Current names, combinations and the text match of the given variants, or of one product; joins the snapshot of the sales read that is open. */
+  describeVariantsForAssistant: (input: DescribeVariantsInput) => describeVariantsForAssistant(input, { readVariants: readDescribedVariants }),
+  /** Products matching a text with stock today and created before a date, with their variants, and the counts that tell the empty answers apart; joins the open snapshot. */
+  listStockedForAssistant: (input: ListStockedInput) => listStockedForAssistant(input, { readStocked: readStockedProducts }),
   identifyProductsInImage: (image: ImageBytes, signal?: AbortSignal) => identifyProductsInImage(image, identificationDependencies, signal),
   /** Active variants and attribute values of these products, for the chat reader. Absent products are deleted ones. */
   findProductsForReading: (productIds: readonly ProductId[]) => findProductsForReading(productIds, { readRows: readProductRowsForReading }),
