@@ -7,6 +7,7 @@ import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistenc
 import { loadAccountAccess } from "@core/src/composition/assistant-account-access";
 import { isConnectionActive, type ConnectionWithPasswordChange, type OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
 import { endAccountAssistantConnections, type AccountAccess, type PersistenceError, type EndAccountAssistantConnectionsDependencies } from "@core/src/features/assistants/application/disconnect-assistant";
+import { assistantScopes } from "@core/src/features/assistants/domain/scopes";
 import { assistantConfig } from "@core/src/features/assistants/infrastructure/assistant-config";
 import { connectionRepository } from "@core/src/features/assistants/infrastructure/connection-repository";
 import { findConnectionForClient } from "@core/src/features/assistants/infrastructure/connection-lookup";
@@ -35,7 +36,7 @@ export function createHasActiveConnection(deps: HasActiveConnectionDependencies)
     if (access.data === null || access.data.status !== "ready") return ok(false);
     const found = await deps.findConnection(access.data.company.id as CompanyId, oauthClientId, userId);
     if (!found.success) return err(unavailable);
-    return ok(found.data !== null && isConnectionActive(found.data, deps.now(), deps.inactivityDays));
+    return ok(found.data !== null && isConnectionActive(found.data, deps.now(), deps.inactivityDays, assistantScopes));
   };
 }
 

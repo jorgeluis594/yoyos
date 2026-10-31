@@ -3,7 +3,7 @@ import type { Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { prisma } from "@core/src/shared/infrastructure/persistance";
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
-import type { AssistantConnection, AssistantConnectionId } from "@core/src/features/assistants/domain/assistant-connection";
+import type { AssistantConnection, AssistantConnectionId, ConnectionEndReason } from "@core/src/features/assistants/domain/assistant-connection";
 import { revokeClientGrant } from "@core/src/features/assistants/infrastructure/oauth-grant-revocation";
 
 export type ConnectionAccessError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
@@ -34,7 +34,7 @@ export async function touchConnection(id: AssistantConnectionId, now: Date): Pro
  * Ends a connection that is no longer active: deletes the row (the authority) and then revokes the client's tokens and consent as cleanup.
  * A revocation failure is logged by the revoker and does not undo the deletion: the next call finds no connection and is refused.
  */
-export async function endConnection(connection: AssistantConnection, reason: "inactive" | "password_reset"): Promise<Result<null, ConnectionAccessError>> {
+export async function endConnection(connection: AssistantConnection, reason: ConnectionEndReason): Promise<Result<null, ConnectionAccessError>> {
   try {
     await prisma.assistantConnection.deleteMany({ where: { id: connection.id } });
   } catch (cause) {

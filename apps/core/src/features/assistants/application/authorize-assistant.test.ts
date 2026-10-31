@@ -33,9 +33,15 @@ describe("authorizeAssistant", () => {
     expect(calls).toEqual(["read", "accept", "save"]);
     expect(deps.saveConnection).toHaveBeenCalledWith({
       id: "6c0f5d2e-6a63-4a38-9f07-3b8f7a1c0009", companyId: ownerAccess.companyId, authorizedByUserId: ownerAccess.userId, oauthClientId: clientId,
-      agentName: "Claude", returnTarget: { kind: "web", domain: "claude.ai" }, scopes: ["orders:read"], authorizedAt: now,
+      agentName: "Claude", returnTarget: { kind: "web", domain: "claude.ai" }, scopes: ["orders:read", "products:read"], authorizedAt: now,
     });
     expect(deps.acceptRequest).toHaveBeenCalledWith(signed, { oauthClientId: clientId, userId: ownerAccess.userId });
+  });
+
+  test("saves the connection with the orders and products scopes", async () => {
+    const { deps } = dependencies();
+    await authorizeAssistant({ request: signed }, ownerAccess, deps);
+    expect(deps.saveConnection).toHaveBeenCalledWith(expect.objectContaining({ scopes: ["orders:read", "products:read"] }));
   });
 
   test("saves nothing when the request expired", async () => {

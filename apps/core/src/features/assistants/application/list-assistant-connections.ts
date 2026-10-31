@@ -2,6 +2,7 @@ import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { CompanyId } from "@shared/identity";
 import { isConnectionActive, type ConnectionWithPasswordChange } from "@core/src/features/assistants/domain/assistant-connection";
+import { assistantScopes } from "@core/src/features/assistants/domain/scopes";
 import type { AssistantOwnerAccess } from "@core/src/features/assistants/application/authorize-assistant";
 
 export type ListConnectionsError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string }>;
@@ -17,6 +18,6 @@ export async function listAssistantConnections(_input: Record<string, never>, ac
   if (!found.success) return found;
   const now = deps.clock();
   return ok(found.data
-    .filter((connection) => isConnectionActive(connection, now, deps.inactivityDays))
+    .filter((connection) => isConnectionActive(connection, now, deps.inactivityDays, assistantScopes))
     .toSorted((a, b) => b.authorizedAt.getTime() - a.authorizedAt.getTime()));
 }

@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
 import {
-  isAllowedRedirectUri, isConnectionActive, parseAgentName, returnTargetOf, sameMinute,
+  connectionEndReason, isAllowedRedirectUri, isConnectionActive, parseAgentName, returnTargetOf, sameMinute,
   type AssistantConnectionId, type ConnectionWithPasswordChange, type OAuthClientId,
 } from "@core/src/features/assistants/domain/assistant-connection";
 import type { CompanyId, UserId } from "@shared/identity";
+import { assistantScopes } from "@core/src/features/assistants/domain/scopes";
 
 const now = new Date("2026-10-30T12:00:00.000Z");
 const daysAgo = (days: number) => new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
@@ -16,7 +17,7 @@ function connection(overrides: Partial<ConnectionWithPasswordChange> = {}): Conn
     oauthClientId: "client-1" as OAuthClientId,
     agentName: null,
     returnTarget: { kind: "this_device" },
-    scopes: ["orders:read"],
+    scopes: ["orders:read", "products:read"],
     authorizedAt: daysAgo(100),
     lastUsedAt: daysAgo(1),
     passwordChangedAt: null,
@@ -26,20 +27,42 @@ function connection(overrides: Partial<ConnectionWithPasswordChange> = {}): Conn
 
 describe("isConnectionActive", () => {
   test("treats a connection used 89 days ago as active and one used 90 days ago as ended", () => {
-    expect(isConnectionActive(connection({ lastUsedAt: daysAgo(89) }), now, 90)).toBe(true);
-    expect(isConnectionActive(connection({ lastUsedAt: daysAgo(90) }), now, 90)).toBe(false);
+    expect(isConnectionActive(connection({ lastUsedAt: daysAgo(89) }), now, 90, assistantScopes)).toBe(true);
+    expect(isConnectionActive(connection({ lastUsedAt: daysAgo(90) }), now, 90, assistantScopes)).toBe(false);
   });
 
   test("counts inactivity from authorization when the connection was never used", () => {
-    expect(isConnectionActive(connection({ lastUsedAt: null, authorizedAt: daysAgo(89) }), now, 90)).toBe(true);
-    expect(isConnectionActive(connection({ lastUsedAt: null, authorizedAt: daysAgo(90) }), now, 90)).toBe(false);
+    expect(isConnectionActive(connection({ lastUsedAt: null, authorizedAt: daysAgo(89) }), now, 90, assistantScopes)).toBe(true);
+    expect(isConnectionActive(connection({ lastUsedAt: null, authorizedAt: daysAgo(90) }), now, 90, assistantScopes)).toBe(false);
   });
 
   test("ends a connection authorized before the account's last password change", () => {
     const authorizedAt = daysAgo(10);
-    expect(isConnectionActive(connection({ authorizedAt, lastUsedAt: null, passwordChangedAt: daysAgo(11) }), now, 90)).toBe(true);
-    expect(isConnectionActive(connection({ authorizedAt, lastUsedAt: null, passwordChangedAt: daysAgo(9) }), now, 90)).toBe(false);
-    expect(isConnectionActive(connection({ authorizedAt, lastUsedAt: null, passwordChangedAt: authorizedAt }), now, 90)).toBe(false);
+    expect(isConnectionActive(connection({ authorizedAt, lastUsedAt: null, passwordChangedAt: daysAgo(11) }), now, 90, assistantScopes)).toBe(true);
+    expect(isConnectionActive(connection({ authorizedAt, lastUsedAt: null, passwordChangedAt: daysAgo(9) }), now, 90, assistantScopes)).toBe(false);
+    expect(isConnectionActive(connection({ authorizedAt, lastUsedAt: null, passwordChangedAt: authorizedAt }), now, 90, assistantScopes)).toBe(false);
+  });
+});
+
+describe("connectionEndReason", () => {
+  test("ends a connection that lacks a required data scope as consent_outdated", () => {
+    const ordersOnly = connection({ scopes: ["orders:read"] });
+    expect(connectionEndReason(ordersOnly, now, 90, assistantScopes)).toBe("consent_outdated");
+    expect(isConnectionActive(ordersOnly, now, 90, assistantScopes)).toBe(false);
+    expect(connectionEndReason(connection(), now, 90, assistantScopes)).toBeNull();
+  });
+
+  test("ends a two-scope connection when a third scope is required", () => {
+    const required = [...assistantScopes, "customers:read"] as unknown as typeof assistantScopes;
+    expect(connectionEndReason(connection(), now, 90, required)).toBe("consent_outdated");
+  });
+
+  test("reports a password change before an outdated consent and an outdated consent before inactivity", () => {
+    const authorizedAt = daysAgo(200);
+    const outdated = { scopes: ["orders:read"] as ["orders:read"], authorizedAt, lastUsedAt: daysAgo(150) };
+    expect(connectionEndReason(connection({ ...outdated, passwordChangedAt: daysAgo(10) }), now, 90, assistantScopes)).toBe("password_reset");
+    expect(connectionEndReason(connection(outdated), now, 90, assistantScopes)).toBe("consent_outdated");
+    expect(connectionEndReason(connection({ ...outdated, scopes: ["orders:read", "products:read"] }), now, 90, assistantScopes)).toBe("inactive");
   });
 });
 
