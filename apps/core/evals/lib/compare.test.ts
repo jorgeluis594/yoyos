@@ -28,7 +28,7 @@ test("calls a change better only when its range does not overlap the previous on
 
 test("compares a report file saved before the runs section by recomputing it from its records", () => {
   const file = result([1, 1, 1]);
-  const { runs: _runs, ...legacy } = file.report;
+  const legacy = Object.fromEntries(Object.entries(file.report).filter(([key]) => key !== "runs")) as unknown as EvalReport;
 
-  expect(compareResults({ ...file, report: legacy as unknown as EvalReport }, file).find(({ name }) => name === "silentWrongChanges")).toMatchObject({ verdict: "not distinguishable" });
+  expect(compareResults({ ...file, report: legacy }, file).find(({ name }) => name === "silentWrongChanges")).toMatchObject({ verdict: "not distinguishable" });
 });

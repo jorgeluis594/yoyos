@@ -18,7 +18,7 @@ export function redacted(record: CaseRecord): CaseRecord {
 }
 
 /** Test names: the case id, or in a private run the case's position («case 3», «case 3 (repeat 1)»), never its id. */
-export function labelledRuns<Case extends Readonly<{ id: string; tags: readonly string[] }>>(runs: readonly CaseRun<Case>[], privateRun: boolean): readonly CaseRun<Case>[] {
+export function labelledRuns<Case extends Readonly<{ id: string }>>(runs: readonly CaseRun<Case>[], privateRun: boolean): readonly CaseRun<Case>[] {
   if (!privateRun) return runs;
   const order = [...new Set(runs.map(({ testCase }) => testCase.id))];
   return runs.map((run) => ({ ...run, label: `case ${order.indexOf(run.testCase.id) + 1}${run.repeat > 0 ? ` (repeat ${run.repeat})` : ""}` }));

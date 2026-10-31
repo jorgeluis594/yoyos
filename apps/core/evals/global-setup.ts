@@ -8,6 +8,9 @@ import { createClaude, type ErrorGroups } from "@core/evals/lib/claude";
 import { modelSuitesBlocker, readEvalEnv } from "@core/evals/lib/eval-env";
 import { installModelMeter, metered, type ModelCall } from "@core/evals/lib/model-meter";
 import { buildReport, formatGateSummary, formatSummary, type EvalReport } from "@core/evals/lib/report";
+import { writePrivateRunSummary } from "@core/evals/lib/private-run-summary";
+import { readVerdictFile, summarizeVerdicts } from "@core/evals/lib/verdicts";
+import { privateDirOf } from "@core/evals/cases/private";
 
 declare module "vitest" {
   export interface ProvidedContext {
@@ -19,7 +22,8 @@ declare module "vitest" {
 const maxClassifiedFailures = 150;
 
 async function classify(failures: EvalReport["failures"], env: ReturnType<typeof readEvalEnv>): Promise<Readonly<{ groups: ErrorGroups["groups"]; calls: readonly ModelCall[] }>> {
-  if (!failures.length || !env.CLAUDE_API_KEY) return { groups: [], calls: [] };
+  // Fake mode and runs without the key call no model.
+  if (env.EVAL_MODELS === "fake" || !failures.length || !env.CLAUDE_API_KEY) return { groups: [], calls: [] };
   const claude = createClaude({ apiKey: env.CLAUDE_API_KEY, model: env.EVAL_CLAUDE_MODEL });
   const prompt = JSON.stringify({ failures: failures.slice(0, maxClassifiedFailures) }, null, 1);
   try {
@@ -46,13 +50,14 @@ export default function setup(project: TestProject) {
     if (!records.length) return;
     const env = readEvalEnv(shellAndFile);
     const imagesDir = imagesDirOf(shellAndFile);
+    const verdicts = env.EVAL_VERDICTS_FROM ? summarizeVerdicts(readVerdictFile(env.EVAL_VERDICTS_FROM)) : null;
     const meta = { runId, startedAt: startedAt.toISOString(), finishedAt: new Date().toISOString(),
-      settings: { claudeModel: env.EVAL_CLAUDE_MODEL, maxCases: env.EVAL_MAX_CASES ?? "all", cases: env.EVAL_CASES ?? "all", repeats: env.EVAL_REPEATS,
+      settings: { models: env.EVAL_MODELS, seedBank: env.EVAL_SEED_BANK === "1", claudeModel: env.EVAL_CLAUDE_MODEL, maxCases: env.EVAL_MAX_CASES ?? "all", cases: env.EVAL_CASES ?? "all", repeats: env.EVAL_REPEATS,
         skipParaphrases: env.EVAL_SKIP_PARAPHRASES === "1", split: env.EVAL_SPLIT, privateRun: Boolean(shellAndFile.EVAL_PRIVATE_DIR), imagesDir, photoManifest: readImageManifest(imagesDir) !== null,
         localPhotos: readImageManifest(localImagesDirOf(shellAndFile))?.entries.length ?? 0, blocker: modelSuitesBlocker(env) } };
-    const draft = buildReport(records, meta);
+    const draft = buildReport(records, meta, [], [], verdicts);
     const classified = await classify(draft.failures, env);
-    const report = buildReport(records, meta, classified.calls, classified.groups);
+    const report = buildReport(records, meta, classified.calls, classified.groups, verdicts);
     // A private run (EVAL_PRIVATE_DIR) keeps everything in `<dir>/runs/` and prints aggregate lines only.
     const privateRun = Boolean(shellAndFile.EVAL_PRIVATE_DIR);
     await mkdir(resultsDir, { recursive: true });
@@ -61,5 +66,7 @@ export default function setup(project: TestProject) {
     await writeFile(path, `${JSON.stringify({ report, records, extraCalls: classified.calls }, null, 2)}\n`);
     await rm(runDir(runId, resultsDir), { recursive: true, force: true });
     console.log(`\n${privateRun ? formatGateSummary(report) : formatSummary(report, path)}`);
+    // The ids of the failed cases and the type of each failure, under the private folder; nothing of them reaches the console.
+    if (privateRun) console.log(`Failed case ids and failure types: ${writePrivateRunSummary(privateDirOf(shellAndFile.EVAL_PRIVATE_DIR!), runId, records)}`);
   };
 }

@@ -8,10 +8,18 @@ to `apps/core/eval-results/` (gitignored) and nothing is sent to an eval service
 ## Run
 
 ```sh
-pnpm --dir apps/core eval                          # every suite
-pnpm --dir apps/core eval evals/interpretation.eval.ts
-EVAL_MAX_CASES=10 pnpm --dir apps/core eval        # a cheap debug run spread over every pass
+EVAL_MODELS=fake pnpm --dir apps/core eval         # the whole harness at zero cost: scripted stage answers, no key, no database
+pnpm --dir apps/core eval                          # prints the estimate of the run and stops; no model is called
+EVAL_PAID=1 pnpm --dir apps/core eval              # every suite, with the real models (paid)
+EVAL_PAID=1 pnpm --dir apps/core eval evals/interpretation.eval.ts
+EVAL_PAID=1 EVAL_MAX_CASES=10 pnpm --dir apps/core eval   # a cheap debug run spread over every pass
+pnpm --dir apps/core eval:compare eval-results/<previous>.json eval-results/<new>.json
 ```
+
+A run that can call a model is paid. Without `EVAL_PAID=1` (read from the shell, never from `.env`) `pnpm eval` prints the estimate
+(messages × runs × the reference cost of a message, plus the judged cases) and exits with 1. Each paid step of the staged reader's
+evaluation needs the founder's approval of that printed estimate first; a re-run beyond what was approved needs a new approval.
+`EVAL_MODELS=fake` is free: every stage answers what the case expects, so it proves the plumbing (runs, scoring, metrics, report), not the models.
 
 `pnpm eval` runs `scripts/run-evals.sh`: with both keys it starts the `db_test` database, migrates it like the integration
 tests and points `DATABASE_URL` at it (`CORE_TEST_PORT` picks the port). Without a key the model suites skip with a message
@@ -27,8 +35,11 @@ and only `smoke.eval.ts` runs. It refuses to run when `CI` is set, and it is not
 | `EVAL_CLAUDE_MODEL` | Claude model, default `claude-sonnet-5-5`. |
 | `EVAL_MAX_CASES` | Hard cap of cases per run, taken round-robin over the passes; unset runs all. |
 | `EVAL_CASES` | Comma-separated case ids; a base id also selects its paraphrases. |
-| `EVAL_REPEATS` | Runs of each repeated case (default 3; 1 turns the repeats off). |
-| `EVAL_REPEAT_TAGS` | Comma-separated tags whose cases are repeated (default `consistency`; `consistency,pinned-miss` also repeats the pinned misses). The first run is the one every gate counts; flips are reported apart. |
+| `EVAL_REPEATS` | Times the whole selected set runs (1–5, default 3). Every run is scored; the report gives mean, min and max per metric, and flips are read from the runs. |
+| `EVAL_MODELS` | `fake` runs the harness with scripted stage answers taken from the case expectations: zero model calls, no key, no database. Default `real`. |
+| `EVAL_PAID` | `1` allows a run that calls models; without it `pnpm eval` prints the estimate and stops. Set it in the shell. |
+| `EVAL_SEED_BANK` | `1` runs the seed bank (`cases/seed-bank.ts`) instead of every case; with `EVAL_PRIVATE_DIR`, the private cases listed in the folder's `seed-bank.json` (`{ "ids": [...] }`). |
+| `EVAL_VERDICTS_FROM` | Path of the JSON output of `verdicts:report` (`lib/verdicts.ts`): the report embeds its label counts, weak labels apart. |
 | `EVAL_PRIVATE_DIR` | Absolute path of a folder outside the repository with a private `catalog.json` and `cases.json` (see «Private files format»). Set it in the shell. |
 | `EVAL_SKIP_PARAPHRASES` | `1` runs base cases only. |
 | `EVAL_SPLIT` | `dev`, `test` or `all` (default): the split of the cases to run (see «Dev and test splits»). |
@@ -77,7 +88,7 @@ their photo from the manifest by product, folder and a hint (`photo({ folder: "c
 and are left out when no photo matches. A case has an id, pass, criterion
 (1 reading, 2 non-product photos, 4 arguments, 5 visual identification), kind, tags, the
 input (text, or photo plus caption, and the open order) and one or more acceptable expectations. Tags: `consistency` and `pinned-miss` (run
-`EVAL_REPEATS` times when `EVAL_REPEAT_TAGS` names them; the report lists cases whose result flipped), `injection` (prompt injection attempts), `paraphrase`, and
+a case of the same tag in each of the `EVAL_REPEATS` runs; the report lists cases whose result flipped), `injection` (prompt injection attempts), `paraphrase`, and
 `known-limitation` (beyond the documented design, such as a synonym that shares no letters with the product name: reported apart
 and left out of every score).
 
@@ -159,7 +170,7 @@ certainties with their gate, the counts above, latency, retries, model calls wit
 
 - **The gate**, over the first run of each scored message, whole and per family (`kind`): right count and percentage, ignored actions,
   conversations with two notices for one product, wrong silent changes, extra notices as a share of the messages expected silent.
-  Repeated runs (see `EVAL_REPEAT_TAGS`) never count toward it; cases whose repeats gave another result are listed as flips apart;
+  The sections of the first run are this gate; the later runs feed the metrics section (mean, min and max per metric); cases whose runs gave another result are listed as flips apart;
 - the cost per scored message against the US$0.003 target (a reported target, not a gate) with input, cached, output and reasoning
   tokens, the p95 latency per message, and the model calls per message kind (text, photo, photo with caption) against what the
   design allows (the reader and the vision chooser are not told apart);
@@ -234,3 +245,19 @@ true) and `variants` (non-empty list). A variant has `attributes` (an object who
 - Outcome kinds: `added`, `removed`, `quantity_lowered`, `quantity_changed`, `variant_changed`, `mentioned_price_set`, `ready`, `only_item_kept`, `order_closed`, `no_intent`, `variant_only`, `unnamed_add`, `image_with_request`, `no_open_order`, `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `new_order_after_closed`, `failed`, `pending_created`, `pending_updated`, `pending_completed`, `pending_split`, `pending_ended`, `reader_doubt`, `request_not_allowed`, `invalid_action`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`, `caption_not_applied`, `payment_requested`, `changed_after_link`, `questions`.
 
 Every product named by a case must exist in `catalog.json`. A file inside the repository, or reached through a link into it, is refused.
+
+## Metrics over the runs (staged reader)
+
+The report's `runs` section scores each of the `EVAL_REPEATS` runs apart (`lib/metrics.ts`) and gives mean, min and max per metric:
+intent, fields, resolution and decision accuracy (over the messages whose case states them), silent wrong changes (an applied change with no
+«Con duda» mark and no notice whose order differs from the expected one), ignored requests (no change, mark, «Por resolver» point or notice),
+urgent share with precision and recall, the «Pedido #N cambió» count apart, cost per message and per stage (photo stages included), and the p95
+from the start of the reading to the decision without queue wait. `eval:compare` calls a metric better or worse only when the ranges of the two
+runs do not overlap; otherwise it prints «not distinguishable». A case states its stages with `stages` (intent, fields, product) and `decision`;
+the cases without them are relabelled by derivation from their notice and outcomes (`lib/stage-facts.ts`), and `cases/stage-labels.ts` labels
+the cases of the four seed-bank families. Records of the current (legacy) reader path carry no stage facts and feed only the gate flags until
+the suites point at the staged pipeline.
+
+A private run (`EVAL_PRIVATE_DIR`) prints aggregate lines only and writes `<dir>/runs/<run>.summary.json` with the ids of the failed cases and
+the type of each failure (`lib/private-run-summary.ts`); no input, product, judge reason or error text. The holdout ids of the seed bank live
+only in the private folder's `seed-bank.json`.

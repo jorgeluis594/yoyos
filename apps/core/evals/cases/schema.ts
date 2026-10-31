@@ -221,13 +221,14 @@ export function productsOf(testCase: EvalCase): readonly string[] {
   const lines = (order: readonly Readonly<{ product: string }>[] | undefined) => order?.map(({ product }) => product) ?? [];
   const shown = (photo: MessageInput["photo"]) => photo && "shows" in photo && photo.shows !== "not_product" && photo.shows !== "not_found" ? [photo.shows] : [];
   const start = startOf(testCase);
+  const stated = (expectation: Readonly<{ stages?: StageExpectation }>) => expectation.stages?.product ? [expectation.stages.product] : [];
   const seeded = [...lines(start.order), ...start.pendings.flatMap(pendingProducts)];
   if (testCase.pass === "image") return testCase.expected.flatMap((expectation) => expectation.kind === "found" ? [expectation.product] : []);
   if (testCase.pass === "conversation") {
     return [...seeded, ...testCase.steps.flatMap((step) => isEventStep(step) ? (step.event === "deactivate_product" ? [step.product] : [])
-      : [...shown(step.input.photo), ...lines(step.expected.order)])];
+      : [...shown(step.input.photo), ...lines(step.expected.order), ...stated(step.expected)])];
   }
-  return [...seeded, ...lines(testCase.input.order), ...shown(testCase.input.photo), ...testCase.expected.flatMap(({ order }) => lines(order))];
+  return [...seeded, ...lines(testCase.input.order), ...shown(testCase.input.photo), ...testCase.expected.flatMap((expectation) => [...lines(expectation.order), ...stated(expectation)])];
 }
 
 /**

@@ -34,7 +34,7 @@ export function privateDirOf(dir: string): string {
 /** Schema field names that may appear in an error; any other path segment (a key the file chose, such as an attribute name) shows as «*». */
 const schemaFields = new Set(["products", "key", "name", "photo", "active", "variants", "attributes", "price", "id", "pass", "kind", "tags", "criterion", "ambiguous", "input",
   "expected", "text", "caption", "order", "notice", "outcomes", "steps", "event", "days", "product", "shows", "label", "file", "variant", "quantity", "mentionedPrice",
-  "amount", "units", "expectsRepeatNotice", "pendings", "orderState", "candidates", "known"]);
+  "amount", "units", "expectsRepeatNotice", "pendings", "orderState", "candidates", "known", "decision", "stages", "intent", "fields"]);
 
 /**
  * A malformed private file must never print its content: the error names the file and the schema paths that failed, with no values,

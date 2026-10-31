@@ -24,6 +24,8 @@ const evalEnvSchema = z.object({
   EVAL_MODELS: z.enum(["real", "fake"]).default("real"),
   /** Must be `1` for any run that can call a model; `run-evals.sh` prints the estimate and stops without it (lib/paid-gate.ts). */
   EVAL_PAID: z.enum(["0", "1"]).default("0"),
+  /** `1` runs the seed bank (cases/seed-bank.ts) instead of every case; with a private folder, the private cases listed in its `seed-bank.json`. */
+  EVAL_SEED_BANK: z.enum(["0", "1"]).default("0"),
   /** Output of `verdicts:report` (JSON, lib/verdicts.ts) to embed in the report as seller label counts. */
   EVAL_VERDICTS_FROM: z.string().optional(),
   CI: z.string().optional(),
