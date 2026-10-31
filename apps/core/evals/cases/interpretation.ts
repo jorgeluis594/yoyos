@@ -22,7 +22,7 @@ const correa = line("correa-cuero", { Color: "Negro" });
 const rojoTrucker = { Color: "Rojo" };
 
 /**
- * New dev cases of «Message to order without silent losses», written from the closed product definition (docs/drafts/pedidos-por-mensaje-que-la-ia-no-pierda.md)
+ * New dev cases of «Message to order without silent losses», written from its product definition (now in docs/message-to-order.md)
  * and docs/message-to-order.md by someone who does not tune, with their own products, colors and wording. Every id falls in the dev split
  * (cases/new-dev-cases.test.ts). `kind` is the family; the dev equivalents of the cited holdout cases are covered by family, never copied.
  * Notices state the shipped design: the generic body is accepted by the scoring rule when the fallback ships, so no case lists it.
