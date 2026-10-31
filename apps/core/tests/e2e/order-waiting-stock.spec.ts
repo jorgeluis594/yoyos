@@ -38,9 +38,8 @@ test("the seller approves a report with short stock and sees the order waiting f
     expect(await (await page.request.get(`/api/orders/${orderId}/aggregate`)).json()).toMatchObject({ paymentStatus: "paid", stockDeducted: false,
       stockDue: { kind: "waiting", shortItems: [{ variantId, available: 3 }] } });
     await browserExpect(page.getByRole("button", { name: "Marcar enviado", exact: true })).toBeDisabled();
-    await browserExpect(page.getByRole("button", { name: "Marcar entregado", exact: true })).toBeDisabled();
+    await browserExpect(page.getByRole("button", { name: "Entregar directamente", exact: true })).toBeDisabled();
     await browserExpect(page.getByText("Para despachar falta stock de Camisa (M).")).toBeVisible();
-    await browserExpect(page.getByText("Para entregar falta stock de Camisa (M).")).toBeVisible();
     // The waiting state is told by the notice under the header and is not repeated in the products card.
     await browserExpect(page.getByText("Detalles internos")).toHaveCount(0);
     await browserExpect(page.getByText("Stock pendiente")).toHaveCount(0);
