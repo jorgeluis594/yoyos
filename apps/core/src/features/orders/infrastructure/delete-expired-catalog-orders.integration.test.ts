@@ -40,7 +40,7 @@ async function company() {
     await prisma.order.create({ data: { id, number: number += 1n, currency: "PEN", total: 10, itemsTotal: 10, createdAt: values.createdAt,
       fromCatalog: catalog, sellerId: catalog ? null : sellerId, checkoutEnabledAt: catalog ? values.createdAt : null,
       checkoutConfirmedAt: values.confirmed ? values.createdAt : null } });
-    await prisma.orderItem.create({ data: { orderId: id, variantId, productName: "Polo", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 } });
+    await prisma.orderItem.create({ data: { orderId: id, orderCreatedAt: values.createdAt, variantId, productName: "Polo", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 } });
     return id;
   });
   const remaining = () => withTenantIsolation(companyId, async () => ({

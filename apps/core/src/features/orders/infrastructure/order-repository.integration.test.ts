@@ -579,8 +579,8 @@ test("separates companies and blocks cross-company references", async () => {
       await expect(prisma.order.create({ data: { number: 1001n, id: randomUUID(), companyId: a.companyId, sellerId: a.sellerId,
         buyer: { create: { contactId: b.contactId, phone: "+51999999999" } }, currency: "PEN", total: 1, itemsTotal: 1,
         completedAt: new Date(), createdAt: new Date() } })).rejects.toThrow();
-      await expect(prisma.orderItem.create({ data: { orderId: foreignOrderId, variantId: a.variantIds[0], productName: "Foreign order",
-        variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow(/OrderItem_companyId_orderId_fkey/);
+      await expect(prisma.orderItem.create({ data: { orderId: foreignOrderId, orderCreatedAt: new Date(), variantId: a.variantIds[0], productName: "Foreign order",
+        variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow(/OrderItem_companyId_orderId_orderCreatedAt_fkey/);
     });
   } finally { await a.cleanup(); await b.cleanup(); }
 });
@@ -655,7 +655,7 @@ test("database constraints reject invalid completed sale writes", async () => {
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { unitPrice: 0 } })).rejects.toThrow();
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { subtotal: 0 } })).rejects.toThrow();
       await expect(prisma.orderItem.update({ where: { id: item.id }, data: { variantAttributes: { Size: 42 } } })).rejects.toThrow(/OrderItem_attributes_object/);
-      await expect(prisma.orderItem.create({ data: { orderId: id, variantId: f.variantIds[0], productName: "Duplicate", variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow(/OrderItem_companyId_orderId_variantId_key/);
+      await expect(prisma.orderItem.create({ data: { orderId: id, orderCreatedAt: item.orderCreatedAt, variantId: f.variantIds[0], productName: "Duplicate", variantAttributes: {}, quantity: 1n, unitPrice: 1, subtotal: 1 } })).rejects.toThrow(/OrderItem_companyId_orderId_variantId_key/);
       expect(await prisma.orderItem.count()).toBe(1);
     });
   } finally { await f.cleanup(); }

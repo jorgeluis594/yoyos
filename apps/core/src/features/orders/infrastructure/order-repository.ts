@@ -213,7 +213,7 @@ export async function savePendingOrder(order: OrderAggregate, source?: OrderChat
     // in the same order, so the two never wait on each other in a cycle. The failing insert also names the missing variant.
     for (const item of items) {
       inserting = item.variantId;
-      await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, companyId: order.companyId, variantId: item.variantId, productName: item.productName,
+      await prisma.orderItem.create({ data: { id: item.id, orderId: order.id, orderCreatedAt: order.createdAt, companyId: order.companyId, variantId: item.variantId, productName: item.productName,
         variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
         unitPrice: new Prisma.Decimal(item.unitPrice.amount.toString()), subtotal: new Prisma.Decimal(item.subtotal.amount.toString()),
         ...mentionedPriceColumns(item.mentionedPrice) } });
@@ -740,7 +740,7 @@ export async function saveItemChanges(order: OrderAggregate, changes: OrderItemC
       const missing = ids.find((id) => !found.has(id));
       if (missing) return err({ code: "VARIANT_NOT_FOUND" as const, message: "Variant is not available", variantId: missing as VariantId });
     }
-    if (inserts.length) await prisma.orderItem.createMany({ data: inserts.map((item) => ({ id: item.id, orderId: order.id, variantId: item.variantId, productName: item.productName,
+    if (inserts.length) await prisma.orderItem.createMany({ data: inserts.map((item) => ({ id: item.id, orderId: order.id, orderCreatedAt: order.createdAt, variantId: item.variantId, productName: item.productName,
       variantAttributes: item.variantAttributes as Prisma.InputJsonObject, sku: item.sku, quantity: BigInt(item.quantity),
       unitPrice: money(item.unitPrice.amount), subtotal: money(item.subtotal.amount), ...mentionedPriceColumns(item.mentionedPrice) })) });
     const updated = await prisma.order.updateMany({ where: { id: order.id, companyId: order.companyId, cancelled: false },

@@ -599,6 +599,7 @@ model Order {
 
   @@unique([companyId, id])
   @@unique([companyId, number])
+  @@unique([companyId, createdAt, id])
   @@index([companyId, chatId])
   @@index([companyId, completedAt(sort: Desc), id])
   @@index([fromCatalog, checkoutConfirmedAt, createdAt])
@@ -627,7 +628,7 @@ model OrderItem {
   companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company Company @relation(fields: [companyId], references: [id])
   orderId String @db.Uuid
-  order Order @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  order Order @relation(fields: [companyId, orderCreatedAt, orderId], references: [companyId, createdAt, id], onDelete: Restrict, onUpdate: Cascade, map: "OrderItem_companyId_orderId_orderCreatedAt_fkey")
   variantId String @db.Uuid
   variant ProductVariant @relation(fields: [companyId, variantId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
   productName String
@@ -638,9 +639,10 @@ model OrderItem {
   subtotal Decimal @db.Decimal(15, 2)
   mentionedPriceAmount Decimal? @db.Decimal(11, 2)
   mentionedPriceUnits Int?
+  orderCreatedAt DateTime
 
   @@unique([companyId, orderId, variantId])
-  @@index([companyId, variantId])
+  @@index([companyId, variantId, orderCreatedAt, orderId])
 }
 
 model ChatMessageOutcome {
