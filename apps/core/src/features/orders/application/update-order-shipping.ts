@@ -2,7 +2,7 @@ import { err } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { DispatchDate } from "@shared/dispatch-date";
 import { orderStateMachine, type DispatchScheduleChange, type FulfillmentChange, type OrderAggregate, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
-import { shipOrder, type FulfillOrderDependencies } from "@core/src/features/orders/application/fulfill-order";
+import { deliverOrder, shipOrder, type FulfillOrderDependencies } from "@core/src/features/orders/application/fulfill-order";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
 
@@ -36,7 +36,7 @@ export async function updateOrderShipping(input: UpdateOrderShippingInput, conte
     }
     if (input.status !== undefined && input.status !== order.deliveryStatus) {
       const now = deps.clock();
-      const moved = input.status === "shipped" ? await shipOrder(order, now, deps) : orderStateMachine.registerDelivery(order, now);
+      const moved = input.status === "shipped" ? await shipOrder(order, now, deps) : await deliverOrder(order, now, deps);
       if (!moved.success) return moved;
       const saved = await deps.saveFulfillment(order.id, context.companyId, moved.data);
       if (!saved.success) return saved;

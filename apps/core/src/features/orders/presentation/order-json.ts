@@ -25,10 +25,10 @@ export function toOrderAggregateJson(order: OrderAggregate, stockDue: StockDue |
   const lifecycle = orderStateMachine.getLifecycle(order);
   const payment = orderStateMachine.getPaymentSummary(order);
   if (!lifecycle.success || !payment.success) throw new Error("Invalid order aggregate response");
-  // The contract exposes `source`, not the chat id, the catalog flag or the terminal times.
-  const fields = Object.fromEntries(Object.entries(order).filter(([key]) => !["chatId", "fromCatalog", "cancelledAt", "stockDeductedAt"].includes(key)));
+  // The contract exposes `source`, not the chat id or the catalog flag.
+  const fields = Object.fromEntries(Object.entries(order).filter(([key]) => !["chatId", "fromCatalog"].includes(key)));
   return orderAggregateSchema.parse({ ...fields, items: order.items.map((item) => ({ ...item, mentionedPrice: item.mentionedPrice ?? null })), source: orderSource(order), stockDue, checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), shippedAt: order.shippedAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null,
-    completedAt: order.completedAt?.toISOString() ?? null, status: lifecycle.data.status,
+    completedAt: order.completedAt?.toISOString() ?? null, cancelledAt: order.cancelledAt?.toISOString() ?? null, stockDeductedAt: order.stockDeductedAt?.toISOString() ?? null, status: lifecycle.data.status,
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,
     payments: order.payments.map((item) => item.status === "reported" ? { ...item,

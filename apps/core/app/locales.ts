@@ -60,7 +60,8 @@ const es = {
   },
   orderCancellation: {
     cancel: "Cancelar pedido", keep: "Conservar pedido", confirm: "¿Cancelar este pedido?",
-    effects: "La devolución del stock descontado se procesará después de cancelar. Los pagos registrados se conservarán; cancelar no realiza un reembolso. No podrás reabrir este pedido.",
+    effectsWithStock: "El stock descontado de los productos volverá al inventario después de cancelar. Los pagos registrados se conservarán; cancelar no realiza un reembolso. No podrás reabrir este pedido.",
+    effects: "Los pagos registrados se conservarán; cancelar no realiza un reembolso. No podrás reabrir este pedido.",
     saved: "Pedido cancelado. Los pagos registrados se conservan; no se realizó un reembolso. No se puede reabrir.",
     submitting: "Cancelando pedido…", verifying: "Consultando estado…", check: "Consultar estado", refreshFailed: "El pedido está cancelado, pero no se pudo actualizar el detalle. Recarga para consultarlo.",
     uncertain: "No pudimos confirmar si se canceló. Consulta el estado antes de realizar otra operación.",
@@ -77,11 +78,20 @@ const es = {
   },
   orderFulfillment: {
     ship: "Marcar enviado", deliver: "Marcar entregado", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregado.",
-    PAYMENT_REQUIRED: "Se requiere el pago completo antes de entregar.", SHIP_PAYMENT_REQUIRED: "Se requiere al menos un pago para enviar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de entregar.", INSUFFICIENT_STOCK: "No hay stock suficiente para enviar este pedido.",
-    STOCK_WAITING_ship: "Para enviar falta stock de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta stock de {{items}}.", STOCK_DEDUCTING: "El stock se está descontando; podrás entregarlo en menos de un minuto.",
+    PAYMENT_REQUIRED: "Registra al menos un pago para entregar. Puede ser un pago parcial.", SHIP_PAYMENT_REQUIRED: "Se requiere al menos un pago para enviar.", INSUFFICIENT_STOCK: "No hay stock suficiente para enviar este pedido.", DELIVER_INSUFFICIENT_STOCK: "No hay stock suficiente para entregar este pedido.",
+    STOCK_WAITING_ship: "Para enviar falta stock de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta stock de {{items}}.",
     ORDER_CANCELLED: "El pedido está cancelado; no se puede enviar ni entregar.", INVALID_TRANSITION: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado.",
     already_shipped: "El pedido ya está marcado como enviado.", already_delivered: "El pedido ya está marcado como entregado.",
     saveError: "No se pudo actualizar el pedido. Inténtalo de nuevo.",
+  },
+  orderStatus: {
+    title: "Estado del pedido", today: "Hoy", skipped: "Se entregó directamente, sin envío.", addPayment: "Agregar pago", deliverDirectly: "Entregar directamente", pickupNoShipping: "Recojo en tienda · sin envío",
+    modality: { home: "Entrega a domicilio", agency: "Entrega por agencia", store: "Recojo en tienda", none: "Entrega por definir" },
+    badge: { pending: "Pendiente", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado" },
+    step: { pending: "Pendiente", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado" },
+    paymentNote: { ship: "Registra al menos un pago para enviar. Puede ser un pago parcial.", deliver: "Registra al menos un pago para entregar. Puede ser un pago parcial." },
+    deliveredTo: "Entregado a <b>{{name}}</b> el {{date}}.", delivered: "Entregado el {{date}}.",
+    cancelled: "Pedido cancelado.", cancelledOn: "Pedido cancelado el {{date}}.", stockReturned: "El stock de los productos se devolvió al inventario.",
   },
   orderDelivery: {
     quoting: "Consultando tarifas…", quoteError: "No se pudieron cargar las tarifas. Conservamos tus datos.", retryRates: "Reintentar tarifas", noRates: "No hay tarifas para esta modalidad y distrito.", rate: "Tarifa de entrega", chooseRate: "Selecciona una tarifa",
@@ -382,7 +392,7 @@ const es = {
       incompleteNew: "Completa la entrega o elige Por definir.", incompleteSaved: "Completa la entrega o descarta sus cambios.",
       recipient: "Destinatario", sameAsCustomer: "Igual que el cliente", internalCost: "Costo de entrega (interno)", chosenByBuyer: "Elegida por el comprador",
       lockedShipped: "La entrega ya salió; no se puede cambiar.", lockedDelivered: "El pedido ya se entregó; la entrega no se puede cambiar.",
-      coverPayments: "Para marcarlo entregado, los pagos deben cubrir el total.", noStock: "No hay stock suficiente para uno de los productos.",
+      coverPayments: "Para marcarlo entregado, registra al menos un pago. Puede ser un pago parcial.", noStock: "No hay stock suficiente para uno de los productos.",
       priceChanged: "El precio de la entrega cambió a {{amount}}. Revísalo y guarda de nuevo.", unavailable: "Esa opción de entrega ya no está disponible. Elige otra.",
     },
     discard: {
@@ -466,7 +476,8 @@ const pt = {
   },
   orderCancellation: {
     cancel: "Cancelar pedido", keep: "Manter pedido", confirm: "Cancelar este pedido?",
-    effects: "A devolução do estoque descontado será processada depois de cancelar. Os pagamentos registrados serão mantidos; cancelar não realiza um reembolso. Você não poderá reabrir este pedido.",
+    effectsWithStock: "O estoque descontado dos produtos voltará ao inventário depois de cancelar. Os pagamentos registrados serão mantidos; cancelar não realiza um reembolso. Você não poderá reabrir este pedido.",
+    effects: "Os pagamentos registrados serão mantidos; cancelar não realiza um reembolso. Você não poderá reabrir este pedido.",
     saved: "Pedido cancelado. Os pagamentos registrados foram mantidos; nenhum reembolso foi realizado. Não é possível reabrir.",
     submitting: "Cancelando pedido…", verifying: "Consultando estado…", check: "Consultar estado", refreshFailed: "O pedido foi cancelado, mas não foi possível atualizar os detalhes. Recarregue para consultá-los.",
     uncertain: "Não foi possível confirmar se o pedido foi cancelado. Consulte o estado antes de realizar outra operação.",
@@ -483,11 +494,20 @@ const pt = {
   },
   orderFulfillment: {
     ship: "Marcar como enviado", deliver: "Marcar como entregue", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregue.",
-    PAYMENT_REQUIRED: "É necessário o pagamento completo antes de entregar.", SHIP_PAYMENT_REQUIRED: "É necessário pelo menos um pagamento para enviar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de entregar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para enviar este pedido.",
-    STOCK_WAITING_ship: "Para enviar falta estoque de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta estoque de {{items}}.", STOCK_DEDUCTING: "O estoque está sendo descontado; você poderá entregá-lo em menos de um minuto.",
+    PAYMENT_REQUIRED: "Registre pelo menos um pagamento para entregar. Pode ser um pagamento parcial.", SHIP_PAYMENT_REQUIRED: "É necessário pelo menos um pagamento para enviar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para enviar este pedido.", DELIVER_INSUFFICIENT_STOCK: "Não há estoque suficiente para entregar este pedido.",
+    STOCK_WAITING_ship: "Para enviar falta estoque de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta estoque de {{items}}.",
     ORDER_CANCELLED: "O pedido está cancelado; não pode ser enviado nem entregue.", INVALID_TRANSITION: "Só é possível enviar pedidos pendentes e entregar pedidos pendentes ou enviados.",
     already_shipped: "O pedido já está marcado como enviado.", already_delivered: "O pedido já está marcado como entregue.",
     saveError: "Não foi possível atualizar o pedido. Tente novamente.",
+  },
+  orderStatus: {
+    title: "Status do pedido", today: "Hoje", skipped: "Entregue diretamente, sem envio.", addPayment: "Adicionar pagamento", deliverDirectly: "Entregar diretamente", pickupNoShipping: "Retirada na loja · sem envio",
+    modality: { home: "Entrega em domicílio", agency: "Entrega por agência", store: "Retirada na loja", none: "Entrega a definir" },
+    badge: { pending: "Pendente", shipped: "Enviado", delivered: "Entregue", cancelled: "Cancelado" },
+    step: { pending: "Pendente", shipped: "Enviado", delivered: "Entregue", cancelled: "Cancelado" },
+    paymentNote: { ship: "Registre pelo menos um pagamento para enviar. Pode ser um pagamento parcial.", deliver: "Registre pelo menos um pagamento para entregar. Pode ser um pagamento parcial." },
+    deliveredTo: "Entregue a <b>{{name}}</b> em {{date}}.", delivered: "Entregue em {{date}}.",
+    cancelled: "Pedido cancelado.", cancelledOn: "Pedido cancelado em {{date}}.", stockReturned: "O estoque dos produtos voltou ao inventário.",
   },
   orderDelivery: {
     quoting: "Consultando tarifas…", quoteError: "Não foi possível carregar as tarifas. Seus dados foram mantidos.", retryRates: "Tentar tarifas novamente", noRates: "Não há tarifas para esta modalidade e distrito.", rate: "Tarifa de entrega", chooseRate: "Selecione uma tarifa",
@@ -788,7 +808,7 @@ const pt = {
       incompleteNew: "Complete a entrega ou escolha A definir.", incompleteSaved: "Complete a entrega ou descarte suas alterações.",
       recipient: "Destinatário", sameAsCustomer: "Igual ao cliente", internalCost: "Custo de entrega (interno)", chosenByBuyer: "Escolhida pelo comprador",
       lockedShipped: "A entrega já saiu; não pode ser alterada.", lockedDelivered: "O pedido já foi entregue; a entrega não pode ser alterada.",
-      coverPayments: "Para marcar como entregue, os pagamentos devem cobrir o total.", noStock: "Não há estoque suficiente para um dos produtos.",
+      coverPayments: "Para marcar como entregue, registre pelo menos um pagamento. Pode ser um pagamento parcial.", noStock: "Não há estoque suficiente para um dos produtos.",
       priceChanged: "O preço da entrega mudou para {{amount}}. Revise e salve novamente.", unavailable: "Essa opção de entrega não está mais disponível. Escolha outra.",
     },
     discard: {

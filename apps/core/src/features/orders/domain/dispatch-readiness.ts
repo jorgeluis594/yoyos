@@ -18,8 +18,7 @@ export type DispatchReadiness =
   | Readonly<{ kind: "ready"; operation: "ship" | "deliver" }>
   | Readonly<{ kind: "blocked"; operation: "ship" | "deliver"; reason:
       | Readonly<{ code: "SHIP_PAYMENT_REQUIRED" | "PAYMENT_REQUIRED"; pendingReport: boolean }>
-      | Readonly<{ code: "STOCK_WAITING"; variantIds: readonly [VariantId, ...VariantId[]] }>
-      | Readonly<{ code: "STOCK_DEDUCTING" | "STOCK_NOT_DEDUCTED" }> }>
+      | Readonly<{ code: "STOCK_WAITING"; variantIds: readonly [VariantId, ...VariantId[]] }> }>
   | Readonly<{ kind: "delivery_unassigned" }>;
 export type DispatchGroup = "overdue" | "today";
 export type ClassifiedCandidate = Readonly<{ candidate: DispatchCandidate; readiness: DispatchReadiness }>;
@@ -50,13 +49,11 @@ export function describeDispatchReadiness(order: ReadinessSubject, stock: Dispat
   if (order.deliveryMethod === null) return { kind: "delivery_unassigned" };
   const operation = order.deliveryMethod === "store" ? "deliver" : "ship";
   const paid = confirmedCents(order);
-  const block = orderFulfillmentBlock({ cancelled: order.cancelled, deliveryStatus: order.deliveryStatus, paymentStatus: paid >= cents(order.total.amount) ? "paid" : "pending",
-    paidAmount: { amount: paid / 100 }, stockDeducted: order.stockDeducted, stockDue: mutableStockDue(stock.stockDue) }, operation);
+  const block = orderFulfillmentBlock({ cancelled: order.cancelled, deliveryStatus: order.deliveryStatus, paidAmount: { amount: paid / 100 }, stockDue: mutableStockDue(stock.stockDue) }, operation);
   if (block !== null) {
     if (block.code === "PAYMENT_REQUIRED") return { kind: "blocked", operation,
       reason: { code: operation === "ship" ? "SHIP_PAYMENT_REQUIRED" : "PAYMENT_REQUIRED", pendingReport: order.hasReportedPayment } };
     if (block.code === "STOCK_WAITING") return { kind: "blocked", operation, reason: { code: "STOCK_WAITING", variantIds: block.variantIds as readonly [VariantId, ...VariantId[]] } };
-    if (block.code === "STOCK_DEDUCTING" || block.code === "STOCK_NOT_DEDUCTED") return { kind: "blocked", operation, reason: { code: block.code } };
     return null;
   }
   const [first, ...rest] = order.stockDeducted ? [] : stock.shortAtCurrentStock;

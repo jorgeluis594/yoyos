@@ -36,7 +36,7 @@ const yape = {
 function order1042(patch: Partial<OrderAggregateResponse> = {}): OrderAggregateResponse {
   return {
     checkoutEnabledAt: null, checkoutConfirmedAt: null, number: 1042, id: orderId, companyId, sellerId: "user-1", buyer: { contactId: null, name: "Jorge Gonzalez", phone: "+51977909427" },
-    source: "manual", createdAt: "2026-10-30T09:10:00.000Z", scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, status: "active",
+    source: "manual", createdAt: "2026-10-30T09:10:00.000Z", scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelledAt: null, stockDeductedAt: null, status: "active",
     paymentStatus: "pending", paidAmount: pen(150), balanceDue: pen(148), overpaidAmount: pen(0), cancelled: false, delivery: homeDelivery, deliveryStatus: "pending",
     stockDeducted: false, stockDue: null,
     items: [item("00000000-0000-4000-8000-000000000001", trajeM, "Traje de Príncipe Azul", "M", 89), item("00000000-0000-4000-8000-000000000002", trajeL, "Traje de Príncipe Azul", "L", 89),
@@ -258,6 +258,13 @@ describe("invalid fields", () => {
     state = { ...state, draft: { ...state.draft, items: [newLine(crown, "2")], deliverImmediately: true,
       payments: [{ paymentId: "p1", amount: "20.505", method: "digital_wallet", walletProvider: "yape", deductStockIfPartial: false }] } };
     expect(invalidFields(state)).toMatchObject([{ section: "payments", field: "amount", id: "p1" }, { section: "delivery", field: "deliverImmediately", reason: "deliver_needs_payment" }]);
+  });
+
+  test("deliver on save needs one payment, and a partial one is enough", () => {
+    const base = initialDraft({ kind: "new", orderId, currency: "PEN" });
+    const withPayments = (payments: OrderViewState["draft"]["payments"]) => ({ ...base, draft: { ...base.draft, items: [newLine(crown, "2")], deliverImmediately: true, payments } });
+    expect(invalidFields(withPayments([]))).toMatchObject([{ section: "delivery", field: "deliverImmediately", reason: "deliver_needs_payment" }]);
+    expect(invalidFields(withPayments([{ paymentId: "p1", amount: "1.00", method: "digital_wallet", walletProvider: "yape", deductStockIfPartial: false }]))).toEqual([]);
   });
 });
 

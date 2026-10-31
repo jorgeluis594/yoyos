@@ -28,7 +28,7 @@ const mockCheckCancellation = jest.fn();
 let mockUserId = "seller";
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
 const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
-  buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z",
+  buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z", cancelledAt: null, stockDeductedAt: null,
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
   balanceDue: { amount: 0, currency: "PEN" }, overpaidAmount: { amount: 0, currency: "PEN" }, cancelled: false,
   delivery: null, deliveryStatus: "delivered", stockDeducted: true, stockDue: null, itemsTotal: { amount: 12, currency: "PEN" },
@@ -393,6 +393,32 @@ test.each([null, "store"] as const)("seller delivers a shipped order with %s del
   expect(mockVoidPayment).not.toHaveBeenCalled();
 });
 
+test("a partial confirmed payment enables delivering a store pickup that still has a balance", async () => {
+  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null, stockDeducted: false,
+    paymentStatus: "pending", paidAmount: { amount: 4, currency: "PEN" }, balanceDue: { amount: 8, currency: "PEN" },
+    delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } } };
+  mockDeliver.mockResolvedValue({ success: true, data: { ...mockOrder, status: "active", deliveryStatus: "delivered", stockDeducted: true, deliveredAt: initialOrder.deliveredAt, completedAt: null } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como entregado" }));
+  await screen.findByText("Pedido marcado como entregado.");
+  expect(mockDeliver).toHaveBeenCalledWith(mockId);
+  expect(screen.queryByText("Venta completada")).toBeNull();
+});
+
+test("reloads the order when delivering meets short stock and names delivering", async () => {
+  mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null, stockDeducted: false,
+    paymentStatus: "pending", paidAmount: { amount: 4, currency: "PEN" }, balanceDue: { amount: 8, currency: "PEN" },
+    delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } } };
+  mockDeliver.mockResolvedValue({ success: false, error: { code: "INSUFFICIENT_STOCK" } });
+  const screen = render(<OrderDetailScreen />);
+  await screen.findByText("Orden activa");
+  const loads = mockLoads;
+  fireEvent.press(screen.getByRole("button", { name: "Marcar como entregado" }));
+  await screen.findByText("No hay stock suficiente para entregar este pedido.");
+  await waitFor(() => expect(mockLoads).toBeGreaterThan(loads));
+});
+
 test("seller ships then delivers and sees an updated state after each operation", async () => {
   mockOrder = { ...initialOrder, status: "active", deliveryStatus: "pending", deliveredAt: null, completedAt: null };
   mockShip.mockResolvedValue({ success: true, data: { ...mockOrder, deliveryStatus: "shipped" } });
@@ -414,7 +440,6 @@ test("seller ships then delivers and sees an updated state after each operation"
 
 test.each([
   { paymentStatus: "pending", paidAmount: { amount: 0, currency: "PEN" }, stockDeducted: true, cancelled: false, deliveryStatus: "pending", reason: "Se requiere al menos un pago para enviar." },
-  { paymentStatus: "paid", stockDeducted: false, cancelled: false, deliveryStatus: "pending", delivery: { method: "store", recipient: { name: "Ana", phone: "999", identity: { kind: "absent" } }, pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller", userId: "seller" } }, reason: "Se requiere descontar el stock antes de entregar." },
   { paymentStatus: "paid", stockDeducted: true, cancelled: true, deliveryStatus: "pending", reason: "El pedido está cancelado; no se puede enviar ni entregar." },
   { paymentStatus: "paid", stockDeducted: true, cancelled: false, deliveryStatus: "delivered", reason: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado." },
 ] as const)("fulfillment is blocked and explained: $reason", async ({ reason, ...state }) => {
@@ -1041,12 +1066,12 @@ test("joins three short items as a list", async () => {
   await screen.findByText("Para enviar falta stock de Camisa (Talla: M), Polo (Talla: L · Color: Azul) y Short (Talla: S).");
 });
 
-test("a store-pickup order being deducted shows «Marcar como entregado» disabled with the deducting reason", async () => {
+test("a store-pickup order being deducted can still be delivered, because delivering deducts the stock itself", async () => {
   mockOrder = waitingOrder({ delivery: storePickup, stockDue: { kind: "deducting" } });
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Orden activa");
-  expect(screen.getByRole("button", { name: "Marcar como entregado" })).toBeDisabled();
-  expect(screen.getByText("El stock se está descontando; podrás entregarlo en menos de un minuto.")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "Marcar como entregado" })).not.toBeDisabled();
+  expect(screen.queryByText(/podrás entregarlo en menos de un minuto/)).toBeNull();
 });
 
 test("a waiting store-pickup order explains the short item for delivering", async () => {

@@ -68,8 +68,7 @@ describe("OrderDeliveryCard", () => {
     return <I18nextProvider i18n={i18n}><MemoryRouter>
       <OrderDeliveryCard state={state} settings={provided} invalid={invalidFields(state)} settingsHref="/pe/settings/delivery"
         onChange={(delivery: DeliveryDraft) => set(current => ({ ...current, draft: { ...current.draft, delivery } }))}
-        onDeliverImmediatelyChange={(deliverImmediately) => set(current => ({ ...current, draft: { ...current.draft, deliverImmediately } }))}
-        fulfillment={<button type="button">Marcar enviado</button>} />
+        onDeliverImmediatelyChange={(deliverImmediately) => set(current => ({ ...current, draft: { ...current.draft, deliverImmediately } }))} />
     </MemoryRouter></I18nextProvider>;
   }
   async function mount(initial: OrderViewState, provided: DeliverySettingsResponse | null = settings) {
@@ -168,7 +167,7 @@ describe("OrderDeliveryCard", () => {
     expect(document.body.textContent).toContain("Costo de entrega (interno)");
   });
 
-  test("offers Marcar como entregado al guardar only on a new sale and marks it when payments do not cover", async () => {
+  test("offers Marcar como entregado al guardar only on a new sale and marks it until there is a payment", async () => {
     const start = newState();
     const line = { variantId: "00000000-0000-4000-8000-0000000000a1", productName: "Corona", attributes: {}, sku: null, unitPrice: pen(35), quantityText: "1", stock: 5, sellable: true };
     await mount({ ...start, draft: { ...start.draft, items: [line] } });
@@ -176,17 +175,18 @@ describe("OrderDeliveryCard", () => {
     expect(box).not.toBeNull();
     await act(async () => { box.click(); });
     expect(latest.draft.deliverImmediately).toBe(true);
-    expect(document.body.textContent).toContain("Para marcarlo entregado, los pagos deben cubrir el total.");
+    expect(document.body.textContent).toContain("Para marcarlo entregado, registra al menos un pago. Puede ser un pago parcial.");
     act(() => root!.unmount());
     document.body.innerHTML = "";
     await mount(savedState());
     expect(document.getElementById("order-delivery-deliverImmediately")).toBeNull();
   });
 
-  test("locks the fields of a shipped order with its note and keeps the fulfillment slot", async () => {
+  test("locks the fields of a shipped order with its note and has no fulfillment buttons any more", async () => {
     await mount(savedState({ deliveryStatus: "shipped" }));
     expect(document.body.textContent).toContain("La entrega ya salió; no se puede cambiar.");
-    expect(document.body.textContent).toContain("Marcar enviado");
+    expect(document.body.textContent).not.toContain("Marcar enviado");
+    expect(document.body.textContent).not.toContain("Marcar entregado");
     expect(field("name").matches(":disabled")).toBe(true);
     expect(tab("Domicilio").disabled).toBe(true);
   });

@@ -55,8 +55,8 @@ An order has three independent dimensions plus a derived status:
 | --- | --- | --- |
 | Payment | `pending`, `paid` | `paid` when confirmed payments cover the total. Reported (buyer) payments do not count until confirmed. |
 | Stock | `stockDeducted` | Stock is deducted at most once per order, all items or none; see [Stock deduction](#stock-deduction). |
-| Delivery | `pending`, `shipped`, `delivered` | Shipping requires at least one confirmed payment and deducts pending stock itself; delivering requires full payment and deducted stock. |
-| Status | `active`, `cancelled`, `completed` | `completed` when delivered and paid; otherwise `active` unless cancelled. |
+| Delivery | `pending`, `shipped`, `delivered` | Shipping and delivering require at least one confirmed payment, partial or full, and deduct pending stock themselves. A delivered order can keep a balance due. |
+| Status | `active`, `cancelled`, `completed` | `completed` when delivered and its confirmed payments cover the total (`deliveredAt` is the physical delivery, `completedAt` the moment delivery and coverage both hold); otherwise `active` unless cancelled. |
 
 - An order is created `active`, unpaid, undelivered, without deducted stock and without reserving stock. Reason: creating an order is a record of intent; stock moves only when it is paid.
 - No payment is ever rejected, deleted or left unrecorded because of stock. The payment, the balance, the paid status and completion are recorded whether or not stock can be deducted. Reason: founder rule; money that arrived must be recorded.
@@ -81,8 +81,8 @@ An order has three independent dimensions plus a derived status:
 | Serving waiting orders | On a restock, the waiting orders that contain an increased variant are served oldest creation date first; each order whose items all fit the stock left at that moment is deducted, and an order that does not fit is skipped so the next ones are tried. Example: stock left at 3, #1010 needs 5 and #1012 needs 2: #1012 is deducted and #1010 keeps waiting with «hay 1». Reason: simple and predictable, and stock does not sit idle behind a large order (rejected: choosing the order by hand). |
 | Restock in one step | The increase and the deduction of the waiting orders it covers commit in the same transaction, so no newer payment, creation or dispatch can take the increased units in between. A sale paid while units are free is deducted right away. |
 | Guarantee | A due order whose items all fit is never left undeducted, store pickup included: if the deduction did not complete, the recovery job deducts it within a minute, without seller action and without another restock. Meanwhile the order shows «Descontando stock». |
-| Stock source | Stock is never negative and never deducted twice for one order. It is deducted only by this automatic deduction (also after an edit), by shipping, and by creation with immediate delivery or shipment; it is restored only by cancellation. There is no standalone deduction operation. Reason: a second path would bypass oldest first. |
-| Ship and deliver | Unchanged rules. Ship deducts inside its own transaction and answers `INSUFFICIENT_STOCK` when short (also on a partially paid order that is not due). Deliver never deducts and requires deducted stock. |
+| Stock source | Stock is never negative and never deducted twice for one order. It is deducted only by this automatic deduction (also after an edit), by shipping, by delivering, and by creation with immediate delivery or shipment; it is restored only by cancellation. There is no standalone deduction operation. Reason: a second path would bypass oldest first. |
+| Ship and deliver | Both deduct inside their own transaction and answer `INSUFFICIENT_STOCK` when short (also on a partially paid order that is not due), persisting nothing. A delivered order therefore always has its stock deducted. |
 | Leaving waiting | A cancelled waiting order leaves the waiting orders and nothing is restored, because nothing was deducted. An order that stops being due (a voided payment, or a delivery or items change that raises the total, and no remaining payment asked to deduct) shows «Stock pendiente» like any unpaid order. |
 
 The order response carries `stockDue` (`null`, `{ kind: "waiting", shortItems: [{ variantId, available }] }` or `{ kind: "deducting" }`; `orderStockDueSchema`). It is the only representation of «Esperando stock» and «Descontando stock»; `null` covers deducted and not due orders, which `stockDeducted` already tells apart. `available` is the current stock, read when the order is read, listed in the order's item order. Use cases that publish a stock event compute it inside their own transaction from the deduction outcome, so a response never mixes two moments; other reads compute it in a read snapshot and read stock only for due orders. List pages never compute it, and dispatch labels compute it once per batch. Nothing new is copied into the order and no history of deduction attempts is kept.
@@ -177,16 +177,16 @@ A cancelled order shows no stock state on web, because its stock was restored or
 
 ### Fulfillment buttons
 
-Web shows «Marcar enviado» and «Marcar entregado» at the top of the «Entrega» card; mobile shows the single next action, «Marcar como enviado» or, for store pickup, «Marcar como entregado». Both platforms decide with `orderFulfillmentBlock` (`shared/orders-fulfillment.ts`): payment and transition reasons first, then the stock block.
+Web shows «Marcar enviado», «Entregar directamente» and «Marcar entregado» in the «Estado del pedido» card ([Order view](order-view.md#estado-del-pedido)); mobile shows the single next action, «Marcar como enviado» or, for store pickup, «Marcar como entregado». Both platforms decide with `orderFulfillmentBlock` (`shared/orders-fulfillment.ts`): payment and transition reasons first, then the stock block.
 
 | Order | Ship | Deliver (store pickup included) |
 | --- | --- | --- |
 | Waiting | Disabled: «Para enviar falta stock de Camisa (M · Azul).» | Disabled: «Para entregar falta stock de Camisa (M · Azul).» |
-| Deducting | Enabled: shipping deducts the stock itself | Disabled: «El stock se está descontando; podrás entregarlo en menos de un minuto.» |
+| Deducting | Enabled: shipping deducts the stock itself | Enabled: delivering deducts the stock itself |
 
 - The reasons name only the short items, as a list («Camisa (M) y Polo (L)», «Camisa (M), Polo (L) y Short (S)»); the quantities stay in the notice. Reason: the notice and the buttons must agree, and mobile would otherwise repeat the notice a few rows below.
-- «Se requiere descontar el stock antes de entregar.» remains only for an order that is not due; an unpaid order shows the payment reason first.
-- If stock changed after the screen loaded and a tap still meets short stock, «No hay stock suficiente para enviar este pedido.» is shown and the order reloads. A partially paid order with short stock and no deduction request is not waiting: it shows no notice, ship stays enabled and the tap fails with that text.
+- An unpaid order shows the payment reason first; «Se requiere descontar el stock antes de entregar.» is only a domain guard that the clients no longer reach.
+- If stock changed after the screen loaded and a tap still meets short stock, «No hay stock suficiente para enviar este pedido.» (or «…para entregar este pedido.» when delivering) is shown and the order reloads. A partially paid order with short stock and no deduction request is not waiting: it shows no notice, ship stays enabled and the tap fails with that text.
 - The [AI assistants' dispatch readiness](assistants.md#dispatch-readiness) uses these rules and sentences, and also marks a partially paid order with short stock as not ready.
 
 ### Delivery
@@ -316,7 +316,7 @@ Creating and reviewing an order share one screen, described in [Order view](orde
 
 - A line whose quantity exceeds the stock shows «Disponible: 3. Si lo cobras, el pedido quedará esperando stock.».
 - Saving with payments and short stock succeeds and opens the order, which shows «Esperando stock».
-- With «Marcar como entregado al guardar», short stock is still refused with «No hay stock suficiente para uno de los productos.»: nothing is recorded and the form stays intact; the seller can save it without delivering it. Reason: delivering requires deducted stock.
+- With «Marcar como entregado al guardar», short stock is still refused with «No hay stock suficiente para uno de los productos.»: nothing is recorded and the form stays intact; the seller can save it without delivering it. Reason: delivering deducts the stock itself and refuses when it is short.
 
 ## Mobile sales flow
 

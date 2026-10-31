@@ -12,9 +12,9 @@ import { Select, SelectContent, SelectItem, SelectPortalContainer, SelectTrigger
 import { dispatchLabelSizes, type CreateDispatchLabelsResponse, type DispatchLabelSize } from "@shared/contracts/dispatch-labels";
 import type { DispatchLabelExclusion } from "@shared/dispatch-label/types";
 import { pdfBlobFromBase64, requestDispatchLabels } from "@core/src/features/dispatch-labels/presentation/dispatch-labels-client";
+import { salesTimeZone } from "@shared/orders-date";
 
 const defaultSize: DispatchLabelSize = "label_62x100";
-const salesTimeZone = "America/Lima";
 
 /** The reason wording is the app's, so a seller sees the same text on both. */
 export function exclusionText(t: TFunction, exclusion: DispatchLabelExclusion): string {
