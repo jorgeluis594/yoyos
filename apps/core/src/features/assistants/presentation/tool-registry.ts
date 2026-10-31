@@ -138,6 +138,12 @@ export function createToolRegistry(options: ToolRegistryOptions): ToolRegistry {
 const writeVerbStems = ["crear", "creat", "actualiz", "updat", "edit", "modific", "borr", "delet", "elimin", "cancel", "registr", "write", "cambi", "anul", "agreg", "add", "remov", "quit", "enviar", "send", "confirm", "marcar", "pagar", "guard", "save"];
 const forbiddenSampleStrings = ["987654789", "Av. Larco 123", "45678912"];
 
+const languageViolations = [
+  { phrase: "en espanol", message: "tells the agent to answer in Spanish; the general instructions set the language of the owner" },
+  { phrase: "tal cual", message: "tells the agent to quote a text «tal cual»; the owner's language may differ" },
+];
+const plain = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase();
+
 const words = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().split(/[^a-z0-9]+/).filter((word) => word !== "");
 
 /** The static rules every tool module must keep. Returns one sentence per violation; empty when the modules are fine. */
@@ -146,11 +152,17 @@ export function checkToolModules(modules: readonly ToolModule[]): string[] {
   for (const module of modules) {
     if ((module.access as string) !== "read") violations.push(`A module of scope ${module.scope} is not declared read.`);
   }
+  const checkLanguage = (where: string, text: string) => {
+    for (const { phrase, message } of languageViolations) if (plain(text).includes(phrase)) violations.push(`${where} contains «${phrase === "en espanol" ? "en español" : phrase}» and ${message}.`);
+  };
+  for (const module of modules) checkLanguage(`Module of scope ${module.scope}:`, module.instructions);
   let definitions: readonly ToolDefinition[] = [];
   // The tools of a module that is not read are checked too, as if it were.
   try { definitions = buildToolDefinitions(modules.map((module) => ({ ...module, access: "read" as const }))); } catch (cause) { violations.push(String(cause instanceof Error ? cause.message : cause)); }
   for (const { tool, inputJsonSchema, annotations } of definitions) {
     const where = `Tool ${tool.name}:`;
+    checkLanguage(where, tool.title);
+    checkLanguage(where, tool.description);
     if (tool.title.trim() === "" || tool.title.length > 80 || toolNamePattern.test(tool.title)) violations.push(`${where} needs a Spanish display title.`);
     if (tool.description.trim().length < 20) violations.push(`${where} needs a description.`);
     if (inputJsonSchema.type !== "object" || inputJsonSchema.additionalProperties !== false) violations.push(`${where} input must be a strict JSON Schema object.`);
