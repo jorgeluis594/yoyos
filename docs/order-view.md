@@ -68,7 +68,7 @@ A late response from an earlier attempt does not change the screen.
 
 - The text is direct, with no «Pago:» or «Entrega:» prefix. Header and list share one icon per dimension (card, truck, check or cross); the state shows in the text and in the color (warning for pending, info for shipped, success for paid, delivered and completed, muted for cancelled). Color is never the only signal.
 - The sales list keeps its compact control (icons that open to show the text, which is also the accessible name and tooltip). An active order with a balance reads «Pago pendiente: S/ 148.00». A completed order shows only «Venta completada»; a cancelled one only «Pedido cancelado», with no payment, balance or delivery label. The buyer-confirmation line under the order number ([Checkout](checkout.md#link-and-access)) and the list's «Desde el catálogo» badge are unchanged.
-- The shipped delivery state reads «Enviada», and the list filter «Enviado desde». Mobile still says «Despachado».
+- The shipped delivery state reads «Enviada», and the list filter «Enviado desde». Mobile says «Despachado».
 
 ## What can change when
 
@@ -82,7 +82,7 @@ A late response from an earlier attempt does not change the screen.
 | Cancelled | Read-only | Read-only | Read-only | Only **Anular pago**; pending reports are read-only |
 
 - What is locked is shown disabled with one note in its card that names the remedy; nothing the seller expects to find is hidden. A locked delivery explains itself once, without a second note or a repeated summary. Shipped and delivered orders get no remedy: the goods left, and corrections are agreed in the chat.
-- A button blocked by a rule stays focusable as `aria-disabled` with its note linked as its description, so keyboard and screen-reader users reach the reason.
+- A button blocked by a rule (the only line, unsaved changes, fulfillment requirements) stays focusable as `aria-disabled` with its note linked as its description, so keyboard and screen-reader users reach the reason. A state lock (see the table above) uses a real `disabled`.
 - «Descontando stock» is a screen rule only; core enforces cancelled, delivery not pending and stock deducted ([Orders · Locks enforced by core](orders.md#locks-enforced-by-core)).
 
 ## Productos
@@ -106,7 +106,7 @@ A late response from an earlier attempt does not change the screen.
 - **Footer:** «↑ ↓ productos · ← → variantes · Enter agregar · el selector sigue abierto para agregar más» (hidden without a fine pointer) and **Listo · 2 agregados** (or **Listo**). Esc or **Listo** closes the picker, what was added stays and focus returns to **Agregar producto**. The picker stays open after each addition. Reason: the seller adds several products in a row.
 - **States:** «Buscando…»; «No encontramos "príncipe"» with «Prueba con otro nombre o crea el producto en otra pestaña.» and «Crear producto en otra pestaña»; «Todavía no hay productos»; «No se pudo cargar el catálogo.» with **Reintentar** keeping the text; «Mostrando los primeros 20. Escribe más para afinar la búsqueda.» shown at exactly 20 results.
 - **Requests:** the search is debounced by 250 ms (the first, empty query is not); a new request aborts the previous one and only the latest may set the results; previous results stay visible while loading. The empty-query result is cached per filter value by a hook the view mounts, so it outlives the dialog; a successful save and every revalidation drop it, and the next opening fetches again. A closed picker never sends a request.
-- **Shortcut «/»:** opens the picker only when focus is not in a text field, no other dialog is open and products are editable. **Agregar producto** declares it with `aria-keyshortcuts="/"`.
+- **Shortcut «/»:** opens the picker only when focus is not in a text field, no other dialog is open and products are editable. **Agregar producto** shows it as a visual hint (`<kbd>`) only; it does not declare it with `aria-keyshortcuts`.
 - The catalog search matches product names only; products have no categories ([Products](products.md)).
 
 ## Pagos
@@ -140,7 +140,7 @@ A late response from an earlier attempt does not change the screen.
   - Once the delivery is locked the recipient is frozen, the box is disabled and changing the customer does not change it.
 - **What a save sends:** an untouched delivery is not sent (it keeps its rate, price, recipient and author, including «Elegida por el comprador»). Changing only the recipient, address text, reference or identity document sends an amendment, with no new quote. Changing the method, district, rate or agency sends a replacement, quoted with the price the seller saw. A saved delivery that is a store pickup can only be amended (the recipient); its pickup point stays as saved and cannot be replaced from the screen.
 - **Quoted price:** «Costo de entrega (interno)» is read-only and comes from the chosen rate. On a saved order the card records the quoted price when the seller picks a rate, so a replacement carries the price it expects. Changing only the rate within the same district needs the district to be picked again.
-- «Elegida por el comprador» shows under the method while the delivery is the buyer's choice. Without an enabled method the card shows today's text and **Configurar modalidades de entrega**.
+- «Elegida por el comprador» shows under the method while the delivery is the buyer's choice. Without an enabled method the card shows «La modalidad de entrega no está disponible. Revisa la configuración para asignarla.» and the link **Configurar modalidades de entrega**.
 
 ## Not offered
 

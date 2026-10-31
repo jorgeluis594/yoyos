@@ -73,7 +73,7 @@ An order has three independent dimensions plus a derived status:
 | Aspect | Rule |
 | --- | --- |
 | Due for deduction | An order is due when it is not cancelled, its stock is not deducted, its delivery is `pending`, and either its confirmed payments cover the total or a confirmed payment asked to deduct stock even though it is partial (`deductStockIfPartial`, stored on the payment). It is derived from the order (`isStockDeductionDue`); nothing else marks it. |
-| When it is attempted | Whenever an order may become due (a payment is confirmed: manual payment, report approval, creation with payments, immediate sale; a delivery changes, by the seller or by the buyer in the checkout; the seller saves an edit of items or delivery) and whenever a variant's stock increases. Also when the seller saves an edit that changed the items or the delivery of a saved order. Nothing else deducts: editing never deducts or restores stock by itself. Reason: every path that makes an order due needs a trigger. |
+| When it is attempted | Whenever an order may become due (a payment is confirmed: manual payment, report approval, creation with payments, immediate sale; a delivery changes, by the seller or by the buyer in the checkout; the seller saves an edit that changed the items or the delivery of a saved order) and whenever a variant's stock increases. Nothing else deducts: editing never deducts or restores stock by itself. Reason: every path that makes an order due needs a trigger. |
 | Enough stock | The result the seller sees right after the response is already deducted. Reason: anything else would show a false «Esperando stock». |
 | Short stock | Nothing is deducted and the operation still succeeds; the order is **waiting** («Esperando stock»). |
 | All or nothing | Either every item of the order is deducted or none. Example: 4 «Camisa · M» and 2 «Polo · L» with stock 3 and 5: nothing is deducted until «Camisa · M» reaches 4. Reason: a half-deducted order cannot be dispatched and hides what is missing. |
@@ -164,14 +164,14 @@ Transitions: `reported → confirmed`, `reported → rejected`, `confirmed → v
 - Deducted and not due orders show no notice. The notice has no action, is static (not announced as an alert on every load), has its title as a header, and uses the warning surface and text color plus an icon, never color alone.
 - The notice appears only on the order detail; there is no list filter or badge, label batches list and print waiting orders unmarked, and no notification is sent when a waiting order is deducted.
 
-The stock state of the order, in the header of the web products card and in the mobile detail:
+The stock state of the order, in the header of the web products card and in the stock line of the mobile detail:
 
-| Order | Web and mobile |
-| --- | --- |
-| Deducted | «Stock descontado» |
-| Waiting | Told by the notice, not repeated in the card |
-| Deducting | Told by the notice, not repeated in the card |
-| Not due | «Stock pendiente» |
+| Order | Web | Mobile |
+| --- | --- | --- |
+| Deducted | «Stock descontado» | «Stock descontado» |
+| Waiting | Told by the notice, not repeated in the card | «Esperando stock» |
+| Deducting | Told by the notice, not repeated in the card | «Descontando stock» |
+| Not due | «Stock pendiente» | «Stock pendiente» |
 
 A cancelled order shows no stock state on web, because its stock was restored or never deducted. The web detail has no «Detalles internos» card: the seller's user id and the delivery author's id are not shown (an id means nothing to the seller); the buyer's choice shows as «Elegida por el comprador» in «Entrega», and the internal delivery cost stays there.
 
@@ -195,7 +195,7 @@ Web shows «Marcar enviado» and «Marcar entregado» at the top of the «Entreg
 
 ## Editing a saved order
 
-`editOrder` (`application/edit-order.ts`) is the seller's single operation to change the items, the customer and the delivery of a saved order. Only a seller of the order's company can use it; an order of another company answers as missing. Only the web uses it today. Reason: mobile item editing is a separate task, and the operation is exposed as an API when mobile needs it (rejected: a public route and contract with no client).
+`editOrder` (`application/edit-order.ts`) is the seller's single operation to change the items, the customer and the delivery of a saved order. Only a seller of the order's company can use it; an order of another company answers as missing. Only the web route action uses it; mobile does not edit items. Reason: a public route and contract with no client is not added.
 
 ### What the request carries
 
@@ -291,7 +291,7 @@ All under `/api/orders`, authenticated, scoped to the session company and sent w
 | Register / void a payment | `POST /:id/payments`, `POST /:id/payments/:paymentId/void` |
 | Reject a buyer report (body `{ reason: string \| null }`) | `POST /:id/payments/:paymentId/reject` |
 | Set delivery / update shipping and dispatch date | `PUT /:id/delivery`, `PATCH /:id/shipping` |
-| Edit items, customer and delivery of a saved order (web only) | Action `save_changes` of the web order route, on `editOrder`; no `/api/orders` route yet |
+| Edit items, customer and delivery of a saved order (web only) | Action `save_changes` of the web order route, on `editOrder`; there is no `/api/orders` route for it |
 | Ship, deliver, cancel | `POST /:id/ship`, `/deliver`, `/cancel` |
 | Read the buyer checkout link (idempotent, used by mobile; `409 SUBDOMAIN_REQUIRED` or `409 ORDER_CANCELLED`) | `POST /:orderId/checkout-link` |
 
