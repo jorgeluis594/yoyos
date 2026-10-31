@@ -20,7 +20,7 @@ jobs:
           node-version: '24'
       - uses: pnpm/action-setup@v6
         with:
-          version: '12.5.1'
+          version: '12.15.0'
       - uses: actions/setup-go@v7
         with:
           go-version: '1.26.5'
