@@ -13,7 +13,7 @@ import type { AuthorizeAssistantError, SaveConnectionOutcome } from "@core/src/f
 import type { EndedConnection, PersistenceError } from "@core/src/features/assistants/application/disconnect-assistant";
 import type { ListConnectionsError } from "@core/src/features/assistants/application/list-assistant-connections";
 import { assistantConfig } from "@core/src/features/assistants/infrastructure/assistant-config";
-import { parseAssistantConnectionRow } from "@core/src/features/assistants/infrastructure/connection-rows";
+import { parseAssistantConnectionRow, parseEndedConnectionRow } from "@core/src/features/assistants/infrastructure/connection-rows";
 
 const unavailable = { code: "PERSISTENCE_UNAVAILABLE", message: "Assistant connections unavailable" } as const;
 
@@ -48,7 +48,7 @@ async function saveConnection(connection: NewAssistantConnection): Promise<Resul
           ${returnKind}, ${returnDomain}, ${[...connection.scopes]}::text[], ${connection.authorizedAt})
         ON CONFLICT ("companyId", "oauthClientId", "authorizedByUserId") DO NOTHING
         RETURNING "id"`;
-      if (inserted.length > 0) return ok<SaveConnectionOutcome>("inserted");
+      if (inserted.length > 0) return ok({ outcome: "inserted" as const, id: connection.id });
       const [existing] = await prisma.$queryRaw<unknown[]>`
         SELECT * FROM "AssistantConnection"
         WHERE "companyId" = ${connection.companyId}::uuid AND "oauthClientId" = ${connection.oauthClientId} AND "authorizedByUserId" = ${connection.authorizedByUserId}
@@ -56,18 +56,19 @@ async function saveConnection(connection: NewAssistantConnection): Promise<Resul
       const parsed = parseAssistantConnectionRow(existing);
       if (!parsed.success) return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: parsed.error.message });
       const passwordChangedAt = (await passwordChanges([connection.authorizedByUserId])).get(connection.authorizedByUserId) ?? null;
-      if (isConnectionActive({ ...parsed.data, passwordChangedAt }, connection.authorizedAt, assistantConfig.connectionInactivityDays)) return ok<SaveConnectionOutcome>("unchanged");
+      if (isConnectionActive({ ...parsed.data, passwordChangedAt }, connection.authorizedAt, assistantConfig.connectionInactivityDays)) return ok({ outcome: "unchanged" as const, id: parsed.data.id });
       await prisma.$executeRaw`
         UPDATE "AssistantConnection"
         SET "agentName" = ${connection.agentName}, "returnKind" = ${returnKind}, "returnDomain" = ${returnDomain},
           "scopes" = ${[...connection.scopes]}::text[], "authorizedAt" = ${connection.authorizedAt}, "lastUsedAt" = NULL
         WHERE "id" = ${parsed.data.id}::uuid`;
-      return ok<SaveConnectionOutcome>("reactivated");
+      return ok({ outcome: "reactivated" as const, id: parsed.data.id });
     }));
-    if (outcome.success && outcome.data !== "unchanged") {
-      log.info({ event: "assistant_connection_created", companyId: connection.companyId, connectionId: connection.id, userId: connection.authorizedByUserId, oauthClientId: connection.oauthClientId, returnKind }, "assistant_connection_created");
+    if (!outcome.success) return outcome;
+    if (outcome.data.outcome !== "unchanged") {
+      log.info({ event: "assistant_connection_created", companyId: connection.companyId, connectionId: outcome.data.id, userId: connection.authorizedByUserId, oauthClientId: connection.oauthClientId, returnKind }, "assistant_connection_created");
     }
-    return outcome;
+    return ok(outcome.data.outcome);
   } catch (cause) {
     return err(persistenceFailure("assistant_connection_save_failed", cause));
   }
@@ -89,19 +90,26 @@ async function findConnections(companyId: CompanyId): Promise<Result<readonly Co
   }
 }
 
-type DeletedRow = Readonly<{ id: string; companyId: string; oauthClientId: string; authorizedByUserId: string }>;
-const endedOf = (row: DeletedRow): EndedConnection => ({
-  id: row.id as AssistantConnectionId, companyId: row.companyId as CompanyId, oauthClientId: row.oauthClientId as EndedConnection["oauthClientId"], authorizedByUserId: row.authorizedByUserId as UserId,
-});
+function endedOf(rows: readonly unknown[]): Result<readonly EndedConnection[], PersistenceError> {
+  const ended: EndedConnection[] = [];
+  for (const row of rows) {
+    const parsed = parseEndedConnectionRow(row);
+    if (!parsed.success) return err({ code: "PERSISTENCE_UNAVAILABLE", message: parsed.error.message });
+    ended.push(parsed.data);
+  }
+  return ok(ended);
+}
 
 async function deleteConnection(id: AssistantConnectionId, companyId: CompanyId): Promise<Result<EndedConnection | null, PersistenceError>> {
   try {
-    const rows = await withTenantIsolation(companyId, async () => await prisma.$queryRaw<DeletedRow[]>(Prisma.sql`
+    const rows = await withTenantIsolation(companyId, async () => await prisma.$queryRaw<unknown[]>(Prisma.sql`
       DELETE FROM "AssistantConnection" WHERE "id" = ${id}::uuid AND "companyId" = ${companyId}::uuid
       RETURNING "id", "companyId", "oauthClientId", "authorizedByUserId"`));
     if (rows.length === 0) return ok(null);
+    const ended = endedOf(rows);
+    if (!ended.success) return ended;
     log.info({ event: "assistant_connection_ended", companyId, connectionId: id, reason: "disconnected" }, "assistant_connection_ended");
-    return ok(endedOf(rows[0]));
+    return ok(ended.data[0]);
   } catch (cause) {
     return err(persistenceFailure("assistant_connection_delete_failed", cause));
   }
@@ -109,11 +117,13 @@ async function deleteConnection(id: AssistantConnectionId, companyId: CompanyId)
 
 async function deleteAccountConnections(companyId: CompanyId, userId: UserId): Promise<Result<readonly EndedConnection[], PersistenceError>> {
   try {
-    const rows = await withTenantIsolation(companyId, async () => await prisma.$queryRaw<DeletedRow[]>(Prisma.sql`
+    const rows = await withTenantIsolation(companyId, async () => await prisma.$queryRaw<unknown[]>(Prisma.sql`
       DELETE FROM "AssistantConnection" WHERE "companyId" = ${companyId}::uuid AND "authorizedByUserId" = ${userId}
       RETURNING "id", "companyId", "oauthClientId", "authorizedByUserId"`));
-    for (const row of rows) log.info({ event: "assistant_connection_ended", companyId, connectionId: row.id, reason: "password_reset" }, "assistant_connection_ended");
-    return ok(rows.map(endedOf));
+    const ended = endedOf(rows);
+    if (!ended.success) return ended;
+    for (const row of ended.data) log.info({ event: "assistant_connection_ended", companyId, connectionId: row.id, reason: "password_reset" }, "assistant_connection_ended");
+    return ended;
   } catch (cause) {
     return err(persistenceFailure("assistant_connection_delete_failed", cause));
   }

@@ -1,13 +1,15 @@
 import { describe, expect, test, vi } from "vitest";
 import { ok, err } from "@shared/functional";
+import type { UserId } from "@shared/identity";
+import type { OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
 import {
   authorizeParameterSource, dispatchOAuthHook, withConsentMarker,
   type OAuthHookContext, type OAuthHookDependencies,
 } from "@core/src/features/assistants/infrastructure/oauth-hooks";
 
 const normalized = "orders:read offline_access";
-const clientId = "client-1";
-const userId = "user-1";
+const clientId = "client-1" as OAuthClientId;
+const userId = "user-1" as UserId;
 
 function dependencies(overrides: Partial<OAuthHookDependencies> = {}): OAuthHookDependencies {
   return {

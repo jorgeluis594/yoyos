@@ -6,6 +6,7 @@ import { I18nextProvider, initReactI18next } from "react-i18next";
 import { createRoutesStub } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import resources from "@core/app/locales";
+import { log } from "@core/src/shared/infrastructure/logger";
 
 const resolveCurrentAccess = vi.fn();
 vi.mock("@core/src/shared/infrastructure/current-user", () => ({ resolveCurrentAccess }));
@@ -50,6 +51,13 @@ test("shows the agent, the verified return domain, what it can and never do, and
   expect(button("Usar otra cuenta")).toBeDefined();
   expect(button("Permitir acceso")).toBeDefined();
   expect(button("No permitir")).toBeDefined();
+});
+
+test("Usar otra cuenta keeps the button's flex display so its touch target applies", async () => {
+  await mount(ready);
+  const classes = button("Usar otra cuenta")!.className.split(/\s+/);
+  expect(classes).toContain("min-h-touch");
+  expect(classes).not.toContain("inline");
 });
 
 test("says the return line alone when the agent declared no name, and names a loopback return as this device", async () => {
@@ -215,4 +223,26 @@ test("Usar otra cuenta signs out and returns to the sign-in with the same signed
   const thrown = await post({ intent: "switch_account", request: "client_id=c1&exp=9&sig=abc" }, "/es-PE/assistants/authorize").catch((cause) => cause);
   expect(thrown.headers.get("location")).toBe("/es-PE/login?client_id=c1&exp=9&sig=abc");
   expect(thrown.headers.get("set-cookie")).toBe("session=; Max-Age=0");
+});
+
+test("the action logs the answer only when it is allowed, denied, invalid or expired, never a failure to reach the service", async () => {
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  try {
+    sessionOf();
+    const answers = () => info.mock.calls.filter(([fields]) => (fields as { event?: string }).event === "assistant_authorization_answered").map(([fields]) => (fields as { answer: string }).answer);
+    authorization.allow.mockResolvedValueOnce({ success: true, data: "https://chatgpt.com/cb?code=1" });
+    await post({ intent: "allow", request: "client_id=c1&sig=abc" });
+    authorization.deny.mockResolvedValueOnce({ success: true, data: "https://chatgpt.com/cb?error=access_denied" });
+    await post({ intent: "deny", request: "client_id=c1&sig=abc" });
+    authorization.allow.mockResolvedValueOnce({ success: false, error: { code: "REQUEST_EXPIRED", message: "" } });
+    await post({ intent: "allow", request: "client_id=c1&sig=abc" });
+    authorization.allow.mockResolvedValueOnce({ success: false, error: { code: "REQUEST_INVALID", message: "" } });
+    await post({ intent: "allow", request: "client_id=c1&sig=abc" });
+    expect(answers()).toEqual(["allowed", "denied", "expired", "invalid"]);
+    authorization.allow.mockResolvedValueOnce({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "" } });
+    await post({ intent: "allow", request: "client_id=c1&sig=abc" });
+    authorization.allow.mockResolvedValueOnce({ success: false, error: { code: "AUTHORIZATION_UNAVAILABLE", message: "" } });
+    await post({ intent: "allow", request: "client_id=c1&sig=abc" });
+    expect(answers()).toEqual(["allowed", "denied", "expired", "invalid"]);
+  } finally { info.mockRestore(); }
 });

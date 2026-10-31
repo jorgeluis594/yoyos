@@ -4,7 +4,8 @@ import { APIError, createAuthMiddleware, getSessionFromCtx } from "better-auth/a
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { grantedOAuthScope } from "@core/src/features/assistants/domain/scopes";
-import { isAllowedRedirectUri } from "@core/src/features/assistants/domain/assistant-connection";
+import type { UserId } from "@shared/identity";
+import { isAllowedRedirectUri, type OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
 
 /**
  * The one `hooks.before` middleware of Better Auth, as a dispatcher by `ctx.path` (technical design, section 5.11).
@@ -32,10 +33,10 @@ export function withConsentMarker<T>(marker: ConsentMarker, run: () => T): T {
 type HookFailure = Readonly<{ code: string; message: string }>;
 export type OAuthHookDependencies = Readonly<{
   /** The signed-in account of this call, or null. Reads `ctx.context.session` too: right after sign-in the new session exists only there. */
-  readSessionUserId: () => Promise<Result<string | null, HookFailure>>;
+  readSessionUserId: () => Promise<Result<UserId | null, HookFailure>>;
   /** Whether (client, account) has an active connection. An account without a store has none. */
-  hasActiveConnection: (userId: string, oauthClientId: string) => Promise<Result<boolean, HookFailure>>;
-  dropConsent: (userId: string, oauthClientId: string) => Promise<Result<number, HookFailure>>;
+  hasActiveConnection: (userId: UserId, oauthClientId: OAuthClientId) => Promise<Result<boolean, HookFailure>>;
+  dropConsent: (userId: UserId, oauthClientId: OAuthClientId) => Promise<Result<number, HookFailure>>;
   reportFailure: (failure: Readonly<{ userId: string; oauthClientId: string; errorCode: string }>) => void;
   reportRefusedConsent: (refusal: Readonly<{ userId: string | null; oauthClientId: string | null }>) => void;
 }>;
@@ -63,7 +64,7 @@ async function authorizeHook(ctx: OAuthHookContext, deps: OAuthHookDependencies)
   const source = authorizeParameterSource(ctx);
   const parameters = authorizeParametersSchema.safeParse(ctx[source]);
   if (!parameters.success) throw oauthError("BAD_REQUEST", "invalid_request", "client_id is required");
-  const oauthClientId = parameters.data.client_id;
+  const oauthClientId = parameters.data.client_id as OAuthClientId;
   const rewritten: OAuthHookResult = { context: { [source]: normalizedScope } };
 
   const session = await deps.readSessionUserId();
@@ -130,7 +131,7 @@ export function createOAuthBeforeHook(deps: Omit<OAuthHookDependencies, "readSes
       readSessionUserId: async () => {
         try {
           const session = await getSessionFromCtx(ctx);
-          return ok(session?.user.id ?? null);
+          return ok((session?.user.id ?? null) as UserId | null);
         } catch {
           return err({ code: "AUTH_SERVICE_UNAVAILABLE", message: "Unable to read the session" });
         }

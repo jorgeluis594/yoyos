@@ -1,6 +1,6 @@
 import { describe, expect, test, vi } from "vitest";
 import { log } from "@core/src/shared/infrastructure/logger";
-import { parseAssistantConnectionRow } from "@core/src/features/assistants/infrastructure/connection-rows";
+import { parseAssistantConnectionRow, parseEndedConnectionRow } from "@core/src/features/assistants/infrastructure/connection-rows";
 
 const row = {
   id: "6c0f5d2e-6a63-4a38-9f07-3b8f7a1c0001",
@@ -48,6 +48,24 @@ describe("parseAssistantConnectionRow", () => {
         expect(parseAssistantConnectionRow(broken)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
       }
       expect(diagnostic).toHaveBeenCalledTimes(6);
+    } finally { diagnostic.mockRestore(); }
+  });
+});
+
+describe("parseEndedConnectionRow", () => {
+  const ended = { id: row.id, companyId: row.companyId, oauthClientId: row.oauthClientId, authorizedByUserId: row.authorizedByUserId };
+
+  test("reads the columns a delete returns", () => {
+    expect(parseEndedConnectionRow(ended)).toEqual({ success: true, data: ended });
+  });
+
+  test("answers invalid stored data and logs once when a returned column breaks the schema", () => {
+    const diagnostic = vi.spyOn(log, "error").mockImplementation(() => undefined);
+    try {
+      for (const broken of [{ ...ended, id: "not-a-uuid" }, { ...ended, oauthClientId: "" }, { ...ended, extra: true }, { id: ended.id }]) {
+        expect(parseEndedConnectionRow(broken)).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
+      }
+      expect(diagnostic).toHaveBeenCalledTimes(4);
     } finally { diagnostic.mockRestore(); }
   });
 });
