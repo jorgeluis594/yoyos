@@ -4,7 +4,7 @@ Public landing of Yoyos: an independent [Astro](https://astro.build) package tha
 
 ## Requirements
 
-Node.js 24 and pnpm 12.5.1 (same as CI). The package has its own lockfile and no workspace with the apps.
+Node.js 24 and pnpm 12.15.0 (same as CI). The package has its own lockfile and no workspace with the apps.
 
 ```sh
 pnpm --dir landing install --frozen-lockfile
