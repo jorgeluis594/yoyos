@@ -105,11 +105,10 @@ describe("checkLocks", () => {
     expect(orderEdit.checkLocks(shipped, new Set(["customer"]))).toEqual({ success: true, data: null });
   });
 
-  test("refuses items edits once stock is deducted but allows customer and delivery edits", () => {
+  test("allows items, customer and delivery edits once stock is deducted: the stock listener settles the difference", () => {
     const deducted = order({ stockDeducted: true, stockDeductedAt: at });
-    expect(orderEdit.checkLocks(deducted, new Set(["items"]))).toMatchObject({ success: false, error: { code: "ITEMS_LOCKED" } });
-    expect(orderEdit.checkLocks(deducted, new Set(["items", "customer"]))).toMatchObject({ success: false, error: { code: "ITEMS_LOCKED" } });
-    expect(orderEdit.checkLocks(deducted, new Set(["customer", "delivery"]))).toEqual({ success: true, data: null });
+    expect(orderEdit.checkLocks(deducted, new Set(["items"]))).toEqual({ success: true, data: null });
+    expect(orderEdit.checkLocks(deducted, all)).toEqual({ success: true, data: null });
   });
 
   test("allows everything on an open order and nothing to check when no part remains", () => {

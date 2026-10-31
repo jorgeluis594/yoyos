@@ -109,12 +109,36 @@ test("saves while a payment was voided since the view loaded", async () => {
   expect(await editOrder(input, access, deps)).toMatchObject({ success: true, data: { order: { payments: [], itemsTotal: money(418) } } });
 });
 
-test("answers ITEMS_LOCKED and writes nothing when stock was deducted since the view loaded", async () => {
+test("edits the items of an order whose stock was deducted and publishes the deducted units of the deleted lines", async () => {
   const loaded = order();
-  const input = request(loaded, { items: { lines: deadpoolTwo } });
-  const { deps, writes } = dependencies({ current: order({ stockDeducted: true, stockDeductedAt: at }) });
-  expect(await editOrder(input, access, deps)).toMatchObject({ success: false, error: { code: "ITEMS_LOCKED" } });
-  expect(writes).toEqual([]);
+  const input = request(loaded, { items: { lines: lines(line(3, 1), line(4, 1)) } });
+  const stored = order({ stockDeducted: true, stockDeductedAt: at, items: [item(3, "Traje", { Talla: "S" }, 1, 89), item(4, "Traje", { Talla: "M" }, 1, 89), item(5, "Deadpool", { Talla: "M" }, 1, 120)]
+    .map((entry) => ({ ...entry, stockDeductedQuantity: entry.quantity })) as never });
+  const { deps, writes, publishStockEvent } = dependencies({ current: stored });
+  expect(await editOrder(input, access, deps)).toMatchObject({ success: true });
+  expect(writes).toEqual(["items"]);
+  expect(publishStockEvent).toHaveBeenCalledWith(expect.objectContaining({ returns: [{ variantId: variantOf(5), quantity: 1 }] }));
+});
+
+test("answers the pending part of an adjusted order as partial_waiting and serves waiting orders when units went back", async () => {
+  const loaded = order();
+  const input = request(loaded, { items: { lines: lines(line(3, 1), line(4, 1)) } });
+  const stored = order({ stockDeducted: true, stockDeductedAt: at, items: [item(3, "Traje", { Talla: "S" }, 1, 89), item(4, "Traje", { Talla: "M" }, 1, 89), item(5, "Deadpool", { Talla: "M" }, 1, 120)]
+    .map((entry) => ({ ...entry, stockDeductedQuantity: entry.quantity })) as never });
+  const { deps, publishStockEvent, publishStockIncreased } = dependencies({ current: stored });
+  publishStockEvent.mockResolvedValue(ok({ kind: "adjusted", returnedUnits: 1, deductedUnits: 0, pending: [{ variantId: variantOf(4), available: 0 as never }],
+    deductedByVariant: new Map(), returnedVariantIds: [variantOf(5)] }));
+  const result = await editOrder(input, access, deps);
+  expect(result).toMatchObject({ success: true, data: { stockDue: { kind: "partial_waiting", shortItems: [{ variantId: variantOf(4) }] } } });
+  expect(publishStockIncreased).toHaveBeenCalledWith([variantOf(5)]);
+});
+
+test("rolls the edit back when the listener could not settle the stock of a deducted order", async () => {
+  const loaded = order();
+  const input = request(loaded, { items: { lines: lines(line(3, 1), line(4, 1)) } });
+  const { deps, publishStockEvent } = dependencies({ current: order({ stockDeducted: true, stockDeductedAt: at }) });
+  publishStockEvent.mockResolvedValue(ok({ kind: "failed", stage: "deduct_stock", errorCode: "STATEMENT_TIMEOUT" }));
+  expect(await editOrder(input, access, deps)).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
 });
 
 test("saves only the customer of a shipped order", async () => {
