@@ -139,6 +139,8 @@ describe("lo_mas_vendido", () => {
     const none = answerOf({ sold: { variants: [], currencies: [] } });
     expect((await outputOf(october, none)).mensaje).toBe("No vendiste productos del 01/10/2026 al 31/10/2026.");
     const gorro = answerOf({ described: (answerOf() as Extract<BestSellersAnswer, { kind: "sold" }>).described.map((variant) => ({ ...variant, matchesText: false })) });
+    const gorroInUsd = answerOf({ sold: { variants: [sold("polo-m", 3, 90, "USD")], currencies: [{ currency: "USD", orders: 1, units: 3, amount: usd(90) }] } });
+    expect((await outputOf({ ...october, texto: "polo" }, gorroInUsd)).mensaje).toBe('Ningún producto que coincida con "polo" se vendió en PEN del 01/10/2026 al 31/10/2026.');
     expect((await outputOf({ ...october, texto: "gorro" }, gorro)).mensaje).toBe('Ningún producto que coincida con "gorro" se vendió del 01/10/2026 al 31/10/2026.');
     const unsold = answerOf({ sold: { variants: [], currencies: [{ currency: "PEN", orders: 4, units: 11, amount: pen(640) }] }, described: [described("polo-m", poloId, "Polo básico", ["M"])] });
     expect((await outputOf({ ...october, producto: poloId }, unsold)).mensaje).toBe('"Polo básico" no tuvo ventas del 01/10/2026 al 31/10/2026.');

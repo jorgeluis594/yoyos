@@ -1,3 +1,4 @@
+import { writeFileSync } from "node:fs";
 import pg from "pg";
 import { Prisma } from "@prisma/client";
 import { afterAll, beforeAll, describe, expect, test } from "vitest";
@@ -18,8 +19,8 @@ const scale = Number(process.env.SALES_LOAD_SCALE ?? 1);
 const dryRun = scale < 1;
 /** Half the statement budget: a statement at the maximum period, in its worst shape, must leave room for the variance of production hardware. */
 const halfBudgetMs = salesReadBudget.statementTimeoutMs / 2;
-/** Set from the measured run (106,059 buffers, 11,649 pages read cold for 12,140 variants) with 25% headroom; the pull request records the measured values. */
-const pageBound = { buffers: 133_000, pagesRead: 14_600 } as const;
+/** Set from the measured run (123,828 buffers with the firstAfter probe, up to 12,037 pages read cold, for 12,140 variants) with 25% headroom; the pull request records the measured values. */
+const pageBound = { buffers: 155_000, pagesRead: 15_100 } as const;
 const itemDateIndex = "OrderItem_companyId_variantId_orderCreatedAt_orderId_idx";
 
 let admin: pg.Client;
@@ -27,7 +28,7 @@ let fixture: SalesLoadFixture;
 const measurements: Record<string, unknown>[] = [];
 
 type PlanNode = { "Node Type": string; "Index Name"?: string; "Relation Name"?: string; "Heap Fetches"?: number; "Shared Hit Blocks"?: number; "Shared Read Blocks"?: number; Plans?: PlanNode[] };
-type Explained = Readonly<{ time: number; hit: number; read: number; heapFetches: number; probeIndexes: readonly string[]; nodeTypes: readonly string[] }>;
+type Explained = Readonly<{ time: number; hit: number; read: number; heapFetches: number; probeIndexes: readonly string[]; indexOnly: readonly string[]; seqScans: readonly string[]; nodeTypes: readonly string[] }>;
 const nodesOf = (node: PlanNode): PlanNode[] => [node, ...(node.Plans ?? []).flatMap(nodesOf)];
 
 /** `EXPLAIN (ANALYZE, BUFFERS)` of a statement as `core_app` under the forced policy of the company, inside the snapshot the reads run in. */
@@ -43,6 +44,8 @@ async function explain(companyId: string, statement: Prisma.Sql): Promise<Explai
     time, hit: Plan["Shared Hit Blocks"] ?? 0, read: Plan["Shared Read Blocks"] ?? 0,
     heapFetches: nodes.reduce((sum, node) => sum + (node["Heap Fetches"] ?? 0), 0),
     probeIndexes: [...new Set(nodes.filter((node) => node["Node Type"] === "Index Only Scan" || node["Node Type"] === "Index Scan").map((node) => node["Index Name"] ?? ""))],
+    indexOnly: [...new Set(nodes.filter((node) => node["Node Type"] === "Index Only Scan").map((node) => node["Index Name"] ?? ""))],
+    seqScans: nodes.filter((node) => node["Node Type"] === "Seq Scan").map((node) => node["Relation Name"] ?? ""),
     nodeTypes: [...new Set(nodes.map((node) => node["Node Type"]))],
   };
 }
@@ -70,19 +73,13 @@ describe.skipIf(!salesLoadEnabled)("the product sales reads on the history fixtu
 
   afterAll(async () => {
     console.info(`SALES_PRODUCTS_LOAD ${JSON.stringify(measurements, null, 1)}`);
+    // The test runner hides the output of a passing run: this file keeps the measured values for the pull request.
+    if (process.env.SALES_LOAD_REPORT) writeFileSync(process.env.SALES_LOAD_REPORT, JSON.stringify(measurements, null, 1));
     if (fixture) await removeStores(admin, fixture.companyIds);
     await admin.end();
   }, 3_600_000);
 
   const year = windowOf({ from: "2027-01-01", through: "2028-01-01" });
-
-  test("the statistics target of OrderItem.orderId is raised, so the planner estimates the items of an order from a large sample", async () => {
-    const target = await admin.query<{ target: number }>(`SELECT attstattarget::int AS target FROM pg_attribute WHERE attrelid = '"OrderItem"'::regclass AND attname = 'orderId'`);
-    expect(target.rows[0]!.target).toBe(1000);
-    const distinct = await admin.query<{ distinct: number }>(`SELECT n_distinct::float8 AS distinct FROM pg_stats WHERE tablename = 'OrderItem' AND attname = 'orderId'`);
-    // A fraction of the rows (negative), not the absolute count the default sample underestimates by a factor of ten.
-    expect(distinct.rows[0]!.distinct).toBeLessThan(0);
-  });
 
   test("a 366-day ranking reads sold variants and descriptions of 12,000 sold variants within half the statement budget", async () => {
     const { store } = fixture;
@@ -94,24 +91,32 @@ describe.skipIf(!salesLoadEnabled)("the product sales reads on the history fixtu
     const described = await record("descriptions_of_sold_variants", store.companyId, describeVariantsSql(store.companyId, { by: "variants", variantIds, text: "producto 1" }));
     if (!dryRun) {
       expect(variantIds.length).toBeGreaterThan(10_000);
-      expect(sold.repeated.time).toBeLessThanOrEqual(halfBudgetMs);
+      // At least 20% of margin on the first run, the cold one the owner meets.
+      expect(sold.first.time).toBeLessThanOrEqual(halfBudgetMs * 0.8);
+      expect(sold.repeated.time).toBeLessThanOrEqual(halfBudgetMs * 0.8);
       expect(described.repeated.time).toBeLessThanOrEqual(salesReadBudget.statementTimeoutMs / 4);
     }
   });
 
-  test("the 30-day sold variants are not slower on four years of history than on one (within 1.5 times plus 50 ms, or a fifth of the statement budget when the planner scans the item table)", async () => {
+  test("the 30-day sold variants are not slower on four years of history than on one (within 1.5 times plus 50 ms)", async () => {
     const month = windowOf(fixture.windows.month);
     const best = async (companyId: string) => {
       const times: number[] = [];
       for (let run = 0; run < 5; run += 1) times.push((await explain(companyId, soldVariantsSql(companyId, { window: month }))).time);
       return Math.min(...times);
     };
+    // The plan must not depend on the ANALYZE sample: after three more passes the items of the window are still probed by index, never read by a table scan.
+    for (let pass = 0; pass < 3; pass += 1) {
+      await admin.query('ANALYZE "OrderItem"');
+      await admin.query('ANALYZE "Order"');
+      const planned = await explain(fixture.store.companyId, soldVariantsSql(fixture.store.companyId, { window: month }));
+      expect(planned.seqScans).not.toContain("OrderItem");
+      expect(planned.probeIndexes).toContain("OrderItem_companyId_orderId_variantId_key");
+    }
     const fourYears = await best(fixture.store.companyId);
     const oneYear = await best(fixture.oneYearStore.companyId);
     measurements.push({ statement: "sold_variants_30_days", fourYearsMs: Math.round(fourYears), oneYearMs: Math.round(oneYear) });
-    // Where the planner's cost model prefers a scan of the whole item table (every company's) to the index probes, the time is bounded by that scan, not by this
-    // store's history: it stays within a fifth of the statement budget, and grows with the table only until the probes become the cheaper plan.
-    expect(fourYears).toBeLessThanOrEqual(Math.max(oneYear * 1.5 + 50, salesReadBudget.statementTimeoutMs / 5));
+    expect(fourYears).toBeLessThanOrEqual(oneYear * 1.5 + 50);
   });
 
   describe.each([{ label: "30 days", period: { from: "2027-12-03", through: "2028-01-01" } }, { label: "366 days", period: { from: "2027-01-01", through: "2028-01-01" } }])("productos_sin_ventas, $label", ({ label, period }) => {
@@ -125,7 +130,10 @@ describe.skipIf(!salesLoadEnabled)("the product sales reads on the history fixtu
       const checked = stocked.success ? stocked.data.checked : [];
       const variantIds = checked.flatMap((product) => product.variantIds);
       console.info(JSON.stringify({ label, checkedProducts: checked.length, checkedVariants: variantIds.length }));
-      const datesStatement = await record(`item_dates_${label}`, store.companyId, saleDatesSql(store.companyId, { window, variantIds, needFirstAfter: false }));
+      // The past-period shape adds the `firstAfter` probe for every unsold variant: both shapes are measured and bounded.
+      const shapes = [false, true] as const;
+      const datesStatements = [];
+      for (const needFirstAfter of shapes) datesStatements.push(await record(`item_dates_${label}_first_after_${needFirstAfter}`, store.companyId, saleDatesSql(store.companyId, { window, variantIds, needFirstAfter })));
       const dates = await withTenantIsolation(store.companyId, () => orders.readSalesForAssistant(async () => orders.findVariantSaleDates({ window, variantIds, needFirstAfter: false }, { companyId: store.companyId as never, userId: store.sellerId as never })));
       expect(dates.success).toBe(true);
       const list = listUnsoldProducts(
@@ -139,7 +147,7 @@ describe.skipIf(!salesLoadEnabled)("the product sales reads on the history fixtu
       if (!dryRun) {
         expect(variantIds.length).toBeGreaterThan(8_000);
         expect(stockedStatement.repeated.time).toBeLessThanOrEqual(halfBudgetMs);
-        expect(datesStatement.repeated.time).toBeLessThanOrEqual(halfBudgetMs);
+        for (const statement of datesStatements) expect(statement.repeated.time).toBeLessThanOrEqual(halfBudgetMs);
       }
     });
   });
@@ -156,7 +164,7 @@ describe.skipIf(!salesLoadEnabled)("the product sales reads on the history fixtu
     const fourYears = await timesOf(fixture.store.companyId);
     const oneYear = await timesOf(fixture.oneYearStore.companyId);
     measurements.push({ statement: "item_dates_four_vs_one_year", fourYearsMs: Math.round(fourYears.time), oneYearMs: Math.round(oneYear.time), probeIndexes: fourYears.probeIndexes, nodeTypes: fourYears.nodeTypes });
-    expect(fourYears.probeIndexes).toContain(itemDateIndex);
+    expect(fourYears.indexOnly).toContain(itemDateIndex);
     expect(fourYears.time).toBeLessThanOrEqual(oneYear.time * 1.5 + 50);
   });
 
@@ -166,13 +174,23 @@ describe.skipIf(!salesLoadEnabled)("the product sales reads on the history fixtu
     const stocked = await stockedFor(store.companyId, window.before);
     const variantIds = stocked.success ? stocked.data.checked.flatMap((product) => product.variantIds) : [];
     await admin.query("CREATE EXTENSION IF NOT EXISTS pg_buffercache");
-    for (const relation of ["OrderItem", itemDateIndex, "Order", "Order_pkey"]) await admin.query(`SELECT pg_buffercache_evict_relation('"${relation}"'::regclass)`).catch(() => undefined);
-    const cold = await explain(store.companyId, saleDatesSql(store.companyId, { window, variantIds, needFirstAfter: false }));
-    const warm = await explain(store.companyId, saleDatesSql(store.companyId, { window, variantIds, needFirstAfter: false }));
-    measurements.push({ statement: "item_dates_pages", variants: variantIds.length, coldMs: Math.round(cold.time), coldHit: cold.hit, coldRead: cold.read, warmHit: warm.hit, heapFetches: cold.heapFetches });
-    if (!dryRun) {
-      expect(cold.hit + cold.read).toBeLessThanOrEqual(pageBound.buffers);
-      expect(cold.read).toBeLessThanOrEqual(pageBound.pagesRead);
+    // An eviction that fails fails the test: a "cold" run that was warm would pass the page bound for nothing.
+    const evict = async () => {
+      for (const relation of ["OrderItem", itemDateIndex, "Order", "Order_pkey"]) {
+        const evicted = await admin.query<{ evicted: number }>(`SELECT buffers_evicted AS evicted FROM pg_buffercache_evict_relation('"${relation}"'::regclass)`);
+        expect(evicted.rowCount).toBe(1);
+      }
+    };
+    for (const needFirstAfter of [false, true] as const) {
+      await evict();
+      const cold = await explain(store.companyId, saleDatesSql(store.companyId, { window, variantIds, needFirstAfter }));
+      const warm = await explain(store.companyId, saleDatesSql(store.companyId, { window, variantIds, needFirstAfter }));
+      measurements.push({ statement: `item_dates_pages_first_after_${needFirstAfter}`, variants: variantIds.length, coldMs: Math.round(cold.time), coldHit: cold.hit, coldRead: cold.read, warmHit: warm.hit, heapFetches: cold.heapFetches });
+      expect(cold.indexOnly).toContain(itemDateIndex);
+      if (!dryRun) {
+        expect(cold.hit + cold.read).toBeLessThanOrEqual(pageBound.buffers);
+        expect(cold.read).toBeLessThanOrEqual(pageBound.pagesRead);
+      }
     }
   });
 });

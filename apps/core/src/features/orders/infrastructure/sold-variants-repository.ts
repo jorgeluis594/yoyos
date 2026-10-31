@@ -44,6 +44,8 @@ function readFailure(cause: unknown, event: string): Result<never, SalesReadFail
  * Units and item subtotals per variant and currency sold in the window, plus the totals and the order count of each currency, in one statement.
  * The orders of the window are read through `Order_companyId_createdAt_id_key` and their items through `OrderItem (companyId, orderId, variantId)`;
  * the `GROUPING SETS` carry no `DISTINCT` aggregate, so PostgreSQL can hash them, and the order count is `count(*)` over the window (every order has an item).
+ * The item join is also driven by the ids of the window (`= ANY(ARRAY(SELECT id FROM w))`), so the planner estimates the probe from the length of that array and not from
+ * the sampled `n_distinct` of `OrderItem.orderId`: the cost stays bounded by the window and does not flip to a scan of the item table of every company.
  * Bounds are untyped parameters: a `timestamptz` comparison is not leakproof and would lose the index under the forced row-level policy.
  */
 export function soldVariantsSql(companyId: string, input: SummarizeSoldVariantsInput): Prisma.Sql {
@@ -54,7 +56,7 @@ export function soldVariantsSql(companyId: string, input: SummarizeSoldVariantsI
       WHERE o."companyId" = ${companyId}::uuid AND o."createdAt" >= ${input.window.from} AND o."createdAt" < ${input.window.before} AND NOT o.cancelled AND ${visibleOrder}
     ), sold AS (
       SELECT w.currency, i."variantId", GROUPING(i."variantId") AS whole, sum(i.quantity) AS units, sum(i.subtotal) AS amount
-      FROM w JOIN "OrderItem" i ON i."companyId" = ${companyId}::uuid AND i."orderId" = w.id
+      FROM w JOIN "OrderItem" i ON i."companyId" = ${companyId}::uuid AND i."orderId" = w.id AND i."orderId" = ANY(ARRAY(SELECT id FROM w))
       GROUP BY GROUPING SETS ((w.currency, i."variantId"), (w.currency))
       ${narrowed}
     )

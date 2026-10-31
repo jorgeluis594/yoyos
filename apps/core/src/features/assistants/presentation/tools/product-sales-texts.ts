@@ -26,6 +26,7 @@ export const singleProductHeader = (name: string, phrase: string, units: number,
 export const noProductSalesMessage = (phrase: string): string => `No vendiste productos ${phrase}.`;
 export const noProductSalesInCurrencyMessage = (currency: Currency, phrase: string): string => `No vendiste productos en ${currency} ${phrase}.`;
 export const noTextSalesMessage = (text: string, phrase: string): string => `Ningún producto que coincida con "${text}" se vendió ${phrase}.`;
+export const noTextSalesInCurrencyMessage = (text: string, currency: Currency, phrase: string): string => `Ningún producto que coincida con "${text}" se vendió en ${currency} ${phrase}.`;
 export const noSingleProductSalesMessage = (name: string, phrase: string): string => `"${name}" no tuvo ventas ${phrase}.`;
 export const noSingleProductSalesInCurrencyMessage = (name: string, currency: Currency, phrase: string): string => `"${name}" no tuvo ventas en ${currency} ${phrase}.`;
 export const moreVariantsLine = (count: number): string => `y ${counted(count, "variante", "variantes")} más: pide este producto para verlas todas`;

@@ -19,7 +19,7 @@ import { noProductMessage, pageOutOfRangeMessage } from "@core/src/features/assi
 import { periodRefusalMessage } from "@core/src/features/assistants/presentation/tools/sales-texts";
 import {
   bestSellersDescription, bestSellersHeader, bestSellersTextHeader, ignoredWithProductNote, moreVariantsLine, noProductSalesInCurrencyMessage, noProductSalesMessage,
-  noSingleProductSalesInCurrencyMessage, noSingleProductSalesMessage, noTextSalesMessage, otherCurrencyLine, periodPhrase, shareLine, singleProductHeader, unitsText,
+  noSingleProductSalesInCurrencyMessage, noSingleProductSalesMessage, noTextSalesInCurrencyMessage, noTextSalesMessage, otherCurrencyLine, periodPhrase, shareLine, singleProductHeader, unitsText,
 } from "@core/src/features/assistants/presentation/tools/product-sales-texts";
 
 type Failure = ToolRunError;
@@ -121,7 +121,7 @@ export function createBestSellersTool(deps: BestSellersDependencies, options: Be
       const otherFields = others.length > 0 ? { otras_monedas: others } : {};
       if (ranking.total === 0) {
         const hasSales = sold.currencies.some((total) => total.units > 0);
-        const message = searched !== undefined ? noTextSalesMessage(searched, phrase)
+        const message = searched !== undefined ? (others.length > 0 ? noTextSalesInCurrencyMessage(searched, storeCurrency, phrase) : noTextSalesMessage(searched, phrase))
           : hasSales ? noProductSalesInCurrencyMessage(storeCurrency, phrase) : noProductSalesMessage(phrase);
         return ok({ output: { ...frame, mensaje: message, pagina: 1, total: 0, productos: [], ...otherFields }, empty: true });
       }
