@@ -36,7 +36,7 @@ agent ── tools/call ──▶ /mcp (unchanged transport, auth, limiter)
 | Who owns each read | The orders feature owns every read that decides what a sale is (not cancelled, visible, created in the period): `summarizeSales`, `summarizeSoldVariants`, `summarizeVariantActivity`, `findVariantSaleDates`, and the snapshot opener `readSalesForAssistant`. The products feature owns product identity, current names, combinations, the text match and stock: `describeVariantsForAssistant`, `listStockedForAssistant`. Orders returns variant ids; products never reads orders; the composition joins them in memory. |
 | Snapshot | One RepeatableRead snapshot per call opened by `orders.readSalesForAssistant`, with its own fixed budget `salesReadBudget = { maxWait: 1000, timeout: 10000, statementTimeoutMs: 1500, maxStatements: 6 }` and JIT off. The budget is the same for every tool and is fixed here, not discovered in T1/T2 (section 11 counts the statements of every path: 4, 5 and 5, one statement of margin). The generic budgeted snapshot is extracted from `products/infrastructure/assistant-read.ts` to `src/shared/infrastructure/budgeted-snapshot.ts`; it classifies failures and reports them to an `onFailure` callback, and each caller logs its own event (products keeps `product_search_failed` and its own constants; sales logs in the composition guard). |
 | Statement counting | As memory 03011cbe: a counted statement is one that runs under the statement timeout, so the two `set_config` statements (tenant and timeout, `jit` off) and the storefront read count; `BEGIN`, `SET TRANSACTION` and `COMMIT` do not. Overhead is 2 statements, 3 with the storefront read. |
-| In-flight limit | At most 2 sales reads in flight per process, separate from the 3 product slots (question 1, option 1). A call waits up to 2,000 ms for a sales slot; the wait runs before any transaction, holds no pool connection and costs nothing in pool terms, so an agent that asks for the summary and the ranking in parallel, plus a third call, still gets all three answers at normal volume. Product slots keep their 300 ms. The counting semaphore moves from `assistant-product-capabilities.ts` to `src/composition/assistant-read-slots.ts` with the wait as a parameter. The slots are shared by every store in the process (section 11). |
+| In-flight limit | At most 2 sales reads in flight per process, separate from the 3 product slots (decided by the review gate, section 17). A call waits up to 2,000 ms for a sales slot; the wait runs before any transaction, holds no pool connection and costs nothing in pool terms, so an agent that asks for the summary and the ranking in parallel, plus a third call, still gets all three answers at normal volume. Product slots keep their 300 ms. The counting semaphore moves from `assistant-product-capabilities.ts` to `src/composition/assistant-read-slots.ts` with the wait as a parameter. The slots are shared by every store in the process (section 11). |
 | Too many orders | The «demasiados pedidos» text is answered when the snapshot fails with `STATEMENT_TIMEOUT` and the period read has more than 31 days. `TRANSACTION_TIMEOUT` (pool wait or Prisma timer), `PERSISTENCE_UNAVAILABLE`, a 31-day-or-shorter period over budget and a busy slot answer the sales reading-failure text. Reason: the budget makes the statement limit fire before the transaction timer, so only a statement timeout means the period itself is too heavy. |
 | Maximum period | 366 days, constant `salesPeriodMaxDays` (initial value). Each tool's load check (section 14) runs every statement of the tool on the history fixture below at the maximum period; the value is lowered only if a statement exceeds half its statement budget (750 ms) there. |
 | Expected maximum volume | 60,000 orders a year (about 165 per day), 2 items and 1.2 payments per order, 3,000 products with 4 variants. The load fixture (T0) seeds four years at that rate: the 366-day period, the 366-day previous period read by the summary (732 days) and two years of earlier history, with 240,000 orders, 480,000 items and 290,000 payments; 30% of the variants have no sale in the last 549 days and 20 of them hold 3,000 old items each. Initial value, adjustable; above any current store and above the 50,000 orders `summarizeUnpaidOrders` was measured with. |
@@ -102,6 +102,12 @@ The `run` function of each `RegisteredTool`. Input: the parsed tool input. Acces
 3. Call the port, which takes a sales slot and runs every read of the call in one snapshot, in the sequences of 11.
 4. Project with the pure functions of 6.4 and return `{ output, empty }`; empty answers are `empty: true`.
 5. A port failure answers `FAILURE` with the text the port chose (too many orders or reading failure).
+
+Sequences inside the snapshot (composition, section 11 counts them):
+- Summary: storefront currency, then `summarizeSales`.
+- Best sellers, ranking: storefront currency, `summarizeSoldVariants` for the period, `describeVariantsForAssistant` `by: "variants"` with the sold ids and `texto`, then the pure ranking.
+- Best sellers, `producto`: storefront currency, `describeVariantsForAssistant` `by: "product"` (no row answers the not-found text and reads no order), `summarizeSoldVariants` narrowed to its variants.
+- Unsold: `listStockedForAssistant` (nothing checked answers its empty text and reads no order), `summarizeVariantActivity`, the pure filter, sort and page, then `findVariantSaleDates` for the page's variants unless the page is empty.
 
 ### 5.2 `summarizeSales` (orders, application)
 
@@ -403,8 +409,10 @@ Events follow [Logging](../logging.md). Never logged: tool inputs and outputs, d
 - `test("a connection with only the orders scope sees neither the sales tools nor their instructions paragraph")`
 - `test("refuses a module that repeats a scope")`
 
-`budgeted-snapshot.test.ts` and `assistant-read.test.ts`
+`budgeted-snapshot.test.ts`, `assistant-read.test.ts` and `sales-read.test.ts`
 - `test("keeps maxStatements × statementTimeoutMs + maxWait within the transaction timer for the product and the sales budgets")`
+- `test("keeps every sales path at least one statement under maxStatements")` (`salesPathStatements`)
+- `test("reports a failure to onFailure with its duration and logs nothing by itself")`
 - `test("classifies a PostgreSQL statement timeout as STATEMENT_TIMEOUT and a Prisma P2028 as TRANSACTION_TIMEOUT")`
 
 `sales-period.test.ts`
@@ -419,17 +427,24 @@ Events follow [Logging](../logging.md). Never logged: tool inputs and outputs, d
 - `test("moves a period starting on the 1st back by the months it touches and cuts the end to the month's last day")` (01/10–20/10, 01/09–20/10, 01/03–30/03, 01/10–01/10, 01/10–07/10)
 - `test("compares any other period with the same number of days just before")` (11/10–17/10, 15/09–14/10)
 - `test("an order at 23:30 Lima on 31/10 falls inside October's window and one at 00:05 on 01/11 outside it")`
+- `test("looks back 183 days before the period start in Lima midnights")`
+
+`decimal-cents.test.ts`
+- `test("converts decimal text to cents exactly, including 0.10, 0.07, 1234567.89 and values that Number(text) * 100 misrounds")`
+- `test("refuses text with more than two decimals or a sign")`
 
 `sales-figures.test.ts`
 - `test("rounds the average ticket half up to the cent")`
 - `test("shows a share below 0.5% as menos de 1% and never adjusts shares to 100")` (three methods at S/ 10.00 → 33% each)
 - `test("states a comparison with both figures, the direction in words and a percent of the previous figure")` (680 vs 600 → +13%; 170 vs 200 → −15%)
+- `test("rounds half up on the magnitude for negative comparisons")` (171 vs 200 → −15%, not −14%; 229 vs 200 → +15%)
+- `test("compares the two rounded average tickets so the shown figures and the difference reconcile")`
 - `test("shows menos de 1% for a non-zero difference that rounds to 0 and no percent when the previous figure is 0")` (601 vs 600; 380 vs 0)
 - `test("uses the singular for one in every counter")`
 
 `summarize-sales.test.ts` (fakes)
-- `test("asks whether the store has orders only when both periods are empty")`
-- `test("answers the persistence failure of its reads without a partial summary")`
+- `test("passes both windows to one read and returns its figures and storeHasOrders")`
+- `test("answers the persistence failure of its read without a partial summary")`
 
 `sales-projection.test.ts`
 - `test("projects the October example: sales, products, deliveries, orders, ticket, received by method, owed, overpaid, review and cancelled lines")` (acceptance 1)
@@ -438,6 +453,9 @@ Events follow [Logging](../logging.md). Never logged: tool inputs and outputs, d
 - `test("adds the open-period line only when the period read ends today")`
 - `test("shows the previous figures alone for an empty period and Tampoco hubo ventas when both are empty")`
 - `test("orders currency blocks store currency first then by code and opens a block without sales with its currency")` (acceptance 18)
+- `test("opens a block for a currency with only cancelled orders, with its cancelled and money-on-cancelled lines")`
+- `test("shows no money-on-cancelled line once the cancelled order holds no confirmed payment")` (acceptance 2, voiding #1003's S/ 40.00)
+- `test("shows Sin ventas en el periodo anterior with no comparison lines when only this period has sales")` (acceptance 4)
 - `test("says Tu tienda todavía no tiene pedidos alone for a store without orders")`
 
 `sales-summary-tool.test.ts`
@@ -449,8 +467,10 @@ Events follow [Logging](../logging.md). Never logged: tool inputs and outputs, d
 - `test("shows three variants and the remaining count, and every variant for one product")` (acceptance 8)
 - `test("keeps the whole-period share and names the denominator when texto narrows the ranking")`
 - `test("ranks only the store currency and adds one line per other currency, filtered without order count")`
-- `test("lists products with stock that did not sell, ordered by stock, last earlier sale and name")` (acceptance 10)
-- `test("folds variant sale dates into the product's last sale before and first sale after the period")`
+- `test("answers the no-sales text for texto gorro whose only order is cancelled")` (acceptance 8)
+- `test("lists products with stock that did not sell, ordered by stock, last sale in the look-back and name")` (acceptance 10)
+- `test("orders products with no sale in the look-back by name and shows their exact older date")`
+- `test("replaces the look-back date of the products on the page with the exact last sale before and first sale after the period")`
 - `test("says Volvió a venderse only for a period that ended before today")`
 - `test("picks the empty text in order: no products, no match, no stock, all created after, all sold")` (acceptance 13)
 - `test("adds the short-period line under 14 days")` (acceptance 14)
@@ -461,42 +481,64 @@ Events follow [Logging](../logging.md). Never logged: tool inputs and outputs, d
 - `test("answers a page beyond the last with the existing page text")`
 
 `assistant-tools.test.ts` (static validator)
-- `test("lists the nine tools, all read only, for a connection with both scopes")`
+- `test("lists the six existing tools plus the tools of the sales module for a connection with both scopes")` (T0; T3 pins the nine names and `test("lists exactly the nine tools, all read only, for a connection with both scopes")`)
 - `test("a page of 20 products at maximum lengths with 3 variants each and a producto answer of 60 variants fit 24 KB")` (acceptance 19, sample outputs)
+- `test("a productos_sin_ventas page of 20 at maximum name lengths with the longest dates fits 24 KB")`
 - `test("a summary with three currency blocks at maximum amounts fits 24 KB")`
 - `test("the sales instructions paragraph stays within 700 characters and the orders paragraph no longer says there are no totals")`
 
 ### Integration (core, real PostgreSQL)
 
-`sales-summary-repository.integration.test.ts`
+`assistant-sales-capabilities.integration.test.ts` (T0, with a synthetic `work`, no tool)
+- `test("answers the too-many-orders text for a statement timeout in a period over 31 days and the reading-failure text for one in a period of 31 days or fewer")` (acceptance 16, with a lowered statement timeout and `pg_sleep`)
+- `test("logs sales_read_failed once with operation, errorCode, periodDays and answer, and no input or amount")`
+- `test("a third concurrent sales read waits for a slot and runs when one frees within 2,000 ms, and one that waits 2,000 ms answers the reading-failure text and logs assistant_sales_reads_busy")`
+- `test("a sales read in flight never takes a product slot")`
+- `test("measures the overhead of the opener with the storefront read at 3 statements and without it at 2")`
+
+`sales-load-fixture.integration.test.ts` (T0, opt-in `SALES_LOAD=1`)
+- `test("Order_companyId_createdAt_idx is valid and a window read uses it on four years of history")` (`pg_index.indisvalid` and `EXPLAIN`; the same window read costs the same plan at one year)
+- `test("a no-change prisma migrate dev --create-only emits nothing for the index")` (script check)
+
+`sales-summary-repository.integration.test.ts` (T1)
 - `test("sums the October example: voided, rejected and reported payments add nothing and the unconfirmed catalog order does not exist")` (acceptance 1, 2, 6)
 - `test("keeps cancelled orders out of sales and counts their confirmed payments in the cancelled line only")`
 - `test("counts pending reports and the orders holding them, never on cancelled orders")`
 - `test("groups figures by currency and never adds two currencies")` (acceptance 18)
 - `test("another store's orders and payments change no figure")` (acceptance 17)
+- `test("an order at 23:30 Lima on 31/10 counts in October and one at 00:05 on 01/11 in November")` (acceptance 3, through the repository)
+- `test("storeHasOrders ignores an unconfirmed catalog order and sees a cancelled one")`
+- `test("the owed figure over a period covering every order equals the owed of Pedidos por cobrar")` (shared `orderBalance`)
 
-`sold-variants-repository.integration.test.ts`
+`sold-variants-repository.integration.test.ts` (T2)
 - `test("sums units and item subtotals per variant sold, excluding delivery, cancelled and unconfirmed catalog orders")` (acceptance 6, 9)
-- `test("narrows variants to the given ids and keeps the per-currency totals of the whole period")`
-- `test("finds the last sale before, the first sale after and sales inside the period for each variant in any currency")`
+- `test("narrows variants to the given ids and keeps the per-currency totals and order counts of the whole period")`
+- `test("reports which variants sold in the window and the last sale in the 183 days before it, in any currency")`
+- `test("finds the exact last sale before and first sale after the period for the given variants, however old")`
 
-`product-sales-repository.integration.test.ts`
+`product-sales-repository.integration.test.ts` (T2)
 - `test("describes variants with the current product name, values in option order and the text match on name or any SKU")`
-- `test("lists products created before the period end with active stock today, counting store, matching and stocked products")` (Chompa, Short, Vestido excluded)
-- `test("another store's variant and product never appear")` (acceptance 17)
+- `test("describes one product of the store with all its variants by id and returns nothing for another store's product")` (acceptance 17)
+- `test("lists products with active stock today, counting store, matching and stocked products in one statement")` (Chompa, Short, Vestido excluded from `checked`)
 
-`sales-tools.integration.test.ts` (through `/mcp`, like `products-tools.integration.test.ts`)
+`sales-summary-tool.integration.test.ts` (T1), `sales-product-tools.integration.test.ts` (T2) (through `/mcp`, like `products-tools.integration.test.ts`)
+- `test("answers the example store and issues exactly salesPathStatements[...] statements for the worst case of each path")` (the summary; ranking and `producto` and unsold respectively)
+- `test("a producto of another store and a texto without sales answer their texts")` (T2)
+
+`sales-summary-load.integration.test.ts` (T1) and `sales-products-load.integration.test.ts` (T2), opt-in `SALES_LOAD=1`, on the history fixture of section 2 (each file measures the statements its task introduces)
+- `test("a 366-day summary reads figures within half the statement budget on four years of history")`
+- `test("a 366-day ranking reads sold variants and descriptions of 12,000 sold variants within half the statement budget")`
+- `test("productos_sin_ventas reads stocked products, activity of the 549 days and the exact dates of 20 stale variants within half the statement budget, for the default 30 days and for 366 days")`
+- `test("every statement of the plan uses the window's index and no sequential scan of Order, OrderItem or Payment history")` (`EXPLAIN`, section 15)
+
+`sales-tools.integration.test.ts` (T3)
 - `test("a connection lists nine tools and calls resumen_de_ventas, lo_mas_vendido and productos_sin_ventas on the example store")` (acceptance 21)
+- `test("an existing connection keeps working and sees the nine tools without a new scope")` (acceptance 21)
 - `test("a call over the store limit answers the limit text with the seconds")` (acceptance 20)
-- `test("a 200-day read over its statement budget answers the too-many-orders text and a 31-day one the reading-failure text")` (acceptance 16, with a lowered statement timeout)
-- `test("a third concurrent sales read waits 300 ms and answers the reading-failure text")`
 
-`sales-load.integration.test.ts` (load check, like `product-search-performance.integration.test.ts`)
-- `test("at the expected maximum volume a 366-day summary, best sellers and unsold read each statement within half its budget")`
-- `test("issues the measured number of statements, within maxStatements, for the worst case of each sales tool")`
-
-`order-repository.integration.test.ts`
+`order-repository.integration.test.ts` (T0)
 - `test("the created-date filter and newest-first order of the order search use Order_companyId_createdAt_idx")` (`EXPLAIN` on a seeded store)
+- `test("summarizeUnpaidOrders gives the same figures after taking its balance and visibility from the shared fragments")`
 
 ### Web E2E
 
@@ -506,65 +548,81 @@ None: no screen changes.
 
 - Claude and ChatGPT connected to a preview with the example store: «¿cómo me fue este mes?», «¿qué es lo que más vendí?», «¿qué talla de polo sale más?», «¿qué no se está vendiendo?», in Spanish and in Portuguese; the agent repeats figures unchanged and does not recompute comparisons.
 - MCP Inspector lists exactly nine tools, all read-only.
+- On a preview store with years of history, `productos_sin_ventas` for the default 30 days answers in about a second, and a 366-day summary answers or says too many orders.
 
 ## 15. Limits and checks during implementation
 
-- Left out: everything in the product draft's «Out of this version»; a time zone per store; a cache of figures; writes.
-- Verify the statement count of `catalogStorefront.describe` and set `maxStatements` to the measured worst case of each tool.
-- Verify with `EXPLAIN` on the load fixture that the period read uses `Order_companyId_createdAt_idx` under RLS and that the sale-dates read probes `OrderItem_companyId_variantId_idx`.
-- Verify that `GROUPING SETS` rows validate with one Zod schema with a nullable `variantId`.
-- If the load check exceeds half the statement budget at 366 days, lower `salesPeriodMaxDays` (the refusal text follows the constant) and record the measured value in the pull request.
-- The sales module exists with an empty tool list between T0 and T1 on the integration branch only; it never reaches `main` that way.
-- The pool reserve for the web app and order tools goes from 7 to 5 connections with question 1's option 1.
+- Left out: everything in the product draft's «Out of this version»; a time zone per store; a cache of figures; writes; an exact last-sale date for every unsold product (section 7.1).
+- T0 measures the opener overhead (2 statements, 3 with the storefront read) and pins `salesPathStatements`; T1 and T2 assert their measured counts equal it.
+- `EXPLAIN` on the history fixture (four years), in the load check of the task that introduces each statement, checks that: the window reads use `Order_companyId_createdAt_idx` under RLS; the items join of the sold variants and of the activity is driven by the window's orders through `OrderItem (companyId, orderId, variantId)`, not a hash over every item of the store; the payments of the summary are read through `Payment (companyId, orderId, id)` for the window's orders only; the exact sale dates probe `OrderItem (companyId, variantId)` for the page's variants only. A plan that scans history fails the check and the statement is rewritten before the task merges.
+- Each statement is measured on that fixture at the maximum period, with the 12,000-id list of the ranking and the 20 stale variants of the exact dates included. The limit is half the statement budget (750 ms); if a statement exceeds it, `salesPeriodMaxDays` is lowered (the refusal text follows the constant) and the measured value goes in the pull request. If the descriptions of 12,000 variants take more than a quarter of the budget, T2 reports it to the coordinator before splitting the read, because a split path would have 6 statements and no margin.
+- `GROUPING SETS` of the sold variants must stay hashable (no `DISTINCT` aggregate) and validate with one Zod schema with a nullable `variantId`; the plan and any `work_mem` spill are looked at in the load check.
+- If the measured overhead or any path count differs from section 11, the change of `salesReadBudget` or `salesPathStatements` is the coordinator's decision, made before wave 2 continues; wave-2 tasks never edit them.
+- The sales module exists with an empty tool list between T0 and the first tool on the integration branch only; it never reaches `main` that way.
+- The pool reserve for the web app, order tools and per-call pipeline goes from 7 to 5 connections (section 11).
 
 ## 16. Implementation plan
 
 ### Order and parallelism
 
 ```text
-Wave 1:  T0  scopes, shared snapshot and slots, index, period, sales module frame
-Wave 2:  T1  Resumen de ventas            ║  T2  Lo más vendido + Productos sin ventas   (parallel, both depend on T0)
-Wave 3:  T3  promote drafts into docs/assistants.md   (depends on T1 and T2)
+Wave 1:  T0  scopes, shared snapshot and slots, budget, index, history fixture, period, sales module frame and stubs
+Wave 2:  T1  Resumen de ventas   ║   T2  Lo más vendido + Productos sin ventas      (parallel, both depend on T0)
+Wave 3:  T3  nine-tool acceptance                                                   (depends on T1 and T2)
+Wave 4:  T4  promote the drafts into docs/assistants.md                             (last step; the coordinator's documentation step; nothing depends on it)
 ```
 
-Shared lines in wave 2, additive and non-adjacent where possible; on conflict keep both: the tool list of the sales entry in `src/composition/assistant-tools.ts`; the expected sales tool names in `src/composition/assistant-tools.test.ts`; the `orders` object in `features/orders/composition.ts` (T1 after `summarizeUnpaid`, T2 after `listDispatchQueue`). No other file is edited by both.
+Before T0 is dispatched the coordinator supersedes memories fc437ed9, 854b8b20, 3b49cccc and 4b823bad (MCP 3/4 adds no scope literal; the module declares `scopes`), or puts that rule in every worker brief: an implementer that follows the old memory and adds a literal to `assistantScopes` would end every live connection.
 
-### T0. Two-scope modules and the sales read frame
+**File ownership.** Every shared file has one owner, and wave-2 tasks edit no common file: `salesReadBudget`, `salesPathStatements`, `assistant-tools.ts`, `features/orders/composition.ts`, `order-repository.ts`, the sales module and the history fixture belong to T0; T1 and T2 fill the stub files T0 creates for them (section 12) and write their own test files; `assistant-tools.test.ts` (nine names) and `sales-tools.integration.test.ts` belong to T3. A wave-2 task that needs a change in a T0 file escalates to the coordinator.
 
-**Scope:** `ToolModule.scopes` with registry, validator and both existing modules; `budgeted-snapshot.ts` extracted from products with the products behavior unchanged; `createReadSlots` extracted; `visibleOrder` moved to `order-visibility.ts`; `orders.readSalesForAssistant` with `salesReadBudget`; the index migration; `sales-period.ts` and `sales-figures.ts`; `input-fields.ts`; `sales-texts.ts` (paragraph, period refusals, reading-failure, too-many texts); `sales-tools.ts` with `createSalesToolsModule(tools)` registered with no tools; the sales slot and `salesRead` guard in `assistant-sales-capabilities.ts`, which picks the too-many text for `STATEMENT_TIMEOUT` over 31 days; the orders paragraph without the no-totals sentence; the load fixture seeder for the expected maximum volume.
+**Acceptance criteria of the product draft by owner:** T0: 3 (pure) and 16; T1: 1–5, 6 (summary), 11, 12, 15 (summary refusals), 17, 18 (summary), 3 (repository); T2: 6 (ranking and dates), 7–10, 13, 14, 15 (product tools), 17, 18 (ranking), 19; T3: 20 and 21.
+
+### T0. Two-scope modules, the sales read frame and the history fixture
+
+**Scope:** `ToolModule.scopes` with registry, validator, both existing modules and the corrected doc comment of `tool-module.ts`; `budgeted-snapshot.ts` extracted from products with the products behavior unchanged; `createReadSlots(count, waitMs)` extracted; `visibleOrder` and the `orderBalance` fragment extracted; `orders.readSalesForAssistant` with `salesReadBudget` and `salesPathStatements`; `decimal-cents.ts`; the index migration; `sales-period.ts` and `sales-figures.ts`; `input-fields.ts`; `sales-texts.ts`; `sales-tools.ts` with `createSalesToolsModule(tools)`; the sales slot and the `salesRead` guard (failure-text choice, both logs); the stub files and wiring of section 12 (`assistant-tools.ts`, `orders/composition.ts`, the two capability files and two composition files); the orders paragraph without the no-totals sentence; the history load fixture and its index checks.
 **Out of scope:** any sales tool, query or projection; `docs/assistants.md`.
 **Acceptance criteria:**
 1. A connection with both scopes lists the six existing tools; a module declared with both scopes is listed only to it, and one with only `orders:read` sees four tools and no sales paragraph.
-2. Product tools behave as before: every existing product test, including the statement-count and the 3-slot tests, passes unchanged apart from imports.
+2. Product tools behave as before: every existing product test, including the statement-count and the 3-slot tests, passes unchanged apart from imports; `summarizeUnpaidOrders` returns the same figures.
 3. `resolveSalesPeriod` answers every row of the product draft's previous-period table and each refusal text of «Period inputs».
-4. `Order_companyId_createdAt_idx` exists after `prisma migrate deploy` and the created-date search of **Buscar pedidos** uses it.
-5. `pnpm --dir apps/core mcp:validate` passes.
-**Tests:** the `tool-registry`, `budgeted-snapshot`, `sales-period` and `sales-figures` unit tests of section 14, and the index integration test.
+4. `Order_companyId_createdAt_idx` exists and is valid (`pg_index.indisvalid`) after `prisma migrate deploy`, a no-change `migrate dev --create-only` emits nothing, and a window read and the created-date search of **Buscar pedidos** use it on the four-year fixture.
+5. The guard answers the too-many-orders text only for a statement timeout over 31 days, logs `sales_read_failed` once, and the slot tests of section 14 pass; the budget invariant and the per-path margin tests pass.
+6. `pnpm --dir apps/core mcp:validate` passes.
+**Tests:** the unit and integration tests of section 14 marked T0.
 **Depends on:** nothing.
 
 ### T1. Resumen de ventas
 
-**Scope:** `orders.summarizeSales` with `sales-summary-repository.ts`; `sales-projection.ts`; `sales-summary-tool.ts` with its description (meaning of each figure, next-step tools with the creation dates, «Billetera digital» as Yape or Plin, open period, web remedy for cancelled money); `assistant-sales-summary-capabilities.ts`; the tool added to the sales entry; its sample outputs; its statement count and load check.
-**Out of scope:** product tools; other modules' texts.
-**Acceptance criteria:** acceptance criteria 1–5, 11, 12, 15, 16, 17, 18 and 20 of the product draft through `resumen_de_ventas`; the October example store answers exactly the figures of criterion 1; a 366-day summary at the expected maximum volume stays within half its statement budget or `salesPeriodMaxDays` is lowered with the measured value in the pull request.
-**Tests:** `summarize-sales`, `sales-projection`, `sales-summary-tool` unit tests; `sales-summary-repository` integration tests; the summary cases of `sales-tools.integration.test.ts` and `sales-load.integration.test.ts`; the summary sample of the static validator.
+**Scope:** `orders.summarizeSales` with `sales-summary-repository.ts` and `composition-sales-summary.ts`; `sales-projection.ts`; `sales-summary-tool.ts` with its description (meaning of each figure, next-step tools with the creation dates, «Billetera digital» as Yape or Plin, open period, web remedy for cancelled money); `salesSummaryTools` in `assistant-sales-summary-capabilities.ts`; its sample outputs; its statement count (4) and its load check.
+**Out of scope:** product tools; any T0 file; other modules' texts.
+**Acceptance criteria:** the criteria owned by T1 through `resumen_de_ventas`; the October example store answers exactly the figures of criterion 1; the summary issues exactly `salesPathStatements.summary` statements; a 366-day summary on the four-year fixture keeps every statement within half its budget or `salesPeriodMaxDays` is lowered with the measured value in the pull request.
+**Tests:** the T1 tests of section 14, and the summary sample of the static validator.
 **Depends on:** T0.
 
 ### T2. Lo más vendido and Productos sin ventas
 
-**Scope:** `orders.summarizeSoldVariants` and `orders.findVariantSaleDates` with `sold-variants-repository.ts`; `products.describeVariantsForAssistant` and `products.listStockedForAssistant` with `product-sales-repository.ts` and the extracted `product-text-match.ts`; `product-sales-projection.ts`; `best-sellers-tool.ts` and `unsold-products-tool.ts` with their descriptions (singular-stem advice, `producto` ignoring the rest, last 30 days for unsold questions without a period); `assistant-product-sales-capabilities.ts`; both tools added to the sales entry; their sample outputs at maximum lengths; their statement counts and load check.
-**Out of scope:** the summary; stock alerts (MCP 4/4); variants without sales inside a sold product.
-**Acceptance criteria:** acceptance criteria 6–10, 13, 14, 15, 17, 18 and 19 of the product draft through `lo_mas_vendido` and `productos_sin_ventas`; a 366-day ranking and unsold read at the expected maximum volume stay within half their statement budget; the existing product search answers the same results with the extracted text match.
-**Tests:** `product-sales-projection`, `best-sellers-tool`, `unsold-products-tool` unit tests; `sold-variants-repository` and `product-sales-repository` integration tests; the product cases of `sales-tools.integration.test.ts` and `sales-load.integration.test.ts`; the 20 × 3 and 60-variant samples of the static validator; the existing product-search integration tests.
+**Scope:** `orders.summarizeSoldVariants`, `summarizeVariantActivity` and `findVariantSaleDates` with `sold-variants-repository.ts` and `composition-sold-variants.ts`; `products.describeVariantsForAssistant` and `products.listStockedForAssistant` with `product-sales-repository.ts`, `products/composition.ts` and the extracted `product-text-match.ts`; `product-sales-projection.ts`; `best-sellers-tool.ts` and `unsold-products-tool.ts` with their descriptions (singular-stem advice, `producto` ignoring the rest, last 30 days for unsold questions without a period); `productSalesTools` in `assistant-product-sales-capabilities.ts`; their sample outputs at maximum lengths; their statement counts (5 and 5) and load checks.
+**Out of scope:** the summary; stock alerts (MCP 4/4); variants without sales inside a sold product; any T0 file.
+**Acceptance criteria:** the criteria owned by T2 through `lo_mas_vendido` and `productos_sin_ventas`; each path issues exactly its `salesPathStatements` count; on the four-year fixture every statement of both tools stays within half its budget at 366 days and `productos_sin_ventas` at the default 30 days, or `salesPeriodMaxDays` is lowered with the measured value; the existing product search answers the same results with the extracted text match.
+**Tests:** the T2 tests of section 14, and the 20 × 3 and 60-variant samples of the static validator.
 **Depends on:** T0.
 
-### T3. Promote the drafts
+### T3. Nine-tool acceptance
 
-**Scope:** rewrite `docs/assistants.md` with every item of the product draft's «Changes to permanent documents on merge» plus this design's architecture (module scopes, sales snapshot and slots, index, observability events), following the [Documentation](../../.agents/skills/documentation/SKILL.md) skill; delete both drafts.
-**Out of scope:** repository memories (the coordinator updates them after merge, as the product draft says).
+**Scope:** the nine names pinned in `assistant-tools.test.ts`; `sales-tools.integration.test.ts` (criteria 20 and 21); a read of every tool description for contradictions between the two wave-2 tasks; `scripts/ci.sh` on the integration branch.
+**Out of scope:** new behavior; any change to a tool, a read or a T0 constant (a defect goes back to the task that owns the file).
+**Acceptance criteria:** criteria 20 and 21 of the product draft; the static validator lists exactly nine tools, all read-only; `scripts/ci.sh` passes.
+**Tests:** those of section 14 marked T3.
+**Depends on:** T1, T2.
+
+### T4. Promote the drafts
+
+**Scope:** rewrite `docs/assistants.md` with every item of the product draft's «Changes to permanent documents on merge» plus this design's architecture (module scopes, sales snapshot, budget and per-path statements, slots, the new pool reserve of 5 and who shares it, the cross-store slot risk, index, read bounds, observability events), following the [Documentation](../../.agents/skills/documentation/SKILL.md) skill; delete both drafts. Done by the coordinator's documentation step; no other task depends on it.
+**Out of scope:** repository memories (the coordinator updates them, as the product draft says).
 **Acceptance criteria:** `docs/assistants.md` says nine tools, the sales group, the scope rule for groups over listed data, both new failure texts and «exactly nine tools» in the checking steps; no draft remains for this feature.
 **Tests:** none new; the static validator and the full `test:unit` stay green.
-**Depends on:** T1, T2.
+**Depends on:** T3.
 
 ### Final verification
 
@@ -572,26 +630,51 @@ On the integration branch after T3: `scripts/ci.sh`; the static validator lists 
 
 ## 17. Open items and questions
 
-Questions (answer with the option number):
+No open question.
 
-1. How many sales reads may be in flight at once, given the 10-connection pool?
-   (1) 2 sales slots separate from the 3 product slots. Recommended: a heavy 10-second summary never makes a product search fail, and the web app and order tools keep 5 of 10 connections. Consequence: the documented reserve of 7 becomes 5.
-   (2) One shared pool of 3 slots for product and sales reads. Keeps the reserve of 7, but two slow summaries make product searches answer the reading-failure text after 300 ms.
-   (3) 1 sales slot separate. Keeps a reserve of 6; a second owner asking for a summary at the same moment waits 300 ms and gets the reading-failure text.
+### Questions decided by the review gate
 
-2. With `texto` in **Lo más vendido**, does the other-currency line name the number of orders?
-   (1) No: units and amount, as the `producto` example («Además vendiste en USD: 3 unidades, US$ 90.00 en productos, fuera de este ranking.»). Recommended: the order count of matching products cannot be summed from per-variant totals, and other currencies are rare.
-   (2) Yes, as the unfiltered line. Needs one more statement per call that counts distinct orders of the matching variants per currency.
+1. **How many sales reads may be in flight at once, given the 10-connection pool?** Answer: (1) 2 sales slots separate from the 3 product slots. Decided by the review gate (design and performance reviewers, in agreement, round 1), as the founder's answer. Reason: a sales read can hold a connection up to 10 s; sharing slots would make a slow summary fail product searches that have a tighter 5 s budget; one slot would make two owners asking at month-end collide, and an agent calling two sales tools for one question would fail its second call. Accepted consequence: the reserve for the web app, order tools and per-call pipeline goes from 7 to 5 of 10 connections, and the slots are shared across stores (section 11). Discarded: (2) one shared pool of 3 slots, because two slow summaries would make product searches fail; (3) one separate slot, because a second concurrent summary would fail.
+2. **With `texto` in Lo más vendido, does the other-currency line name the number of orders?** Answer: (1) no, units and amount, as the `producto` example. Decided by the review gate (both reviewers, round 1), as the founder's answer. Reason: the order count of matching products cannot be summed from per-variant totals, it would cost one more statement on a path with one statement of margin, and other currencies are rare. Discarded: (2) yes, with one more statement per call.
 
-Decided unless objected:
-- `ToolModule.scope` becomes `scopes`; a module is offered only when every scope is held; no scope literal is added (product question 3). This replaces the convention in memories fc437ed9, 854b8b20, 3b49cccc and 4b823bad, which the coordinator updates after merge.
+### Decided unless objected
+
+- `ToolModule.scope` becomes `scopes`; a module is offered only when every scope is held; no scope literal is added (product question 3). The coordinator supersedes memories fc437ed9, 854b8b20, 3b49cccc and 4b823bad before T0 is dispatched.
 - Orders owns every read that decides what a sale is; products owns names, combinations, the text match and stock; the composition joins them in memory by variant id.
-- One RepeatableRead snapshot per call with `salesReadBudget` 1 s / 10 s / 1.5 s per statement / 6 statements, constants pinned by a unit test; the budgeted snapshot and the read slots move to shared files with the products behavior unchanged.
+- One RepeatableRead snapshot per call with `salesReadBudget` 1 s / 10 s / 1.5 s per statement / 6 statements, fixed here and edited only by T0; every path has 4 or 5 counted statements (overhead 2 `set_config`, the storefront read, the reads), one statement of margin; `lo_mas_vendido` with `producto` uses a light products read by product id instead of `findForAssistant`.
+- The budgeted snapshot reports failures to an `onFailure` callback; products keep `product_search_failed` and sales log `sales_read_failed` once in the composition guard.
+- Sales slots: 2 per process, 2,000 ms wait; product slots unchanged.
 - Too many orders means a statement timeout in a period over 31 days; every other failure answers the sales reading-failure text.
-- New index `Order_companyId_createdAt_idx`, created concurrently; no other schema change.
-- Expected maximum volume for the load check: 60,000 orders in 366 days; 366 days stays unless the check fails.
-- Period, previous period, shares, comparisons and ranking are pure functions in `features/assistants/domain`; money is summed in SQL and rounded half up in integer cents.
-- `productos_sin_ventas` reads every checked product of the store in one statement and pages in memory, because its order depends on sale dates.
+- New index `Order_companyId_createdAt_idx`, created concurrently as `add_order_dispatch_queue_index` was, declared in `schema.prisma`, with an `indisvalid` check; no other schema change.
+- Every statement is bounded by the windows read (at most 732 days), the catalog or one page; the load check runs on a four-year fixture with both windows and old history, each task measuring its own statements.
+- Summary: one statement (figures, methods, pending reports, `storeHasOrders` with `visibleOrder`), payments only of the window's orders, owed from one balance fragment shared with **Pedidos por cobrar**.
+- **Productos sin ventas** shows the exact «Última venta antes del periodo» and «Volvió a venderse» dates for the products on the page only; the order of the list uses the last sale found in the 183 days before the period, so among products of equal stock those with no sale in that look-back are ordered by name rather than by an older last-sale date. Trigger to revisit: owners asking why an old sale does not order the list, or a kept last-sale date added to `OrderItem` for another reason.
+- A currency with only cancelled orders in the current window opens a block with «No hay ventas en USD del …» and its cancelled lines, so the money-on-cancelled remedy is never lost.
+- Period, previous period, shares, comparisons and ranking are pure functions in `features/assistants/domain`; money is summed in SQL, converted to cents exactly with `decimal.js` and rounded half up on the magnitude; the ticket comparison uses the rounded averages.
 - Sales instructions paragraph within 700 characters.
 - Logs: `sales_read_failed` (error, with `periodDays` and `answer`) and `assistant_sales_reads_busy` (warn); no input, amount or name is logged.
-- Four tasks in three waves: T0, then T1 and T2 in parallel, then T3 for the permanent docs.
+- Five tasks in four waves: T0, then T1 and T2 in parallel, then T3 (nine-tool acceptance), then T4 (the permanent docs, last). The docs task was T3 in round 1.
+
+## 18. Review gate, round 1: how each finding was resolved
+
+| Finding | Resolution |
+| --- | --- |
+| Design B1, performance B1 (`producto` does not fit the budget; undercounted `set_config`) | Light `by: "product"` read instead of `findForAssistant` (5.5); statement counting stated (section 2); per-path counts 4, 5, 5 against 6 with margin, pinned and tested (6.3, 11) |
+| Design B2, performance B2 and B3 (reads bounded by history; fixture without history) | Statement bounds in 7.1: window, catalog or page; look-back of 183 days for ordering; exact dates for the page's variants only; four-year fixture with both windows and old history (section 2); `EXPLAIN` checks (15) |
+| Load check in the task that introduces the reads | Fixture and index checks in T0; each load check file in T1 or T2 beside the statements it measures (12, 14, 16) |
+| Design B3 (criterion 21, nine-tool assertions, shared files, budget constant) | T3 owns criteria 20–21 and the nine names; stubs let T0 finish every shared file; T0 alone edits the budget; ownership rule and criteria table in 16 |
+| Design S1 (where `sales_read_failed` is logged) | Accepted: logged once in the `salesRead` guard; the snapshot has `onFailure` and logs nothing for sales (5.7, 6.3, 13) |
+| Design S2 (exact cents, half-up negatives, ticket comparison) | Accepted with `decimal.js` (a dependency of `shared`, which the reviewer cited and I verified); magnitude rounding; rounded averages; tests (2, 6.4, 14) |
+| Design S3, performance S6 (index precedent) | Accepted: `add_order_dispatch_queue_index` precedent, `indisvalid` check, no-change `create-only` check (7) |
+| Design S4 (`hasAnyOrder` and `visibleOrder`) | Accepted: `storeHasOrders` applies `visibleOrder` as `existsOrder` does, inside the summary statement (5.2) |
+| Design S5 (owed rule shared with Pedidos por cobrar) | Accepted: `orderBalance` fragment and an integration assertion of equal owed (2, 5.2, 14) |
+| Design S6 (currency with only cancelled orders) | Accepted as a recorded assumption: a block with its cancelled lines (6.4, 17) |
+| Design S7 (stale guidance) | `tool-module.ts` comment corrected in T0; memories superseded by the coordinator before T0 (12, 16) |
+| Design S8 (test gaps) | Titles added for criteria 2, 3, 4, 8, the maximum 20-product page of unsold products (14) |
+| Design S9, performance S8 (slots shared by every store; reserve shared) | Stated in 11, recorded by T4 |
+| Performance S1 (company-wide payment grouping) | Accepted: payments only of the window's orders; the company-wide grouping is forbidden (7.1) |
+| Performance S2 (merge the two summary statements) | Accepted: one statement, which also lowers the summary to 4 (5.2) |
+| Performance S3 (EXPLAIN of items and payments joins) | Accepted (15) |
+| Performance S4 (describe over-fetch) | Partly accepted: the `producto` path no longer over-fetches and the ranking description is measured with 12,000 ids; not split in two statements because the path has one statement of margin and the read is catalog-bounded (5.5, 15) |
+| Performance S5 (`GROUPING SETS` with `count(DISTINCT)`) | Accepted: sums only in the grouping sets, orders counted in the window CTE (5.3) |
+| Performance S7 (slot wait) | Accepted: 2,000 ms for sales slots, product slots unchanged (2, 11) |
