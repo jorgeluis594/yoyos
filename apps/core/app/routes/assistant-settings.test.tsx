@@ -97,12 +97,25 @@ test("lists a newly connected agent when the page regains focus without reloadin
   expect(container.querySelector("#connector-address")?.textContent).toBe("https://app.yoyos.lat/mcp");
 });
 
+test("shows the products in the introduction and the disconnect text, in Spanish and Portuguese", async () => {
+  await i18n.changeLanguage("pt");
+  try {
+    await mount(page([claude]));
+    expect(container.textContent).toContain("perguntar sobre seus pedidos e produtos. Ele só pode ler");
+    await act(async () => buttons("Desconectar")[0].click());
+    expect(document.querySelector('[role="dialog"]')!.textContent).toContain("Ele deixará de ver seus pedidos e produtos até você conectá-lo novamente.");
+  } finally {
+    await i18n.changeLanguage("es");
+  }
+  expect(resources.es.translation.assistants.settingsIntro).toContain("tus pedidos y productos");
+});
+
 test("the disconnect dialog names the agent and its connection date", async () => {
   await mount(page([claude, chatgpt]));
   await act(async () => buttons("Desconectar")[1].click());
   const dialog = document.querySelector('[role="dialog"]')!;
   expect(dialog.textContent).toContain("¿Desconectar ChatGPT, conectado el 28/10/2026?");
-  expect(dialog.textContent).toContain("Dejará de ver tus pedidos hasta que lo conectes de nuevo.");
+  expect(dialog.textContent).toContain("Dejará de ver tus pedidos y productos hasta que lo conectes de nuevo.");
   expect([...dialog.querySelectorAll("button")].map((element) => element.textContent)).toEqual(expect.arrayContaining(["Desconectar asistente", "Mantener conectado"]));
 });
 

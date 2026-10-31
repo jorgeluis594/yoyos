@@ -7,11 +7,11 @@ import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistenc
 import { loadAccountAccess } from "@core/src/composition/assistant-account-access";
 import { isConnectionActive, type ConnectionWithPasswordChange, type OAuthClientId } from "@core/src/features/assistants/domain/assistant-connection";
 import { endAccountAssistantConnections, type AccountAccess, type PersistenceError, type EndAccountAssistantConnectionsDependencies } from "@core/src/features/assistants/application/disconnect-assistant";
-import { assistantScopes } from "@core/src/features/assistants/domain/scopes";
+import { assistantScopes, oauthScopes } from "@core/src/features/assistants/domain/scopes";
 import { assistantConfig } from "@core/src/features/assistants/infrastructure/assistant-config";
 import { connectionRepository } from "@core/src/features/assistants/infrastructure/connection-repository";
 import { findConnectionForClient } from "@core/src/features/assistants/infrastructure/connection-lookup";
-import { revokeEndedConnectionGrant } from "@core/src/features/assistants/infrastructure/oauth-grant-revocation";
+import { revokeEndedConnectionGrant, revokeGrantTokens, type RevokedGrant } from "@core/src/features/assistants/infrastructure/oauth-grant-revocation";
 import { createOAuthBeforeHook } from "@core/src/features/assistants/infrastructure/oauth-hooks";
 
 /**
@@ -52,20 +52,36 @@ const hasActiveConnection = createHasActiveConnection({
   inactivityDays: assistantConfig.connectionInactivityDays,
 });
 
-async function dropConsent(userId: UserId, oauthClientId: OAuthClientId): Promise<Result<number, PersistenceError>> {
+/** `oauthClient` is a global table (no company), so the write goes through `systemPrisma`; a row already holding the set is not rewritten. */
+async function alignClientScopes(oauthClientId: OAuthClientId): Promise<Result<"aligned" | "unchanged", PersistenceError>> {
   try {
-    const dropped = await systemPrisma.oauthConsent.deleteMany({ where: { userId, clientId: oauthClientId } });
-    if (dropped.count > 0) log.info({ event: "assistant_stale_consent_dropped", userId, oauthClientId }, "assistant_stale_consent_dropped");
-    return ok(dropped.count);
+    const scopes = [...oauthScopes];
+    const updated = await systemPrisma.$executeRaw`
+      UPDATE "oauthClient" SET scopes = ${scopes}::text[]
+      WHERE "clientId" = ${oauthClientId} AND NOT (scopes @> ${scopes}::text[] AND scopes <@ ${scopes}::text[])`;
+    if (updated === 0) return ok("unchanged");
+    log.info({ event: "assistant_client_scopes_aligned", oauthClientId }, "assistant_client_scopes_aligned");
+    return ok("aligned");
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
     return err(unavailable);
   }
 }
 
+/** At `/authorize` there may be no company and no connection row, so the grant is revoked by (client, account) alone. */
+async function revokePriorGrant(userId: UserId, oauthClientId: OAuthClientId): Promise<Result<RevokedGrant, PersistenceError>> {
+  const revoked = await revokeGrantTokens({ oauthClientId, userId, revokedAt: new Date() });
+  if (!revoked.success) return err(unavailable);
+  if (revoked.data.consents > 0 || revoked.data.refreshTokens > 0 || revoked.data.accessTokens > 0) {
+    log.info({ event: "assistant_prior_grant_revoked", userId, oauthClientId, ...revoked.data }, "assistant_prior_grant_revoked");
+  }
+  return revoked;
+}
+
 export const oauthBeforeHook = createOAuthBeforeHook({
   hasActiveConnection,
-  dropConsent,
+  alignClientScopes,
+  revokePriorGrant,
   reportFailure: ({ userId, oauthClientId, errorCode }) =>
     log.error({ event: "assistant_authorize_hook_failed", userId, oauthClientId, errorCode }, "assistant_authorize_hook_failed"),
   reportRefusedConsent: ({ userId, oauthClientId }) =>

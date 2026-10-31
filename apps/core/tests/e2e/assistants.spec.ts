@@ -43,7 +43,7 @@ async function connectAgent(page: Page, email: string) {
   return clientId;
 }
 
-test("an owner signs in from an agent request, allows access and sees the agent listed in Asistentes de IA", async ({ page }) => {
+test("connects an agent on a screen that lists orders and products", async ({ page }) => {
   const email = `assistants-${crypto.randomUUID()}@example.test`;
   let companyId: string | undefined;
   let clientId: string | undefined;
@@ -52,7 +52,9 @@ test("an owner signs in from an agent request, allows access and sees the agent 
     companyId = await prepareVerifiedCompany(page, { email, name: "Rosa", companyName: "Tienda Rosa", country: "PE" });
     clientId = await connectAgent(page, email);
 
-    await browserExpect(page.getByRole("heading", { level: 1 })).toHaveText("Claude quiere leer los pedidos de Tienda Rosa");
+    await browserExpect(page.getByRole("heading", { level: 1 })).toHaveText("Claude quiere leer los pedidos y productos de Tienda Rosa");
+    await browserExpect(page.getByText("Tus productos: variantes, precios de venta, stock y si están en tu catálogo")).toBeVisible();
+    await browserExpect(page.getByText("El precio de compra de tus variantes")).toBeVisible();
     await browserExpect(page.getByText("Volverá a claude.ai")).toBeVisible();
     await browserExpect(page.getByText(`Conectado como ${email}`)).toBeVisible();
     await waitForReactHydration(page, "button");
