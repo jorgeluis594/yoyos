@@ -218,9 +218,9 @@ test("answers the product's examples through tools/call without any phone, stree
   const rows = queue.pedidos as { numero: string; grupo: string; preparacion: { listo: boolean; texto: string }; por_cobrar?: string }[];
   expect(rows.map((row) => `${row.grupo}:${row.numero}`)).toEqual(["Atrasados:#1048", "Para hoy:#1001", "Para hoy:#1051", "Para hoy:#1052", "Para hoy:#1053"]);
   const byNumber = Object.fromEntries(rows.map((row) => [row.numero, row]));
-  expect(byNumber["#1048"]!.preparacion.texto).toBe("Listo para despachar");
-  expect(byNumber["#1051"]!.preparacion.texto).toBe("Se requiere al menos un pago para despachar. Tiene un pago por revisar.");
-  expect(byNumber["#1052"]!.preparacion.texto).toBe("Para despachar falta stock de Camisa (M).");
+  expect(byNumber["#1048"]!.preparacion.texto).toBe("Listo para enviar");
+  expect(byNumber["#1051"]!.preparacion.texto).toBe("Se requiere al menos un pago para enviar. Tiene un pago por revisar.");
+  expect(byNumber["#1052"]!.preparacion.texto).toBe("Para enviar falta stock de Camisa (M).");
   expect(byNumber["#1053"]!.preparacion.texto).toBe("Se requiere el pago completo antes de entregar. Por cobrar: S/ 40.00.");
   expect(queue.sin_fecha_de_despacho).toBe("Además hay 5 pedidos pendientes sin fecha de despacho.");
 
@@ -293,14 +293,14 @@ test("answers agency orders, unassigned delivery, short stock, cancelled orders 
   const queue = (await callTool(token, "pedidos_por_despachar_hoy")).structuredContent!;
   const rows = Object.fromEntries((queue.pedidos as { numero: string; modalidad: string; courier?: string; preparacion: { texto: string } }[]).map((row) => [row.numero, row]));
   expect(Object.keys(rows).sort()).toEqual(["#1054", "#3001", "#3002"]);
-  expect(rows["#1054"]).toMatchObject({ modalidad: "Agencia", courier: olva!.name, preparacion: { texto: "Se requiere al menos un pago para despachar. Tiene un pago por revisar." } });
+  expect(rows["#1054"]).toMatchObject({ modalidad: "Agencia", courier: olva!.name, preparacion: { texto: "Se requiere al menos un pago para enviar. Tiene un pago por revisar." } });
   expect(rows["#3001"]!.preparacion.texto).toBe("Entrega por definir: falta asignar la entrega.");
-  expect(rows["#3002"]!.preparacion.texto).toBe("Para despachar falta stock de Camisa (M).");
+  expect(rows["#3002"]!.preparacion.texto).toBe("Para enviar falta stock de Camisa (M).");
   const cancelled = (await callTool(token, "ver_pedido", { numero: "3003" })).structuredContent!;
   expect(cancelled).toMatchObject({ estado: "Cancelado" });
   expect(cancelled).not.toHaveProperty("preparacion");
 
-  const byCourier = (await callTool(token, "buscar_pedidos", { courier: "Shalom", entrega: "despachada" })).structuredContent!;
+  const byCourier = (await callTool(token, "buscar_pedidos", { courier: "Shalom", entrega: "enviada" })).structuredContent!;
   expect(byCourier.pedidos.map((order: { numero: string }) => order.numero)).toEqual(["#1030"]);
   const unknown = await callTool(token, "buscar_pedidos", { courier: "Olba" });
   expect(unknown.isError).toBe(true);
