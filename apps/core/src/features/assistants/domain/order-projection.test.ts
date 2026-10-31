@@ -155,11 +155,11 @@ describe("readiness sentences", () => {
     toAssistantDispatchEntry(order(overrides), "today", readiness!, context).preparacion;
 
   test("uses the sentences the web shows next to the fulfillment buttons", () => {
-    expect(sentence({ kind: "ready", operation: "ship" })).toEqual({ listo: true, texto: "Listo para despachar" });
+    expect(sentence({ kind: "ready", operation: "ship" })).toEqual({ listo: true, texto: "Listo para enviar" });
     expect(sentence({ kind: "ready", operation: "deliver" }).texto).toBe("Listo para entregar");
-    expect(sentence({ kind: "blocked", operation: "ship", reason: { code: "SHIP_PAYMENT_REQUIRED", pendingReport: false } }).texto).toBe("Se requiere al menos un pago para despachar.");
+    expect(sentence({ kind: "blocked", operation: "ship", reason: { code: "SHIP_PAYMENT_REQUIRED", pendingReport: false } }).texto).toBe("Se requiere al menos un pago para enviar.");
     expect(sentence({ kind: "blocked", operation: "ship", reason: { code: "SHIP_PAYMENT_REQUIRED", pendingReport: true } }).texto)
-      .toBe("Se requiere al menos un pago para despachar. Tiene un pago por revisar.");
+      .toBe("Se requiere al menos un pago para enviar. Tiene un pago por revisar.");
     expect(sentence({ kind: "blocked", operation: "deliver", reason: { code: "PAYMENT_REQUIRED", pendingReport: false } }, { total: pen(80), payments: [] }).texto)
       .toBe("Registra al menos un pago para entregar. Puede ser un pago parcial. Por cobrar: S/ 80.00.");
   });
@@ -171,7 +171,7 @@ describe("readiness sentences", () => {
       { variantId: "v-l", productName: "Camisa", variantAttributes: { Talla: "L" }, quantity: 1, unitPrice: pen(40), subtotal: pen(40) },
     ] });
     expect(shortItemNames(twoLines, ["v-m", "v-m", "v-l"])).toEqual(["Camisa (M · Azul)", "Camisa (L)"]);
-    expect(sentence({ kind: "blocked", operation: "ship", reason: { code: "STOCK_WAITING", variantIds: ["v-m", "v-m"] } }, twoLines).texto).toBe("Para despachar falta stock de Camisa (M · Azul).");
+    expect(sentence({ kind: "blocked", operation: "ship", reason: { code: "STOCK_WAITING", variantIds: ["v-m", "v-m"] } }, twoLines).texto).toBe("Para enviar falta stock de Camisa (M · Azul).");
     expect(sentence({ kind: "blocked", operation: "deliver", reason: { code: "STOCK_WAITING", variantIds: ["v-l"] } }, twoLines).texto).toBe("Para entregar falta stock de Camisa (L).");
   });
 

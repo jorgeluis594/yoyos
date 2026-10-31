@@ -68,7 +68,7 @@ A late response from an earlier attempt does not change the screen.
 
 - The text is direct, with no «Pago:» or «Entrega:» prefix. Header and list share one icon per dimension (card, truck, check or cross); the state shows in the text and in the color (warning for pending, info for shipped, success for paid, delivered and completed, muted for cancelled). Color is never the only signal.
 - The sales list keeps its compact control (icons that open to show the text, which is also the accessible name and tooltip). An active order with a balance reads «Pago pendiente: S/ 148.00». A completed order shows only «Venta completada»; a cancelled one only «Pedido cancelado», with no payment, balance or delivery label. The buyer-confirmation line under the order number ([Checkout](checkout.md#link-and-access)) and the list's «Desde el catálogo» badge are unchanged.
-- The shipped delivery state reads «Enviada», and the list filter «Enviado desde». Mobile says «Despachado».
+- The shipped delivery state reads «Enviada», and the list filter «Enviado desde». Mobile says «Enviado» and «Enviado desde» in the same way.
 
 ## What can change when
 
@@ -111,7 +111,7 @@ A late response from an earlier attempt does not change the screen.
 
 ## Pagos
 
-- Summary: «Sin pagos · necesario para despachar», «Pago parcial · falta S/ 148.00», «Pagado», «Pagado · Exceso recibido: S/ 12.00», plus «Pago por revisar» while a report is pending. The rows and their actions are described in [Orders · Web «Pagos» card](orders.md#web-pagos-card).
+- Summary: «Sin pagos · necesario para enviar», «Pago parcial · falta S/ 148.00», «Pagado», «Pagado · Exceso recibido: S/ 12.00», plus «Pago por revisar» while a report is pending. The rows and their actions are described in [Orders · Web «Pagos» card](orders.md#web-pagos-card).
 - One **Agregar <wallet>** button per wallet of the country's catalog (**Agregar Yape**, **Agregar Plin** in Peru) and **Transferencia bancaria**, while the order is not cancelled, has a product and has a balance. Without products: «Agrega productos para registrar pagos.». Empty: «Aún no hay pagos registrados.».
 - **Saved order:** each action opens the payment form with the method preset and «Importe recibido» prefilled with the balance; the partial stock box follows its [rule](orders.md#payments). Payment actions refresh the order afterwards.
 - **New sale:** each action adds a draft row prefilled with the balance at that moment and editable, with **Quitar** until **Guardar venta**. A later product change does not touch an amount already typed. An invalid draft amount is marked on its field.
@@ -121,7 +121,7 @@ A late response from an earlier attempt does not change the screen.
 - Optional «Nombre» and «Celular» (phone with a country selector, Peru by default; stored in E.164) and the hint «Escribe su nombre y celular.». A name without a phone, or the reverse, marks the missing field «Completa nombre y celular, o deja ambos vacíos.». There is no search of saved contacts.
 - Allowed in every state except cancelled, completed sales included.
 - **Quitar cliente** empties both fields; saving shows «Público general». A WhatsApp order keeps its mark and offers no **Quitar cliente**; with no name or phone it shows «Cliente del chat de WhatsApp. Agrega su nombre y celular si los conoces.». Emptying both fields after setting them keeps the contact and returns to that state.
-- On a confirmed order, clearing the customer leaves the buyer's read-only details empty on their link; the order stays confirmed ([Checkout](checkout.md#confirmation)).
+- On an order the buyer confirmed ([Checkout](checkout.md#confirmation)), the card is titled «Cliente» (not optional), offers no **Quitar cliente** and shows «El comprador confirmó este pedido con sus datos. Puedes cambiar el cliente, pero no dejarlo vacío.». Emptying both fields marks the name as incomplete before saving, and a save that reaches the server is refused with `CUSTOMER_REQUIRED`. Changing the customer to another name and phone works as always.
 
 ## Estado del pedido
 
@@ -129,7 +129,7 @@ Saved orders only, at the top of the right column (after «Cliente» on narrow s
 
 - **Stepper** (ordered list, `aria-current="step"` on the current step): Pendiente → Enviado → Entregado, or Pendiente → Entregado for store pickup; a cancelled order shows Pendiente → Cancelado with a red connector. Each reached step shows its date («Hoy 09:10» today, «29 oct» otherwise, Lima time); a delivery made straight from pending shows «Enviado» done without a date.
 - **Actions** (only what the backend supports): pending with shipping, **Marcar enviado** plus the links **Entregar directamente** and **Cancelar pedido**; pending store pickup, **Marcar entregado** and **Cancelar pedido**; shipped, **Marcar entregado** alone. Delivered shows «Entregado a <destinatario> el 30 oct, 16:40.»; cancelled shows «Pedido cancelado el 29 oct, 18:40.» plus «El stock de los productos se devolvió al inventario.» when the order had its stock deducted. There is no undo, back-to-pending or reopen.
-- **Blocks.** Without a confirmed payment the primary button and **Entregar directamente** are `aria-disabled` and an amber note says «Registra al menos un pago para despachar (entregar, en recojo). Puede ser un pago parcial.» with **Agregar pago**, which scrolls to and focuses «Pagos». Waiting stock and unsaved changes disable them the same way; **Cancelar pedido** stays enabled except with unsaved changes or while another action runs. Delivering with a balance due is allowed; completion waits for the payments to cover the total ([Orders](orders.md)).
+- **Blocks.** Without a confirmed payment the primary button and **Entregar directamente** are `aria-disabled` and an amber note says «Registra al menos un pago para enviar (entregar, en recojo). Puede ser un pago parcial.» with **Agregar pago**, which scrolls to and focuses «Pagos». Waiting stock and unsaved changes disable them the same way; **Cancelar pedido** stays enabled except with unsaved changes or while another action runs. Delivering with a balance due is allowed; completion waits for the payments to cover the total ([Orders](orders.md)).
 
 ## Enlace del pedido
 

@@ -108,7 +108,7 @@ describe("OrderStatusCard", () => {
   test("without a confirmed payment the actions are disabled with an amber note and a link to Pagos, but cancelling stays enabled", () => {
     mount(noPayment);
     expect(disabled("Marcar enviado")).toBe(true); expect(disabled("Entregar directamente")).toBe(true); expect(disabled("Cancelar pedido")).toBe(false);
-    expect(document.getElementById("order-status-note")?.textContent).toContain("Registra al menos un pago para despachar. Puede ser un pago parcial. Agregar pago");
+    expect(document.getElementById("order-status-note")?.textContent).toContain("Registra al menos un pago para enviar. Puede ser un pago parcial. Agregar pago");
     expect(button("Marcar enviado")?.getAttribute("aria-describedby")).toBe("order-status-note");
     click("Marcar enviado"); click("Entregar directamente"); expect(calls.fulfill).not.toHaveBeenCalled();
     click("Agregar pago"); expect(calls.addPayment).toHaveBeenCalledOnce();
@@ -124,7 +124,7 @@ describe("OrderStatusCard", () => {
   test("waiting stock keeps its reason under the button, in the same way", () => {
     mount({ stockDue: { kind: "waiting", shortItems: [{ variantId: order1042().items[0]!.variantId, available: 0 }] } });
     expect(disabled("Marcar enviado")).toBe(true);
-    expect(document.getElementById("order-status-note")?.textContent).toContain("Para despachar falta stock de Traje de Príncipe Azul (M).");
+    expect(document.getElementById("order-status-note")?.textContent).toContain("Para enviar falta stock de Traje de Príncipe Azul (M).");
     expect(button("Agregar pago")).toBeUndefined();
   });
 

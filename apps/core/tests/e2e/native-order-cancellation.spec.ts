@@ -201,7 +201,7 @@ test.runIf(process.env.NATIVE_ANDROID_TEST === "1")("Android cancels real orders
     expect((await page.request.post(`/api/orders/${conflict}/ship`)).ok()).toBe(true);
     await press("Cancelar pedido"); await press("Cancelar pedido");
     await visible("El pedido ya fue enviado o entregado y no se puede cancelar.");
-    await visible("Despachado"); expect((await detail(conflict)).cancelled).toBe(false);
+    await visible("Enviado"); expect((await detail(conflict)).cancelled).toBe(false);
     await screenshot("native-cancellation-conflict");
     const conflictPayments = (await detail(conflict)).payments;
     await adb("shell", "input", "swipe", "540", "1700", "540", "500", "350");

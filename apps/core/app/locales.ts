@@ -72,13 +72,13 @@ const es = {
   },
   orderStock: {
     waitingTitle: "Esperando stock", deductingTitle: "Descontando stock", shortItem: "{{name}}: {{quantity}} en el pedido, hay {{available}}.",
-    waitingBody: "Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede despachar ni entregar.",
+    waitingBody: "Se descontará solo cuando haya stock suficiente. Hasta entonces no se puede enviar ni entregar.",
     deductingBody: "Ya hay stock para este pedido; se descontará en menos de un minuto.",
   },
   orderFulfillment: {
     ship: "Marcar enviado", deliver: "Marcar entregado", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregado.",
-    PAYMENT_REQUIRED: "Registra al menos un pago para entregar. Puede ser un pago parcial.", SHIP_PAYMENT_REQUIRED: "Se requiere al menos un pago para despachar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de entregar.", INSUFFICIENT_STOCK: "No hay stock suficiente para despachar este pedido.",
-    STOCK_WAITING_ship: "Para despachar falta stock de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta stock de {{items}}.",
+    PAYMENT_REQUIRED: "Registra al menos un pago para entregar. Puede ser un pago parcial.", SHIP_PAYMENT_REQUIRED: "Se requiere al menos un pago para enviar.", STOCK_NOT_DEDUCTED: "Se requiere descontar el stock antes de entregar.", INSUFFICIENT_STOCK: "No hay stock suficiente para enviar este pedido.",
+    STOCK_WAITING_ship: "Para enviar falta stock de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta stock de {{items}}.",
     ORDER_CANCELLED: "El pedido está cancelado; no se puede enviar ni entregar.", INVALID_TRANSITION: "Solo se puede enviar desde pendiente y entregar desde pendiente o enviado.",
     already_shipped: "El pedido ya está marcado como enviado.", already_delivered: "El pedido ya está marcado como entregado.",
     saveError: "No se pudo actualizar el pedido. Inténtalo de nuevo.",
@@ -88,7 +88,7 @@ const es = {
     modality: { home: "Entrega a domicilio", agency: "Entrega por agencia", store: "Recojo en tienda", none: "Entrega por definir" },
     badge: { pending: "Pendiente", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado" },
     step: { pending: "Pendiente", shipped: "Enviado", delivered: "Entregado", cancelled: "Cancelado" },
-    paymentNote: { ship: "Registra al menos un pago para despachar. Puede ser un pago parcial.", deliver: "Registra al menos un pago para entregar. Puede ser un pago parcial." },
+    paymentNote: { ship: "Registra al menos un pago para enviar. Puede ser un pago parcial.", deliver: "Registra al menos un pago para entregar. Puede ser un pago parcial." },
     deliveredTo: "Entregado a {{name}} el {{date}}.", delivered: "Entregado el {{date}}.",
     cancelled: "Pedido cancelado.", cancelledOn: "Pedido cancelado el {{date}}.", stockReturned: "El stock de los productos se devolvió al inventario.",
   },
@@ -370,7 +370,7 @@ const es = {
       emptyCatalog: "Todavía no hay productos", loadError: "No se pudo cargar el catálogo.", retry: "Reintentar", tooMany: "Mostrando los primeros {{count}}. Escribe más para afinar la búsqueda.",
     },
     payments: {
-      title: "Pagos", none: "Sin pagos · necesario para despachar", partial: "Pago parcial · falta {{amount}}", paid: "Pagado", paidExcess: "Pagado · Exceso recibido: {{amount}}", review: "Pago por revisar",
+      title: "Pagos", none: "Sin pagos · necesario para enviar", partial: "Pago parcial · falta {{amount}}", paid: "Pagado", paidExcess: "Pagado · Exceso recibido: {{amount}}", review: "Pago por revisar",
       addWallet: "Agregar {{wallet}}", bankTransfer: "Transferencia bancaria", needProducts: "Agrega productos para registrar pagos.", empty: "Aún no hay pagos registrados.",
       received: "Importe recibido", partialStock: "Descontar stock aunque sea un abono parcial", remove: "Quitar",
       confirmed: "Confirmado", reported: "Por revisar", rejected: "Rechazado", voided: "Anulado",
@@ -378,6 +378,7 @@ const es = {
     },
     customer: {
       title: "Cliente (opcional)", name: "Nombre", phone: "Celular", hint: "Escribe su nombre y celular.", incomplete: "Completa nombre y celular, o deja ambos vacíos.", invalidPhone: "Escribe un celular válido con su código de país.", invalidName: "El nombre admite hasta 120 caracteres.",
+      titleRequired: "Cliente", requiredNote: "El comprador confirmó este pedido con sus datos. Puedes cambiar el cliente, pero no dejarlo vacío.",
       remove: "Quitar cliente", whatsapp: "Cliente del chat de WhatsApp. Agrega su nombre y celular si los conoces.", generalPublic: "Público general",
     },
     link: {
@@ -486,13 +487,13 @@ const pt = {
   },
   orderStock: {
     waitingTitle: "Aguardando estoque", deductingTitle: "Descontando estoque", shortItem: "{{name}}: {{quantity}} no pedido, há {{available}}.",
-    waitingBody: "Será descontado automaticamente quando houver estoque suficiente. Até lá, não é possível despachar nem entregar.",
+    waitingBody: "Será descontado automaticamente quando houver estoque suficiente. Até lá, não é possível enviar nem entregar.",
     deductingBody: "Já há estoque para este pedido; ele será descontado em menos de um minuto.",
   },
   orderFulfillment: {
     ship: "Marcar como enviado", deliver: "Marcar como entregue", shipSaved: "Pedido marcado como enviado.", deliverSaved: "Pedido marcado como entregue.",
-    PAYMENT_REQUIRED: "Registre pelo menos um pagamento para entregar. Pode ser um pagamento parcial.", SHIP_PAYMENT_REQUIRED: "É necessário pelo menos um pagamento para despachar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de entregar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para despachar este pedido.",
-    STOCK_WAITING_ship: "Para despachar falta estoque de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta estoque de {{items}}.",
+    PAYMENT_REQUIRED: "Registre pelo menos um pagamento para entregar. Pode ser um pagamento parcial.", SHIP_PAYMENT_REQUIRED: "É necessário pelo menos um pagamento para enviar.", STOCK_NOT_DEDUCTED: "É necessário descontar o estoque antes de entregar.", INSUFFICIENT_STOCK: "Não há estoque suficiente para enviar este pedido.",
+    STOCK_WAITING_ship: "Para enviar falta estoque de {{items}}.", STOCK_WAITING_deliver: "Para entregar falta estoque de {{items}}.",
     ORDER_CANCELLED: "O pedido está cancelado; não pode ser enviado nem entregue.", INVALID_TRANSITION: "Só é possível enviar pedidos pendentes e entregar pedidos pendentes ou enviados.",
     already_shipped: "O pedido já está marcado como enviado.", already_delivered: "O pedido já está marcado como entregue.",
     saveError: "Não foi possível atualizar o pedido. Tente novamente.",
@@ -502,7 +503,7 @@ const pt = {
     modality: { home: "Entrega em domicílio", agency: "Entrega por agência", store: "Retirada na loja", none: "Entrega a definir" },
     badge: { pending: "Pendente", shipped: "Enviado", delivered: "Entregue", cancelled: "Cancelado" },
     step: { pending: "Pendente", shipped: "Enviado", delivered: "Entregue", cancelled: "Cancelado" },
-    paymentNote: { ship: "Registre pelo menos um pagamento para despachar. Pode ser um pagamento parcial.", deliver: "Registre pelo menos um pagamento para entregar. Pode ser um pagamento parcial." },
+    paymentNote: { ship: "Registre pelo menos um pagamento para enviar. Pode ser um pagamento parcial.", deliver: "Registre pelo menos um pagamento para entregar. Pode ser um pagamento parcial." },
     deliveredTo: "Entregue a {{name}} em {{date}}.", delivered: "Entregue em {{date}}.",
     cancelled: "Pedido cancelado.", cancelledOn: "Pedido cancelado em {{date}}.", stockReturned: "O estoque dos produtos voltou ao inventário.",
   },
@@ -792,6 +793,7 @@ const pt = {
     },
     customer: {
       title: "Cliente (opcional)", name: "Nome", phone: "Celular", hint: "Digite o nome e o celular.", incomplete: "Preencha nome e celular, ou deixe ambos vazios.", invalidPhone: "Digite um celular válido com o código do país.", invalidName: "O nome admite até 120 caracteres.",
+      titleRequired: "Cliente", requiredNote: "O comprador confirmou este pedido com os dados dele. Você pode trocar o cliente, mas não deixá-lo vazio.",
       remove: "Remover cliente", whatsapp: "Cliente do chat do WhatsApp. Adicione o nome e o celular se você os conhecer.", generalPublic: "Público geral",
     },
     link: {

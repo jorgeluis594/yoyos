@@ -22,7 +22,7 @@ import type { PaymentFormat } from "@core/src/features/orders/presentation/payme
 import { useCatalogSearch } from "@core/src/features/orders/presentation/use-catalog-search";
 import type { LeaveGuard } from "@core/src/features/orders/presentation/use-unsaved-changes-guard";
 import {
-  clearCustomer, estimate, invalidFields, isEmptyDraft, screenLocks, setCustomer, unsavedParts,
+  clearCustomer, customerRequired, estimate, invalidFields, isEmptyDraft, screenLocks, setCustomer, unsavedParts,
   type DeliveryDraft, type InvalidField, type OrderViewState,
 } from "@core/src/features/orders/presentation/order-view-state";
 
@@ -265,7 +265,7 @@ export function OrderView(props: OrderViewProps) {
               estimate={paymentTotals} newPaymentId={props.newPaymentId} invalidPaymentIds={marksOf("payments").flatMap((mark) => mark.id ? [mark.id] : [])}
               hasProducts={hasProducts} busy={busy} format={format} />}
         </div>
-        <OrderCustomerCard customer={draft.customer} source={order?.source ?? "manual"} locked={screenLocks(state).customer !== null} marks={marksOf("customer")}
+        <OrderCustomerCard customer={draft.customer} source={order?.source ?? "manual"} locked={screenLocks(state).customer !== null} required={customerRequired(state)} marks={marksOf("customer")}
           onChange={(customer) => change(setCustomer(state, customer))} onRemove={() => change(clearCustomer(state))} />
       </div>
       <div className="flex min-w-0 flex-col gap-6 max-xl:contents">

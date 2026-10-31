@@ -172,8 +172,14 @@ export function setCustomer(state: OrderViewState, customer: CustomerDraft): Ord
   return { ...state, draft: { ...state.draft, customer, delivery: next } };
 }
 
-/** «Quitar cliente»: both fields are emptied, and the recipient keeps the last values it mirrored. */
+/** A saved order the buyer confirmed keeps a customer: the seller can change it but not leave it empty. */
+export function customerRequired(state: OrderViewState): boolean {
+  return state.loaded?.order.checkoutConfirmedAt != null;
+}
+
+/** «Quitar cliente»: both fields are emptied, and the recipient keeps the last values it mirrored. It does nothing when the customer is required. */
 export function clearCustomer(state: OrderViewState): OrderViewState {
+  if (customerRequired(state)) return state;
   const { delivery } = state.draft;
   return { ...state, draft: { ...state.draft, customer: { name: "", phone: "" }, delivery: { ...delivery, sameAsCustomer: false } } };
 }
@@ -287,9 +293,9 @@ function invalidItems(state: OrderViewState): readonly InvalidField[] {
   return marks;
 }
 
-function invalidCustomer(customer: CustomerDraft): readonly InvalidField[] {
+function invalidCustomer(customer: CustomerDraft, required: boolean): readonly InvalidField[] {
   const [name, phone] = [customer.name.trim(), customer.phone.trim()];
-  if (name === "" && phone === "") return [];
+  if (name === "" && phone === "") return required ? [{ section: "customer", field: "customerName", reason: "customer_incomplete" }] : [];
   if (name === "" || phone === "") return [{ section: "customer", field: name === "" ? "customerName" : "customerPhone", reason: "customer_incomplete" }];
   const parsed = newOrderCustomerSchema.safeParse({ name, phone });
   if (parsed.success) return [];
@@ -322,7 +328,7 @@ export function invalidFields(state: OrderViewState): readonly InvalidField[] {
   const edited = unsavedParts(state);
   const payments = draft.payments.filter((payment) => !isValidAmount(payment.amount))
     .map((payment): InvalidField => ({ section: "payments", field: "amount", id: payment.paymentId, reason: "amount_invalid" }));
-  const customer = locks.customer === null && (base === null || edited.includes("customer")) ? invalidCustomer(draft.customer) : [];
+  const customer = locks.customer === null && (base === null || edited.includes("customer")) ? invalidCustomer(draft.customer, customerRequired(state)) : [];
   const delivery = locks.delivery === null && (base === null || edited.includes("delivery")) ? invalidDelivery(draft.delivery, base) : [];
   const estimated = estimate(state);
   const uncovered = base === null && draft.deliverImmediately && !(estimated.success && estimated.data.balance.amount === 0);

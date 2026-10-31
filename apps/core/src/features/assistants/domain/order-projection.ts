@@ -53,7 +53,7 @@ export type Modality = "A domicilio" | "Agencia" | "Recojo en tienda" | "Por def
 export type AssistantOrderSummary = Readonly<{
   numero: string; creado: string; cliente: string; origen: OrderSource; total: string; recibido: string;
   estado_pago: "Pagado" | "Pago pendiente"; por_cobrar?: string; pago_por_revisar?: true; estado?: "Cancelado" | "Completado";
-  estado_entrega: "Pendiente" | "Despachada" | "Entregada"; modalidad: Modality; courier?: string; despacho_programado?: string; enlace: string;
+  estado_entrega: "Pendiente" | "Enviada" | "Entregada"; modalidad: Modality; courier?: string; despacho_programado?: string; enlace: string;
 }>;
 
 export type AssistantPayment = Readonly<{
@@ -175,7 +175,7 @@ function paymentFigures(order: ProjectableOrder) {
 }
 
 const sourceOf = (order: ProjectableOrder): OrderSource => (order.fromCatalog ? "Desde el catálogo" : order.chatId ? "WhatsApp" : "Venta manual");
-const deliveryStateWord = { pending: "Pendiente", shipped: "Despachada", delivered: "Entregada" } as const;
+const deliveryStateWord = { pending: "Pendiente", shipped: "Enviada", delivered: "Entregada" } as const;
 const courierOf = (delivery: ProjectableDelivery | null) => (delivery?.method === "agency" ? delivery.courier.name : undefined);
 
 export function toAssistantOrderSummary(order: ProjectableOrder, context: ProjectionContext): AssistantOrderSummary {
