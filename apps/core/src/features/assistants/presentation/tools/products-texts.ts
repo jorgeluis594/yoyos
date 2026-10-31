@@ -30,5 +30,5 @@ export const searchProductsDescription = [
 export const viewProductDescription = [
   "Muestra todo lo de un producto: nombre, descripción, opciones, cada variante con su combinación, SKU, precio de venta, precio de compra, stock, nivel y si está activa o desactivada, y los enlaces. Úsala cuando el dueño pida el detalle de un producto o pregunte cuánto le costó («¿cuánto me costó la casaca negra?»).",
   "Indica exactamente uno: producto (el id que devuelve buscar_productos) o sku (un SKU exacto, sin distinguir mayúsculas ni espacios en los extremos). Con un SKU abre el producto de esa variante y la marca con buscada_por_sku: responde primero sobre ella. Si el dueño nombra el producto sin id ni SKU, usa primero buscar_productos.",
-  "El stock es el conteo actual, no una reserva. precio_compra es «Sin precio de compra» si el dueño nunca lo ingresó; es para el dueño y no se ofrece a un cliente. Un producto, un SKU desconocido o de otra tienda responde igual: «No encontré ese producto en tu tienda. Búscalo con Buscar productos.».",
+  "El stock es el conteo actual, no una reserva. precio_compra es «Sin precio de compra» si el dueño nunca lo ingresó; es para el dueño y no se ofrece a un cliente. Un producto o un SKU desconocido, o de otra tienda, responde igual: «No encontré ese producto en tu tienda. Búscalo con Buscar productos.».",
 ].join(" ");

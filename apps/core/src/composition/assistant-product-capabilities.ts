@@ -1,14 +1,14 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { Money } from "@shared/money";
-import { products } from "@core/src/features/products/composition";
+import type { CatalogSubdomain } from "@shared/catalog-subdomain";
+import { products, type AssistantReadOperation } from "@core/src/features/products/composition";
 import { catalogStorefront, storeUrl, type StorefrontState } from "@core/src/features/catalog";
-import type { Product, VariantId } from "@core/src/features/products/domain/product";
-import { stockLevelOf, type StockLevel } from "@core/src/features/products/domain/stock-level";
+import type { Product, ProductId, VariantId } from "@core/src/features/products/domain/product";
+import { stockLevelOf } from "@core/src/features/products/domain/stock-level";
 import type { ProductSearchPage, SearchedProduct, SearchForAssistantError } from "@core/src/features/products/application/search-for-assistant";
 import type { FoundProduct } from "@core/src/features/products/application/find-for-assistant";
 import type { AssistantReadError } from "@core/src/features/products/application/assistant-read";
-import type { AssistantReadOperation } from "@core/src/features/products/infrastructure/assistant-read";
 import { authIssuer } from "@core/src/shared/infrastructure/auth";
 import { log } from "@core/src/shared/infrastructure/logger";
 import type { AssistantAccess } from "@core/src/features/assistants/application/resolve-assistant-access";
@@ -62,7 +62,6 @@ function createSlots(count: number) {
 }
 
 const failure = (): ToolRunError => ({ code: "FAILURE", message: productReadFailureMessage });
-const projectLevel = (level: StockLevel): StockLevel => level;
 
 function projectRejection(rejection: Extract<SearchForAssistantError, { code: "VALUE_REJECTED" }>["rejection"]): ProjectableValueRejection {
   if (rejection.kind === "no_options") return rejection;
@@ -103,7 +102,7 @@ export function createProductToolsDependencies(ports: ProductCapabilityPorts): P
     return {
       id: item.id, name: item.name, variantCount: item.variantCount, inactiveCount: item.inactiveCount, active: item.active,
       customerLink: customerLink(state, item.id, item.currency, item.active.kind === "some"),
-      matching: item.matching && { total: item.matching.total, variants: item.matching.variants.map(({ values, sku, salePrice, stock, level }) => ({ values, sku, salePrice, stock, level: projectLevel(level) })) },
+      matching: item.matching && { total: item.matching.total, variants: item.matching.variants.map(({ values, sku, salePrice, stock, level }) => ({ values, sku, salePrice, stock, level })) },
     };
   }
 
@@ -129,6 +128,8 @@ export function createProductToolsDependencies(ports: ProductCapabilityPorts): P
       return err(failure());
     }
     try {
+      // `work` answers the business refusals (VALUE_REJECTED and the like) as `ok` kinds before returning, so only read failures reach the snapshot as errors;
+      // any other error code that got here is logged below with its own code and answered with the reading-failure text (the schema already stops INVALID_PRICE and INVALID_PAGE).
       const read = await ports.snapshot(work as () => Promise<Result<T, ReadError>>, operation);
       if (read.success) return read;
       log.error({ event: "assistant_tool_failed", companyId: access.companyId, connectionId: access.connectionId, tool, errorCode: read.error.code }, "assistant_tool_failed");
@@ -177,8 +178,8 @@ export const productToolsDependencies: ProductToolsDependencies = createProductT
   snapshot: (work, operation) => products.readForAssistant(work, operation),
   describe: (companyId) => catalogStorefront.describe(companyId),
   search: (request) => products.searchForAssistant(request),
-  find: (reference) => products.findForAssistant(reference.by === "id" ? { by: "id", id: reference.id as never } : reference),
-  storeUrl: (subdomain, path) => storeUrl(subdomain as never, path).toString(),
+  find: (reference) => products.findForAssistant(reference.by === "id" ? { by: "id", id: reference.id as ProductId } : reference),
+  storeUrl: (subdomain, path) => storeUrl(subdomain as CatalogSubdomain, path).toString(),
   appLink: (productId) => `${authIssuer}/products/${productId}`,
   slots: 3, slotWaitMs: 300,
 });
