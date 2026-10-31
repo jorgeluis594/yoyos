@@ -28,7 +28,8 @@ import { parseOrderRevision } from "@core/src/features/orders/domain/order-revis
 import { parseOrderLineQuantity, type DeliveryEdit, type OrderLineRequest } from "@core/src/features/orders/domain/order-edit";
 import { parseBuyer } from "@core/src/features/orders/domain/checkout";
 import type { EditOrderInput } from "@core/src/features/orders/application/edit-order";
-import { editOrderRequestSchema, editOrderResultSchema, orderLineCatalogSchema, orderRevisionsSchema, type EditOrderRequest } from "@core/src/features/orders/presentation/order-edit-schemas";
+import { orderRevisionsSchema } from "@shared/contracts/order-revisions";
+import { editOrderRequestSchema, editOrderResultSchema, orderLineCatalogSchema, type EditOrderRequest } from "@core/src/features/orders/presentation/order-edit-schemas";
 import type { OrderId, PaymentId, CompanyId, UserId } from "@core/src/features/orders/domain/order";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
