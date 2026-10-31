@@ -3,19 +3,20 @@ import { describeMaxOutputTokens } from "@core/src/features/products/infrastruct
 
 /**
  * Worst billed tokens of the model calls a photo message makes besides the reader (design §10.1, «Photo stages»).
- * Initial values from the recorded chooser calls (max 6,352 billed input tokens with at most 7 images, about 910 per image):
- * the exact tokens of 1,024 × 1,024 images are measured by the tuning task, which pins the larger of measured and initial values here.
+ * Initial values came from the recorded chooser calls (about 910 billed tokens per image). The tuning measured square 1,024 × 1,024
+ * images with direct calls and pinned the larger value: a chooser call with the customer image, a detail image and 8 candidates billed
+ * 10,769 input tokens (twice) and one description billed 1,297 input and 29 output tokens (embedding of it: 25).
  * Billed tokens, so no tokenizer ratio applies.
  */
 export const visualStagesTokens = {
   /** One 1,024-px image in a request. */
-  imageInput: 910,
+  imageInput: 1_047,
   /** Instructions and labels of the chooser, besides its images. */
   chooserTextInput: 300,
   /** A choice and a predicate; billed 0 in every recorded call, reserved at 100. */
   chooserOutput: 100,
   /** One 1,024-px image and the description prompt. */
-  describerInput: 1_000,
+  describerInput: 1_300,
   describerOutput: describeMaxOutputTokens,
   /** The description of at most 80 words, embedded. */
   embeddingInput: describeMaxOutputTokens,

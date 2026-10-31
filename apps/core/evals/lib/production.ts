@@ -280,9 +280,9 @@ async function addOrderLines(chat: Chat, lines: readonly OrderLine[], wiring: Se
   }
 }
 
-/** Saves the pendings through the repository, attached to the chat's order when it has one (a pending created while the order was open). */
+/** Saves the pendings through the repository, attached to the chat's order when it has one (a pending created while the order was open), and clears the photo memory. */
 async function seedPendings(chat: Chat, pendings: readonly PendingSeed[], company: EvalCompany): Promise<void> {
-  if (!pendings.length) return;
+  // Saved even when empty: the label photos that seeded the order left a photo memory, and a seeded start has no photo just sent.
   const order = await orderOfChat(chat.chatId, company);
   const now = new Date();
   const productId = (product: ProductKey) => productIdOf(product, company.scope) as ProductId;
@@ -417,6 +417,16 @@ async function applyConversation(steps: readonly ConversationStepInput[], wiring
     return { results: done, error: null };
   } catch (cause) {
     return { results: done, error: cause instanceof Error ? cause : new Error(String(cause)) };
+  } finally {
+    // The catalog is shared by every case: a product a conversation deactivated is sold again for the next one.
+    for (const step of steps) {
+      if (!("event" in step) || step.event !== "deactivate_product") continue;
+      const catalogProduct = catalogOf(company.scope).products.find(({ key }) => key === step.product);
+      for (const variant of catalogProduct?.active ? catalogProduct.variants.filter(({ active }) => active) : []) {
+        // A failure here must not replace the recorded results: it is only logged and the remaining variants are still reactivated.
+        try { await setProductStatus(step.product, variant.attributes, "active", company); } catch (cause) { console.error(`Could not reactivate ${step.product}`, cause); }
+      }
+    }
   }
 }
 

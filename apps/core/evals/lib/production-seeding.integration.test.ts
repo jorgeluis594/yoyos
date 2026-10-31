@@ -83,6 +83,13 @@ describe("seeding the start of a case", () => {
     expect(life.ended).toEqual([]);
   });
 
+  test("a seeded order leaves no photo just sent: the label photos that built it are not remembered", async () => {
+    const { chatId } = await seedChatStart(start({ order: [line("camisa", { Color: "Negro", Talla: "M" })] }), "private");
+    const { stored } = await seen(chatId);
+
+    expect(stored.lastIncomingPhoto).toBeNull();
+  });
+
   test("pendings without an order stay orderless and alive", async () => {
     const { chatId } = await seedChatStart(start({ pendings: [{ product: "camisa", known: {}, quantity: 1 }] }), "private");
     const { target, stored, life } = await seen(chatId);
