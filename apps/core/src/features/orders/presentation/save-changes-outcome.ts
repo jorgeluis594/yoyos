@@ -43,6 +43,7 @@ export function saveChangesOutcome(state: OrderViewState, result: SaveChangesRes
   switch (true) {
     case result.code === "ORDER_CHANGED": return stay({ kind: "conflict" });
     case result.code === "ITEMS_LOCKED": return stay({ kind: "itemsLocked" }, { resetProducts: true });
+    case result.code === "CUSTOMER_REQUIRED": return stay(alert(t("orderView.customer.requiredNote"), "customer-name"));
     case result.code === "DELIVERY_LOCKED" || result.code === "ORDER_CANCELLED": return stay({ kind: "locked", code: result.code });
     case result.code === "VARIANT_NOT_FOUND" && result.variantId !== undefined: {
       const variantId = result.variantId;

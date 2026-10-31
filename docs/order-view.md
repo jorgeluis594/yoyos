@@ -121,7 +121,7 @@ A late response from an earlier attempt does not change the screen.
 - Optional «Nombre» and «Celular» (phone with a country selector, Peru by default; stored in E.164) and the hint «Escribe su nombre y celular.». A name without a phone, or the reverse, marks the missing field «Completa nombre y celular, o deja ambos vacíos.». There is no search of saved contacts.
 - Allowed in every state except cancelled, completed sales included.
 - **Quitar cliente** empties both fields; saving shows «Público general». A WhatsApp order keeps its mark and offers no **Quitar cliente**; with no name or phone it shows «Cliente del chat de WhatsApp. Agrega su nombre y celular si los conoces.». Emptying both fields after setting them keeps the contact and returns to that state.
-- On a confirmed order, clearing the customer leaves the buyer's read-only details empty on their link; the order stays confirmed ([Checkout](checkout.md#confirmation)).
+- On an order the buyer confirmed ([Checkout](checkout.md#confirmation)), the card is titled «Cliente» (not optional), offers no **Quitar cliente** and shows «El comprador confirmó este pedido con sus datos. Puedes cambiar el cliente, pero no dejarlo vacío.». Emptying both fields marks the name as incomplete before saving, and a save that reaches the server is refused with `CUSTOMER_REQUIRED`. Changing the customer to another name and phone works as always.
 
 ## Enlace del pedido
 
