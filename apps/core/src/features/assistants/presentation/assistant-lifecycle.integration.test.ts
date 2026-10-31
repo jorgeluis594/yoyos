@@ -9,6 +9,11 @@ import { deleteSeededProducts, seedProduct } from "@core/src/features/products/i
 import { assistantConnections, authorizationFor } from "@core/src/features/assistants/composition";
 import type { AssistantConnectionId } from "@core/src/features/assistants/domain/assistant-connection";
 import type { SignedAuthorizationRequest } from "@core/src/features/assistants/application/authorize-assistant";
+import { toolModules } from "@core/src/composition/assistant-tools";
+
+// The six order and product tools plus whatever the sales module registers; the nine names are pinned by the sales acceptance test.
+const expectedToolNames = [...["buscar_pedidos", "buscar_productos", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "ver_pedido", "ver_producto"],
+  ...toolModules.filter((module) => module.scopes.length === 2).flatMap((module) => module.tools.map((tool) => tool.name))].sort();
 
 const baseUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
 const resource = `${baseUrl}/mcp`;
@@ -178,7 +183,7 @@ test("lists the four order tools and the two product tools for a connected store
   const token = await connectAgent(rosa, await registerClient());
   const response = await readRpc(await mcp(token, rpc("tools/list")));
   const tools = response.result.tools as { name: string; annotations: Record<string, boolean> }[];
-  expect(tools.map((tool) => tool.name).sort()).toEqual(["buscar_pedidos", "buscar_productos", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "ver_pedido", "ver_producto"]);
+  expect(tools.map((tool) => tool.name).sort()).toEqual(expectedToolNames);
   for (const tool of tools) expect(tool.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
 });
 
@@ -214,7 +219,7 @@ test("re-authorizes an agent registered before products with its own client and 
   expect(rows[0]!.scopes.toSorted()).toEqual(["orders:read", "products:read"]);
   expect((await systemPrisma.oauthClient.findUniqueOrThrow({ where: { clientId } })).scopes.toSorted()).toEqual(["offline_access", "orders:read", "products:read"]);
   const tools = (await readRpc(await mcp(token, rpc("tools/list")))).result.tools as { name: string }[];
-  expect(tools.map((tool) => tool.name).sort()).toEqual(["buscar_pedidos", "buscar_productos", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "ver_pedido", "ver_producto"]);
+  expect(tools.map((tool) => tool.name).sort()).toEqual(expectedToolNames);
 });
 
 test("revokes the old grant's refresh tokens when an orders-only connection is re-authorized before its next call", async () => {
