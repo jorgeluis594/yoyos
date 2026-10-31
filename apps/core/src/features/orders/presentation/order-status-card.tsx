@@ -123,7 +123,7 @@ export function OrderStatusCard({ order, unsaved, busy, onFulfill, onCancel, onA
     <CardHeader className="flex-row items-start justify-between gap-3">
       <div className="flex min-w-0 flex-col gap-1">
         <CardTitle id="order-status-title">{t("orderStatus.title")}</CardTitle>
-        <p className="text-sm text-muted-foreground">{t(`orderStatus.modality.${modality}`)}</p>
+        {(modality !== "none" || status === "pending") && <p className="text-sm text-muted-foreground">{t(`orderStatus.modality.${modality}`)}</p>}
       </div>
       <Badge variant={badgeVariant[status]} data-testid="order-status-badge">{t(`orderStatus.badge.${status}`)}</Badge>
     </CardHeader>
