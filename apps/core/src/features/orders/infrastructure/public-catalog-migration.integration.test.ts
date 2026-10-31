@@ -46,7 +46,7 @@ test("migration keeps existing orders valid and the number sequence continues", 
 
     migrate(migrations.slice(firstCatalogMigration));
 
-    expect((await db.query(`SELECT * FROM "Order" ORDER BY number`)).rows).toEqual(before.map((row) => ({ ...row, cancelledAt: null, stockDeductedAt: null, fromCatalog: false, checkoutEnabledAt: row.createdAt })));
+    expect((await db.query(`SELECT * FROM "Order" ORDER BY number`)).rows).toEqual(before.map((row) => ({ ...row, cancelledAt: null, stockDeductedAt: null, sellerActedAt: null, fromCatalog: false, checkoutEnabledAt: row.createdAt })));
     const next = await db.query(`UPDATE "Company" SET "nextOrderNumber" = "nextOrderNumber" + 1 WHERE id = $1 RETURNING "nextOrderNumber" - 1 AS number`, [companyId]);
     expect(next.rows[0].number).toBe("1004");
     expect((await db.query(`SELECT "catalogPublished" FROM "Company" WHERE id = $1`, [companyId])).rows[0].catalogPublished).toBe(false);
