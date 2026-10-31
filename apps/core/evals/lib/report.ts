@@ -50,7 +50,11 @@ export type EvalReport = Readonly<{
   calibration: Readonly<Record<string, Readonly<Record<string, Calibration>>>>;
   /** The production gate each certainty source was compared with, as the run's env configured it. */
   gates: Readonly<Record<string, number>>;
-  consistency: Readonly<{ cases: number; repeats: number; flipped: readonly Readonly<{ caseId: string; signatures: readonly string[] }>[] }>;
+  /** Repeated cases (run more than once) whose runs all share one signature, whole and per family. `flipped` names the others. */
+  consistency: Readonly<ConsistencyLine & { cases: number; repeats: number; flipped: readonly Readonly<{ caseId: string; signatures: readonly string[] }>[];
+    byFamily: Readonly<Record<string, ConsistencyLine>> }>;
+  /** Counts the gates do not hold; no case id or text. */
+  tagMetrics: TagMetrics;
   injection: Readonly<{ total: number; allowed: number; priceChanged: readonly string[] }>;
   latencyMs: Readonly<Record<string, Readonly<{ p50: number; p95: number }>>>;
   /** p95 over the messages of the message passes: the scored step's latency, and the time of its model calls added up. */
@@ -67,6 +71,16 @@ export type EvalReport = Readonly<{
   failures: readonly Readonly<{ caseId: string; pass: string; input: string; expected: unknown; actual: unknown; fields: unknown; error: string | null;
     certainties: CaseRecord["certainties"] }>[];
   errorGroups: ErrorGroups["groups"];
+}>;
+
+export type ConsistencyLine = Readonly<{ repeated: number; consistent: number; percent: number }>;
+export type TagMetrics = Readonly<{
+  /** Scored messages tagged `question-caption`, and those that added to the order with no notice. */
+  questionCaptionSilentAdds: Readonly<{ messages: number; silentAdds: number }>;
+  /** Scored messages with a payment request, and those whose notice was a several-problems count that swallowed it. */
+  paymentInCount: Readonly<{ paymentRequests: number; insideCount: number }>;
+  /** Scored messages per notice kind (`none` for a silent message). */
+  noticesByKind: Readonly<Record<string, number>>;
 }>;
 
 export type GateLines = Readonly<{
@@ -195,6 +209,39 @@ export function gateLines(records: readonly CaseRecord[]): GateLines {
   };
 }
 
+const consistencyLine = (runs: readonly (readonly CaseRecord[])[]): ConsistencyLine => {
+  const consistent = runs.filter((group) => new Set(group.map(({ signature }) => signature)).size === 1).length;
+  return { repeated: runs.length, consistent, percent: percentOf(consistent, runs.length) };
+};
+
+type ConsistencyFlips = EvalReport["consistency"]["flipped"];
+
+function consistencyOf(repeated: ReadonlyMap<string, readonly CaseRecord[]>, flipped: ConsistencyFlips): EvalReport["consistency"] {
+  const groups = [...repeated.values()];
+  const families = [...new Set(groups.map((runs) => runs[0]!.kind))].sort();
+  return { ...consistencyLine(groups), cases: repeated.size, repeats: Math.max(0, ...groups.map((runs) => runs.length)), flipped,
+    byFamily: Object.fromEntries(families.map((kind) => [kind, consistencyLine(groups.filter((runs) => runs[0]!.kind === kind))])) };
+}
+
+const noticeOf = (record: CaseRecord): string | null => (record.actual as { notice?: string | null } | null)?.notice ?? null;
+/** The notice key of the count by kind: a message whose evaluation threw counts as `error`, not as a silent one. */
+const noticeKeyOf = (record: CaseRecord): string => record.error !== null && noticeOf(record) === null ? "error" : noticeOf(record) ?? "none";
+const outcomesOf = (record: CaseRecord): readonly string[] => (record.actual as { outcomes?: readonly string[] } | null)?.outcomes ?? [];
+const addingOutcomes: ReadonlySet<string> = new Set(["added", "pending_created", "pending_completed"]);
+
+function tagMetricsOf(scored: readonly CaseRecord[]): TagMetrics {
+  const messages = scored.filter(isMessageRecord);
+  const questions = messages.filter(({ tags }) => tags.includes("question-caption"));
+  const payments = messages.filter((record) => outcomesOf(record).includes("payment_requested"));
+  const byKind = new Map<string, number>();
+  for (const record of messages) byKind.set(noticeKeyOf(record), (byKind.get(noticeKeyOf(record)) ?? 0) + 1);
+  return {
+    questionCaptionSilentAdds: { messages: questions.length, silentAdds: questions.filter((record) => noticeOf(record) === null && outcomesOf(record).some((kind) => addingOutcomes.has(kind))).length },
+    paymentInCount: { paymentRequests: payments.length, insideCount: payments.filter((record) => noticeOf(record) === "several_problems").length },
+    noticesByKind: Object.fromEntries([...byKind.entries()].sort(([a], [b]) => a.localeCompare(b))),
+  };
+}
+
 /** Conversations whose messages' notices name one product twice, unless a message is marked as an expected repeat. */
 function repeatedConversations(messages: readonly CaseRecord[]): readonly string[] {
   const byConversation = new Map<string, CaseRecord[]>();
@@ -313,7 +360,8 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
     retries: { messages: records.filter(({ retries }) => retries > 0).length, attempts: records.reduce((sum, { retries }) => sum + retries, 0) },
     calibration,
     gates: Object.fromEntries(records.flatMap(({ certainties }) => certainties.map(({ source, gate }) => [source, gate] as const)).sort(([a], [b]) => a.localeCompare(b))),
-    consistency: { cases: repeated.size, repeats: Math.max(0, ...[...repeated.values()].map((runs) => runs.length)), flipped },
+    consistency: consistencyOf(repeated, flipped),
+    tagMetrics: tagMetricsOf(scored),
     injection: { total: injection.length, allowed: injection.filter(({ passed }) => passed).length,
       priceChanged: injection.filter(({ fields }) => fields.unitPrice === false).map(({ caseId }) => caseId) },
     latencyMs: Object.fromEntries([...latencyGroups.entries()].map(([name, values]) => [name, { p50: percentile(values, 0.5), p95: percentile(values, 0.95) }])),
@@ -359,7 +407,11 @@ export function formatGateSummary(report: EvalReport): string {
       + `${cost.inputTokens} in (${cost.cachedTokens} cached) / ${cost.outputTokens} out (${cost.reasoningTokens} reasoning) tokens`,
     `Latency per message: p95 ${report.messageLatency.p95Ms} ms, p95 model time ${report.messageLatency.p95ModelMs} ms`,
     ...Object.entries(readerCalls).map(([kind, line]) => `Model calls per ${kind} message: mean ${line.meanCalls}, max ${line.maxCalls}, design allows ${line.allowed}${line.withinDesign ? "" : " (over)"}`),
-    `Consistency: ${report.consistency.flipped.length} of ${report.consistency.cases} repeated cases flipped over ${report.consistency.repeats} runs`,
+    `Consistency: ${report.consistency.consistent} of ${report.consistency.repeated} repeated cases gave one result over ${report.consistency.repeats} runs (${report.consistency.percent.toFixed(1)}%)`,
+    ...Object.entries(report.consistency.byFamily).map(([family, lines]) => `Consistency of family ${family}: ${lines.consistent} of ${lines.repeated} (${lines.percent.toFixed(1)}%)`),
+    `Silent adds on question captions: ${report.tagMetrics.questionCaptionSilentAdds.silentAdds} of ${report.tagMetrics.questionCaptionSilentAdds.messages} messages`,
+    `Payment requests inside a several-problems count: ${report.tagMetrics.paymentInCount.insideCount} of ${report.tagMetrics.paymentInCount.paymentRequests}`,
+    `Notices by kind: ${Object.entries(report.tagMetrics.noticesByKind).map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
   ].join("\n");
 }
 
