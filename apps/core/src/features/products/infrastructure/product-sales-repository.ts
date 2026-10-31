@@ -14,7 +14,8 @@ import { productMatchesText } from "@core/src/features/products/infrastructure/p
 
 type Stage = "describe_variants" | "stocked";
 
-const uuid = z.uuid();
+/** Any 8-4-4-4-12 identifier: ids are random version 4 uuids, and the load fixture derives its own from md5. */
+const uuid = z.guid();
 const safeInteger = z.string().regex(/^-?\d+$/).transform(Number).pipe(z.number().int().refine(Number.isSafeInteger, "outside the supported range"));
 
 const describedRow = z.strictObject({ variantId: uuid, productId: uuid, productName: z.string(), values: z.array(z.string()), matchesText: z.boolean() });

@@ -18,12 +18,12 @@ const currencyText = z.string().refine(isCurrency, "Stored currency is invalid")
 
 /** One Zod union for the rows of the sold variants statement; `variantId` is null in the per-currency rows. */
 const soldRow = z.discriminatedUnion("kind", [
-  z.strictObject({ kind: z.literal("variant"), currency: currencyText, variantId: z.uuid(), units: count, cents: centsText }),
+  z.strictObject({ kind: z.literal("variant"), currency: currencyText, variantId: z.guid(), units: count, cents: centsText }),
   z.strictObject({ kind: z.literal("currency"), currency: currencyText, variantId: z.null(), units: count, cents: centsText }),
   z.strictObject({ kind: z.literal("orders"), currency: currencyText, variantId: z.null(), units: count, cents: z.null() }),
 ]);
 
-const dateRow = z.strictObject({ variantId: z.uuid(), soldInWindow: z.boolean(), lastBefore: z.date().nullable(), firstAfter: z.date().nullable() });
+const dateRow = z.strictObject({ variantId: z.guid(), soldInWindow: z.boolean(), lastBefore: z.date().nullable(), firstAfter: z.date().nullable() });
 
 const unavailable = (message: string): Result<never, SalesReadFailure> => err({ code: "PERSISTENCE_UNAVAILABLE", message });
 const invalid = (event: string): Result<never, SalesReadFailure> => {
