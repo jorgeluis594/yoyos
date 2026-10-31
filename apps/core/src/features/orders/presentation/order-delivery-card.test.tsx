@@ -11,8 +11,9 @@ import type { DeliverySettingsResponse } from "@shared/contracts/delivery-settin
 import { ok } from "@shared/functional";
 import { OrderDeliveryCard } from "@core/src/features/orders/presentation/order-delivery-card";
 import {
-  buildCreateRequest, clearCustomer, initialDraft, invalidFields, setCustomer, type DeliveryDraft, type OrderViewState,
+  buildCreateRequest, clearCustomer, initialDraft, invalidFields, refreshFromLoader, setCustomer, type DeliveryDraft, type OrderViewState,
 } from "@core/src/features/orders/presentation/order-view-state";
+import { applyRateRecovery } from "@core/src/features/orders/presentation/new-sale-outcome";
 
 vi.mock("@core/src/features/delivery-settings/infrastructure/quotation-api", () => ({ requestDeliveryQuotation: vi.fn() }));
 vi.mock("@core/app/components/peru-district-select", () => ({
@@ -213,6 +214,29 @@ describe("OrderDeliveryCard", () => {
     await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=district]")!.click(); });
     expect(requestDeliveryQuotation).toHaveBeenCalledTimes(1);
     expect(document.querySelector("[data-testid=saved-delivery]")).toBeNull();
+  });
+
+  test("quotes again after a refused save without choosing the district again, and a revalidation keeps the rate picked afterwards", async () => {
+    let quotations = 0;
+    vi.mocked(requestDeliveryQuotation).mockImplementation(async () => {
+      quotations += 1;
+      return ok({ rates: [{ id: `00000000-0000-4000-8000-00000000010${quotations}`, method: "home", price: pen(12), optionId: "o", zoneId: "z", zoneName: "Lima" }] } as never);
+    });
+    await mount(savedState());
+    await act(async () => { document.querySelector<HTMLButtonElement>("[data-testid=district]")!.click(); });
+    expect(requestDeliveryQuotation).toHaveBeenCalledTimes(1);
+    for (const refusal of [{ price: pen(12) }, "clear" as const]) {
+      const before = vi.mocked(requestDeliveryQuotation).mock.calls.length;
+      await act(async () => setState((state) => applyRateRecovery(state, refusal)));
+      expect(requestDeliveryQuotation).toHaveBeenCalledTimes(before + 1);
+      expect(latest.draft.delivery.fields.districtCode).toBe("150122");
+    }
+    const picked = `00000000-0000-4000-8000-00000000010${quotations}`;
+    await act(async () => setState((state) => ({ ...state, draft: { ...state.draft, delivery: { ...state.draft.delivery, fields: { ...state.draft.delivery.fields, rateId: picked, ratePrice: pen(12) } } } })));
+    const calls = vi.mocked(requestDeliveryQuotation).mock.calls.length;
+    await act(async () => setState((state) => refreshFromLoader(state, { order: order(), revisions, lineCatalog: null })));
+    expect(requestDeliveryQuotation).toHaveBeenCalledTimes(calls);
+    expect(latest.draft.delivery.fields.rateId).toBe(picked);
   });
 
   test("shows the saved rate of a locked home order as the internal cost", async () => {
