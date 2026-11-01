@@ -73,7 +73,7 @@ test("order API reads mixed summaries and validates complete aggregate states", 
   const summary = { number: 1001, id: id(1), buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, sellerId: "seller",
     createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
     deliveryStatus: "pending", stockDeducted: false, total };
-  const order = { ...summary, cancelledAt: null, stockDeductedAt: null, stockDue: null, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
+  const order = { ...summary, revisions: { items: "A".repeat(43) }, cancelledAt: null, stockDeductedAt: null, stockDue: null, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null,
       quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
@@ -122,7 +122,7 @@ test("delivery API validates the complete authored snapshot and updated aggregat
   const delivery = { method: "store" as const, recipient: { name: "Ana", phone: "999", identity: { kind: "absent" as const } },
     pickupPoint: { name: "Store", address: "Lima", instructions: null }, settingsVersion: 1, recordedBy: { kind: "seller" as const, userId: "current-editor" } };
   const input = { delivery: { method: "store" as const, recipient: delivery.recipient }, expectedPrice: zero };
-  const order = { id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null, cancelledAt: null, stockDeductedAt: null,
+  const order = { revisions: { items: "A".repeat(43) }, id: id(1), companyId: id(2), sellerId: "original-seller", number: 1001, buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, createdAt: "2026-10-05T12:00:00.000Z", completedAt: null, cancelledAt: null, stockDeductedAt: null,
     status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, stockDue: null, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery, payments: [], itemsTotal: total, deliveryCost: { amount: 3, currency: "PEN" }, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null, quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
@@ -232,7 +232,7 @@ test("catalog recovery loads explicit variant IDs and rejects malformed or dupli
 function cancellationFixture() {
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
-  return { id: id(1), companyId: id(2), sellerId: "seller", number: 1001, buyer: null, source: "manual",
+  return { revisions: { items: "A".repeat(43) }, id: id(1), companyId: id(2), sellerId: "seller", number: 1001, buyer: null, source: "manual",
     checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelledAt: null, stockDeductedAt: null,
     createdAt: "2026-10-05T12:00:00.000Z", status: "cancelled", paymentStatus: "pending",
     deliveryStatus: "pending", cancelled: true, stockDeducted: true, stockDue: null, delivery: null, payments: [],
@@ -337,10 +337,30 @@ test("rejectPayment posts the reason and parses the order aggregate", async () =
 test("an order response keeps variantAttributes in option order after parsing", async () => {
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
-  const order = { number: 1001, id: id(1), companyId: id(2), buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
+  const order = { revisions: { items: "A".repeat(43) }, number: 1001, id: id(1), companyId: id(2), buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
     sellerId: "seller", createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, cancelledAt: null, stockDeductedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending",
     stockDeducted: false, stockDue: null, total, paidAmount: zero, balanceDue: total, overpaidAmount: zero, cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Polo", variantAttributes: { Talla: "L", Color: "Azul", Manga: "Larga" }, sku: null, quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
   const result = await createOrderApi(async () => ok(order)).getAggregate(id(1));
   expect(result.success && Object.entries(result.data.items[0].variantAttributes)).toEqual([["Talla", "L"], ["Color", "Azul"], ["Manga", "Larga"]]);
+});
+
+test("order API sends the items edit with its base revision and keeps the refusal codes of core", async () => {
+  const revision = "R".repeat(43);
+  const edit = { base: revision, lines: [{ variantId: id(2), quantity: 2 }] };
+  const calls: [string, RequestInit | undefined][] = [];
+  const refused = (status: number, body: unknown) => createOrderApi(async (path, init) => { calls.push([path, init]); return err({ code: "API_ERROR", message: "API error", http: { status, body } }); });
+  expect(await refused(409, { code: "ORDER_CHANGED", error: "changed" }).editOrderItems(id(1), edit)).toMatchObject({ success: false, error: { code: "ORDER_CHANGED" } });
+  expect(calls[0][0]).toBe(`/api/orders/${id(1)}/items`);
+  expect(calls[0][1]?.method).toBe("PATCH");
+  expect(JSON.parse(String(calls[0][1]?.body))).toEqual({ version: 1, ...edit });
+  expect(await refused(409, { code: "DELIVERY_LOCKED", error: "locked" }).editOrderItems(id(1), edit)).toMatchObject({ error: { code: "DELIVERY_LOCKED" } });
+  expect(await refused(422, { code: "VARIANT_NOT_FOUND", error: "gone", variantId: id(2) }).editOrderItems(id(1), edit)).toMatchObject({ error: { code: "VARIANT_NOT_FOUND", variantId: id(2) } });
+  // A code with the wrong status is not trusted.
+  expect(await refused(200, { code: "ORDER_CHANGED", error: "changed" }).editOrderItems(id(1), edit)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(await refused(404, { code: "ORDER_NOT_FOUND", error: "missing" }).editOrderItems(id(1), edit)).toMatchObject({ error: { code: "ORDER_NOT_FOUND" } });
+  const invalid = createOrderApi(async () => ok({ unexpected: true }));
+  expect(await invalid.editOrderItems(id(1), edit)).toMatchObject({ error: { code: "INVALID_RESPONSE" } });
+  expect(await invalid.editOrderItems(id(1), { base: "x", lines: [] })).toMatchObject({ error: { code: "INVALID_INPUT" } });
+  expect(await invalid.editOrderItems("not-an-id", edit)).toMatchObject({ error: { code: "INVALID_INPUT" } });
 });
