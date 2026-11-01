@@ -382,6 +382,146 @@ describe("checkRequests: pendings and other kinds", () => {
   });
 });
 
+describe("checkRequests: named targets against the order and the pendings", () => {
+  const polo = item("I1", "polo", { Talla: "M", Color: "Negro" });
+  const named = { kind: "named", words: say("el polo") } as const;
+  const between = (...keys: ProductKey[]): ProductResolution => ({ request: "R1" as RequestRef, kind: "between", productIds: keys.map(productId) });
+  const ref = (name: string) => name as RequestRef;
+
+  test("points a named target that is between products at the one order line among them, and stays unclear with several", () => {
+    const remove = request({ kind: "remove", target: named });
+    const one = only(checkRequests([remove], [between("polo", "gorra")], snapshot({ items: [polo] })));
+    expect(one.action).toEqual({ kind: "remove", target: { kind: "variant", variantId: polo.variantId }, amount: "all" });
+    expect(one.signals.targetNamed).toBe("named");
+    const gorra = item("I2", "gorra", { Color: "Rojo" });
+    const several = only(checkRequests([remove], [between("polo", "gorra")], snapshot({ items: [polo, gorra] })));
+    expect(decision(several, "agree")).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+    const none = only(checkRequests([remove], [between("polera", "gorra")], snapshot({ items: [polo] })));
+    expect(decision(none, "agree")).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+  });
+
+  test("adds a between-named product to the one ordered product among them, still marked as read by reference", () => {
+    const checked = only(checkRequests([request({ kind: "add", target: named, values: [value("M"), value("negro")], quantity: quantity(1, "add") })], [between("polo", "gorra")], snapshot({ items: [polo] })));
+    expect(checked.action.kind).toBe("add");
+    expect(decision(checked, "agree")).toMatchObject({ kind: "doubtful", reason: { kind: "added_by_reference" } });
+  });
+
+  test("acts on the pending a named target matches for a quantity, a removal and a decline, with no order at all", () => {
+    const pending = pendingOf("polera", { quantity: 2 });
+    const state = snapshot({ order: "none", pendings: [pendingRef(1, pending)] });
+    const set = only(checkRequests([request({ kind: "change_quantity", target: named, quantity: quantity(3, "set") })], [chosen("polera")], state));
+    expect(set.action).toMatchObject({ kind: "change_pending_quantity", pendingId: pending.id, mode: "set", quantity: 3 });
+    expect(set.signals.targetNamed).toBe("named");
+    const remove = only(checkRequests([request({ kind: "remove", target: named })], [between("polera", "polo")], state));
+    expect(remove.action).toEqual({ kind: "decline_pending", pendingId: pending.id });
+    const decline = only(checkRequests([request({ kind: "decline", target: named })], [chosen("polera")], state));
+    expect(decline.action).toEqual({ kind: "decline_pending", pendingId: pending.id });
+  });
+
+  test("keeps a named target on the order line when the order has one of the product too, and does not pick between two pendings", () => {
+    const pending = pendingOf("polo");
+    const line = only(checkRequests([request({ kind: "remove", target: named })], [chosen("polo")], snapshot({ items: [polo], pendings: [pendingRef(1, pending)] })));
+    expect(line.action).toMatchObject({ kind: "remove", target: { kind: "variant", variantId: polo.variantId } });
+    const two = only(checkRequests([request({ kind: "decline", target: named })], [chosen("polera")], snapshot({ pendings: [pendingRef(1, pendingOf("polera")), pendingRef(2, pendingOf("polera", { n: 2 }))] })));
+    expect(two.action).toEqual({ kind: "report", outcome: { kind: "no_intent" } });
+  });
+
+  test("adds the quantity of a named product the order does not have", () => {
+    const checked = only(checkRequests([request({ kind: "change_quantity", target: { kind: "named", words: say("las gorras") }, quantity: quantity(3, "set") })], [chosen("gorra", [{ attribute: "Color", value: "Rojo" }])], snapshot({ items: [polo] })));
+    expect(checked.action).toMatchObject({ kind: "add", quantity: 3 });
+    expect(decision(checked, "agree")).toMatchObject({ kind: "doubtful", reason: { kind: "added_by_reference" } });
+    const request3 = request({ kind: "change_quantity", target: { kind: "named", words: say("las gorras") }, quantity: quantity(3, "set") });
+    const first = only(checkRequests([request3], [chosen("gorra", [{ attribute: "Color", value: "Rojo" }])], snapshot({ items: [] })));
+    expect(decision(first, "agree")).toEqual({ kind: "applied" });
+    const closed = only(checkRequests([request3], [chosen("gorra")], snapshot({ order: "none" })));
+    expect(decision(closed, "agree")).toMatchObject({ kind: "urgent", problem: "no_open_order" });
+    const zero = only(checkRequests([request({ kind: "change_quantity", target: named, quantity: quantity(0, "set") })], [chosen("gorra")], snapshot({ items: [polo] })));
+    expect(decision(zero, "agree")).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+    const lowered = only(checkRequests([request({ kind: "change_quantity", target: named, quantity: quantity(1, "decrease") })], [chosen("gorra")], snapshot({ items: [polo] })));
+    expect(decision(lowered, "agree")).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+  });
+
+  test("folds a price or quantity request of the message into the add of the same product", () => {
+    const price = { amount: 50, currency: "order", basis: "lot", quote: say("por 50") } as const;
+    const add = request({ request: ref("R1"), kind: "add", target: { kind: "named", words: say("gorras") }, values: [value("rojo")] });
+    const extra = request({ request: ref("R2"), kind: "mention_price", target: { kind: "named", words: say("gorras") }, price, quantity: quantity(3, "add") });
+    const resolutions: ProductResolution[] = [chosen("gorra", [{ attribute: "Color", value: "Rojo" }]), { ...chosen("gorra"), request: ref("R2") }];
+    const checked = only(checkRequests([add, extra], resolutions, snapshot({ order: "none" })));
+    expect(checked.action).toMatchObject({ kind: "add", quantity: 3, mentionedPrice: { amount: { amount: 50 }, units: 3 } });
+    const other = request({ request: ref("R2"), kind: "mention_price", target: { kind: "named", words: say("polos") }, price });
+    expect(checkRequests([add, other], [resolutions[0]!, { ...chosen("polo"), request: ref("R2") }], snapshot({ order: "none" }))).toHaveLength(2);
+  });
+
+  test("does not fold a request into an add when the order has a line or a pending of the product, and never drops its values", () => {
+    const gorra = request({ request: ref("R1"), kind: "add", target: { kind: "named", words: say("una gorra roja") }, values: [value("Rojo")], quantity: quantity(1, "add") });
+    const negra = request({ request: ref("R2"), kind: "change_quantity", target: { kind: "named", words: say("la negra") }, values: [value("Negro")], quantity: quantity(2, "set") });
+    const resolutions: ProductResolution[] = [chosen("gorra", [{ attribute: "Color", value: "Rojo" }]), { ...chosen("gorra", [{ attribute: "Color", value: "Negro" }]), request: ref("R2") }];
+    const line = item("I1", "gorra", { Color: "Negro" });
+    const withLine = checkRequests([gorra, negra], resolutions, snapshot({ items: [line] }));
+    expect(withLine).toHaveLength(2);
+    expect(withLine[0]!.action).toMatchObject({ kind: "add", quantity: 1 });
+    expect(withLine[1]!.action).toMatchObject({ kind: "set_quantity", target: { variantId: line.variantId }, quantity: 2 });
+    const withPending = checkRequests([gorra, negra], resolutions, snapshot({ pendings: [pendingRef(1, pendingOf("gorra"))] }));
+    expect(withPending).toHaveLength(2);
+    const conflicting = checkRequests([gorra, negra], resolutions, snapshot({ order: "none" }));
+    expect(conflicting).toHaveLength(2);
+    const price = request({ request: ref("R2"), kind: "mention_price", target: { kind: "named", words: say("la negra") }, price: { amount: 20, currency: "order", basis: "unit", quote: say("a 20") } });
+    expect(checkRequests([gorra, price], resolutions, snapshot({ items: [line] }))[1]!.action).toMatchObject({ kind: "set_mentioned_price", target: { variantId: line.variantId } });
+  });
+
+  test("never adds a product twice when the message already adds it, and asks instead", () => {
+    const add = request({ request: ref("R1"), kind: "add", target: { kind: "named", words: say("una gorra roja") }, values: [value("Rojo")], quantity: quantity(1, "add") });
+    const set3 = request({ request: ref("R2"), kind: "change_quantity", target: { kind: "named", words: say("las gorras") }, quantity: quantity(3, "set") });
+    const resolutions: ProductResolution[] = [chosen("gorra", [{ attribute: "Color", value: "Rojo" }]), { ...chosen("gorra", [{ attribute: "Color", value: "Rojo" }]), request: ref("R2") }];
+    for (const state of [snapshot({ items: [] }), snapshot({ items: [polo] })]) {
+      const checked = checkRequests([add, set3], resolutions, state);
+      expect(checked.filter((entry) => entry.action.kind === "add")).toHaveLength(1);
+      expect(decision(checked[1]!, "agree")).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+    }
+  });
+
+  test("never adds the product a photo add shows a second time for a named quantity, and asks instead", () => {
+    const shown = Object.values(catalog).map((product) => (product.productId === productId("gorra") ? { ...product, shown: true, shownVariantId: variantOf("gorra", { Color: "Rojo" }).variantId } : product));
+    const add = request({ request: ref("R1"), kind: "add", target: { kind: "photo_same_message" } });
+    const set3 = request({ request: ref("R2"), kind: "change_quantity", target: { kind: "named", words: say("las gorras") }, quantity: quantity(3, "set") });
+    const resolutions: ProductResolution[] = [{ ...chosen("gorra", [{ attribute: "Color", value: "Rojo" }]), request: ref("R2") }];
+    const checked = checkRequests([add, set3], resolutions, snapshot({ messageKind: "photo_product", products: shown, items: [] }));
+    expect(checked.filter((entry) => entry.action.kind === "add")).toHaveLength(1);
+    expect(checked.some((entry) => entry.action.kind === "add" && entry.action.quantity === 3)).toBe(false);
+    expect(decision(checked[checked.length - 1]!, "agree")).toMatchObject({ kind: "urgent", problem: "unclear_item" });
+  });
+
+  test("folds a same-message price or quantity only when exactly one add of the message has that product", () => {
+    const rojo = request({ request: ref("R1"), kind: "add", target: { kind: "named", words: say("una gorra roja") }, values: [value("Rojo")] });
+    const negra = request({ request: ref("R2"), kind: "add", target: { kind: "named", words: say("una negra") }, values: [value("Negro")] });
+    const price = request({ request: ref("R3"), kind: "mention_price", target: { kind: "named", words: say("las gorras") }, price: { amount: 20, currency: "order", basis: "unit", quote: say("a 20 cada una") } });
+    const set3 = request({ request: ref("R3"), kind: "change_quantity", target: { kind: "named", words: say("las gorras") }, quantity: quantity(3, "set") });
+    const resolutions: ProductResolution[] = [chosen("gorra", [{ attribute: "Color", value: "Rojo" }]), { ...chosen("gorra", [{ attribute: "Color", value: "Negro" }]), request: ref("R2") }, { ...chosen("gorra"), request: ref("R3") }];
+    for (const extra of [price, set3]) {
+      const checked = checkRequests([rojo, negra, extra], resolutions, snapshot({ order: "none" }));
+      expect(checked).toHaveLength(3);
+      expect(checked[0]!.action).toMatchObject({ kind: "add", quantity: 1, mentionedPrice: null });
+      expect(checked[1]!.action).toMatchObject({ kind: "add", quantity: 1, mentionedPrice: null });
+      expect(checked.some((entry) => entry.action.kind === "add" && entry.action.quantity === 3)).toBe(false);
+    }
+  });
+
+  test("points a name between products at the order line over a pending of the candidates", () => {
+    const polo = item("I1", "polo", { Talla: "M", Color: "Negro" });
+    const checked = only(checkRequests([request({ kind: "remove", target: { kind: "named", words: say("el polo") } })], [{ request: "R1" as RequestRef, kind: "between", productIds: [productId("polo"), productId("polera")] }],
+      snapshot({ items: [polo], pendings: [pendingRef(1, pendingOf("polera"))] })));
+    expect(checked.action).toMatchObject({ kind: "remove", target: { variantId: polo.variantId } });
+  });
+
+  test("adds the variant a referenced add states when it differs from the line it refers to", () => {
+    const line = item("I1", "polo", { Talla: "M", Color: "Blanco" }, 2);
+    const checked = only(checkRequests([request({ kind: "add", target: { kind: "item", ref: "I1" as ItemRef, named: null }, values: [value("L"), value("negro")], quantity: quantity(1, "add") })], [], snapshot({ items: [line] })));
+    expect(checked.action).toMatchObject({ kind: "add", item: { variantId: variantOf("polo", { Talla: "L", Color: "Negro" }).variantId }, quantity: 1 });
+    const same = only(checkRequests([request({ kind: "add", target: { kind: "item", ref: "I1" as ItemRef, named: null }, values: [value("M")], quantity: quantity(1, "add") })], [], snapshot({ items: [line] })));
+    expect(same.action).toMatchObject({ kind: "increase_quantity", target: { variantId: line.variantId } });
+  });
+});
+
 describe("checkRequests: the buyer's values mapped by the resolution", () => {
   const pendingTarget = { kind: "pending", ref: "Q1" as PendingRef, named: null } as const;
   const mapped = (key: ProductKey, values: { attribute: string; value: string; word: string }[], unmatched: string[] = []): ProductResolution =>

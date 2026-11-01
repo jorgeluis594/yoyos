@@ -38,7 +38,7 @@ export type CheckSnapshot = Readonly<{
 
 type Urgent = NonNullable<CheckedAction["urgent"]>;
 type Said = Readonly<{ request: ExtractedRequest; complete: boolean }>;
-type Env = Readonly<{ snapshot: CheckSnapshot; resolutions: readonly ProductResolution[]; claims: ReadonlyMap<string, number> }>;
+type Env = Readonly<{ snapshot: CheckSnapshot; resolutions: readonly ProductResolution[]; claims: ReadonlyMap<string, number>; added: ReadonlySet<ProductId> }>;
 type Named = CertaintySignals["targetNamed"];
 
 const changeKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["add", "remove", "change_quantity", "change_variant", "complete_pending", "mention_price"]);
@@ -76,8 +76,9 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
     const id = claimedPending(entry.request, snapshot);
     if (id) claims.set(id, (claims.get(id) ?? 0) + 1);
   }
-  const env: Env = { snapshot, resolutions, claims };
-  return requests.flatMap((entry) => checkOne(photoRetargeted(entry, snapshot), env));
+  const retargeted = requests.map((verified) => photoRetargeted(verified, snapshot));
+  const env: Env = { snapshot, resolutions, claims, added: new Set(retargeted.flatMap((entry) => addedProductsOf(entry, resolutions, snapshot))) };
+  return foldSameMessage(retargeted, resolutions, snapshot).flatMap((entry) => checkOne(entry, env));
 }
 
 /**
@@ -99,6 +100,61 @@ function photoRetargeted(verified: VerifiedRequest, snapshot: CheckSnapshot): Ve
   if (!line) return { ...verified, request: { ...request, kind: "add", target: { kind: "photo_same_message" } } };
   if (more.length > 0) return verified;
   return { ...verified, request: { ...request, target: { kind: "item", ref: line.ref, named: null } } };
+}
+
+/** The product a request names, when its resolution chose one. */
+const chosenProductOf = (request: ExtractedRequest, resolutions: readonly ProductResolution[]): ProductId | null => {
+  const resolution = resolutions.find((entry) => entry.request === request.request);
+  return resolution?.kind === "chosen" ? resolution.productId : null;
+};
+
+/** The product a named add of the message adds, when its resolution chose one. */
+const addedProductOf = (entry: VerifiedRequest, resolutions: readonly ProductResolution[]): ProductId | null => (entry.request.kind === "add" && entry.request.target.kind === "named" ? chosenProductOf(entry.request, resolutions) : null);
+
+/** Every product a request of the message adds: the named one, or the products the photo shows when the add points at the photo. */
+const addedProductsOf = (entry: VerifiedRequest, resolutions: readonly ProductResolution[], snapshot: CheckSnapshot): readonly ProductId[] => {
+  if (entry.request.kind === "add" && entry.request.target.kind === "photo_same_message") return [...shownProductIds(snapshot)];
+  const named = addedProductOf(entry, resolutions);
+  return named === null ? [] : [named];
+};
+
+/** The values a request's resolution mapped, and whether it left words unmapped or unmatched (those cannot be folded without being dropped). */
+function mappedValuesOf(request: ExtractedRequest, resolutions: readonly ProductResolution[]): Readonly<{ values: readonly AttributeChoice[]; complete: boolean }> | null {
+  const resolution = resolutions.find((entry) => entry.request === request.request);
+  if (resolution?.kind !== "chosen") return null;
+  const values = resolution.values.map(({ attribute, value }): AttributeChoice => ({ name: attribute, value }));
+  return { values, complete: (resolution.unmatched ?? []).length === 0 && request.values.length <= values.length };
+}
+
+/**
+ * A price or quantity request that speaks about the product another request of the same message adds is part of that add: checked on its own it would
+ * look for a line the message itself is creating. It folds only when exactly one add of the message has that product (with several the request would belong to whichever came first, so it asks) and the order has no line and no pending of that product (otherwise it can find its own
+ * target) and its values add nothing the add lacks or contradicts. The add keeps its own price and quantity when it has them; the folded request leaves no action.
+ */
+function foldSameMessage(requests: readonly VerifiedRequest[], resolutions: readonly ProductResolution[], snapshot: CheckSnapshot): readonly VerifiedRequest[] {
+  const addedProduct = (entry: VerifiedRequest): ProductId | null => addedProductOf(entry, resolutions);
+  const addsOf = (productId: ProductId): number => requests.filter((other) => addedProduct(other) === productId).length;
+  const folds = (entry: VerifiedRequest, add: VerifiedRequest): boolean => {
+    const { request } = entry;
+    if ((request.kind !== "mention_price" && request.kind !== "change_quantity") || request.target.kind !== "named" || request.quantity?.mode === "decrease") return false;
+    const productId = chosenProductOf(request, resolutions);
+    if (productId === null || productId !== addedProduct(add) || addsOf(productId) !== 1) return false;
+    if (snapshot.items.some((item) => item.productId === productId) || snapshot.pendings.some((entry) => productsOfPending(entry.pending).includes(productId))) return false;
+    const mine = mappedValuesOf(request, resolutions);
+    const theirs = mappedValuesOf(add.request, resolutions);
+    if (!mine?.complete || !theirs) return false;
+    if (!mine.values.every((choice) => theirs.values.some((other) => folded(other.name) === folded(choice.name) && folded(other.value) === folded(choice.value)))) return false;
+    return (request.price === null || add.request.price === null) && (request.quantity === null || add.request.quantity === null);
+  };
+  const absorbed = new Set<VerifiedRequest>();
+  const merged = requests.map((entry) => {
+    if (addedProduct(entry) === null) return entry;
+    return requests.filter((other) => other !== entry && !absorbed.has(other) && folds(other, entry)).reduce((add, other) => {
+      absorbed.add(other);
+      return { complete: add.complete && other.complete, request: { ...add.request, price: add.request.price ?? other.request.price, quantity: add.request.quantity ?? other.request.quantity } };
+    }, entry);
+  });
+  return merged.filter((entry) => !absorbed.has(entry));
 }
 
 const shownProductIds = (snapshot: CheckSnapshot): ReadonlySet<ProductId> => new Set(snapshot.products.filter((product) => product.shown).map((product) => product.productId));
@@ -135,20 +191,20 @@ export function checkShownPhoto(snapshot: CheckSnapshot, requests: readonly Veri
   const covering = requests.some((entry) => coversShown(photoRetargeted(entry, snapshot).request, snapshot, resolutions));
   if (covering) return [];
   const request: ExtractedRequest = { request: "R0" as ExtractedRequest["request"], kind: "add", target: { kind: "photo_same_message" }, values: [], quantity: null, price: null, changeVerb: null };
-  const env: Env = { snapshot, resolutions: [], claims: new Map() };
+  const env: Env = { snapshot, resolutions: [], claims: new Map(), added: new Set() };
   return checkShown({ request, complete: true }, env, 1);
 }
 
 /** A remove or quantity change that lands on a pending, which lives without an order. */
-function onPending(request: ExtractedRequest, snapshot: CheckSnapshot): boolean {
-  if (request.kind === "change_quantity") return pendingOfRequest(request, snapshot) !== undefined || (request.target.kind === "photo_just_sent" && snapshot.photoJustSent?.kind === "pending");
-  return request.kind === "remove" && request.target.kind === "pending" && pendingOfRequest(request, snapshot) !== undefined;
+function onPending(request: ExtractedRequest, env: Env): boolean {
+  if (request.kind === "change_quantity") return pendingOfRequest(request, env) !== undefined || (request.target.kind === "photo_just_sent" && env.snapshot.photoJustSent?.kind === "pending");
+  return request.kind === "remove" && (request.target.kind === "pending" || request.target.kind === "named") && pendingOfRequest(request, env) !== undefined;
 }
 
 function checkOne(said: Said, env: Env): readonly CheckedAction[] {
   const { request } = said;
   const { snapshot } = env;
-  if (itemKinds.has(request.kind) && snapshot.order !== "open" && !onPending(request, snapshot)) {
+  if (itemKinds.has(request.kind) && snapshot.order !== "open" && !onPending(request, env)) {
     const blocked = snapshot.order === "closed" ? "order_closed" : "no_open_order";
     return [checked(said, { kind: "change_unfound_item", target: { kind: "unnamed" } }, signalsOf(said, "context"), { blocked })];
   }
@@ -213,6 +269,10 @@ function findItem(request: ExtractedRequest, env: Env): FoundItem {
     const matching = productId ? items.filter((item) => item.productId === productId) : [];
     const [only, ...more] = matching;
     if (only) return more.length === 0 ? { kind: "found", item: only, named: true } : { kind: "many", productId, named: true };
+    // Between a few products: the order line of one of them, when exactly one line is among them.
+    const among = resolution?.kind === "between" ? items.filter((item) => item.productId !== null && resolution.productIds.includes(item.productId)) : [];
+    const [line, ...others] = among;
+    if (line) return others.length === 0 ? { kind: "found", item: line, named: true } : { kind: "many", productId: null, named: true };
     return { kind: "none", productId, named: true };
   }
   if (target.kind === "pending") return { kind: "none", productId: null, named: false };
@@ -231,18 +291,35 @@ function unfoundItem(said: Said, found: Exclude<FoundItem, { kind: "found" }>, e
   return problem(said, { kind: "unclear_item", orderId: null, namedItem: false, namedProductId: null }, "unclear_item", items.length > 1 ? question(items) : null);
 }
 
-/** The pending a request points to: by reference, or the only one there is when the photo just sent no longer counts. */
-function pendingOfRequest(request: ExtractedRequest, snapshot: CheckSnapshot): ChatPending | undefined {
+const productsOfPending = (pending: ChatPending): readonly ProductId[] => (pending.subject.kind === "variant" ? [pending.subject.productId] : pending.subject.candidates);
+
+/** The single pending a named target points to: its product (the chosen one, or those it is between) is in exactly one pending and in no order line, which would keep the request. */
+function namedPending(request: ExtractedRequest, env: Env): ChatPending | undefined {
+  if (request.target.kind !== "named") return undefined;
+  const resolution = resolutionOf(request, env);
+  const ids = resolution?.kind === "chosen" ? [resolution.productId] : resolution?.kind === "between" ? resolution.productIds : [];
+  if (env.snapshot.items.some((item) => item.productId !== null && ids.includes(item.productId))) return undefined;
+  const matching = env.snapshot.pendings.filter((entry) => productsOfPending(entry.pending).some((id) => ids.includes(id)));
+  const [only, ...more] = matching;
+  return only && more.length === 0 ? only.pending : undefined;
+}
+
+/** The pending a request points to: by reference, by the product it names, or the only one there is when the photo just sent no longer counts. */
+function pendingOfRequest(request: ExtractedRequest, env: Env): ChatPending | undefined {
+  const { snapshot } = env;
   const { target } = request;
   if (target.kind === "pending") return snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending;
+  if (target.kind === "named") return namedPending(request, env);
   const [only, ...more] = snapshot.pendings;
   return target.kind === "photo_just_sent" && snapshot.photoJustSent === null && only && more.length === 0 ? only.pending : undefined;
 }
 
+const pendingTargetNamed = (request: ExtractedRequest): Named => (request.target.kind === "named" || (request.target.kind === "pending" && request.target.named !== null) ? "named" : "context");
+
 function checkRemove(said: Said, env: Env): CheckedAction {
-  const pending = said.request.target.kind === "pending" ? pendingOfRequest(said.request, env.snapshot) : undefined;
+  const pending = said.request.target.kind === "pending" || said.request.target.kind === "named" ? pendingOfRequest(said.request, env) : undefined;
   const { quantity } = said.request;
-  const pendingNamed: Named = said.request.target.kind === "pending" && said.request.target.named !== null ? "named" : "context";
+  const pendingNamed = pendingTargetNamed(said.request);
   if (pending && quantity?.mode === "decrease") {
     if (!whole(quantity.value, 1)) return checked(said, invalid("quantity_not_whole"), signalsOf(said, pendingNamed), { urgent: { problem: "invalid_action", question: null } });
     return pendingQuantity(said, pending, quantity, pendingNamed);
@@ -270,9 +347,11 @@ function checkQuantity(said: Said, env: Env): CheckedAction {
   if (!whole(quantity.value, quantity.mode === "set" ? 0 : 1)) return checked(said, invalid("quantity_not_whole"), signalsOf(said, "context"), { urgent: { problem: "invalid_action", question: null } });
   const justSent = request.target.kind === "photo_just_sent" ? photoQuantity(said, env, quantity) : null;
   if (justSent) return justSent;
-  const pending = pendingOfRequest(request, env.snapshot);
-  if (pending) return pendingQuantity(said, pending, quantity, request.target.kind === "pending" && request.target.named !== null ? "named" : "context");
+  const pending = pendingOfRequest(request, env);
+  if (pending) return pendingQuantity(said, pending, quantity, pendingTargetNamed(request));
   const found = findItem(request, env);
+  const unordered = found.kind === "none" && found.named && !(found.productId !== null && env.added.has(found.productId)) && quantity.mode !== "decrease" && quantity.value >= 1 ? addUnordered(said, env, found.productId, quantity.value) : null;
+  if (unordered) return unordered;
   if (found.kind !== "found") {
     if (found.kind === "none" && !found.named && env.snapshot.items.length === 0) return problem(said, { kind: "unnamed_add" }, "unnamed_add", { language: env.snapshot.language, kind: "another_of_which" });
     return unfoundItem(said, found, env);
@@ -285,6 +364,15 @@ function checkQuantity(said: Said, env: Env): CheckedAction {
     case "add": return checked(said, { kind: "increase_quantity", target, quantity: quantity.value as PositiveInteger }, signals, { doubt: { kind: "added_by_reference", quantity: quantity.value as PositiveInteger, quote: null } });
     case "decrease": return checked(said, { kind: "lower_quantity", target, quantity: quantity.value as PositiveInteger }, signals, { doubt: loweredDoubt(item, quantity.value) });
   }
+}
+
+/** A quantity for a named product the order does not have and the message does not already add: it is added with that quantity, marked as read by reference. When the order already has lines the request kind contradicts the state, so it stays «Con duda». */
+function addUnordered(said: Said, env: Env, productId: ProductId | null, quantity: number): CheckedAction | null {
+  const product = productId ? env.snapshot.products.find((candidate) => candidate.productId === productId) : undefined;
+  const resolution = resolutionOf(said.request, env);
+  if (!product || resolution?.kind !== "chosen") return null;
+  const choices = resolution.values.map((entry): AttributeChoice => ({ name: entry.attribute, value: entry.value }));
+  return withProduct(said, env, product, choices, quantity, signalsOf(said, env.snapshot.items.length > 0 ? "context" : "named"), { kind: "added_by_reference", quantity: quantity as PositiveInteger, quote: null })[0] ?? null;
 }
 
 /** A quantity change on a pending: low risk, and never better than «Con duda» unless it is high certainty. */
@@ -427,7 +515,7 @@ function checkAdd(said: Said, env: Env): readonly CheckedAction[] {
   if (target.kind === "photo_just_sent") {
     const grown = photoQuantity(said, env, { value: quantity, mode: "add" });
     if (grown) return [grown];
-    const pending = pendingOfRequest(request, snapshot);
+    const pending = pendingOfRequest(request, env);
     if (pending) return [pendingQuantity(said, pending, { value: quantity, mode: "add" }, "context")];
   }
   return checkReferencedAdd(said, env, quantity, snapshot);
@@ -475,6 +563,13 @@ function checkNamedAdd(said: Said, env: Env, quantity: number): readonly Checked
     return [checked(said, report({ kind: "not_identified", source: "text", identification: null, silent: false }), signals, { urgent: { problem: "not_identified", question: null } })];
   }
   const added: DoubtReason = { kind: "added_by_reference", quantity: quantity as PositiveInteger, quote: null };
+  if (resolution.kind === "between") {
+    const among = snapshot.items.filter((item) => item.productId !== null && resolution.productIds.includes(item.productId));
+    const [line, ...others] = among;
+    const ordered = line && others.length === 0 ? snapshot.products.find((candidate) => candidate.productId === line.productId) : undefined;
+    // The one product of the order among those the words may mean: read as that one, still marked as read by reference.
+    if (ordered) return withProduct(said, env, ordered, valueChoices(said.request, ordered, resolution), quantity, signalsOf(said, "named", { candidates: "several" }), added);
+  }
   if (resolution.kind === "between") return [checked(said, doubtfulDraft(said.request, resolution, quantity, snapshot), signalsOf(said, "named", { candidates: "several" }),
     { doubt: added, urgent: { problem: "not_clear", question: whichProduct(resolution.productIds, snapshot) } })];
   const product = snapshot.products.find((candidate) => candidate.productId === resolution.productId);
@@ -608,6 +703,7 @@ function checkDecline(said: Said, env: Env): CheckedAction {
   const signals = signalsOf(said, "named");
   const { photoJustSent: left } = snapshot;
   const pending = target.kind === "pending" ? snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending
+    : target.kind === "named" ? namedPending(said.request, env)
     : left?.kind === "pending" ? snapshot.pendings.find((entry) => entry.pending.id === left.pendingId)?.pending : undefined;
   if (!pending) return checked(said, report({ kind: "no_intent" }), signals);
   return checked(said, { kind: "decline_pending", pendingId: pending.id }, signals);
