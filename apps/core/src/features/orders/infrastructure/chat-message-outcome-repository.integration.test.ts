@@ -20,6 +20,7 @@ async function fixture() {
   return { companyId, messageId, async cleanup() {
     await withTenantIsolation(companyId, async () => {
       await prisma.chatMessageOutcome.deleteMany();
+      await prisma.chatPendings.deleteMany();
       await prisma.chatMessage.deleteMany();
       await prisma.chat.deleteMany();
       await prisma.contact.deleteMany();
@@ -96,6 +97,28 @@ test("a message that does not exist leaves no outcome and no notice", async () =
     await withTenantIsolation(f.companyId, async () => {
       expect(await recordFailedOutcome(randomUUID() as ChatMessageId, "MESSAGE_NOT_FOUND")).toEqual({ success: true, data: { publishNotice: false } });
       expect(await prisma.chatMessageOutcome.count()).toBe(0);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("stores the outcome with the time the message transaction gives it", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      const at = new Date("2026-10-30T12:00:00.000Z");
+      await withinTransaction(() => recordOutcome({ messageId: f.messageId, outcomes: noIntent, createdAt: at }));
+      expect((await prisma.chatMessageOutcome.findFirstOrThrow()).createdAt).toEqual(at);
+    });
+  } finally { await f.cleanup(); }
+});
+
+test("a failed message clears the photo just sent of its chat", async () => {
+  const f = await fixture();
+  try {
+    await withTenantIsolation(f.companyId, async () => {
+      expect(await recordFailedOutcome(f.messageId, "INVALID_AI_RESPONSE")).toEqual({ success: true, data: { publishNotice: true } });
+      const [row] = await prisma.chatPendings.findMany();
+      expect(row).toMatchObject({ pendings: [], lastIncomingPhoto: { left: null } });
     });
   } finally { await f.cleanup(); }
 });
