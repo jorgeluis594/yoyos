@@ -1,4 +1,5 @@
 import { ok } from "@shared/functional";
+import type { Currency } from "@shared/money";
 import type { Result } from "@shared/result";
 import type { RecentChatMessage, RecentChatMessagesQuery } from "@core/src/features/chats/composition";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
@@ -24,6 +25,8 @@ export type LoadReadingContextDependencies = Readonly<{
   findMaskedTexts: (messageIds: readonly ChatMessageId[]) => Promise<Result<ReadonlyMap<ChatMessageId, string>, LoadReadingContextError>>;
   findOutcome: (messageId: ChatMessageId) => Promise<Result<StoredChatMessageOutcome | null, LoadReadingContextError>>;
   findChatOrdersOpenedSince: (chatId: ChatId, since: Date) => Promise<Result<readonly OrderAggregate[], LoadReadingContextError>>;
+  /** The currency of the company's prices, or null when the company has none on record. */
+  findShopCurrency: () => Promise<Result<Currency | null, LoadReadingContextError>>;
   clock: () => Date;
   pendingTtlMs: number;
   budgets: ReadingBudgets;
@@ -85,18 +88,20 @@ export async function loadReadingContext(deps: LoadReadingContextDependencies, m
   if (!found.success) return found;
   const recent = [...found.data].reverse();
   const latestPhoto = [...recent].reverse().find(hasPhoto);
-  const [masks, photo, openedSince] = await Promise.all([
+  const [masks, photo, openedSince, currency] = await Promise.all([
     deps.findMaskedTexts(recent.map(({ id }) => id)),
     latestPhoto ? deps.findOutcome(latestPhoto.id) : Promise.resolve(ok<StoredChatMessageOutcome | null>(null)),
     openedSinceOf(deps, message.chatId, pendings),
+    deps.findShopCurrency(),
   ]);
   if (!masks.success) return masks;
   if (!photo.success) return photo;
   if (!openedSince.success) return openedSince;
+  if (!currency.success) return currency;
   const life = pendingLife(pendings, { target, openedSince: openedSince.data }, deps.clock(), deps.pendingTtlMs);
   const context = contextOf(recent, masks.data, budgets.contextMessageChars);
   const current = { messageId: message.id, kind: message.imageId ? "image" : "text", text: message.text ?? message.caption ?? "" };
-  const fitted = fitReadingInput({ current, context, items: itemsOf(target, budgets.maxItems), pendings: pendingsOf(life.alive), photoMemory, photo: null }, budgets.stageInputMaxChars);
+  const fitted = fitReadingInput({ current, context, items: itemsOf(target, budgets.maxItems), pendings: pendingsOf(life.alive), photoMemory, photo: null, ...(currency.data ? { currency: currency.data } : {}) }, budgets.stageInputMaxChars);
   const idOf = new Map(context.map(({ ref }, index) => [ref, recent[index]!.id] as const));
   const kept = fitted.input.context.map(({ ref }) => [ref, idOf.get(ref)!] as const);
   const photoOutcome = latestPhoto && photo.data ? { ref: context[recent.indexOf(latestPhoto)]!.ref, messageId: latestPhoto.id, outcome: photo.data } : null;

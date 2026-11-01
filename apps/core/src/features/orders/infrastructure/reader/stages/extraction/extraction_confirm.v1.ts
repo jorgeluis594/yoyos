@@ -43,7 +43,7 @@ Quantity
 
 Price
 - Only when the buyer states one. amount is the figure as written; never add up, multiply or divide.
-- currency: order if no currency is named, other if one is.
+- currency: order if no currency is named or the one named is that of the shop's prices (the input says which), other if a different one is named.
 - basis: unit if it is for each, lot if it is for the whole quantity, not_explicit if the buyer does not say.
 
 Change verb

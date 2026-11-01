@@ -1,3 +1,4 @@
+import type { Currency } from "@shared/money";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { LastIncomingPhoto } from "@core/src/features/orders/domain/chat-pendings";
@@ -45,7 +46,9 @@ export type ExtractedRequest = Readonly<{
   changeVerb: Quote | null;
 }>;
 /** `candidateIds` are the products the mention may be resolved to (from `assembleCandidates`); absent means any candidate listed with it. */
-export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"]; candidateIds?: readonly ProductId[] }>;
+/** `price` is the price the request states, so that the resolution can tell products apart by it; `units` is the quantity the request states (1 when none). */
+export type MentionPrice = Readonly<{ amount: number; units: number; basis: "unit" | "lot" | "not_explicit" }>;
+export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"]; candidateIds?: readonly ProductId[]; price?: MentionPrice }>;
 export type ProductResolution =
   | Readonly<{ request: RequestRef; kind: "chosen"; productId: ProductId; values: readonly Readonly<{ attribute: string; value: string; quote: Quote }>[] }>
   /** Two to four products. */
@@ -68,4 +71,6 @@ export type ReadingInput = Readonly<{
   photoMemory: LastIncomingPhoto | null;
   /** The photo of this message and the product it was identified as, if any. */
   photo: Readonly<{ productId: ProductId | null }> | null;
+  /** The currency of the shop's prices (from the company's country); the extraction names it to the model so that a price in it counts as the order's. */
+  currency?: Currency;
 }>;
