@@ -1,9 +1,10 @@
 import { describe, expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
-import type { ReaderAnswer, ReaderAction, ChatReadingContext } from "@core/src/features/orders/domain/chat-reading";
-import type { ReaderError } from "@core/src/features/orders/application/read-chat-message";
+import { applyChatMessage, type ApplyChatMessageDependencies, type ChatMemory, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
+import type { ReadingContextData } from "@core/src/features/orders/application/reader/load-reading-context";
+import type { ReaderStages, StageCall } from "@core/src/features/orders/application/reader/stages";
+import type { BuiltMessageTrace } from "@core/src/features/orders/application/reader/trace-ports";
 import type { ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order";
 import type { ChatPending, ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
@@ -13,12 +14,14 @@ import type { MessageChanges, OrderItemChange, OrderItemChangeId } from "@core/s
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { CompanyId, ContactId, OrderId, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
+import type { ContextMessageRef, ExtractedRequest, IntentReading, ItemRef, PendingRef, ProductResolution, ReaderStage, Reading, RequestIntent, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 import type { CatalogItem, MatchConfidence } from "@core/src/features/products/domain/image-identification";
 import type { ImageId, ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
 import type { CatalogSearchReadiness } from "@core/src/features/products/domain/text-identification";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
+import { withAbort } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const companyId = id(1) as CompanyId;
@@ -45,7 +48,7 @@ const polo = forReading(productPolo, "Polo básico", [poloM, poloL]);
 const gorra = forReading(productCap, "Gorra", [cap]);
 
 const photoMessage = (over: Partial<ChatSourceMessage> = {}): ChatSourceMessage => ({ id: messageId, companyId, chatId, contactId, direction: "incoming", uploadedByUserId: sellerId,
-  imageId: id(5) as ImageId, text: null, caption: null, ...over });
+  imageId: id(5) as ImageId, text: null, caption: null, sentAt: hourBefore, receivedAt: at, ...over });
 const textMessage = (text: string | null, over: Partial<ChatSourceMessage> = {}): ChatSourceMessage => photoMessage({ imageId: null, text, ...over });
 
 const visual = (productId: ProductId, confidence = 0.92): ImageIdentification =>
@@ -65,70 +68,96 @@ const pendingOf = (n: number, over: Partial<ChatPending> = {}): ChatPending => (
   doubt: null, pointSince: hourBefore, acknowledgedAt: null, ...over });
 const pendingSet = (...pendings: ChatPending[]): ChatPendings => ({ pendings, readyRemembered: false });
 
-const zeroUsage = { inputTokens: 100, cachedInputTokens: 0, outputTokens: 20, reasoningTokens: 0 };
-const refOf = (context: ChatReadingContext, productId: ProductId) => context.products.find((product) => product.productId === productId)!.ref;
-const add = (context: ChatReadingContext, productId: ProductId, attributes: ReaderAction extends infer A ? A extends { kind: "add"; attributes: infer T } ? T : never : never = [], quantity: number | null = null): ReaderAction =>
-  ({ kind: "add", product: { kind: "ref", ref: refOf(context, productId) }, attributes, quantity, price: null });
-const actions = (...list: ReaderAction[]): ReaderAnswer => ({ kind: "actions", actions: list as [ReaderAction, ...ReaderAction[]], moreActions: false });
 
-type Reader = (context: ChatReadingContext) => ReaderAnswer | ReaderError;
-type Candidates = Readonly<{ productIds: readonly ProductId[]; matchCount: number; durationMs: number; timedOut: boolean }>;
+const current = (text: string) => ({ source: "current" as const, text });
+const intent = (id: string, kind: RequestIntent["kind"], quote: string): RequestIntent => ({ id: id as RequestRef, kind, quote: current(quote) });
+const extracted = (id: string, kind: ExtractedRequest["kind"], over: Partial<ExtractedRequest> = {}): ExtractedRequest =>
+  ({ request: id as RequestRef, kind, target: { kind: "none" }, values: [], quantity: null, price: null, changeVerb: null, ...over });
+const chosen = (id: string, productId: ProductId): ProductResolution => ({ request: id as RequestRef, kind: "chosen", productId, values: [] });
+const call = (stage: ReaderStage, reading: Reading): StageCall => ({ stage, reading, provider: "fake", model: "m", promptVersion: "v1", usage: null, costUsd: null, durationMs: 1, attempts: 1 });
+const requestsOf = (...requests: RequestIntent[]): IntentReading => ({ kind: "requests", requests, language: "es", addresses: [] });
+
+type Script = Readonly<{ intent?: IntentReading | Readonly<{ code: "AI_PROVIDER_UNAVAILABLE" | "INVALID_AI_RESPONSE" }>; extraction?: readonly ExtractedRequest[]; resolutions?: readonly ProductResolution[]; confirms?: boolean }>;
+
+/** Scripted stages: they answer what the test says and log their calls in order. */
+function stagesOf(script: Script, log: string[], signals: AbortSignal[]): ReaderStages {
+  const failure = (stage: ReaderStage, code: "AI_PROVIDER_UNAVAILABLE" | "INVALID_AI_RESPONSE") => err({ code, stage, call: null, message: code });
+  return {
+    readIntent: async (_input, reading) => {
+      log.push(`intent:${reading}`);
+      const answer = script.intent ?? { kind: "no_intent", reason: "other", language: "es", addresses: [] };
+      return "code" in answer ? failure("intent", answer.code) : ok({ value: answer, call: call("intent", reading) });
+    },
+    extractRequests: async (_input, _intents, reading, signal) => { log.push(`extraction:${reading}`); signals.push(signal); return ok({ value: script.extraction ?? [], call: call("extraction", reading) }); },
+    chooseProducts: async (_mentions, _candidates, reading) => { log.push(`resolution:${reading}`); return ok({ value: script.resolutions ?? [], call: call("resolution", reading) }); },
+    confirms: { intent: false, extraction: script.confirms ?? true, resolution: false },
+  };
+}
 
 type Options = Readonly<{
   message?: ChatSourceMessage | null;
   identification?: ImageIdentification;
-  reader?: Reader | null;
+  script?: Script;
+  noStages?: boolean;
   target?: ChatOrderTarget;
   pendings?: ChatPendings;
-  openedSince?: readonly OrderAggregate[];
+  memory?: ChatMemory;
   stored?: StoredChatMessageOutcome;
   readiness?: CatalogSearchReadiness;
   catalog?: readonly ProductForReading[];
-  candidates?: Candidates;
+  armed?: boolean;
+  shadow?: Promise<{ answer: "actions"; actionKinds: readonly string[]; usage: null; costUsd: null } | null>;
   limits?: Partial<ApplyChatMessageDependencies["limits"]>;
   overrides?: Partial<ApplyChatMessageDependencies>;
 }>;
 
-type Store = { changes: OrderItemChange[]; orders: Map<string, OrderAggregate>; pendings: ChatPendings; customers: Set<string>; messages: Map<string, string>; outcomes: Map<string, ChatMessageOutcomes> };
+type Store = { changes: OrderItemChange[]; orders: Map<string, OrderAggregate>; pendings: ChatPendings; memory: ChatMemory; customers: Set<string>; messages: Map<string, string>; outcomes: Map<string, ChatMessageOutcomes>; linkNotices: boolean[] };
+
+/** The reading input a context load would build: lines and pendings with short refs. */
+function contextOf(message: ChatSourceMessage, target: ChatOrderTarget, pendings: ChatPendings): ReadingContextData {
+  const items = target.kind === "open" ? target.order.items.map((item, index) => ({ ref: `I${index + 1}` as ItemRef, itemId: item.id, productId: target.productIds.get(item.variantId) ?? null, variantId: item.variantId,
+    productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity })) : [];
+  const pendingRefs = pendings.pendings.map((pending, index) => ({ ref: `Q${index + 1}` as PendingRef, pendingId: pending.id, productIds: [productPolo], known: pending.known, quantity: pending.quantity, doubtful: pending.doubt !== null }));
+  return { target, life: { alive: pendings.pendings, ended: [] }, contextMessageIds: new Map<ContextMessageRef, ChatMessageId>(), masks: new Map(), photoOutcome: null, cut: { contextDropped: 0, itemsOmitted: 0, pendingsOmitted: 0 },
+    input: { current: { messageId: message.id, kind: message.imageId ? "image" : "text", text: message.text ?? message.caption ?? "" }, context: [], items, pendings: pendingRefs, photoMemory: null, photo: null } };
+}
 
 /** In-memory ports; `transaction` restores the state when its work fails, like a rollback. */
 function harness(options: Options = {}) {
   const calls: string[] = [];
-  const contexts: ChatReadingContext[] = [];
-  const readingIds: ProductId[][] = [];
-  const candidateQueries: string[] = [];
-  const openedSinceQueries: Date[] = [];
-  const pendingSaves: ChatPendings[] = [];
+  const stageLog: string[] = [];
+  const signals: AbortSignal[] = [];
+  const pendingSaves: { set: ChatPendings; memory: ChatMemory }[] = [];
   const changeSaves: MessageChanges[] = [];
-  const identifySignals: AbortSignal[] = [];
-  const store: Store = { changes: [], orders: new Map(), pendings: options.pendings ?? pendingSet(), customers: new Set(), messages: new Map(), outcomes: new Map() };
+  const traces: Parameters<ApplyChatMessageDependencies["buildMessageTrace"]>[0][] = [];
+  const store: Store = { changes: [], orders: new Map(), pendings: options.pendings ?? pendingSet(), memory: options.memory ?? { lastIncomingPhoto: null, lastRequestAt: null }, customers: new Set(), messages: new Map(), outcomes: new Map(), linkNotices: [] };
   const called = <T,>(name: string, value: T): T => { calls.push(name); return value; };
   const target: ChatOrderTarget = options.target ?? { kind: "none" };
   if (target.kind === "open") store.orders.set(target.order.id, target.order);
   const catalog = options.catalog ?? [polo, gorra];
-  const reader = options.reader === undefined ? ((): Reader => () => ({ kind: "no_intent" }))() : options.reader;
+  const message = options.message === undefined ? photoMessage() : options.message;
   const deps: ApplyChatMessageDependencies = {
     findOutcome: async (key) => called("findOutcome", ok(options.stored && key === messageId ? options.stored : store.outcomes.has(key) ? { outcomes: store.outcomes.get(key)!, noticeSentAt: null } : null)),
-    findSourceMessage: async () => called("findSourceMessage", ok(options.message === undefined ? photoMessage() : options.message)),
+    findSourceMessage: async () => called("findSourceMessage", ok(message)),
     findChatOrderTarget: async () => called("findChatOrderTarget", ok(target.kind === "open" ? { ...target, order: store.orders.get(target.order.id)! } : target)),
-    findChatOrdersOpenedSince: async (_chat, since) => { openedSinceQueries.push(since); return called("findChatOrdersOpenedSince", ok(options.openedSince ?? [])); },
+    findChatOrdersOpenedSince: async () => called("findChatOrdersOpenedSince", ok([])),
     findChatPendings: async () => called("findChatPendings", ok(store.pendings)),
     findChatPendingsForUpdate: async () => called("findChatPendingsForUpdate", ok(store.pendings)),
-    saveChatPendings: async (_chat, set) => { calls.push("saveChatPendings"); pendingSaves.push(set); store.pendings = set; return ok(null); },
+    findChatMemory: async () => ok(store.memory),
+    saveChatPendings: async (_chat, set, memory) => { calls.push("saveChatPendings"); pendingSaves.push({ set, memory }); store.pendings = set; store.memory = memory; return ok(null); },
     readImage: async () => called("readImage", ok({ bytes: new Uint8Array([1]), contentType: "image/jpeg" })),
-    identifyProductsInImage: async (_image, signal) => { identifySignals.push(signal); return called("identifyProductsInImage", ok(options.identification ?? visual(productCap))); },
-    findProductsForReading: async (ids) => { readingIds.push([...ids]); return called("findProductsForReading", ok(catalog.filter((product) => ids.includes(product.productId)))); },
-    findMessageCandidates: async (text) => { candidateQueries.push(text); return called("findMessageCandidates", ok(options.candidates ?? { productIds: [], matchCount: 0, durationMs: 4, timedOut: false })); },
+    identifyProductsInImage: async () => called("identifyProductsInImage", ok(options.identification ?? visual(productCap))),
+    loadReadingContext: async (loaded, loadedTarget, pendings) => called("loadReadingContext", ok(contextOf(loaded, loadedTarget, pendings))),
+    findMentionCandidates: async (mentions) => called("findMentionCandidates", ok({ mentions: mentions.map((words) => ({ productIds: [words.includes("gorra") ? productCap : productPolo], unavailableProductIds: [], matchCount: 1, wordsSearched: 2 })), durationMs: 4, timedOut: false })),
+    findProductsForReading: async (ids) => called("findProductsForReading", ok(catalog.filter((product) => ids.includes(product.productId)))),
     catalogSearchReadiness: async () => called("catalogSearchReadiness", ok(options.readiness ?? "ready")),
-    readChatMessage: reader === null ? null : async (context) => {
-      calls.push("readChatMessage");
-      contexts.push(context);
-      const answered = reader(context);
-      return "code" in answered ? err(answered) : ok({ answer: answered, usage: zeroUsage });
-    },
+    stages: options.noStages ? null : stagesOf(options.script ?? {}, stageLog, signals),
+    readChatMessage: null,
+    createDeadline: (_budget, _meta, jobSignal) => jobSignal,
+    withAbort,
     transaction: async (_company, work) => {
       calls.push("transaction");
-      const snapshot = structuredClone({ orders: store.orders, pendings: store.pendings, customers: store.customers, messages: store.messages, outcomes: store.outcomes });
+      const snapshot = structuredClone({ orders: store.orders, pendings: store.pendings, memory: store.memory, customers: store.customers, messages: store.messages, outcomes: store.outcomes, linkNotices: store.linkNotices });
       const result = await work();
       if (!result.success) Object.assign(store, snapshot);
       return result;
@@ -139,8 +168,9 @@ function harness(options: Options = {}) {
     allocateNumber: async () => called("allocateNumber", ok(1008 as OrderNumber)),
     saveNewOrder: async (order) => { calls.push("saveNewOrder"); store.orders.set(order.id, order); return ok(null); },
     saveItemChanges: async (order) => { calls.push("saveItemChanges"); store.orders.set(order.id, order); return ok(null); },
-    recordOrderMessage: async (orderId, key) => { calls.push("recordOrderMessage"); store.messages.set(key, orderId); return ok(null); },
+    recordOrderMessage: async (orderId, key, linkChangeNotice) => { calls.push("recordOrderMessage"); store.messages.set(key, orderId); store.linkNotices.push(linkChangeNotice); return ok(null); },
     findUnverdictedChanges: async () => ok({ open: store.changes.filter((change) => change.verdict === null && change.supersededBy === null), lastSeq: Math.max(0, ...store.changes.map((change) => change.seq)) }),
+    findLinkNoticeArming: async () => ok(options.armed ?? false),
     saveMessageChanges: async (saved) => {
       changeSaves.push(saved);
       store.changes = [...store.changes.map((change) => saved.supersedes.includes(change.id) ? { ...change, supersededBy: saved.changes[0]!.id } : change), ...saved.changes];
@@ -152,191 +182,61 @@ function harness(options: Options = {}) {
     newItemId: (() => { let counter = 300; return () => id(counter++) as OrderItemId; })(),
     newPendingId: (() => { let counter = 700; return () => id(counter++) as ChatPendingId; })(),
     clock: () => at,
-    limits: { maxItemQuantity: 99 as PositiveInteger, pendingTtlMs: 7 * 86_400_000, maxReaderProducts: 24, maxReaderItems: 40, maxReaderTextChars: 2000, ...options.limits },
+    buildMessageTrace: (input) => { traces.push(input); return { trace: { messageId: input.message.id } as never, masks: [] } satisfies BuiltMessageTrace; },
+    saveMessageTrace: async () => called("saveMessageTrace", ok(null)),
+    shadowReader: options.shadow ? () => options.shadow! : null,
+    limits: { maxItemQuantity: 99 as PositiveInteger, pendingTtlMs: 7 * 86_400_000, maxReaderProducts: 24, maxReaderItems: 40, maxReaderTextChars: 2000,
+      readingBudgetMs: 60_000, candidatesPerMention: 5, traceRetentionDays: 90, shadowWaitMs: 50, ...options.limits },
     ...options.overrides,
   };
   const controller = new AbortController();
-  return { calls, contexts, readingIds, candidateQueries, openedSinceQueries, pendingSaves, changeSaves, identifySignals, store, controller, deps, run: () => applyChatMessage({ companyId, messageId }, deps, controller.signal) };
+  return { calls, stageLog, signals, pendingSaves, changeSaves, traces, store, controller, deps, run: () => applyChatMessage({ companyId, messageId }, deps, controller.signal) };
 }
 
 const quantityOf = (store: Store, variantId: VariantId) => [...store.orders.values()].flatMap((order) => order.items).find((item) => item.variantId === variantId)?.quantity;
 const succeeded = async <T,>(result: Promise<Result<T, { code: string; message: string }>>) => { const done = await result; if (!done.success) throw new Error(done.error.code); return done.data; };
 const outcomeKinds = (store: Store) => [...store.outcomes.values()].flatMap((outcomes) => outcomes.map(({ kind }) => kind));
+const poloOrder = () => existingOrder([{ id: id(61) as OrderItemId, variantId: poloL.variantId, productName: "Polo básico", variantAttributes: { Talla: "L" }, sku: null,
+  quantity: 1 as PositiveInteger, unitPrice: money(35), subtotal: money(35), mentionedPrice: null, stockDeductedQuantity: 0 }]);
+const poloTarget = (): ChatOrderTarget => { const order = poloOrder(); return { kind: "open", order, productIds: new Map(order.items.map((item) => [item.variantId, productPolo])) }; };
+const addPolo = (quote = "el polo") => extracted("R1", "add", { target: { kind: "named", words: current(quote) }, values: [{ attributeWords: null, valueWords: current("M") }] });
+const poloInM = (): ProductResolution => ({ request: "R1" as RequestRef, kind: "chosen", productId: productPolo, values: [{ attribute: "Talla", value: "M", quote: current("M") }] });
 
-describe("applyChatMessage: photos", () => {
-  test("adds the photo's only variant without calling the reader", async () => {
-    const h = harness({ identification: visual(productCap) });
-    expect(await succeeded(h.run())).toMatchObject({ kind: "applied", createdOrder: true, noticeDue: false, outcomes: [{ kind: "added", variantId: cap.variantId, quantity: 1,
-      identification: { method: "visual", productId: productCap, confidence: 0.92 } }], trace: { readerCalls: 0, answer: "fixed" } });
-    expect(h.contexts).toHaveLength(0);
-    expect(quantityOf(h.store, cap.variantId)).toBe(1);
-    expect(h.calls).not.toContain("catalogSearchReadiness");
-  });
-
-  test("passes the attempt's signal to the photo identification", async () => {
-    const h = harness({ identification: visual(productCap) });
-    await h.run();
-    expect(h.identifySignals).toEqual([h.controller.signal]);
-  });
-
-  test("creates a pending and a variant-missing notice for a photo without size", async () => {
-    const h = harness({ identification: visual(productPolo) });
-    expect(await succeeded(h.run())).toMatchObject({ kind: "applied", orderId: null, noticeDue: true, pendingsBefore: 0, pendingsAfter: 1,
-      outcomes: [{ kind: "pending_created" }, { kind: "variant_missing", productId: productPolo, identification: { method: "visual" } }] });
-    expect(h.store.orders.size).toBe(0);
-    expect(h.store.pendings.pendings).toMatchObject([{ subject: { kind: "variant", productId: productPolo }, quantity: 1 }]);
-    expect(h.calls).not.toContain("ensureCustomerForContact");
-  });
-
-  test("drafts a pending for a photo with a caption and no reader, and sends no caption-not-applied", async () => {
-    const h = harness({ message: photoMessage({ caption: "2 en talla M" }), identification: visual(productPolo), reader: null });
+describe("applyChatMessage: the staged pipeline", () => {
+  test("applies a message through the three stages and records its changes and trace", async () => {
+    const h = harness({ message: textMessage("dame el polo M"), script: { intent: requestsOf(intent("R1", "add", "el polo M")), extraction: [addPolo("el polo")], resolutions: [poloInM()] } });
     const applied = await succeeded(h.run());
-    expect(applied).toMatchObject({ kind: "applied", noticeDue: true, trace: { readerCalls: 0, answer: "fixed" } });
-    expect(outcomeKinds(h.store)).not.toContain("caption_not_applied");
-    expect(h.store.pendings.pendings).toHaveLength(1);
-  });
 
-  test("adds a photo's QR variant and keeps the caption ignored without the reader", async () => {
-    const h = harness({ message: photoMessage({ caption: "dos de estos" }), identification: { kind: "found", method: "qr", items: [{ ...poloM, productId: productPolo }], unknownCodes: [] }, reader: null });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: poloM.variantId }], noticeDue: false });
-    expect(outcomeKinds(h.store)).not.toContain("caption_not_applied");
-  });
-
-  test("reads the caption of a product photo and applies what it asks", async () => {
-    const h = harness({ message: photoMessage({ caption: "2 en talla M" }), identification: visual(productPolo),
-      reader: (context) => actions(add(context, productPolo, [{ name: "Talla", value: "M" }], 2)) });
-    expect(await succeeded(h.run())).toMatchObject({ trace: { readerCalls: 1, answer: "actions", actionKinds: ["add"], usage: zeroUsage }, noticeDue: false });
-    expect(quantityOf(h.store, poloM.variantId)).toBe(2);
-    expect(h.contexts[0]).toMatchObject({ kind: "photo_product", text: "2 en talla M" });
-  });
-
-  test("adds the photo's product for a doubted caption without a notice", async () => {
-    const h = harness({ message: photoMessage({ caption: "no sé" }), identification: visual(productCap), reader: () => ({ kind: "doubt" }) });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }, { kind: "caption_not_applied", productId: productCap }], noticeDue: false });
-  });
-
-  test("applies the fixed answer and records caption not applied for a caption over the text limit", async () => {
-    const h = harness({ message: photoMessage({ caption: "x".repeat(30) }), identification: visual(productCap), limits: { maxReaderTextChars: 20 } });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added" }, { kind: "caption_not_applied", productId: productCap }], noticeDue: false, trace: { readerCalls: 0 } });
-    expect(h.contexts).toHaveLength(0);
-  });
-
-  test("records not identified for a photo without a match even when it has a caption", async () => {
-    const h = harness({ message: photoMessage({ caption: "2 de estos en talla M" }), identification: { kind: "not_found", reason: "no_visual_match", topDistance: 0.5 } });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "not_identified", source: "photo", identification: null, silent: false }], noticeDue: true });
-    expect(h.contexts).toHaveLength(0);
-  });
-
-  test("keeps a photo miss silent while the catalog cannot recognize photos", async () => {
-    const h = harness({ identification: { kind: "not_found", reason: "no_visual_match", topDistance: 0.5 }, readiness: "no_searchable_photos" });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "not_identified", silent: true }], noticeDue: false });
-  });
-
-  test("records no intent and no notice for a photo that does not show a product", async () => {
-    const h = harness({ identification: notProduct });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "no_intent" }], noticeDue: false });
-    expect(h.contexts).toHaveLength(0);
-  });
-
-  test("runs no candidate query for a non-product photo with a caption", async () => {
-    const h = harness({ message: photoMessage({ caption: "y agrégame una gorra negra" }), identification: notProduct,
-      reader: () => actions({ kind: "add", product: { kind: "not_in_catalog" }, attributes: [], quantity: null, price: null }) });
-    const applied = await succeeded(h.run());
-    expect(h.candidateQueries).toEqual([]);
-    expect(h.readingIds).toEqual([]);
-    expect(applied).toMatchObject({ outcomes: [{ kind: "image_with_request" }] });
-  });
-
-  test("makes no reader call for a non-product photo without a caption", async () => {
-    const h = harness({ identification: notProduct });
-    await h.run();
-    expect(h.calls).not.toContain("readChatMessage");
-  });
-
-  test("reports a product that left the catalog since it was matched as not identified", async () => {
-    const h = harness({ identification: visual(productCap), catalog: [polo] });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "not_identified", source: "photo", identification: { method: "visual", productId: productCap } }], noticeDue: true });
-    expect(h.store.orders.size).toBe(0);
-  });
-});
-
-describe("applyChatMessage: texts and pendings", () => {
-  test("completes the pending from «en talla M» on the next message without a notice", async () => {
-    const h = harness({ message: textMessage("en talla M"), pendings: pendingSet(pendingOf(20)),
-      reader: (context) => actions({ kind: "complete_pending", pending: context.pendings[0]!.ref, product: null, attributes: [{ name: "Talla", value: "M" }], quantity: null, price: null }) });
-    expect(await succeeded(h.run())).toMatchObject({ kind: "applied", createdOrder: true, noticeDue: false, pendingsBefore: 1, pendingsAfter: 0,
-      outcomes: expect.arrayContaining([{ kind: "pending_completed", pendingId: id(20) }]) });
+    expect(applied).toMatchObject({ kind: "applied", createdOrder: true, outcomes: [{ kind: "added", variantId: poloM.variantId }], trace: { stageCalls: 3, answer: "actions", confirmingRun: false } });
     expect(quantityOf(h.store, poloM.variantId)).toBe(1);
-    expect(h.store.pendings.pendings).toEqual([]);
-    expect(h.calls).toContain("ensureCustomerForContact");
+    expect(h.changeSaves[0]!.changes).toMatchObject([{ kind: "added", decision: { kind: "applied" }, quoteId: 0 }]);
+    expect(h.stageLog).toEqual(["intent:primary", "extraction:primary", "resolution:primary"]);
+    expect(h.traces).toHaveLength(1);
+    expect(h.traces[0]!.records.map(({ stage }) => stage)).toEqual(["intent", "extraction", "resolution"]);
+    expect(h.calls.indexOf("saveMessageTrace")).toBeGreaterThan(h.calls.lastIndexOf("recordOutcome"));
+    expect(h.store.memory.lastRequestAt).toEqual(at);
   });
 
-  test("never shows the reader a pending whose order closed", async () => {
-    const closed = pendingOf(20, { order: { orderId: id(9) as OrderId, attachedAt: hourBefore } });
-    const h = harness({ message: textMessage("en talla M"), pendings: pendingSet(closed), target: { kind: "closed", orderId: id(9) as OrderId, number: 1007 as OrderNumber } });
+  test("skips extraction and resolution when the intent is no intent", async () => {
+    const h = harness({ message: textMessage("hola, buenas tardes") });
     const applied = await succeeded(h.run());
-    expect(h.contexts[0]!.pendings).toEqual([]);
-    expect(applied).toMatchObject({ outcomes: [{ kind: "pending_ended", pendingId: id(20), reason: "order_closed" }, { kind: "no_intent" }], pendingsBefore: 1, pendingsAfter: 0 });
-    expect(h.store.pendings.pendings).toEqual([]);
+
+    expect(applied).toMatchObject({ kind: "applied", noticeDue: false, outcomes: [{ kind: "no_intent" }], trace: { answer: "no_intent", stageCalls: 1 } });
+    expect(h.stageLog).toEqual(["intent:primary"]);
+    expect(h.store.memory.lastRequestAt).toBeNull();
   });
 
-  test("never shows the reader an expired pending", async () => {
-    const old = pendingOf(20, { lastChangedAt: new Date(at.getTime() - 8 * 86_400_000) });
-    const h = harness({ message: textMessage("hola"), pendings: pendingSet(old) });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "pending_ended", reason: "expired" }, { kind: "no_intent" }] });
-    expect(h.contexts[0]!.pendings).toEqual([]);
+  test("records reader_doubt for an unsure intent and notifies the seller", async () => {
+    const h = harness({ message: textMessage("mmm"), script: { intent: { kind: "unsure", language: "es", addresses: [] } } });
+
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "reader_doubt" }], noticeDue: true });
   });
 
-  test("reads the chat orders opened since only when an orderless pending exists", async () => {
-    const without = harness({ message: textMessage("hola") });
-    await without.run();
-    expect(without.calls).not.toContain("findChatOrdersOpenedSince");
-    const attached = harness({ message: textMessage("hola"), target: openTarget(), pendings: pendingSet(pendingOf(20, { order: { orderId: id(9) as OrderId, attachedAt: hourBefore } })) });
-    await attached.run();
-    expect(attached.calls).not.toContain("findChatOrdersOpenedSince");
-    const orderless = harness({ message: textMessage("hola"), pendings: pendingSet(pendingOf(20, { lastChangedAt: hourBefore }), pendingOf(21, { lastChangedAt: new Date(hourBefore.getTime() - 60_000) })) });
-    await orderless.run();
-    expect(orderless.openedSinceQueries).toEqual([new Date(hourBefore.getTime() - 60_000), new Date(hourBefore.getTime() - 60_000)]);
-  });
+  test("skips texts when no stages are configured", async () => {
+    const h = harness({ message: textMessage("dame el polo"), noStages: true });
 
-  test("keeps the shown and pendings' products within the ceiling and cuts candidates first", async () => {
-    const extra = [12, 13, 14].map((n) => forReading(id(n) as ProductId, `Extra ${n}`, [variant(n, `Extra ${n}`, {})]));
-    const h = harness({ message: textMessage("quiero algo"), target: openTarget(), pendings: pendingSet(pendingOf(20)), catalog: [polo, gorra, ...extra],
-      candidates: { productIds: extra.map((product) => product.productId), matchCount: 3, durationMs: 5, timedOut: false }, limits: { maxReaderProducts: 3 } });
-    const applied = await succeeded(h.run());
-    expect(h.readingIds).toEqual([[productPolo, productCap, extra[0]!.productId]]);
-    expect(h.contexts[0]).toMatchObject({ truncated: true });
-    expect(applied).toMatchObject({ trace: { contextTruncated: true, candidateMatchCount: 3, candidateMs: 5, candidatesTimedOut: false } });
-    const photo = harness({ identification: visual(productPolo), message: photoMessage({ caption: "dos" }), target: openTarget(), limits: { maxReaderProducts: 1 } });
-    await photo.run();
-    expect(photo.readingIds).toEqual([[productPolo]]);
-  });
-
-  test("lists at least one candidate of each of ten doubtful pendings within the ceiling", async () => {
-    const first = Array.from({ length: 10 }, (_, n) => forReading(id(200 + n) as ProductId, `A${n}`, [variant(200 + n, `A${n}`, {})]));
-    const second = Array.from({ length: 10 }, (_, n) => forReading(id(300 + n) as ProductId, `B${n}`, [variant(300 + n, `B${n}`, {})]));
-    const pendings = first.map((product, n): ChatPending => pendingOf(20 + n, { subject: { kind: "product", candidates: [product.productId, second[n]!.productId] } }));
-    const h = harness({ message: textMessage("el primero"), pendings: pendingSet(...pendings), catalog: [polo, gorra, ...first, ...second], limits: { maxReaderProducts: 12 } });
-    await succeeded(h.run());
-    const requested = h.readingIds[0]!;
-    expect(requested).toHaveLength(12);
-    for (const product of first) expect(requested).toContain(product.productId);
-    expect(h.contexts[0]!.pendings).toHaveLength(10);
-  });
-
-  test("reports text too long without calling the reader", async () => {
-    const h = harness({ message: textMessage("x".repeat(30)), limits: { maxReaderTextChars: 20 } });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "invalid_action", orderId: null, reason: "text_too_long" }], noticeDue: true, trace: { readerCalls: 0 } });
-    expect(h.calls).not.toContain("readChatMessage");
-    expect(h.calls).not.toContain("findMessageCandidates");
-  });
-
-  test("skips a text without the reader and ignores a caption", async () => {
-    const text = harness({ message: textMessage("hola"), reader: null });
-    expect(await succeeded(text.run())).toEqual({ kind: "skipped", reason: "reader_disabled" });
-    expect(text.calls).not.toContain("transaction");
-    const photo = harness({ message: photoMessage({ caption: "2 en talla M" }), identification: notProduct, reader: null });
-    expect(await succeeded(photo.run())).toMatchObject({ outcomes: [{ kind: "no_intent" }] });
+    expect(await succeeded(h.run())).toEqual({ kind: "skipped", reason: "reader_disabled" });
+    expect(h.calls).not.toContain("transaction");
   });
 
   test("skips an outgoing message and an empty text", async () => {
@@ -344,141 +244,215 @@ describe("applyChatMessage: texts and pendings", () => {
     expect(await succeeded(harness({ message: textMessage("   ") }).run())).toEqual({ kind: "skipped", reason: "empty_text" });
   });
 
-  test("adds the product the reader names for a text and finds it through the candidates", async () => {
-    const h = harness({ message: textMessage("una gorra"), candidates: { productIds: [productCap], matchCount: 1, durationMs: 3, timedOut: false },
-      reader: (context) => actions(add(context, productCap)) });
-    expect(await succeeded(h.run())).toMatchObject({ kind: "applied", createdOrder: true, noticeDue: false, outcomes: [{ kind: "added", variantId: cap.variantId }] });
-    expect(h.candidateQueries).toEqual(["una gorra"]);
+  test("reports text too long without calling a stage", async () => {
+    const h = harness({ message: textMessage("x".repeat(2001)) });
+
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "invalid_action", reason: "text_too_long" }] });
+    expect(h.stageLog).toEqual([]);
   });
 
-  test("reads the text without candidates when their search times out and marks the context truncated", async () => {
-    const h = harness({ message: textMessage("una gorra"), candidates: { productIds: [], matchCount: 0, durationMs: 1000, timedOut: true } });
-    expect(await succeeded(h.run())).toMatchObject({ trace: { candidatesTimedOut: true, contextTruncated: true } });
+  test("starts the confirming extraction together with the primary one and aborts it when no action needs it", async () => {
+    const change = extracted("R1", "change_quantity", { target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef }, quantity: { value: 3, mode: "set", quote: current("3") } });
+    const h = harness({ message: textMessage("mejor 3"), target: poloTarget(), script: { intent: requestsOf(intent("R1", "change_quantity", "mejor 3")), extraction: [change] } });
+    await succeeded(h.run());
+
+    expect(h.stageLog).toEqual(["intent:primary", "extraction:primary", "extraction:confirming"]);
+    expect(h.signals[1]!.aborted).toBe(true);
+    expect(h.signals[0]!.aborted).toBe(false);
   });
 
-  test("retries when the reader is unavailable and writes nothing", async () => {
-    const h = harness({ message: textMessage("una gorra"), reader: () => ({ code: "AI_PROVIDER_UNAVAILABLE", message: "down" }) });
-    const done = await h.run();
-    expect(done).toMatchObject({ success: false, error: { code: "AI_PROVIDER_UNAVAILABLE" } });
-    if (!done.success) expect(isRetryableChatMessageError(done.error)).toBe(true);
+  test("starts the intent stage concurrently with the photo cascade on a captioned photo", async () => {
+    const h = harness({ message: photoMessage({ caption: "hola" }), identification: visual(productCap) });
+    await succeeded(h.run());
+
+    expect(h.calls.indexOf("loadReadingContext")).toBeLessThan(h.calls.indexOf("readImage"));
+    expect(h.stageLog[0]).toBe("intent:primary");
+    expect(h.calls).toContain("identifyProductsInImage");
+  });
+
+  test("adds the photo's only variant without any stage call when it has no caption", async () => {
+    const h = harness({ identification: visual(productCap) });
+
+    expect(await succeeded(h.run())).toMatchObject({ kind: "applied", createdOrder: true, outcomes: [{ kind: "added", variantId: cap.variantId, quantity: 1 }], trace: { answer: "fixed", stageCalls: 0 } });
+    expect(h.stageLog).toEqual([]);
+    expect(h.store.memory.lastIncomingPhoto).toEqual({ left: { kind: "item", orderId: id(500), variantId: cap.variantId, quantity: 1 } });
+  });
+
+  test("marks the item added from a photo whose caption could not be read", async () => {
+    const h = harness({ message: photoMessage({ caption: "x".repeat(2001) }), identification: visual(productCap) });
+    await succeeded(h.run());
+
+    expect(h.changeSaves[0]!.changes).toMatchObject([{ kind: "added", decision: { kind: "doubtful", reason: { kind: "caption_unread" } } }]);
+  });
+
+  test("records not identified for a photo without a match and keeps it silent while the catalog cannot recognize photos", async () => {
+    expect(await succeeded(harness({ identification: { kind: "not_found", topDistance: 0.9 } as ImageIdentification }).run())).toMatchObject({ noticeDue: true, outcomes: [{ kind: "not_identified", source: "photo", silent: false }] });
+    expect(await succeeded(harness({ identification: { kind: "not_found", topDistance: 0.9 } as ImageIdentification, readiness: "no_indexed_products" as CatalogSearchReadiness }).run())).toMatchObject({ noticeDue: false });
+  });
+
+  test("retries when a stage's provider is unavailable and writes nothing", async () => {
+    const h = harness({ message: textMessage("dame el polo"), script: { intent: { code: "AI_PROVIDER_UNAVAILABLE" } } });
+    const result = await h.run();
+
+    expect(result).toEqual({ success: false, error: expect.objectContaining({ code: "AI_PROVIDER_UNAVAILABLE" }) });
     expect(h.calls).not.toContain("transaction");
-    expect(h.store.outcomes.size).toBe(0);
   });
 
-  test("records failed for an invalid reader answer", async () => {
-    const h = harness({ message: textMessage("una gorra"), reader: () => ({ code: "INVALID_AI_RESPONSE", message: "bad" }) });
-    const done = await h.run();
-    expect(done).toMatchObject({ success: false, error: { code: "INVALID_AI_RESPONSE" } });
-    if (!done.success) expect(isRetryableChatMessageError(done.error)).toBe(false);
-  });
+  test("fails permanently for an invalid stage answer", async () => {
+    const result = await harness({ message: textMessage("dame el polo"), script: { intent: { code: "INVALID_AI_RESPONSE" } } }).run();
 
-  test("records failed for invalid stored product data without retrying", async () => {
-    const h = harness({ message: textMessage("una gorra"), overrides: { findProductsForReading: async () => err({ code: "INVALID_STORED_DATA" as const, message: "bad row" }) },
-      candidates: { productIds: [productCap], matchCount: 1, durationMs: 3, timedOut: false } });
-    const done = await h.run();
-    expect(done).toMatchObject({ success: false, error: { code: "INVALID_STORED_DATA" } });
-    if (!done.success) expect(isRetryableChatMessageError(done.error)).toBe(false);
-  });
-
-  test("ends as already processed when another run recorded the message first", async () => {
-    const stored: StoredChatMessageOutcome = { outcomes: [{ kind: "no_intent" }], noticeSentAt: null };
-    let reads = 0;
-    const h = harness({ identification: visual(productCap), overrides: { findOutcome: async () => ok(reads++ < 1 ? null : stored) } });
-    expect(await succeeded(h.run())).toEqual({ kind: "already_processed", noticeDue: false });
-    expect(h.store.orders.size).toBe(0);
+    expect(result).toEqual({ success: false, error: expect.objectContaining({ code: "INVALID_AI_RESPONSE" }) });
   });
 
   test("ends as already processed without any work for a message with an outcome", async () => {
-    const h = harness({ stored: { outcomes: [{ kind: "unnamed_add" }], noticeSentAt: null } });
-    expect(await succeeded(h.run())).toEqual({ kind: "already_processed", noticeDue: true });
+    const h = harness({ stored: { outcomes: [{ kind: "no_intent" }], noticeSentAt: null } });
+
+    expect(await succeeded(h.run())).toEqual({ kind: "already_processed", noticeDue: false });
     expect(h.calls).toEqual(["findOutcome"]);
   });
 
-  test("rolls back the order and the pendings together when saving the outcome fails", async () => {
-    const h = harness({ message: textMessage("en talla M"), pendings: pendingSet(pendingOf(20)),
-      reader: (context) => actions({ kind: "complete_pending", pending: context.pendings[0]!.ref, product: null, attributes: [{ name: "Talla", value: "M" }], quantity: null, price: null }),
-      overrides: { recordOutcome: async () => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "down" }) } });
-    expect(await h.run()).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
-    expect(h.store.orders.size).toBe(0);
-    expect(h.store.pendings.pendings).toHaveLength(1);
-  });
+  test("ends as already processed when another run recorded the message first", async () => {
+    let reads = 0;
+    const winner: StoredChatMessageOutcome = { outcomes: [{ kind: "no_intent" }], noticeSentAt: null };
+    const h = harness({ message: textMessage("hola"), overrides: {
+      findOutcome: async () => ok(++reads > 2 ? winner : null),
+      recordOutcome: async () => err({ code: "MESSAGE_ALREADY_PROCESSED" as const, message: "dup" }) } });
 
-  test("writes the pendings row only when the set changed", async () => {
-    const unchanged = harness({ identification: visual(productCap) });
-    await unchanged.run();
-    expect(unchanged.pendingSaves).toEqual([]);
-    const changed = harness({ identification: visual(productPolo) });
-    await changed.run();
-    expect(changed.pendingSaves).toHaveLength(1);
-    const kept = harness({ message: textMessage("hola"), pendings: pendingSet(pendingOf(20)) });
-    await kept.run();
-    expect(kept.pendingSaves).toEqual([]);
-  });
-
-  test("keeps a text miss silent in a company without active products", async () => {
-    const h = harness({ message: textMessage("quiero zapatillas"), readiness: "no_active_products",
-      reader: () => actions({ kind: "add", product: { kind: "not_in_catalog" }, attributes: [], quantity: null, price: null }) });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "not_identified", source: "text", silent: true }], noticeDue: false });
-  });
-
-  test("tells the seller about a text miss in a company with products", async () => {
-    const h = harness({ message: textMessage("quiero zapatillas"),
-      reader: () => actions({ kind: "add", product: { kind: "not_in_catalog" }, attributes: [], quantity: null, price: null }) });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "not_identified", source: "text", silent: false }], noticeDue: true });
-  });
-
-  test("does not call the reader, the products or the candidates inside the transaction", async () => {
-    const h = harness({ message: textMessage("una gorra"), candidates: { productIds: [productCap], matchCount: 1, durationMs: 3, timedOut: false }, reader: (context) => actions(add(context, productCap)) });
-    await h.run();
-    const inside = h.calls.slice(h.calls.indexOf("transaction"));
-    for (const name of ["readChatMessage", "findProductsForReading", "findMessageCandidates", "findChatOrderTarget", "findChatPendings"]) expect(inside).not.toContain(name);
-    expect(inside.slice(0, 5)).toEqual(["transaction", "lockContact", "findOutcome", "findChatOrderTargetForUpdate", "findChatPendingsForUpdate"]);
-  });
-
-  test("returns a deadline error before calling the reader when the attempt has no time left", async () => {
-    const h = harness({ message: textMessage("una gorra") });
-    h.controller.abort();
-    expect(await h.run()).toMatchObject({ success: false, error: { code: "DEADLINE_EXCEEDED" } });
-    expect(h.calls).not.toContain("readChatMessage");
+    expect(await succeeded(h.run())).toMatchObject({ kind: "already_processed" });
   });
 });
 
-describe("applyChatMessage: change records", () => {
-  test("records the changes of a message that creates the order, in the same transaction", async () => {
-    const h = harness({ identification: visual(productCap) });
-    await succeeded(h.run());
-    expect(h.changeSaves).toHaveLength(1);
-    expect(h.changeSaves[0]).toMatchObject({ orderId: id(500), messageId, changes: [{ kind: "added", seq: 1, before: null, after: { variantId: cap.variantId, quantity: 1, position: 0 },
-      decision: { kind: "applied" }, messageId }], supersedes: [] });
+describe("applyChatMessage: decisions", () => {
+  test("applies «la quiero en M» on the only item as a doubtful variant change with no notice", async () => {
+    const change = extracted("R1", "change_variant", { target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef }, values: [{ attributeWords: null, valueWords: current("M") }] });
+    const h = harness({ message: textMessage("la quiero en M"), target: poloTarget(), script: { intent: requestsOf(intent("R1", "change_variant", "la quiero en M")), extraction: [change], resolutions: [] } });
+    const applied = await succeeded(h.run());
+
+    expect(applied.kind === "applied" && applied.noticeDue).toBe(false);
+    expect(h.traces[0]!.records).toHaveLength(3);
+    expect(h.changeSaves[0]!.changes.length).toBeGreaterThan(0);
+    expect(h.changeSaves[0]!.changes.every((row) => row.decision.kind === "doubtful")).toBe(true);
+    expect(quantityOf(h.store, poloM.variantId)).toBe(1);
   });
 
-  test("records the line before and after for a message that raises a line of the open order", async () => {
-    const h = harness({ identification: visual(productCap), target: openTarget() });
-    await succeeded(h.run());
-    expect(h.changeSaves[0]?.changes).toMatchObject([{ kind: "quantity_changed", before: { itemId: id(60), quantity: 1 }, after: { itemId: id(60), quantity: 2 } }]);
+  test("decides a payment request as urgent with the open order and writes no change", async () => {
+    const h = harness({ message: textMessage("¿cómo te pago?"), target: poloTarget(), script: { intent: requestsOf(intent("R1", "payment_request", "cómo te pago")), extraction: [extracted("R1", "payment_request")] } });
+    const applied = await succeeded(h.run());
+
+    expect(applied).toMatchObject({ kind: "applied", noticeDue: true, outcomes: [{ kind: "payment_requested", order: { kind: "open" } }] });
+    expect(h.changeSaves).toHaveLength(0);
+    expect(quantityOf(h.store, poloL.variantId)).toBe(1);
   });
 
-  test("supersedes the earlier unverdicted change of the item and continues the order's seq", async () => {
-    const h = harness({ identification: visual(productCap), target: openTarget() });
-    const earlier = { id: id(70) as OrderItemChangeId, orderId: id(9) as OrderId, messageId: id(71) as ChatMessageId, position: 0, seq: 4 as never, kind: "added" as const, before: null,
-      after: { itemId: id(60) as OrderItemId, variantId: cap.variantId, productName: "Gorra", variantAttributes: {}, sku: null, quantity: 1 as PositiveInteger, unitPrice: money(25), mentionedPrice: null, position: 0 },
-      decision: { kind: "applied" as const }, quoteId: null, supersededBy: null, reviewId: null, verdict: null, createdAt: hourBefore };
-    h.store.changes = [earlier];
-    await succeeded(h.run());
-    expect(h.changeSaves[0]).toMatchObject({ supersedes: [earlier.id], changes: [{ seq: 5 }] });
+  test("applies the doubtful changes and notifies only the urgent ones of one message", async () => {
+    const doubtful = extracted("R1", "change_variant", { target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef }, values: [{ attributeWords: null, valueWords: current("M") }] });
+    const h = harness({ message: textMessage("en M, y cómo te pago"), target: poloTarget(), script: { intent: requestsOf(intent("R1", "change_variant", "en M"), intent("R2", "payment_request", "cómo te pago")),
+      extraction: [doubtful, extracted("R2", "payment_request")] } });
+    const applied = await succeeded(h.run());
+
+    expect(applied.kind === "applied" && applied.trace.doubtfulCount).toBe(1);
+    expect(applied).toMatchObject({ noticeDue: true, outcomes: expect.arrayContaining([expect.objectContaining({ kind: "payment_requested" })]) });
+    expect(h.changeSaves[0]!.changes.every((row) => row.decision.kind === "doubtful")).toBe(true);
+  });
+});
+
+describe("applyChatMessage: link notice", () => {
+  const sureAdd = () => ({ message: textMessage("dame una gorra"), target: poloTarget(), script: { intent: requestsOf(intent("R1", "add", "una gorra")),
+    extraction: [extracted("R1", "add", { target: { kind: "named", words: current("una gorra") } })], resolutions: [chosen("R1", productCap)] } });
+
+  test("sends «Pedido #N cambió» once per cycle after a recorded link action", async () => {
+    const armed = harness({ ...sureAdd(), armed: true });
+    const applied = await succeeded(armed.run());
+
+    expect(applied).toMatchObject({ noticeDue: true, outcomes: expect.arrayContaining([{ kind: "changed_after_link", orderId: id(9) }]) });
+    expect(armed.store.linkNotices).toEqual([true]);
+    // The next message finds the arming read false (the notice closed the cycle) and sends nothing for that reason.
+    const second = await succeeded(harness({ ...sureAdd(), armed: false }).run());
+    expect(second.kind === "applied" && second.outcomes.some(({ kind }) => kind === "changed_after_link")).toBe(false);
   });
 
-  test("records no change rows for a message that only creates a pending, because it has no order message", async () => {
-    const h = harness({ identification: visual(productPolo) });
+  test("sends no «Pedido #N cambió» before any recorded link action", async () => {
+    const h = harness({ ...sureAdd(), armed: false });
+    const applied = await succeeded(h.run());
+
+    expect(applied).toMatchObject({ noticeDue: false });
+    expect(h.store.linkNotices).toEqual([false]);
+  });
+
+  test("appends the changed-after-link sentence to an urgent problem and closes the cycle", async () => {
+    const h = harness({ message: textMessage("dame una gorra y cómo te pago"), target: poloTarget(), armed: true, script: { intent: requestsOf(intent("R1", "add", "una gorra"), intent("R2", "payment_request", "cómo te pago")),
+      extraction: [extracted("R1", "add", { target: { kind: "named", words: current("una gorra") } }), extracted("R2", "payment_request")], resolutions: [chosen("R1", productCap)] } });
     await succeeded(h.run());
-    expect(h.changeSaves).toEqual([]);
+
+    expect(h.store.linkNotices).toEqual([true]);
+  });
+
+  test("sends no «Pedido #N cambió» for a doubtful change", async () => {
+    const change = extracted("R1", "change_variant", { target: { kind: "context", basis: "only_item", ref: "I1" as ItemRef }, values: [{ attributeWords: null, valueWords: current("M") }] });
+    const h = harness({ message: textMessage("la quiero en M"), target: poloTarget(), armed: true, script: { intent: requestsOf(intent("R1", "change_variant", "la quiero en M")), extraction: [change] } });
+    const applied = await succeeded(h.run());
+
+    expect(applied.kind === "applied" && applied.outcomes.some(({ kind }) => kind === "changed_after_link")).toBe(false);
+  });
+});
+
+describe("applyChatMessage: trace and shadow", () => {
+  test("saves the order even when the trace cannot be saved", async () => {
+    const h = harness({ message: textMessage("hola"), overrides: { saveMessageTrace: async () => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "down" }) } });
+
+    expect(await succeeded(h.run())).toMatchObject({ kind: "applied" });
+    expect(h.store.outcomes.size).toBe(1);
+  });
+
+  test("saves the order even when the trace builder throws", async () => {
+    const h = harness({ message: textMessage("hola"), overrides: { buildMessageTrace: () => { throw new Error("boom"); } } });
+
+    expect(await succeeded(h.run())).toMatchObject({ kind: "applied" });
+  });
+
+  test("hands the shadow reader's kinds to the trace and never applies them", async () => {
+    const shadow = { answer: "actions" as const, actionKinds: ["add"], usage: null, costUsd: null };
+    const h = harness({ message: textMessage("hola"), shadow: Promise.resolve(shadow) });
+    await succeeded(h.run());
+
+    expect(h.traces[0]!.shadow).toEqual(shadow);
+    expect(outcomeKinds(h.store)).toEqual(["no_intent"]);
+  });
+
+  test("bounds the wait for the shadow after commit", async () => {
+    const h = harness({ message: textMessage("hola"), shadow: new Promise(() => undefined), limits: { shadowWaitMs: 20 } });
+    const started = performance.now();
+    await succeeded(h.run());
+
+    expect(performance.now() - started).toBeLessThan(1000);
+    expect(h.traces[0]!.shadow).toBeNull();
+    expect(h.traces[0]!.shadowWaitMs).toBeGreaterThanOrEqual(15);
+  });
+
+  test("never calls the stages, the catalog or the model inside the transaction", async () => {
+    const h = harness({ message: textMessage("dame el polo M"), script: { intent: requestsOf(intent("R1", "add", "el polo M")), extraction: [addPolo()], resolutions: [chosen("R1", productPolo)] } });
+    await succeeded(h.run());
+    const tx = h.calls.indexOf("transaction");
+
+    for (const name of ["loadReadingContext", "findMentionCandidates", "findProductsForReading"]) expect(h.calls.lastIndexOf(name)).toBeLessThan(tx);
+  });
+});
+
+describe("applyChatMessage: persistence", () => {
+  test("rolls the order and the pendings back together when saving the outcome fails", async () => {
+    const h = harness({ message: textMessage("dame el polo M"), script: { intent: requestsOf(intent("R1", "add", "el polo M")), extraction: [addPolo()], resolutions: [poloInM()] },
+      overrides: { recordOutcome: async () => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "down" }) } });
+    const result = await h.run();
+
+    expect(result.success).toBe(false);
+    expect(h.store.orders.size).toBe(0);
     expect(h.store.messages.size).toBe(0);
   });
 
-  test("rolls the change rows back with the transaction when saving them fails", async () => {
-    const h = harness({ identification: visual(productCap), overrides: { saveMessageChanges: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) } });
-    expect(await h.run()).toMatchObject({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE" } });
-    expect(h.store.orders.size).toBe(0);
-    expect(h.store.outcomes.size).toBe(0);
+  test("writes the pendings row only when the pendings or the memory changed", async () => {
+    const h = harness({ message: textMessage("hola"), memory: { lastIncomingPhoto: null, lastRequestAt: null } });
+    await succeeded(h.run());
+
+    expect(h.pendingSaves).toHaveLength(0);
   });
 });
