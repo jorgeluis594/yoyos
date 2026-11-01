@@ -129,8 +129,8 @@ function namedOnlyIfResolved(verified: VerifiedRequest, resolutions: readonly Pr
   if (products === null) return verified;
   const resolution = resolutions.find((candidate) => candidate.request === verified.request.request);
   const fits = (ids: readonly ProductId[]) => ids.some((id) => products.includes(id));
-  const naming = resolution?.kind === "chosen" ? fits([resolution.productId])
-    : resolution?.kind === "between" && fits(resolution.productIds) && referencesFitting(target.kind, resolution.productIds, snapshot) === 1;
+  const naming = resolution?.kind === "chosen" ? resolution.namesProduct !== false && fits([resolution.productId])
+    : resolution?.kind === "between" && resolution.namesProduct !== false && fits(resolution.productIds) && referencesFitting(target.kind, resolution.productIds, snapshot) === 1;
   return naming ? verified : { ...verified, request: { ...verified.request, target: { ...target, named: null } } };
 }
 

@@ -80,6 +80,14 @@ describe("maskStageOutput", () => {
       between, { request: "R3", kind: "none" }] });
   });
 
+  test("keeps namesProduct false of a chosen or between resolution in the stored trace", () => {
+    const chosen: ProductResolution = { request: request("R1"), kind: "chosen", productId: "p-1" as ProductId, values: [], namesProduct: false };
+    const between: ProductResolution = { request: request("R2"), kind: "between", productIds: ["p-1" as ProductId, "p-2" as ProductId], namesProduct: false };
+    const stored = maskStageOutput("resolution", [chosen, between], []);
+    expect(stored).toEqual({ stage: "resolution", resolutions: [chosen, between] });
+    expect(storedStageOutputSchema.parse(JSON.parse(JSON.stringify(stored)))).toEqual(stored);
+  });
+
   test("the stored output schema rejects an unmasked address list and unknown fields", () => {
     expect(storedStageOutputSchema.safeParse({ stage: "intent", kind: "unsure", language: "es", addresses: [{ message: "current", text: "Av. Larco 345" }] }).success).toBe(false);
     expect(storedStageOutputSchema.safeParse({ stage: "intent", kind: "unsure", language: "es", addressSpans: [], prompt: "x" }).success).toBe(false);
