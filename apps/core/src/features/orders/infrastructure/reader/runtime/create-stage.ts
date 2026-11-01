@@ -42,8 +42,8 @@ export function createReaderStages(env: Env, registry: PromptRegistry, clients: 
   }
   const run = <S extends ReaderStage>(stage: S, reading: Reading) => (runners[stage][confirms[stage] ? reading : "primary"] as unknown) as StageRunner<StageIO[S]["input"], StageIO[S]["output"]>;
   return {
-    readIntent: (input, reading, signal) => run("intent", reading)(input, signal, { messageId: input.current.messageId }),
-    extractRequests: (input, intents, reading, signal) => run("extraction", reading)({ input, intents }, signal, { messageId: input.current.messageId }),
+    readIntent: (input, reading, signal) => run("intent", reading)(input, signal),
+    extractRequests: (input, intents, reading, signal) => run("extraction", reading)({ input, intents }, signal),
     chooseProducts: (mentions, candidates, reading, signal) => run("resolution", reading)({ mentions, candidates }, signal),
     confirms,
   };

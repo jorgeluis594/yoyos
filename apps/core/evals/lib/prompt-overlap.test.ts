@@ -36,9 +36,12 @@ const evalInputs = [...new Set(allCases.flatMap((testCase) => {
   return inputs.flatMap((input) => [input.text, input.caption]).filter((text): text is string => text !== undefined);
 }))];
 
-/** The instructions of every registered stage version, as the string literal the model receives. */
-const registeredExamples = (registry: PromptRegistry) => registeredVersions(registry)
-  .flatMap(({ stage, version, registered }) => examplesOf(`const instructions = ${JSON.stringify(registered.instructions)};`, `${stage}/${version}`));
+/** Every string in a JSON schema (descriptions, enum labels), which reaches the model as well. */
+const stringsOf = (value: unknown): string[] => typeof value === "string" ? [value] : value && typeof value === "object" ? Object.values(value).flatMap(stringsOf) : [];
+
+/** The instructions and the schema text of every registered stage version, as the string literals the model receives. */
+const registeredExamples = (registry: PromptRegistry) => registeredVersions(registry).flatMap(({ stage, version, registered }) =>
+  [registered.instructions, ...stringsOf(registered.jsonSchema)].flatMap((text) => examplesOf(`const text = ${JSON.stringify(text)};`, `${stage}/${version}`)));
 
 describe("prompt overlap check", () => {
   test("finds quotes and parenthesised examples in string literals, not in comments", () => {

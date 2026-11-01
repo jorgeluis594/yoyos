@@ -5,16 +5,14 @@ import type { StageError, StageResult } from "@core/src/features/orders/applicat
 import { log } from "@core/src/shared/infrastructure/logger";
 import { priceOf } from "@core/src/shared/infrastructure/model-prices";
 import type { StageVersion } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
-import { remainingMsOf } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
+import { logMetaOf, remainingMsOf } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
 import type { ReaderStageConfig } from "@core/src/features/orders/infrastructure/reader/runtime/stage-config-env";
 import type { StructuredModel } from "@core/src/features/orders/infrastructure/reader/runtime/structured-model";
 
 /** A stage does not start with less than this left of the reading budget. */
 export const MIN_STAGE_START_MS = 2000;
 
-/** Ids for the logs; never text. */
-export type StageLogMeta = Readonly<{ companyId?: string; messageId?: string }>;
-export type StageRunner<Input, Output> = (input: Input, signal: AbortSignal, meta?: StageLogMeta) => Promise<Result<StageResult<Output>, StageError>>;
+export type StageRunner<Input, Output> = (input: Input, signal: AbortSignal) => Promise<Result<StageResult<Output>, StageError>>;
 
 type StageAdapterDependencies<Input, Output> = Readonly<{
   config: ReaderStageConfig;
@@ -29,8 +27,8 @@ const addUsage = (total: ModelUsage | null, usage: ModelUsage | null): ModelUsag
 });
 
 /** Dollars from the price table; null for a model without a price or a call without usage. Reasoning tokens are part of the output tokens. */
-function costOf(model: string, usage: ModelUsage | null): number | null {
-  const price = priceOf(model);
+function costOf(provider: string, model: string, usage: ModelUsage | null): number | null {
+  const price = provider === "fake" ? null : priceOf(model);
   return price && usage ? (usage.inputTokens * price.input + usage.outputTokens * price.output) / 1_000_000 : null;
 }
 
@@ -40,13 +38,13 @@ function costOf(model: string, usage: ModelUsage | null): number | null {
  * reading budget, and the stage does not start with less than two seconds left.
  */
 export function createStageAdapter<Input, Output>({ config, version, model, now = Date.now }: StageAdapterDependencies<Input, Output>): StageRunner<Input, Output> {
-  return async (input, signal, meta = {}) => {
+  return async (input, signal) => {
     const started = now();
-    const fields = { ...meta, stage: config.stage, reading: config.reading, model: config.model, promptVersion: config.promptVersion };
+    const fields = { ...logMetaOf(signal), stage: config.stage, reading: config.reading, model: config.model, promptVersion: config.promptVersion };
     let usage: ModelUsage | null = null;
     let attempts = 0;
     const call = (): StageCall => ({ stage: config.stage, reading: config.reading, provider: config.provider, model: config.model, promptVersion: config.promptVersion,
-      usage, costUsd: costOf(config.model, usage), durationMs: Math.max(0, now() - started), attempts: Math.max(1, attempts) as 1 | 2 });
+      usage, costUsd: costOf(config.provider, config.model, usage), durationMs: Math.max(0, now() - started), attempts: Math.max(1, attempts) as 1 | 2 });
     const fail = (code: StageError["code"], message: string): Result<never, StageError> => {
       const error: StageError = { code, stage: config.stage, call: attempts === 0 ? null : call(), message };
       const retryable = code !== "INVALID_AI_RESPONSE";
@@ -57,9 +55,7 @@ export function createStageAdapter<Input, Output>({ config, version, model, now 
     let lastInvalid = "The AI answer was invalid";
     while (attempts < 2) {
       const remaining = remainingMsOf(signal, now);
-      if (signal.aborted || remaining < MIN_STAGE_START_MS) {
-        return attempts === 0 ? fail("DEADLINE_EXCEEDED", "Not enough of the reading budget is left to start the stage") : fail("INVALID_AI_RESPONSE", lastInvalid);
-      }
+      if (signal.aborted || remaining < MIN_STAGE_START_MS) return fail("DEADLINE_EXCEEDED", "Not enough of the reading budget is left to start the stage");
       attempts += 1;
       const stageSignal = AbortSignal.any([signal, AbortSignal.timeout(Math.min(config.timeoutMs, remaining))]);
       const answer = await model({
@@ -82,6 +78,12 @@ export function createStageAdapter<Input, Output>({ config, version, model, now 
         lastInvalid = parsed.error.message;
       }
       if (attempts < 2) log.warn({ event: "reader_stage_retried_invalid_answer", ...fields }, "reader_stage_retried_invalid_answer");
+    }
+    const fallback = version.fallback?.(input);
+    if (fallback !== undefined && fallback !== null) {
+      const finished = call();
+      log.info({ event: "reader_stage_completed", ...fields, costUsd: finished.costUsd, durationMs: finished.durationMs, attempts }, "reader_stage_completed");
+      return ok({ value: fallback, call: finished });
     }
     return fail("INVALID_AI_RESPONSE", lastInvalid);
   };

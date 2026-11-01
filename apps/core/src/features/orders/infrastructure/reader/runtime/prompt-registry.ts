@@ -24,6 +24,8 @@ export type StageVersion<Input, Output> = Readonly<{
   reasoningEffort: ReasoningEffort; maxOutputTokens: number;
   renderInput: (input: Input) => string;
   parse: (answer: unknown, input: Input) => Result<Output>;
+  /** What the stage gives when the answer is still invalid after its one retry (null: the stage fails as INVALID_AI_RESPONSE). */
+  fallback?: (input: Input) => Output | null;
 }>;
 
 /** The versions of every stage, keyed by prompt version («intent-v1»). Each stage's `versions.ts` fills its own map. */
