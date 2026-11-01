@@ -1,7 +1,7 @@
 import { orderReviewResponseSchema, type OrderReviewResponse } from "@shared/contracts/order-review";
 import type { LineSnapshot, OrderItemChange } from "@core/src/features/orders/domain/message-changes";
 import type { OrderReviewProjection } from "@core/src/features/orders/domain/order-review";
-import { renderSuggestedQuestion } from "@core/src/features/orders/presentation/review-texts";
+import { suggestedQuestionText } from "@core/src/features/orders/presentation/suggested-question-texts";
 
 const lineJson = (line: LineSnapshot) => ({ ...line, mentionedPrice: line.mentionedPrice ?? null });
 
@@ -18,7 +18,7 @@ export function toOrderReviewJson(projection: OrderReviewProjection): OrderRevie
     status: projection.status,
     doubtful: projection.doubtful.map(({ change, quote }) => ({ change: changeJson(change), quote })),
     points: projection.points.map((point) => ({ pendingId: point.key.pendingId, since: point.key.since.toISOString(), kind: point.kind, product: point.product, quantity: point.quantity,
-      missing: point.missing, doubt: point.doubt, acknowledged: point.acknowledged, question: renderSuggestedQuestion(point.question) })),
+      missing: point.missing, doubt: point.doubt, acknowledged: point.acknowledged, question: suggestedQuestionText(point.question) })),
     products: projection.products,
     removedSinceLastReview: projection.removedSinceLastReview.map(lineJson),
     messageRows: projection.messageRows.map((row) => ({ messageId: row.messageId, at: row.at.toISOString(), changes: row.changes.map(changeJson), undo: row.undo })),
