@@ -10,7 +10,7 @@ import { maxReaderActions } from "@core/src/features/orders/domain/chat-reading"
 import { assembleCandidates, productsOfTarget, type MentionSearch } from "@core/src/features/orders/domain/reader/candidates";
 import { maskStageOutput, type StoredStageOutput } from "@core/src/features/orders/domain/reader/masking";
 import { droppedFields, dedupeRequests, verifyIntentQuotes, verifyQuotes, type QuoteDrop, type VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
-import type { AddressSpan, ExtractedRequest, IntentReading, ProductMention, ProductResolution, ReaderStage, Reading, ReadingInput, RequestIntent, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
+import type { AddressSpan, ExtractedRequest, IntentReading, ProductMention, ProductResolution, Quote, ReaderStage, Reading, ReadingInput, RequestIntent, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
 import type { StageInputSummary, TraceStage } from "@core/src/features/orders/domain/reader/trace";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }> | Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
@@ -79,8 +79,23 @@ const highRiskKinds: ReadonlySet<RequestIntent["kind"]> = new Set(["remove", "ch
 export const hasHighRiskIntent = (intents: readonly RequestIntent[]) => intents.some(({ kind }) => highRiskKinds.has(kind));
 
 function inputSummary(input: ReadingInput, extra: Partial<StageInputSummary> = {}): StageInputSummary {
-  return { refs: [...input.context.map(({ ref }) => ref), ...input.items.map(({ ref }) => ref), ...input.pendings.map(({ ref }) => ref)],
+  return { refs: [...input.context.map(({ ref }) => ref), ...input.items.map(({ ref }) => ref), ...input.pendings.map(({ ref }) => ref), ...(input.endedPendings ?? []).map(({ ref }) => ref)],
     productIds: [], productNames: [], candidateIds: [], ...extra };
+}
+
+const foldWords = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().split(/\s+/).filter(Boolean);
+
+/** The quote of a name without the words of the request's own quantity quote («las 2 poleras» → «las poleras»): the quantity is not part of what names the product. Unchanged when nothing remains, when the quantity is not inside, or when it comes from another message than the name. Words with punctuation («2,») do not match, which leaves the name unchanged. */
+export function withoutQuantity(words: Quote, quantity: Quote | null): Quote {
+  if (!quantity || quantity.source !== words.source) return words;
+  const tokens = words.text.split(/\s+/).filter(Boolean);
+  const folded = tokens.map((token) => foldWords(token).join(""));
+  const wanted = foldWords(quantity.text);
+  if (wanted.length === 0) return words;
+  const at = folded.findIndex((_, index) => wanted.every((word, offset) => folded[index + offset] === word));
+  if (at < 0) return words;
+  const left = [...tokens.slice(0, at), ...tokens.slice(at + wanted.length)];
+  return left.length ? { ...words, text: left.join(" ") } : words;
 }
 
 /**
@@ -99,7 +114,7 @@ export function mentionsOf(requests: readonly VerifiedRequest[], input: ReadingI
     if (candidateIds.length === 0) return [];
     const { target } = request;
     const nameWords = (target.kind === "item" || target.kind === "pending") ? target.named : null;
-    if (nameWords) return [{ request: request.request, words: nameWords, values: request.values, candidateIds, fixed: true }];
+    if (nameWords) return [{ request: request.request, words: withoutQuantity(nameWords, request.quantity?.quote ?? null), values: request.values, candidateIds, fixed: true }];
     return first ? [{ request: request.request, words: first.valueWords, values: request.values, candidateIds, valuesOnly: true }] : [];
   });
 }
@@ -172,7 +187,9 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   const abort = new AbortController();
   const confirmSignal = deps.withAbort(signal, abort.signal);
   // An add can land on a line the order already has, where "one more" may be "set" or "only the price": with lines in the order it gets a second opinion.
-  const wantsConfirming = hasHighRiskIntent(intents) || (input.items.length > 0 && intents.some(({ kind }) => kind === "add"));
+  // A pending's quantity can be set or grown by an add or an answer with a number, so with pendings those get a second opinion too.
+  const wantsConfirming = hasHighRiskIntent(intents) || (input.items.length > 0 && intents.some(({ kind }) => kind === "add"))
+    || (input.pendings.length > 0 && intents.some(({ kind }) => kind === "add" || kind === "complete_pending"));
   // A stage without a confirming configuration reuses the primary result: the chain awaits it instead of calling the port again.
   const confirmingExtraction = wantsConfirming ? (stages.confirms.extraction ? extract("confirming", confirmSignal) : primaryExtraction) : null;
 

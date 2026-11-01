@@ -16,7 +16,7 @@ import type { CompanyId, ContactId, OrderId, OrderItem, OrderItemId } from "@cor
 import { nextLastIncomingPhoto } from "@core/src/features/orders/domain/photo-just-sent";
 import { checkRequests, checkShownPhoto, type CheckedAction } from "@core/src/features/orders/domain/reader/check-requests";
 import { lostRequests } from "@core/src/features/orders/domain/reader/silent-guards";
-import { decideChanges, type DecidedChanges } from "@core/src/features/orders/domain/reader/decide-changes";
+import { decideChanges, pendingQuantityOf, type DecidedChanges } from "@core/src/features/orders/domain/reader/decide-changes";
 import { isHighCertainty, riskOfChecked } from "@core/src/features/orders/domain/reader/decide";
 import type { DoubtReason } from "@core/src/features/orders/domain/reader/decision";
 import { inheritedMark, withDecisionOnPending } from "@core/src/features/orders/domain/reader/pending-doubt";
@@ -301,7 +301,8 @@ type StagedRead = Readonly<{
   intent?: ReturnType<ReaderStages["readIntent"]>;
 }>;
 
-const isHigh = (checked: CheckedAction) => isHighCertainty(checked.signals) && riskOfChecked(checked) === "high";
+/** Worth the confirming reading: a sure high-risk action, or a sure quantity on a pending (a disagreement makes it «Con duda»). */
+const isHigh = (checked: CheckedAction) => isHighCertainty(checked.signals) && (riskOfChecked(checked) === "high" || pendingQuantityOf(checked.action) !== null);
 
 /** The three stages, then the plan the transaction applies: the checks and the decision run again there, on the locked state. */
 async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>> {

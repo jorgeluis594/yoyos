@@ -29,6 +29,8 @@ export type CheckSnapshot = Readonly<{
   products: readonly CheckProduct[];
   items: readonly CheckItem[];
   pendings: readonly Readonly<{ ref: PendingRef; pending: ChatPending }>[];
+  /** The refs of pendings that ended before this message; a request on one is urgent, never applied. */
+  endedPendings?: readonly PendingRef[];
   order: "open" | "closed" | "none";
   photoJustSent: PhotoLeft | null;
   lastPhoto: LastPhoto;
@@ -143,8 +145,8 @@ function namedOnlyIfResolved(verified: VerifiedRequest, resolutions: readonly Pr
   if (products === null) return verified;
   const resolution = resolutions.find((candidate) => candidate.request === verified.request.request);
   const fits = (ids: readonly ProductId[]) => ids.some((id) => products.includes(id));
-  const naming = resolution?.kind === "chosen" ? fits([resolution.productId])
-    : resolution?.kind === "between" && fits(resolution.productIds) && referencesFitting(target.kind, resolution.productIds, snapshot) === 1;
+  const naming = resolution?.kind === "chosen" ? resolution.namesProduct !== false && fits([resolution.productId])
+    : resolution?.kind === "between" && resolution.namesProduct !== false && fits(resolution.productIds) && referencesFitting(target.kind, resolution.productIds, snapshot) === 1;
   return naming ? verified : { ...verified, request: { ...verified.request, target: { ...target, named: null } } };
 }
 
@@ -910,6 +912,7 @@ function checkComplete(said: Said, env: Env, targetNamed: Named = "named"): Chec
   const signals = signalsOf(said, targetNamed);
   const target = request.target;
   const pending = target.kind === "pending" ? snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending : undefined;
+  if (!pending && target.kind === "pending" && snapshot.endedPendings?.includes(target.ref)) return problem(said, { kind: "variant_only" }, "variant_only", null, "named");
   if (!pending) return checked(said, invalid("unknown_reference"), signals, { urgent: { problem: "invalid_action", question: null } });
   if (!whole(request.quantity?.value, 1)) return checked(said, invalid("quantity_not_whole"), signals, { urgent: { problem: "invalid_action", question: null } });
   const { subject } = pending;

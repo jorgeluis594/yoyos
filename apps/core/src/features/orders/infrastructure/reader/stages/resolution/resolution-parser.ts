@@ -8,7 +8,7 @@ import { noneFor, planResolution, type ResolutionPlan } from "@core/src/features
 
 const answerSchema = z.object({
   results: z.array(z.object({
-    request: z.string(), kind: z.enum(["chosen", "between", "none"]), products: z.array(z.string()),
+    request: z.string(), kind: z.enum(["chosen", "between", "none"]), names: z.enum(["yes", "no"]).default("no"), products: z.array(z.string()),
     values: z.array(z.object({ attribute: z.string(), value: z.string(), quote: z.string() })),
     unmatched: z.array(z.string()).default([]),
   })),
@@ -69,11 +69,12 @@ function resolveOne(plan: ResolutionPlan, answered: Answered): Result<ProductRes
   if (answered.kind === "between") {
     if (ids.length < 2 || ids.length > 4) return refuse("invalid", `${answered.request} must be between two and four products`);
     const { values } = mapValues(answered, entry.mention, answered.products.map((label) => plan.products.get(label)!));
-    return ok({ request: entry.mention.request, kind: "between", productIds: ids, values });
+    return ok({ request: entry.mention.request, kind: "between", productIds: ids, values, ...entry.mention.fixed === true && answered.names === "no" ? { namesProduct: false as const } : {} });
   }
   if (ids.length !== 1) return refuse("invalid", `${answered.request} must choose exactly one product`);
   const { values, unmatched } = mapValues(answered, entry.mention, [plan.products.get(answered.products[0]!)!]);
-  return ok({ request: entry.mention.request, kind: "chosen", productId: ids[0]!, values, unmatched });
+  const pointsOnly = entry.mention.fixed === true && answered.names === "no";
+  return ok({ request: entry.mention.request, kind: "chosen", productId: ids[0]!, values, unmatched, ...pointsOnly ? { namesProduct: false as const } : {} });
 }
 
 /** The per-mention outcome of an answer, or the reason the answer as a whole is unusable. */

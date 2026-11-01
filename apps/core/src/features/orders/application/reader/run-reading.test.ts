@@ -2,9 +2,9 @@ import { describe, expect, test } from "vitest";
 import { err, ok } from "@shared/functional";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ReadingContextData } from "@core/src/features/orders/application/reader/load-reading-context";
-import { hasHighRiskIntent, mentionsOf, runReading, traceStagesOf, type RunReadingDependencies } from "@core/src/features/orders/application/reader/run-reading";
+import { hasHighRiskIntent, mentionsOf, runReading, withoutQuantity, traceStagesOf, type RunReadingDependencies } from "@core/src/features/orders/application/reader/run-reading";
 import type { ReaderStages, StageCall } from "@core/src/features/orders/application/reader/stages";
-import type { ExtractedRequest, IntentReading, ProductResolution, ReaderStage, Reading, RequestIntent, RequestRef } from "@core/src/features/orders/domain/reader/readings";
+import type { ExtractedRequest, IntentReading, ContextMessageRef, ProductResolution, ReaderStage, Reading, RequestIntent, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 import { withAbort } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
@@ -76,6 +76,26 @@ describe("runReading", () => {
     const run = await runReading(deps, context, [], signal());
 
     expect(run.success && run.data.confirming).toBeNull();
+  });
+
+  test("starts the confirming chain for an add or a completion when the chat has pendings, and for neither without them", async () => {
+    const pendings = [{ ref: "Q1", pendingId: "p1", productIds: [productId], known: {}, quantity: 1, doubtful: false }];
+    const withPending = { ...context, input: { ...context.input, pendings } } as unknown as ReadingContextData;
+    const values = [{ attributeWords: null, valueWords: current("negra") }];
+    const cases = [{ kind: "complete_pending" as const, extraction: { ...request("R1", "complete_pending"), target: { kind: "pending" as const, ref: "Q1" as never, named: null }, values } },
+      { kind: "add" as const, extraction: request("R1", "add") }];
+    for (const { kind, extraction } of cases) {
+      const intents = { kind: "requests" as const, requests: [intent("R1", kind)], language: "es" as const, addresses: [] };
+      const withPendings = fakes({ intent: intents, extraction: [extraction] });
+      const withRun = await runReading(withPendings.deps, withPending, [], signal());
+      expect(withRun.success && withRun.data.confirming).not.toBeNull();
+      expect(withPendings.log.calls).toContain("extraction:confirming");
+
+      const without = fakes({ intent: intents, extraction: [extraction] });
+      const withoutRun = await runReading(without.deps, context, [], signal());
+      expect(withoutRun.success && withoutRun.data.confirming === null).toBe(true);
+      expect(without.log.calls.includes("extraction:confirming")).toBe(false);
+    }
   });
 
   test("aborts the confirming chain's signal while keeping the reading's deadline, and never the primary's", async () => {
@@ -161,6 +181,21 @@ describe("helpers", () => {
     const named = { request: request("R1", "add"), complete: true };
     const unnamed = { request: { ...request("R2", "add"), target: { kind: "none" } as const }, complete: true };
     expect(mentionsOf([named, unnamed], context.input, []).map(({ request: id }) => id)).toEqual(["R1"]);
+  });
+
+  test("keeps the name when the quantity quote comes from another message", () => {
+    const fromContext = { source: "context" as const, ref: "M1" as ContextMessageRef, text: "2" };
+    expect(withoutQuantity(current("las 2 poleras"), fromContext)).toEqual(current("las 2 poleras"));
+  });
+
+  test("a fixed mention renders the name without the request's own quantity words", () => {
+    const input = { ...context.input, items: [{ ref: "I1", itemId: "i1", productId, variantId: "v1", productName: "Polera", variantAttributes: {}, quantity: 3 }] } as unknown as typeof context.input;
+    const target = { kind: "item", ref: "I1" as never, named: current("las 2 poleras") } as const;
+    const extracted = { ...request("R1", "change_quantity"), target, quantity: { value: 2, mode: "decrease", quote: current("2") } } as ExtractedRequest;
+
+    expect(mentionsOf([{ request: extracted, complete: true }], input, [])).toEqual([expect.objectContaining({ fixed: true, words: current("las poleras") })]);
+    expect(withoutQuantity(current("las poleras"), current("2"))).toEqual(current("las poleras"));
+    expect(withoutQuantity(current("2"), current("2"))).toEqual(current("2"));
   });
 
   test("a request with values for a product its target fixes is a values-only mention of that product", () => {

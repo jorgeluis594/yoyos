@@ -23,8 +23,9 @@ export const doubtfulRelabels: Readonly<Record<string, Relabel>> = {
   "int-variant-only": variantChanged(after("polo-basico", { Talla: "L", Color: "Negro" })),
   "int-variant-only-color": variantChanged(after("gorra-trucker", negro)),
   "int-variant-only-la-quiero": variantChanged(after("polera-capucha", { Talla: "M", Color: "Gris" })),
-  // Unnamed add with a single product the context points to: the product grows by the quantity, marked (product l.215).
-  "int-unnamed-add": quantityChanged(after("polo-basico", { Talla: "M", Color: "Negro" }, 3)),
+  // «dame 2 de ese» / «pásame 2 de esos» with one of that product in the order and no photo just sent is set wording: the line is set to 2, marked
+  // (founder 2026-11-01). Add wording («2 más», «otro igual», «lo mismo x2») adds, marked.
+  "int-unnamed-add": quantityChanged(after("polo-basico", { Talla: "M", Color: "Negro" }, 2)),
   "int-unnamed-add-otro-igual": quantityChanged(after("gorra-trucker", negro, 2)),
   "int-unnamed-uno-mas": quantityChanged(after("correa-cuero", negro, 2)),
   "int-unnamed-set-esos-no-photo-2": quantityChanged(after("polera-capucha", { Talla: "M", Color: "Gris" }, 2)),
@@ -46,7 +47,7 @@ export const stageLabels: Readonly<Record<string, Label>> = {
   "int-pay-which-account": { stages: { intent: "requests" }, decision: "urgent" },
   // Quantities, named or after a photo.
   "int-qty-set-named": { stages: { intent: "requests", fields: { quantity: "3" }, product: "polo-basico" }, decision: "applied" },
-  "int-qty-one-more-named": { stages: { intent: "requests", fields: { quantity: "1" }, product: "gorra-trucker" }, decision: "applied" },
+  "int-qty-one-more-named": { stages: { intent: "requests", fields: { quantity: "1" }, product: "gorra-trucker" }, decision: "doubtful" },
   "int-unnamed-uno-mas": { stages: { intent: "requests", fields: { quantity: "1" } }, decision: "doubtful" },
   // Mentioned prices.
   "int-price-one-sol-new": { stages: { intent: "requests", fields: { price: "1", Color: "Negro" }, product: "correa-cuero" }, decision: "applied" },

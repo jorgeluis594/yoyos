@@ -1,5 +1,5 @@
 import { defaultReadingBudgets } from "@core/src/features/orders/domain/reader/budgets";
-import { photoLeftText, pendingLine } from "@core/src/features/orders/infrastructure/reader/stages/render-pending";
+import { photoLeftText, pendingLines } from "@core/src/features/orders/infrastructure/reader/stages/render-pending";
 import type { ReadingContextMessage, ReadingInput, ReadingItem } from "@core/src/features/orders/domain/reader/readings";
 
 /**
@@ -41,7 +41,7 @@ export function renderIntentInput(input: ReadingInput, maxChars: number = defaul
 
   const context = input.context.map(contextLine);
   const items = input.items.map(itemLine);
-  const pendings = input.pendings.map((pending) => pendingLine(pending, flat));
+  const pendings = pendingLines(input, flat);
   let keptContext = context;
   while (keptContext.length > 0 && assemble(keptContext, items, pendings).length > maxChars) keptContext = keptContext.slice(1);
   if (assemble(keptContext, items, pendings).length <= maxChars) return assemble(keptContext, items, pendings);

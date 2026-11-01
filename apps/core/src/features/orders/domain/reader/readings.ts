@@ -57,9 +57,13 @@ export type ProductMention = Readonly<{ request: RequestRef; words: Quote; value
 export type ResolvedValue = Readonly<{ attribute: string; value: string; quote: Quote }>;
 export type ProductResolution =
   /** `unmatched` are the buyer's value words that fit no value of the product: the checks then report the value as not available instead of missing. */
-  | Readonly<{ request: RequestRef; kind: "chosen"; productId: ProductId; values: readonly ResolvedValue[]; unmatched?: readonly Quote[] }>
+  | Readonly<{ request: RequestRef; kind: "chosen"; productId: ProductId; values: readonly ResolvedValue[]; unmatched?: readonly Quote[];
+    /** False for a fixed mention whose words only point at the product (a pronoun, a demonstrative): its values still map, but the words do not name it. */
+    namesProduct?: false }>
   /** Two to four products. `values` are the ones every candidate offers. */
-  | Readonly<{ request: RequestRef; kind: "between"; productIds: readonly ProductId[]; values?: readonly ResolvedValue[] }>
+  | Readonly<{ request: RequestRef; kind: "between"; productIds: readonly ProductId[]; values?: readonly ResolvedValue[];
+    /** False for a fixed mention whose words only point at its candidates: it never counts as naming a line or pending. */
+    namesProduct?: false }>
   | Readonly<{ request: RequestRef; kind: "none" }>;
 
 /** What the three stages read: built by code from a bounded context, rendered into prompts by infrastructure. */
@@ -74,11 +78,16 @@ export type ReadingPending = Readonly<{ ref: PendingRef; pendingId: ChatPendingI
   productNames?: readonly string[];
   /** For a pending on one product: each attribute its known values leave open, with the sellable values that fit what is known. */
   missing?: readonly Readonly<{ name: string; values: readonly string[] }>[] }>;
+/** A pending that ended before this message was read (its order closed or it expired): listed so a detail that would have completed it is not read as nothing. */
+export type ReadingEndedPending = Readonly<{ ref: PendingRef; pendingId: ChatPendingId; productIds: readonly ProductId[]; known: Readonly<Record<string, string>>;
+  quantity: PositiveInteger; productNames?: readonly string[]; ended: "order_closed" | "expired" }>;
 export type ReadingInput = Readonly<{
   current: Readonly<{ messageId: ChatMessageId; kind: string; text: string }>;
   context: readonly ReadingContextMessage[];
   items: readonly ReadingItem[];
   pendings: readonly ReadingPending[];
+  /** The pendings that ended before this message, numbered after the alive ones; a request on one is never applied. */
+  endedPendings?: readonly ReadingEndedPending[];
   photoMemory: LastIncomingPhoto | null;
   /** The photo of this message and the product it was identified as, if any. */
   photo: Readonly<{ productId: ProductId | null }> | null;

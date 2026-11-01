@@ -1,4 +1,4 @@
-import type { ReadingInput, ReadingPending } from "@core/src/features/orders/domain/reader/readings";
+import type { ReadingEndedPending, ReadingInput, ReadingPending } from "@core/src/features/orders/domain/reader/readings";
 
 type Flat = (text: string) => string;
 
@@ -13,6 +13,20 @@ export function pendingLine(pending: ReadingPending, flat: Flat = (text) => text
   const known = Object.entries(pending.known).map(([name, value]) => `${flat(name)} ${flat(value)}`).join(" · ");
   const missing = (pending.missing ?? []).map(({ name, values }) => `${flat(name)} (${values.map(flat).join(", ")})`).join(" · ");
   return `${pending.ref}: ${choice}${subject}${known ? ` · known: ${known}` : ""}${missing ? ` · missing: ${missing}` : ""} · quantity ${pending.quantity}${pending.doubtful ? " · in doubt" : ""}`;
+}
+
+/** A pending that ended before the message: listed with its refs so a detail for it is read as a request on a gone pending, not as nothing. */
+export function endedPendingLine(pending: ReadingEndedPending, flat: Flat = (text) => text): string {
+  const names = pending.productNames?.map(flat);
+  const subject = names ? names.join(" / ") : pending.productIds.length > 1 ? `a choice between ${pending.productIds.length} products` : "one product";
+  const known = Object.entries(pending.known).map(([name, value]) => `${flat(name)} ${flat(value)}`).join(" · ");
+  const why = pending.ended === "order_closed" ? "ended: its order was closed or paid" : "ended: it expired";
+  return `${pending.ref}: ${names && names.length > 1 ? "a choice between: " : ""}${subject}${known ? ` · known: ${known}` : ""} · quantity ${pending.quantity} · ${why}`;
+}
+
+/** Every pending line of the input: the alive ones, then the ended ones. */
+export function pendingLines(input: ReadingInput, flat: Flat = (text) => text): readonly string[] {
+  return [...input.pendings.map((pending) => pendingLine(pending, flat)), ...(input.endedPendings ?? []).map((pending) => endedPendingLine(pending, flat))];
 }
 
 /** What the buyer's previous photo left, pointing at the pending or order line it left by ref (the lines name the product). */

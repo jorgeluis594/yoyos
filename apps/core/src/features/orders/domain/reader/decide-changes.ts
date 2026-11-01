@@ -46,6 +46,21 @@ function agreementFor(action: CheckedAction, confirming: readonly CheckedAction[
   return same.some((other) => agreementOf(action.action, other.action) === "agree") ? "agree" : "disagree";
 }
 
+/** The units a pending quantity change or an answer with a number gives, or null for an action that states no quantity on a pending. */
+export function pendingQuantityOf(action: ResolvedChatAction): number | null {
+  if (action.kind === "change_pending_quantity") return action.quantity;
+  return action.kind === "advance_pending" ? action.request.quantity : null;
+}
+
+/** Whether the confirming reading of the same request says another quantity (or mode) for the same pending; false when it did not run. */
+function pendingQuantityDisputed(action: CheckedAction, confirming: readonly CheckedAction[] | null): boolean {
+  if (confirming === null || pendingQuantityOf(action.action) === null) return false;
+  const same = confirming.filter(({ request }) => request === action.request).map((other) => other.action);
+  const mine = action.action;
+  return !same.some((other) => other.kind === mine.kind && pendingOf(other) === pendingOf(mine) && pendingQuantityOf(other) === pendingQuantityOf(mine)
+    && (mine.kind !== "change_pending_quantity" || (other.kind === "change_pending_quantity" && other.mode === mine.mode)));
+}
+
 /** The action that stands for an urgent decision: a check's own report, or «reader_doubt» for an action with no best reading. */
 function reportFor(checked: CheckedAction): ResolvedChatAction {
   const { action } = checked;
@@ -61,7 +76,10 @@ export function decideChanges(checks: readonly CheckedAction[], confirming: read
   const decided = checks.map((checked): DecidedAction => {
     const risk = riskOfChecked(checked);
     const agreement = agreementFor(checked, confirming);
-    return { checked, risk, agreement, decision: decideChange(checked, risk, agreement, guards) };
+    const decision = decideChange(checked, risk, agreement, guards);
+    // A quantity on a pending that the confirming reading reads differently is never silent: the pending carries «Con duda», which a completion inherits.
+    const disputed = decision.kind === "pending" && checked.doubt !== null && pendingQuantityDisputed(checked, confirming);
+    return { checked, risk, agreement, decision: disputed ? { kind: "doubtful", reason: checked.doubt! } : decision };
   });
   const doubtful = new Map<VariantId, Doubtful>();
   const pendingDoubts = new Map<ChatPendingId, Doubtful>();

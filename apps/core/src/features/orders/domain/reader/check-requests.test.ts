@@ -63,6 +63,21 @@ describe("checkRequests: items", () => {
     expect(decision(checked, "not_run").kind).toBe("doubtful");
   });
 
+  test("a named item counts as named only when its resolution says the words name the product", () => {
+    const named = request({ kind: "change_variant", target: { kind: "item", ref: "I1" as ItemRef, named: say("esa") }, values: [value("M")], changeVerb: say("cámbiala") });
+    const pointing = { ...chosen("polera"), namesProduct: false as const };
+    expect(only(checkRequests([named], [pointing], snapshot({ items: [polera] }))).signals).toMatchObject({ targetNamed: "context" });
+    expect(only(checkRequests([named], [chosen("polera")], snapshot({ items: [polera] }))).signals).toMatchObject({ targetNamed: "named" });
+  });
+
+  test("a named pending counts as named by a between resolution only when its words name the products", () => {
+    const named = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: say("esa") }, quantity: quantity(3, "set") });
+    const between = { request: "R1" as RequestRef, kind: "between", productIds: [productId("gorra"), productId("polera")] } as const;
+    const withPending = snapshot({ pendings: [pendingRef(1, pendingOf("gorra"))] });
+    expect(only(checkRequests([named], [{ ...between, namesProduct: false }], withPending)).signals).toMatchObject({ targetNamed: "context" });
+    expect(only(checkRequests([named], [between], withPending)).signals).toMatchObject({ targetNamed: "named" });
+  });
+
   test("turns a variant the product does not sell into the urgent unavailable problem with its question", () => {
     const checked = only(checkRequests([request({ kind: "change_variant", target: { kind: "item", ref: "I1" as ItemRef, named: say("la polera") }, values: [value("XL")], changeVerb: say("cámbiala") })], [], snapshot({ items: [polera] })));
     expect(decision(checked, "agree")).toEqual({ kind: "urgent", problem: "variant_not_available", question: { language: "es", kind: "variant_unavailable", product: "Polera con capucha", asked: "XL", attribute: "Talla", values: ["M", "L"] } });
@@ -934,5 +949,22 @@ describe("checkRequests: the buyer's values mapped by the resolution", () => {
     const another = request({ kind: "add", target: { kind: "item", ref: "I1" as ItemRef, named: null }, values: [value("negro"), value("L")], quantity: quantity(1, "add") });
     const checked = only(checkRequests([another], [mapped("polo", [{ attribute: "Color", value: "Negro", word: "negro" }, { attribute: "Talla", value: "L", word: "L" }])], snapshot({ items: [blanco] })));
     expect(checked.action).toMatchObject({ kind: "add", item: { variantId: variantOf("polo", { Talla: "L", Color: "Negro" }).variantId } });
+  });
+});
+
+describe("checkRequests: a pending that ended before the message", () => {
+  test("a detail for an ended pending is urgent variant_only, never applied", () => {
+    const completes = request({ kind: "complete_pending", target: { kind: "pending", ref: "Q2" as PendingRef, named: null }, values: [] });
+    const checked = only(checkRequests([completes], [], snapshot({ pendings: [pendingRef(1, pendingOf("gorra"))], endedPendings: ["Q2" as PendingRef] })));
+
+    expect(checked.action).toMatchObject({ kind: "report", outcome: { kind: "variant_only" } });
+    expect(decision(checked)).toMatchObject({ kind: "urgent", problem: "variant_only" });
+  });
+
+  test("a ref that is neither alive nor ended stays an invalid action", () => {
+    const completes = request({ kind: "complete_pending", target: { kind: "pending", ref: "Q2" as PendingRef, named: null }, values: [] });
+    const checked = only(checkRequests([completes], [], snapshot({ pendings: [pendingRef(1, pendingOf("gorra"))] })));
+
+    expect(decision(checked)).toMatchObject({ kind: "urgent", problem: "invalid_action" });
   });
 });
