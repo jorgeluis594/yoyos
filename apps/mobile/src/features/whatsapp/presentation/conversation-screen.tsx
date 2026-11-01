@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { AccessibilityInfo, ActivityIndicator, FlatList, StyleSheet, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useIsFocused, useLocalSearchParams } from "expo-router";
@@ -14,6 +14,8 @@ import { parseChatId, parseCoreMessageId, type CompanyId } from "@mobile/feature
 import type { StoredMessage } from "@mobile/features/whatsapp/domain/stored-message";
 import { abbreviateLid } from "@mobile/features/whatsapp/presentation/chat-labels";
 import { MessageImage } from "@mobile/features/whatsapp/presentation/message-image";
+import { QuestionBox } from "@mobile/features/whatsapp/presentation/question-box";
+import { useOpenQuestions } from "@mobile/features/whatsapp/presentation/use-open-questions";
 import { useWhatsApp } from "@mobile/features/whatsapp/presentation/whatsapp-provider";
 import { useTheme } from "@mobile/hooks/use-theme";
 
@@ -50,6 +52,11 @@ export default function ConversationScreen() {
   const searchProgress = useRef<Readonly<{ coreMessageId: string; progress: NoticeSearchProgress }> | null>(null);
   // The announcement is for the seller looking at this chat, not for another tab with the chat still mounted.
   const focused = useIsFocused();
+  // Bumped when a notice for this chat arrives, so the open questions load again.
+  const [noticeArrivals, setNoticeArrivals] = useState(0);
+  const questions = useOpenQuestions(runtime?.questions ?? null, companyId as CompanyId | null, messages, { focused, refresh: noticeArrivals });
+  // What the rows show besides the messages; a new object only when it changes, so rows are not rebuilt on every render.
+  const listState = useMemo(() => ({ marked, questions }), [marked, questions]);
   const announce = useRef(() => undefined as void);
   useEffect(() => { announce.current = () => { if (focused) AccessibilityInfo.announceForAccessibility(t("whatsappNoticeScreenReader")); }; });
 
@@ -110,6 +117,7 @@ export default function ConversationScreen() {
       if (!found.success || found.data === null || found.data.chatId !== chatId) return;
       const id = found.data.id;
       setMarked((previous) => (previous.has(id) ? previous : new Set(previous).add(id)));
+      setNoticeArrivals((value) => value + 1);
       announce.current();
     });
   });
@@ -154,7 +162,7 @@ export default function ConversationScreen() {
         <FlatList
           ref={list}
           data={messages}
-          extraData={marked}
+          extraData={listState}
           keyExtractor={(item) => item.id}
           // The notice's message can be far from the newest: render down to it so it can be scrolled to.
           initialNumToRender={Math.max(10, Math.min(messages.findIndex((message) => message.id === scrollTarget) + 3, 100))}
@@ -190,6 +198,7 @@ export default function ConversationScreen() {
             const meta = `${item.direction === "incoming" ? t("whatsappIncoming") : t("whatsappOutgoing")} · ${when(item.sentAt)}`;
             return (
             // A text notice is one screen-reader element, so the label is read with the message; an image keeps its button reachable.
+            <>
             <View testID={isNotice ? "notice-message" : undefined}
               style={[styles.bubble, { backgroundColor: item.direction === "incoming" ? theme.backgroundElement : theme.backgroundSelected },
                 isNotice && { backgroundColor: theme.warningSurface, borderWidth: 2, borderColor: theme.warning }]}
@@ -200,6 +209,8 @@ export default function ConversationScreen() {
               {text ? <ThemedText>{text}</ThemedText> : null}
               <ThemedText type="small" themeColor="textSecondary">{meta}</ThemedText>
             </View>
+            {(questions.get(item.id) ?? []).map((point) => <QuestionBox key={point.id} point={point} />)}
+            </>
             );
           }}
         />
