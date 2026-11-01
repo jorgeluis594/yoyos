@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { catalog, pendingOf, productId, variantOf, type ProductKey } from "@core/src/features/orders/domain/chat-reading-fixtures";
 import type { OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { ChatPending } from "@core/src/features/orders/domain/chat-pendings";
-import { checkRequests, type CheckItem, type CheckSnapshot, type CheckedAction } from "@core/src/features/orders/domain/reader/check-requests";
+import { checkRequests, checkShownPhoto, type CheckItem, type CheckSnapshot, type CheckedAction } from "@core/src/features/orders/domain/reader/check-requests";
 import { agreementOf, decideChange, riskOf } from "@core/src/features/orders/domain/reader/decide";
 import type { ContextMessageRef, ExtractedRequest, ItemRef, PendingRef, ProductResolution, Quote, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 import type { VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
@@ -137,6 +137,33 @@ describe("checkRequests: adds and prices", () => {
     const checked = only(checkRequests([request({ target: { kind: "photo_same_message" } })], [], snapshot({ messageKind: "photo_product", products: shown })));
     expect(checked.signals.targetNamed).toBe("photo_same_message");
     expect(checked.action).toMatchObject({ kind: "add", item: { variantId: variantOf("gorra", { Color: "Rojo" }).variantId } });
+  });
+
+  test("lets a caption naming another product complete that product's pending and keeps reporting it when there is none", () => {
+    const shown = Object.values(catalog).map((product) => (product.productId === productId("gorra") ? { ...product, shown: true, shownVariantId: variantOf("gorra", { Color: "Rojo" }).variantId } : product));
+    const naming = request({ target: { kind: "named", words: say("la polera") }, values: [value("M")] });
+    const resolution = chosen("polera", [{ attribute: "Talla", value: "M" }]);
+    const without = only(checkRequests([naming], [resolution], snapshot({ messageKind: "photo_product", products: shown })));
+    expect(without.action).toEqual({ kind: "report", outcome: { kind: "invalid_action", orderId: null, reason: "not_the_shown_product" } });
+    const completes = only(checkRequests([naming], [resolution], snapshot({ messageKind: "photo_product", products: shown, pendings: [pendingRef(1, pendingOf("polera"))] })));
+    expect(completes.action.kind).toBe("advance_pending");
+  });
+
+  test("applies a quantity of a photo message to the shown product, not to an order line of another product", () => {
+    const shown = Object.values(catalog).map((product) => (product.productId === productId("gorra") ? { ...product, shown: true, shownVariantId: variantOf("gorra", { Color: "Rojo" }).variantId } : product));
+    const total = request({ kind: "change_quantity", target: { kind: "item", ref: "I1" as ItemRef, named: null }, quantity: quantity(3, "set") });
+    const checked = only(checkRequests([total], [], snapshot({ messageKind: "photo_product", products: shown, items: [item("I1", "polera", { Talla: "L" })] })));
+    expect(checked.action).toMatchObject({ kind: "add", quantity: 3, item: { variantId: variantOf("gorra", { Color: "Rojo" }).variantId } });
+    const ofSameProduct = only(checkRequests([total], [], snapshot({ messageKind: "photo_product", products: shown, items: [item("I1", "gorra", { Color: "Rojo" })] })));
+    expect(ofSameProduct.action.kind).toBe("set_quantity");
+  });
+
+  test("adds the shown product only when no request speaks about it", () => {
+    const shown = Object.values(catalog).map((product) => (product.productId === productId("gorra") ? { ...product, shown: true, shownVariantId: variantOf("gorra", { Color: "Rojo" }).variantId } : product));
+    const photo = snapshot({ messageKind: "photo_product", products: shown });
+    expect(checkShownPhoto(photo, [request({ kind: "payment_request" }), request({ kind: "ready" })]).map((entry) => entry.action.kind)).toEqual(["add"]);
+    expect(checkShownPhoto(photo, [request({ kind: "payment_request" }), request({ kind: "decline", target: { kind: "photo_same_message" } })])).toEqual([]);
+    expect(checkShownPhoto(snapshot({ products: shown }), [])).toEqual([]);
   });
 
   test("answers a request a photo that is not a product made with the image-with-request problem once", () => {

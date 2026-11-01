@@ -43,6 +43,8 @@ type Named = CertaintySignals["targetNamed"];
 
 const changeKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["add", "remove", "change_quantity", "change_variant", "complete_pending", "mention_price"]);
 const itemKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["remove", "change_quantity", "change_variant", "mention_price"]);
+/** The kinds of request that say something about the product of the photo in the same message: the others (payment, ready, not allowed) leave the photo itself to be added. */
+const coversShownProduct: ReadonlySet<ExtractedRequest["kind"]> = new Set(["add", "remove", "change_quantity", "change_variant", "complete_pending", "decline", "mention_price"]);
 const maxQuestionProducts = 10;
 
 const report = (outcome: ReportOutcome): ResolvedChatAction => ({ kind: "report", outcome });
@@ -70,12 +72,37 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
     return first ? [checked(first, report({ kind: "image_with_request" }), signalsOf(first, "context"), { urgent: { problem: "image_with_request", question: null } })] : [];
   }
   const claims = new Map<string, number>();
-  for (const entry of requests) {
+  for (const entry of requests.map((verified) => photoRetargeted(verified, snapshot))) {
     const id = claimedPending(entry.request, snapshot);
     if (id) claims.set(id, (claims.get(id) ?? 0) + 1);
   }
   const env: Env = { snapshot, resolutions, claims };
-  return requests.flatMap((entry) => checkOne(entry, env));
+  return requests.flatMap((entry) => checkOne(photoRetargeted(entry, snapshot), env));
+}
+
+/**
+ * In a product photo's message, a quantity or variant request that points at an order line of another product, without the buyer naming it,
+ * is about the shown product: the photo is the request. It becomes an add of the shown product with the request's quantity and values.
+ */
+function photoRetargeted(verified: VerifiedRequest, snapshot: CheckSnapshot): VerifiedRequest {
+  const { request } = verified;
+  if (snapshot.messageKind !== "photo_product" || (request.kind !== "change_quantity" && request.kind !== "change_variant")) return verified;
+  if (request.quantity?.mode === "decrease") return verified;
+  const { target } = request;
+  const aimed = target.kind === "item" && target.named === null ? itemOfRef(target.ref, snapshot)
+    : target.kind === "context" && target.basis === "only_item" ? itemOfRef(target.ref, snapshot) : undefined;
+  if (!aimed || snapshot.products.some((product) => product.shown && product.productId === aimed.productId)) return verified;
+  return { ...verified, request: { ...request, kind: "add", target: { kind: "photo_same_message" } } };
+}
+
+/** The photo is the request: the products a product photo shows, added with their QR values, for a message whose requests leave them out. */
+export function checkShownPhoto(snapshot: CheckSnapshot, requests: readonly VerifiedRequest[]): readonly CheckedAction[] {
+  if (snapshot.messageKind !== "photo_product") return [];
+  const covering = requests.some(({ request }) => coversShownProduct.has(request.kind));
+  if (covering) return [];
+  const request: ExtractedRequest = { request: "R0" as ExtractedRequest["request"], kind: "add", target: { kind: "photo_same_message" }, values: [], quantity: null, price: null, changeVerb: null };
+  const env: Env = { snapshot, resolutions: [], claims: new Map() };
+  return checkShown({ request, complete: true }, env, 1);
 }
 
 /** A remove or quantity change that lands on a pending, which lives without an order. */
@@ -387,8 +414,11 @@ function checkNamedAdd(said: Said, env: Env, quantity: number): CheckedAction {
     { doubt: added, urgent: { problem: "not_clear", question: whichProduct(resolution.productIds, snapshot) } });
   const product = snapshot.products.find((candidate) => candidate.productId === resolution.productId);
   if (!product) return checked(said, report({ kind: "not_identified", source: "text", identification: null, silent: false }), signals, { urgent: { problem: "not_identified", question: null } });
-  if (snapshot.messageKind === "photo_product" && !product.shown) return checked(said, invalid("not_the_shown_product"), signals, { urgent: { problem: "invalid_action", question: null } });
   const choices = resolution.values.map((entry): AttributeChoice => ({ name: entry.attribute, value: entry.value }));
+  // A caption naming another product completes that product's pending; without one it adds nothing.
+  if (snapshot.messageKind === "photo_product" && !product.shown && matchPendings(product, choices, snapshot).kind === "none") {
+    return checked(said, invalid("not_the_shown_product"), signals, { urgent: { problem: "invalid_action", question: null } });
+  }
   return withProduct(said, env, product, choices, quantity, signals, added);
 }
 
