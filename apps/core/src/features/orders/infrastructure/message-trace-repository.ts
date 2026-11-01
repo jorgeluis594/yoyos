@@ -23,8 +23,8 @@ const json = (value: unknown) => JSON.stringify(value);
  */
 export async function saveMessageTrace(trace: MessageTrace, masks: readonly MaskedText[]): Promise<Result<null, PersistenceError | InvalidStoredData>> {
   const companyId = getCompanyId();
-  const photo = trace.photo === null ? ok(null) : parse(tracePhotoSchema, trace.photo);
-  const shadow = trace.shadow === null ? ok(null) : parse(traceShadowSchema, trace.shadow);
+  const photo = trace.photo === null ? parsedNull : parse(tracePhotoSchema, trace.photo);
+  const shadow = trace.shadow === null ? parsedNull : parse(traceShadowSchema, trace.shadow);
   const stages = parse(traceStagesSchema, trace.stages);
   const quotes = parse(traceQuotesSchema, trace.quotes);
   const decisions = parse(traceDecisionsSchema, trace.decisions);
@@ -36,7 +36,7 @@ export async function saveMessageTrace(trace: MessageTrace, masks: readonly Mask
           "contextMessageIds", "photo", "stages", "quotes", "decisions", "shadow", "costUsd")
         VALUES (${companyId}::uuid, ${trace.messageId}::uuid, ${trace.messageReceivedAt}::timestamptz, ${trace.expiresAt}::timestamptz, ${trace.startedAt}::timestamptz,
           ${trace.decidedAt}::timestamptz, ${trace.queuedMs}, ${trace.shadowWaitMs}, ${trace.textState}::"MessageTraceTextState",
-          ${trace.contextMessageIds as string[]}::uuid[], ${photo.data === null ? null : json(photo.data)}::jsonb, ${json(stages.data)}::jsonb, ${json(quotes.data)}::jsonb,
+          ${[...trace.contextMessageIds] as string[]}::uuid[], ${photo.data === null ? null : json(photo.data)}::jsonb, ${json(stages.data)}::jsonb, ${json(quotes.data)}::jsonb,
           ${json(decisions.data)}::jsonb, ${shadow.data === null ? null : json(shadow.data)}::jsonb, ${trace.costUsd})
         ON CONFLICT ("companyId", "messageId") DO UPDATE SET
           "messageReceivedAt" = EXCLUDED."messageReceivedAt", "expiresAt" = EXCLUDED."expiresAt", "startedAt" = EXCLUDED."startedAt", "decidedAt" = EXCLUDED."decidedAt",
@@ -47,7 +47,7 @@ export async function saveMessageTrace(trace: MessageTrace, masks: readonly Mask
       )
       INSERT INTO "MessageMaskedText" ("companyId", "messageId", "text", "expiresAt")
       SELECT ${companyId}::uuid, mask."messageId", mask."text", mask."expiresAt"
-      FROM unnest(${masks.map((mask) => mask.messageId) as string[]}::uuid[], ${masks.map((mask) => mask.text)}::text[], ${masks.map((mask) => mask.expiresAt)}::timestamptz[])
+      FROM unnest(${masks.map((mask) => mask.messageId as string)}::uuid[], ${masks.map((mask) => mask.text)}::text[], ${masks.map((mask) => mask.expiresAt)}::timestamptz[])
         AS mask("messageId", "text", "expiresAt")
       ON CONFLICT ("companyId", "messageId") DO NOTHING`;
     return ok(null);
@@ -58,10 +58,14 @@ export async function saveMessageTrace(trace: MessageTrace, masks: readonly Mask
   }
 }
 
-function parse<T>(schema: { safeParse: (value: unknown) => { success: true; data: T } | { success: false } }, value: unknown): Result<T, null> {
+type Parsed<T> = Readonly<{ success: true; data: T }> | Readonly<{ success: false }>;
+
+function parse<T>(schema: { safeParse: (value: unknown) => Parsed<T> }, value: unknown): Parsed<T> {
   const parsed = schema.safeParse(value);
-  return parsed.success ? ok(parsed.data) : err(null);
+  return parsed.success ? { success: true, data: parsed.data } : { success: false };
 }
+
+const parsedNull: Parsed<null> = { success: true, data: null };
 
 /** Reads only the `quotes` column, so a review request never loads stage outputs. A missing trace answers null. */
 export async function findTraceQuotes(messageId: ChatMessageId): Promise<Result<readonly TraceQuote[] | null, PersistenceError | InvalidStoredData>> {
@@ -129,8 +133,8 @@ export async function readAuditedMessageTraces(audit: TraceReadAudit): Promise<R
     const rows = await prisma.messageTrace.findMany({ where: { companyId, messageId: { in: [...audit.messageIds] } } });
     const traces: MessageTrace[] = [];
     for (const row of rows) {
-      const photo = row.photo === null ? ok(null) : parse(tracePhotoSchema, row.photo);
-      const shadow = row.shadow === null ? ok(null) : parse(traceShadowSchema, row.shadow);
+      const photo = row.photo === null ? parsedNull : parse(tracePhotoSchema, row.photo);
+      const shadow = row.shadow === null ? parsedNull : parse(traceShadowSchema, row.shadow);
       const stages = parse(traceStagesSchema, row.stages);
       const quotes = parse(traceQuotesSchema, row.quotes);
       const decisions = parse(traceDecisionsSchema, row.decisions);

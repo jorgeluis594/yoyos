@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { deleteConfiguredExpiredCatalogOrders } from "@core/src/features/orders/composition";
+import { deleteConfiguredExpiredCatalogOrders, deleteConfiguredExpiredMessageTraces } from "@core/src/features/orders/composition";
 import { STOCK_DEDUCTION_RECOVERY_CRON } from "@core/src/features/orders/application/recover-due-stock-deductions";
 import type { AppEvents } from "@core/src/shared/events/application/app-events";
 import { log } from "@core/src/shared/infrastructure/logger";
@@ -33,6 +33,25 @@ export function deleteExpiredCatalogOrdersJob(
     }
     log.info({ event: "catalog_orders_deleted", ...result.data, cutoff: cutoff.toISOString(),
       durationMs: now().getTime() - started.getTime() }, "Expired catalog orders deleted");
+    return ok(undefined);
+  };
+}
+
+/** Traces and masked texts carry their own `expiresAt`, so the cutoff is now; the retention days only set that date when a trace is built. */
+export function deleteExpiredMessageTracesJob(
+  now: () => Date = () => new Date(),
+  deleteTraces = deleteConfiguredExpiredMessageTraces,
+  batchSize = 500,
+): ScheduledJobHandler {
+  return async () => {
+    const started = now();
+    const result = await deleteTraces({ cutoff: started, batchSize });
+    if (!result.success) {
+      log.error({ event: "message_trace_cleanup_failed", errorCode: result.error.code, err: result.error }, "Message trace cleanup failed");
+      return err({ ...result.error, retryable: true });
+    }
+    log.info({ event: "message_traces_deleted", deletedTraces: result.data.deletedTraces, deletedTexts: result.data.deletedTexts, companies: result.data.companies,
+      failedCompanies: result.data.failedCompanies, durationMs: now().getTime() - started.getTime() }, "Expired message traces deleted");
     return ok(undefined);
   };
 }
@@ -71,6 +90,7 @@ export function scheduledJobs(
   catalogOrderTtl: number,
   blockedKeys: Readonly<{ reader: BlockedKeysReader; handlerIds: readonly string[] }>,
   recoverStockDeductions: ScheduledJobHandler,
+  deleteMessageTraces: ScheduledJobHandler = deleteExpiredMessageTracesJob(),
 ): readonly ScheduledJob[] {
   return [
     { name: "delete-expired-catalog-orders", cron: "0 4 * * *", tz: "America/Lima",
@@ -79,6 +99,7 @@ export function scheduledJobs(
       handler: reportBlockedChatKeysJob(blockedKeys.reader, blockedKeys.handlerIds) },
     { name: "recover-due-stock-deductions", cron: STOCK_DEDUCTION_RECOVERY_CRON, tz: "America/Lima",
       handler: recoverStockDeductions, policy: stockDeductionRecoveryPolicy },
+    { name: "delete-expired-message-traces", cron: "0 * * * *", tz: "America/Lima", handler: deleteMessageTraces },
   ];
 }
 

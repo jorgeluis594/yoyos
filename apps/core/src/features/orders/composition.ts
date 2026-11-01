@@ -50,6 +50,8 @@ import { registerShipment, registerDelivery, type FulfillOrderDependencies } fro
 import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
+import { deleteExpiredMessageTraces, type DeleteExpiredMessageTracesDependencies, type DeleteExpiredMessageTracesInput } from "@core/src/features/orders/application/delete-expired-message-traces";
+import { deleteExpiredMessageTraces as deleteCompanyExpiredMessageTraces, listCompaniesWithExpiredMessageTraces, readAuditedMessageTraces, type TraceReadAudit } from "@core/src/features/orders/infrastructure/message-trace-repository";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
 import { allocateOrderNumber, findOrderNumbers, findChatOrderTargetForUpdate, findChatOrderTarget, findChatOrdersOpenedSince, saveItemChanges as saveOrderItemChanges, saveOrderCustomer, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariants, findSellableVariantStock, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, restoreStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
@@ -479,6 +481,25 @@ export function deleteConfiguredExpiredCatalogOrders(input: DeleteExpiredCatalog
         return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to delete catalog orders" });
       }
     } });
+}
+
+/** Worker sweep: each company's batch runs in its own transaction under RLS; an unexpected error fails only that company. */
+export function deleteConfiguredExpiredMessageTraces(input: DeleteExpiredMessageTracesInput) {
+  const dependencies: DeleteExpiredMessageTracesDependencies = { listCompaniesWithExpiredMessageTraces,
+    deleteExpiredMessageTraces: async (companyId, cutoff, limit) => {
+      try {
+        return await withTenantIsolation(companyId, () => withinTransaction(() => deleteCompanyExpiredMessageTraces(companyId, cutoff, limit)));
+      } catch (cause) {
+        log.error({ event: "unable_to_delete_message_traces", companyId, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to delete message traces");
+        return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to delete message traces" });
+      }
+    } };
+  return deleteExpiredMessageTraces(input, dependencies);
+}
+
+/** The trace CLI: the audit row and the reads share one tenant transaction, so a failed audit reads nothing. */
+export function readMessageTraces(companyId: CompanyId, audit: TraceReadAudit) {
+  return withTenantIsolation(companyId, () => withinTransaction(() => readAuditedMessageTraces(audit)));
 }
 
 /** The checkout link on the brand host of `subdomain`, which the caller already holds; no query. */
