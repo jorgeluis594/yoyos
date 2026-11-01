@@ -202,10 +202,17 @@ function foldSameMessage(requests: readonly VerifiedRequest[], resolutions: read
 const photoKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["mention_price", "change_quantity", "change_variant"]);
 const aimsAtPhoto = (request: ExtractedRequest): boolean => request.target.kind === "photo_same_message" && photoKinds.has(request.kind) && request.quantity?.mode !== "decrease";
 
+/** A named add whose resolution is undecided between products that include a shown one: it is the photo's add, though it cannot take a fold. */
+const betweenShown = (entry: VerifiedRequest, resolutions: readonly ProductResolution[], shownIds: ReadonlySet<ProductId>): boolean => {
+  const resolution = resolutions.find((candidate) => candidate.request === entry.request.request);
+  return entry.request.kind === "add" && entry.request.target.kind === "named" && resolution?.kind === "between" && resolution.productIds.some((id) => shownIds.has(id));
+};
+
 /**
  * A price, quantity or variant the caption gives for the photo itself is part of the photo's add: the one add of the message that adds the shown product (pointing at
  * the photo or naming it) carries it (values merged, the add keeps its own price and quantity when it has them). With no add in the message, the order's single line of
- * the shown product takes the request; with no line the first such request becomes the add; with several lines it stays as read, never a silent add.
+ * the shown product takes the request; with no line the first such request becomes the add; with several lines it stays as read, never a silent add. Nothing folds into an add when the order already has a line or pending of the shown
+ * product (the request keeps its own target), nor into a named add still undecided between products.
  */
 function foldIntoPhotoAdd(requests: readonly VerifiedRequest[], resolutions: readonly ProductResolution[], snapshot: CheckSnapshot, absorbedBy: Map<RequestRef, readonly RequestRef[]>): readonly VerifiedRequest[] {
   if (snapshot.messageKind !== "photo_product") return requests;
@@ -213,13 +220,16 @@ function foldIntoPhotoAdd(requests: readonly VerifiedRequest[], resolutions: rea
   const aimed = requests.filter((entry) => aimsAtPhoto(entry.request));
   const photoAdds = requests.filter((entry) => {
     const named = addedProductOf(entry, resolutions);
-    return (entry.request.kind === "add" && entry.request.target.kind === "photo_same_message") || (named !== null && shownIds.has(named));
+    return (entry.request.kind === "add" && entry.request.target.kind === "photo_same_message") || (named !== null && shownIds.has(named)) || betweenShown(entry, resolutions, shownIds);
   });
   if (aimed.length === 0 || photoAdds.length > 1) return requests;
   const [first] = aimed;
   const [existing] = photoAdds;
   const lines = snapshot.items.filter((item) => item.productId !== null && shownIds.has(item.productId));
   const [line] = lines;
+  const pendingOfShown = snapshot.pendings.some((entry) => productsOfPending(entry.pending).some((id) => shownIds.has(id)));
+  if (existing && (lines.length > 0 || pendingOfShown || betweenShown(existing, resolutions, shownIds))) return requests;
+  if (!existing && pendingOfShown) return requests;
   if (!existing && lines.length > 1) return requests;
   if (!existing && line) {
     return requests.map((entry) => (aimed.includes(entry) ? { ...entry, request: { ...entry.request, target: { kind: "item", ref: line.ref, named: null } } } : entry));

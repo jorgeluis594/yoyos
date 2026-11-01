@@ -762,12 +762,51 @@ describe("checkRequests: requests of one message about the same thing", () => {
     const amount = request({ request: ref("R1"), kind: "change_quantity", target: { kind: "photo_same_message" }, quantity: quantity(3, "set") });
     const checked = checkRequests([amount], [], photo({ items: [trucker, item("I3", "gorra", { Color: "Rojo" })] }));
     expect(checked.map((entry) => entry.action.kind)).not.toContain("add");
+    expect(decision(only(checked), "agree")).toMatchObject({ kind: "urgent" });
   });
 
   test("notes a caption price on the single line of the shown product instead of adding a unit", () => {
     const price = request({ request: ref("R1"), kind: "mention_price", target: { kind: "photo_same_message" }, price: { amount: 35, currency: "order", basis: "unit", quote: say("a 35") } });
     const checked = checkRequests([price], [], photo({ items: [trucker] }));
     expect(checked.map((entry) => entry.action.kind)).toEqual(["set_mentioned_price"]);
+    expect(decision(only(checked), "agree")).toEqual({ kind: "doubtful", reason: { kind: "price_noted", amount: 35, units: 1 } });
+  });
+
+  const redLine = item("I4", "gorra", { Color: "Rojo" });
+  const setThree = request({ request: ref("R2"), kind: "change_quantity", target: { kind: "photo_same_message" }, quantity: quantity(3, "set") });
+  const price35 = request({ request: ref("R2"), kind: "mention_price", target: { kind: "photo_same_message" }, price: { amount: 35, currency: "order", basis: "unit", quote: say("a 35") } });
+  const namedRed = request({ request: ref("R1"), kind: "add", target: { kind: "named", words: say("la gorra") }, values: [value("rojo")] });
+  const red = [chosen("gorra", [{ attribute: "Color", value: "Rojo" }])];
+
+  test("never folds a caption quantity into the add when the shown product already has a line, and the set on the line stays «Con duda»", () => {
+    const state = photo({ items: [redLine] });
+    const onLine = { ...setThree, request: { ...setThree.request, target: { kind: "context", basis: "only_item", ref: "I4" as ItemRef } } } as const;
+    for (const add of [photoAdd, namedRed]) {
+      const checked = checkRequests([add, setThree], red, state);
+      expect(checked.map((entry) => entry.action.kind)).toEqual(["add", "report"]);
+      expect(checked[0]!.action).toMatchObject({ quantity: 1 });
+      expect(decision(checked[0]!, "agree").kind).toBe("applied");
+      expect(decision(checked[1]!, "agree").kind).toBe("urgent");
+      const split = checkRequests([add, onLine], red, state);
+      expect(split.find((entry) => entry.action.kind === "add")?.action).toMatchObject({ quantity: 1 });
+      const set = split.find((entry) => entry.action.kind === "set_quantity");
+      expect(set?.action).toMatchObject({ quantity: 3 });
+      expect(decision(set!, "agree").kind).toBe("doubtful");
+    }
+  });
+
+  test("never folds a caption price into the add when the shown product already has a line, it is noted «Con duda» instead", () => {
+    const priced = checkRequests([photoAdd, price35], [], photo({ items: [redLine] }));
+    expect(priced.find((entry) => entry.action.kind === "add")?.action).toMatchObject({ mentionedPrice: null });
+    expect(priced.map((entry) => entry.action.kind)).not.toContain("increase_quantity");
+    expect(decision(priced.find((entry) => entry.action.kind === "set_mentioned_price") ?? priced[1]!, "agree").kind).not.toBe("applied");
+  });
+
+  test("never makes a second add of the shown product when the named add is undecided between products that include it", () => {
+    const undecided: ProductResolution = { request: ref("R1"), kind: "between", productIds: [productId("gorra"), productId("polera")] };
+    const checked = checkRequests([namedRed, price35], [undecided], photo({ order: "none" }));
+    expect(checked.filter((entry) => entry.action.kind === "add" && entry.signals.targetNamed === "photo_same_message")).toEqual([]);
+    expect(checked.flatMap((entry) => (entry.action.kind === "add" ? [entry.action] : []))).toEqual([]);
   });
 
   test("marks «Con duda» an add with values that names words no product matches in a photo, never applies it silently", () => {
