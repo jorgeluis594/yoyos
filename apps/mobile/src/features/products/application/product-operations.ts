@@ -29,11 +29,11 @@ export function createProductOperations(api: ProductApi) {
     uploadImage: api.uploadImage,
     createProduct: (command: CreateProductCommand) => api.create(buildCreateProductBody(command.draft, {
       id: command.id, name: command.name, description: command.description ?? null, photos: command.photos,
-      currency: countryCurrencies[command.country],
+      currency: countryCurrencies[command.country], hidden: false,
     })),
     saveProduct: (command: SaveProductCommand) => api.save(command.current.id, buildSaveProductBody(command.draft, {
       structureVersion: command.current.structureVersion, name: command.name, description: command.description,
-      photos: command.photos,
+      photos: command.photos, visibility: { kind: "unchanged" },
     })),
   };
 }

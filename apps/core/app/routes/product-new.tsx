@@ -66,7 +66,7 @@ export default function ProductNew() {
   function save({ values, photos, draft }: ProductFormSubmission) {
     submit(buildCreateProductBody(draft, {
       id: productId, name: values.name, description: values.description === "" ? null : values.description,
-      photos, currency,
+      photos, currency, hidden: false,
     }), { method: "post", encType: "application/json" });
   }
 

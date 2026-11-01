@@ -3,7 +3,7 @@ import { createProductRequestSchema, saveProductRequestSchema } from "@shared/co
 import { parseRequestJson, toCreateInput, toSaveInput } from "@core/src/features/products/presentation/request-input";
 
 const valid = {
-  id: "00000000-0000-4000-8000-000000000001", name: "Cuaderno", description: null, photoIds: [], currency: "PEN", options: [],
+  id: "00000000-0000-4000-8000-000000000001", name: "Cuaderno", description: null, photoIds: [], hidden: false, currency: "PEN", options: [],
   variants: [{ values: [], sku: null, salePrice: 12.5, purchasePrice: null, initialStock: 0 }],
 };
 const parseCreate = (text: string) => parseRequestJson(createProductRequestSchema, text, "Invalid product input");

@@ -19,7 +19,7 @@ function variant(id: string, size: string, sku?: string): Product["variants"][nu
 const image = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}` as ImageId;
 const photos = (...ids: ImageId[]) => ids as unknown as ProductPhotos;
 
-const stored: Product = { id: productId, name: "Polo", photoIds: photos(), currency: "PEN", qrCode: "q", status: "active", createdAt: new Date(0), updatedAt: new Date(0), structureVersion: 3,
+const stored: Product = { id: productId, name: "Polo", photoIds: photos(), currency: "PEN", qrCode: "q", status: "active", hidden: false, createdAt: new Date(0), updatedAt: new Date(0), structureVersion: 3,
   options: [talla], variants: [variant("a", "v-m", "SKU-A"), variant("b", "v-l")] };
 
 const unchanged = (): SaveProductInput => ({
@@ -29,13 +29,14 @@ const unchanged = (): SaveProductInput => ({
   newVariants: [], deletedVariantIds: [],
 });
 
-function setup(options: Readonly<{ product?: Product | null; skuOwners?: ReadonlyMap<string, VariantId>; foreign?: ReadonlySet<string>; images?: Result<ReadonlySet<ImageId>, ImageLookupError>; known?: readonly ImageId[]; ordered?: ReadonlySet<VariantId>; applyFails?: SaveProductError }> = {}) {
+function setup(options: Readonly<{ product?: Product | null; skuOwners?: ReadonlyMap<string, VariantId>; foreign?: ReadonlySet<string>; images?: Result<ReadonlySet<ImageId>, ImageLookupError>; known?: readonly ImageId[]; ordered?: ReadonlySet<VariantId>; applyFails?: SaveProductError; otherOffered?: boolean }> = {}) {
   const applied: ProductStructureChange[] = [];
   const published: ProductId[] = [];
   const saved: unknown[] = [];
   const rejected: SaveProductError[] = [];
   const skuLookups: (readonly string[])[] = [];
   const imageLookups: (readonly ImageId[])[] = [];
+  const offeredLookups: [ProductId, string][] = [];
   let counter = 0;
   const deps: SaveProductDependencies = {
     transaction: async (_companyId, work) => work(),
@@ -44,14 +45,15 @@ function setup(options: Readonly<{ product?: Product | null; skuOwners?: Readonl
     findSkuOwners: async (skus) => { skuLookups.push(skus); return ok(options.skuOwners ?? new Map()); },
     findForeignOptionIds: async () => ok(options.foreign ?? new Set()),
     findImages: async (ids) => { imageLookups.push(ids); return options.images ?? ok(new Set(options.known ?? ids)); },
+    hasOtherOfferedProduct: async (id, currency) => { offeredLookups.push([id, currency]); return ok(options.otherOffered ?? true); },
     applyStructureChange: async (change) => { if (options.applyFails) return err(options.applyFails); applied.push(change); return ok(null); },
-    reload: async (id) => ok({ product: { ...stored, id }, orderedVariantIds: new Set<VariantId>(), photos: [] }),
+    reload: async (id) => ok({ product: { ...(options.product ?? stored), id }, orderedVariantIds: new Set<VariantId>(), photos: [] }),
     newId: () => `00000000-0000-4000-8000-${String(++counter).padStart(12, "0")}`,
     clock: () => new Date("2026-10-26T00:00:00.000Z"),
     publishProductPhotosAdded: async (id) => { published.push(id); return ok(undefined); },
     observe: { saved: (summary) => saved.push(summary), rejected: ({ error }) => rejected.push(error) },
   };
-  return { deps, applied, published, saved, rejected, skuLookups, imageLookups };
+  return { deps, applied, published, saved, rejected, skuLookups, imageLookups, offeredLookups };
 }
 
 describe("save product", () => {
@@ -86,7 +88,7 @@ describe("save product", () => {
     expect(context.applied).toHaveLength(1);
     expect(context.applied[0].product).toEqual({ name: "Polo básico", updatedAt: new Date("2026-10-26T00:00:00.000Z"), structureVersion: 4 });
     expect(context.applied[0].deleteVariantIds).toEqual(["b"]);
-    expect(context.saved).toEqual([{ productId, structureVersion: 4, optionCount: 1, variantCount: 1, createdVariants: 0, updatedVariants: 0, deletedVariants: 1, rekeyedVariants: 0, removedValues: 1, photoCount: 0, photosChanged: false }]);
+    expect(context.saved).toEqual([{ productId, structureVersion: 4, optionCount: 1, variantCount: 1, createdVariants: 0, updatedVariants: 0, deletedVariants: 1, rekeyedVariants: 0, removedValues: 1, photoCount: 0, photosChanged: false, hiddenChanged: false, hidden: false, hidLastOffered: false }]);
   });
 
   test("reports duplicate SKUs of two new variants on both rows", async () => {
@@ -218,5 +220,52 @@ describe("save product", () => {
     expect(result).toMatchObject({ success: false, error: { code: "VARIANT_HAS_ORDERS" } });
     expect(context.saved).toEqual([]);
     expect(context.published).toEqual([]);
+  });
+
+  describe("visibility", () => {
+    const hiding = (): SaveProductInput => ({ ...unchanged(), hidden: true });
+    const withoutVariants = (product: Product): Product => ({ ...product, variants: product.variants.map((item) => ({ ...item, status: "inactive" as const })) as unknown as Product["variants"] });
+
+    test("hiding the last offered product reports that it withdrew the last offered product", async () => {
+      const context = setup({ otherOffered: false });
+      const result = await saveProduct(hiding(), access, context.deps);
+      expect(result).toMatchObject({ success: true, data: { hidLastOffered: true } });
+      expect(context.applied[0].product).toMatchObject({ hidden: true });
+      expect(context.offeredLookups).toEqual([[productId, "PEN"]]);
+      expect(context.saved).toEqual([expect.objectContaining({ hiddenChanged: true, hidden: true, hidLastOffered: true })]);
+    });
+
+    test("hiding a product while another is offered does not report it", async () => {
+      const result = await saveProduct(hiding(), access, setup({ otherOffered: true }).deps);
+      expect(result).toMatchObject({ success: true, data: { hidLastOffered: false } });
+    });
+
+    test("hiding a product without active variants does not report it", async () => {
+      const context = setup({ product: withoutVariants(stored), otherOffered: false });
+      expect(await saveProduct(hiding(), access, context.deps)).toMatchObject({ success: true, data: { hidLastOffered: false } });
+      expect(context.offeredLookups).toEqual([]);
+    });
+
+    test("deleting the last active variants of the last offered product does not report it", async () => {
+      const context = setup({ otherOffered: false });
+      const input: SaveProductInput = { ...unchanged(), variants: [], deletedVariantIds: ["a" as VariantId, "b" as VariantId], newVariants: [{ values: ["v-m"], salePrice: 10 }], options: unchanged().options };
+      const result = await saveProduct(input, access, context.deps);
+      expect(result).toMatchObject({ success: true, data: { hidLastOffered: false } });
+      expect(context.offeredLookups).toEqual([]);
+    });
+
+    test("saving an already hidden product does not report it", async () => {
+      const context = setup({ product: { ...stored, hidden: true }, otherOffered: false });
+      expect(await saveProduct(hiding(), access, context.deps)).toMatchObject({ success: true, data: { hidLastOffered: false } });
+      expect(context.applied).toEqual([]);
+      expect(context.offeredLookups).toEqual([]);
+    });
+
+    test("a save that does not send visibility keeps a product hidden by another device", async () => {
+      const context = setup({ product: { ...stored, hidden: true } });
+      const result = await saveProduct({ ...unchanged(), name: "Otro" }, access, context.deps);
+      expect(result).toMatchObject({ success: true, data: { hidLastOffered: false } });
+      expect(context.applied[0].product.hidden).toBeUndefined();
+    });
   });
 });

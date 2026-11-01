@@ -165,7 +165,7 @@ test("a row removed from a new product is marked with Deshacer and leaves the co
 });
 
 test("a deactivated variant is shown as such and is never selected by a chip", () => {
-  const product = { id: productId, name: "Polo", description: null, photos: [], currency: "PEN" as const, qrCode: id(1), createdAt: "", updatedAt: "", structureVersion: 1,
+  const product = { id: productId, name: "Polo", description: null, hidden: false, photos: [], currency: "PEN" as const, qrCode: id(1), createdAt: "", updatedAt: "", structureVersion: 1,
     options: [{ id: id(1), name: "Talla", values: named(10, ["S", "M"]) }],
     variants: named(10, ["S", "M"]).map((value, index) => ({ id: id(100 + index), combination: [{ optionId: id(1), valueId: value.id }], sku: null, salePrice: { amount: 10, currency: "PEN" as const }, purchasePrice: null, qrCode: id(200 + index), status: index === 1 ? "inactive" : "active", stock: 2, hasOrders: false })) };
   renderVariants(draftFromProduct(product));

@@ -13,6 +13,9 @@ import { privateUserContext } from "@/private-user-context";
 import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
 import { saveProductRequestSchema } from "@shared/contracts/products";
 import { buildSaveProductBody, draftFromProduct } from "@shared/product-variants";
+import { catalogStorefront } from "@core/src/features/catalog";
+import type { CompanyId } from "@shared/identity";
+import { resolveCatalogEmptied } from "@core/src/features/products/presentation/catalog-emptied";
 import { productEditing } from "@core/src/features/products/product-editing";
 import { toProductDetailResponse } from "@core/src/features/products/presentation/product-presenter";
 import { parseRequestJson, toSaveInput } from "@core/src/features/products/presentation/request-input";
@@ -34,6 +37,7 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
       product: detail.product,
       catalog: companyPath(new URL(request.url).pathname, company.country, "/products"),
       saved: new URL(request.url).searchParams.get("saved") === "1",
+      catalogEmptied: new URL(request.url).searchParams.get("catalogEmptied") === "1",
       variantDeleted: new URL(request.url).searchParams.get("variantDeleted") === "1",
     };
   } catch (cause) {
@@ -52,7 +56,8 @@ export async function action({ request, context, params }: ActionFunctionArgs): 
   try {
     const result = await productEditing.save(toSaveInput(params.productId as ProductId, parsed.data));
     if (!result.success) return saveFeedback(result.error, language);
-    return redirect(`${companyPath(new URL(request.url).pathname, company.country, `/products/${result.data.product.id}`)}?saved=1`);
+    const catalogEmptied = await resolveCatalogEmptied(result.data, { companyId: company.id as CompanyId }, catalogStorefront.describe);
+    return redirect(`${companyPath(new URL(request.url).pathname, company.country, `/products/${result.data.detail.product.id}`)}?saved=1${catalogEmptied ? "&catalogEmptied=1" : ""}`);
   } catch (cause) {
     log.error({ event: "unable_to_update_product", err: cause }, "unable_to_update_product");
     return { errors: { inDoubt: resources[language].translation.productEditor.inDoubtSave }, issues: [] };
@@ -97,7 +102,7 @@ export default function ProductDetail() {
   function save({ values: next, photos, draft }: ProductFormSubmission) {
     submit(buildSaveProductBody(draft, {
       structureVersion: product.structureVersion, name: next.name, description: next.description === "" ? null : next.description,
-      photos,
+      photos, visibility: { kind: "unchanged" },
     }), { method: "put", encType: "application/json", action: `${catalog}/${product.id}` });
   }
 

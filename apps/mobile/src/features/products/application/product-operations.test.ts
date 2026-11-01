@@ -15,7 +15,7 @@ test("creating a product without options sends its single variant from the base 
   const operations = createProductOperations(createProductApi(request, () => 0));
   await operations.createProduct({ id: productId, country: "PE", name: "Camisa", photos: { kind: "untouched" }, draft: createDraft(base) });
   expect(JSON.parse(request.mock.calls[0][1].body)).toEqual({
-    id: productId, name: "Camisa", description: null, photoIds: [], currency: "PEN", options: [],
+    id: productId, name: "Camisa", description: null, photoIds: [], hidden: false, currency: "PEN", options: [],
     variants: [{ values: [], sku: "BASE-1", salePrice: 39.9, purchasePrice: 20, initialStock: 4 }],
   });
 });
@@ -39,7 +39,7 @@ const saved: Product = {
 };
 
 test("saving without touching photos omits photoIds", async () => {
-  const request = jest.fn().mockResolvedValue(ok({ product: { ...saved, description: null, photos: [{ id: id(77), url: "https://cdn.example/a.jpg" }], qrCode: id(300), createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
+  const request = jest.fn().mockResolvedValue(ok({ product: { ...saved, description: null, hidden: false, photos: [{ id: id(77), url: "https://cdn.example/a.jpg" }], qrCode: id(300), createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z",
     variants: [{ id: id(100), combination: [], sku: null, salePrice: { amount: 20, currency: "PEN" }, purchasePrice: null, qrCode: id(200), status: "active", stock: 1, hasOrders: false }] },
   }));
   const operations = createProductOperations(createProductApi(request, () => 0));

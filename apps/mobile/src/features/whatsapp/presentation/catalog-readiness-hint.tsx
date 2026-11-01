@@ -6,12 +6,15 @@ import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
 import { useTheme } from "@mobile/hooks/use-theme";
 import { useNotices } from "@mobile/features/notifications/composition";
+import type { CatalogSearchReadinessState } from "@shared/contracts/catalog-search-readiness";
 
-type Hint = "no_active_products" | "no_searchable_photos";
+type Hint = Exclude<CatalogSearchReadinessState, "ready">;
+
+const hintTexts = { no_active_products: "catalogHintNoProducts", all_products_hidden: "catalogHintAllHidden", no_searchable_photos: "catalogHintNoSearchablePhotos" } as const;
 
 /**
  * Tells the seller why photos and texts of customers send no notice: the catalog has no active
- * products, or none has a photo Yoyos can search with yet. Loaded every time the screen is focused.
+ * products, all of them are hidden, or none visible has a photo Yoyos can search with yet. Loaded every time the screen is focused.
  */
 export function CatalogReadinessHint() {
   const { t } = useTranslation();
@@ -33,7 +36,7 @@ export function CatalogReadinessHint() {
   if (hint === null) return null;
   return (
     <View style={[styles.hint, { backgroundColor: theme.backgroundElement }]}>
-      <ThemedText type="small">{t(hint === "no_active_products" ? "catalogHintNoProducts" : "catalogHintNoSearchablePhotos")}</ThemedText>
+      <ThemedText type="small">{t(hintTexts[hint])}</ThemedText>
       <Button variant="secondary" onPress={() => router.push("/products")}>{t("catalogHintGoToProducts")}</Button>
     </View>
   );
