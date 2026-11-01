@@ -66,7 +66,7 @@ import { createChatMessageDeadLetterHandler, createChatMessageHandler, type Chat
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
 import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
-import { findLaterChanges, findMessageChanges, findUnverdictedChanges, markMessageUndone, saveMessageChanges, saveSellerActedAt, setUndoneVerdicts, setVerdictsForEdit } from "@core/src/features/orders/infrastructure/message-change-repository";
+import { findLaterChanges, findMessageChanges, findUnverdictedChanges, markMessageUndone, releaseSupersededChanges, saveMessageChanges, saveSellerActedAt, setUndoneVerdicts, setVerdictsForEdit } from "@core/src/features/orders/infrastructure/message-change-repository";
 import { undoMessageChanges, type UndoMessageError, type UndoMessageInput } from "@core/src/features/orders/application/undo-message-changes";
 import { isOpenForMessageItems } from "@core/src/features/orders/domain/message-order";
 import type { OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
@@ -651,6 +651,7 @@ async function undoConfiguredMessage(input: UndoMessageInput, access: OrderAcces
     saveChatPendings,
     markMessageUndone,
     setUndoneVerdicts,
+    releaseSupersededChanges,
     saveSellerActedAt,
     clock: () => new Date(),
     newItemId: () => randomUUID() as OrderItemId,
