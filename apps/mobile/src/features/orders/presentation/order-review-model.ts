@@ -32,7 +32,7 @@ export type ReasonContext = Readonly<{ t: TFunction; money: (amount: number) => 
 /** What the message did, in catalog terms. */
 export function reasonText(reason: ReviewReason, { t, money }: ReasonContext): string {
   switch (reason.kind) {
-    case "variant_changed": return t("orderReview.reasons.variant_changed", { attribute: attributeText(reason.attribute, t), from: reason.from, to: reason.to });
+    case "variant_changed": return t("orderReview.reasons.variant_changed", { attribute: reason.attribute.toLowerCase(), from: reason.from, to: reason.to });
     case "quantity_set": return t("orderReview.reasons.quantity_set", { quantity: reason.quantity });
     case "added_by_reference": return t("orderReview.reasons.added_by_reference", { quantity: reason.quantity });
     case "removed": return t("orderReview.reasons.removed", { product: reason.product });

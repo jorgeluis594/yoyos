@@ -12,10 +12,10 @@ test("a seller copies the link of a WhatsApp order through the review, corrects 
     companyId = await prepareVerifiedCompany(page, { email, name: "Vendedor Demo", companyName: "Pedidos por mensaje", country: "PE" });
     const tenantId = companyId;
     await publishCatalog(tenantId);
-    const [polera, gorra] = await withTenantIsolation(tenantId, async () => {
+    const [polera, gorra, poleraProduct] = await withTenantIsolation(tenantId, async () => {
       const shirts = await seedProduct({ name: "Polera gris", variants: [{ attributes: { Talla: "M" }, salePrice: 59, stock: 20 }] });
       const caps = await seedProduct({ name: "Gorra trucker", variants: [{ attributes: { Color: "Negro" }, salePrice: 40, stock: 20 }] });
-      return [shirts.variantIds[0]!, caps.variantIds[0]!];
+      return [shirts.variantIds[0]!, caps.variantIds[0]!, shirts.productId];
     });
     const orderId = randomUUID();
     const created = await page.request.post("/api/orders", { data: { id: orderId, items: [{ variantId: polera, quantity: 2 }, { variantId: gorra, quantity: 1 }] } });
@@ -42,6 +42,12 @@ test("a seller copies the link of a WhatsApp order through the review, corrects 
           unitPrice: { amount: Number(item.unitPrice), currency: "PEN" }, mentionedPrice: null, position: 0 };
       };
       await prisma.orderMessage.createMany({ data: [{ orderId, messageId: first, createdAt: at(30) }, { orderId, messageId: second, createdAt: at(20) }] });
+      // The cap message answered a question about the shirt and left another one open: undoing it brings the first back and ends the second.
+      const pending = (subject: object, minutes: number) => ({ id: randomUUID(), subject, known: {}, quantity: 1, price: null, order: { orderId, attachedAt: at(minutes).toISOString() }, lastChangedAt: at(minutes).toISOString(),
+        sourceMessageId: second, requestId: randomUUID(), doubt: null, pointSince: at(minutes).toISOString(), acknowledgedAt: null });
+      const [pendingBefore, pendingAfter] = [pending({ kind: "variant", productId: poleraProduct }, 25), pending({ kind: "product", candidates: [poleraProduct, randomUUID()] }, 20)];
+      await prisma.orderMessage.update({ where: { companyId_messageId: { companyId: tenantId, messageId: second } }, data: { pendingsBefore: [pendingBefore], pendingsAfter: [pendingAfter] } });
+      await prisma.chatPendings.create({ data: { chatId, pendings: [pendingAfter], updatedAt: at(20) } });
       await prisma.orderItemChange.create({ data: { orderId, messageId: first, position: 0, seq: 1, kind: "quantity_changed", itemId: items.find((item) => item.variantId === polera)!.id,
         before: line(polera, 1), after: line(polera, 2), decision: "doubtful", doubt: { kind: "quantity_set", quantity: 2 }, createdAt: at(30) } });
       await prisma.orderItemChange.create({ data: { orderId, messageId: second, position: 0, seq: 2, kind: "added", itemId: items.find((item) => item.variantId === gorra)!.id,
@@ -87,7 +93,7 @@ test("a seller copies the link of a WhatsApp order through the review, corrects 
     await browserExpect(page.getByRole("region", { name: "Cambios por mensajes" })).toContainText("Deshecho");
   } finally {
     if (companyId) await withTenantIsolation(companyId, async () => {
-      for (const table of ["orderItemChange", "orderReview", "orderLinkAction", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "productStock", "productVariant", "productOption", "product"])
+      for (const table of ["chatPendings", "orderItemChange", "orderReview", "orderLinkAction", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "productStock", "productVariant", "productOption", "product"])
         await (prisma[table as "product"] as unknown as { deleteMany(): Promise<unknown> }).deleteMany();
       await systemPrisma.user.deleteMany({ where: { email } });
       await prisma.company.delete({ where: { id: companyId } });

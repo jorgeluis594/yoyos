@@ -90,7 +90,7 @@ test("the link card hides the URL and shows the count of doubtful changes and po
   expect(screen.getByText("Falta la variante: Polo básico ×2 — falta la talla. Pregúntale al cliente o agrégalo desde la web.")).toBeTruthy();
   expect(screen.getByText("¿En qué talla quieres el Polo básico: S, M o L?")).toBeTruthy();
   expect(screen.getByText("Con duda", { includeHiddenElements: true })).toBeTruthy();
-  expect(screen.getByLabelText(/Polera gris, Talla: M.*con duda: un mensaje cambió la talla de L a M/)).toBeTruthy();
+  expect(screen.getByLabelText(/Polera gris, Talla: M.*con duda: un mensaje cambió talla: de L a M/)).toBeTruthy();
   // Revisar pedido is not a second entry on orders open for messages.
   expect(screen.queryByRole("button", { name: "Revisar pedido" })).toBeNull();
 });

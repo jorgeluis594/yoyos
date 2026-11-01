@@ -259,6 +259,6 @@ export function OrderReviewDialog({ origin, orderId, orderNumber, initial, api, 
         </div>
       </DialogContent>
     </Dialog>
-    {undoing && <UndoConfirmDialog changes={undoing.row.changes} progress={undoing.progress} onApply={() => void undo(undoing.row)} onKeep={() => setUndoing(null)} />}
+    {undoing && <UndoConfirmDialog changes={undoing.row.changes} pendings={undoing.row.pendings} progress={undoing.progress} onApply={() => void undo(undoing.row)} onKeep={() => setUndoing(null)} />}
   </>;
 }

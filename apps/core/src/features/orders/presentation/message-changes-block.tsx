@@ -4,7 +4,7 @@ import type { OrderReviewResponse } from "@shared/contracts/order-review";
 import { Button } from "@core/app/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@core/app/components/ui/card";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from "@core/app/components/ui/dialog";
-import { lineVariant, messageSummary, undoStep, type ReviewChange } from "@core/src/features/orders/presentation/order-review-texts";
+import { lineVariant, messageSummary, pendingSteps, undoStep, type ReviewChange } from "@core/src/features/orders/presentation/order-review-texts";
 
 export type MessageRow = OrderReviewResponse["messageRows"][number];
 
@@ -57,13 +57,13 @@ export function MessageChangesBlock({ rows, moreRows, moreLoading, moreFailed, b
 export type UndoProgress = "idle" | "working" | "in_doubt" | "failed";
 
 /** «¿Deshacer lo que hizo este mensaje?» with the changes it will revert; nothing happens until **Deshacer cambios**. */
-export function UndoConfirmDialog({ changes, progress, onApply, onKeep }: Readonly<{ changes: readonly ReviewChange[]; progress: UndoProgress; onApply: () => void; onKeep: () => void }>) {
+export function UndoConfirmDialog({ changes, pendings, progress, onApply, onKeep }: Readonly<{ changes: readonly ReviewChange[]; pendings: MessageRow["pendings"]; progress: UndoProgress; onApply: () => void; onKeep: () => void }>) {
   const { t } = useTranslation();
   const busy = progress === "working" || progress === "in_doubt";
   return <Dialog open onOpenChange={(open) => { if (!open && !busy) onKeep(); }}>
     <DialogContent aria-describedby={undefined}>
       <DialogHeader><DialogTitle>{t("orderReview.changes.confirmTitle")}</DialogTitle><DialogDescription className="sr-only">{messageSummary(changes, t)}</DialogDescription></DialogHeader>
-      <ul className="grid list-disc gap-1 pl-5 text-sm">{changes.map((change) => <li key={change.id}>{undoStep(change, t)}</li>)}</ul>
+      <ul className="grid list-disc gap-1 pl-5 text-sm">{changes.map((change) => <li key={change.id}>{undoStep(change, t)}</li>)}{pendingSteps(pendings, t).map((step) => <li key={step}>{step}</li>)}</ul>
       {progress === "in_doubt" && <p role="status" className="text-sm">{t("orderReview.changes.inDoubt")}</p>}
       {progress === "working" && <p role="status" className="text-sm">{t("orderReview.changes.working")}</p>}
       {progress === "failed" && <p role="alert" className="text-sm text-destructive">{t("orderReview.changes.failed")}</p>}

@@ -1,7 +1,7 @@
 import { createInstance } from "i18next";
 import { expect, test } from "vitest";
 import resources from "@core/app/locales";
-import { countsText, meanwhileText, pointText, reasonText, rowTime, undoStep, changeSummary } from "@core/src/features/orders/presentation/order-review-texts";
+import { countsText, meanwhileText, pendingSteps, pointText, reasonText, rowTime, undoStep, changeSummary } from "@core/src/features/orders/presentation/order-review-texts";
 import { doubtfulChange, point, reviewLine, sureChange } from "@core/src/features/orders/presentation/order-review.fixture";
 
 const money = (amount: number) => `S/ ${amount.toFixed(2)}`;
@@ -20,10 +20,10 @@ test("every doubt reason says what the message did in catalog terms, in both lan
     { kind: "inherited", from: { kind: "caption_unread" } },
   ] as const;
   expect(reasons.map((reason) => reasonText(reason, es, money, "PEN"))).toEqual([
-    "Un mensaje cambió talla de L a M", "Un mensaje cambió la cantidad a 3", "Un mensaje agregó 2", "Un mensaje quitó Gorra trucker",
+    "Un mensaje cambió talla: de L a M", "Un mensaje cambió la cantidad a 3", "Un mensaje agregó 2", "Un mensaje quitó Gorra trucker",
     "Un mensaje anotó que el cliente mencionó S/ 45.00 por unidad. El precio del pedido no cambió.", "Un mensaje anotó que el cliente mencionó S/ 45.00 por 3. El precio del pedido no cambió.",
     "No pudimos leer lo que escribió con la foto", "No pudimos leer lo que escribió con la foto (venía de un punto por resolver)"]);
-  expect(reasonText(reasons[0], pt, money, "PEN")).toBe("Uma mensagem mudou talla de L para M");
+  expect(reasonText(reasons[0], pt, money, "PEN")).toBe("Uma mensagem mudou talla: de L para M");
   expect(reasonText(reasons[4], pt, money, "PEN")).toBe("Uma mensagem anotou que o cliente mencionou S/ 45.00 por unidade. O preço do pedido não mudou.");
 });
 
@@ -42,6 +42,13 @@ test("message rows summarise the changes and the undo lists what it reverts", as
   expect(undoStep(sureChange(), es)).toBe("Quitar Gorra trucker · Rojo · ×1");
   expect(undoStep(doubtfulChange(), es)).toBe("Volver Disfraz de Deadpool a talla L");
   expect(meanwhileText([sureChange()], "S/ 120.00", es)).toBe("Mientras revisabas, un mensaje agregó Gorra trucker · Rojo · ×1. Total: S/ 120.00.");
+});
+
+test("the undo confirmation lists the points that come back and the ones that end, in both languages", async () => {
+  const pendings = { back: [{ kind: "variant_missing", product: "Polo básico" }], end: [{ kind: "not_clear", product: null }, { kind: "variant_not_available", product: "Gorra" }] } as const;
+  expect(pendingSteps(pendings, await translator("es"))).toEqual(["Volverá: Falta la variante · Polo básico", "Terminará: Producto no claro", "Terminará: Variante no disponible · Gorra"]);
+  expect(pendingSteps(pendings, await translator("pt"))).toEqual(["Voltará: Falta a variante · Polo básico", "Terminará: Produto não claro", "Terminará: Variante indisponível · Gorra"]);
+  expect(pendingSteps({ back: [], end: [] }, await translator("es"))).toEqual([]);
 });
 
 test("row times show the hour today and the date on another day, in Lima time", () => {

@@ -67,6 +67,14 @@ export function undoStep(change: Pair & Readonly<{ kind: ReviewChange["kind"] }>
   return t("orderReview.changes.inverse.price", { name: lineName(before) });
 }
 
+type Pendings = Review["messageRows"][number]["pendings"];
+type ReadonlyPendings = Readonly<{ back: readonly Pendings["back"][number][]; end: readonly Pendings["end"][number][] }>;
+/** «Volverá: Falta la variante · Polo básico», «Terminará: Producto no claro»: the points an undo brings back and the ones it ends. */
+export function pendingSteps(pendings: ReadonlyPendings, t: TFunction): string[] {
+  const point = (label: Pendings["back"][number]) => [t(`orderReview.changes.pending.${label.kind}`), label.product].filter(Boolean).join(" · ");
+  return [...pendings.back.map((label) => t("orderReview.changes.pending.back", { point: point(label) })), ...pendings.end.map((label) => t("orderReview.changes.pending.end", { point: point(label) }))];
+}
+
 /** One phrase for the whole message: «Agregó Polo básico · M · ×2 · Quitó Gorra trucker». */
 export const messageSummary = (changes: readonly ReviewChange[], t: TFunction) => changes.map((change) => changeSummary(change, t)).filter(Boolean).join(" · ");
 
