@@ -16,7 +16,7 @@ import type { CompanyId, ContactId, OrderId, OrderItem, OrderItemId } from "@cor
 import { nextLastIncomingPhoto } from "@core/src/features/orders/domain/photo-just-sent";
 import { checkRequests, checkShownPhoto, type CheckedAction } from "@core/src/features/orders/domain/reader/check-requests";
 import { lostRequests } from "@core/src/features/orders/domain/reader/silent-guards";
-import { decideChanges, type DecidedChanges } from "@core/src/features/orders/domain/reader/decide-changes";
+import { decideChanges, pendingQuantityOf, type DecidedChanges } from "@core/src/features/orders/domain/reader/decide-changes";
 import { isHighCertainty, riskOfChecked } from "@core/src/features/orders/domain/reader/decide";
 import type { DoubtReason } from "@core/src/features/orders/domain/reader/decision";
 import { inheritedMark, withDecisionOnPending } from "@core/src/features/orders/domain/reader/pending-doubt";
@@ -301,7 +301,8 @@ type StagedRead = Readonly<{
   intent?: ReturnType<ReaderStages["readIntent"]>;
 }>;
 
-const isHigh = (checked: CheckedAction) => isHighCertainty(checked.signals) && riskOfChecked(checked) === "high";
+/** Worth the confirming reading: a sure high-risk action, or a sure quantity on a pending (a disagreement makes it «Con duda»). */
+const isHigh = (checked: CheckedAction) => isHighCertainty(checked.signals) && (riskOfChecked(checked) === "high" || pendingQuantityOf(checked.action) !== null);
 
 /** The three stages, then the plan the transaction applies: the checks and the decision run again there, on the locked state. */
 async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>> {
@@ -467,15 +468,18 @@ function completionMarks(decided: DecidedChanges | null, alive: readonly ChatPen
   const marks = new Map<OrderItem["variantId"], DoubtReason>();
   for (const { checked, decision } of decided?.decided ?? []) {
     const { action } = checked;
-    if (action.kind !== "advance_pending" || decision.kind === "doubtful" || !action.request.product) continue;
+    if (action.kind !== "advance_pending" || !action.request.product) continue;
     const before = alive.find(({ id }) => id === action.request.pendingId);
     if (!before) continue;
     // A doubt another request of this message left on the pending counts: the pending ends here, so pendingsAfter never keeps it.
-    const doubt = decided?.pendingDoubts.get(before.id);
+    const doubt = decision.kind === "doubtful" ? undefined : decided?.pendingDoubts.get(before.id);
     const pending = doubt ? withDecisionOnPending(before, doubt, now) : before;
     const resolution = resolveVariant(action.request.product, pending.known, action.request.values);
-    const mark = resolution.kind === "resolved" ? inheritedMark(pending, { quantity: action.request.quantity, values: action.request.values }) : null;
-    if (resolution.kind === "resolved" && mark && !marks.has(resolution.item.variantId)) marks.set(resolution.item.variantId, mark);
+    if (resolution.kind !== "resolved" || marks.has(resolution.item.variantId)) continue;
+    const inherited = inheritedMark(pending, { quantity: action.request.quantity, values: action.request.values });
+    // The completion's own doubt marks its item, except the values-alone one, which never hides an earlier doubt of the pending.
+    const mark = decision.kind !== "doubtful" ? inherited : decision.reason.kind === "added_by_reference" && inherited ? inherited : decision.reason;
+    if (mark) marks.set(resolution.item.variantId, mark);
   }
   return marks;
 }

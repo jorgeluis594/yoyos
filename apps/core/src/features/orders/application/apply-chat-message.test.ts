@@ -80,7 +80,7 @@ const chosen = (id: string, productId: ProductId): ProductResolution => ({ reque
 const call = (stage: ReaderStage, reading: Reading): StageCall => ({ stage, reading, provider: "fake", model: "m", promptVersion: "v1", usage: null, costUsd: null, durationMs: 1, attempts: 1 });
 const requestsOf = (...requests: RequestIntent[]): IntentReading => ({ kind: "requests", requests, language: "es", addresses: [] });
 
-type Script = Readonly<{ intent?: IntentReading | Readonly<{ code: "AI_PROVIDER_UNAVAILABLE" | "INVALID_AI_RESPONSE" }>; extraction?: readonly ExtractedRequest[]; resolutions?: readonly ProductResolution[]; confirms?: boolean }>;
+type Script = Readonly<{ intent?: IntentReading | Readonly<{ code: "AI_PROVIDER_UNAVAILABLE" | "INVALID_AI_RESPONSE" }>; extraction?: readonly ExtractedRequest[]; resolutions?: readonly ProductResolution[]; confirms?: boolean; confirmingExtraction?: readonly ExtractedRequest[] }>;
 
 /** Scripted stages: they answer what the test says and log their calls in order. */
 function stagesOf(script: Script, log: string[], signals: AbortSignal[]): ReaderStages {
@@ -91,7 +91,7 @@ function stagesOf(script: Script, log: string[], signals: AbortSignal[]): Reader
       const answer = script.intent ?? { kind: "no_intent", reason: "other", language: "es", addresses: [] };
       return "code" in answer ? failure("intent", answer.code) : ok({ value: answer, call: call("intent", reading) });
     },
-    extractRequests: async (_input, _intents, reading, signal) => { log.push(`extraction:${reading}`); signals.push(signal); return ok({ value: script.extraction ?? [], call: call("extraction", reading) }); },
+    extractRequests: async (_input, _intents, reading, signal) => { log.push(`extraction:${reading}`); signals.push(signal); return ok({ value: (reading === "confirming" ? script.confirmingExtraction : undefined) ?? script.extraction ?? [], call: call("extraction", reading) }); },
     chooseProducts: async (_mentions, _candidates, reading) => { log.push(`resolution:${reading}`); return ok({ value: script.resolutions ?? [], call: call("resolution", reading) }); },
     confirms: { intent: false, extraction: script.confirms ?? true, resolution: false },
   };
@@ -459,6 +459,36 @@ const pointOf = (over: Partial<ChatPending> = {}): ChatPending => ({ id: id(700)
   order: { orderId: id(9) as OrderId, attachedAt: hourBefore }, lastChangedAt: hourBefore, sourceMessageId: id(70) as ChatMessageId, requestId: id(700) as ChatPendingId,
   doubt: { reason: { kind: "quantity_set", quantity: 3 as PositiveInteger } }, pointSince: hourBefore, acknowledgedAt: null, ...over });
 const inheritedFromQuantity = { kind: "inherited", from: { kind: "quantity_set", quantity: 3 } };
+
+describe("applyChatMessage: a pending quantity the confirming reading disputes", () => {
+  const pending = { kind: "pending", ref: "Q1" as PendingRef, named: null } as const;
+  const answer = (value: number) => extracted("R1", "complete_pending", { target: pending, values: [{ attributeWords: null, valueWords: current("M") }], quantity: { value, mode: "set", quote: current("serían") } });
+  const disputed = (pendings: ChatPendings, confirmingValue: number) => harness({ message: textMessage("en M, serían 2"), target: poloTarget(), pendings,
+    script: { intent: requestsOf(intent("R1", "complete_pending", "en M, serían 2")), extraction: [answer(2)], confirmingExtraction: [answer(confirmingValue)] } });
+
+  test("marks the item an answer with a number creates when the confirming reading says another number", async () => {
+    const h = disputed(pendingSet(pointOf({ doubt: null, quantity: 3 as PositiveInteger })), 3);
+    await succeeded(h.run());
+
+    expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", after: expect.objectContaining({ variantId: poloM.variantId, quantity: 2 }),
+      decision: { kind: "doubtful", reason: { kind: "quantity_set", quantity: 2 } } }));
+  });
+
+  test("keeps a mark on the item when the pending already had a doubt", async () => {
+    const h = disputed(pendingSet(pointOf()), 3);
+    await succeeded(h.run());
+
+    expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", after: expect.objectContaining({ variantId: poloM.variantId }), decision: { kind: "doubtful", reason: expect.anything() } }));
+  });
+
+  test("waits for the confirming extraction of a sure quantity on a pending instead of aborting it", async () => {
+    const h = disputed(pendingSet(pointOf({ doubt: null, quantity: 3 as PositiveInteger })), 2);
+    await succeeded(h.run());
+
+    expect(h.stageLog).toContain("extraction:confirming");
+    expect(h.signals[1]!.aborted).toBe(false);
+  });
+});
 
 describe("applyChatMessage: pendings with a doubt", () => {
   const completeWithM = (quantity: number | null) => ({ message: textMessage(quantity === null ? "el polo en M" : "uno en M"), target: poloTarget(), script: { intent: requestsOf(intent("R1", quantity === null ? "add" : "complete_pending", quantity === null ? "el polo en M" : "uno en M")),

@@ -78,11 +78,16 @@ export type ReadingPending = Readonly<{ ref: PendingRef; pendingId: ChatPendingI
   productNames?: readonly string[];
   /** For a pending on one product: each attribute its known values leave open, with the sellable values that fit what is known. */
   missing?: readonly Readonly<{ name: string; values: readonly string[] }>[] }>;
+/** A pending that ended before this message was read (its order closed or it expired): listed so a detail that would have completed it is not read as nothing. */
+export type ReadingEndedPending = Readonly<{ ref: PendingRef; pendingId: ChatPendingId; productIds: readonly ProductId[]; known: Readonly<Record<string, string>>;
+  quantity: PositiveInteger; productNames?: readonly string[]; ended: "order_closed" | "expired" }>;
 export type ReadingInput = Readonly<{
   current: Readonly<{ messageId: ChatMessageId; kind: string; text: string }>;
   context: readonly ReadingContextMessage[];
   items: readonly ReadingItem[];
   pendings: readonly ReadingPending[];
+  /** The pendings that ended before this message, numbered after the alive ones; a request on one is never applied. */
+  endedPendings?: readonly ReadingEndedPending[];
   photoMemory: LastIncomingPhoto | null;
   /** The photo of this message and the product it was identified as, if any. */
   photo: Readonly<{ productId: ProductId | null }> | null;

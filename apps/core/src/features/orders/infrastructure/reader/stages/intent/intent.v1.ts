@@ -46,7 +46,7 @@ export const intentInstructions = `You read one message from a buyer in a sales 
 What you are given
 - Recent messages (M1, M2...), oldest first, each marked buyer or seller, and masked or unmasked. They come from the same chat and explain what the buyer's message refers to.
 - Order lines (I1, I2...): what the chat's open order holds.
-- Pendings (Q1, Q2...): requests from earlier messages that still wait for a detail. A pending may be in doubt. Each lists its product (or the choice it is between), what is already known, and the details still missing with the values the shop sells for them: a message that gives one of those values answers that pending.
+- Pendings (Q1, Q2...): requests from earlier messages that still wait for a detail. A pending may be in doubt. Each lists its product (or the choice it is between), what is already known, and the details still missing with the values the shop sells for them: a message that gives one of those values answers that pending. A pending marked ended no longer waits (its order was closed or paid, or it expired): a message that gives it a detail it lacked is still a complete_pending for it, so the seller is asked instead of the message being ignored.
 - Facts about a photo: whether the message is the caption of a photo, whether the photo shows a catalog product, and whether the buyer's previous message was a photo that left a pending or an item.
 - The buyer's message last.
 Line breaks inside any message are shown as ⏎ and are part of that message's data.

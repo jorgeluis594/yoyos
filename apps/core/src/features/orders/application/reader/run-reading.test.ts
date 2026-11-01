@@ -78,6 +78,26 @@ describe("runReading", () => {
     expect(run.success && run.data.confirming).toBeNull();
   });
 
+  test("starts the confirming chain for an add or a completion when the chat has pendings, and for neither without them", async () => {
+    const pendings = [{ ref: "Q1", pendingId: "p1", productIds: [productId], known: {}, quantity: 1, doubtful: false }];
+    const withPending = { ...context, input: { ...context.input, pendings } } as unknown as ReadingContextData;
+    const values = [{ attributeWords: null, valueWords: current("negra") }];
+    const cases = [{ kind: "complete_pending" as const, extraction: { ...request("R1", "complete_pending"), target: { kind: "pending" as const, ref: "Q1" as never, named: null }, values } },
+      { kind: "add" as const, extraction: request("R1", "add") }];
+    for (const { kind, extraction } of cases) {
+      const intents = { kind: "requests" as const, requests: [intent("R1", kind)], language: "es" as const, addresses: [] };
+      const withPendings = fakes({ intent: intents, extraction: [extraction] });
+      const withRun = await runReading(withPendings.deps, withPending, [], signal());
+      expect(withRun.success && withRun.data.confirming).not.toBeNull();
+      expect(withPendings.log.calls).toContain("extraction:confirming");
+
+      const without = fakes({ intent: intents, extraction: [extraction] });
+      const withoutRun = await runReading(without.deps, context, [], signal());
+      expect(withoutRun.success && withoutRun.data.confirming === null).toBe(true);
+      expect(without.log.calls.includes("extraction:confirming")).toBe(false);
+    }
+  });
+
   test("aborts the confirming chain's signal while keeping the reading's deadline, and never the primary's", async () => {
     const { deps, log } = fakes();
     const run = await runReading(deps, context, [], signal());

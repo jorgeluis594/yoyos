@@ -835,3 +835,20 @@ describe("checkRequests: the buyer's values mapped by the resolution", () => {
     expect(checked.action).toMatchObject({ kind: "add", item: { variantId: variantOf("polo", { Talla: "L", Color: "Negro" }).variantId } });
   });
 });
+
+describe("checkRequests: a pending that ended before the message", () => {
+  test("a detail for an ended pending is urgent variant_only, never applied", () => {
+    const completes = request({ kind: "complete_pending", target: { kind: "pending", ref: "Q2" as PendingRef, named: null }, values: [] });
+    const checked = only(checkRequests([completes], [], snapshot({ pendings: [pendingRef(1, pendingOf("gorra"))], endedPendings: ["Q2" as PendingRef] })));
+
+    expect(checked.action).toMatchObject({ kind: "report", outcome: { kind: "variant_only" } });
+    expect(decision(checked)).toMatchObject({ kind: "urgent", problem: "variant_only" });
+  });
+
+  test("a ref that is neither alive nor ended stays an invalid action", () => {
+    const completes = request({ kind: "complete_pending", target: { kind: "pending", ref: "Q2" as PendingRef, named: null }, values: [] });
+    const checked = only(checkRequests([completes], [], snapshot({ pendings: [pendingRef(1, pendingOf("gorra"))] })));
+
+    expect(decision(checked)).toMatchObject({ kind: "urgent", problem: "invalid_action" });
+  });
+});

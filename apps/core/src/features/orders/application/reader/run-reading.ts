@@ -79,7 +79,7 @@ const highRiskKinds: ReadonlySet<RequestIntent["kind"]> = new Set(["remove", "ch
 export const hasHighRiskIntent = (intents: readonly RequestIntent[]) => intents.some(({ kind }) => highRiskKinds.has(kind));
 
 function inputSummary(input: ReadingInput, extra: Partial<StageInputSummary> = {}): StageInputSummary {
-  return { refs: [...input.context.map(({ ref }) => ref), ...input.items.map(({ ref }) => ref), ...input.pendings.map(({ ref }) => ref)],
+  return { refs: [...input.context.map(({ ref }) => ref), ...input.items.map(({ ref }) => ref), ...input.pendings.map(({ ref }) => ref), ...(input.endedPendings ?? []).map(({ ref }) => ref)],
     productIds: [], productNames: [], candidateIds: [], ...extra };
 }
 
@@ -187,7 +187,9 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   const abort = new AbortController();
   const confirmSignal = deps.withAbort(signal, abort.signal);
   // An add can land on a line the order already has, where "one more" may be "set" or "only the price": with lines in the order it gets a second opinion.
-  const wantsConfirming = hasHighRiskIntent(intents) || (input.items.length > 0 && intents.some(({ kind }) => kind === "add"));
+  // A pending's quantity can be set or grown by an add or an answer with a number, so with pendings those get a second opinion too.
+  const wantsConfirming = hasHighRiskIntent(intents) || (input.items.length > 0 && intents.some(({ kind }) => kind === "add"))
+    || (input.pendings.length > 0 && intents.some(({ kind }) => kind === "add" || kind === "complete_pending"));
   // A stage without a confirming configuration reuses the primary result: the chain awaits it instead of calling the port again.
   const confirmingExtraction = wantsConfirming ? (stages.confirms.extraction ? extract("confirming", confirmSignal) : primaryExtraction) : null;
 
