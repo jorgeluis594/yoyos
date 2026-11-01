@@ -75,27 +75,65 @@ describe("resolution parser", () => {
     ]), input, budget);
 
     expect(result).toEqual({ success: true, data: [
-      { request: "R1", kind: "chosen", productId: productId(1), values: [{ attribute: "Talla", value: "M", quote: quote("mediana") }] },
-      { request: "R2", kind: "between", productIds: [productId(1), productId(2)] },
+      { request: "R1", kind: "chosen", productId: productId(1), values: [{ attribute: "Talla", value: "M", quote: quote("mediana") }], unmatched: [] },
+      { request: "R2", kind: "between", productIds: [productId(1), productId(2)], values: [] },
     ] });
   });
 
-  test("refuses a between of one or five products and a value that is not in the catalog", () => {
+  test("refuses a between of one or five products", () => {
     const five = Array.from({ length: 5 }, (_, index) => product(index + 20, `Gorra ${index}`));
     const many: ResolutionInput = { mentions: [mention(1, "gorra")], candidates: five };
     const labels = ["P1", "P2", "P3", "P4", "P5"];
 
     expect(parseResolution(answer([{ request: "R1", kind: "between", products: labels, values: [] }]), many, budget).success).toBe(false);
     expect(parseResolution(answer([{ request: "R1", kind: "between", products: ["P1"], values: [] }]), many, budget).success).toBe(false);
-    expect(parseResolution(answer([{ request: "R1", kind: "chosen", products: ["P1"], values: [{ attribute: "Talla", value: "XL", quote: "mediana" }] },
-      { request: "R2", kind: "none", products: [], values: [] }]), input, budget).success).toBe(false);
+  });
+
+  test("drops a value that is not in the catalog as unmatched instead of refusing the answer", () => {
+    const result = parseResolution(answer([{ request: "R1", kind: "chosen", products: ["P1"], values: [{ attribute: "Talla", value: "XL", quote: "mediana" }], unmatched: [] },
+      { request: "R2", kind: "none", products: [], values: [] }]), input, budget);
+
+    expect(result).toEqual({ success: true, data: [{ request: "R1", kind: "chosen", productId: productId(1), values: [], unmatched: [quote("mediana")] }, { request: "R2", kind: "none" }] });
+  });
+
+  test("keeps the unmatched value words the answer lists, once, and ignores quotes the buyer did not write", () => {
+    const result = parseResolution(answer([{ request: "R1", kind: "chosen", products: ["P1"], values: [{ attribute: "Talla", value: "M", quote: "mediana" }], unmatched: ["Mediana", "inventada"] },
+      { request: "R2", kind: "none", products: [], values: [] }]), input, budget);
+
+    expect(result.success && result.data[0]).toEqual({ request: "R1", kind: "chosen", productId: productId(1), values: [{ attribute: "Talla", value: "M", quote: quote("mediana") }], unmatched: [] });
+  });
+
+  test("accepts a value quoted from the mention's own words", () => {
+    const inName: ResolutionInput = { mentions: [mention(1, "polo basico negro")], candidates: [polo] };
+    const result = parseResolution(answer([{ request: "R1", kind: "chosen", products: ["P1"], values: [{ attribute: "Color", value: "Negro", quote: "negro" }] }]), inName, budget);
+
+    expect(result).toEqual({ success: true, data: [{ request: "R1", kind: "chosen", productId: productId(1), values: [{ attribute: "Color", value: "Negro", quote: quote("negro") }], unmatched: [] }] });
+  });
+
+  test("keeps in a between only the values every candidate offers", () => {
+    const twin = product(3, "Polo oversize", [{ name: "Talla", values: ["M", "L"] }, { name: "Color", values: ["Rojo"] }]);
+    const both: ResolutionInput = { mentions: [mention(1, "polo", [value("mediana", "talla"), value("negro")])], candidates: [polo, twin] };
+    const result = parseResolution(answer([{ request: "R1", kind: "between", products: ["P1", "P2"],
+      values: [{ attribute: "Talla", value: "M", quote: "mediana" }, { attribute: "Color", value: "Negro", quote: "negro" }] }]), both, budget);
+
+    expect(result).toEqual({ success: true, data: [{ request: "R1", kind: "between", productIds: [productId(1), productId(3)], values: [{ attribute: "Talla", value: "M", quote: quote("mediana") }] }] });
+  });
+
+  test("renders a values-only mention without product words", () => {
+    const only: ResolutionInput = { mentions: [{ ...mention(1, "negra", [value("negra")], [productId(1)]), valuesOnly: true }], candidates: [polo] };
+    const { text } = planResolution(only, budget);
+
+    expect(text).toContain("R1: (product already known) — values: «negra»");
+    expect(text).toContain("R1 may be: P1");
+    expect(parseResolution(answer([{ request: "R1", kind: "chosen", products: ["P1"], values: [{ attribute: "Color", value: "Negro", quote: "negra" }] }]), only, budget))
+      .toEqual({ success: true, data: [{ request: "R1", kind: "chosen", productId: productId(1), values: [{ attribute: "Color", value: "Negro", quote: quote("negra") }], unmatched: [] }] });
   });
 
   test("resolves a mention that was not rendered to none", () => {
     const orphan: ResolutionInput = { mentions: [mention(1, "polo", [], [productId(1)]), mention(2, "camisa", [], [])], candidates: [polo] };
     const result = parseResolution(answer([{ request: "R1", kind: "chosen", products: ["P1"], values: [] }]), orphan, budget);
 
-    expect(result).toEqual({ success: true, data: [{ request: "R1", kind: "chosen", productId: productId(1), values: [] }, { request: "R2", kind: "none" }] });
+    expect(result).toEqual({ success: true, data: [{ request: "R1", kind: "chosen", productId: productId(1), values: [], unmatched: [] }, { request: "R2", kind: "none" }] });
   });
 
   test("refuses a mention the answer leaves out or resolves twice", () => {
@@ -114,7 +152,7 @@ describe("resolution fallback", () => {
   test("leaves a mention not identified when its choice is outside the candidates and keeps the rest", () => {
     const result = resolutionFallback({ results: [{ request: "R1", kind: "chosen", products: ["P9"], values: [] }, { request: "R2", kind: "chosen", products: ["P2"], values: [] }] }, input, budget);
 
-    expect(result).toEqual([{ request: "R1", kind: "none" }, { request: "R2", kind: "chosen", productId: productId(2), values: [] }]);
+    expect(result).toEqual([{ request: "R1", kind: "none" }, { request: "R2", kind: "chosen", productId: productId(2), values: [], unmatched: [] }]);
   });
 
   test("does not repair invalid JSON or any other defect", () => {

@@ -122,6 +122,33 @@ describe("helpers", () => {
   test("a mention is a request that names its product", () => {
     const named = { request: request("R1", "add"), complete: true };
     const unnamed = { request: { ...request("R2", "add"), target: { kind: "none" } as const }, complete: true };
-    expect(mentionsOf([named, unnamed]).map(({ request: id }) => id)).toEqual(["R1"]);
+    expect(mentionsOf([named, unnamed], context.input, []).map(({ request: id }) => id)).toEqual(["R1"]);
+  });
+
+  test("a request with values for a product its target fixes is a values-only mention of that product", () => {
+    const withValues = (target: ExtractedRequest["target"]) => ({ request: { ...request("R1", "complete_pending"), target, values: [{ attributeWords: null, valueWords: current("negra") }] }, complete: true });
+    const input = { ...context.input, pendings: [{ ref: "Q1", pendingId: "p1", productIds: [productId], known: {}, quantity: 1, doubtful: false }],
+      items: [{ ref: "I1", itemId: "i1", productId, variantId: "v1", productName: "Polera", variantAttributes: {}, quantity: 1 }] } as unknown as typeof context.input;
+
+    expect(mentionsOf([withValues({ kind: "pending", ref: "Q1" as never, named: null })], input, [])).toEqual([expect.objectContaining({ valuesOnly: true, candidateIds: [productId] })]);
+    expect(mentionsOf([withValues({ kind: "item", ref: "I1" as never, named: null })], input, [])).toEqual([expect.objectContaining({ valuesOnly: true, candidateIds: [productId] })]);
+    expect(mentionsOf([withValues({ kind: "photo_same_message" })], input, [productId])).toEqual([expect.objectContaining({ valuesOnly: true, candidateIds: [productId] })]);
+    expect(mentionsOf([withValues({ kind: "photo_same_message" })], input, [])).toEqual([]);
+    expect(mentionsOf([withValues({ kind: "none" })], input, [productId])).toEqual([]);
+  });
+});
+
+describe("values-only resolution", () => {
+  test("resolves the values of a completion without searching the catalog", async () => {
+    const values = [{ attributeWords: null, valueWords: current("negra") }];
+    const { deps, log } = fakes({ intent: { kind: "requests", requests: [intent("R1", "complete_pending", "negra")], language: "es", addresses: [] },
+      extraction: [{ ...request("R1", "complete_pending"), target: { kind: "pending", ref: "Q1" as never, named: null }, values }] });
+    const withPending = { ...context, input: { ...context.input, text: "negra", current: { ...context.input.current, text: "negra" },
+      pendings: [{ ref: "Q1", pendingId: "p1", productIds: [productId], known: {}, quantity: 1, doubtful: false }] } } as unknown as ReadingContextData;
+    const run = await runReading(deps, withPending, [], signal());
+
+    expect(run.success).toBe(true);
+    expect(log.calls).toContain("resolution:primary");
+    expect(log.searches).toBe(0);
   });
 });

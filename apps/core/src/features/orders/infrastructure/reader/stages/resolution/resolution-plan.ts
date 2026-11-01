@@ -47,7 +47,8 @@ function compose(entries: readonly Entry[], byId: ReadonlyMap<ProductId, Product
   const refs = new Map(order.map((id, index) => [id, `P${index + 1}`]));
   const lines = ["Mentions:", ...entries.flatMap(({ mention, ids }) => {
     const values = mention.values.map((value) => `${value.attributeWords ? `${value.attributeWords.text} ` : ""}«${value.valueWords.text}»`);
-    return [`${mention.request}: «${mention.words.text}»${values.length ? ` — values: ${values.join("; ")}` : ""}`,
+    const subject = mention.valuesOnly ? "(product already known)" : `«${mention.words.text}»`;
+    return [`${mention.request}: ${subject}${values.length ? ` — values: ${values.join("; ")}` : ""}`,
       ...withCandidateLines ? [`${mention.request} may be: ${ids.map((id) => refs.get(id)).join(", ")}`] : []];
   }), "Products (answer with these labels):", ...order.map((id) => {
     const product = byId.get(id)!;

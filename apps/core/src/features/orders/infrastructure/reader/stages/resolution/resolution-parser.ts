@@ -1,7 +1,8 @@
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import type { ProductResolution, Quote } from "@core/src/features/orders/domain/reader/readings";
+import type { ProductMention, ProductResolution, Quote, ResolvedValue } from "@core/src/features/orders/domain/reader/readings";
+import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
 import type { ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 import { noneFor, planResolution, type ResolutionPlan } from "@core/src/features/orders/infrastructure/reader/stages/resolution/resolution-plan";
 
@@ -9,6 +10,7 @@ const answerSchema = z.object({
   results: z.array(z.object({
     request: z.string(), kind: z.enum(["chosen", "between", "none"]), products: z.array(z.string()),
     values: z.array(z.object({ attribute: z.string(), value: z.string(), quote: z.string() })),
+    unmatched: z.array(z.string()).default([]),
   })),
 });
 type Answered = z.infer<typeof answerSchema>["results"][number];
@@ -18,6 +20,44 @@ const fold = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLo
 /** Why one mention's answer was refused: a label outside its candidates is the only reason the stage falls back to `none`. */
 type Refusal = Readonly<{ reason: "outside_candidates" | "invalid"; message: string }>;
 
+/** The buyer's words a quote points to: a value of the mention, or words inside the mention's own words (a value the extraction left in the name). Null when it is neither. */
+function quoteOf(mention: ProductMention, quote: string): Quote | null {
+  const folded = fold(quote);
+  if (folded === "") return null;
+  const value = mention.values.find(({ valueWords }) => fold(valueWords.text) === folded);
+  if (value) return value.valueWords;
+  return !mention.valuesOnly && fold(mention.words.text).includes(folded) ? { ...mention.words, text: quote.trim() } : null;
+}
+
+/**
+ * The values of an answer for the products it chose: a value that is not in the catalog, or whose quote is not the buyer's, is dropped, and the buyer's
+ * words that fit nothing are `unmatched`. Only the products' common values are kept for several products (none unmatched).
+ */
+function mapValues(answered: Answered, mention: ProductMention, products: readonly ProductForReading[]): Readonly<{ values: ResolvedValue[]; unmatched: Quote[] }> {
+  const values: ResolvedValue[] = [];
+  const unmatched: Quote[] = [];
+  for (const { attribute, value, quote } of answered.values) {
+    const words = quoteOf(mention, quote);
+    if (!words) continue;
+    const found = products.map((product) => {
+      const catalogAttribute = product.attributes.find(({ name }) => fold(name) === fold(attribute));
+      const catalogValue = catalogAttribute?.values.find((candidate) => fold(candidate) === fold(value));
+      return catalogAttribute && catalogValue !== undefined ? { attribute: catalogAttribute.name, value: catalogValue } : null;
+    });
+    const [first] = found;
+    if (first && found.every((entry) => entry !== null && entry.attribute === first.attribute && entry.value === first.value)) values.push({ ...first, quote: words });
+    else if (products.length === 1) unmatched.push(words);
+  }
+  if (products.length === 1) {
+    for (const quote of answered.unmatched) {
+      const words = quoteOf(mention, quote);
+      if (words) unmatched.push(words);
+    }
+  }
+  const left = unmatched.filter((words, index) => !values.some((entry) => fold(entry.quote.text) === fold(words.text)) && unmatched.findIndex((other) => fold(other.text) === fold(words.text)) === index);
+  return { values, unmatched: left };
+}
+
 function resolveOne(plan: ResolutionPlan, answered: Answered): Result<ProductResolution, Refusal> {
   const entry = plan.rendered.find(({ mention }) => mention.request === answered.request)!;
   const refuse = (reason: Refusal["reason"], message: string) => err<Refusal>({ reason, message });
@@ -25,22 +65,15 @@ function resolveOne(plan: ResolutionPlan, answered: Answered): Result<ProductRes
   if (productIds.some((id) => id === undefined || !entry.allowed.includes(id))) return refuse("outside_candidates", `${answered.request} chose a product outside its candidates`);
   const ids = productIds as NonNullable<(typeof productIds)[number]>[];
   if (new Set(ids).size !== ids.length) return refuse("invalid", `${answered.request} repeats a product`);
-  if (answered.kind === "none") return ids.length === 0 && answered.values.length === 0 ? ok(noneFor(entry.mention.request)) : refuse("invalid", `${answered.request} is none but carries data`);
+  if (answered.kind === "none") return ids.length === 0 ? ok(noneFor(entry.mention.request)) : refuse("invalid", `${answered.request} is none but names a product`);
   if (answered.kind === "between") {
-    return ids.length >= 2 && ids.length <= 4 && answered.values.length === 0 ? ok({ request: entry.mention.request, kind: "between", productIds: ids }) : refuse("invalid", `${answered.request} must be between two and four products`);
+    if (ids.length < 2 || ids.length > 4) return refuse("invalid", `${answered.request} must be between two and four products`);
+    const { values } = mapValues(answered, entry.mention, answered.products.map((label) => plan.products.get(label)!));
+    return ok({ request: entry.mention.request, kind: "between", productIds: ids, values });
   }
   if (ids.length !== 1) return refuse("invalid", `${answered.request} must choose exactly one product`);
-  const product = plan.products.get(answered.products[0]!)!;
-  const values: Extract<ProductResolution, { kind: "chosen" }>["values"][number][] = [];
-  for (const { attribute, value, quote } of answered.values) {
-    const catalogAttribute = product.attributes.find(({ name }) => fold(name) === fold(attribute));
-    const catalogValue = catalogAttribute?.values.find((candidate) => fold(candidate) === fold(value));
-    const mentioned = entry.mention.values.find(({ valueWords }) => fold(valueWords.text) === fold(quote));
-    if (!catalogAttribute || catalogValue === undefined || !mentioned) return refuse("invalid", `${answered.request} maps a value that is not in the catalog or the mention`);
-    const words: Quote = mentioned.valueWords;
-    values.push({ attribute: catalogAttribute.name, value: catalogValue, quote: words });
-  }
-  return ok({ request: entry.mention.request, kind: "chosen", productId: ids[0]!, values });
+  const { values, unmatched } = mapValues(answered, entry.mention, [plan.products.get(answered.products[0]!)!]);
+  return ok({ request: entry.mention.request, kind: "chosen", productId: ids[0]!, values, unmatched });
 }
 
 /** The per-mention outcome of an answer, or the reason the answer as a whole is unusable. */
