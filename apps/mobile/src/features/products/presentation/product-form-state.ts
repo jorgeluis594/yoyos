@@ -3,7 +3,7 @@ import type { Product } from "../domain/product";
 import type { ProductFormField, ProductFormValues } from "./product-form";
 import i18n from '@mobile/i18n';
 
-export const emptyProductForm: ProductFormValues = { name: "", description: "", sku: "", salePrice: "", purchasePrice: "", stock: "" };
+export const emptyProductForm: ProductFormValues = { name: "", description: "", sku: "", salePrice: "", purchasePrice: "", stock: "", hidden: false };
 const fieldLabels: Record<string, string> = { name: 'name', description: 'descriptionLabel', sku: 'optionalSku', salePrice: 'salePrice', purchasePrice: 'purchasePrice', stock: 'initialStock', initialStock: 'initialStock' };
 
 export function valuesForProduct(product: Product): ProductFormValues {
@@ -15,6 +15,7 @@ export function valuesForProduct(product: Product): ProductFormValues {
     salePrice: variant?.salePrice.amount.toFixed(2) ?? "",
     purchasePrice: variant?.purchasePrice?.amount.toFixed(2) ?? "",
     stock: "",
+    hidden: product.hidden,
   };
 }
 

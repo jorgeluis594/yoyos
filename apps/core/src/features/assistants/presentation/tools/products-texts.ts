@@ -1,7 +1,5 @@
 export const productReadFailureMessage = "No pudimos leer tus productos en este momento. Inténtalo de nuevo en unos segundos.";
 export const noProductMessage = "No encontré ese producto en tu tienda. Búscalo con Buscar productos.";
-export const variantFilterOutsideCatalogMessage =
-  "Los filtros de variante (valores, precio y stock) solo miran variantes activas, y los productos que no están en el catálogo no tienen ninguna. Quita esos filtros o en_catalogo.";
 export const reversedPriceMessage = (to: string, from: string) => `El precio hasta (${to}) es menor que el precio desde (${from}).`;
 export const pageOutOfRangeMessage = (total: number) => `Esa página no existe: hay ${total} ${total === 1 ? "producto" : "productos"} en total, 20 por página.`;
 export const unknownFieldMessage = (fields: string) => `No existe el campo ${fields}. Usa solo los campos de la herramienta.`;
@@ -22,8 +20,8 @@ export const searchProductsDescription = [
   "Busca productos de la tienda. Úsala cuando el dueño pregunte qué tiene, cuánto cuesta, qué le queda de un color o talla, qué se le está acabando o qué no está en el catálogo («¿tienes polos azules en M?», «¿qué se me está acabando?»).",
   "Yoyos no tiene categorías. Para buscar un tipo de producto usa texto con una palabra corta en singular o su raíz: «polo» para «polos», «casac» para «casacas». Si no hay resultados, prueba con una más corta antes de decir que no existe. texto se busca como una sola frase en el nombre del producto o en cualquier SKU, sin distinguir mayúsculas ni tildes: «polo azul» solo encuentra nombres que contengan «polo azul»; los colores y tallas van en valores.",
   "Todos los filtros son opcionales y se combinan. valores: de 1 a 3 entradas, cada una «Azul» o «Color: Azul» (opción y valor, hasta 30 caracteres cada uno); la variante debe tener todos los valores a la vez, exactos y sin distinguir mayúsculas ni tildes. Si un valor no existe, la respuesta lista los valores de la tienda para reintentar.",
-  "precio_desde y precio_hasta: montos con hasta dos decimales en la moneda de la tienda, sobre el precio de venta de la variante, ambos extremos incluidos. stock: «con stock», «stock bajo» (1 a 3 unidades) o «agotado» (0), sobre cada variante activa. en_catalogo: «sí» o «no»; un producto está en el catálogo si tiene al menos una variante activa.",
-  "Los filtros de variante (valores, precio y stock) se aplican juntos a una misma variante activa y no se combinan con en_catalogo «no». orden: «recientes» (por defecto) o «nombre». pagina: 20 productos por página.",
+  "precio_desde y precio_hasta: montos con hasta dos decimales en la moneda de la tienda, sobre el precio de venta de la variante, ambos extremos incluidos. stock: «con stock», «stock bajo» (1 a 3 unidades) o «agotado» (0), sobre cada variante activa. en_catalogo: «sí» o «no»; un producto está en el catálogo si es visible y tiene al menos una variante activa.",
+  "Los filtros de variante (valores, precio y stock) se aplican juntos a una misma variante activa. orden: «recientes» (por defecto) o «nombre». pagina: 20 productos por página.",
   "Cada producto trae nombre, SKU, precio, stock con el resumen de sus variantes, si está en el catálogo, número de variantes, enlace de Yoyos, enlace_cliente cuando el catálogo está publicado y, con filtros de variante, las variantes que coinciden (hasta 10). Nunca trae el precio de compra: está solo en ver_producto.",
 ].join(" ");
 

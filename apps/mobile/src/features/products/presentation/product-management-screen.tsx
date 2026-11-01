@@ -61,7 +61,7 @@ export default function ProductManagementScreen() {
   const draft = editor.draft;
   const simple = !!product && product.options.length === 0;
   const dirty = !!product && !!values && !!original && (
-    values.name !== original.name || values.description !== original.description ||
+    values.name !== original.name || values.description !== original.description || values.hidden !== original.hidden ||
     (simple && (draft?.options.length ?? 0) === 0 && (values.sku !== original.sku || values.salePrice !== original.salePrice || values.purchasePrice !== original.purchasePrice)) ||
     photos.unsaved || editor.dirty
   );
@@ -120,7 +120,8 @@ export default function ProductManagementScreen() {
     <ScreenState status="error" title={loadError ?? t('productNotFound')} onRetry={() => { setLoadError(null); setReloadKey((value) => value + 1); }} />
   </SafeAreaView></ThemedView>;
 
-  const setValue = (field: keyof ProductFormValues, value: string) => {
+  const setHidden = (hidden: boolean) => setValues((current) => current ? { ...current, hidden } : current);
+  const setValue = (field: Exclude<keyof ProductFormValues, "hidden">, value: string) => {
     setValues((current) => current ? { ...current, [field]: value } : current);
     setErrors((current) => ({ ...current, [field]: undefined, form: undefined }));
   };
@@ -159,7 +160,7 @@ export default function ProductManagementScreen() {
       setErrors({ form: t('saveProductError') });
       return;
     }
-    const result = await products.saveProduct({ current: product, name: values.name, description: values.description || null, photos: photos.toSave(), draft: next });
+    const result = await products.saveProduct({ current: product, name: values.name, description: values.description || null, photos: photos.toSave(), hidden: values.hidden, draft: next });
     setSaving(false);
     if (!result.success) {
       if (result.error.code === "PRODUCT_NOT_FOUND") { setProduct(null); setValues(null); setLoadError(t('productNotFound')); return; }
@@ -176,16 +177,17 @@ export default function ProductManagementScreen() {
       return;
     }
     // The response is the saved detail: the screen takes it as is, with no follow-up read.
-    setProduct(result.data);
-    editor.publish(result.data);
-    setValues(valuesForProduct(result.data));
-    editor.reset(editorDraftOf(result.data), result.data.currency);
-    photos.reset(result.data.photos);
+    const saved = result.data.product;
+    setProduct(saved);
+    editor.publish(saved);
+    setValues(valuesForProduct(saved));
+    editor.reset(editorDraftOf(saved), saved.currency);
+    photos.reset(saved.photos);
     setErrors({});
     setUncertain(false);
     setChanged(false);
     setDirty(false);
-    Alert.alert(t('savedChanges'), t('productUpdated'));
+    Alert.alert(t('savedChanges'), result.data.catalogEmptied ? `${t('productUpdated')}\n\n${t('catalogEmptiedNotice')}` : t('productUpdated'));
   };
   const reload = () => {
     const run = async () => {
@@ -223,6 +225,7 @@ export default function ProductManagementScreen() {
       </Pressable> : undefined}
       values={values}
       setValue={setValue}
+      setHidden={setHidden}
       currency={product.currency}
       current={product}
       draft={draft}
