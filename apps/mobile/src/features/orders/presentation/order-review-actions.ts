@@ -4,7 +4,8 @@ import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import type { Result } from "@shared/result";
 import { orders } from "@mobile/features/orders/composition";
 import { repeatWhileInDoubt } from "@mobile/features/orders/application/in-doubt";
-import type { ConfirmOrderReviewInput, ReviewRequestError } from "@mobile/features/orders/application/order-operations";
+import type { ReviewRequestError } from "@mobile/features/orders/application/order-operations";
+import type { ConfirmOrderReviewInput } from "@mobile/features/orders/infrastructure/order-api";
 
 export type LinkActionKind = "copy" | "share" | "open";
 export type UndoRefusalReason = "order_moved_on" | "later_change" | "would_empty" | "not_sold";

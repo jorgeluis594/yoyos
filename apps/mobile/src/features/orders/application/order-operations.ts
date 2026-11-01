@@ -1,10 +1,6 @@
 import { z } from "zod";
 import { listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderCatalogSchema,
   type ListOrderAggregatesRequest, type UpdateOrderShippingRequest, type ListOrdersRequest, type OrderAggregateResponse, type OrderApiError, type OrderApiIssue } from "@shared/contracts/orders";
-import type { EditOrderItemsRequest, EditOrderItemsResponse } from "@shared/contracts/order-items-edit";
-import type { ConfirmOrderReviewRequest, ConfirmOrderReviewResponse, OrderReviewResponse } from "@shared/contracts/order-review";
-import type { UndoMessageResponse } from "@shared/contracts/order-message-undo";
-import type { RecordLinkActionRequest } from "@shared/contracts/order-link-actions";
 import { err, ok } from "@shared/functional";
 import type { Money } from "@shared/money";
 import { limaMidnightUtc, nextCalendarDay } from "@shared/orders-date";
@@ -46,8 +42,6 @@ export type ReviewRequestError = Readonly<{
   newPoints?: number;
 }>;
 export type UndoRequestError = Readonly<{ code: OrderRequestError["code"] | "UNDO_REFUSED"; message: string; reason?: "order_moved_on" | "later_change" | "would_empty" | "not_sold"; variantId?: string }>;
-export type ConfirmOrderReviewInput = Omit<ConfirmOrderReviewRequest, "version">;
-export type RecordLinkActionInput = Omit<RecordLinkActionRequest, "version">;
 
 export type RejectPaymentOutcome =
   | Readonly<{ kind: "rejected"; order: OrderAggregateResponse }>
@@ -72,9 +66,6 @@ export type PendingOrderReview = Readonly<{
 }>;
 const itemLabelsOf = (draft: OrderDraft): Record<string, string> => draft.kind !== "items" ? {} : Object.fromEntries(draft.items
   .map((item) => [item.variantId, Object.values(item.variantAttributes).join(" / ")] as const).filter(([, label]) => label));
-
-/** The final lines of the order and the items revision they were edited from. */
-export type EditOrderItemsInput = Omit<EditOrderItemsRequest, "version">;
 
 export type OrderListCriteria = Readonly<{
   page: number;
@@ -101,11 +92,6 @@ type Api = Readonly<{
   getAggregate: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   list: (input: ListOrdersRequest) => Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>>;
   get: (id: string) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
-  editOrderItems: (orderId: string, input: EditOrderItemsInput) => Promise<Result<EditOrderItemsResponse, OrderRequestError>>;
-  loadOrderReview: (orderId: string, options?: Readonly<{ allRows?: boolean }>) => Promise<Result<OrderReviewResponse, OrderRequestError>>;
-  confirmOrderReview: (orderId: string, input: ConfirmOrderReviewInput) => Promise<Result<ConfirmOrderReviewResponse, ReviewRequestError>>;
-  undoMessage: (orderId: string, messageId: string) => Promise<Result<UndoMessageResponse, UndoRequestError>>;
-  recordLinkAction: (orderId: string, input: RecordLinkActionInput) => Promise<Result<void, OrderRequestError>>;
   rejectPayment: (orderId: string, paymentId: string, reason: string | null) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   updateShipping: (orderId: string, input: UpdateOrderShippingRequest) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
   create: (input: OrderSubmission) => Promise<Result<OrderAggregateResponse, OrderRequestError>>;
@@ -240,11 +226,6 @@ export function createOrderOperations(api: Api, pendingStore: PendingStore) {
       return input.success ? api.listAggregates(input.data) : input;
     },
     loadOrderAggregate: api.getAggregate,
-    editOrderItems: api.editOrderItems,
-    loadOrderReview: api.loadOrderReview,
-    confirmOrderReview: api.confirmOrderReview,
-    undoMessage: api.undoMessage,
-    recordLinkAction: api.recordLinkAction,
     updateOrderShipping: api.updateShipping,
     enableOrderCheckout: api.enableCheckout,
     loadOrders: async (criteria: OrderListCriteria) => {

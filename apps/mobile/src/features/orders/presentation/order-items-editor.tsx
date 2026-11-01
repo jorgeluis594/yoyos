@@ -5,7 +5,7 @@ import { maxOrderLineQuantity } from "@shared/orders-edit";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
 import { useTheme } from "@mobile/hooks/use-theme";
-import { QuantityStepper } from "@mobile/features/products/presentation/quantity-stepper";
+import { QuantityStepper } from "@mobile/components/ui/quantity-stepper";
 import tokens from "../../../../../../docs/design-tokens.json";
 
 type OrderItem = OrderAggregateResponse["items"][number];
