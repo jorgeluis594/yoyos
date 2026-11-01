@@ -44,7 +44,8 @@ export type ExtractedRequest = Readonly<{
   price: Readonly<{ amount: number; currency: "order" | "other"; basis: "unit" | "lot" | "not_explicit"; quote: Quote }> | null;
   changeVerb: Quote | null;
 }>;
-export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"] }>;
+/** `candidateIds` are the products the mention may be resolved to (from `assembleCandidates`); absent means any candidate listed with it. */
+export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"]; candidateIds?: readonly ProductId[] }>;
 export type ProductResolution =
   | Readonly<{ request: RequestRef; kind: "chosen"; productId: ProductId; values: readonly Readonly<{ attribute: string; value: string; quote: Quote }>[] }>
   /** Two to four products. */

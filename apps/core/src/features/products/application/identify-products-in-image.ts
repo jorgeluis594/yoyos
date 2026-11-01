@@ -6,7 +6,7 @@ import type { ReadQrCodes } from "@core/src/shared/images/infrastructure/qr-code
 import type { EmbedImage } from "@core/src/features/products/application/index-product-photos";
 import {
   acceptVisualMatch, selectProductCode, showsProduct,
-  type CatalogItem, type EmbeddingModel, type EmbeddingVector, type ImageBytes, type MatchConfidence, type VariantQrCode, type VisualCandidate, type VisualChoice,
+  type CatalogItem, type ChooserUsage, type EmbeddingModel, type EmbeddingVector, type ImageBytes, type MatchConfidence, type VariantQrCode, type VisualCandidate, type VisualChoice,
 } from "@core/src/features/products/domain/image-identification";
 
 /** A sellable variant read from its QR code, with the product it belongs to. */
@@ -15,10 +15,11 @@ export type IdentifiedItem = CatalogItem & Readonly<{ productId: ProductId }>;
 // A visual hit names only the product: the variant is chosen later by the single variant authority (`resolveVariant`).
 export type ImageIdentification =
   | Readonly<{ kind: "found"; method: "qr"; items: readonly IdentifiedItem[]; unknownCodes: readonly VariantQrCode[] }>
-  | Readonly<{ kind: "found"; method: "visual"; productId: ProductId; confidence: MatchConfidence; candidates: number } & VisualDistances>
-  | Readonly<{ kind: "not_found"; reason: IdentificationMissReason } & Partial<VisualDistances>>
+  // `usage` is what the chooser's model call used; absent when the provider reports none. It is also reported on a miss or a non-product once the chooser ran.
+  | Readonly<{ kind: "found"; method: "visual"; productId: ProductId; confidence: MatchConfidence; candidates: number; usage?: ChooserUsage } & VisualDistances>
+  | Readonly<{ kind: "not_found"; reason: IdentificationMissReason; usage?: ChooserUsage } & Partial<VisualDistances>>
   // Non-product QR codes only, or a photo that does not show a product: no purchase intent.
-  | Readonly<{ kind: "not_product" } & Partial<VisualDistances>>;
+  | Readonly<{ kind: "not_product"; usage?: ChooserUsage } & Partial<VisualDistances>>;
 
 // Cosine distances only for logs: measure hits vs non-product images before choosing a threshold.
 export type VisualDistances = Readonly<{ topDistance: number; chosenDistance?: number; chosenPhotoPosition?: number }>;
@@ -67,7 +68,7 @@ export type IdentifyProductsDependencies = Readonly<{
 }>;
 
 type Identified = Result<ImageIdentification, IdentifyProductsError>;
-const notFound = (reason: IdentificationMissReason, distances?: VisualDistances): Identified => ok({ kind: "not_found", reason, ...distances });
+const notFound = (reason: IdentificationMissReason, distances?: VisualDistances, usage?: ChooserUsage): Identified => ok({ kind: "not_found", reason, ...distances, ...usage && { usage } });
 
 /** Cascade: printed QR first; visual search only when the image carries no QR code at all. */
 export async function identifyProductsInImage(image: ImageBytes, deps: IdentifyProductsDependencies, signal?: AbortSignal): Promise<Identified> {
@@ -112,7 +113,7 @@ async function searchVisually(image: ImageBytes, visual: VisualSearch, signal?: 
   const distances: VisualDistances = { topDistance: Math.min(...available.map(({ candidate }) => candidate.distance)),
     ...(chosen && { chosenDistance: chosen.candidate.distance, chosenPhotoPosition: chosen.candidate.position }) };
   // A photo that is not a product is no purchase intent, whatever the match said: a selfie in a knitted sweater can still resemble one.
-  if (!showsProduct(choice.data)) return ok({ kind: "not_product", ...distances });
-  if (match.kind === "rejected") return notFound(match.reason, distances);
-  return ok({ kind: "found", method: "visual", productId: match.productId, confidence: match.confidence, candidates: available.length, ...distances });
+  if (!showsProduct(choice.data)) return ok({ kind: "not_product", ...distances, ...choice.data.usage && { usage: choice.data.usage } });
+  if (match.kind === "rejected") return notFound(match.reason, distances, choice.data.usage);
+  return ok({ kind: "found", method: "visual", productId: match.productId, confidence: match.confidence, candidates: available.length, ...distances, ...choice.data.usage && { usage: choice.data.usage } });
 }
