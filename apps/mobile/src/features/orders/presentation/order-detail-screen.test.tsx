@@ -1,9 +1,13 @@
 import { AccessibilityInfo, Alert, Linking, Share, StyleSheet } from "react-native";
 import * as Clipboard from "expo-clipboard";
-import { act, fireEvent, render, waitFor } from "@testing-library/react-native";
+import { act, configure, fireEvent, render, waitFor } from "@testing-library/react-native";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
 import OrderDetailScreen from "@mobile/features/orders/presentation/order-detail-screen";
 import i18n from "@mobile/i18n";
+
+// A cold run (empty transform cache) loads the screen's modules lazily during the first renders, which outlasts the 1 s wait and 5 s test defaults.
+configure({ asyncUtilTimeout: 8000 });
+jest.setTimeout(30000);
 
 const mockId = "00000000-0000-4000-8000-000000000003";
 let mockNotice: { id: string; shownTotal: { amount: number; currency: string } } | null = null;
