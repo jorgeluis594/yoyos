@@ -144,12 +144,68 @@ describe("renderSellerNotice with the single reader", () => {
     expect(pt(notice(null)).body).toBe("Um cliente pediu um produto que não está mais à venda. Veja o chat.");
   });
 
-  test("writes the photo-added text with the product and order number in es and pt-BR", () => {
-    const notice = (orderId: OrderId | null): SellerNotice => ({ kind: "caption_not_applied", productId: product(3), orderId, newOrderId: null });
-    expect(es(notice(order(1)))).toMatchObject({ title: "Revisa el chat", body: "Un cliente envió una foto de Gorra y la agregamos al pedido #1023, pero no pudimos aplicar lo que escribió." });
-    expect(pt(notice(order(1)))).toMatchObject({ title: "Veja o chat", body: "Um cliente enviou uma foto de Gorra e a adicionamos ao pedido #1023, mas não conseguimos aplicar o que escreveu." });
-    expect(es(notice(null)).body).toBe("Un cliente envió una foto de Gorra y la agregamos a un pedido, pero no pudimos aplicar lo que escribió.");
-    expect(pt(notice(null)).body).toBe("Um cliente enviou uma foto de Gorra e a adicionamos a um pedido, mas não conseguimos aplicar o que escreveu.");
+  test("renders a payment request on an open order in es and pt-BR", () => {
+    const notice: SellerNotice = { kind: "payment_request", order: { kind: "open", orderId: order(1) }, productIds: [], unnamed: 0, newOrderId: null };
+    expect(es(notice)).toMatchObject({ title: "Revisa el chat", body: "Un cliente quiere pagar el pedido #1023.", data: { target: "message" } });
+    expect(pt(notice)).toMatchObject({ title: "Veja o chat", body: "Um cliente quer pagar o pedido #1023." });
+  });
+
+  test("renders a payment request with no order, or on an order that is closed", () => {
+    const none: SellerNotice = { kind: "payment_request", order: { kind: "none" }, productIds: [], unnamed: 0, newOrderId: null };
+    expect(es(none).body).toBe("Un cliente quiere pagar.");
+    expect(pt(none).body).toBe("Um cliente quer pagar.");
+    const closed: SellerNotice = { kind: "payment_request", order: { kind: "closed", orderId: order(1) }, productIds: [product(1)], unnamed: 0, newOrderId: null };
+    expect(es(closed).body).toBe("Un cliente quiere pagar, pero el pedido #1023 ya tiene un pago o está cerrado. Revisa el chat.");
+    expect(pt(closed).body).toBe("Um cliente quer pagar, mas o pedido #1023 já tem um pagamento ou está fechado. Veja o chat.");
+  });
+
+  test("renders a payment request with pendings left naming up to three products", () => {
+    const open = { kind: "open", orderId: order(1) } as const;
+    const one: SellerNotice = { kind: "payment_request", order: open, productIds: [product(1)], unnamed: 0, newOrderId: null };
+    expect(es(one).body).toBe("Un cliente quiere pagar el pedido #1023, pero falta completar Polo básico.");
+    expect(pt(one).body).toBe("Um cliente quer pagar o pedido #1023, mas falta completar Polo básico.");
+    const many: SellerNotice = { kind: "payment_request", order: open, productIds: [product(1), product(2), product(3), product(4)], unnamed: 1, newOrderId: null };
+    expect(es(many).body).toBe("Un cliente quiere pagar el pedido #1023, pero falta completar Polo básico, Polo premium, Gorra y 2 más.");
+    expect(pt(many).body).toBe("Um cliente quer pagar o pedido #1023, mas falta completar Polo básico, Polo premium, Gorra e mais 2.");
+    expect(es({ ...one, order: { kind: "none" } }).body).toBe("Un cliente quiere pagar, pero falta completar Polo básico.");
+  });
+
+  test("names the order a payment request created", () => {
+    const notice: SellerNotice = { kind: "payment_request", order: { kind: "none" }, productIds: [], unnamed: 0, newOrderId: order(2) };
+    expect(es(notice).body).toBe("Un cliente quiere pagar. Se creó el pedido nuevo #1024.");
+  });
+
+  test("renders «Pedido #N cambió» opening the order", () => {
+    const notice: SellerNotice = { kind: "order_changed_after_link", orderId: order(1) };
+    expect(es(notice)).toEqual({ title: "Pedido #1023 cambió", body: "Un cliente cambió el pedido #1023 después de recibir el enlace. Revísalo antes de cobrar.",
+      data: { v: 1, companyId: id(100), messageId: id(101), target: "order" }, groupKey: id(102) });
+    expect(pt(notice)).toMatchObject({ title: "Pedido #1023 mudou", body: "Um cliente mudou o pedido #1023 depois de receber o link. Revise antes de cobrar." });
+  });
+
+  test("renders the suggested question at the end of the body in the buyer's language", () => {
+    const question = (language: "es" | "pt") => ({ language, kind: "which_variant", product: "Polo básico", attribute: "talla", values: ["S", "M", "L"] }) as const;
+    const notice = (language: "es" | "pt"): SellerNotice => ({ kind: "variant_missing", productId: product(1), newOrderId: null, question: question(language) });
+    expect(es(notice("es")).body).toBe("Un cliente pidió Polo básico pero no dijo qué talla o color. Revisa el chat. Polo básico: ¿en qué talla, S, M o L?");
+    expect(es(notice("es")).body.endsWith("Polo básico: ¿en qué talla, S, M o L?")).toBe(true);
+    expect(pt(notice("pt")).body.endsWith("Polo básico: em qual tamanho, S, M ou L?")).toBe(true);
+    // The question is in the buyer's language, the rest in the device's.
+    expect(es(notice("pt")).body.endsWith("Polo básico: em qual tamanho, S, M ou L?")).toBe(true);
+  });
+
+  test("appends the changed-after-link sentence in the device's language", () => {
+    const notice: SellerNotice = { kind: "ready_with_pendings", orderId: order(1), productIds: [product(1)], unnamed: 0, changedAfterLink: true };
+    expect(es(notice).body).toBe("Un cliente dice que terminó el pedido #1023, pero falta completar Polo básico. El pedido cambió después de enviar el enlace.");
+    expect(pt(notice).body).toBe("Um cliente diz que terminou o pedido #1023, mas falta completar Polo básico. O pedido mudou depois de enviar o link.");
+  });
+
+  test("puts the changed-after-link sentence before the question", () => {
+    const notice: SellerNotice = { kind: "unnamed_add", newOrderId: null, changedAfterLink: true, question: { language: "es", kind: "photo_product_name" } };
+    expect(es(notice).body).toBe("Un cliente pidió más de un producto sin decir cuál. El pedido cambió después de enviar el enlace. ¿Me dices el nombre del producto de la foto?");
+  });
+
+  test("puts the new-order sentence before the question so the question closes the body", () => {
+    const notice: SellerNotice = { kind: "unnamed_add", newOrderId: order(2), question: { language: "es", kind: "photo_product_name" } };
+    expect(es(notice).body).toBe("Un cliente pidió más de un producto sin decir cuál. Se creó el pedido nuevo #1024. ¿Me dices el nombre del producto de la foto?");
   });
 
   test("writes the generic not-applied text with and without an order number", () => {
