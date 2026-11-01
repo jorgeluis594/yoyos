@@ -104,7 +104,7 @@ The product and technical drafts are approved by fresh reviewer workers, not by 
 
 - Workers do not merge, rebase, push, `git stash` or open PRs; they touch only their task's scope and never `AGENTS.md`, skills or unrelated files. The coordinator merges and ships.
 - The coordinator loop does not end until the final PR to `main` has every CI check green. While a check is red or pending it keeps fixing through CI-fixer workers and watching; it never closes the turn, reports done or hands the red PR back to the founder. It stops early only when the same failure survives three fix rounds or the fix needs a founder decision, and then reports exactly that.
-- Never delete Docker networks, volumes or containers, nor run `docker prune`, without the founder's explicit yes. On "out of networks" or port clashes, stop launching, report and ask.
+- The coordinator removes the Docker resources of worktrees that no longer exist without asking: `bash apps/core/scripts/teardown-worktree.sh <deleted-worktree-path>` for each one, then keeps launching. On "out of networks" or port clashes, clean those first. Never touch the resources of a live worktree or the main checkout's `yoyos` project, nor run `docker prune`.
 - Do not commit generated test artifacts (`.impeccable/review/*.png`, `apps/core/newrelic_agent.log`, Playwright output).
 - Heartbeats and keepalives are acked in bulk without a reply. Do not message a settled dispatch; start a new one on its terminal.
 - With the host under heavy load (flaky timeouts), run fewer workers per wave and ask workers to use `--no-file-parallelism`.
