@@ -36,8 +36,11 @@ test("no single-item case without photo or pending keeps the old urgent variant-
   expect(stale).toEqual([]);
 });
 
-/** The burst case keeps the double notice until T16 settles whether «the photo just sent» covers two photos in a row. */
-const burstUntilT16 = ["conv-photo-burst-set"];
+/**
+ * The burst case keeps its allowed repeat. T16 settled the question: a photo right after another photo leaves nothing (`nextLastIncomingPhoto`), so «the photo just sent»
+ * does not cover two photos in a row and the set wording after a burst stays an unnamed add. A real run (E2) confirms whether the notices repeat.
+ */
+const burstAfterTwoPhotos = ["conv-photo-burst-set"];
 
 test("the only-item set cases are doubtful too", () => {
   for (const id of onlyItemSets) {
@@ -50,5 +53,5 @@ test("the only-item set cases are doubtful too", () => {
 test("no conversation step expects the double notice the product removed", () => {
   const repeats = allCases.flatMap((testCase) => testCase.pass !== "conversation" ? []
     : testCase.steps.filter((step) => "expected" in step && step.expectsRepeatNotice && step.expected.notice === "unnamed_add").map(() => testCase.id));
-  expect(repeats.filter((id) => !burstUntilT16.includes(id))).toEqual([]);
+  expect(repeats.filter((id) => !burstAfterTwoPhotos.includes(id))).toEqual([]);
 });

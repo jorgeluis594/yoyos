@@ -427,7 +427,7 @@ export function formatGateSummary(report: EvalReport): string {
   const { cost, readerCalls } = report;
   return [
     `Eval gate ${report.runId}`,
-    `Metrics over ${report.runs.count} run${report.runs.count === 1 ? "" : "s"} (mean and range)`,
+    `Metrics over ${report.runs.count} run${report.runs.count === 1 ? "" : "s"} (mean and range)${typeof report.settings.reader === "string" ? `, ${report.settings.reader} reader` : ""}`,
     ...metricLines(report),
     ...(report.verdicts ? [verdictLine(report.verdicts)] : []),
     "First run in detail",

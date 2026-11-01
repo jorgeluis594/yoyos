@@ -1,7 +1,10 @@
 import { isMessageStep, type EvalCase, type ImageCase, type MessageExpectation, type MessageInput } from "@core/evals/cases/schema";
 import { appendRecord, type CaseRecord } from "@core/evals/lib/case-record";
 import { runsOf } from "@core/evals/lib/runs";
+import { readerCasesOf } from "@core/evals/lib/run-selection";
 import { expectedStagesOf, scoreStages, type StageAnswer } from "@core/evals/lib/stage-facts";
+import { legacyAnswerOf } from "@core/evals/lib/staged-answer";
+import type { EvalEnv } from "@core/evals/lib/eval-env";
 
 /**
  * Fake mode (`EVAL_MODELS=fake`): every stage answers what the case expects, so the harness runs end to end with no key, no database and no model call.
@@ -19,7 +22,19 @@ function hasPhoto(input: MessageInput | Readonly<{ photo?: unknown }>): boolean 
   return input.photo !== undefined;
 }
 
-function scriptedAnswer(expectation: MessageExpectation, photo: boolean, id: string, repeat: number): StageAnswer {
+type Reader = EvalEnv["EVAL_READER"];
+/** Scripted cost of the legacy reader's single call (the reference cost of paid-gate.ts). */
+const scriptedLegacyCostUsd = 0.0011;
+
+/** The legacy baseline in fake mode: the single call answers the expected intent, as the shadow reads it (lib/staged-answer.ts `legacyAnswerOf`). */
+function scriptedLegacyAnswer(expectation: MessageExpectation, id: string, repeat: number): StageAnswer {
+  const expected = expectedStagesOf(expectation);
+  const answer = expected.intent === "requests" ? "actions" : expected.intent === "no_intent" ? "no_intent" : "doubt";
+  return legacyAnswerOf({ shadow: { answer, actionKinds: answer === "actions" ? ["add"] : [], usage: null, costUsd: scriptedLegacyCostUsd }, expected, latencyMs: 2000 + spread(id, repeat) * 3 });
+}
+
+function scriptedAnswer(expectation: MessageExpectation, photo: boolean, id: string, repeat: number, reader: Reader = "staged"): StageAnswer {
+  if (reader === "legacy") return scriptedLegacyAnswer(expectation, id, repeat);
   const expected = expectedStagesOf(expectation);
   const decision = expected.decision;
   return {
@@ -38,15 +53,15 @@ const base = (testCase: EvalCase, repeat: number): Omit<CaseRecord, "caseId" | "
 });
 
 function messageRecordOf(testCase: EvalCase, repeat: number, expectation: MessageExpectation, input: MessageInput | Readonly<{ photo?: unknown; caption?: string; text?: string }>,
-  extra: Readonly<{ caseId: string; conversationId: string | null; step: number | null; expectsRepeatNotice?: boolean }>): CaseRecord {
+  extra: Readonly<{ caseId: string; conversationId: string | null; step: number | null; expectsRepeatNotice?: boolean; reader: Reader }>): CaseRecord {
   const photo = hasPhoto(input);
-  const facts = scoreStages(expectedStagesOf(expectation), scriptedAnswer(expectation, photo, extra.caseId, repeat));
+  const facts = scoreStages(expectedStagesOf(expectation), scriptedAnswer(expectation, photo, extra.caseId, repeat, extra.reader));
   const notice = expectation.notice ?? null;
   return {
     ...base(testCase, repeat), caseId: extra.caseId, pass: testCase.pass === "conversation" ? "conversation" : testCase.pass, conversationId: extra.conversationId, step: extra.step,
     fields: { notice: true, outcome: true }, messageKind: photo ? (input.caption ? "photo_caption" : "photo") : "text", expectedSilent: notice === null,
     expectsRepeatNotice: extra.expectsRepeatNotice === true, input: input.text ?? input.caption ?? "[photo]", expected: [expectation],
-    actual: { notice, outcomes: expectation.outcomes ?? [], noticeProducts: [], order: [] }, signature: `fake:${facts.decisionActual}`, latencyMs: facts.readingMs, facts,
+    actual: { notice, outcomes: expectation.outcomes ?? [], noticeProducts: [], order: [] }, signature: `fake:${extra.reader}:${facts.decisionActual}`, latencyMs: facts.readingMs, facts,
   };
 }
 
@@ -59,23 +74,23 @@ function imageRecordOf(testCase: ImageCase, repeat: number): CaseRecord {
 }
 
 /** The records one run of a case leaves in fake mode: one for a case, one per message for a conversation. */
-export function fakeRecordsOf(testCase: EvalCase, repeat: number): readonly CaseRecord[] {
+export function fakeRecordsOf(testCase: EvalCase, repeat: number, reader: Reader = "staged"): readonly CaseRecord[] {
   if (testCase.pass === "image") return [imageRecordOf(testCase, repeat)];
   if (testCase.pass === "conversation") {
     return testCase.steps.filter(isMessageStep).map((step, index) => messageRecordOf(testCase, repeat, step.expected, step.input,
-      { caseId: `${testCase.id}#${index + 1}`, conversationId: testCase.id, step: index + 1, expectsRepeatNotice: step.expectsRepeatNotice }));
+      { caseId: `${testCase.id}#${index + 1}`, conversationId: testCase.id, step: index + 1, expectsRepeatNotice: step.expectsRepeatNotice, reader }));
   }
-  return [messageRecordOf(testCase, repeat, testCase.expected[0]!, testCase.input, { caseId: testCase.id, conversationId: null, step: null })];
+  return [messageRecordOf(testCase, repeat, testCase.expected[0]!, testCase.input, { caseId: testCase.id, conversationId: null, step: null, reader })];
 }
 
 /** Runs the selected cases `runs` times in memory, as the suites do through vitest-evals. */
-export function runFakeHarness(cases: readonly EvalCase[], runs: number): Readonly<{ records: readonly CaseRecord[] }> {
-  return { records: runsOf(cases, runs).flatMap(({ testCase, repeat }) => fakeRecordsOf(testCase, repeat)) };
+export function runFakeHarness(cases: readonly EvalCase[], runs: number, reader: Reader = "staged"): Readonly<{ records: readonly CaseRecord[] }> {
+  return { records: runsOf(readerCasesOf(cases, reader), runs).flatMap(({ testCase, repeat }) => fakeRecordsOf(testCase, repeat, reader)) };
 }
 
 /** The suite's `runCase` in fake mode: leaves the records in the run directory like the real one. */
-export async function runFakeCase(runId: string, testCase: EvalCase, repeat: number): Promise<readonly CaseRecord[]> {
-  const records = fakeRecordsOf(testCase, repeat);
+export async function runFakeCase(runId: string, testCase: EvalCase, repeat: number, reader: Reader = "staged"): Promise<readonly CaseRecord[]> {
+  const records = fakeRecordsOf(testCase, repeat, reader);
   for (const record of records) await appendRecord(runId, record);
   return records;
 }

@@ -36,7 +36,7 @@ const severity: readonly DecisionKind[] = ["urgent", "pending", "doubtful", "app
 
 function decisionKindOf(trace: MessageTrace | null, notice: string | null, outcomes: readonly string[]): DecisionKind {
   if (notice !== null) return decisionOf({ notice } as Parameters<typeof decisionOf>[0]);
-  const kinds = trace?.decisions.map(({ decision }) => decision) ?? [];
+  const kinds: readonly DecisionKind[] = trace?.decisions.map(({ decision }) => decision) ?? [];
   const worst = severity.find((kind) => kinds.includes(kind));
   return worst ?? decisionOf({ outcomes } as Parameters<typeof decisionOf>[0]);
 }
@@ -102,7 +102,7 @@ export function legacyAnswerOf(input: LegacyAnswerInput): StageAnswer {
   const { shadow } = input;
   const intent: IntentKind = shadow === null ? "unsure" : shadow.answer === "actions" || shadow.answer === "fixed" ? "requests" : shadow.answer === "no_intent" ? "no_intent" : "unsure";
   return {
-    intent, fields: null, product: null, decision: null,
+    intent, fields: null, product: null, decision: null, intentOnly: true,
     changeApplied: shadow?.answer === "actions", marked: false, point: false, noticed: false, changedNotice: false, orderMatches: null,
     readingMs: input.latencyMs, queuedMs: 0,
     stageCostsUsd: shadow?.costUsd != null ? { legacy: shadow.costUsd } : {},
