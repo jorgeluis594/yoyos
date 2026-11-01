@@ -2,10 +2,10 @@ import type { OrderSubmission } from "@mobile/features/orders/domain/order-draft
 import type { CancelledOrderState, CancellationOrderState, CancellationRequestError } from "@mobile/features/orders/application/cancel-order";
 import { cancelOrderParamsSchema, cancelOrderResponseSchema, cancelOrderErrorSchema } from "@shared/contracts/orders";
 import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
-import { editOrderItemsErrorSchema, editOrderItemsRequestSchema, editOrderItemsResponseSchema, type EditOrderItemsResponse } from "@shared/contracts/order-items-edit";
-import { confirmOrderReviewRequestSchema, confirmOrderReviewResponseSchema, orderReviewErrorSchema, orderReviewResponseSchema, type ConfirmOrderReviewResponse, type OrderReviewResponse } from "@shared/contracts/order-review";
+import { editOrderItemsErrorSchema, editOrderItemsRequestSchema, editOrderItemsResponseSchema, type EditOrderItemsRequest, type EditOrderItemsResponse } from "@shared/contracts/order-items-edit";
+import { confirmOrderReviewRequestSchema, confirmOrderReviewResponseSchema, orderReviewErrorSchema, orderReviewResponseSchema, type ConfirmOrderReviewRequest, type ConfirmOrderReviewResponse, type OrderReviewResponse } from "@shared/contracts/order-review";
 import { undoMessageErrorSchema, undoMessageResponseSchema, type UndoMessageResponse } from "@shared/contracts/order-message-undo";
-import { recordLinkActionRequestSchema } from "@shared/contracts/order-link-actions";
+import { recordLinkActionRequestSchema, type RecordLinkActionRequest } from "@shared/contracts/order-link-actions";
 import { z } from "zod";
 import { createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderAggregateSchema, orderApiErrorSchema,
   orderCatalogSchema, setRatedOrderDeliverySchema, type SetRatedOrderDeliveryRequest, registerPaymentResponseSchema, registerPaymentSchema, type CreateRatedOrderRequest, type CreateOrderRequest, type UpdateOrderShippingRequest, updateOrderShippingSchema, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
@@ -17,7 +17,12 @@ import type { DispatchLabelSender } from "@shared/dispatch-label/types";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
-import type { ConfirmOrderReviewInput, EditOrderItemsInput, OrderRequestError, RecordLinkActionInput, ReviewRequestError, UndoRequestError } from "@mobile/features/orders/application/order-operations";
+import type { OrderRequestError, ReviewRequestError, UndoRequestError } from "@mobile/features/orders/application/order-operations";
+
+/** The final lines of the order and the items revision they were edited from. */
+export type EditOrderItemsInput = Omit<EditOrderItemsRequest, "version">;
+export type ConfirmOrderReviewInput = Omit<ConfirmOrderReviewRequest, "version">;
+export type RecordLinkActionInput = Omit<RecordLinkActionRequest, "version">;
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
 type Operation = "fulfillment" | "deliverFulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "catalog" | "shipping" | "sender" | "reject";

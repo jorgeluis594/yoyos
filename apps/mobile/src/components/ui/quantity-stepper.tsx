@@ -4,7 +4,7 @@ import { Pressable, StyleSheet, View } from "react-native";
 import { SymbolView } from "expo-symbols";
 import { Input } from "@mobile/components/ui/input";
 import { useTheme } from "@mobile/hooks/use-theme";
-import tokens from "../../../../../../docs/design-tokens.json";
+import tokens from "../../../../../docs/design-tokens.json";
 
 function wholeNumber(value: string, min: number): number | null {
   if (value.trim() === "") return min;

@@ -18,7 +18,7 @@ import { doubtsByItem, lineLabel, lowerFirst, reasonText, undoConfirmationLines,
 import { typedQuantity } from "@mobile/features/orders/presentation/order-items-editor";
 import { ReviewPoints } from "@mobile/features/orders/presentation/review-points";
 import { correctionsToSend, hasCorrections, isRemoved, keepCorrections, quantityTextOf, remainingCount, type CorrectionDraft } from "@mobile/features/orders/presentation/review-corrections";
-import { QuantityStepper } from "@mobile/features/products/presentation/quantity-stepper";
+import { QuantityStepper } from "@mobile/components/ui/quantity-stepper";
 import { useTheme } from "@mobile/hooks/use-theme";
 
 type Order = OrderAggregateResponse;

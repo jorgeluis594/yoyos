@@ -2,17 +2,27 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { SellableVariant } from "@core/src/features/orders/domain/catalog-order";
 import type { ChatPending, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
-import type { OrderItemChange } from "@core/src/features/orders/domain/message-changes";
+import type { ChangeSeq, OrderItemChange } from "@core/src/features/orders/domain/message-changes";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { CompanyId, OrderId } from "@core/src/features/orders/domain/order";
-import { reviewProjection, type OrderReviewProjection, type ReviewPoint } from "@core/src/features/orders/domain/order-review";
+import { reviewProjection, type MessageRowSource, type OrderReviewProjection, type ReviewPoint } from "@core/src/features/orders/domain/order-review";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { TraceQuote } from "@core/src/features/orders/domain/reader/trace";
 import type { SuggestedQuestion } from "@core/src/features/orders/domain/suggested-question";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
-import type { OrderChanges } from "@core/src/features/orders/infrastructure/order-review-repository";
+
+export type OrderChanges = Readonly<{
+  /** No verdict, no review and no live superseder: what a review of the order still has to show. */
+  unreviewed: readonly OrderItemChange[];
+  lastSeq: ChangeSeq;
+  hasPreviousReview: boolean;
+  rows: readonly MessageRowSource[];
+  moreRows: number;
+  /** Changes newer than the oldest row shown, for the availability of undo. */
+  laterChanges: readonly OrderItemChange[];
+}>;
 
 export type LoadOrderReviewInput = Readonly<{ orderId: OrderId; allRows?: boolean }>;
 export type LoadOrderReviewError = Readonly<{ code: "ORDER_NOT_FOUND" | "PERSISTENCE_UNAVAILABLE" | "INVALID_STORED_DATA"; message: string }>;

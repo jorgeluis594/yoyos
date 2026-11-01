@@ -11,7 +11,7 @@ import type { OrderLinkActionId } from "@core/src/features/orders/domain/order-r
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { confirmOrderReview, type ConfirmOrderReviewDependencies, type ConfirmOrderReviewInput } from "@core/src/features/orders/application/confirm-order-review";
-import type { StoredReview } from "@core/src/features/orders/infrastructure/order-review-repository";
+import type { StoredReview } from "@core/src/features/orders/application/confirm-order-review";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const money = (amount: number) => ({ amount, currency: "PEN" as const });

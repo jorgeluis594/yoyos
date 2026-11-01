@@ -11,6 +11,8 @@ import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { ChangeSeq, OrderItemChange, OrderItemChangeId, OrderReviewId } from "@core/src/features/orders/domain/message-changes";
 import type { OrderId, UserId } from "@core/src/features/orders/domain/order";
 import type { MessageRowSource, OrderLinkActionId, PointKey } from "@core/src/features/orders/domain/order-review";
+import type { StoredReview } from "@core/src/features/orders/application/confirm-order-review";
+import type { OrderChanges } from "@core/src/features/orders/application/load-order-review";
 import { parseChangeRow } from "@core/src/features/orders/infrastructure/message-change-repository";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
@@ -39,17 +41,6 @@ function parseChanges(rows: readonly ChangeRow[]): Result<readonly OrderItemChan
   }
   return ok(changes);
 }
-
-export type OrderChanges = Readonly<{
-  /** No verdict, no review and no live superseder: what a review of the order still has to show. */
-  unreviewed: readonly OrderItemChange[];
-  lastSeq: ChangeSeq;
-  hasPreviousReview: boolean;
-  rows: readonly MessageRowSource[];
-  moreRows: number;
-  /** Changes newer than the oldest row shown, for the availability of undo. */
-  laterChanges: readonly OrderItemChange[];
-}>;
 
 const pendingsOf = (value: unknown, messageId: string): Result<readonly ChatPending[], InvalidStoredData> => {
   if (value === null || value === undefined) return ok([]);
@@ -135,9 +126,6 @@ export async function findLatestChatOrder(chatId: ChatId): Promise<Result<OrderI
     return unavailable("unable_to_read_latest_chat_order", cause, "Unable to read the chat's orders");
   }
 }
-
-export type StoredReview = Readonly<{ id: OrderReviewId; orderId: OrderId; origin: "link" | "detail"; correctedItems: number; changesThrough: ChangeSeq; confirmedThrough: ChangeSeq; confirmedAt: Date;
-  shownPoints: readonly PointKey[] }>;
 
 const shownPointsSchema = z.array(z.strictObject({ pendingId: z.uuid(), since: z.iso.datetime() }));
 

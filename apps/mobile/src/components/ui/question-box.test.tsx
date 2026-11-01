@@ -1,7 +1,7 @@
 import { AccessibilityInfo } from "react-native";
 import { cleanup, fireEvent, render, waitFor } from "@testing-library/react-native";
 import * as Clipboard from "expo-clipboard";
-import { QuestionBox } from "@mobile/features/whatsapp/presentation/question-box";
+import { QuestionBox } from "@mobile/components/ui/question-box";
 import i18n from "@mobile/i18n";
 
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));

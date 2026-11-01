@@ -2,7 +2,7 @@ import { StyleSheet, View } from "react-native";
 import { useTranslation } from "react-i18next";
 import type { OrderReviewResponse } from "@shared/contracts/order-review";
 import { ThemedText } from "@mobile/components/themed-text";
-import { QuestionBox } from "@mobile/features/whatsapp/presentation/question-box";
+import { QuestionBox } from "@mobile/components/ui/question-box";
 import { attributeText, pointDoubtText } from "@mobile/features/orders/presentation/order-review-model";
 import { useTheme } from "@mobile/hooks/use-theme";
 

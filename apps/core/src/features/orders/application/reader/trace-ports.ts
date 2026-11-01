@@ -1,5 +1,5 @@
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
-import type { ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
+import type { ChatSourceMessage } from "@core/src/features/orders/application/chat-source-message";
 import type { ReadingContextData } from "@core/src/features/orders/application/reader/load-reading-context";
 import type { StageRecord } from "@core/src/features/orders/application/reader/run-reading";
 import type { CompanyId } from "@core/src/features/orders/domain/order";

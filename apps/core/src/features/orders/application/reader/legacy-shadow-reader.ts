@@ -1,7 +1,7 @@
 import { ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
-import type { ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
+import type { ChatSourceMessage } from "@core/src/features/orders/application/chat-source-message";
 import type { ReaderUsage, ReadChatMessage } from "@core/src/features/orders/application/read-chat-message";
 import { buildReadingContext, listedItems, selectReadingProducts } from "@core/src/features/orders/application/reading-context";
 import type { LegacyShadowReader } from "@core/src/features/orders/application/reader/trace-ports";

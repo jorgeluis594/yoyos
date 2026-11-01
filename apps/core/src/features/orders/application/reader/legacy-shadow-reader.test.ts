@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
-import type { ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
+import type { ChatSourceMessage } from "@core/src/features/orders/application/chat-source-message";
 import { awaitShadow, createLegacyShadowReader, type LegacyShadowReaderDependencies } from "@core/src/features/orders/application/reader/legacy-shadow-reader";
 import type { ReadChatMessage, ReaderReading } from "@core/src/features/orders/application/read-chat-message";
 import type { ChatReadingContext } from "@core/src/features/orders/domain/chat-reading";

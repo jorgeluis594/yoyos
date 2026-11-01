@@ -12,7 +12,7 @@ import { useTheme } from "@mobile/hooks/use-theme";
 import { ProductPhotosStrip } from "@mobile/features/products/presentation/product-photos-strip";
 import { messageTarget, type PhotoFieldController } from "@mobile/features/products/presentation/use-photo-field";
 import { ProductTopBar } from "@mobile/features/products/presentation/product-top-bar";
-import { QuantityStepper } from "@mobile/features/products/presentation/quantity-stepper";
+import { QuantityStepper } from "@mobile/components/ui/quantity-stepper";
 import type { Product } from "@mobile/features/products/domain/product";
 import { VariantsCard } from "./variants-card";
 import { editorSummary } from "./product-editor-summary";

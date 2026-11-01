@@ -4,8 +4,9 @@ import * as Clipboard from "expo-clipboard";
 import { useTranslation } from "react-i18next";
 import { ThemedText } from "@mobile/components/themed-text";
 import { Button } from "@mobile/components/ui/button";
-import type { QuestionPoint } from "@mobile/features/whatsapp/infrastructure/message-questions-api";
 import { useTheme } from "@mobile/hooks/use-theme";
+
+type QuestionPoint = Readonly<{ id: string; text: string; about: string }>;
 
 /** A question the seller may send the buyer. A copy the system refuses fails silently: the text stays selectable. */
 export function QuestionBox({ point }: Readonly<{ point: QuestionPoint }>) {

@@ -14,7 +14,7 @@ import { parseChatId, parseCoreMessageId, type CompanyId } from "@mobile/feature
 import type { StoredMessage } from "@mobile/features/whatsapp/domain/stored-message";
 import { abbreviateLid } from "@mobile/features/whatsapp/presentation/chat-labels";
 import { MessageImage } from "@mobile/features/whatsapp/presentation/message-image";
-import { QuestionBox } from "@mobile/features/whatsapp/presentation/question-box";
+import { QuestionBox } from "@mobile/components/ui/question-box";
 import { useOpenQuestions } from "@mobile/features/whatsapp/presentation/use-open-questions";
 import { useWhatsApp } from "@mobile/features/whatsapp/presentation/whatsapp-provider";
 import { useTheme } from "@mobile/hooks/use-theme";

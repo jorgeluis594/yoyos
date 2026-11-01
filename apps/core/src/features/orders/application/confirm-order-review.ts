@@ -15,7 +15,6 @@ import type { OrderAccess } from "@core/src/features/orders/application/create-o
 import type { StockEventResult } from "@core/src/features/orders/application/describe-order-stock-due";
 import { planItemsEdit, settleEditStock, writeItemsEdit, type ItemsEditRecords, type PlannedItemsEdit, type PlanItemsEditDependencies, type SettleEditStockDependencies } from "@core/src/features/orders/application/apply-items-edit";
 import type { LinkActionKind } from "@core/src/features/orders/application/record-link-action";
-import type { StoredReview } from "@core/src/features/orders/infrastructure/order-review-repository";
 
 export type ConfirmOrderReviewInput = Readonly<{
   /** Client UUID, the idempotency key. */
@@ -33,6 +32,9 @@ type Failure = Readonly<{ code: "ORDER_NOT_FOUND" | "INVALID_INPUT" | "PERSISTEN
 export type ConfirmOrderReviewError =
   | Failure | OrderDomainError | VariantNotFound | TransactionEndingError
   | Readonly<{ code: "REVIEW_OUTDATED"; message: string; affectedItemIds: readonly OrderItemId[]; newPoints: number }>;
+
+export type StoredReview = Readonly<{ id: OrderReviewId; orderId: OrderId; origin: "link" | "detail"; correctedItems: number; changesThrough: ChangeSeq; confirmedThrough: ChangeSeq; confirmedAt: Date;
+  shownPoints: readonly PointKey[] }>;
 
 export type ConfirmedReview = Readonly<{ review: StoredReview; order: OrderAggregate; changedMeanwhile: readonly OrderItemChange[]; total: Money; stockDue: StockEventResult["stockDue"]; doubtfulShown: number; pointsAcknowledged: number }>;
 
