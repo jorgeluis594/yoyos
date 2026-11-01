@@ -29,6 +29,7 @@ type Texts = Readonly<{
   notApplied: (orderNumber: number | null) => Text;
   captionNotApplied: (name: string | null, orderNumber: number | null) => Text;
   productNotAvailable: (name: string | null) => Text;
+  productHidden: (name: string | null) => Text;
   readyWithPendings: (orderNumber: number | null, missing: ProductList) => Text;
   variantForSeveralPendings: (missing: ProductList) => Text;
   newOrderNote: (orderNumber: number) => string;
@@ -63,6 +64,7 @@ const es: Texts = {
     : `Un cliente escribió algo sobre el pedido #${number} que no pudimos aplicar.` }),
   captionNotApplied: (name, number) => ({ title: "Revisa el chat", body: `Un cliente envió una foto de ${name ?? "un producto"} y la agregamos ${number === null ? "a un pedido" : `al pedido #${number}`}, pero no pudimos aplicar lo que escribió.` }),
   productNotAvailable: (name) => ({ title: "Producto no disponible", body: `Un cliente pidió ${name === null ? "un producto" : name}${name === null ? "" : ","} que ya no está a la venta. Revisa el chat.` }),
+  productHidden: (name) => ({ title: "Producto no disponible", body: `Un cliente pidió ${name === null ? "un producto" : name}${name === null ? "" : ","} que es un producto oculto. Revisa el chat: puedes agregarlo tú al pedido o mostrarlo de nuevo en Productos.` }),
   readyWithPendings: (number, { names, more }) => ({ title: "Revisa el chat", body: `Un cliente dice que terminó ${number === null ? "su pedido" : `el pedido #${number}`}, pero falta completar ${names.length ? listWithMore(names, more, " y ", (n) => `${n} más`) : more === 1 ? "un producto" : `${more} productos`}.` }),
   variantForSeveralPendings: ({ names, more }) => ({ title: "Revisa el chat", body: `Un cliente mencionó una variante sin decir de cuál ${names.length ? `producto: ${listWithMore(names, more, " y ", (n) => `${n} más`)}` : `de ${more} productos`}.` }),
   newOrderNote: (number) => `Se creó el pedido nuevo #${number}.`,
@@ -95,6 +97,7 @@ const pt: Texts = {
     : `Um cliente escreveu algo sobre o pedido #${number} que não conseguimos aplicar.` }),
   captionNotApplied: (name, number) => ({ title: "Veja o chat", body: `Um cliente enviou uma foto de ${name ?? "um produto"} e a adicionamos ${number === null ? "a um pedido" : `ao pedido #${number}`}, mas não conseguimos aplicar o que escreveu.` }),
   productNotAvailable: (name) => ({ title: "Produto indisponível", body: `Um cliente pediu ${name ?? "um produto"}${name === null ? "" : ","} que não está mais à venda. Veja o chat.` }),
+  productHidden: (name) => ({ title: "Produto indisponível", body: `Um cliente pediu ${name ?? "um produto"}${name === null ? "" : ","} que é um produto oculto. Veja o chat: você pode adicioná-lo ao pedido ou mostrá-lo de novo em Produtos.` }),
   readyWithPendings: (number, { names, more }) => ({ title: "Veja o chat", body: `Um cliente diz que terminou o pedido${number === null ? "" : ` #${number}`}, mas falta completar ${names.length ? listWithMore(names, more, " e ", (n) => `mais ${n}`) : more === 1 ? "um produto" : `${more} produtos`}.` }),
   variantForSeveralPendings: ({ names, more }) => ({ title: "Veja o chat", body: `Um cliente mencionou uma variante sem dizer de qual ${names.length ? `produto: ${listWithMore(names, more, " e ", (n) => `mais ${n}`)}` : `de ${more} produtos`}.` }),
   newOrderNote: (number) => `Foi criado o novo pedido #${number}.`,
@@ -148,7 +151,7 @@ function textOf(notice: SellerNotice, texts: Texts, { names }: NoticeContext): T
     case "failed": return texts.failed;
     case "not_applied": return texts.notApplied(orderNumber(notice.orderId));
     case "caption_not_applied": return texts.captionNotApplied(productName(notice.productId), orderNumber(notice.orderId));
-    case "product_not_available": return texts.productNotAvailable(notice.productId === null ? null : productName(notice.productId));
+    case "product_not_available": return (notice.reason === "hidden" ? texts.productHidden : texts.productNotAvailable)(notice.productId === null ? null : productName(notice.productId));
     case "ready_with_pendings": return texts.readyWithPendings(orderNumber(notice.orderId), listOf(notice.productIds, notice.unnamed));
     case "variant_for_several_pendings": return texts.variantForSeveralPendings(listOf(notice.productIds, notice.unnamed));
     case "only_item_kept": return texts.onlyItemKept(orderNumber(notice.orderId));

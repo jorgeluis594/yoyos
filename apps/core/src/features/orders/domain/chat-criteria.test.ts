@@ -222,7 +222,7 @@ describe("criteria 22–31: ready, several pendings, photos", () => {
   test("28. a pending of a deactivated product ends with product not available", () => {
     const chat = createChat({ pendings: [pendingOf("polo")], unsellable: ["polo"] });
     expect(chat.say(say(complete(1, M_NEGRO))).outcomes).toEqual([{ kind: "pending_ended", pendingId: pendingOf("polo").id, reason: "product_not_available" },
-      { kind: "product_not_available", productId: productId("polo") }]);
+      { kind: "product_not_available", productId: productId("polo"), reason: "not_sold" }]);
   });
 
   test("29. a doubted caption: a pending for a polo with variants, the added product for a single variant", () => {

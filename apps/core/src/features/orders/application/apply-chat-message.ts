@@ -265,7 +265,7 @@ async function silenceTextMisses(actions: readonly ResolvedChatAction[], deps: A
   if (!actions.some(isTextMiss)) return ok(actions);
   const readiness = await deps.catalogSearchReadiness();
   if (!readiness.success) return readiness;
-  if (readiness.data !== "no_active_products") return ok(actions);
+  if (readiness.data !== "no_active_products" && readiness.data !== "all_products_hidden") return ok(actions);
   return ok(actions.map((action) => action.kind === "report" && (action.outcome.kind === "not_identified" || action.outcome.kind === "not_clear")
     ? { ...action, outcome: { ...action.outcome, silent: true } } : action));
 }

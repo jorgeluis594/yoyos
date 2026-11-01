@@ -19,7 +19,7 @@ const values = (attributes: Record<string, string>[]) => {
   return [...byName].map(([name, list]) => ({ name, values: list }));
 };
 export const readingProduct = (n: number, name: string, combinations: [Record<string, string>, number][], over: Partial<ReadingProduct> = {}): ReadingProduct => ({
-  productId: productId(n), name, sellable: true, ref: `P${n}`, shown: false, shownVariantId: null, identification: null,
+  productId: productId(n), name, hidden: false, sellable: true, ref: `P${n}`, shown: false, shownVariantId: null, identification: null,
   attributes: values(combinations.map(([attributes]) => attributes)),
   variants: combinations.map(([attributes, amount], index) => variant(n * 100 + index, name, attributes, amount)),
   ...over,
