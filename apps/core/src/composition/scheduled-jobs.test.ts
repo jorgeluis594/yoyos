@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
-import { catalogOrderTtlDays, deleteExpiredCatalogOrdersJob, registerScheduledJobs, reportBlockedChatKeysJob, scheduledJobs } from "@core/src/composition/scheduled-jobs";
+import { catalogOrderTtlDays, deleteExpiredCatalogOrdersJob, deleteExpiredMessageTracesJob, registerScheduledJobs, reportBlockedChatKeysJob, scheduledJobs } from "@core/src/composition/scheduled-jobs";
 import { createInMemoryEventBus } from "@core/src/shared/events/infrastructure/in-memory-provider";
 import { log } from "@core/src/shared/infrastructure/logger";
 
@@ -81,4 +81,24 @@ test("registers the stock deduction recovery every minute with a no-retry policy
   await registerScheduledJobs(bus, scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] }, async () => ok(undefined)));
   expect(bus.scheduled()).toContainEqual(expect.objectContaining({ name: "recover-due-stock-deductions", cron: "* * * * *",
     policy: { retryLimit: 0, expireInSeconds: 58, queuePolicy: "standard" } }));
+});
+
+test("registers the hourly message trace cleanup", async () => {
+  const bus = createInMemoryEventBus();
+  await registerScheduledJobs(bus, scheduledJobs(7, { reader: noBlockedKeys, handlerIds: [] }, async () => ok(undefined)));
+  expect(bus.scheduled()).toContainEqual(expect.objectContaining({ name: "delete-expired-message-traces", cron: "0 * * * *", tz: "America/Lima" }));
+});
+
+test("the trace cleanup deletes what expired by now and fails for a retry when the listing fails", async () => {
+  const info = vi.spyOn(log, "info").mockImplementation(() => undefined);
+  const error = vi.spyOn(log, "error").mockImplementation(() => undefined);
+  const now = new Date("2026-10-10T09:00:00Z");
+  const deleteTraces = vi.fn(async () => ok({ companies: 2, deletedTraces: 1200, deletedTexts: 3, failedCompanies: 0 }));
+  expect(await deleteExpiredMessageTracesJob(() => now, deleteTraces, 100)(context)).toEqual(ok(undefined));
+  expect(deleteTraces).toHaveBeenCalledWith({ cutoff: now, batchSize: 100 });
+  expect(info).toHaveBeenCalledWith(expect.objectContaining({ event: "message_traces_deleted", deletedTraces: 1200, deletedTexts: 3, companies: 2, failedCompanies: 0 }), expect.any(String));
+  const failure = { code: "PERSISTENCE_UNAVAILABLE" as const, message: "down" };
+  expect(await deleteExpiredMessageTracesJob(() => now, async () => err(failure))(context)).toEqual(err({ ...failure, retryable: true }));
+  info.mockRestore();
+  error.mockRestore();
 });
