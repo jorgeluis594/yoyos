@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { droppedFields, verifyIntentQuotes, verifyQuotes } from "@core/src/features/orders/domain/reader/quotes";
-import type { ContextMessageRef, ExtractedRequest, Quote, ReadingInput, RequestRef } from "@core/src/features/orders/domain/reader/readings";
+import { dedupeIntents, droppedFields, verifyIntentQuotes, verifyQuotes } from "@core/src/features/orders/domain/reader/quotes";
+import type { ContextMessageRef, ExtractedRequest, Quote, ReadingInput, RequestIntent, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 
 const ref = (value: string) => value as RequestRef;
 const current = (text: string): Quote => ({ source: "current", text });
@@ -95,5 +95,20 @@ describe("droppedFields", () => {
   test("names nothing when every quote is found", () => {
     const before = request();
     expect(droppedFields(before, only(verifyQuotes([before], input("dame el polo"))).request)).toEqual([]);
+  });
+});
+
+describe("dedupeIntents", () => {
+  const intent = (id: string, kind: RequestIntent["kind"], text: string): RequestIntent => ({ id: ref(id), kind, quote: current(text) });
+
+  test("keeps one intent of the same kind and quote when the message says the words once", () => {
+    const kept = dedupeIntents([intent("R1", "add", "uno más igual"), intent("R2", "add", "Uno  más igual")], input("uno más igual x fa"));
+    expect(kept.map(({ id }) => id)).toEqual(["R1"]);
+  });
+
+  test("keeps as many as the message says the words and every intent of another kind or quote", () => {
+    const text = "2 gorras y 2 gorras, quita el polo";
+    const kept = dedupeIntents([intent("R1", "add", "2 gorras"), intent("R2", "add", "2 gorras"), intent("R3", "add", "2 gorras"), intent("R4", "remove", "2 gorras"), intent("R5", "remove", "quita el polo")], input(text));
+    expect(kept.map(({ id }) => id)).toEqual(["R1", "R2", "R4", "R5"]);
   });
 });

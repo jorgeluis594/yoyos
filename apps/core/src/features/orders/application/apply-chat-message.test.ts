@@ -222,6 +222,21 @@ describe("applyChatMessage: the staged pipeline", () => {
     expect(h.outcomeTimes).toEqual([at]);
   });
 
+  test("reports reader_doubt for an intent whose quote was not found and still applies the others", async () => {
+    const h = harness({ message: textMessage("dame el polo M"), script: { intent: requestsOf(intent("R1", "add", "el polo M"), intent("R2", "add", "una casaca roja")), extraction: [addPolo("el polo")], resolutions: [poloInM()] } });
+    const applied = await succeeded(h.run());
+
+    expect(applied).toMatchObject({ kind: "applied", noticeDue: true, outcomes: [{ kind: "added", variantId: poloM.variantId }, { kind: "reader_doubt" }] });
+    expect(quantityOf(h.store, poloM.variantId)).toBe(1);
+  });
+
+  test("reports reader_doubt for a kept intent the extraction left out", async () => {
+    const h = harness({ message: textMessage("dame el polo M y la gorra"), script: { intent: requestsOf(intent("R1", "add", "el polo M"), intent("R2", "add", "la gorra")), extraction: [addPolo("el polo")], resolutions: [poloInM()] } });
+    const applied = await succeeded(h.run());
+
+    expect(applied).toMatchObject({ kind: "applied", noticeDue: true, outcomes: [{ kind: "added" }, { kind: "reader_doubt" }] });
+  });
+
   test("skips extraction and resolution when the intent is no intent", async () => {
     const h = harness({ message: textMessage("hola, buenas tardes") });
     const applied = await succeeded(h.run());

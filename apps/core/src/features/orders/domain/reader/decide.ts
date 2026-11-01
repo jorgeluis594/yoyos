@@ -15,6 +15,8 @@ export type CheckedAction = Readonly<{
   urgent: Readonly<{ problem: ProblemKind; question: SuggestedQuestion | null }> | null;
   /** The chat has no order open for this item change: urgent whatever the certainty. */
   blocked: "no_open_order" | "order_closed" | null;
+  /** A check that sees a risk the action kind does not show (an add on a line the order already has) raises it here. */
+  risk?: ChangeRisk;
 }>;
 
 /** Facts from outside the action that change a decision. */
@@ -33,6 +35,9 @@ export function riskOf(action: ResolvedChatAction, signals: CertaintySignals): C
     default: return "low";
   }
 }
+
+/** The risk the decision uses: the check's own when it raised one, else the action's. */
+export const riskOfChecked = (checked: CheckedAction): ChangeRisk => checked.risk ?? riskOf(checked.action, checked.signals);
 
 /** What an action does, without the words that produced it: kind, target, variant and quantity. */
 function signatureOf(action: ResolvedChatAction): string {

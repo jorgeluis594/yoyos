@@ -8,6 +8,7 @@ import { conflictsWithKnown, describePendings, normalizeValue, pendingPriceOf, r
 import { choicesFromWords, openAttributes, questionValues } from "@core/src/features/orders/domain/reader/check-questions";
 import type { CheckedAction } from "@core/src/features/orders/domain/reader/decide";
 import type { CertaintySignals, DoubtReason, ProblemKind } from "@core/src/features/orders/domain/reader/decision";
+import { quoteNames } from "@core/src/features/orders/domain/reader/silent-guards";
 import type { VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
 import type { BuyerLanguage, ContextMessageRef, ExtractedRequest, ItemRef, PendingRef, ProductResolution } from "@core/src/features/orders/domain/reader/readings";
 import type { SuggestedQuestion } from "@core/src/features/orders/domain/suggested-question";
@@ -53,7 +54,7 @@ const textIdentification = (productId: ProductId): ProductIdentification => ({ m
 const identificationOf = (product: CheckProduct): ProductIdentification => product.identification ?? textIdentification(product.productId);
 const signalsOf = (said: Said, targetNamed: Named, over: Partial<CertaintySignals> = {}): CertaintySignals =>
   ({ quotesComplete: said.complete, targetNamed, variantChangeVerb: "not_applicable", candidates: "single", ...over });
-const checked = (said: Said, action: ResolvedChatAction, signals: CertaintySignals, over: Partial<Pick<CheckedAction, "doubt" | "urgent" | "blocked">> = {}): CheckedAction =>
+const checked = (said: Said, action: ResolvedChatAction, signals: CertaintySignals, over: Partial<Pick<CheckedAction, "doubt" | "urgent" | "blocked" | "risk">> = {}): CheckedAction =>
   ({ request: said.request.request, action, signals, doubt: null, urgent: null, blocked: null, ...over });
 const problem = (said: Said, outcome: ReportOutcome, problemKind: ProblemKind | null, question: SuggestedQuestion | null, named: Named = "context"): CheckedAction =>
   checked(said, report(outcome), signalsOf(said, named), { urgent: { problem: problemKind ?? "reader_doubt", question } });
@@ -85,7 +86,8 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
  * is about the shown product: the photo is the request. It becomes an add of the shown product, or, when the order already has a single line of it,
  * the same request on that line; with several lines of the shown product it stays as read.
  */
-function photoRetargeted(verified: VerifiedRequest, snapshot: CheckSnapshot): VerifiedRequest {
+function photoRetargeted(unchecked: VerifiedRequest, snapshot: CheckSnapshot): VerifiedRequest {
+  const verified = namedOnlyIfNaming(unchecked, snapshot);
   const { request } = verified;
   if (snapshot.messageKind !== "photo_product" || (request.kind !== "change_quantity" && request.kind !== "change_variant")) return verified;
   if (request.quantity?.mode === "decrease") return verified;
@@ -99,6 +101,32 @@ function photoRetargeted(verified: VerifiedRequest, snapshot: CheckSnapshot): Ve
   if (!line) return { ...verified, request: { ...request, kind: "add", target: { kind: "photo_same_message" } } };
   if (more.length > 0) return verified;
   return { ...verified, request: { ...request, target: { kind: "item", ref: line.ref, named: null } } };
+}
+
+/** The catalog words a reference to an order line or a pending may use: its products' names and attribute values, and the values the line or pending has. */
+function catalogWordsOf(target: Extract<ExtractedRequest["target"], { kind: "item" | "pending" }>, snapshot: CheckSnapshot): readonly string[] | null {
+  const productWords = (products: readonly CheckProduct[]) => products.flatMap((product) => [product.name, ...product.attributes.flatMap((attribute) => attribute.values)]);
+  if (target.kind === "item") {
+    const item = itemOfRef(target.ref, snapshot);
+    return item ? [item.productName, ...Object.values(item.variantAttributes), ...productWords(snapshot.products.filter((product) => product.productId === item.productId))] : null;
+  }
+  const pending = snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending;
+  if (!pending) return null;
+  const ids = pending.subject.kind === "variant" ? [pending.subject.productId] : pending.subject.candidates;
+  const products = snapshot.products.filter((product) => ids.includes(product.productId));
+  return products.length > 0 ? [...Object.values(pending.known), ...productWords(products)] : null;
+}
+
+/**
+ * A reference counts as named only when the words the model quoted for it name what it points to in the catalog (the line's or pending's product or
+ * values). A pronoun or a demonstrative quoted as the name leaves the target taken from context, which never goes beyond «Con duda».
+ */
+function namedOnlyIfNaming(verified: VerifiedRequest, snapshot: CheckSnapshot): VerifiedRequest {
+  const { target } = verified.request;
+  if ((target.kind !== "item" && target.kind !== "pending") || target.named === null) return verified;
+  const words = catalogWordsOf(target, snapshot);
+  if (words === null || quoteNames(target.named.text, words)) return verified;
+  return { ...verified, request: { ...verified.request, target: { ...target, named: null } } };
 }
 
 const shownProductIds = (snapshot: CheckSnapshot): ReadonlySet<ProductId> => new Set(snapshot.products.filter((product) => product.shown).map((product) => product.productId));
@@ -152,6 +180,8 @@ function checkOne(said: Said, env: Env): readonly CheckedAction[] {
     const blocked = snapshot.order === "closed" ? "order_closed" : "no_open_order";
     return [checked(said, { kind: "change_unfound_item", target: { kind: "unnamed" } }, signalsOf(said, "context"), { blocked })];
   }
+  const unclear = unnamedReference(said, env);
+  if (unclear) return [unclear];
   switch (request.kind) {
     case "add": return checkAdd(said, env);
     case "remove": return [checkRemove(said, env)];
@@ -167,6 +197,20 @@ function checkOne(said: Said, env: Env): readonly CheckedAction[] {
 }
 
 // ---- items ----
+
+/**
+ * A removal, quantity or price on an order line the buyer did not name, in an order with several lines: no single reading is best unless a photo added that very line, so the seller is asked. «Con duda» is for a reference to the only product that can be meant.
+ */
+function unnamedReference(said: Said, env: Env): CheckedAction | null {
+  const { request } = said;
+  const { snapshot } = env;
+  if (request.kind === "change_variant" || !itemKinds.has(request.kind) || request.target.kind !== "item" || request.target.named !== null || snapshot.items.length < 2) return null;
+  const item = itemOfRef(request.target.ref, snapshot);
+  const { lastPhoto } = snapshot;
+  if (item && lastPhoto.kind === "product" && lastPhoto.added && lastPhoto.productId === item.productId) return null;
+  if (item?.productId != null && shownProductIds(snapshot).has(item.productId)) return null;
+  return unfoundItem(said, { kind: "many", productId: null, named: false }, env);
+}
 
 type FoundItem =
   | Readonly<{ kind: "found"; item: CheckItem; named: boolean }>
@@ -400,7 +444,7 @@ function checkAdd(said: Said, env: Env): readonly CheckedAction[] {
   if (quantity === null) return [checked(said, invalid("quantity_not_whole"), signalsOf(said, "context"), { urgent: { problem: "invalid_action", question: null } })];
   const { target } = request;
   if (target.kind === "photo_same_message") return checkShown(said, env, quantity);
-  if (target.kind === "named") return [checkNamedAdd(said, env, quantity)];
+  if (target.kind === "named") return [onExistingLine(said, checkNamedAdd(said, env, quantity), snapshot)];
   if (target.kind === "photo_just_sent") {
     const grown = photoQuantity(said, env, { value: quantity, mode: "add" });
     if (grown) return [grown];
@@ -408,6 +452,21 @@ function checkAdd(said: Said, env: Env): readonly CheckedAction[] {
     if (pending) return [pendingQuantity(said, pending, { value: quantity, mode: "add" }, "context")];
   }
   return [checkReferencedAdd(said, env, quantity, snapshot)];
+}
+
+/**
+ * An add that lands on a line the order already has is high risk: the buyer may mean «set» or «only the price» instead of «one more», so it needs the
+ * confirming reading's agreement or stays «Con duda». A price with no quantity on such a line is the price of that line, not another unit.
+ */
+function onExistingLine(said: Said, add: CheckedAction, snapshot: CheckSnapshot): CheckedAction {
+  const { action } = add;
+  const line = action.kind === "add" ? snapshot.items.find((item) => item.variantId === action.item.variantId) : undefined;
+  if (!line) return add;
+  const { price, quantity } = said.request;
+  const mentioned = quantity === null && price !== null ? mentionedPriceOf(statedOf(price), line.quantity, line.unitPrice) : null;
+  if (!mentioned) return { ...add, risk: "high" };
+  const doubt: DoubtReason = { kind: "price_noted", amount: mentioned.amount.amount, units: mentioned.units as PositiveInteger };
+  return checked(said, { kind: "set_mentioned_price", target: variantTarget(line), price: mentioned }, add.signals, { doubt, risk: "high" });
 }
 
 const unnamedAdd = (said: Said, language: BuyerLanguage): CheckedAction =>

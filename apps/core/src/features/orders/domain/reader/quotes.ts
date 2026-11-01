@@ -52,6 +52,25 @@ export function verifyIntentQuotes(intents: readonly RequestIntent[], input: Rea
   return { kept: intents.filter(found), dropped: intents.filter((intent) => !found(intent)) };
 }
 
+const occurrencesOf = (quote: Quote, input: ReadingInput): number => {
+  const text = quote.source === "current" ? input.current.text : input.context.find((candidate) => candidate.ref === quote.ref)?.text ?? "";
+  return Math.max(1, squash(text).split(squash(quote.text)).length - 1);
+};
+
+/**
+ * Keeps one intent per span: the same kind with the same quote counts as one request, unless the message says those words more than once (the buyer
+ * asked twice). A duplicated intent would add or change the same thing twice.
+ */
+export function dedupeIntents(intents: readonly RequestIntent[], input: ReadingInput): readonly RequestIntent[] {
+  const seen = new Map<string, number>();
+  return intents.filter((intent) => {
+    const key = JSON.stringify([intent.kind, intent.quote.source === "current" ? "current" : intent.quote.ref, squash(intent.quote.text)]);
+    const count = (seen.get(key) ?? 0) + 1;
+    seen.set(key, count);
+    return count <= occurrencesOf(intent.quote, input);
+  });
+}
+
 export type QuoteDrop = Readonly<{ requestKind: RequestIntent["kind"]; field: "intent" | "target" | "values" | "quantity" | "price" | "change_verb" }>;
 
 const namedQuoteOf = (target: TargetReference): Quote | null => (target.kind === "named" ? target.words : target.kind === "item" || target.kind === "pending" ? target.named : null);

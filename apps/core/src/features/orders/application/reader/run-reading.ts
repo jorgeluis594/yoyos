@@ -9,7 +9,7 @@ import type { ReaderStages, StageError, StageResult } from "@core/src/features/o
 import { maxReaderActions } from "@core/src/features/orders/domain/chat-reading";
 import { assembleCandidates, type MentionSearch } from "@core/src/features/orders/domain/reader/candidates";
 import { maskStageOutput, type StoredStageOutput } from "@core/src/features/orders/domain/reader/masking";
-import { droppedFields, verifyIntentQuotes, verifyQuotes, type QuoteDrop, type VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
+import { droppedFields, dedupeIntents, verifyIntentQuotes, verifyQuotes, type QuoteDrop, type VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
 import type { AddressSpan, ExtractedRequest, IntentReading, ProductMention, ProductResolution, ReaderStage, Reading, ReadingInput, RequestIntent, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
 import type { StageInputSummary, TraceStage } from "@core/src/features/orders/domain/reader/trace";
 
@@ -47,6 +47,8 @@ export type PrimaryReading = Readonly<{
   /** The first request beyond `maxReaderActions`, which is cut: the message then reports `too_many_actions`. */
   overflow: RequestRef | null;
   droppedIntents: number;
+  /** The refs of the dropped intents: requests of the message that no check will answer, which the decision reports instead of losing. */
+  droppedRequests: readonly RequestRef[];
   /** What the quote verification took, for `reader_quote_dropped`: dropped intents and dropped data of the primary extraction. */
   quoteDrops: readonly QuoteDrop[];
   chain: ChainResult | null;
@@ -140,18 +142,21 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   const intent = intentResult.data.value;
   read = intent;
   const empty: ReadingCatalog = { products: [], searchMs: null, matchCount: null, timedOut: false };
-  if (intent.kind !== "requests") return ok({ primary: { intent, intents: [], overflow: null, droppedIntents: 0, quoteDrops: [], chain: null, catalog: empty }, confirming: null, records });
+  if (intent.kind !== "requests") return ok({ primary: { intent, intents: [], overflow: null, droppedIntents: 0, droppedRequests: [], quoteDrops: [], chain: null, catalog: empty }, confirming: null, records });
 
   const overflow = intent.requests[maxReaderActions]?.id ?? null;
-  const { kept: intents, dropped } = verifyIntentQuotes(intent.requests.slice(0, maxReaderActions), input);
+  const { kept, dropped } = verifyIntentQuotes(intent.requests.slice(0, maxReaderActions), input);
+  const intents = dedupeIntents(kept, input);
+  const droppedRequests = dropped.map(({ id }) => id);
   const intentDrops = dropped.map(({ kind }): QuoteDrop => ({ requestKind: kind, field: "intent" }));
-  if (intents.length === 0) return ok({ primary: { intent, intents, overflow, droppedIntents: dropped.length, quoteDrops: intentDrops, chain: null, catalog: empty }, confirming: null, records });
+  if (intents.length === 0) return ok({ primary: { intent, intents, overflow, droppedIntents: dropped.length, droppedRequests, quoteDrops: intentDrops, chain: null, catalog: empty }, confirming: null, records });
 
   const extract = (reading: Reading, extractSignal: AbortSignal) => stages.extractRequests(input, intents, reading, extractSignal);
   const primaryExtraction = extract("primary", signal);
   const abort = new AbortController();
   const confirmSignal = deps.withAbort(signal, abort.signal);
-  const wantsConfirming = hasHighRiskIntent(intents);
+  // An add can land on a line the order already has, where "one more" may be "set" or "only the price": with lines in the order it gets a second opinion.
+  const wantsConfirming = hasHighRiskIntent(intents) || (input.items.length > 0 && intents.some(({ kind }) => kind === "add"));
   // A stage without a confirming configuration reuses the primary result: the chain awaits it instead of calling the port again.
   const confirmingExtraction = wantsConfirming ? (stages.confirms.extraction ? extract("confirming", confirmSignal) : primaryExtraction) : null;
 
@@ -175,7 +180,7 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   if (resolved && !resolved.success) { abort.abort(); return fail(resolved.error); }
   const resolutions = resolved?.success ? resolved.data.value : [];
   const chain: ChainResult = { requests, resolutions };
-  const primary: PrimaryReading = { intent, intents, overflow, droppedIntents: dropped.length, quoteDrops: [...intentDrops, ...extractionDrops], chain, catalog: { products: searched.data.products, ...searched.data.catalog } };
+  const primary: PrimaryReading = { intent, intents, overflow, droppedIntents: dropped.length, droppedRequests, quoteDrops: [...intentDrops, ...extractionDrops], chain, catalog: { products: searched.data.products, ...searched.data.catalog } };
 
   const confirming: ConfirmingChain | null = confirmingExtraction ? {
     abort: () => abort.abort(),
