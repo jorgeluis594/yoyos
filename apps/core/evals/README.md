@@ -9,6 +9,7 @@ to `apps/core/eval-results/` (gitignored) and nothing is sent to an eval service
 
 ```sh
 EVAL_MODELS=fake pnpm --dir apps/core eval         # the whole harness at zero cost: scripted stage answers, no key, no database
+EVAL_MODELS=fake EVAL_READER=legacy pnpm --dir apps/core eval   # the same, scripted as the legacy baseline (see EVAL_READER)
 pnpm --dir apps/core eval                          # prints the estimate of the run and stops; no model is called
 EVAL_PAID=1 pnpm --dir apps/core eval              # every suite, with the real models (paid)
 EVAL_PAID=1 pnpm --dir apps/core eval evals/interpretation.eval.ts
@@ -36,6 +37,7 @@ and only `smoke.eval.ts` runs. It refuses to run when `CI` is set, and it is not
 | `EVAL_MAX_CASES` | Hard cap of cases per run, taken round-robin over the passes; unset runs all. |
 | `EVAL_CASES` | Comma-separated case ids; a base id also selects its paraphrases. |
 | `EVAL_REPEATS` | Times the whole selected set runs (1–5, default 3). Every run is scored; the report gives mean, min and max per metric, and flips are read from the runs. |
+| `EVAL_READER` | `staged` (default) runs the production `applyChatMessage` over the three stages and scores each stage from the reading trace it builds (`lib/staged-answer.ts`); the shadow is off. `legacy` is the E1 baseline: the single-call reader is read apart, **read-only**, because it can no longer apply a message, on the text messages of `interpretation` and `end-to-end` (conversations and photo messages are left out). It states the intent, the cost of its call and its time only, so the field, product, decision and urgent metrics read «not measured». T17 removes `legacy`. |
 | `EVAL_MODELS` | `fake` runs the harness with scripted stage answers taken from the case expectations: zero model calls, no key, no database. Default `real`. |
 | `EVAL_PAID` | `1` allows a run that calls models; without it `pnpm eval` prints the estimate and stops. Set it in the shell. |
 | `EVAL_SEED_BANK` | `1` runs the seed bank (`cases/seed-bank.ts`) instead of every case; with `EVAL_PRIVATE_DIR`, the private cases listed in the folder's `seed-bank.json` (`{ "ids": [...] }`). |
@@ -66,9 +68,9 @@ suite skips with a message and the end-to-end suite runs only its text cases.
 
 | Suite | Pass | Production path |
 | --- | --- | --- |
-| `interpretation.eval.ts` | Interpretation and arguments (criteria 1, 4) | `applyChatMessage` with the real reader (one model call per message), candidate search, checks and order transaction. The photo's identification is given by the case (visual match 0.95, QR label or «not a product») so only the reading is measured. |
+| `interpretation.eval.ts` | Interpretation and arguments (criteria 1, 4) | `applyChatMessage` with the staged reader (intent, extraction and resolution; the shadow is off), candidate search, checks and order transaction. The photo's identification is given by the case (visual match 0.95, QR label or «not a product») so only the reading is measured. |
 | `identification-image.eval.ts` | Non-product photos and visual identification (criteria 2, 5) | `identifyProductsInImage`: real QR reader, local embedding search and vision chooser. |
-| `end-to-end.eval.ts` | The whole message | `applyChatMessage` with the real photo cascade, reader and order transaction. |
+| `end-to-end.eval.ts` | The whole message | `applyChatMessage` with the real photo cascade, staged reader and order transaction. |
 | `conversation.eval.ts` | Conversations | One chat with 2 to 4 messages applied in order, with events between them, on a simulated clock. |
 
 Faked: image storage (fixture files instead of R2). Nothing publishes events, so no notice reaches WhatsApp or push. An open

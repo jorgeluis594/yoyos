@@ -13,7 +13,7 @@ import { modelSuitesBlocker, readEvalEnv } from "@core/evals/lib/eval-env";
 import { evalCompanyId, privateCompanyId, seedEvalCatalog } from "@core/evals/lib/eval-catalog";
 import { installModelMeter } from "@core/evals/lib/model-meter";
 import { createProductionPath } from "@core/evals/lib/production";
-import type { RunCaseContext } from "@core/evals/lib/run-case";
+import { runLegacyMessageCase, type RunCaseContext } from "@core/evals/lib/run-case";
 
 type RunCase<Case extends EvalCase> = (context: RunCaseContext, testCase: Case, repeat: number) => Promise<CaseRecord | readonly CaseRecord[]>;
 
@@ -38,6 +38,8 @@ export function defineModelSuite<Pass extends EvalPass>(name: string, pass: Pass
   const env = readEvalEnv();
   const privateRun = env.EVAL_PRIVATE_DIR !== undefined;
   const fake = env.EVAL_MODELS === "fake";
+  // The legacy baseline reads the text messages of the message passes apart (run-selection.ts `readerCasesOf`); the image pass has no reader.
+  const legacy = env.EVAL_READER === "legacy" && pass !== "image";
   const selection = selectionOf(env);
   const privateData = selection.privateData;
   const blocker = modelSuitesBlocker(env)
@@ -51,7 +53,7 @@ export function defineModelSuite<Pass extends EvalPass>(name: string, pass: Pass
     name: `yoyos-${pass}`,
     run: async ({ input }) => {
       if (!fake && !context) throw new Error("The eval context was not prepared");
-      const ran = fake ? await runFakeCase(inject("evalRunId"), input.testCase, input.repeat) : await runCase(context!, input.testCase, input.repeat);
+      const ran = fake ? await runFakeCase(inject("evalRunId"), input.testCase, input.repeat, env.EVAL_READER) : await (legacy ? (runLegacyMessageCase as RunCase<EvalCase>) : (runCase as RunCase<EvalCase>))(context!, input.testCase, input.repeat);
       const records = Array.isArray(ran) ? ran : [ran as CaseRecord];
       const record = summaryOf(records);
       const shown = privateRun ? redacted(record) : record;
@@ -72,7 +74,7 @@ export function defineModelSuite<Pass extends EvalPass>(name: string, pass: Pass
       // Fake mode answers from the expectations: no key, no database, no model client.
       if (fake) return;
       installModelMeter();
-      const path = createProductionPath(process.env);
+      const path = createProductionPath(process.env, env.EVAL_READER);
       if (privateData) await seedEvalCatalog(privateData.catalog, privateCompanyId, null);
       else await seedEvalCatalog(committedCatalog, evalCompanyId, options.indexPhotos ? path.embedder : null);
       context = { runId: inject("evalRunId"), path, scope: privateData ? "private" : "eval", claude: createClaude({ apiKey: env.CLAUDE_API_KEY!, model: env.EVAL_CLAUDE_MODEL }) };

@@ -55,7 +55,7 @@ export default function setup(project: TestProject) {
     const imagesDir = imagesDirOf(shellAndFile);
     const verdicts = verdictFile ? summarizeVerdicts(verdictFile) : null;
     const meta = { runId, startedAt: startedAt.toISOString(), finishedAt: new Date().toISOString(),
-      settings: { models: env.EVAL_MODELS, seedBank: env.EVAL_SEED_BANK === "1", claudeModel: env.EVAL_CLAUDE_MODEL, maxCases: env.EVAL_MAX_CASES ?? "all", cases: env.EVAL_CASES ?? "all", repeats: env.EVAL_REPEATS,
+      settings: { models: env.EVAL_MODELS, reader: env.EVAL_READER, seedBank: env.EVAL_SEED_BANK === "1", claudeModel: env.EVAL_CLAUDE_MODEL, maxCases: env.EVAL_MAX_CASES ?? "all", cases: env.EVAL_CASES ?? "all", repeats: env.EVAL_REPEATS,
         skipParaphrases: env.EVAL_SKIP_PARAPHRASES === "1", split: env.EVAL_SPLIT, privateRun: Boolean(shellAndFile.EVAL_PRIVATE_DIR), imagesDir, photoManifest: readImageManifest(imagesDir) !== null,
         localPhotos: readImageManifest(localImagesDirOf(shellAndFile))?.entries.length ?? 0, blocker: modelSuitesBlocker(env) } };
     const draft = buildReport(records, meta, [], [], verdicts);

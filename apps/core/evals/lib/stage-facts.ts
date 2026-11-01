@@ -46,7 +46,10 @@ export type StageAnswer = Readonly<{
   intent: IntentKind;
   fields: Readonly<Record<string, string>> | null;
   product: string | null;
-  decision: DecisionKind;
+  /** Null when the path states no decision (the legacy baseline, which only has an intent and a cost). */
+  decision: DecisionKind | null;
+  /** The path reads the intent only: fields, product and decision are not scored. */
+  intentOnly?: boolean;
   changeApplied: boolean;
   marked: boolean;
   point: boolean;
@@ -64,11 +67,11 @@ const sameFields = (a: Readonly<Record<string, string>>, b: Readonly<Record<stri
 export function scoreStages(expected: ExpectedStages, answer: StageAnswer): StageFacts {
   return {
     intent: expected.intent === answer.intent,
-    fields: expected.fields ? sameFields(expected.fields, answer.fields) : null,
-    resolution: expected.product !== null ? expected.product === answer.product : null,
-    decision: expected.decision === answer.decision,
+    fields: expected.fields && !answer.intentOnly ? sameFields(expected.fields, answer.fields) : null,
+    resolution: expected.product !== null && !answer.intentOnly ? expected.product === answer.product : null,
+    decision: answer.decision === null ? null : expected.decision === answer.decision,
     decisionExpected: expected.decision,
-    decisionActual: answer.decision,
+    decisionActual: answer.decision ?? (answer.changeApplied ? "applied" : "silent"),
     requested: expected.requested,
     changeApplied: answer.changeApplied, marked: answer.marked, point: answer.point, noticed: answer.noticed,
     orderMatches: answer.orderMatches, changedNotice: answer.changedNotice,
