@@ -21,6 +21,10 @@ import type { ProductForReading } from "@core/src/features/products/domain/readi
 import type { CatalogSearchReadiness } from "@core/src/features/products/domain/text-identification";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
+import { createReaderStages } from "@core/src/features/orders/infrastructure/reader/runtime/create-stage";
+import { createFakeStructuredModel } from "@core/src/features/orders/infrastructure/reader/runtime/fake-structured-model";
+import { promptRegistry } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
+import type { StructuredModel } from "@core/src/features/orders/infrastructure/reader/runtime/structured-model";
 import { withAbort } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -53,7 +57,7 @@ const textMessage = (text: string | null, over: Partial<ChatSourceMessage> = {})
 
 const visual = (productId: ProductId, confidence = 0.92): ImageIdentification =>
   ({ kind: "found", method: "visual", productId, confidence: confidence as MatchConfidence, candidates: 2, topDistance: 0.1, chosenDistance: 0.1 });
-const notProduct: ImageIdentification = { kind: "not_product", topDistance: 0.5 };
+
 
 const existingOrder = (items: OrderAggregate["items"] = [{ id: id(60) as OrderItemId, variantId: cap.variantId, productName: "Gorra", variantAttributes: {}, sku: null,
   quantity: 1 as PositiveInteger, unitPrice: money(25), subtotal: money(25), mentionedPrice: null, stockDeductedQuantity: 0 }]): OrderAggregate => ({
@@ -61,11 +65,9 @@ const existingOrder = (items: OrderAggregate["items"] = [{ id: id(60) as OrderIt
   fromCatalog: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, createdAt: hourBefore, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false, cancelledAt: null,
   items, payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false, stockDeductedAt: null,
   itemsTotal: money(25), deliveryCost: money(0), deliveryCharge: money(0), total: money(25) });
-const openTarget = (order = existingOrder()): ChatOrderTarget => ({ kind: "open", order, productIds: new Map(order.items.map((item) => [item.variantId, productCap])) });
 
-const pendingOf = (n: number, over: Partial<ChatPending> = {}): ChatPending => ({ id: id(n) as ChatPendingId, subject: { kind: "variant", productId: productPolo }, known: {}, quantity: 1 as PositiveInteger,
-  price: null, order: null, lastChangedAt: hourBefore, sourceMessageId: id(900 + n) as ChatMessageId, requestId: id(n) as ChatPendingId,
-  doubt: null, pointSince: hourBefore, acknowledgedAt: null, ...over });
+
+
 const pendingSet = (...pendings: ChatPending[]): ChatPendings => ({ pendings, readyRemembered: false });
 
 
@@ -130,6 +132,7 @@ function harness(options: Options = {}) {
   const pendingSaves: { set: ChatPendings; memory: ChatMemory }[] = [];
   const changeSaves: MessageChanges[] = [];
   const traces: Parameters<ApplyChatMessageDependencies["buildMessageTrace"]>[0][] = [];
+  const outcomeTimes: Date[] = [];
   const store: Store = { changes: [], orders: new Map(), pendings: options.pendings ?? pendingSet(), memory: options.memory ?? { lastIncomingPhoto: null, lastRequestAt: null }, customers: new Set(), messages: new Map(), outcomes: new Map(), linkNotices: [] };
   const called = <T,>(name: string, value: T): T => { calls.push(name); return value; };
   const target: ChatOrderTarget = options.target ?? { kind: "none" };
@@ -177,7 +180,7 @@ function harness(options: Options = {}) {
       return ok(null);
     },
     newChangeId: (() => { let counter = 800; return () => id(counter++) as OrderItemChangeId; })(),
-    recordOutcome: async ({ messageId: key, outcomes }) => { calls.push("recordOutcome"); store.outcomes.set(key, outcomes); return ok(null); },
+    recordOutcome: async ({ messageId: key, outcomes, createdAt }) => { calls.push("recordOutcome"); store.outcomes.set(key, outcomes); if (createdAt) outcomeTimes.push(createdAt); return ok(null); },
     newOrderId: () => id(500) as OrderId,
     newItemId: (() => { let counter = 300; return () => id(counter++) as OrderItemId; })(),
     newPendingId: (() => { let counter = 700; return () => id(counter++) as ChatPendingId; })(),
@@ -190,7 +193,7 @@ function harness(options: Options = {}) {
     ...options.overrides,
   };
   const controller = new AbortController();
-  return { calls, stageLog, signals, pendingSaves, changeSaves, traces, store, controller, deps, run: () => applyChatMessage({ companyId, messageId }, deps, controller.signal) };
+  return { calls, stageLog, signals, pendingSaves, changeSaves, traces, outcomeTimes, store, controller, deps, run: () => applyChatMessage({ companyId, messageId }, deps, controller.signal) };
 }
 
 const quantityOf = (store: Store, variantId: VariantId) => [...store.orders.values()].flatMap((order) => order.items).find((item) => item.variantId === variantId)?.quantity;
@@ -215,6 +218,7 @@ describe("applyChatMessage: the staged pipeline", () => {
     expect(h.traces[0]!.records.map(({ stage }) => stage)).toEqual(["intent", "extraction", "resolution"]);
     expect(h.calls.indexOf("saveMessageTrace")).toBeGreaterThan(h.calls.lastIndexOf("recordOutcome"));
     expect(h.store.memory.lastRequestAt).toEqual(at);
+    expect(h.outcomeTimes).toEqual([at]);
   });
 
   test("skips extraction and resolution when the intent is no intent", async () => {
@@ -454,5 +458,32 @@ describe("applyChatMessage: persistence", () => {
     await succeeded(h.run());
 
     expect(h.pendingSaves).toHaveLength(0);
+  });
+});
+
+describe("applyChatMessage: founder decision 5", () => {
+  const intentJson = { outcome: "requests", noIntentReason: null, language: "es", addresses: [], requests: [{ kind: "add", quote: { message: "current", text: "el polo M" } }] };
+  const extractionJson = { requests: [{ request: "R1", target: { kind: "named", ref: null, named: { message: "current", text: "el polo" }, basis: null },
+    values: [{ attribute: null, value: { message: "current", text: "M" } }], quantity: null, price: null, changeVerb: null }] };
+  const resolutionJson = { results: [{ request: "R1", kind: "chosen", products: ["P1"], values: [{ attribute: "Talla", value: "M", quote: "M" }] }] };
+
+  test("configuring the extraction stage with the fake model leaves intent and resolution on their configured models and yields the same decisions", async () => {
+    const openaiStages: string[] = [];
+    const openai: StructuredModel = async (request) => {
+      openaiStages.push(request.stage);
+      return { success: true, data: { json: request.stage === "intent" ? intentJson : resolutionJson, usage: null } };
+    };
+    const fake = createFakeStructuredModel({ extraction: [{ json: extractionJson }] });
+    const real = createReaderStages({ READER_EXTRACTION_PROVIDER: "fake" }, promptRegistry, { openai, fake });
+    const h = harness({ message: textMessage("dame el polo M"), overrides: { stages: real } });
+    const applied = await succeeded(h.run());
+
+    const scripted = harness({ message: textMessage("dame el polo M"), script: { intent: requestsOf(intent("R1", "add", "el polo M")), extraction: [addPolo()], resolutions: [poloInM()] } });
+    const baseline = await succeeded(scripted.run());
+    expect(applied.kind === "applied" && applied.outcomes).toEqual(baseline.kind === "applied" ? baseline.outcomes : null);
+    expect(applied).toMatchObject({ outcomes: [{ kind: "added", variantId: poloM.variantId }] });
+    expect(fake.requests.map(({ stage }) => stage)).toEqual(["extraction"]);
+    expect(openaiStages).toEqual(["intent", "resolution"]);
+    expect(h.traces[0]!.records.map(({ call }) => `${call?.stage}:${call?.provider}`)).toEqual(["intent:openai", "extraction:fake", "resolution:openai"]);
   });
 });

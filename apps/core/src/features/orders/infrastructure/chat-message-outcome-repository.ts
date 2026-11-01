@@ -12,7 +12,8 @@ type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: str
 type InvalidStoredData = Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
 type MessageAlreadyProcessed = Readonly<{ code: "MESSAGE_ALREADY_PROCESSED"; message: string }>;
 
-export type ChatMessageOutcomeRecord = Readonly<{ messageId: ChatMessageId; outcomes: ChatMessageOutcomes }>;
+/** `createdAt`: the message transaction passes its own time, so `ChatPendings.lastRequestAt` is never later than the outcome (the chat view reads equal as open). */
+export type ChatMessageOutcomeRecord = Readonly<{ messageId: ChatMessageId; outcomes: ChatMessageOutcomes; createdAt?: Date }>;
 
 export async function findOutcome(messageId: ChatMessageId): Promise<Result<StoredChatMessageOutcome | null, PersistenceError | InvalidStoredData>> {
   try {
@@ -38,7 +39,7 @@ export async function recordOutcome(record: ChatMessageOutcomeRecord): Promise<R
   const parsed = chatMessageOutcomesSchema.safeParse(record.outcomes);
   if (!parsed.success) return err({ code: "INVALID_STORED_DATA", message: "Invalid chat message outcomes" });
   try {
-    await prisma.chatMessageOutcome.create({ data: { companyId, messageId: record.messageId, outcomes: parsed.data as unknown as Prisma.InputJsonArray } });
+    await prisma.chatMessageOutcome.create({ data: { companyId, messageId: record.messageId, outcomes: parsed.data as unknown as Prisma.InputJsonArray, ...(record.createdAt ? { createdAt: record.createdAt } : {}) } });
     return ok(null);
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;

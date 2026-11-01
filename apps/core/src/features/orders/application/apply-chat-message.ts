@@ -168,7 +168,7 @@ export type ApplyChatMessageDependencies = Readonly<{
   /** Writes the change rows, the supersessions and the touched pendings of the message; after `recordOrderMessage`. */
   saveMessageChanges: (changes: MessageChanges) => Promise<Result<null, PersistenceError>>;
   newChangeId: () => OrderItemChangeId;
-  recordOutcome: (record: Readonly<{ messageId: ChatMessageId; outcomes: ChatMessageOutcomes }>) => Promise<Result<null, PersistenceError | InvalidStoredData | MessageAlreadyProcessed>>;
+  recordOutcome: (record: Readonly<{ messageId: ChatMessageId; outcomes: ChatMessageOutcomes; createdAt?: Date }>) => Promise<Result<null, PersistenceError | InvalidStoredData | MessageAlreadyProcessed>>;
   newOrderId: () => OrderId;
   newItemId: () => OrderItemId;
   newPendingId: () => ChatPendingId;
@@ -307,7 +307,7 @@ const isHigh = (checked: CheckedAction) => isHighCertainty(checked.signals) && r
 
 /** The three stages, then the plan the transaction applies: the checks and the decision run again there, on the locked state. */
 async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>> {
-  const { deps, context, state, message, shown } = read;
+  const { deps, context, state, shown } = read;
   const runDeps: RunReadingDependencies = { stages: deps.stages!, findMentionCandidates: deps.findMentionCandidates, findProductsForReading: deps.findProductsForReading,
     candidatesPerMention: deps.limits.candidatesPerMention, withAbort: deps.withAbort };
   const shownIds = shown.map(({ productId }) => productId);
@@ -492,7 +492,6 @@ async function applyInTransaction(message: ChatSourceMessage, plan: Plan, deps: 
   const changedOrder = target.data.kind === "open" && hasChanges(changes) && applied.data.target.kind === "open" ? applied.data.target.order : null;
   const orderId = createdOrder?.id ?? changedOrder?.id ?? null;
   let rows: MessageChanges | null = null;
-  let linkNotice = false;
   const outcomes: ChatMessageOutcome[] = [...ended, ...applied.data.outcomes];
   if (orderId) {
     const items = { before: target.data.kind === "open" ? target.data.order.items : [], after: (createdOrder ?? changedOrder)?.items ?? [] };
@@ -517,7 +516,7 @@ async function applyInTransaction(message: ChatSourceMessage, plan: Plan, deps: 
   const [first, ...rest] = outcomes;
   if (!first) return err({ code: "INVALID_ORDER", message: "A message needs at least one outcome" });
   const finalOutcomes: ChatMessageOutcomes = [first, ...rest];
-  linkNotice = closesLinkCycle(chooseSellerNotice(finalOutcomes));
+  const linkNotice = closesLinkCycle(chooseSellerNotice(finalOutcomes));
   if (createdOrder && customer?.success) {
     const saved = await deps.saveNewOrder(createdOrder, { chatId: message.chatId, customerId: customer.data.customerId });
     if (!saved.success) return saved;
@@ -539,7 +538,7 @@ async function applyInTransaction(message: ChatSourceMessage, plan: Plan, deps: 
       if (!savedChanges.success) return savedChanges;
     }
   }
-  const recordedOutcome = await deps.recordOutcome({ messageId: message.id, outcomes: finalOutcomes });
+  const recordedOutcome = await deps.recordOutcome({ messageId: message.id, outcomes: finalOutcomes, createdAt: now });
   if (!recordedOutcome.success) return recordedOutcome;
   return ok({ applied: { orderId, createdOrder: createdOrder !== null, outcomes: finalOutcomes, pendingsBefore: stored.data.pendings.length, pendingsAfter: pendingsAfter.pendings.length },
     decided, commitAt: deps.clock() });
