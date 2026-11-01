@@ -1,0 +1,53 @@
+import { defaultReadingBudgets } from "@core/src/features/orders/domain/reader/budgets";
+import type { ReadingContextMessage, ReadingInput, ReadingItem, ReadingPending, RequestIntent } from "@core/src/features/orders/domain/reader/readings";
+import type { ExtractionInput } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
+
+/** The quote of an intent is shown up to this long: it only points at where the request is. */
+const maxIntentQuoteChars = 200;
+
+const attributesText = (attributes: Readonly<Record<string, string>>) => Object.entries(attributes).map(([name, value]) => ` · ${name} ${value}`).join("");
+const contextLine = (message: ReadingContextMessage) => `${message.ref} (${message.direction === "incoming" ? "buyer" : "seller"}, ${message.kind}): ${message.text ?? "(no text)"}`;
+const itemLine = (item: ReadingItem) => `${item.ref}: ${item.productName}${attributesText(item.variantAttributes)} · quantity ${item.quantity}`;
+const pendingLine = (pending: ReadingPending) => {
+  const subject = pending.productIds.length > 1 ? `a choice between ${pending.productIds.length} products` : "one product";
+  return `${pending.ref}: ${subject}${attributesText(pending.known).replace(/^ · /, " · known: ")} · quantity ${pending.quantity}${pending.doubtful ? " · in doubt" : ""}`;
+};
+const intentLine = ({ id, kind, quote }: RequestIntent) =>
+  `${id} (${kind}): «${quote.text.slice(0, maxIntentQuoteChars)}»${quote.source === "context" ? ` in ${quote.ref}` : ""}`;
+
+function photoLines({ current, photo, photoMemory }: ReadingInput): string[] {
+  const shown = photo === null ? [] : [photo.productId === null ? "The photo shows no catalog product." : "The photo shows a catalog product."];
+  const previous = photoMemory === null ? [] : [photoMemory.left === null ? "The buyer's previous message was a photo that left nothing."
+    : `The buyer's previous message was a photo that left ${photoMemory.left.kind === "pending" ? "a pending" : "an item in the order"}.`];
+  return [`Message kind: ${current.kind === "image" ? "caption of a photo" : "text message"}`, ...shown, ...previous];
+}
+
+/**
+ * What the extraction stage reads after its fixed instructions: the requests to extract, the photo facts, recent messages oldest first,
+ * the order lines, the pendings and last the buyer's message. Only refs, never ids. The result never passes `maxChars` on the real rendered
+ * text: the oldest context messages go first, then what is left is filled by priority (current message and requests, order lines newest
+ * first, pendings). The requests and the buyer's message are never cut.
+ */
+export function renderExtractionInput({ input, intents }: ExtractionInput, maxChars: number = defaultReadingBudgets.stageInputMaxChars): string {
+  const head = [...photoLines(input), "Requests to extract:", ...intents.map(intentLine)];
+  const tail = ["Buyer's message:", input.current.text === "" ? "(no text)" : input.current.text];
+  const assemble = (context: readonly string[], items: readonly string[], pendings: readonly string[]) => [
+    ...head,
+    "Recent messages, oldest first:", ...(context.length ? context : ["No recent messages are listed."]),
+    "Order lines:", ...(items.length ? items : ["No order lines are listed."]),
+    "Pendings:", ...(pendings.length ? pendings : ["No pendings are listed."]),
+    ...tail,
+  ].join("\n");
+
+  const items = input.items.map(itemLine);
+  const pendings = input.pendings.map(pendingLine);
+  let context = input.context.map(contextLine);
+  while (context.length > 0 && assemble(context, items, pendings).length > maxChars) context = context.slice(1);
+  if (assemble(context, items, pendings).length <= maxChars) return assemble(context, items, pendings);
+
+  let remaining = maxChars - assemble([], [], []).length;
+  const fit = (lines: readonly string[]) => lines.map((line) => { const fits = line.length + 1 <= remaining; if (fits) remaining -= line.length + 1; return fits; });
+  const itemFits = fit([...items].reverse()).reverse();
+  const pendingFits = fit(pendings);
+  return assemble([], items.filter((_, index) => itemFits[index]), pendings.filter((_, index) => pendingFits[index]));
+}
