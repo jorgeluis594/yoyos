@@ -6,7 +6,7 @@ import type { ReadingContextData } from "@core/src/features/orders/application/r
 import type { CompanyId } from "@core/src/features/orders/domain/order";
 import type { DecidedAction } from "@core/src/features/orders/domain/reader/decide-changes";
 import type { ContextMessageRef, IntentReading, ItemRef, PendingRef, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
-import { maxTraceQuoteChars } from "@core/src/features/orders/domain/reader/trace";
+import { maxTraceQuoteChars, traceDecisionsSchema, tracePhotoSchema, traceQuotesSchema, traceStagesSchema } from "@core/src/features/orders/domain/reader/trace";
 import type { VariantId } from "@core/src/features/products/domain/product";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
@@ -85,6 +85,11 @@ describe("buildMessageTrace", () => {
       photo: { method: "visual", result: "matched", productId: id(5) as never, confidence: 0.9, usage: null, costUsd: 0.5, durationMs: 1 },
       records: [{ call: call(0.25), stage: "intent", input: summary, output: null, errorCode: null }, { call: null, stage: "extraction", input: summary, output: null, errorCode: "DEADLINE_EXCEEDED" }],
     }));
+    // What saveMessageTrace parses before it writes.
+    expect(traceStagesSchema.safeParse(trace.stages).success).toBe(true);
+    expect(traceDecisionsSchema.safeParse(trace.decisions).success).toBe(true);
+    expect(tracePhotoSchema.safeParse(trace.photo).success).toBe(true);
+    expect(traceQuotesSchema.safeParse(buildMessageTrace(input()).trace.quotes).success).toBe(true);
     expect(trace.stages).toHaveLength(1);
     expect(trace.costUsd).toBeCloseTo(0.75);
     expect(trace.decisions).toEqual([{ action: { kind: "remove", request: "R1", item: "I1", pending: null, productId: id(5), variantId }, signals: decided.checked.signals,
