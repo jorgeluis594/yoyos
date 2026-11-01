@@ -302,6 +302,17 @@ test("Continuar with a hidden line creates no order", async () => {
   expect(await withTenantIsolation(companyId, async () => await prisma.order.count({ where: { id: orderId } }))).toBe(0);
 });
 
+test("removing the hidden line lets Continuar create the order with the remaining one", async () => {
+  const { companyId, black } = await store();
+  const other = randomUUID() as VariantId;
+  await withTenantIsolation(companyId, async () => await seedProduct({ name: "Casaca jean", hidden: true, variants: [{ id: other, salePrice: 120, stock: 2 }] }));
+  const orderId = randomUUID() as OrderId;
+  expect(await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1), line(other, 1)] }, await storefrontOf(companyId)))
+    .toMatchObject({ success: false, error: { code: "LINES_UNAVAILABLE", issues: [{ variantId: other, reason: "unavailable" }] } });
+  expect(await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1)] }, await storefrontOf(companyId)))
+    .toMatchObject({ success: true, data: { id: orderId } });
+});
+
 test("Continuar on an unchanged cart returns the pending catalog order holding a hidden line", async () => {
   const { companyId, black } = await store();
   const orderId = randomUUID() as OrderId;

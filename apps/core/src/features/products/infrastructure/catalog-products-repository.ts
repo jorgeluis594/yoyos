@@ -24,7 +24,7 @@ const cardSchema = z.object({
 });
 type CardRow = Readonly<{ id: string; name: string; imageId: string | null; currency: string; minPrice: Prisma.Decimal; maxPrice: Prisma.Decimal; soldOut: boolean }>;
 
-const sellable = { status: "active", hidden: false, variants: { some: { status: "active" } } } as const;
+const offered = { status: "active", hidden: false, variants: { some: { status: "active" } } } as const;
 const include = {
   variants: { where: { status: "active" }, include: { stock: true }, orderBy: { id: "asc" } },
   photos: { orderBy: { position: "asc" }, select: { imageId: true } },
@@ -81,7 +81,7 @@ export const catalogProductRepository: CatalogProductRepository = {
     let options: Option[];
     try {
       ({ row, attributes, options } = await withinReadSnapshot(async () => {
-        const row = await prisma.product.findFirst({ where: { id, currency, ...sellable }, include });
+        const row = await prisma.product.findFirst({ where: { id, currency, ...offered }, include });
         if (!row) return { row, attributes: new Map<string, Record<string, string>>(), options: [] };
         const options = await prisma.productOption.findMany({ where: { productId: row.id }, orderBy: { position: "asc" },
           include: { values: { orderBy: { position: "asc" } } } });

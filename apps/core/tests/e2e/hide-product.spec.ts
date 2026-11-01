@@ -11,7 +11,7 @@ test("the seller hides a product and the buyer no longer sees it in the catalog"
   const buyer = await page.context().browser()!.newContext({ baseURL, viewport: { width: 390, height: 844 } });
   const buyerPage = await buyer.newPage();
   try {
-    const shown = await withTenantIsolation(companyId, () => seedProduct({ name: "Polo básico", variants: [{ salePrice: 45, stock: 5 }] }));
+    await withTenantIsolation(companyId, () => seedProduct({ name: "Polo básico", variants: [{ salePrice: 45, stock: 5 }] }));
     const hidden = await withTenantIsolation(companyId, () => seedProduct({ name: "Casaca jean", variants: [{ salePrice: 120, stock: 5 }] }));
     const storeAddress = await publishCatalog(companyId);
 
@@ -46,7 +46,6 @@ test("the seller hides a product and the buyer no longer sees it in the catalog"
     expect(page404?.status()).toBe(404);
     await browserExpect(buyerPage.getByText("Este producto ya no está disponible")).toBeVisible();
     expect((await page.request.get(`/api/products/${hidden.productId}`)).status()).toBe(200);
-    expect(shown.productId).not.toBe(hidden.productId);
   } finally {
     await buyer.close();
     await withTenantIsolation(companyId, async () => {

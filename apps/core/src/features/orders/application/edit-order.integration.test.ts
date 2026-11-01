@@ -85,6 +85,31 @@ async function inShop(work: (s: Shop) => Promise<void>, stocks?: Parameters<type
 }
 const unwrap = <T>(result: { success: true; data: T } | { success: false; error: unknown }) => { if (!result.success) throw new Error(JSON.stringify(result.error)); return result.data; };
 
+const hideProductOf = (s: Shop, variantId: VariantId) => s.run(async () => {
+  const variant = await prisma.productVariant.findUniqueOrThrow({ where: { id: variantId } });
+  await prisma.product.update({ where: { id: variant.productId }, data: { hidden: true } });
+});
+
+test("Nueva venta sells a hidden product and deducts its stock", async () => {
+  await inShop(async (s) => {
+    await hideProductOf(s, s.deadpool);
+    const id = await s.create([[s.deadpool, 1]]);
+    const paid = unwrap(await s.pay(id, 120));
+    expect(paid.order.stockDeducted).toBe(true);
+    expect(await s.stock(s.deadpool)).toBe(3);
+  });
+});
+
+test("the order editor adds a hidden product", async () => {
+  await inShop(async (s) => {
+    const id = await s.create([[s.trajeS, 1]]);
+    await hideProductOf(s, s.deadpool);
+    const edited = unwrap(await s.edit(id, { items: s.lines([s.trajeS, 1], [s.deadpool, 1]) }));
+    expect(edited.applied).toEqual(["items"]);
+    expect((await s.load(id)).order.items.map((item) => item.variantId).sort()).toEqual([s.trajeS, s.deadpool].sort());
+  });
+});
+
 test("raises a quantity of order 1042 to a total of 418.00 keeping the 150.00 Yape payment unchanged", async () => {
   await inShop(async (s) => {
     const id = await s.create();
