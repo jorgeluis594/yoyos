@@ -110,6 +110,12 @@ describe("every current outcome under the new decisions", () => {
     expect(decideChange(entry, "low", "not_run", { captionUnread: false })).toEqual({ kind: "silent" });
   });
 
+  test("decides too_many_actions as an urgent invalid action", () => {
+    const entry = { request: "R1" as RequestRef, action: { kind: "report", outcome: { kind: "invalid_action", orderId: null, reason: "too_many_actions" } } satisfies ResolvedChatAction,
+      signals: { quotesComplete: true, targetNamed: "named", variantChangeVerb: "not_applicable", candidates: "single" } as const, doubt: null, urgent: { problem: "invalid_action" as const, question: null }, blocked: null };
+    expect(decideChange(entry, "low", "not_run", { captionUnread: false })).toEqual({ kind: "urgent", problem: "invalid_action", question: null });
+  });
+
   test("decides reader_doubt as urgent", () => {
     const entry = { request: "R1" as RequestRef, action: { kind: "report", outcome: { kind: "reader_doubt", orderId: null } } satisfies ResolvedChatAction,
       signals: { quotesComplete: true, targetNamed: "named", variantChangeVerb: "not_applicable", candidates: "single" } as const, doubt: null, urgent: null, blocked: null };

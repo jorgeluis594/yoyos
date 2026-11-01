@@ -78,10 +78,16 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
   return requests.flatMap((entry) => checkOne(entry, env));
 }
 
+/** A remove or quantity change that lands on a pending, which lives without an order. */
+function onPending(request: ExtractedRequest, snapshot: CheckSnapshot): boolean {
+  if (request.kind === "change_quantity") return pendingOfRequest(request, snapshot) !== undefined || (request.target.kind === "photo_just_sent" && snapshot.photoJustSent?.kind === "pending");
+  return request.kind === "remove" && request.target.kind === "pending" && pendingOfRequest(request, snapshot) !== undefined;
+}
+
 function checkOne(said: Said, env: Env): readonly CheckedAction[] {
   const { request } = said;
   const { snapshot } = env;
-  if (itemKinds.has(request.kind) && snapshot.order !== "open" && !(request.kind === "change_quantity" && request.target.kind === "photo_just_sent" && snapshot.photoJustSent?.kind === "pending")) {
+  if (itemKinds.has(request.kind) && snapshot.order !== "open" && !onPending(request, snapshot)) {
     const blocked = snapshot.order === "closed" ? "order_closed" : "no_open_order";
     return [checked(said, { kind: "change_unfound_item", target: { kind: "unnamed" } }, signalsOf(said, "context"), { blocked })];
   }
@@ -152,9 +158,14 @@ function pendingOfRequest(request: ExtractedRequest, snapshot: CheckSnapshot): C
 
 function checkRemove(said: Said, env: Env): CheckedAction {
   const pending = said.request.target.kind === "pending" ? pendingOfRequest(said.request, env.snapshot) : undefined;
-  if (pending) return checked(said, { kind: "decline_pending", pendingId: pending.id }, signalsOf(said, "named"));
-  const found = findItem(said.request, env);
   const { quantity } = said.request;
+  const pendingNamed: Named = said.request.target.kind === "pending" && said.request.target.named !== null ? "named" : "context";
+  if (pending && quantity?.mode === "decrease") {
+    if (!whole(quantity.value, 1)) return checked(said, invalid("quantity_not_whole"), signalsOf(said, pendingNamed), { urgent: { problem: "invalid_action", question: null } });
+    return pendingQuantity(said, pending, quantity, pendingNamed);
+  }
+  if (pending) return checked(said, { kind: "decline_pending", pendingId: pending.id }, signalsOf(said, pendingNamed));
+  const found = findItem(said.request, env);
   if (found.kind !== "found") {
     return unfoundItem(said, found, env, (items) => orNull(names(items), (products) => ({ language: env.snapshot.language, kind: "which_item_to_remove", products })));
   }
@@ -323,6 +334,8 @@ function checkAdd(said: Said, env: Env): readonly CheckedAction[] {
   if (target.kind === "photo_just_sent") {
     const grown = photoQuantity(said, env, { value: quantity, mode: "add" });
     if (grown) return [grown];
+    const pending = pendingOfRequest(request, snapshot);
+    if (pending) return [pendingQuantity(said, pending, { value: quantity, mode: "add" }, "context")];
   }
   return [checkReferencedAdd(said, env, quantity, snapshot)];
 }

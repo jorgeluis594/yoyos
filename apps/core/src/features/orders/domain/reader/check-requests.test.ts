@@ -185,6 +185,20 @@ describe("checkRequests: the photo just sent", () => {
     for (const agreement of ["agree", "not_run"] as const) expect(decision(checked, agreement)).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
   });
 
+  test("leaves the pending ×3 «Con duda» on «pásame 3» with no open order (AC 5)", () => {
+    const checked = only(checkRequests([set], [], snapshot({ pendings: [pendingRef(1, gorraPending)], photoJustSent: null, order: "none" })));
+    expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: gorraPending.id, mode: "set", quantity: 3 });
+    expect(checked.blocked).toBeNull();
+    expect(decision(checked, "agree")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } });
+  });
+
+  test("grows the single pending «Con duda» on «uno más de esa» when the photo just sent is gone", () => {
+    const again = request({ kind: "add", target: { kind: "photo_just_sent" }, quantity: quantity(1, "add") });
+    const checked = only(checkRequests([again], [], snapshot({ pendings: [pendingRef(1, gorraPending)], photoJustSent: null, order: "none" })));
+    expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: gorraPending.id, mode: "increase", quantity: 1 });
+    expect(decision(checked, "agree")).toEqual({ kind: "doubtful", reason: { kind: "quantity_set", quantity: gorraPending.quantity + 1 } });
+  });
+
   test("grows the pending «Con duda» on «otro igual» right after the photo just sent, without a quantity", () => {
     const again = request({ kind: "add", target: { kind: "photo_just_sent" } });
     const checked = only(checkRequests([again], [], snapshot({ pendings: [pendingRef(1, gorraPending)], photoJustSent: left })));
@@ -210,6 +224,41 @@ describe("checkRequests: targets that are a pending", () => {
   test("declines the pending on a remove, never removes the only item of the order", () => {
     const checked = only(checkRequests([request({ kind: "remove", target })], [], state));
     expect(checked.action).toEqual({ kind: "decline_pending", pendingId: gorraPending.id });
+  });
+
+  test("lowers the pending by a decrease quantity instead of declining all of it", () => {
+    const three = pendingOf("gorra", { quantity: 3 });
+    const withThree = snapshot({ items: [polera], pendings: [pendingRef(1, three)] });
+    const checked = only(checkRequests([request({ kind: "remove", target, quantity: quantity(1, "decrease") })], [], withThree));
+    expect(checked.action).toMatchObject({ kind: "change_pending_quantity", pendingId: three.id, mode: "decrease", quantity: 1 });
+    expect(decision(checked, "agree")).toEqual({ kind: "pending" });
+    const fraction = only(checkRequests([request({ kind: "remove", target, quantity: quantity(1.5, "decrease") })], [], withThree));
+    expect(decision(fraction, "agree")).toMatchObject({ kind: "urgent", problem: "invalid_action" });
+  });
+
+  test("rates a context-only remove of a pending as context", () => {
+    const checked = only(checkRequests([request({ kind: "remove", target: { ...target, named: null } })], [], state));
+    expect(checked.action).toEqual({ kind: "decline_pending", pendingId: gorraPending.id });
+    expect(checked.signals.targetNamed).toBe("context");
+  });
+
+  test("changes and declines a pending when the chat has no open order", () => {
+    const noOrder = snapshot({ pendings: [pendingRef(1, gorraPending)], order: "none" });
+    const set = only(checkRequests([request({ kind: "change_quantity", target, quantity: quantity(2, "set") })], [], noOrder));
+    expect(set.action).toMatchObject({ kind: "change_pending_quantity", pendingId: gorraPending.id, mode: "set", quantity: 2 });
+    expect(set.blocked).toBeNull();
+    expect(decision(set, "agree")).toEqual({ kind: "pending" });
+    const remove = only(checkRequests([request({ kind: "remove", target })], [], noOrder));
+    expect(remove.action).toEqual({ kind: "decline_pending", pendingId: gorraPending.id });
+    expect(remove.blocked).toBeNull();
+    const lower = only(checkRequests([request({ kind: "remove", target, quantity: quantity(1, "decrease") })], [], noOrder));
+    expect(lower.action).toMatchObject({ kind: "change_pending_quantity", mode: "decrease" });
+    expect(lower.blocked).toBeNull();
+  });
+
+  test("still blocks a price or a variant change on a pending when there is no open order", () => {
+    const noOrder = snapshot({ pendings: [pendingRef(1, gorraPending)], order: "none" });
+    for (const kind of ["mention_price", "change_variant"] as const) expect(only(checkRequests([request({ kind, target })], [], noOrder)).blocked).toBe("no_open_order");
   });
 
   test("never points another item change at the only item when the target is a pending", () => {
