@@ -210,14 +210,14 @@ describe("applyChatMessage: photos", () => {
     expect(h.contexts[0]).toMatchObject({ kind: "photo_product", text: "2 en talla M" });
   });
 
-  test("tells the seller about a doubted caption by adding the photo's product", async () => {
+  test("adds the photo's product for a doubted caption without a notice", async () => {
     const h = harness({ message: photoMessage({ caption: "no sé" }), identification: visual(productCap), reader: () => ({ kind: "doubt" }) });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }, { kind: "caption_not_applied", productId: productCap }], noticeDue: true });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }, { kind: "caption_not_applied", productId: productCap }], noticeDue: false });
   });
 
-  test("applies the fixed answer with a caption notice for a caption over the text limit", async () => {
+  test("applies the fixed answer and records caption not applied for a caption over the text limit", async () => {
     const h = harness({ message: photoMessage({ caption: "x".repeat(30) }), identification: visual(productCap), limits: { maxReaderTextChars: 20 } });
-    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added" }, { kind: "caption_not_applied", productId: productCap }], trace: { readerCalls: 0 } });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added" }, { kind: "caption_not_applied", productId: productCap }], noticeDue: false, trace: { readerCalls: 0 } });
     expect(h.contexts).toHaveLength(0);
   });
 
