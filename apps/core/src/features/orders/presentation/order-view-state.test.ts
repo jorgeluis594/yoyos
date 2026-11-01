@@ -41,7 +41,7 @@ function order1042(patch: Partial<OrderAggregateResponse> = {}): OrderAggregateR
     stockDeducted: false, stockDue: null,
     items: [item("00000000-0000-4000-8000-000000000001", trajeM, "Traje de Príncipe Azul", "M", 89), item("00000000-0000-4000-8000-000000000002", trajeL, "Traje de Príncipe Azul", "L", 89),
       item("00000000-0000-4000-8000-000000000003", deadpoolM, "Disfraz de Deadpool", "M", 120)],
-    payments: [yape], itemsTotal: pen(298), deliveryCost: pen(0), deliveryCharge: pen(0), total: pen(298), ...patch,
+    payments: [yape], itemsTotal: pen(298), deliveryCost: pen(0), deliveryCharge: pen(0), total: pen(298), revisions: { items: "A".repeat(43) }, ...patch,
   };
 }
 

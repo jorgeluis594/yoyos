@@ -2,6 +2,7 @@ import type { OrderSubmission } from "@mobile/features/orders/domain/order-draft
 import type { CancelledOrderState, CancellationOrderState, CancellationRequestError } from "@mobile/features/orders/application/cancel-order";
 import { cancelOrderParamsSchema, cancelOrderResponseSchema, cancelOrderErrorSchema } from "@shared/contracts/orders";
 import { checkoutLinkSchema } from "@shared/contracts/order-checkout";
+import { editOrderItemsErrorSchema, editOrderItemsRequestSchema, editOrderItemsResponseSchema, type EditOrderItemsResponse } from "@shared/contracts/order-items-edit";
 import { z } from "zod";
 import { createOrderSchema, listOrderAggregatesResponseSchema, listOrderAggregatesSchema, listOrdersResponseSchema, listOrdersSchema, orderAggregateSchema, orderApiErrorSchema,
   orderCatalogSchema, setRatedOrderDeliverySchema, type SetRatedOrderDeliveryRequest, registerPaymentResponseSchema, registerPaymentSchema, type CreateRatedOrderRequest, type CreateOrderRequest, type UpdateOrderShippingRequest, updateOrderShippingSchema, type ListOrderAggregatesRequest, type ListOrdersRequest, type RegisterPaymentRequest,
@@ -13,7 +14,7 @@ import type { DispatchLabelSender } from "@shared/dispatch-label/types";
 import type { Result } from "@shared/result";
 import type { TransportError } from "@mobile/shared/application/transport-error";
 
-import type { OrderRequestError } from "@mobile/features/orders/application/order-operations";
+import type { EditOrderItemsInput, OrderRequestError } from "@mobile/features/orders/application/order-operations";
 
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
 type Operation = "fulfillment" | "deliverFulfillment" | "delivery" | "checkout" | "list" | "mixed" | "get" | "aggregate" | "create" | "payment" | "void" | "catalog" | "shipping" | "sender" | "reject";
@@ -81,6 +82,16 @@ function requestError(error: TransportError, operation: Operation): OrderRequest
     }
   }
   return { code: error.code, message: error.message };
+}
+
+const itemsEditStatus = { ORDER_CHANGED: 409, DELIVERY_LOCKED: 409, ORDER_CANCELLED: 409, VARIANT_NOT_FOUND: 422, INVALID_INPUT: 400 } as const;
+
+/** The refusals of `PATCH items` keep their own codes; anything else reads like any order error. */
+function itemsEditError(error: TransportError): OrderRequestError {
+  const known = error.http ? editOrderItemsErrorSchema.safeParse(error.http.body) : null;
+  if (known?.success && error.http?.status === itemsEditStatus[known.data.code])
+    return { code: known.data.code, message: known.data.error, ...(known.data.code === "VARIANT_NOT_FOUND" ? { variantId: known.data.variantId } : {}) };
+  return requestError(error, "aggregate");
 }
 
 function response<T extends z.ZodType>(raw: Result<unknown, TransportError>, schema: T, operation: Operation): Result<z.infer<T>, OrderRequestError> {
@@ -217,6 +228,14 @@ export function createOrderApi(request: Request) {
     getAggregate: async (id: OrderAggregateResponse["id"]): Promise<Result<OrderAggregateResponse, OrderRequestError>> => {
       if (!z.uuid().safeParse(id).success) return err({ code: "INVALID_INPUT", message: "Invalid order ID" });
       return response(await request(`/api/orders/${id}/aggregate`), orderAggregateSchema, "aggregate");
+    },
+    editOrderItems: async (orderId: string, input: EditOrderItemsInput): Promise<Result<EditOrderItemsResponse, OrderRequestError>> => {
+      const parsed = editOrderItemsRequestSchema.safeParse({ version: 1, ...input });
+      if (!z.uuid().safeParse(orderId).success || !parsed.success) return err({ code: "INVALID_INPUT", message: "Invalid items edit" });
+      const raw = await request(`/api/orders/${orderId}/items`, { method: "PATCH", headers: { "content-type": "application/json" }, body: JSON.stringify(parsed.data) });
+      if (!raw.success) return err(itemsEditError(raw.error));
+      const body = editOrderItemsResponseSchema.safeParse(raw.data);
+      return body.success && body.data.order.id === orderId ? ok(body.data) : err({ code: "INVALID_RESPONSE", message: "Invalid items edit response" });
     },
     list: async (input: ListOrdersRequest): Promise<Result<z.infer<typeof listOrdersResponseSchema>, OrderRequestError>> => {
       const parsed = listOrdersSchema.safeParse(input);
