@@ -66,7 +66,7 @@ export function snapshotOf(item: OrderItem, position: number): LineSnapshot {
 const sameLine = (item: OrderItem, snapshot: LineSnapshot) => item.variantId === snapshot.variantId && item.quantity === snapshot.quantity
   && sameMoney(item.unitPrice, snapshot.unitPrice) && sameMentionedPrice(item.mentionedPrice, snapshot.mentionedPrice);
 
-function itemOfSnapshot(snapshot: LineSnapshot): OrderItem {
+export function itemOfSnapshot(snapshot: LineSnapshot): OrderItem {
   return { id: snapshot.itemId, variantId: snapshot.variantId, productName: snapshot.productName, variantAttributes: snapshot.variantAttributes, sku: snapshot.sku,
     quantity: snapshot.quantity, unitPrice: snapshot.unitPrice, subtotal: { ...snapshot.unitPrice, amount: roundCents(snapshot.unitPrice.amount * snapshot.quantity) },
     mentionedPrice: snapshot.mentionedPrice, stockDeductedQuantity: 0 };
