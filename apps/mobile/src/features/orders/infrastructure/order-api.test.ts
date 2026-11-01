@@ -70,10 +70,11 @@ test("order error schemas preserve transport failures and the checkout status ex
 test("order API reads mixed summaries and validates complete aggregate states", async () => {
   const total = { amount: 10, currency: "PEN" as const };
   const zero = { amount: 0, currency: "PEN" as const };
-  const summary = { number: 1001, id: id(1), buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, sellerId: "seller",
+  const summary = { number: 1001, id: id(1), buyer: null, source: "manual", toReview: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, sellerId: "seller",
     createdAt: "2026-09-29T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
     deliveryStatus: "pending", stockDeducted: false, total };
-  const order = { ...summary, revisions: { items: "A".repeat(43) }, cancelledAt: null, stockDeductedAt: null, stockDue: null, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
+  const { toReview: _toReview, ...aggregateBase } = summary;
+  const order = { ...aggregateBase, revisions: { items: "A".repeat(43) }, cancelledAt: null, stockDeductedAt: null, stockDue: null, companyId: id(2), paidAmount: zero, balanceDue: total, overpaidAmount: zero,
     cancelled: false, delivery: null, payments: [], itemsTotal: total, deliveryCost: zero, deliveryCharge: zero,
     items: [{ id: id(3), variantId: id(4), productName: "Item", variantAttributes: {}, sku: null,
       quantity: 1, unitPrice: total, subtotal: total, mentionedPrice: null }] };
