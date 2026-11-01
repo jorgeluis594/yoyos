@@ -48,6 +48,17 @@ export async function recordOutcome(record: ChatMessageOutcomeRecord): Promise<R
   }
 }
 
+/** A message that failed counts as a photo that left nothing: it clears «the photo just sent» of its chat, so the next text cannot inherit an older photo. Best effort. */
+async function rememberFailedMessage(messageId: ChatMessageId, companyId: string): Promise<void> {
+  try {
+    await prisma.$executeRaw`INSERT INTO "ChatPendings" ("companyId", "chatId", "pendings", "readyRemembered", "lastIncomingPhoto", "updatedAt")
+      SELECT ${companyId}::uuid, "chatId", '[]'::jsonb, false, '{"left":null}'::jsonb, now() FROM "ChatMessage" WHERE "companyId" = ${companyId}::uuid AND id = ${messageId}::uuid
+      ON CONFLICT ("companyId", "chatId") DO UPDATE SET "lastIncomingPhoto" = '{"left":null}'::jsonb, "updatedAt" = now()`;
+  } catch (cause) {
+    log.warn({ event: "unable_to_remember_failed_chat_message", companyId, messageId, err: cause }, "unable_to_remember_failed_chat_message");
+  }
+}
+
 export type FailedOutcomeResult = Readonly<{ publishNotice: boolean }>;
 
 /**
@@ -59,7 +70,10 @@ export async function recordFailedOutcome(messageId: ChatMessageId, errorCode: C
   try {
     const outcomes: ChatMessageOutcomes = [{ kind: "failed", errorCode }];
     const inserted = await prisma.chatMessageOutcome.createMany({ data: [{ companyId, messageId, outcomes: outcomes as unknown as Prisma.InputJsonArray }], skipDuplicates: true });
-    if (inserted.count === 1) return ok({ publishNotice: true });
+    if (inserted.count === 1) {
+      await rememberFailedMessage(messageId, companyId);
+      return ok({ publishNotice: true });
+    }
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
     if (cause instanceof Prisma.PrismaClientKnownRequestError && cause.code === "P2003") {
