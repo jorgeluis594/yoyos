@@ -1,5 +1,6 @@
 import OpenAI from "openai";
-import { describe, expect } from "vitest";
+import sharp from "sharp";
+import { describe, expect, test } from "vitest";
 import { createOpenAIProductChooser } from "@core/src/features/products/infrastructure/product-matching/openai-product-chooser";
 import { productChooserContract, type ProviderReply } from "@core/src/features/products/infrastructure/product-matching/product-chooser.contract";
 
@@ -32,5 +33,13 @@ describe("createOpenAIProductChooser", () => {
       return respond(reply, init?.signal);
     } });
     return { choose: createOpenAIProductChooser({ client, model: "gpt-6-luna", timeoutMs: 50, companyId: () => "company" }), sentImages: () => sent };
+  });
+
+  test("reports the tokens the provider says the choice used", async () => {
+    const client = new OpenAI({ apiKey: "test-key", fetch: async (_url, init) => respond({ kind: "choice", choice: "A", confidence: 0.9, showsProduct: 0.9 }, init?.signal) });
+    const choose = createOpenAIProductChooser({ client, model: "gpt-6-luna", timeoutMs: 50, companyId: () => "company" });
+    const image = { bytes: new Uint8Array(await sharp({ create: { width: 8, height: 8, channels: 3, background: "#fff" } }).jpeg().toBuffer()), contentType: "image/jpeg" };
+    const result = await choose({ query: image, candidates: [{ productId: "product-a" as never, image }] });
+    expect(result).toMatchObject({ success: true, data: { kind: "product", usage: { inputTokens: 900, outputTokens: 1 } } });
   });
 });

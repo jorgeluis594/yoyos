@@ -55,6 +55,14 @@ describe("identifyProductsInImage", () => {
     expect(h.calls).toEqual(["readQrCodes"]);
   });
 
+  test("reports the chooser's tokens on a visual identification, and on a miss after the chooser ran", async () => {
+    const usage = { inputTokens: 900, outputTokens: 1 };
+    const found = harness({ visual: { chooseProduct: async () => ok({ kind: "product", productId: productP, confidence: 0.9 as MatchConfidence, showsProduct: 0.95, usage }) } });
+    expect(await found.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual", usage } });
+    const miss = harness({ visual: { chooseProduct: async () => ok({ kind: "none", confidence: 0.9 as MatchConfidence, showsProduct: 0.9, usage }) } });
+    expect(await miss.run()).toMatchObject({ success: true, data: { kind: "not_found", reason: "no_visual_match", usage } });
+  });
+
   test("runs visual search when the image has no QR code", async () => {
     const h = harness();
     expect(await h.run()).toMatchObject({ success: true, data: { kind: "found", method: "visual" } });
