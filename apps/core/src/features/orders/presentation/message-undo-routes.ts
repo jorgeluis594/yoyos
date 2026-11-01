@@ -1,22 +1,23 @@
 import express, { type Response } from "express";
 import { z } from "zod";
 import { undoMessageErrorSchema, undoMessageResponseSchema } from "@shared/contracts/order-message-undo";
-import type { OrderReviewResponse } from "@shared/contracts/order-review";
 import type { Result } from "@shared/result";
 import { apiError, type PrivateLocals } from "@core/src/shared/infrastructure/api-auth-middleware";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { orders } from "@core/src/features/orders/composition";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CompanyId, OrderId, UserId } from "@core/src/features/orders/domain/order";
-import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { UndoMessageError, UndoMessageInput, UndoneMessage } from "@core/src/features/orders/application/undo-message-changes";
+import type { LoadOrderReviewInput } from "@core/src/features/orders/application/load-order-review";
+import type { OrderReviewProjection } from "@core/src/features/orders/domain/order-review";
+import { toOrderReviewJson } from "@core/src/features/orders/presentation/order-review-json";
 import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
 
 export type MessageUndoRoutesDependencies = Readonly<{
   undo: (input: UndoMessageInput, access: OrderAccess) => Promise<Result<UndoneMessage, UndoMessageError>>;
-  /** The review of the order after the undo; the review core replaces the minimal one the composition wires today. */
-  loadReview: (order: OrderAggregate) => Promise<Result<OrderReviewResponse, Readonly<{ code: string; message: string }>>>;
+  /** The review of the order after the undo, read once the undo is committed. */
+  loadReview: (input: LoadOrderReviewInput, access: OrderAccess) => Promise<Result<OrderReviewProjection, Readonly<{ code: string; message: string }>>>;
 }>;
 
 const paramsSchema = z.strictObject({ orderId: z.uuid(), messageId: z.uuid() });
@@ -31,9 +32,9 @@ export function createMessageUndoRoutes(deps: MessageUndoRoutesDependencies) {
     const input = { orderId: params.data.orderId as OrderId, messageId: params.data.messageId as ChatMessageId };
     const undone = await deps.undo(input, access);
     if (!undone.success) return undoFailure(response, input, undone.error);
-    const review = await deps.loadReview(undone.data.order);
+    const review = await deps.loadReview({ orderId: input.orderId }, access);
     if (!review.success) return apiError(response, 503, "SERVICE_UNAVAILABLE", "Order review unavailable");
-    const body = undoMessageResponseSchema.safeParse({ order: toOrderAggregateJson(undone.data.order, null), review: review.data });
+    const body = undoMessageResponseSchema.safeParse({ order: toOrderAggregateJson(undone.data.order, null), review: toOrderReviewJson(review.data) });
     if (!body.success) {
       log.error({ event: "order_message_undo_response_invalid", errorCode: "INVALID_STORED_DATA" }, "order_message_undo_response_invalid");
       return apiError(response, 500, "INTERNAL_ERROR", "Internal error");
@@ -56,4 +57,4 @@ function undoFailure(response: Response<unknown, PrivateLocals>, input: UndoMess
   }
 }
 
-export const messageUndoRoutes = createMessageUndoRoutes({ undo: orders.undoMessage, loadReview: orders.reviewAfterUndo });
+export const messageUndoRoutes = createMessageUndoRoutes({ undo: orders.undoMessage, loadReview: orders.loadOrderReview });

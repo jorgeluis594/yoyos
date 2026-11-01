@@ -52,11 +52,13 @@ export function toOrderAggregateJson(order: OrderAggregate, stockDue: StockDue |
         ...(item.status === "voided" ? { voidedAt: item.data.voidedAt.toISOString() } : {}) } }) });
 }
 
-export function toOrderAggregateListJson(page: AggregatePage) {
-  return listOrderAggregatesResponseSchema.parse({ ...page, items: page.items.map((item) => {
+/** `toReview` holds the orders of the page with something to review; a page without it marks none. */
+export function toOrderAggregateListJson(page: AggregatePage & Readonly<{ toReview?: ReadonlySet<string> }>) {
+  const { toReview = new Set<string>(), ...rest } = page;
+  return listOrderAggregatesResponseSchema.parse({ ...rest, items: page.items.map((item) => {
     const { number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, source, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total, delivery } = toOrderAggregateJson(item, null);
     return orderAggregateSummarySchema.parse({ number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, source, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total,
-      courier: delivery?.method === "agency" ? delivery.courier : null });
+      courier: delivery?.method === "agency" ? delivery.courier : null, toReview: toReview.has(id) });
   }) });
 }
 

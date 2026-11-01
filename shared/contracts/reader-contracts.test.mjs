@@ -111,6 +111,6 @@ test("the order aggregate requires the items revision and the summary keeps toRe
   assert.ok(orderAggregateSchema.shape.revisions.safeParse({ items: revision }).success);
   assert.equal(orderAggregateSchema.shape.revisions.safeParse({ items: "short" }).success, false);
   assert.ok(orderAggregateSummarySchema.shape.toReview.safeParse(true).success);
-  assert.ok(orderAggregateSummarySchema.shape.toReview.safeParse(undefined).success);
+  assert.equal(orderAggregateSummarySchema.shape.toReview.safeParse(undefined).success, false);
   assert.equal(orderAggregateSummarySchema.shape.toReview.safeParse("yes").success, false);
 });

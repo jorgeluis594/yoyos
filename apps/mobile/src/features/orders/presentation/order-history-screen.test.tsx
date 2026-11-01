@@ -112,7 +112,7 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   fireEvent.press(screen.getByRole("button", { name: "Público general" }));
   fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
   const stale: ListResult = outcome === "error" ? err({ code: "NETWORK_ERROR", message: "Offline" }) : ok({
-    items: [{ number: 1001, id: "old", sellerId: "seller", source: "manual", buyer: { contactId: "contact", name: "Venta anterior", phone: "999999999" }, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
+    items: [{ number: 1001, id: "old", sellerId: "seller", source: "manual", buyer: { contactId: "contact", name: "Venta anterior", phone: "999999999" }, toReview: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
       createdAt: "2026-09-28T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
       deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" } }], page: 1, pageSize: 20, total: 80,
   });
@@ -122,7 +122,7 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   fireEvent.press(screen.getByRole("button", { name: "Filtros" }));
   fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
   await act(async () => { requests[2](ok({
-    items: [{ number: 1002, id: "latest", sellerId: "seller", source: "manual", buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T12:00:00.000Z",
+    items: [{ number: 1002, id: "latest", sellerId: "seller", source: "manual", buyer: null, toReview: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T12:00:00.000Z",
       deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false,
       total: { amount: 20, currency: "PEN" } }],
     page: 1, pageSize: 20, total: 1,
