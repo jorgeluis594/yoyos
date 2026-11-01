@@ -26,7 +26,7 @@ import { createReaderStagePorts, loadReadingContext, publishStockEvent, saveChat
 import { createReadingDeadline, withAbort } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
 import { readReadingLimits } from "@core/src/features/orders/infrastructure/reading-budgets-env";
 import { findLinkNoticeArming } from "@core/src/features/orders/infrastructure/order-review-repository";
-import { saveMessageTrace } from "@core/src/features/orders/infrastructure/message-trace-repository";
+import { buildMessageTrace } from "@core/src/features/orders/application/reader/build-message-trace";
 import { minShowsProduct, type ImageBytes, type MatchConfidence, type VariantQrCode } from "@core/src/features/products/domain/image-identification";
 import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ChatMessageLimits, type ApplyChatMessageOutcome, type ApplyChatMessageError } from "@core/src/features/orders/application/apply-chat-message";
 import { chatMessageDeadlineMs } from "@core/src/features/orders/application/chat-message-policy";
@@ -191,8 +191,9 @@ function dependencies(wiring: SeedWiring, identify: ApplyChatMessageDependencies
     createDeadline: (budgetMs, meta, jobSignal) => createReadingDeadline(budgetMs, meta, Date.now, jobSignal).signal,
     withAbort,
     findLinkNoticeArming,
-    buildMessageTrace: () => { throw new Error("Evals save no message trace"); },
-    saveMessageTrace,
+    buildMessageTrace,
+    // Evals read the outcomes and the order, never the trace: nothing is stored.
+    saveMessageTrace: async () => ok(null),
     shadowReader: null,
     catalogSearchReadiness: () => catalogSearchReadiness(readiness),
     readChatMessage: wiring.readChatMessage,

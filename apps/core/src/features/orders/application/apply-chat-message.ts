@@ -26,6 +26,7 @@ import { legacyAnswerFor, legacyReadingContextOf } from "@core/src/features/orde
 import type { ReadingContextData, ReadingMessage } from "@core/src/features/orders/application/reader/load-reading-context";
 import { runReading, traceStagesOf, type ChainResult, type RunReadingDependencies, type StartedReading } from "@core/src/features/orders/application/reader/run-reading";
 import type { ReaderStages } from "@core/src/features/orders/application/reader/stages";
+import { awaitShadow } from "@core/src/features/orders/application/reader/legacy-shadow-reader";
 import type { BuildMessageTrace, LegacyShadowReader } from "@core/src/features/orders/application/reader/trace-ports";
 import type { ShownProduct } from "@core/src/features/orders/application/reading-context";
 import type { ImageIdentification } from "@core/src/features/products/application/identify-products-in-image";
@@ -557,9 +558,11 @@ function variantsTouch(action: ResolvedChatAction, variantId: OrderItem["variant
 /** After commit: waits for the shadow at most `min(shadowWaitMs, time left)`, builds and saves the trace and the new masks. A failure never fails the job. */
 async function afterCommit(message: ChatSourceMessage, data: TraceData, decided: DecidedChanges | null, commitAt: Date, shadow: Promise<TraceShadow | null> | null,
   deps: ApplyChatMessageDependencies): Promise<ReadingTrace> {
-  const waitStarted = performance.now();
-  const shadowResult = shadow ? await boundedWait(shadow, deps.limits.shadowWaitMs) : null;
-  const shadowWaitMs = shadow ? Math.round(performance.now() - waitStarted) : null;
+  // The wait holds the chat's queue slot: at most `shadowWaitMs`, and never past the reading budget.
+  const left = Math.max(0, deps.limits.readingBudgetMs - (commitAt.getTime() - data.startedAt.getTime()));
+  const waited = shadow ? await awaitShadow(shadow, Math.min(deps.limits.shadowWaitMs, left)) : null;
+  const shadowResult = waited?.shadow ?? null;
+  const shadowWaitMs = waited ? waited.waitedMs : null;
   const records = data.started?.records ?? [];
   const stages = traceStagesOf(records);
   const calls: readonly StageCall[] = stages.map(({ call }) => call);
@@ -581,15 +584,3 @@ async function afterCommit(message: ChatSourceMessage, data: TraceData, decided:
     decidedMs: Math.max(0, commitAt.getTime() - data.startedAt.getTime()), costUsd, candidateMs: data.started?.primary.catalog.searchMs ?? null,
     candidateMatchCount: data.started?.primary.catalog.matchCount ?? null, candidatesTimedOut: data.started?.primary.catalog.timedOut ?? false };
 }
-
-/** The value of `promise`, or null once `ms` passed. The shadow's own signal ends it with the reading. */
-async function boundedWait<T>(promise: Promise<T>, ms: number): Promise<T | null> {
-  let timer: ReturnType<typeof setTimeout> | undefined;
-  const timeout = new Promise<null>((resolve) => { timer = setTimeout(() => resolve(null), Math.max(0, ms)); });
-  try {
-    return await Promise.race([promise, timeout]);
-  } finally {
-    clearTimeout(timer);
-  }
-}
-

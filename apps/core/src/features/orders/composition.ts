@@ -67,6 +67,11 @@ import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/f
 import { createChatMessageDeadLetterHandler, createChatMessageHandler, type ChatMessageHandlerDependencies } from "@core/src/features/orders/application/chat-message-handler";
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
+import { buildMessageTrace } from "@core/src/features/orders/application/reader/build-message-trace";
+import { createLegacyShadowReader } from "@core/src/features/orders/application/reader/legacy-shadow-reader";
+import { readShadowConfig } from "@core/src/features/orders/infrastructure/reader/shadow-config";
+import { priceOf } from "@core/src/shared/infrastructure/model-prices";
+import { readChatReaderEnv } from "@core/src/features/orders/infrastructure/chat-reader-env";
 import { findChatMemory, findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import { confirmOrderReview, type ConfirmOrderReviewInput } from "@core/src/features/orders/application/confirm-order-review";
 import { loadOrderReview, type LoadOrderReviewInput } from "@core/src/features/orders/application/load-order-review";
@@ -908,6 +913,23 @@ const readingLimits = (() => {
 let stagedPorts: ReturnType<typeof readerStagesFromEnv> | undefined;
 export const createReaderStagePorts = () => (stagedPorts ??= readerStagesFromEnv(process.env, readingBudgets.stageInputMaxChars));
 
+let shadowReaderCache: ApplyChatMessageDependencies["shadowReader"] | undefined;
+/** The legacy shadow reader, built on first use: null when `READER_SHADOW_LEGACY` is off or no model provider is configured. */
+function legacyShadowReader(): ApplyChatMessageDependencies["shadowReader"] {
+  if (shadowReaderCache !== undefined) return shadowReaderCache;
+  const config = readShadowConfig(process.env);
+  if (!config.success) throw new Error(config.error.message);
+  const limits = readChatMessageLimits(process.env);
+  const model = readChatReaderEnv(process.env).AI_READER_MODEL;
+  shadowReaderCache = config.data.legacy && readChatMessage
+    ? createLegacyShadowReader({ readChatMessage, findChatOrderTarget: (chatId) => findChatOrderTarget(chatId, findProductIdsOfVariants), findChatOrdersOpenedSince, findChatPendings,
+      findProductsForReading: (ids) => products.findProductsForReading(ids), findMessageCandidates: (text) => products.findMessageCandidates(text),
+      costOf: (usage) => { const price = priceOf(model); return price ? (usage.inputTokens * price.input + usage.outputTokens * price.output) / 1_000_000 : null; },
+      clock: () => new Date(), limits })
+    : null;
+  return shadowReaderCache;
+}
+
 const chatMessageDependencies: ApplyChatMessageDependencies = {
   findOutcome,
   findSourceMessage: async (id) => {
@@ -953,10 +975,10 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   newItemId: () => randomUUID() as OrderItemId,
   newPendingId: () => randomUUID() as ChatPendingId,
   clock: () => new Date(),
-  // The builder and the shadow reader come from the T13b branch; until they are wired, a trace is not saved (the job never fails on it) and no shadow runs.
-  buildMessageTrace: () => { throw new Error("The message trace builder is not wired yet"); },
+  buildMessageTrace,
   saveMessageTrace,
-  shadowReader: null,
+  // Phase 5 only: the legacy reader runs beside the staged one and never applies anything. T17 removes it.
+  get shadowReader() { return legacyShadowReader(); },
   limits: { ...readChatMessageLimits(process.env), ...readingLimits },
 };
 

@@ -3,6 +3,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import type { ReadingLimits } from "@core/src/features/orders/application/apply-chat-message";
 import { readMessageTraceSettings } from "@core/src/features/orders/infrastructure/message-trace-env";
+import { readShadowConfig } from "@core/src/features/orders/infrastructure/reader/shadow-config";
 import { readReadingBudgetMs } from "@core/src/features/orders/infrastructure/reader/runtime/stage-config-env";
 import { defaultReadingBudgets, type ReadingBudgets } from "@core/src/features/orders/domain/reader/budgets";
 
@@ -27,7 +28,6 @@ export function readReadingBudgets(env: Env): ReadingBudgets {
 
 const limitsSchema = z.object({
   READER_CANDIDATES_PER_MENTION: z.coerce.number().int().min(1).default(5),
-  READER_SHADOW_WAIT_MS: z.coerce.number().int().min(0).default(3000),
 });
 
 /** What the staged reading adds to the message limits (section 5.1): the reading budget, candidates per mention, trace retention and the shadow wait. */
@@ -36,6 +36,8 @@ export function readReadingLimits(env: Env): Result<ReadingLimits, Readonly<{ co
   if (!budget.success) return err({ code: "INVALID_STAGE_ENV", message: budget.error.message });
   const parsed = limitsSchema.safeParse(Object.fromEntries(Object.entries(env).filter(([, value]) => value !== "")));
   if (!parsed.success) return err({ code: "INVALID_STAGE_ENV", message: `Invalid reader settings: ${[...new Set(parsed.error.issues.map(({ path }) => String(path[0])))].join(", ")}` });
+  const shadow = readShadowConfig(env);
+  if (!shadow.success) return err({ code: "INVALID_STAGE_ENV", message: shadow.error.message });
   return ok({ readingBudgetMs: budget.data, candidatesPerMention: parsed.data.READER_CANDIDATES_PER_MENTION, traceRetentionDays: readMessageTraceSettings(env).retentionDays,
-    shadowWaitMs: parsed.data.READER_SHADOW_WAIT_MS });
+    shadowWaitMs: shadow.data.waitMs });
 }
