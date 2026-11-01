@@ -90,7 +90,7 @@ test("open questions disappear when the pending is completed by a later message"
 
   const open = await ask(s.cookie, [messageId]);
   expect(open.headers.get("cache-control")).toBe("no-store");
-  expect(await open.json()).toEqual({ version: 1, messages: [{ messageId, points: [{ id: expect.any(String), text: questionText, about: "which_variant" }] }] });
+  expect(await open.json()).toEqual({ version: 1, messages: [{ messageId, points: [{ id: expect.any(String), text: questionText, about: "Polo básico" }] }] });
 
   await s.run(async () => { await prisma.chatPendings.deleteMany(); });
   expect(await textsOf(s.cookie, [messageId])).toEqual({});

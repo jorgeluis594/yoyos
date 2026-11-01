@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { AccessibilityInfo, StyleSheet, View } from "react-native";
 import * as Clipboard from "expo-clipboard";
 import { useTranslation } from "react-i18next";
@@ -12,17 +12,16 @@ export function QuestionBox({ point }: Readonly<{ point: QuestionPoint }>) {
   const { t } = useTranslation();
   const theme = useTheme();
   const [copied, setCopied] = useState(false);
-  useEffect(() => { if (copied) AccessibilityInfo.announceForAccessibility(t("whatsappQuestionCopied")); }, [copied, t]);
   const copy = async () => {
-    try { if (await Clipboard.setStringAsync(point.text)) setCopied(true); }
+    try { if (await Clipboard.setStringAsync(point.text)) { setCopied(true); AccessibilityInfo.announceForAccessibility(t("whatsappQuestionCopied")); } }
     catch { /* The seller can select the text instead. */ }
   };
   return (
     <View style={[styles.box, { backgroundColor: theme.backgroundElement, borderColor: theme.border }]}>
       <ThemedText type="smallBold">{t("whatsappQuestionTitle")}</ThemedText>
       <ThemedText selectable>{point.text}</ThemedText>
-      <Button variant="secondary" onPress={() => void copy()}>{t("whatsappQuestionCopy")}</Button>
-      {copied ? <ThemedText type="small" themeColor="textSecondary" accessibilityLiveRegion="polite">{t("whatsappQuestionCopied")}</ThemedText> : null}
+      <Button variant="secondary" accessibilityLabel={point.about === "" ? undefined : t("whatsappQuestionCopyAbout", { about: point.about })} onPress={() => void copy()}>{t("whatsappQuestionCopy")}</Button>
+      {copied ? <ThemedText type="small" themeColor="textSecondary">{t("whatsappQuestionCopied")}</ThemedText> : null}
     </View>
   );
 }

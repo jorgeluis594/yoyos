@@ -6,7 +6,7 @@ import type { TransportError } from "@mobile/shared/application/transport-error"
 type Request = (path: string, init?: RequestInit) => Promise<Result<unknown, TransportError>>;
 
 /** One question box: the question for the buyer, rendered by core. */
-export type QuestionPoint = Readonly<{ id: string; text: string }>;
+export type QuestionPoint = Readonly<{ id: string; text: string; about: string }>;
 /** The open points by core message id; a message without open points is absent. */
 export type OpenQuestions = ReadonlyMap<string, readonly QuestionPoint[]>;
 
@@ -20,7 +20,7 @@ export function createMessageQuestionsApi(request: Request) {
       if (!raw.success) return raw;
       const parsed = openQuestionsResponseSchema.safeParse(raw.data);
       if (!parsed.success) return err({ code: "INVALID_RESPONSE", message: "Invalid open questions response" });
-      return ok(new Map(parsed.data.messages.filter((entry) => entry.points.length > 0).map((entry) => [entry.messageId, entry.points.map(({ id, text }) => ({ id, text }))])));
+      return ok(new Map(parsed.data.messages.filter((entry) => entry.points.length > 0).map((entry) => [entry.messageId, entry.points.map(({ id, text, about }) => ({ id, text, about }))])));
     },
   } as const;
 }

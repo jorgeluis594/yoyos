@@ -7,11 +7,19 @@ import type { Result } from "@shared/result";
 import { orders } from "@core/src/features/orders/composition";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { FindOpenQuestionsError, MessageQuestions } from "@core/src/features/orders/application/find-open-questions";
+import type { SuggestedQuestion } from "@core/src/features/orders/domain/suggested-question";
 import { suggestedQuestionText } from "@core/src/features/orders/presentation/suggested-question-texts";
 
 export type MessageQuestionRoutesDependencies = Readonly<{
   findOpenQuestions: (messageIds: readonly ChatMessageId[]) => Promise<Result<readonly MessageQuestions[], FindOpenQuestionsError>>;
 }>;
+
+/** The product name(s) a question asks about, joined with commas; empty when it names none. */
+export function questionAbout(question: SuggestedQuestion): string {
+  if ("product" in question) return question.product;
+  if ("products" in question) return question.products.join(", ");
+  return "";
+}
 
 /** A stable id for the point at `index` of a message: the same message always gives the same ids. */
 export function questionPointId(messageId: string, index: number): string {
@@ -37,7 +45,7 @@ export function createMessageQuestionRoutes(deps: MessageQuestionRoutesDependenc
       version: 1,
       messages: found.data.map(({ messageId, questions }) => ({
         messageId,
-        points: questions.map((question, index) => ({ id: questionPointId(messageId, index), text: suggestedQuestionText(question), about: question.kind })),
+        points: questions.map((question, index) => ({ id: questionPointId(messageId, index), text: suggestedQuestionText(question), about: questionAbout(question) })),
       })),
     });
     if (!body.success) {

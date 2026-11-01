@@ -4,12 +4,12 @@ import { createMessageQuestionsApi } from "@mobile/features/whatsapp/infrastruct
 
 const messageId = "00000000-0000-4000-8000-000000000001";
 const pointId = "00000000-0000-4000-8000-000000000002";
-const answer = { version: 1, messages: [{ messageId, points: [{ id: pointId, text: "¿Cuál quieres?", about: "which_product" }] }] };
+const answer = { version: 1, messages: [{ messageId, points: [{ id: pointId, text: "¿Cuál quieres?", about: "Polo básico, Polo rojo" }] }] };
 
 test("posts the message ids with the contract body and returns the points by message", async () => {
   const request = jest.fn(async () => ok(answer));
   const found = await createMessageQuestionsApi(request).findOpenQuestions([messageId]);
-  expect(found).toEqual(ok(new Map([[messageId, [{ id: pointId, text: "¿Cuál quieres?" }]]])));
+  expect(found).toEqual(ok(new Map([[messageId, [{ id: pointId, text: "¿Cuál quieres?", about: "Polo básico, Polo rojo" }]]])));
   const [path, init] = request.mock.calls[0] as unknown as [string, RequestInit];
   expect(path).toBe("/api/messages/questions");
   expect(init.method).toBe("POST");

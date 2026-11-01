@@ -21,7 +21,7 @@ export function coreIdsOf(messages: readonly StoredMessage[]): ReadonlyMap<strin
 /**
  * The open question points by local message id. They load for the shown messages when the chat opens or new messages show,
  * when `refresh` changes (a foreground notice for the chat) and when the seller returns to the screen.
- * A failed lookup keeps what was shown: the questions are help, never the chat.
+ * A failed lookup shows no box (design §10) and the next trigger retries: the questions are help, never the chat.
  */
 export function useOpenQuestions(
   api: MessageQuestionsApi | null,
@@ -36,7 +36,8 @@ export function useOpenQuestions(
     if (!api || companyId === null || !options.focused || key === "") return;
     let cancelled = false;
     void api.findOpenQuestions(key.split(",")).then((found) => {
-      if (cancelled || !found.success) return;
+      if (cancelled) return;
+      if (!found.success) { setPoints(new Map()); return; }
       const byLocal = new Map<string, readonly QuestionPoint[]>();
       for (const [coreId, list] of found.data) {
         const localId = ids.get(coreId);
