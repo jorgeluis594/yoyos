@@ -13,6 +13,9 @@ import { createInTransactionPublisher, type InTransactionRegistry } from "@core/
 import { recoverDueStockDeductions, STOCK_DEDUCTION_FAILURE_QUARANTINE_MINUTES, STOCK_DEDUCTION_RECOVERY_LAST_PASS_START_MS, STOCK_DEDUCTION_RECOVERY_PASS_BUDGET, STOCK_DEDUCTION_RECOVERY_PASS_OFFSETS_MS, type RecoverDueStockDeductionsDependencies } from "@core/src/features/orders/application/recover-due-stock-deductions";
 import { containedDeductionOutcome, containedServeOutcome, deductDueOrderStock, serveWaitingOrders, type DeductDueStockDependencies, type DeductionOutcome, type ServeOutcome, type StockEvent } from "@core/src/features/orders/application/deduct-due-stock";
 import { getOrderAggregateByNumber } from "@core/src/features/orders/application/get-order-by-number";
+import { salesSnapshot, type SalesReadError } from "@core/src/features/orders/infrastructure/sales-read";
+import { salesSummaryOperations } from "@core/src/features/orders/composition-sales-summary";
+import { soldVariantsOperations } from "@core/src/features/orders/composition-sold-variants";
 import { hasAnyOrder } from "@core/src/features/orders/application/has-any-order";
 import { summarizeUnpaidOrders } from "@core/src/features/orders/application/summarize-unpaid-orders";
 import { describeDispatchStock, listDispatchQueue, type ListDispatchQueueDependencies, type ListDispatchQueueError, type ListDispatchQueueInput } from "@core/src/features/orders/application/list-dispatch-queue";
@@ -782,6 +785,10 @@ export const orders = {
       newItemId: () => randomUUID() as OrderItemId, clock: () => new Date() }),
   list: (criteria: Parameters<typeof listOrders>[0]) => listOrders(criteria, findOrders),
   searchProducts: searchSaleCatalog,
+  /** Runs `work` in the one budgeted repeatable-read snapshot of a sales call; every sales read below, and the storefront read, join it. Logs nothing: the caller owns the event. */
+  readSalesForAssistant: <T, E extends AppError>(work: () => Promise<Result<T, E>>): Promise<Result<T, E | SalesReadError>> => salesSnapshot(work),
+  ...salesSummaryOperations,
+  ...soldVariantsOperations,
 };
 
 // The products composition imports the event handlers that import this module, so `products` is only read when a message is applied.

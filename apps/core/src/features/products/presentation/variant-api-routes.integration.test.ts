@@ -98,7 +98,7 @@ const addOrder = (owner: Seller, variantId: string, values: { fromCatalog?: bool
   const last = await prisma.order.aggregate({ _max: { number: true } });
   await prisma.order.create({ data: { id, number: (last._max.number ?? 1000n) + 1n, currency: "PEN", total: 25, itemsTotal: 25, createdAt: now, fromCatalog: catalog,
     checkoutEnabledAt: catalog ? now : null, checkoutConfirmedAt: values.confirmed ? now : null } });
-  await prisma.orderItem.create({ data: { orderId: id, variantId, productName: "Polo", variantAttributes: { Talla: "M", Color: "Negro" }, quantity: 1n, unitPrice: 25, subtotal: 25 } });
+  await prisma.orderItem.create({ data: { orderId: id, orderCreatedAt: now, variantId, productName: "Polo", variantAttributes: { Talla: "M", Color: "Negro" }, quantity: 1n, unitPrice: 25, subtotal: 25 } });
   return id;
 });
 

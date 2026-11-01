@@ -599,6 +599,7 @@ model Order {
 
   @@unique([companyId, id])
   @@unique([companyId, number])
+  @@unique([companyId, createdAt, id])
   @@index([companyId, chatId])
   @@index([companyId, completedAt(sort: Desc), id])
   @@index([fromCatalog, checkoutConfirmedAt, createdAt])
@@ -620,6 +621,8 @@ model Payment {
 
   @@unique([companyId, id])
   @@index([companyId, orderId, id])
+  // Built in SQL as (companyId, orderId) INCLUDE (status, amount, method, walletProvider), which Prisma can only declare as one index over all six columns (migration add_payment_order_covering_index).
+  @@index([companyId, orderId, status, amount, method, walletProvider], map: "Payment_companyId_orderId_covering_idx")
 }
 
 model OrderItem {
@@ -627,7 +630,7 @@ model OrderItem {
   companyId String @default(dbgenerated("(NULLIF(current_setting('app.company_id'::text, true), ''::text))::uuid")) @db.Uuid
   company Company @relation(fields: [companyId], references: [id])
   orderId String @db.Uuid
-  order Order @relation(fields: [companyId, orderId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
+  order Order @relation(fields: [companyId, orderCreatedAt, orderId], references: [companyId, createdAt, id], onDelete: Restrict, onUpdate: Cascade, map: "OrderItem_companyId_orderId_orderCreatedAt_fkey")
   variantId String @db.Uuid
   variant ProductVariant @relation(fields: [companyId, variantId], references: [companyId, id], onDelete: Restrict, onUpdate: NoAction)
   productName String
@@ -640,11 +643,12 @@ model OrderItem {
   subtotal Decimal @db.Decimal(15, 2)
   mentionedPriceAmount Decimal? @db.Decimal(11, 2)
   mentionedPriceUnits Int?
+  orderCreatedAt DateTime
   /// Units of this line already taken out of the variant's stock; the cancellation returns exactly this. It is at most `quantity` once an edit settles, but there is no CHECK (deducted <= quantity): while an edit runs `quantity` is lowered before the stock listener returns the difference, so the row is briefly above it.
   stockDeductedQuantity BigInt @default(0)
 
   @@unique([companyId, orderId, variantId])
-  @@index([companyId, variantId])
+  @@index([companyId, variantId, orderCreatedAt, orderId])
 }
 
 model ChatMessageOutcome {
