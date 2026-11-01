@@ -5,7 +5,7 @@ const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")
 const usage = { inputTokens: 2600, cachedInputTokens: 1024, outputTokens: 150, reasoningTokens: 0 };
 const call = { stage: "intent", reading: "primary", provider: "fake", model: "gpt-6-luna", promptVersion: "intent-v1", usage, costUsd: 0.00034, durationMs: 900, attempts: 1 };
 const photo = { method: "visual", result: "matched", productId: id(1), confidence: 0.9, usage, costUsd: 0.001, durationMs: 700 };
-const stage = { call, input: { refs: ["M1", "I1"], productIds: [id(1)], productNames: ["Polera"], candidateIds: [id(2)] }, output: { kind: "requests", addressSpans: [{ message: "current", count: 1 }] }, errorCode: null };
+const stage = { call, input: { refs: ["M1", "I1"], productIds: [id(1)], productNames: ["Polera"], candidateIds: [id(2)] }, output: { stage: "intent", kind: "unsure", language: "es", addressSpans: [{ message: "current", count: 1 }] }, errorCode: null };
 const decision = { action: { kind: "add", request: "R1", item: null, pending: "Q1", productId: id(1), variantId: id(3) },
   signals: { quotesComplete: true, targetNamed: "named", variantChangeVerb: "not_applicable", candidates: "single" }, risk: "low", agreement: "not_run", decision: "applied" };
 const shadow = { answer: "actions", actionKinds: ["add"], usage, costUsd: null };
