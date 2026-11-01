@@ -60,6 +60,8 @@ jest.mock("@mobile/features/orders/composition", () => ({ orders: {
   ship: (...args: unknown[]) => mockShip(...args),
   deliver: (...args: unknown[]) => mockDeliver(...args),
   enableOrderCheckout: (...args: unknown[]) => mockEnableCheckout(...args),
+  loadOrderReview: async () => ({ success: true, data: { version: 1, status: { openForMessages: false, toReview: false, doubtfulCount: 0, pointCount: 0, entry: "none", hasPreviousReview: false },
+    doubtful: [], points: [], products: [], removedSinceLastReview: [], messageRows: [], moreRows: 0, loaded: { changesThrough: 0, changeIds: [], points: [], itemsRevision: "A".repeat(43) } } }),
   loadOrderAggregate: async () => (mockLoads++, mockLoadFailed) ? ({ success: false, error: { code: "NETWORK_ERROR" } }) : ({ success: true, data: mockOrder }),
   clearPendingOrderConfirmation: async () => ({ success: true, data: undefined }),
   registerPayment: (...args: unknown[]) => mockRegisterPayment(...args),

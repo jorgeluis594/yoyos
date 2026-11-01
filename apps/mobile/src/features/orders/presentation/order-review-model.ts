@@ -18,7 +18,7 @@ export function lineLabel(line: ReviewLine, t: TFunction, quantity = line.quanti
 const nameWithVariant = (line: ReviewLine) => [line.productName, variantOf(line)].filter(Boolean).join(" · ");
 
 /** «la talla» for the attributes with a known article; any other attribute reads bare. */
-function attributeText(attribute: string, t: TFunction): string {
+export function attributeText(attribute: string, t: TFunction): string {
   const articles = t("orderReview.articles", { returnObjects: true }) as unknown;
   const key = attribute.trim().toLowerCase();
   const article = articles && typeof articles === "object" ? (articles as Record<string, string>)[key] : undefined;
