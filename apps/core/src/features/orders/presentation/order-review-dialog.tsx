@@ -151,6 +151,8 @@ export function OrderReviewDialog({ origin, orderId, orderNumber, initial, api, 
     const row = rowOf(messageId);
     if (!row || row.undo.kind === "undone") return null;
     if (row.undo.kind === "refused") return <p key={messageId} className="text-sm text-muted-foreground">{refusalText(row.undo, t)}</p>;
+    // Undo reverts the reader's changes while the order is open for messages and its items can still change.
+    if (!editable || !review.status.openForMessages) return null;
     const name = item ? lineName({ productName: item.productName, variantAttributes: item.variantAttributes }) : mark.changes[0]?.before ? lineName(mark.changes[0].before) : "";
     return <Button key={messageId} type="button" variant="outline" size="sm" className="w-fit min-h-control max-md:min-h-touch aria-disabled:cursor-not-allowed aria-disabled:opacity-50"
       aria-label={t("orderReview.undoMessageOf", { name })} aria-disabled={corrected || undefined} aria-describedby={corrected ? "review-undo-blocked" : undefined}

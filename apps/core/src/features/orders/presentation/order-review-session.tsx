@@ -137,7 +137,7 @@ export function useOrderReviewSession(given: ReviewViewProps | undefined, savedO
     </CardContent></Card>}
   </> : null;
 
-  const changes = review && review.messageRows.length > 0 ? <>
+  const changes = review && (review.messageRows.length > 0 || undoDone) ? <>
     <MessageChangesBlock rows={review.messageRows} moreRows={review.moreRows} moreLoading={more === "loading"} moreFailed={more === "failed"} blocked={blocks.unsavedAny}
       time={time} onUndo={(row) => { setUndoDone(false); setUndoing({ row, progress: "idle" }); }} onMore={() => void loadMore()} />
     <p role="status" aria-live="polite" className="text-sm text-muted-foreground empty:hidden">{undoDone ? t("orderReview.changes.done") : ""}</p>
