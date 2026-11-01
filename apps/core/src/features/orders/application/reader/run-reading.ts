@@ -85,9 +85,9 @@ function inputSummary(input: ReadingInput, extra: Partial<StageInputSummary> = {
 
 const foldWords = (text: string) => text.normalize("NFD").replace(/\p{M}/gu, "").toLowerCase().split(/\s+/).filter(Boolean);
 
-/** The quote of a name without the words of the request's own quantity quote («las 2 poleras» → «las poleras»): the quantity is not part of what names the product. Unchanged when nothing remains or the quantity is not inside. */
+/** The quote of a name without the words of the request's own quantity quote («las 2 poleras» → «las poleras»): the quantity is not part of what names the product. Unchanged when nothing remains, when the quantity is not inside, or when it comes from another message than the name. Words with punctuation («2,») do not match, which leaves the name unchanged. */
 export function withoutQuantity(words: Quote, quantity: Quote | null): Quote {
-  if (!quantity) return words;
+  if (!quantity || quantity.source !== words.source) return words;
   const tokens = words.text.split(/\s+/).filter(Boolean);
   const folded = tokens.map((token) => foldWords(token).join(""));
   const wanted = foldWords(quantity.text);

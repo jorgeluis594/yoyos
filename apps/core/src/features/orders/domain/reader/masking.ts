@@ -146,8 +146,8 @@ const extractedRequest: z.ZodType<ExtractedRequest> = z.strictObject({
 const resolvedValue = z.strictObject({ attribute: z.string(), value: z.string(), quote: storedQuote });
 const productResolution: z.ZodType<ProductResolution> = z.discriminatedUnion("kind", [
   z.strictObject({ request: ref<RequestRef>(), kind: z.literal("chosen"), productId,
-    values: z.array(resolvedValue), unmatched: z.array(storedQuote).optional() }),
-  z.strictObject({ request: ref<RequestRef>(), kind: z.literal("between"), productIds: z.array(productId).min(2).max(4), values: z.array(resolvedValue).optional() }),
+    values: z.array(resolvedValue), unmatched: z.array(storedQuote).optional(), namesProduct: z.literal(false).optional() }),
+  z.strictObject({ request: ref<RequestRef>(), kind: z.literal("between"), productIds: z.array(productId).min(2).max(4), values: z.array(resolvedValue).optional(), namesProduct: z.literal(false).optional() }),
   z.strictObject({ request: ref<RequestRef>(), kind: z.literal("none") }),
 ]) as unknown as z.ZodType<ProductResolution>;
 

@@ -60,6 +60,14 @@ Answer: R1 chosen P1, names yes, with values {Talla, G, «grande»}.
 
 Input:
 Mentions:
+R1: «aquella» — values: talla «chica»
+R1 may be: P1
+Products (answer with these labels):
+P1 (sellable) Bata de algodón — Talla = S, L
+Answer: R1 chosen P1, names no, with values {Talla, S, «chica»}.
+
+Input:
+Mentions:
 R1: «maleta rigida»
 Products (answer with these labels):
 P1 (sellable) Maleta rígida cabina

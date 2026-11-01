@@ -124,6 +124,11 @@ describe("resolution parser", () => {
     expect(result).toEqual({ success: true, data: [{ request: "R1", kind: "chosen", productId: productId(1), values: [{ attribute: "Talla", value: "M", quote: quote("mediana") }], unmatched: [], namesProduct: false }] });
     const named = parseResolution(answer([{ request: "R1", kind: "chosen", names: "yes", products: ["P1"], values: [] }]), fixed, budget);
     expect(named.success && named.data[0]).not.toHaveProperty("namesProduct");
+    const missing = parseResolution(answer([{ request: "R1", kind: "chosen", products: ["P1"], values: [] }]), fixed, budget);
+    expect(missing.success && missing.data[0]).toHaveProperty("namesProduct", false);
+    const two: ResolutionInput = { mentions: [{ ...mention(1, "esa", [], [productId(1), productId(2)]), fixed: true }], candidates: [polo, gorra] };
+    const between = parseResolution(answer([{ request: "R1", kind: "between", names: "no", products: ["P1", "P2"], values: [] }]), two, budget);
+    expect(between.success && between.data[0]).toEqual({ request: "R1", kind: "between", productIds: [productId(1), productId(2)], values: [], namesProduct: false });
     const unfixed = parseResolution(answer([{ request: "R1", kind: "chosen", names: "no", products: ["P1"], values: [] }, { request: "R2", kind: "none", products: [], values: [] }]), input, budget);
     expect(unfixed.success && unfixed.data[0]).not.toHaveProperty("namesProduct");
   });

@@ -61,7 +61,9 @@ export type ProductResolution =
     /** False for a fixed mention whose words only point at the product (a pronoun, a demonstrative): its values still map, but the words do not name it. */
     namesProduct?: false }>
   /** Two to four products. `values` are the ones every candidate offers. */
-  | Readonly<{ request: RequestRef; kind: "between"; productIds: readonly ProductId[]; values?: readonly ResolvedValue[] }>
+  | Readonly<{ request: RequestRef; kind: "between"; productIds: readonly ProductId[]; values?: readonly ResolvedValue[];
+    /** False for a fixed mention whose words only point at its candidates: it never counts as naming a line or pending. */
+    namesProduct?: false }>
   | Readonly<{ request: RequestRef; kind: "none" }>;
 
 /** What the three stages read: built by code from a bounded context, rendered into prompts by infrastructure. */

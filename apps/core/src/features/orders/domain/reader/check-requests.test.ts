@@ -70,6 +70,14 @@ describe("checkRequests: items", () => {
     expect(only(checkRequests([named], [chosen("polera")], snapshot({ items: [polera] }))).signals).toMatchObject({ targetNamed: "named" });
   });
 
+  test("a named pending counts as named by a between resolution only when its words name the products", () => {
+    const named = request({ kind: "change_quantity", target: { kind: "pending", ref: "Q1" as PendingRef, named: say("esa") }, quantity: quantity(3, "set") });
+    const between = { request: "R1" as RequestRef, kind: "between", productIds: [productId("gorra"), productId("polera")] } as const;
+    const withPending = snapshot({ pendings: [pendingRef(1, pendingOf("gorra"))] });
+    expect(only(checkRequests([named], [{ ...between, namesProduct: false }], withPending)).signals).toMatchObject({ targetNamed: "context" });
+    expect(only(checkRequests([named], [between], withPending)).signals).toMatchObject({ targetNamed: "named" });
+  });
+
   test("turns a variant the product does not sell into the urgent unavailable problem with its question", () => {
     const checked = only(checkRequests([request({ kind: "change_variant", target: { kind: "item", ref: "I1" as ItemRef, named: say("la polera") }, values: [value("XL")], changeVerb: say("cámbiala") })], [], snapshot({ items: [polera] })));
     expect(decision(checked, "agree")).toEqual({ kind: "urgent", problem: "variant_not_available", question: { language: "es", kind: "variant_unavailable", product: "Polera con capucha", asked: "XL", attribute: "Talla", values: ["M", "L"] } });

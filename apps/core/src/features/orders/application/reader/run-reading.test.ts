@@ -4,7 +4,7 @@ import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-messa
 import type { ReadingContextData } from "@core/src/features/orders/application/reader/load-reading-context";
 import { hasHighRiskIntent, mentionsOf, runReading, withoutQuantity, traceStagesOf, type RunReadingDependencies } from "@core/src/features/orders/application/reader/run-reading";
 import type { ReaderStages, StageCall } from "@core/src/features/orders/application/reader/stages";
-import type { ExtractedRequest, IntentReading, ProductResolution, ReaderStage, Reading, RequestIntent, RequestRef } from "@core/src/features/orders/domain/reader/readings";
+import type { ExtractedRequest, IntentReading, ContextMessageRef, ProductResolution, ReaderStage, Reading, RequestIntent, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 import { withAbort } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
@@ -161,6 +161,11 @@ describe("helpers", () => {
     const named = { request: request("R1", "add"), complete: true };
     const unnamed = { request: { ...request("R2", "add"), target: { kind: "none" } as const }, complete: true };
     expect(mentionsOf([named, unnamed], context.input, []).map(({ request: id }) => id)).toEqual(["R1"]);
+  });
+
+  test("keeps the name when the quantity quote comes from another message", () => {
+    const fromContext = { source: "context" as const, ref: "M1" as ContextMessageRef, text: "2" };
+    expect(withoutQuantity(current("las 2 poleras"), fromContext)).toEqual(current("las 2 poleras"));
   });
 
   test("a fixed mention renders the name without the request's own quantity words", () => {
