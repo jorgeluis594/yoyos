@@ -6,8 +6,11 @@ import { searchedWords } from "@core/src/features/products/domain/message-words"
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
 export type MessageCandidates = Readonly<{
+  /** Sellable products (an active variant), best coverage first. */
   productIds: readonly ProductId[];
-  /** Products that matched at least one word, before the cut to the top candidates. */
+  /** Products with no active variant, apart from the sellable ones; empty when the company sells nothing or a sellable product has the same name. */
+  unavailableProductIds: readonly ProductId[];
+  /** Sellable products that matched at least one word, before the cut to the top candidates. */
   matchCount: number;
   durationMs: number;
   /** The statement timeout is not an error: the message is read without candidates. */
@@ -24,6 +27,6 @@ export type FindMessageCandidatesDependencies = Readonly<{
 /** Up to the top candidates whose name matches the words of a message, with no model call. A message without words has no candidates. */
 export async function findMessageCandidates(text: string, deps: FindMessageCandidatesDependencies): Promise<Result<MessageCandidates, PersistenceError>> {
   const words = searchedWords(text);
-  if (!words.length) return ok({ productIds: [], matchCount: 0, durationMs: 0, timedOut: false, wordsSearched: 0 });
+  if (!words.length) return ok({ productIds: [], unavailableProductIds: [], matchCount: 0, durationMs: 0, timedOut: false, wordsSearched: 0 });
   return deps.searchByCoverage(words);
 }
