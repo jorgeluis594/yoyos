@@ -115,7 +115,7 @@ test("an incoming label photo from mobile creates a WhatsApp order with the vari
   await browserExpect(row.getByRole("img", { name: "WhatsApp" })).toBeVisible();
   await row.getByRole("link").first().click();
   await browserExpect(page.getByRole("img", { name: "WhatsApp" })).toBeVisible();
-  await browserExpect(page.getByText("Camisa lino")).toBeVisible();
+  await browserExpect(page.getByText("Camisa lino", { exact: true })).toBeVisible();
   await browserExpect(page.getByText(/S\/\s*10\.00/).first()).toBeVisible();
 }, 90000);
 
@@ -130,8 +130,8 @@ test("a second label photo in the same chat adds its variant to the same order a
   expect(orders).toHaveLength(1);
   expect(orders[0].total.amount).toBe(35);
   await page.goto(`/es-PE/orders/${orders[0].id}`);
-  await browserExpect(page.getByText("Camisa lino")).toBeVisible();
-  await browserExpect(page.getByText("Pantalon lino")).toBeVisible();
+  await browserExpect(page.getByText("Camisa lino", { exact: true })).toBeVisible();
+  await browserExpect(page.getByText("Pantalon lino", { exact: true })).toBeVisible();
   await browserExpect(page.getByText(/S\/\s*35\.00/).first()).toBeVisible();
 }, 90000);
 
