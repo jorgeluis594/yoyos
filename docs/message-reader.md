@@ -31,7 +31,7 @@ On a captioned photo the intent stage starts concurrently with the photo cascade
 | Default models | `gpt-6-luna` on every stage, reasoning effort `none`. Adjustable per stage. | Lowest cost that meets the targets; `none` is the lowest effort the model accepts. |
 | Second opinion | A confirming reading is a configuration. Extraction has one by default (`extraction_confirm-v1`). `Agreement` is a pure function over the resolved actions of the primary and confirming chains; a stage without a confirming configuration reuses the primary result. A strong model on any stage is an env change plus a composition line, never a policy change. | Keeps the policy independent of how many opinions exist. |
 | Confirming chain | Starts together with the primary extraction only when an intent is remove, change quantity or change variant (the kinds that can reach high certainty with high risk). It is aborted as soon as the checks show no action needs it; its partial cost is still recorded. | Pays for a second opinion only where the policy can use it. |
-| Time budget | Each stage's signal combines the job signal with the stage timeout (`READER_STAGE_TIMEOUT_MS`, 10 s) capped by what is left of the reading budget (`READER_READING_BUDGET_MS`, 60 s, under the 85 s deadline). A stage does not start with less than 2 s left; it ends as `DEADLINE_EXCEEDED`, retried as usual. | A reading never outlives its attempt. |
+| Time budget | Each stage's signal combines the job signal with the stage timeout (`AI_TIMEOUT_MS` (provider timeout of the stage OpenAI client), `READER_MAX_PRODUCTS` (products in the context of a photo answer), `READER_STAGE_TIMEOUT_MS`, 10 s) capped by what is left of the reading budget (`READER_READING_BUDGET_MS`, 60 s, under the 85 s deadline). A stage does not start with less than 2 s left; it ends as `DEADLINE_EXCEEDED`, retried as usual. | A reading never outlives its attempt. |
 | Decision policy | A pure function of signals, risk and agreement, evaluated inside the transaction on the locked state. | The same inputs give the same decision without a model. |
 | Justifying words | Every datum carries a quote; `verifyQuotes` (pure) checks it is a substring of the current message ignoring case and whitespace. Unverified data is dropped; only targets may come from context. | Nothing the buyer did not say is applied. |
 
@@ -187,6 +187,7 @@ Events (fields are ids, kinds, counts and timings; never message or caption text
 
 ## Limits
 
+- Phones written with `/` or `_` separators or with full-width digits are stored unmasked, and long digit runs that are not phones (for example a list of sizes such as «36 38 40 42») are masked.
 - Missed addresses stay readable to audited named readers for up to 90 days.
 - The three-word floor above about 33,000 active products exceeds the pair budget; a timeout leaves every mention of the message `not_identified` (urgent).
 - A high-risk message whose confirming chain finds new mention words adds about 1.8 s; no lever removes it, and the p95 target is checked by the evaluation.

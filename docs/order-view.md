@@ -86,7 +86,7 @@ A late response from an earlier attempt does not change the screen.
 
 ## Productos
 
-On WhatsApp orders, items changed by messages carry the «Con duda» badge and its reason, «Por resolver» points show above the items, and **Cambios por mensajes** (with **Deshacer**) and **Revisar pedido** appear below **Productos**; with unsaved changes **Deshacer** and **Revisar pedido** are `aria-disabled` under the note «Tienes cambios sin guardar. Guarda o descarta los cambios primero.» ([order-review](order-review.md)).
+On WhatsApp orders, items with a «Con duda» change carry the badge and its reason, and «Por resolver» points, **Revisar pedido** and **Cambios por mensajes** (with **Deshacer**) appear below **Productos**; with unsaved changes **Deshacer** and **Revisar pedido** are `aria-disabled` under the note «Tienes cambios sin guardar. Guarda o descarta los cambios primero.» ([order-review](order-review.md)).
 
 - **Card header:** title, the count «3 productos · 3 unidades», **Agregar producto** with the «/» hint, and on a non-cancelled saved order the stock state «Stock descontado» or «Stock pendiente» ([Orders · Order detail: waiting for stock](orders.md#order-detail-waiting-for-stock)).
 - **Each line (one per variant):** initials (no photo), name, the combination in web format («Talla M · S/ 89.00 c/u») or «Variante única», the mentioned-price note when it applies ([Orders · Mentioned price](orders.md#mentioned-price)), a stepper and the line subtotal, and a remove icon named after the line («Quitar Traje de Príncipe Azul, M»). A line above the shown stock keeps «Disponible: 3. Si lo cobras, el pedido quedará esperando stock.». With the stock unknown the warning is omitted.

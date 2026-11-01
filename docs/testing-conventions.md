@@ -127,4 +127,4 @@ Evals of the model-backed message-to-order flow live in `apps/core/evals/` and r
 - Every run is repeated (`EVAL_REPEATS`, default 3) and reported as mean and range per metric; a change counts as better only when its range does not overlap the previous one (`pnpm --dir apps/core eval:compare`).
 - `EVAL_MODELS=fake` runs the whole harness at zero cost with scripted stage answers, so the plumbing (runs, scoring, report) is tested without models. A run that can call a model needs `EVAL_PAID=1` and prints its estimate first; each paid step is approved separately by the founder.
 - The frozen holdout lives outside the repository (`EVAL_PRIVATE_DIR`); its texts are never published, and reports carry only ids and failure types. Seller verdicts enter reports as text-free label counts.
-- TODO: the suites do not yet run the staged `applyChatMessage`; revisit this section when they do.
+- They run the staged `applyChatMessage` and score each stage from the reading trace it returns.

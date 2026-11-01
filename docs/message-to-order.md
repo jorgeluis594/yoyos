@@ -277,10 +277,10 @@ Each message that was read gets exactly one `ChatMessageOutcome` row (PK company
 | `payment_requested` | Urgent | None |
 | `request_not_allowed`, `order_closed`, `no_open_order`, `image_with_request`, `quantity_above_limit` | Urgent | — |
 | `reader_doubt` | Urgent when the intent stage cannot say whether the message asks something of the order | — |
-| `invalid_action`: quantity not whole or below zero, text too long, too many requests, not the shown product | Urgent, generic «Revisa el chat» | — |
+| `invalid_action`: quantity not whole or below zero, text too long, too many requests, not the shown product, `unknown_reference` (a completion names a pending, or a photo answer a product, the reading cannot place) | Urgent, generic «Revisa el chat» | — |
 | `failed` | Urgent «No pudimos revisar un mensaje» | — |
 
-An answer of a stage that is still invalid after one in-stage retry is `failed`; products outside the candidates are retried by the stage and then become `not_identified`. There are no `unknown_reference`, `malformed` or `context_too_large` outcomes.
+An answer of a stage that is still invalid after one in-stage retry is `failed`; products outside the candidates are retried by the stage and then become `not_identified`. There are no `malformed` or `context_too_large` outcomes; a reference the reading cannot place is `invalid_action` with reason `unknown_reference`.
 
 | Decision | Reason |
 | --- | --- |
@@ -315,7 +315,7 @@ Reason for the order: a problem needs the chat before the seller charges, and th
 | Variant not available | «Variante no disponible» | Chat, on the message |
 | Product no longer sellable | «Producto no disponible» («un producto» when it was deleted) | Chat, on the message |
 | Quantity above 99, unclear or missing item, unnamed add, variant only, non-product image with a request, change after the order closed, several problems | «Revisa el chat» (the body names the case) | Chat, on the message |
-| Intent doubt, a request the chat never does, a quantity that is not whole, a text too long, more than 10 requests, a caption naming a product with no pending | «Revisa el chat»: «Un cliente escribió algo sobre el pedido #N que no pudimos aplicar.» (without «sobre el pedido #N» when there is no order) | Chat, on the message |
+| Intent doubt, a request the chat never does, a quantity that is not whole, a text too long, more than 10 requests, a reference to a pending or item the reading cannot place, a caption naming a product with no pending | «Revisa el chat»: «Un cliente escribió algo sobre el pedido #N que no pudimos aplicar.» (without «sobre el pedido #N» when there is no order) | Chat, on the message |
 | Payment request | «Revisa el chat» / «Veja o chat»: open order «Un cliente quiere pagar el pedido #1023.»; no order «Un cliente quiere pagar.»; latest order not open for messages and not cancelled «Un cliente quiere pagar, pero el pedido #1023 ya tiene un pago o está cerrado. Revisa el chat.»; with pendings left, with or without «listo», «Un cliente quiere pagar el pedido #1023, pero falta completar Polo básico.» (up to three names, then «y N más»). It wins over «Pedido #N listo»; a «listo» in that message is still remembered. | Chat, on the message |
 | «Listo» with pendings | «Revisa el chat»: «Un cliente dice que terminó el pedido #N, pero falta completar X.» | Chat, on the message |
 | A variant that fits two or more pendings | «Revisa el chat»: «…mencionó una variante sin decir de cuál producto: X y Y.» | Chat, on the message |
@@ -398,7 +398,7 @@ WHERE name = 'apply-chat-message' AND state = 'failed';
 | Paid runs | A run that calls models needs `EVAL_PAID=1` and prints an estimate first; each paid step is approved by the founder separately. |
 | Cancel-and-recreate | Measured after switch-on as cancelled WhatsApp orders followed by a new order in the same chat within 24 hours. |
 
-TODO: the eval suites do not yet run the staged `applyChatMessage`; per-stage scoring reads the returned reading trace once they do. Revisit this section if that work changes the metrics or the selection variables.
+The suites run the production `applyChatMessage` over the three stages and score each stage from the reading trace it returns, so the stage metrics and the final outcome come from the same run.
 
 ## Display
 
