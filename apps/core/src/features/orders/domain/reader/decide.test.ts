@@ -16,7 +16,7 @@ const add: ResolvedChatAction = { kind: "add", item: { variantId, productName: "
 const setQuantity: ResolvedChatAction = { kind: "set_quantity", target: { kind: "variant", variantId }, quantity: 3 };
 const changeVariant: ResolvedChatAction = { kind: "change_variant", target: { kind: "variant", variantId }, to: { kind: "missing", productId }, mentionedPrice: null };
 const checked = (action: ResolvedChatAction, signals: CertaintySignals = sure, doubt: DoubtReason | null = quantitySet): CheckedAction =>
-  ({ request: "R1" as RequestRef, action, signals, doubt, urgent: { problem: "not_clear", question: null } });
+  ({ request: "R1" as RequestRef, action, signals, doubt, urgent: { problem: "not_clear", question: null }, blocked: null });
 const decide = (item: CheckedAction, agreement: "agree" | "disagree" | "not_run", g = guards) => decideChange(item, riskOf(item.action, item.signals), agreement, g);
 
 describe("riskOf", () => {
@@ -96,6 +96,10 @@ describe("decideChange", () => {
 
   test("marks the item added from a photo whose caption could not be read", () => {
     expect(decide(checked(add), "not_run", { captionUnread: true })).toEqual({ kind: "doubtful", reason: { kind: "caption_unread" } });
+  });
+
+  test("turns an item change on a chat with no open order into the urgent no-order problem", () => {
+    expect(decide({ ...checked(setQuantity), blocked: "order_closed" }, "agree")).toEqual({ kind: "urgent", problem: "order_closed", question: null });
   });
 
   test("decides a payment request as urgent with the open order", () => {

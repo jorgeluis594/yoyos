@@ -13,6 +13,8 @@ export type CheckedAction = Readonly<{
   signals: CertaintySignals;
   doubt: DoubtReason | null;
   urgent: Readonly<{ problem: ProblemKind; question: SuggestedQuestion | null }> | null;
+  /** The chat has no order open for this item change: urgent whatever the certainty. */
+  blocked: "no_open_order" | "order_closed" | null;
 }>;
 
 /** Facts from outside the action that change a decision. */
@@ -66,6 +68,7 @@ export function decideChange(checked: CheckedAction, risk: ChangeRisk, agreement
   if (action.kind === "ready") return { kind: "applied" };
   if (action.kind === "caption_doubt") return { kind: "silent" };
   if (action.kind === "draft_pending") return { kind: "pending" };
+  if (checked.blocked) return { kind: "urgent", problem: checked.blocked, question: null };
   if (action.kind === "add" && guards.captionUnread) return { kind: "doubtful", reason: { kind: "caption_unread" } };
   const high = isHighCertainty(signals) && (risk === "low" || agreement === "agree");
   if (high) return pendingSide.has(action.kind) ? { kind: "pending" } : { kind: "applied" };
