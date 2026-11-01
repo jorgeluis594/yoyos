@@ -10,7 +10,7 @@ import { coverageQuery, searchProductsByCoverage } from "@core/src/features/prod
 import { findMessageCandidates } from "@core/src/features/products/application/find-message-candidates";
 import { defaultTextMatchLimits, searchedWords } from "@core/src/features/products/domain/message-words";
 import { catalogNames, insertProductNames } from "@core/src/features/products/infrastructure/message-candidates-fixtures";
-import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
+import { productPresence } from "@core/src/features/products/infrastructure/catalog-search-readiness";
 import { catalogSearchReadiness } from "@core/src/features/products/application/catalog-search-readiness";
 import { hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
 import type { EmbeddingModel, EmbeddingVector } from "@core/src/features/products/domain/image-identification";
@@ -45,7 +45,7 @@ afterAll(async () => {
 });
 
 test("search readiness reports no searchable photos until an active product image is embedded", async () => {
-  const deps = (visualModel: EmbeddingModel | null) => ({ visualModel, hasActiveProducts, hasIndexedProducts });
+  const deps = (visualModel: EmbeddingModel | null) => ({ visualModel, productPresence, hasIndexedProducts });
   const empty = randomUUID();
   await withTenantIsolation(empty, async () => await prisma.company.create({ data: { id: empty, name: empty, country: "PE" } }));
   expect(await withTenantIsolation(empty, () => catalogSearchReadiness(deps(model)))).toEqual({ success: true, data: "no_active_products" });
@@ -124,6 +124,48 @@ test("leaves out inactive products and other companies' products from message ca
   expect(await namesOf(company, (await candidates(company, "quiero un polo")).productIds)).toEqual(["Polo activo"]);
   await dropCompany(company);
   await dropCompany(other);
+});
+
+test("text candidates exclude hidden products", async () => {
+  const company = await freshCompany();
+  await withTenantIsolation(company, () => insertProductNames(["Polo rojo", "Polo azul"], (index) => index === 0));
+  expect(await namesOf(company, (await candidates(company, "quiero un polo rojo")).productIds)).toEqual(["Polo azul"]);
+  await dropCompany(company);
+});
+
+test("showing a hidden product again makes it a text candidate", async () => {
+  const company = await freshCompany();
+  await withTenantIsolation(company, () => insertProductNames(["Casaca jean"], () => true));
+  expect((await candidates(company, "quiero la casaca jean")).productIds).toEqual([]);
+  await withTenantIsolation(company, async () => await prisma.product.updateMany({ data: { hidden: false } }));
+  expect(await namesOf(company, (await candidates(company, "quiero la casaca jean")).productIds)).toEqual(["Casaca jean"]);
+  await dropCompany(company);
+});
+
+test("the word cap counts the offered products, not the hidden ones", async () => {
+  const company = await freshCompany();
+  await withTenantIsolation(company, () => insertProductNames(catalogNames(40), (index) => index >= 2));
+  const message = "quiero comprar polo rojo azul verde negro blanco";
+  expect((await candidates(company, message, { pairBudget: 8, minWords: 1 })).wordsSearched).toBe(4);
+  await dropCompany(company);
+});
+
+test("readiness reports all products hidden and no searchable photos when only hidden products have indexed photos", async () => {
+  const deps = { visualModel: model, productPresence, hasIndexedProducts };
+  const company = await freshCompany();
+  const hiddenImage = randomUUID();
+  await withTenantIsolation(company, async () => await prisma.image.create({ data: { id: hiddenImage, storageKey: `images/${hiddenImage}` } }));
+  await withTenantIsolation(company, () => seedProduct({ name: "Casaca jean", hidden: true, photoIds: [hiddenImage] }));
+  await withTenantIsolation(company, () => saveEmbedding({ imageId: hiddenImage as never, model, vector: [1, 0, 0] as unknown as EmbeddingVector }));
+  expect(await withTenantIsolation(company, () => catalogSearchReadiness(deps))).toEqual({ success: true, data: "all_products_hidden" });
+  // A hidden product with a deactivated variant only does not count as a product with an active variant.
+  await withTenantIsolation(company, () => seedProduct({ name: "Polo visible sin foto" }));
+  expect(await withTenantIsolation(company, () => catalogSearchReadiness(deps))).toEqual({ success: true, data: "no_searchable_photos" });
+  await withTenantIsolation(company, async () => await prisma.product.updateMany({ data: { hidden: false } }));
+  expect(await withTenantIsolation(company, () => catalogSearchReadiness(deps))).toEqual({ success: true, data: "ready" });
+  await withTenantIsolation(company, async () => await deleteSeededProducts());
+  await withTenantIsolation(company, async () => await prisma.image.deleteMany());
+  await dropCompany(company);
 });
 
 test("ranks the polera named with four words above products sharing only «con» or «negro»", async () => {

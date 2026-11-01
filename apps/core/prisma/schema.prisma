@@ -378,6 +378,7 @@ model Product {
   createdAt DateTime
   updatedAt DateTime
   structureVersion Int @default(0)
+  hidden Boolean @default(false)
   variants ProductVariant[]
   options ProductOption[]
   photos ProductPhoto[]

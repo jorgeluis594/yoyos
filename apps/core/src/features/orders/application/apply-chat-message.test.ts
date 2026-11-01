@@ -35,7 +35,7 @@ const variant = (n: number, name: string, attributes: Record<string, string>, am
 const poloM = variant(1, "Polo básico", { Talla: "M" });
 const poloL = variant(2, "Polo básico", { Talla: "L" });
 const cap = variant(3, "Gorra", {}, 25);
-const forReading = (productId: ProductId, name: string, variants: readonly CatalogItem[], sellable = true): ProductForReading => ({ productId, name, sellable,
+const forReading = (productId: ProductId, name: string, variants: readonly CatalogItem[], sellable = true): ProductForReading => ({ productId, name, hidden: false, sellable,
   attributes: Object.entries(variants.reduce<Record<string, string[]>>((all, { variantAttributes }) => {
     for (const [attribute, value] of Object.entries(variantAttributes)) all[attribute] = [...new Set([...(all[attribute] ?? []), value])];
     return all;
@@ -407,6 +407,12 @@ describe("applyChatMessage: texts and pendings", () => {
 
   test("keeps a text miss silent in a company without active products", async () => {
     const h = harness({ message: textMessage("quiero zapatillas"), readiness: "no_active_products",
+      reader: () => actions({ kind: "add", product: { kind: "not_in_catalog" }, attributes: [], quantity: null, price: null }) });
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "not_identified", source: "text", silent: true }], noticeDue: false });
+  });
+
+  test("text misses stay silent when all products are hidden", async () => {
+    const h = harness({ message: textMessage("quiero zapatillas"), readiness: "all_products_hidden",
       reader: () => actions({ kind: "add", product: { kind: "not_in_catalog" }, attributes: [], quantity: null, price: null }) });
     expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "not_identified", source: "text", silent: true }], noticeDue: false });
   });

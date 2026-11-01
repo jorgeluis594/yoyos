@@ -2,6 +2,7 @@ import { countryCurrencies, type Country } from "@shared/country";
 import { buildCreateProductBody, buildSaveProductBody, type EditorDraft } from "@shared/product-variants";
 import type { PhotosToSave } from "@shared/product-photos";
 import type { Product, ProductId } from "../domain/product";
+import { visibilityToSave } from "@shared/product-visibility";
 import type { createProductApi } from "../infrastructure/product-api";
 
 type ProductApi = ReturnType<typeof createProductApi>;
@@ -12,6 +13,7 @@ export type CreateProductCommand = Readonly<{
   name: string;
   description?: string;
   photos: PhotosToSave;
+  hidden: boolean;
   draft: EditorDraft;
 }>;
 export type SaveProductCommand = Readonly<{
@@ -19,6 +21,8 @@ export type SaveProductCommand = Readonly<{
   name: string;
   description: string | null;
   photos: PhotosToSave;
+  /** The switch as the form shows it; sent only when it differs from the loaded product. */
+  hidden: boolean;
   draft: EditorDraft;
 }>;
 
@@ -29,11 +33,11 @@ export function createProductOperations(api: ProductApi) {
     uploadImage: api.uploadImage,
     createProduct: (command: CreateProductCommand) => api.create(buildCreateProductBody(command.draft, {
       id: command.id, name: command.name, description: command.description ?? null, photos: command.photos,
-      currency: countryCurrencies[command.country],
+      currency: countryCurrencies[command.country], hidden: command.hidden,
     })),
     saveProduct: (command: SaveProductCommand) => api.save(command.current.id, buildSaveProductBody(command.draft, {
       structureVersion: command.current.structureVersion, name: command.name, description: command.description,
-      photos: command.photos,
+      photos: command.photos, visibility: visibilityToSave(command.current.hidden, command.hidden),
     })),
   };
 }

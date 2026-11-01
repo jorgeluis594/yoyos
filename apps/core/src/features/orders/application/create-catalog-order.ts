@@ -14,7 +14,7 @@ export type CreateCatalogOrderError =
 export type CreateCatalogOrderDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, CreateCatalogOrderError>>) => Promise<Result<T, CreateCatalogOrderError>>;
   findOrder: (id: OrderId) => Promise<Result<OrderAggregate | null, CreateCatalogOrderError>>;
-  findSellableVariants: (ids: readonly VariantId[]) => Promise<Result<readonly SellableVariant[], CreateCatalogOrderError>>;
+  findOfferedVariants: (ids: readonly VariantId[]) => Promise<Result<readonly SellableVariant[], CreateCatalogOrderError>>;
   allocateNumber: (companyId: CompanyId) => Promise<Result<OrderNumber, CreateCatalogOrderError>>;
   /** Fails with ORDER_ID_CONFLICT when the id is already stored, in this company or, invisible under RLS, in another one. */
   saveCatalogOrder: (order: OrderAggregate) => Promise<Result<null, CreateCatalogOrderError>>;
@@ -38,7 +38,7 @@ async function createInTransaction(input: CreateCatalogOrderInput, access: Catal
   const existing = await deps.findOrder(input.id);
   if (!existing.success) return existing;
   if (existing.data) return existing.data.fromCatalog ? ok(existing.data) : err(conflict);
-  const variants = await deps.findSellableVariants(input.lines.map((line) => line.variantId));
+  const variants = await deps.findOfferedVariants(input.lines.map((line) => line.variantId));
   if (!variants.success) return variants;
   const issues = checkCartAvailability(input.lines, variants.data);
   if (issues.length) return err({ code: "LINES_UNAVAILABLE", message: "Some cart lines are not available", issues });

@@ -23,15 +23,15 @@ export function catalogNames(count: number, shape: "mixed" | "shared" = "mixed")
   });
 }
 
-/** Inserts active products with one active variant each, in chunks. Call inside withTenantIsolation. */
-export async function insertProductNames(names: readonly string[]): Promise<string[]> {
+/** Inserts active products with one active variant each, in chunks; `hidden` says which (by index in `names`) are hidden. Call inside withTenantIsolation. */
+export async function insertProductNames(names: readonly string[], hidden: (index: number) => boolean = () => false): Promise<string[]> {
   const ids: string[] = [];
   const now = new Date();
   for (let from = 0; from < names.length; from += 2_000) {
-    const chunk = names.slice(from, from + 2_000).map((name) => ({ id: randomUUID(), name }));
+    const chunk = names.slice(from, from + 2_000).map((name, offset) => ({ id: randomUUID(), name, hidden: hidden(from + offset) }));
     ids.push(...chunk.map(({ id }) => id));
     const result = await withinTransaction(async () => {
-      await prisma.product.createMany({ data: chunk.map(({ id, name }) => ({ id, name, currency: "PEN", qrCode: id, status: "active", createdAt: now, updatedAt: now, structureVersion: 1 })) });
+      await prisma.product.createMany({ data: chunk.map(({ id, name, hidden: isHidden }) => ({ id, name, hidden: isHidden, currency: "PEN", qrCode: id, status: "active", createdAt: now, updatedAt: now, structureVersion: 1 })) });
       await prisma.productVariant.createMany({ data: chunk.map(({ id }) => ({ id: randomUUID(), productId: id, combinationKey: combinationKey({}), salePrice: 10, qrCode: randomUUID(), status: "active" })) });
       return ok(null);
     });

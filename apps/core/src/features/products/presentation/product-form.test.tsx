@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act } from "react";
+import { act, useState } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { createInstance } from "i18next";
 import { I18nextProvider, initReactI18next } from "react-i18next";
@@ -7,8 +7,9 @@ import { createMemoryRouter, Link, RouterProvider } from "react-router";
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import resources from "@core/app/locales";
 import { draftFromProduct } from "@shared/product-variants";
+import { visibilityToSave } from "@shared/product-visibility";
 import type { ProductDetailResponse } from "@shared/contracts/products";
-import { ProductForm, type ProductFormProps } from "@core/src/features/products/presentation/product-form";
+import { ProductForm, type ProductFormProps, type ProductFormSubmission } from "@core/src/features/products/presentation/product-form";
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const i18n = createInstance();
@@ -24,7 +25,7 @@ const threeColors = (): ProductDetailResponse["product"] => {
     variants: [negro, azul, rojo].map((value, index) => ({ ...base.variants[0], id: id(80 + index), qrCode: id(90 + index), combination: [{ optionId: color, valueId: value }] })) };
 };
 const product = (blocked: boolean): ProductDetailResponse["product"] => ({
-  id: id(50), name: "Polo", description: null, photos: [], currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
+  id: id(50), name: "Polo", description: null, hidden: false, photos: [], currency: "PEN", qrCode: id(51), createdAt: "2026-10-26T00:00:00.000Z", updatedAt: "2026-10-26T00:00:00.000Z", structureVersion: 1,
   options: [{ id: color, name: "Color", values: [{ id: negro, name: "Negro" }, { id: azul, name: "Azul" }] }],
   variants: [negro, azul].map((value, index) => ({
     id: id(60 + index), combination: [{ optionId: color, valueId: value }], sku: null, salePrice: money(10), purchasePrice: null, qrCode: id(70 + index), status: "active",
@@ -198,4 +199,71 @@ test("the consolidated variants table has its own heading section, apart from th
   expect(section.querySelector('[role="group"][aria-label="Seleccionar:"]')).not.toBeNull();
   expect(section.textContent).not.toContain("Agregar otra opción");
   expect(section.closest("[data-slot='card']")?.querySelector("[data-slot='card']")).toBeNull();
+});
+
+const hideSwitch = () => container.querySelector<HTMLButtonElement>('button[role="switch"]')!;
+const lastSave = (saves: ProductFormSubmission[]) => saves[saves.length - 1];
+const submitForm = () => click(button("Guardar producto")!);
+
+test("the product form saves the hidden switch and omits it when toggled back", () => {
+  const saves: ProductFormSubmission[] = [];
+  mount({ hidden: false, onSave: (submission) => saves.push(submission) });
+  type(byLabel("Nombre"), "Polo");
+  type(byLabel("Precio de venta (PEN) *"), "10");
+  click(hideSwitch());
+  submitForm();
+  expect(lastSave(saves)).toMatchObject({ hidden: true });
+  expect(visibilityToSave(false, lastSave(saves).hidden)).toEqual({ kind: "set", hidden: true });
+  click(hideSwitch());
+  submitForm();
+  expect(lastSave(saves).hidden).toBe(false);
+  expect(visibilityToSave(false, lastSave(saves).hidden)).toEqual({ kind: "unchanged" });
+});
+
+test("a changed switch triggers the discard guard and the leave warning", async () => {
+  const router = mount({ hidden: false });
+  click(hideSwitch());
+  await act(async () => { await router.navigate("/products"); });
+  expect(document.body.textContent).toContain("¿Descartar cambios?");
+  click(button("Seguir editando"));
+  const warning = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(warning);
+  expect(warning.defaultPrevented).toBe(true);
+  click(hideSwitch());
+  const clean = new Event("beforeunload", { cancelable: true });
+  window.dispatchEvent(clean);
+  expect(clean.defaultPrevented).toBe(false);
+});
+
+test("Descartar restores the stored visibility", () => {
+  let reloads = 0;
+  const router = createMemoryRouter([{ path: "/", element: <Reloadable /> }]);
+  function Reloadable() {
+    const [version, setVersion] = useState(0);
+    return <ProductForm key={version} currency="PEN" cancelTo="/products" pending={false} onSave={() => undefined} hidden={false} draft={draftFromProduct(product(false))}
+      onReload={() => { reloads++; setVersion((current) => current + 1); }} feedback={{ errors: { changed: "Cambió." }, issues: [] }} />;
+  }
+  act(() => root.render(<I18nextProvider i18n={i18n}><RouterProvider router={router} /></I18nextProvider>));
+  click(hideSwitch());
+  expect(hideSwitch().getAttribute("aria-checked")).toBe("true");
+  click(button("Recargar producto"));
+  click(button("Descartar"));
+  expect(reloads).toBe(1);
+  expect(hideSwitch().getAttribute("aria-checked")).toBe("false");
+});
+
+test("the label toggles the switch and no hint text is shown", () => {
+  mount({ hidden: false });
+  const label = container.querySelector<HTMLLabelElement>(`label[for="${hideSwitch().id}"]`)!;
+  expect(label.textContent).toBe("Ocultar producto");
+  click(label);
+  expect(hideSwitch().getAttribute("aria-checked")).toBe("true");
+  expect(hideSwitch().hasAttribute("aria-describedby")).toBe(false);
+  expect(container.textContent).not.toContain("Si lo ocultas");
+});
+
+test("the switch is disabled while saving", () => {
+  mount({ hidden: true, pending: true });
+  expect(hideSwitch().disabled).toBe(true);
+  expect(hideSwitch().getAttribute("aria-checked")).toBe("true");
 });

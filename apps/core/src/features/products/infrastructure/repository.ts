@@ -5,7 +5,7 @@ import { Prisma, type Product as DbProduct, type ProductVariant as DbVariant, ty
 import { z } from "zod";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
-import { isCurrency } from "@shared/money";
+import { isCurrency, type Currency } from "@shared/money";
 import { getCompanyId, prisma, withLockedForUpdate, withinReadSnapshot } from "@core/src/shared/infrastructure/persistance";
 import type { ProductSummary } from "@core/src/features/products/application/list";
 import type { CreateError } from "@core/src/features/products/application/create";
@@ -104,7 +104,7 @@ function mapProduct(row: DbProduct, variantRows: (DbVariant & { stock: DbStock |
     id: row.id as ProductId, name: row.name,
     ...(row.description === null ? {} : { description: row.description }),
     photoIds: photos.data,
-    currency, qrCode: row.qrCode, status: row.status as "active",
+    currency, qrCode: row.qrCode, status: row.status as "active", hidden: row.hidden,
     createdAt: new Date(row.createdAt), updatedAt: new Date(row.updatedAt), structureVersion: row.structureVersion, options,
     variants: variants as unknown as Product["variants"],
   };
@@ -147,7 +147,7 @@ export async function insertProduct(product: Product): Promise<Result<ProductId,
   try {
     await prisma.product.create({ data: {
       id: product.id, name: product.name, description: product.description, currency: product.currency,
-      qrCode: product.qrCode, status: product.status, createdAt: product.createdAt, updatedAt: product.updatedAt, structureVersion: product.structureVersion,
+      qrCode: product.qrCode, status: product.status, hidden: product.hidden, createdAt: product.createdAt, updatedAt: product.updatedAt, structureVersion: product.structureVersion,
     } });
     if (product.options.length) {
       await prisma.productOption.createMany({ data: product.options.map((option, position) => ({ id: option.id, productId: product.id, name: option.name, position })) });
@@ -236,6 +236,20 @@ export async function lockProduct(id: ProductId): Promise<Result<Product | null,
   }
 }
 
+/** Whether another product of the company in this currency is offered: active, not hidden, with an active variant. A short-circuit EXISTS, never an aggregate. */
+export async function hasOtherOfferedProduct(productId: ProductId, currency: Currency): Promise<Result<boolean, ProductReadError>> {
+  try {
+    const [row] = await prisma.$queryRaw<{ found: boolean }[]>(Prisma.sql`SELECT EXISTS (SELECT 1 FROM "Product" p
+      WHERE p."companyId" = ${getCompanyId()}::uuid AND p.id <> ${productId}::uuid AND p.currency = ${currency} AND p.status = 'active' AND NOT p.hidden
+        AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."productId" = p.id AND v."companyId" = p."companyId" AND v.status = 'active')) AS found`);
+    return ok(row.found);
+  } catch (error) {
+    if (transactionFailureStage(error)) throw error;
+    log.error({ event: "product_offered_lookup_persistence_failed", err: error }, "product_offered_lookup_persistence_failed");
+    return unavailable("Unable to check offered products");
+  }
+}
+
 const uuidList = (ids: readonly string[]) => Prisma.join(ids.map((id) => Prisma.sql`${id}::uuid`));
 const rowsOf = (rows: readonly Prisma.Sql[]) => Prisma.join(rows.map((row) => Prisma.sql`(${row})`));
 
@@ -300,6 +314,7 @@ export async function applyStructureChange(change: ProductStructureChange): Prom
     if (Object.keys(change.product).length) await prisma.product.update({ where: { id: productId }, data: {
       ...change.product.name === undefined ? {} : { name: change.product.name },
       ...change.product.description === undefined ? {} : { description: change.product.description },
+      ...change.product.hidden === undefined ? {} : { hidden: change.product.hidden },
       ...change.product.updatedAt === undefined ? {} : { updatedAt: change.product.updatedAt },
       ...change.product.structureVersion === undefined ? {} : { structureVersion: change.product.structureVersion },
     } });
@@ -342,12 +357,12 @@ function listPredicates(criteria: Criteria): Prisma.Sql[] {
   return predicates;
 }
 
-type SummaryRow = Readonly<{ id: string; name: string; imageId: string | null; currency: string; variantCount: number; activeVariantCount: number;
+type SummaryRow = Readonly<{ id: string; name: string; hidden: boolean; imageId: string | null; currency: string; variantCount: number; activeVariantCount: number;
   minPrice: string | null; hasDifferentPrices: boolean; totalStock: string; sku: string | null }>;
 
 /** One grouped query for the page: prices, stock and SKU cover active variants only, and no aggregate is loaded. */
 function summarySql(ids: readonly string[]): Prisma.Sql {
-  return Prisma.sql`SELECT p.id::text AS id, p.name, pp."imageId"::text AS "imageId", p.currency,
+  return Prisma.sql`SELECT p.id::text AS id, p.name, p.hidden, pp."imageId"::text AS "imageId", p.currency,
       count(v.id)::int AS "variantCount",
       (count(v.id) FILTER (WHERE v.status = 'active'))::int AS "activeVariantCount",
       (min(v."salePrice") FILTER (WHERE v.status = 'active'))::text AS "minPrice",
@@ -367,7 +382,7 @@ function toSummary(row: SummaryRow): ProductSummary {
   const totalStock = Number(row.totalStock);
   if (!Number.isSafeInteger(totalStock)) throw new Error("Stored total stock is outside the supported range");
   return {
-    id: row.id as ProductId, name: row.name, variantCount: row.variantCount, activeVariantCount: row.activeVariantCount,
+    id: row.id as ProductId, name: row.name, hidden: row.hidden, variantCount: row.variantCount, activeVariantCount: row.activeVariantCount,
     ...(row.sku === null ? {} : { sku: row.sku }),
     minSalePrice: row.minPrice === null ? null : { amount: Number(row.minPrice), currency: row.currency },
     hasDifferentPrices: row.hasDifferentPrices, totalStock,

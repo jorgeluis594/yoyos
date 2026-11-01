@@ -93,7 +93,7 @@ test("a successful save shows the returned detail without another request", asyn
     variants: Array.from({ length: variants }, (_, index) => ({ id: id(40 + index), qrCode: id(50 + index), combination: [{ optionId: colorId, valueId: id(30 + index) }], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false })),
   });
   mockLoad.mockResolvedValue(ok(detail(2)));
-  mockSave.mockResolvedValue(ok(detail(3)));
+  mockSave.mockResolvedValue(ok({ product: detail(3), catalogEmptied: false }));
   const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
   try {
     render(<ProductEditorProvider><ProductManagementScreen /></ProductEditorProvider>);
@@ -165,7 +165,7 @@ test("a row removed from a new product is marked with Deshacer and leaves the co
 });
 
 test("a deactivated variant is shown as such and is never selected by a chip", () => {
-  const product = { id: productId, name: "Polo", description: null, photos: [], currency: "PEN" as const, qrCode: id(1), createdAt: "", updatedAt: "", structureVersion: 1,
+  const product = { id: productId, name: "Polo", description: null, hidden: false, photos: [], currency: "PEN" as const, qrCode: id(1), createdAt: "", updatedAt: "", structureVersion: 1,
     options: [{ id: id(1), name: "Talla", values: named(10, ["S", "M"]) }],
     variants: named(10, ["S", "M"]).map((value, index) => ({ id: id(100 + index), combination: [{ optionId: id(1), valueId: value.id }], sku: null, salePrice: { amount: 10, currency: "PEN" as const }, purchasePrice: null, qrCode: id(200 + index), status: index === 1 ? "inactive" : "active", stock: 2, hasOrders: false })) };
   renderVariants(draftFromProduct(product));
@@ -184,7 +184,7 @@ test("a bulk price edit on the variant of a product that had no options survives
   const simple = { id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, options: [],
     variants: [{ id: id(40), qrCode: id(50), combination: [], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }] };
   mockLoad.mockResolvedValue(ok(simple));
-  mockSave.mockResolvedValue(ok(simple));
+  mockSave.mockResolvedValue(ok({ product: simple, catalogEmptied: false }));
   let editor!: ReturnType<typeof useProductEditor>;
   render(<ProductEditorProvider><ProductManagementScreen /><Capture onEditor={(value) => { editor = value; }} /></ProductEditorProvider>);
   await screen.findByLabelText("Nombre *");
@@ -223,7 +223,7 @@ test("a cleared base price does not block saving once the product has options", 
   const simple = { id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, options: [],
     variants: [{ id: id(40), qrCode: id(50), combination: [], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }] };
   mockLoad.mockResolvedValue(ok(simple));
-  mockSave.mockResolvedValue(ok(simple));
+  mockSave.mockResolvedValue(ok({ product: simple, catalogEmptied: false }));
   let editor!: ReturnType<typeof useProductEditor>;
   render(<ProductEditorProvider><ProductManagementScreen /><Capture onEditor={(value) => { editor = value; }} /></ProductEditorProvider>);
   fireEvent.changeText(await screen.findByLabelText(/Precio de venta/), "");

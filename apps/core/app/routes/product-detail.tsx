@@ -13,6 +13,10 @@ import { privateUserContext } from "@/private-user-context";
 import { lostResponse, lostResponseStatus } from "@core/app/routes/lost-response";
 import { saveProductRequestSchema } from "@shared/contracts/products";
 import { buildSaveProductBody, draftFromProduct } from "@shared/product-variants";
+import { visibilityToSave } from "@shared/product-visibility";
+import { catalogStorefront } from "@core/src/features/catalog";
+import type { CompanyId } from "@shared/identity";
+import { resolveCatalogEmptied } from "@core/src/features/products/presentation/catalog-emptied";
 import { productEditing } from "@core/src/features/products/product-editing";
 import { toProductDetailResponse } from "@core/src/features/products/presentation/product-presenter";
 import { parseRequestJson, toSaveInput } from "@core/src/features/products/presentation/request-input";
@@ -34,6 +38,7 @@ export async function loader({ context, params, request }: LoaderFunctionArgs) {
       product: detail.product,
       catalog: companyPath(new URL(request.url).pathname, company.country, "/products"),
       saved: new URL(request.url).searchParams.get("saved") === "1",
+      catalogEmptied: new URL(request.url).searchParams.get("catalogEmptied") === "1",
       variantDeleted: new URL(request.url).searchParams.get("variantDeleted") === "1",
     };
   } catch (cause) {
@@ -52,7 +57,8 @@ export async function action({ request, context, params }: ActionFunctionArgs): 
   try {
     const result = await productEditing.save(toSaveInput(params.productId as ProductId, parsed.data));
     if (!result.success) return saveFeedback(result.error, language);
-    return redirect(`${companyPath(new URL(request.url).pathname, company.country, `/products/${result.data.product.id}`)}?saved=1`);
+    const catalogEmptied = await resolveCatalogEmptied(result.data, { companyId: company.id as CompanyId }, catalogStorefront.describe);
+    return redirect(`${companyPath(new URL(request.url).pathname, company.country, `/products/${result.data.detail.product.id}`)}?saved=1${catalogEmptied ? "&catalogEmptied=1" : ""}`);
   } catch (cause) {
     log.error({ event: "unable_to_update_product", err: cause }, "unable_to_update_product");
     return { errors: { inDoubt: resources[language].translation.productEditor.inDoubtSave }, issues: [] };
@@ -78,7 +84,7 @@ export function shouldRevalidate({ actionResult, defaultShouldRevalidate }: { ac
 
 export default function ProductDetail() {
   const { t } = useTranslation();
-  const { product, catalog, saved, variantDeleted } = useLoaderData<typeof loader>();
+  const { product, catalog, saved, catalogEmptied, variantDeleted } = useLoaderData<typeof loader>();
   const actionData = useActionData<typeof clientAction>();
   const submit = useSubmit();
   const navigation = useNavigation();
@@ -94,10 +100,10 @@ export default function ProductDetail() {
   };
   const originalNames = Object.fromEntries(product.options.flatMap((option) => [[option.id, option.name], ...option.values.map((value) => [value.id, value.name])]));
 
-  function save({ values: next, photos, draft }: ProductFormSubmission) {
+  function save({ values: next, photos, draft, hidden }: ProductFormSubmission) {
     submit(buildSaveProductBody(draft, {
       structureVersion: product.structureVersion, name: next.name, description: next.description === "" ? null : next.description,
-      photos,
+      photos, visibility: visibilityToSave(product.hidden, hidden),
     }), { method: "put", encType: "application/json", action: `${catalog}/${product.id}` });
   }
 
@@ -114,10 +120,10 @@ export default function ProductDetail() {
       </PageHeader.Heading>
       <PageHeader.Actions><Button asChild variant="outline"><Link to={catalog}>{t("products.backProducts")}</Link></Button></PageHeader.Actions>
     </PageHeader>
-    {saved && <Alert variant="success" className="mt-5"><AlertDescription>{t("products.saved")}</AlertDescription></Alert>}
+    {saved && <Alert variant="success" className="mt-5"><AlertDescription>{t("products.saved")}{catalogEmptied && <> {t("products.catalogEmptied")}</>}</AlertDescription></Alert>}
     {variantDeleted && <Alert variant="success" className="mt-5"><AlertDescription>{t("variantDetail.variantDeleted")}</AlertDescription></Alert>}
     <ProductForm key={`${product.updatedAt}:${product.structureVersion}:${reloads}`} currency={product.currency} cancelTo={catalog} feedback={feedback} pending={pending} values={values}
-      draft={draftFromProduct(product)} originalNames={originalNames} variantHref={(variantId) => `${catalog}/${product.id}/variants/${variantId}`} submitLabel={t("products.saveChanges")} photos={product.photos} onSave={save} onReload={reload} />
+      draft={draftFromProduct(product)} hidden={product.hidden} originalNames={originalNames} variantHref={(variantId) => `${catalog}/${product.id}/variants/${variantId}`} submitLabel={t("products.saveChanges")} photos={product.photos} onSave={save} onReload={reload} />
   </PageContainer>;
 }
 

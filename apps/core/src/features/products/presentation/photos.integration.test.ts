@@ -68,7 +68,7 @@ const images = (companyId: string, count: number) => withTenantIsolation(company
   for (const id of ids) await prisma.image.create({ data: { id, storageKey: storageKey(id) } });
   return ids;
 });
-const createBody = (photoIds: readonly string[], overrides: Record<string, unknown> = {}) => ({ id: randomUUID(), name: "Polo", description: null, photoIds, currency: "PEN", options: [],
+const createBody = (photoIds: readonly string[], overrides: Record<string, unknown> = {}) => ({ id: randomUUID(), name: "Polo", description: null, photoIds, currency: "PEN", hidden: false, options: [],
   variants: [{ values: [], sku: null, salePrice: 25, purchasePrice: null, initialStock: 3 }], ...overrides });
 const detail = async (cookie: string, id: string) => {
   const response = await call(`/api/products/${id}`, cookie);

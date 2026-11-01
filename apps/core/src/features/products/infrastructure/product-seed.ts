@@ -27,6 +27,8 @@ export type SeedProduct = Readonly<{
   currency?: string;
   qrCode?: string;
   status?: string;
+  /** Hidden from buyers; default false. */
+  hidden?: boolean;
   createdAt?: Date;
   updatedAt?: Date;
   structureVersion?: number;
@@ -72,7 +74,7 @@ export async function seedProduct(input: SeedProduct = {}): Promise<SeededProduc
   const result = await withinTransaction(async () => {
     await prisma.product.create({ data: {
       id: productId, name: input.name ?? "Sample product", description: input.description ?? null,
-      currency: input.currency ?? "PEN", qrCode: input.qrCode ?? randomUUID(), status: input.status ?? "active",
+      currency: input.currency ?? "PEN", qrCode: input.qrCode ?? randomUUID(), status: input.status ?? "active", hidden: input.hidden ?? false,
       createdAt: input.createdAt ?? now, updatedAt: input.updatedAt ?? now, structureVersion: input.structureVersion ?? 1,
     } });
     if (input.photoIds?.length) await prisma.productPhoto.createMany({ data: input.photoIds.map((imageId, position) => ({ productId, imageId, position })) });

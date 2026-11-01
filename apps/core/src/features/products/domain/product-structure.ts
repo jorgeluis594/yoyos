@@ -155,6 +155,8 @@ export type SaveRequest = Readonly<{
   description: string | null;
   /** Omitted = photos untouched; present = the whole new ordered list. */
   photoIds?: readonly ImageId[];
+  /** Omitted = visibility untouched; present = the value the seller wants. */
+  hidden?: boolean;
   options: readonly RawOption[];
   variants: readonly SaveVariantInput[];
   newVariants: readonly SaveNewVariantInput[];
@@ -179,7 +181,7 @@ export type ProductStructureChange = Readonly<{
   }>[];
   deleteVariantIds: readonly VariantId[];
   /** Empty when nothing changed; otherwise the changed fields, `updatedAt` and, for a structural change, the next `structureVersion`. */
-  product: Readonly<{ name?: string; description?: string | null; updatedAt?: Date; structureVersion?: number }>;
+  product: Readonly<{ name?: string; description?: string | null; hidden?: boolean; updatedAt?: Date; structureVersion?: number }>;
   /** The whole new photo list, only when it differs from the stored one in ids or order. A photo change never raises `structureVersion`. */
   photos?: ProductPhotos;
 }>;
@@ -353,9 +355,10 @@ function buildChange(current: Product, input: SaveRequest, built: Built, ids: Re
   });
 
   const deleteVariantIds = input.deletedVariantIds.filter((id, index) => current.variants.some((variant) => variant.id === id) && input.deletedVariantIds.indexOf(id) === index);
-  const productFields: { name?: string; description?: string | null } = {};
+  const productFields: { name?: string; description?: string | null; hidden?: boolean } = {};
   if (data.name !== current.name) productFields.name = data.name;
   if ((data.description ?? null) !== (current.description ?? null)) productFields.description = data.description ?? null;
+  if (input.hidden !== undefined && input.hidden !== current.hidden) productFields.hidden = input.hidden;
   const photosChanged = photos !== undefined && !samePhotos(photos, current.photoIds);
 
   const structureChanged = [insertOptions, insertValues, renameOrMoveOptions, renameOrMoveValues, insertLinks, deleteOptions, deleteValueIds, rekeyVariants, insertVariants, deleteVariantIds]

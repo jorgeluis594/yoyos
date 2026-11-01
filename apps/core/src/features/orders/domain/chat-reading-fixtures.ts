@@ -36,7 +36,7 @@ const combinations = (attributes: Attributes): readonly Readonly<Record<string, 
 
 const buildProduct = (key: ProductKey, index: number): ReadingProduct => {
   const spec: ProductSpec = specs[key];
-  return { ref: `P${index + 1}`, shown: false, shownVariantId: null, identification: null, productId: id(100 + index) as ProductId, name: spec.name, sellable: true,
+  return { ref: `P${index + 1}`, shown: false, shownVariantId: null, identification: null, productId: id(100 + index) as ProductId, name: spec.name, hidden: false, sellable: true,
     attributes: Object.entries(spec.attributes).map(([name, values]) => ({ name, values })),
     variants: combinations(spec.attributes).map((variantAttributes, variant) => ({ variantId: id(1000 + index * 20 + variant) as VariantId, productName: spec.name,
       variantAttributes, sku: null, unitPrice: money(spec.price) })) };
@@ -83,7 +83,7 @@ export type Reading = Readonly<{ kind?: ChatReadingContext["kind"]; shown?: read
 export type Said = Readonly<{ outcomes: readonly ChatMessageOutcome[]; kinds: readonly ChatMessageOutcome["kind"][]; actions: readonly ResolvedChatAction[] }>;
 export type Chat = ReturnType<typeof createChat>;
 
-export type ChatStart = Readonly<{ items?: readonly (readonly [ProductKey, Readonly<Record<string, string>>, number])[]; pendings?: readonly ChatPending[]; readyRemembered?: boolean; unsellable?: readonly ProductKey[]; deleted?: readonly ProductKey[]; orders?: readonly OrderAggregate[] }>;
+export type ChatStart = Readonly<{ items?: readonly (readonly [ProductKey, Readonly<Record<string, string>>, number])[]; pendings?: readonly ChatPending[]; readyRemembered?: boolean; unsellable?: readonly ProductKey[]; hidden?: readonly ProductKey[]; deleted?: readonly ProductKey[]; orders?: readonly OrderAggregate[] }>;
 
 /** A chat that reads fixed reader answers through the real check and the real order transitions. */
 export function createChat(start: ChatStart = {}) {
@@ -93,6 +93,7 @@ export function createChat(start: ChatStart = {}) {
   /** Every order of the chat, oldest first; the last one is the chat's latest. */
   let orders: OrderAggregate[] = start.orders ? [...start.orders] : start.items?.length ? [orderOf(start.items)] : [];
   const unsellable = new Set(start.unsellable ?? []);
+  const hiddenKeys = new Set(start.hidden ?? []);
   const deleted = new Set(start.deleted ?? []);
   const ids = { newOrderId: () => id(900) as OrderId, newItemId: () => id(counter++) as OrderItemId, newPendingId: () => id(counter++) as ChatPendingId };
   const productByVariant = new Map<VariantId, ProductId>(productKeys.flatMap((key) => catalog[key].variants.map((variant): [VariantId, ProductId] => [variant.variantId, productId(key)])));
@@ -103,7 +104,7 @@ export function createChat(start: ChatStart = {}) {
 
   const productsFor = (reading: Reading): readonly ReadingProduct[] => productKeys.filter((key) => !deleted.has(key)).map((key) => {
     const shown = reading.shown?.find(([shownKey]) => shownKey === key);
-    const product: ReadingProduct = { ...catalog[key], sellable: !unsellable.has(key) };
+    const product: ReadingProduct = hiddenKeys.has(key) ? { ...catalog[key], hidden: true, sellable: false, attributes: [], variants: [] } : { ...catalog[key], sellable: !unsellable.has(key) };
     if (!shown) return product;
     const variant = shown[1] ? variantOf(key, shown[1]) : null;
     return { ...product, shown: true, shownVariantId: variant?.variantId ?? null, identification: { method: "qr", productId: product.productId, confidence: null } };

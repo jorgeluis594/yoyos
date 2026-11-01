@@ -2,9 +2,11 @@ import {
   productDetailResponseSchema,
   productIdResponseSchema,
   productListResponseSchema,
+  saveProductResponseSchema,
   type ProductDetailResponse,
   type ProductIdResponse,
   type ProductListResponse,
+  type SaveProductResponse,
 } from "@shared/contracts/products";
 import type { Detail } from "@core/src/features/products/application/get";
 import type { ListOutput } from "@core/src/features/products/application/list";
@@ -14,7 +16,7 @@ export function toProductListResponse(output: ListOutput): ProductListResponse {
   return productListResponseSchema.parse({
     ...output,
     items: output.items.map((item) => ({
-      id: item.id, name: item.name, variantCount: item.variantCount, activeVariantCount: item.activeVariantCount,
+      id: item.id, name: item.name, hidden: item.hidden, variantCount: item.variantCount, activeVariantCount: item.activeVariantCount,
       ...(item.sku === undefined ? {} : { sku: item.sku }),
       minSalePrice: item.minSalePrice, hasDifferentPrices: item.hasDifferentPrices, totalStock: item.totalStock,
       ...(item.image === undefined ? {} : { image: item.image }),
@@ -28,6 +30,7 @@ export function toProductDetailResponse(detail: Detail): ProductDetailResponse {
     product: {
       id: product.id, name: product.name,
       description: product.description ?? null,
+      hidden: product.hidden,
       photos: detail.photos.map((photo) => ({ id: photo.id, url: photo.url })),
       currency: product.currency, qrCode: product.qrCode,
       createdAt: product.createdAt.toISOString(), updatedAt: product.updatedAt.toISOString(),
@@ -44,6 +47,11 @@ export function toProductDetailResponse(detail: Detail): ProductDetailResponse {
       })),
     },
   });
+}
+
+/** The PUT response: the saved product and whether this save emptied the published catalog. */
+export function toSaveProductResponse(detail: Detail, catalogEmptied: boolean): SaveProductResponse {
+  return saveProductResponseSchema.parse({ ...toProductDetailResponse(detail), catalogEmptied });
 }
 
 export function toProductIdResponse(id: ProductId): ProductIdResponse {

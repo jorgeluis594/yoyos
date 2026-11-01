@@ -8,7 +8,7 @@ export type StockFilter = "in_stock" | "sold_out";
 export type ListSort = "recent" | "name";
 export type ListInput = Readonly<{ search?: string; stock?: StockFilter; sort?: ListSort; page?: number; pageSize?: number }>;
 /** Prices, stock and SKU cover active variants only; `minSalePrice` is null when none is active. */
-type Summary = Readonly<{ id: ProductId; name: string; variantCount: number; activeVariantCount: number; sku?: string; minSalePrice: Money | null; hasDifferentPrices: boolean; totalStock: number }>;
+type Summary = Readonly<{ id: ProductId; name: string; hidden: boolean; variantCount: number; activeVariantCount: number; sku?: string; minSalePrice: Money | null; hasDifferentPrices: boolean; totalStock: number }>;
 export type ProductSummary = Summary & Readonly<{ imageId?: ImageId }>;
 export type ProductListItem = Summary & Readonly<{ image?: Readonly<{ id: ImageId; url: string }> }>;
 export type ListPage = Readonly<{ items: readonly ProductSummary[]; page: number; pageSize: number; total: number }>;

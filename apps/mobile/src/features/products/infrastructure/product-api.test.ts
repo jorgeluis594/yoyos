@@ -6,7 +6,7 @@ const productId = "00000000-0000-4000-8000-000000000001" as ProductId;
 const variantId = "00000000-0000-4000-8000-000000000002";
 const variantQr = "00000000-0000-4000-8000-000000000003";
 const detail = { product: {
-    id: productId, name: "Camisa", description: null, photos: [], currency: "PEN", qrCode: "00000000-0000-4000-8000-000000000004",
+    id: productId, name: "Camisa", description: null, hidden: false, photos: [], currency: "PEN", qrCode: "00000000-0000-4000-8000-000000000004",
     createdAt: "2026-01-01T00:00:00.000Z", updatedAt: "2026-01-01T00:00:00.000Z", structureVersion: 1, options: [],
     variants: [{ id: variantId, combination: [], sku: "CAM-S", salePrice: { amount: 20, currency: "PEN" }, purchasePrice: null, qrCode: variantQr, status: "active", stock: 1, hasOrders: false }],
 } };
@@ -52,7 +52,7 @@ test("does not share a pending detail read across sessions", async () => {
 
 test("requests stock filter and sort, and maps listing thumbnails", async () => {
   const imageId = "00000000-0000-4000-8000-000000000005";
-  const item = { id: productId, name: "Camisa", variantCount: 1, activeVariantCount: 1, minSalePrice: { amount: 20, currency: "PEN" }, hasDifferentPrices: false, totalStock: 0 };
+  const item = { id: productId, name: "Camisa", hidden: false, variantCount: 1, activeVariantCount: 1, minSalePrice: { amount: 20, currency: "PEN" }, hasDifferentPrices: false, totalStock: 0 };
   const request = jest.fn().mockResolvedValue(ok({ page: 1, pageSize: 20, total: 2, items: [
     { ...item, image: { id: imageId, url: "https://cdn.example/camisa.webp" } },
     { ...item, id: "00000000-0000-4000-8000-000000000006" },
@@ -105,13 +105,13 @@ test("an unknown variant status is shown as Desactivada", async () => {
 });
 
 test("a list item without active variants has no price", async () => {
-  const request = jest.fn().mockResolvedValue(ok({ page: 1, pageSize: 20, total: 1, items: [{ id: productId, name: "Camisa", variantCount: 2, activeVariantCount: 0, minSalePrice: null, hasDifferentPrices: false, totalStock: 0 }] }));
+  const request = jest.fn().mockResolvedValue(ok({ page: 1, pageSize: 20, total: 1, items: [{ id: productId, name: "Camisa", hidden: false, variantCount: 2, activeVariantCount: 0, minSalePrice: null, hasDifferentPrices: false, totalStock: 0 }] }));
   const result = await createProductApi(request, () => 0).list({ page: 1, pageSize: 20 });
   expect(result).toMatchObject({ success: true, data: { items: [{ activeVariantCount: 0, price: null }] } });
 });
 
 const failure = (status: number, code: string, issues?: unknown) => err({ code: "API_ERROR" as const, message: "HTTP failure", http: { status, body: { code, error: "x", ...(issues ? { issues } : {}) } } });
-const createBody = { id: productId, name: "Camisa", description: null, photoIds: [], currency: "PEN" as const, options: [], variants: [{ values: [], sku: null, salePrice: 1, purchasePrice: null, initialStock: 0 }] };
+const createBody = { id: productId, name: "Camisa", description: null, photoIds: [], hidden: false, currency: "PEN" as const, options: [], variants: [{ values: [], sku: null, salePrice: 1, purchasePrice: null, initialStock: 0 }] };
 
 test("maps issues by option, value and variant", async () => {
   const issues = [
@@ -148,12 +148,13 @@ test("the create request carries the editor contract with nullable fields", asyn
 const saveBody = { structureVersion: 1, name: "Camisa", description: null, options: [], variants: [], newVariants: [], deletedVariantIds: [] };
 
 test("the editor save is a PUT that answers the full detail", async () => {
-  const request = jest.fn().mockResolvedValue(ok(withOptions("active")));
+  const request = jest.fn().mockResolvedValue(ok({ ...withOptions("active"), catalogEmptied: true }));
   const result = await createProductApi(request, () => 0).save(productId, saveBody);
   expect(request.mock.calls[0][0]).toBe(`/api/products/${productId}`);
   expect(request.mock.calls[0][1]).toMatchObject({ method: "PUT" });
   expect(JSON.parse(request.mock.calls[0][1].body)).toEqual(saveBody);
-  expect(result).toMatchObject({ success: true, data: { structureVersion: 3, variants: [{ id: variantId }] } });
+  expect(result).toMatchObject({ success: true, data: { catalogEmptied: true, product: { structureVersion: 3, hidden: false, variants: [{ id: variantId }] } } });
+  expect(await createProductApi(jest.fn().mockResolvedValue(ok(withOptions("active"))), () => 0).save(productId, saveBody)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
 });
 
 test("the editor save maps its rejections by code", async () => {

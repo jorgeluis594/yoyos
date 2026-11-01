@@ -143,7 +143,7 @@ function fakeController(permission: "granted" | "denied" | "undetermined") {
 }
 
 const loadReady = async () => ok("ready" as const);
-const renderWithNotices = (controller: NoticesController, state: "no_active_products" | "no_searchable_photos" | "ready" = "ready") =>
+const renderWithNotices = (controller: NoticesController, state: "no_active_products" | "all_products_hidden" | "no_searchable_photos" | "ready" = "ready") =>
   render(<NoticesProvider controller={controller} companyId="company-1" loadCatalogReadiness={async () => ok(state)}><WhatsAppLinkScreen /></NoticesProvider>);
 
 test("asks for notification permission once when the WhatsApp link first becomes connected", async () => {
@@ -204,4 +204,14 @@ test("shows the catalog hint for no products and for products without searchable
   const ready = renderWithNotices(controller, "ready");
   await waitFor(() => expect(ready.getByText("WhatsApp conectado")).toBeTruthy());
   expect(ready.queryByText("Ir a Productos")).toBeNull();
+});
+
+test("the WhatsApp hint shows the all hidden text with Ir a Productos", async () => {
+  const { controller } = fakeController("granted");
+  mockStatus = linked({ connection: "connected" });
+  mockPush.mockClear();
+  const hidden = renderWithNotices(controller, "all_products_hidden");
+  await waitFor(() => expect(hidden.getByText("Tus productos a la venta están ocultos. Muestra alguno en Productos para que Yoyos arme pedidos con los mensajes de tus clientes")).toBeTruthy());
+  fireEvent.press(hidden.getByRole("button", { name: "Ir a Productos" }));
+  expect(mockPush).toHaveBeenCalledWith("/products");
 });

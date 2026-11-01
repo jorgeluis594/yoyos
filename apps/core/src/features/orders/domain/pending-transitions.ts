@@ -5,6 +5,7 @@ import { maxChatPendings, type ChatPending, type ChatPendingId, type ChatPending
 import { mentionedPriceOf, statedMoney, type MentionedPrice, type StatedPrice } from "@core/src/features/orders/domain/mentioned-price";
 import type { OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
 import type { CatalogItem } from "@core/src/features/products/domain/image-identification";
+import { notAvailableReason } from "@core/src/features/orders/domain/product-availability";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
 
@@ -149,7 +150,7 @@ export function advancePending(set: ChatPendings, request: AdvanceRequest, env: 
   const { product } = request;
   if (!product?.sellable) {
     const ended = set.pendings.filter((candidate) => candidate.id !== pending.id);
-    return stepOf({ ...set, pendings: ended }, [{ kind: "pending_ended", pendingId: pending.id, reason: "product_not_available" }, { kind: "product_not_available", productId: product ? request.productId : null }]);
+    return stepOf({ ...set, pendings: ended }, [{ kind: "pending_ended", pendingId: pending.id, reason: "product_not_available" }, { kind: "product_not_available", productId: product ? request.productId : null, reason: notAvailableReason(product ?? null) }]);
   }
   const covered = request.quantity ?? pending.quantity;
   const partial = request.mode === "assign" && request.quantity !== null && request.quantity < pending.quantity;
