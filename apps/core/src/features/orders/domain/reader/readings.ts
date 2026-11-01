@@ -45,14 +45,20 @@ export type ExtractedRequest = Readonly<{
   price: Readonly<{ amount: number; currency: "order" | "other"; basis: "unit" | "lot" | "not_explicit"; quote: Quote }> | null;
   changeVerb: Quote | null;
 }>;
-/** `candidateIds` are the products the mention may be resolved to (from `assembleCandidates`); absent means any candidate listed with it. */
 /** `price` is the price the request states, so that the resolution can tell products apart by it; `units` is the quantity the request states (1 when none). */
 export type MentionPrice = Readonly<{ amount: number; units: number; basis: "unit" | "lot" | "not_explicit" }>;
-export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"]; candidateIds?: readonly ProductId[]; price?: MentionPrice }>;
+/**
+ * `candidateIds` are the products the mention may be resolved to (from `assembleCandidates`); absent means any candidate listed with it.
+ * `valuesOnly` marks a request that names no product by words but carries values: its target already fixes the candidates, and `words` repeats its first value words.
+ */
+export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"]; candidateIds?: readonly ProductId[]; valuesOnly?: boolean; price?: MentionPrice }>;
+/** A buyer's value words mapped to a catalog value. */
+export type ResolvedValue = Readonly<{ attribute: string; value: string; quote: Quote }>;
 export type ProductResolution =
-  | Readonly<{ request: RequestRef; kind: "chosen"; productId: ProductId; values: readonly Readonly<{ attribute: string; value: string; quote: Quote }>[] }>
-  /** Two to four products. */
-  | Readonly<{ request: RequestRef; kind: "between"; productIds: readonly ProductId[] }>
+  /** `unmatched` are the buyer's value words that fit no value of the product: the checks then report the value as not available instead of missing. */
+  | Readonly<{ request: RequestRef; kind: "chosen"; productId: ProductId; values: readonly ResolvedValue[]; unmatched?: readonly Quote[] }>
+  /** Two to four products. `values` are the ones every candidate offers. */
+  | Readonly<{ request: RequestRef; kind: "between"; productIds: readonly ProductId[]; values?: readonly ResolvedValue[] }>
   | Readonly<{ request: RequestRef; kind: "none" }>;
 
 /** What the three stages read: built by code from a bounded context, rendered into prompts by infrastructure. */

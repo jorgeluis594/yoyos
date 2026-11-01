@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import type {
-  AddressSpan, ContextMessageRef, ExtractedRequest, IntentReading, ItemRef, NoIntentReason, PendingRef, ProductResolution, Quote, ReaderStage, RequestIntent, RequestKind, RequestRef,
+  AddressSpan, ContextMessageRef, ExtractedRequest, IntentReading, ItemRef, NoIntentReason, PendingRef, ProductResolution, Quote, ResolvedValue, ReaderStage, RequestIntent, RequestKind, RequestRef,
 } from "@core/src/features/orders/domain/reader/readings";
 import type { BuyerLanguage } from "@core/src/features/orders/domain/reader/refs";
 
@@ -85,8 +85,11 @@ function maskExtracted(request: ExtractedRequest, addresses: readonly AddressSpa
 }
 
 function maskResolution(resolution: ProductResolution, addresses: readonly AddressSpan[]): ProductResolution {
-  if (resolution.kind !== "chosen") return resolution;
-  return { ...resolution, values: resolution.values.map((value) => ({ attribute: value.attribute, value: value.value, quote: maskQuote(value.quote, addresses) })) };
+  if (resolution.kind === "none") return resolution;
+  const maskValues = (values: readonly ResolvedValue[]) => values.map((value) => ({ attribute: value.attribute, value: value.value, quote: maskQuote(value.quote, addresses) }));
+  if (resolution.kind === "between") return resolution.values ? { ...resolution, values: maskValues(resolution.values) } : resolution;
+  const unmatched = resolution.unmatched ? { unmatched: resolution.unmatched.map((quote) => maskQuote(quote, addresses)) } : {};
+  return { ...resolution, values: maskValues(resolution.values), ...unmatched };
 }
 
 function maskIntent(reading: IntentReading, addresses: readonly AddressSpan[]): StoredStageOutput {
@@ -140,10 +143,11 @@ const extractedRequest: z.ZodType<ExtractedRequest> = z.strictObject({
   changeVerb: storedQuote.nullable(),
 }) as unknown as z.ZodType<ExtractedRequest>;
 
+const resolvedValue = z.strictObject({ attribute: z.string(), value: z.string(), quote: storedQuote });
 const productResolution: z.ZodType<ProductResolution> = z.discriminatedUnion("kind", [
   z.strictObject({ request: ref<RequestRef>(), kind: z.literal("chosen"), productId,
-    values: z.array(z.strictObject({ attribute: z.string(), value: z.string(), quote: storedQuote })) }),
-  z.strictObject({ request: ref<RequestRef>(), kind: z.literal("between"), productIds: z.array(productId).min(2).max(4) }),
+    values: z.array(resolvedValue), unmatched: z.array(storedQuote).optional() }),
+  z.strictObject({ request: ref<RequestRef>(), kind: z.literal("between"), productIds: z.array(productId).min(2).max(4), values: z.array(resolvedValue).optional() }),
   z.strictObject({ request: ref<RequestRef>(), kind: z.literal("none") }),
 ]) as unknown as z.ZodType<ProductResolution>;
 

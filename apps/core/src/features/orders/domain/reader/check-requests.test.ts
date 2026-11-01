@@ -381,3 +381,102 @@ describe("checkRequests: pendings and other kinds", () => {
     expect(agreementOf(first.action, other.action)).toBe("disagree");
   });
 });
+
+describe("checkRequests: the buyer's values mapped by the resolution", () => {
+  const pendingTarget = { kind: "pending", ref: "Q1" as PendingRef, named: null } as const;
+  const mapped = (key: ProductKey, values: { attribute: string; value: string; word: string }[], unmatched: string[] = []): ProductResolution =>
+    ({ request: "R1" as RequestRef, kind: "chosen", productId: productId(key), values: values.map((entry) => ({ attribute: entry.attribute, value: entry.value, quote: say(entry.word) })), unmatched: unmatched.map(say) });
+
+  test("completes a pending with a value the resolution mapped from another form of the word", () => {
+    const pending = pendingOf("gorra", { quantity: 1 });
+    const checked = only(checkRequests([request({ kind: "complete_pending", target: pendingTarget, values: [value("negra")] })], [mapped("gorra", [{ attribute: "Color", value: "Negro", word: "negra" }])],
+      snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(checked.action).toMatchObject({ kind: "advance_pending", request: { values: [{ name: "Color", value: "Negro" }] } });
+  });
+
+  test("keeps the buyer's own words for a value the resolution found in no value, so the catalog check rejects it", () => {
+    const pending = pendingOf("gorra", { quantity: 1 });
+    const checked = only(checkRequests([request({ kind: "complete_pending", target: pendingTarget, values: [value("celeste")] })], [mapped("gorra", [], ["celeste"])],
+      snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(checked.action).toMatchObject({ kind: "advance_pending", request: { values: [{ name: "", value: "celeste" }] } });
+  });
+
+  test("changes an item's variant with the mapped value", () => {
+    const gorra = item("I1", "gorra", { Color: "Rojo" });
+    const checked = only(checkRequests([request({ kind: "change_variant", target: { kind: "item", ref: "I1" as ItemRef, named: say("la gorra") }, values: [value("negra")], changeVerb: say("cámbiala") })],
+      [mapped("gorra", [{ attribute: "Color", value: "Negro", word: "negra" }])], snapshot({ items: [gorra] })));
+    expect(checked.action).toMatchObject({ kind: "change_variant", to: { kind: "resolved", item: { variantId: variantOf("gorra", { Color: "Negro" }).variantId } } });
+  });
+
+  test("reports an unmatched value of a named add as not available instead of missing", () => {
+    const checked = only(checkRequests([request({ target: { kind: "named", words: say("polera") }, values: [value("XL")] })], [mapped("polera", [], ["XL"])], snapshot()));
+    expect(checked.action).toMatchObject({ kind: "draft_pending", draft: { problem: "variant_not_available" } });
+    expect(checked.urgent).toMatchObject({ problem: "variant_not_available" });
+  });
+
+  test("falls back to comparing the buyer's words letter by letter when the resolution did not cover them", () => {
+    const pending = pendingOf("gorra", { quantity: 1 });
+    const checked = only(checkRequests([request({ kind: "complete_pending", target: pendingTarget, values: [value("rojo")] })], [mapped("gorra", [])], snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(checked.action).toMatchObject({ kind: "advance_pending", request: { values: [{ name: "Color", value: "Rojo" }] } });
+  });
+
+  const negroRojo = [{ attribute: "Color", value: "Negro", word: "negra" }, { attribute: "Color", value: "Rojo", word: "roja" }];
+  const askedAs = (ref: string, over: Partial<ExtractedRequest>): VerifiedRequest => ({ ...request(over), request: { ...request(over).request, request: ref as RequestRef } });
+  const mappedFor = (ref: string, entry: { attribute: string; value: string; word: string }): ProductResolution => ({ ...mapped("gorra", [entry]), request: ref as RequestRef });
+
+  test("applies one request per value on its own when the extraction gave one for each", () => {
+    const first = askedAs("R1", { target: { kind: "named", words: say("gorra") }, values: [value("negra")], quantity: quantity(1, "add") });
+    const second = askedAs("R2", { target: { kind: "named", words: say("gorra") }, values: [value("roja")], quantity: quantity(1, "add") });
+    const checked = checkRequests([first, second], [mappedFor("R1", negroRojo[0]!), mappedFor("R2", negroRojo[1]!)], snapshot());
+    expect(checked.map(({ action }) => action)).toEqual([
+      expect.objectContaining({ kind: "add", quantity: 1, item: expect.objectContaining({ variantId: variantOf("gorra", { Color: "Negro" }).variantId }) }),
+      expect.objectContaining({ kind: "add", quantity: 1, item: expect.objectContaining({ variantId: variantOf("gorra", { Color: "Rojo" }).variantId }) }),
+    ]);
+  });
+
+  test.each([2, 3])("never applies one request that carries two values of one attribute, whatever its quantity (%i)", (units) => {
+    const both = request({ target: { kind: "named", words: say("gorras") }, values: [value("negra"), value("roja")], quantity: quantity(units, "add") });
+    const checked = only(checkRequests([both], [mapped("gorra", negroRojo)], snapshot()));
+    expect(checked.action).toEqual({ kind: "report", outcome: { kind: "variant_only" } });
+    expect(decision(checked, "agree")).toMatchObject({ kind: "urgent", problem: "variant_only" });
+  });
+
+  test("never advances an open pending with a request that carries two values of one attribute", () => {
+    const pending = pendingOf("gorra", { quantity: 2 });
+    const both = request({ target: { kind: "named", words: say("gorras") }, values: [value("negra"), value("roja")], quantity: quantity(2, "add") });
+    const checked = checkRequests([both], [mapped("gorra", negroRojo)], snapshot({ pendings: [pendingRef(1, pending)] }));
+    expect(checked.map(({ action }) => action)).toEqual([{ kind: "report", outcome: { kind: "variant_only" } }]);
+  });
+
+  test("never completes a pending with a request that carries two values of one attribute", () => {
+    const pending = pendingOf("gorra", { quantity: 2 });
+    const both = request({ kind: "complete_pending", target: pendingTarget, values: [value("negra"), value("roja")] });
+    const checked = only(checkRequests([both], [mapped("gorra", negroRojo)], snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(checked.action).toEqual({ kind: "report", outcome: { kind: "variant_only" } });
+  });
+
+  test("gives each of two requests for one open pending one unit, not the full quantity", () => {
+    const pending = pendingOf("gorra", { quantity: 2 });
+    const first = askedAs("R1", { kind: "complete_pending", target: pendingTarget, values: [value("negra")] });
+    const second = askedAs("R2", { kind: "complete_pending", target: pendingTarget, values: [value("roja")] });
+    const checked = checkRequests([first, second], [mappedFor("R1", negroRojo[0]!), mappedFor("R2", negroRojo[1]!)], snapshot({ pendings: [pendingRef(1, pending)] }));
+    expect(checked.map(({ action }) => action)).toEqual([
+      expect.objectContaining({ kind: "advance_pending", request: expect.objectContaining({ quantity: 1, values: [{ name: "Color", value: "Negro" }] }) }),
+      expect.objectContaining({ kind: "advance_pending", request: expect.objectContaining({ quantity: 1, values: [{ name: "Color", value: "Rojo" }] }) }),
+    ]);
+  });
+
+  test("does not raise an item's quantity with «otro igual» when the stated value fits no value of the catalog", () => {
+    const blanco = item("I1", "polo", { Talla: "M", Color: "Blanco" });
+    const another = request({ kind: "add", target: { kind: "item", ref: "I1" as ItemRef, named: null }, values: [value("celeste")], quantity: quantity(1, "add") });
+    const checked = only(checkRequests([another], [mapped("polo", [], ["celeste"])], snapshot({ items: [blanco] })));
+    expect(checked.action).not.toMatchObject({ kind: "increase_quantity" });
+  });
+
+  test("does not raise an item's quantity with «otro igual» when the stated value is another variant", () => {
+    const blanco = item("I1", "polo", { Talla: "M", Color: "Blanco" });
+    const another = request({ kind: "add", target: { kind: "item", ref: "I1" as ItemRef, named: null }, values: [value("negro"), value("L")], quantity: quantity(1, "add") });
+    const checked = only(checkRequests([another], [mapped("polo", [{ attribute: "Color", value: "Negro", word: "negro" }, { attribute: "Talla", value: "L", word: "L" }])], snapshot({ items: [blanco] })));
+    expect(checked.action).toMatchObject({ kind: "add", item: { variantId: variantOf("polo", { Talla: "L", Color: "Negro" }).variantId } });
+  });
+});

@@ -99,4 +99,5 @@ Addresses
 Rules
 - Use only what the message and the context say. Do not guess, and never invent a reference.
 - One message may hold several requests of different kinds: give each one.
+- When the buyer wants units of each of two values of one attribute (one of each, a different count for each), give one entry for each value, quoting the words of that value and of its own units. Values offered as alternatives, or a quantity that covers both, stay one entry.
 - Messages in Spanish and Portuguese are both normal.`;
