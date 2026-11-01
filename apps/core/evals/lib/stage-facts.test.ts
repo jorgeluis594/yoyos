@@ -41,3 +41,13 @@ test("scores each stage against the expectation and leaves unstated stages null"
     .toMatchObject({ intent: false, fields: false, resolution: false, decision: false, decisionExpected: "applied", decisionActual: "silent" });
   expect(scoreStages(expectedStagesOf(expectation({ notice: null, outcomes: ["added"] })), answer())).toMatchObject({ fields: null, resolution: null });
 });
+
+test("states the count of changed lines and of those with no mark", () => {
+  const expected = expectedStagesOf({ outcomes: ["added"] });
+  expect(scoreStages(expected, answer({ changedLines: [{ marked: true }, { marked: false }] }))).toMatchObject({ changedLines: 2, unmarkedLines: 1 });
+  expect(scoreStages(expected, answer())).not.toHaveProperty("changedLines");
+});
+
+test("a pending that a decline ended is a change the buyer asked for", () => {
+  expect(decisionOf({ outcomes: ["pending_ended"] })).toBe("applied");
+});

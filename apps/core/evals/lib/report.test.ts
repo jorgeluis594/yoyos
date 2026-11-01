@@ -40,16 +40,16 @@ describe("buildReport", () => {
     const report = buildReport([
       record({ caseId: "a", kind: "remove", expectedSilent: true }),
       record({ caseId: "b", kind: "remove", passed: false, ignoredActions: 2, expectedSilent: true }),
-      record({ caseId: "c", kind: "ready", passed: false, wrongSilentChange: true }),
+      record({ caseId: "c", kind: "ready", passed: false, wrongVisibleField: true }),
       record({ caseId: "d", kind: "ready", passed: false, extraNotice: true, expectedSilent: true }),
       record({ caseId: "e", kind: "ready", passed: false, ignoredActions: 1, expectedSilent: false, repeat: 1 }),
       record({ caseId: "img", pass: "image", criterion: 5 }),
     ], meta);
 
-    expect(report.gate.whole).toEqual({ scored: 4, right: 1, rightPercent: 25, ignoredActions: 2, twoNoticeConversations: 0, wrongSilentChanges: 1,
+    expect(report.gate.whole).toEqual({ scored: 4, right: 1, rightPercent: 25, ignoredActions: 2, twoNoticeConversations: 0, wrongVisibleFields: 1,
       expectedSilent: 3, extraNotices: 1, extraNoticePercent: 33.3 });
     expect(report.gate.byFamily.remove).toMatchObject({ scored: 2, right: 1, rightPercent: 50, ignoredActions: 2, extraNotices: 0 });
-    expect(report.gate.byFamily.ready).toMatchObject({ scored: 2, right: 0, wrongSilentChanges: 1, extraNotices: 1, extraNoticePercent: 100 });
+    expect(report.gate.byFamily.ready).toMatchObject({ scored: 2, right: 0, wrongVisibleFields: 1, extraNotices: 1, extraNoticePercent: 100 });
   });
 
   test("reports extra notices as a share of the messages expected silent", () => {

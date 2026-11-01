@@ -38,7 +38,7 @@ const orderFieldNames = ["product", "variant", "quantity", "mentionedPrice"] as 
 /** The staged reader's scoring of one message (lib/staged-answer.ts): the intent, fields, product and decision the reading trace states, against the case. */
 export function stageFactsOf(applied: AppliedMessage, trace: MessageTrace | null, actual: Readonly<MessageActual>, scored: MessageScored, expectation: MessageExpectation): StageFacts {
   const answer = stagedAnswerOf({ trace, expected: expectedStagesOf(expectation), outcomes: actual.outcomes, notice: actual.notice,
-    orderMatches: orderFieldNames.every((name) => scored.fields[name] !== false), latencyMs: applied.latencyMs, productKeyOf: keyOf });
+    orderMatches: orderFieldNames.every((name) => scored.fields[name] !== false), changedLines: applied.changedLines, latencyMs: applied.latencyMs, productKeyOf: keyOf });
   return scoreStages(expectedStagesOf(expectation), answer);
 }
 
@@ -113,7 +113,7 @@ function entryOf(testCase: Readonly<{ id: string; kind: string; tags: readonly s
     messageKind: message?.kind ?? null, conversationId: message?.conversationId ?? null, step: message?.step ?? null,
     ...(message?.facts ? { facts: message.facts } : {}),
     ...(message?.reading ? { reading: message.reading } : {}),
-    ignoredActions: flags?.ignoredActions ?? 0, wrongSilentChange: flags?.wrongSilentChange ?? false, extraNotice: flags?.extraNotice ?? false, expectedSilent: flags?.expectedSilent ?? false,
+    ignoredActions: flags?.ignoredActions ?? 0, wrongVisibleField: flags?.wrongVisibleField ?? false, extraNotice: flags?.extraNotice ?? false, expectedSilent: flags?.expectedSilent ?? false,
     noticeProducts: message?.noticeProducts ?? [], expectsRepeatNotice: message?.expectsRepeatNotice ?? false, previousOrder: message?.previousOrder ?? [],
     input: message?.input ?? "", expected: message?.expected ?? null, actual: evaluated.actual, signature: evaluated.signature,
     certainties: observation.certainties, latencyMs: evaluated.latencyMs, retries: evaluated.attempts - 1, calls, error: evaluated.error,
@@ -173,7 +173,7 @@ export function runLegacyMessageCase(context: RunCaseContext, testCase: MessageC
     const expectation = testCase.expected[0]!;
     const facts = scoreStages(expectedStagesOf(expectation), legacyAnswerOf({ shadow: reading.shadow, expected: expectedStagesOf(expectation), latencyMs: reading.latencyMs }));
     const actual = { outcomes: [], notice: null, noticeProducts: [], order: [], error: reading.shadow ? null : "LEGACY_READING_FAILED" } satisfies Readonly<MessageActual & { error: string | null }>;
-    const scored: MessageScored = { passed: facts.intent === true, fields: { intent: facts.intent }, expectationIndex: 0, ignoredActions: 0, wrongSilentChange: false, extraNotice: false, expectedSilent: false };
+    const scored: MessageScored = { passed: facts.intent === true, fields: { intent: facts.intent }, expectationIndex: 0, ignoredActions: 0, wrongVisibleField: false, extraNotice: false, expectedSilent: false };
     return { actual: { answer: reading.shadow?.answer ?? null, actionKinds: reading.shadow?.actionKinds ?? [] }, scored, signature: `legacy:${reading.shadow?.answer ?? "failed"}`, error: actual.error,
       latencyMs: reading.latencyMs, attempts: 1,
       message: { facts, kind: "text", noticeProducts: [], previousOrder: testCase.input.order, expectsRepeatNotice: false, conversationId: null, step: null, expected: testCase.expected, input: describeInput(testCase) } };

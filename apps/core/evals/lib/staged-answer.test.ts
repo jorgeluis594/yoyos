@@ -59,6 +59,16 @@ describe("the staged answer read from the reading trace", () => {
     expect(stagedAnswerOf({ ...base, trace: null, outcomes: ["no_intent"], expected }).decision).toBe("silent");
   });
 
+  test("takes the changed lines from the change rows: a completion is a change and a line mark counts as a mark", () => {
+    const expected = expectedStagesOf({ outcomes: ["added"] });
+    const completion = stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("pending")] }), expected, changedLines: [{ marked: false }] });
+    expect(completion).toMatchObject({ changeApplied: true, marked: false, point: true, changedLines: [{ marked: false }] });
+    const inherited = stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("pending")] }), expected, changedLines: [{ marked: true }, { marked: false }] });
+    expect(inherited).toMatchObject({ changeApplied: true, marked: true });
+    expect(stagedAnswerOf({ ...base, trace: null, expected, changedLines: [] })).toMatchObject({ changeApplied: false, changedLines: [] });
+    expect(stagedAnswerOf({ ...base, trace: null, expected })).not.toHaveProperty("changedLines");
+  });
+
   test("states what the message left for the silent-change and ignored-request counts", () => {
     const expected = expectedStagesOf({ outcomes: ["added"] });
     const doubtful = stagedAnswerOf({ ...base, trace: traceOf({ decisions: [decision("doubtful")] }), expected });

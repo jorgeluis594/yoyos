@@ -160,7 +160,7 @@ Besides pass or fail, each message is counted for the acceptance gate of the pro
 - **Ignored action**: something the buyer asked for (a change, «listo» or a pending) that produced neither its effect nor any notice
   for the message, counted per action. A removal applied with «listo» lost and no notice is one. With outcomes stated, each asked
   outcome the message lacks counts; without, each expected order line the order lacks, and an expected notice that never came.
-- **Wrong silent change**: the order is wrong and the message sent no notice.
+- **Wrong visible field**: a diagnostic of the order being wrong with no notice, whether or not the line carries a «Con duda» mark; it is not the founder's gate (see `silentWrongChanges` below).
 - **Extra notice**: a notice on a message expected silent (`notice: null`); the gate is its share of the silent messages.
 - **Two notices for one product**: in a conversation, the same product named by the notices of two messages, unless the later one has
   `expectsRepeatNotice`.
@@ -251,8 +251,7 @@ Every product named by a case must exist in `catalog.json`. A file inside the re
 ## Metrics over the runs (staged reader)
 
 The report's `runs` section scores each of the `EVAL_REPEATS` runs apart (`lib/metrics.ts`) and gives mean, min and max per metric:
-intent, fields, resolution and decision accuracy (over the messages whose case states them), silent wrong changes (an applied change with no
-«Con duda» mark and no notice whose order differs from the expected one), ignored requests (no change, mark, «Por resolver» point or notice),
+intent, fields, resolution and decision accuracy (over the messages whose case states them), silent wrong changes (the founder's gate, per line: the message's change rows, a completed pending included, hold a line with no «Con duda» mark, own or inherited, and no notice was sent, and the order differs from the expected one; records from before the rows were read use the message-wide reading), ignored requests (no change, mark, «Por resolver» point or notice),
 urgent share with precision and recall, the false urgent share (messages that interrupted the seller without needing it, over the decided messages; the urgent gate is a false urgent share at or under 10 % with urgent recall at 100 %, while the total urgent share and precision are reported only, because the case sets expect about 30 % urgent messages), the «Pedido #N cambió» count apart, cost per message and per stage (photo stages included), and the p95
 from the start of the reading to the decision without queue wait. `eval:compare` calls a metric better or worse only when the ranges of the two
 runs do not overlap; otherwise it prints «not distinguishable». A case states its stages with `stages` (intent, fields, product) and `decision`;

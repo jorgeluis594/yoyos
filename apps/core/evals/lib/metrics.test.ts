@@ -19,6 +19,20 @@ describe("metrics of one run", () => {
     expect(metricsOfRun([record({ orderMatches: false }), record(), record({ orderMatches: false, marked: true })]).silentWrongChanges).toBe(1);
   });
 
+  test("counts the gate per changed line when the change rows were read: a completion counts and a mark is per line", () => {
+    const rows = (changedLines: number, unmarkedLines: number, over: Partial<StageFacts> = {}) => facts({ orderMatches: false, changedLines, unmarkedLines, ...over });
+    // A completion of a pending: decision `pending`, nothing marked at message level, but a changed unmarked line.
+    expect(silentWrongChangeOf(rows(1, 1, { changeApplied: false }))).toBe(true);
+    // One marked and one unmarked line: the message is not «marked» as a whole.
+    expect(silentWrongChangeOf(rows(2, 1, { marked: true }))).toBe(true);
+    expect(silentWrongChangeOf(rows(2, 0, { marked: true }))).toBe(false);
+    // A line that inherits the mark is marked; no line changed means no change.
+    expect(silentWrongChangeOf(rows(1, 0))).toBe(false);
+    expect(silentWrongChangeOf(rows(0, 0))).toBe(false);
+    expect(silentWrongChangeOf(rows(1, 1, { noticed: true }))).toBe(false);
+    expect(silentWrongChangeOf(rows(1, 1, { orderMatches: true }))).toBe(false);
+  });
+
   test("counts an ignored request as a request with no change, mark, point or notice", () => {
     const nothing = { changeApplied: false, marked: false, point: false, noticed: false };
     expect(ignoredRequestOf(facts(nothing))).toBe(true);
@@ -78,7 +92,7 @@ describe("metrics of one run", () => {
   });
 
   test("leaves records without stage facts out of the stage metrics, and keeps the older flags for the gates", () => {
-    const run = metricsOfRun([messageRecord({ wrongSilentChange: true, ignoredActions: 2 }), record()]);
+    const run = metricsOfRun([messageRecord({ wrongVisibleField: true, ignoredActions: 2 }), record()]);
 
     expect(run.silentWrongChanges).toBe(1);
     expect(run.ignoredRequests).toBe(1);

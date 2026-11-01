@@ -7,7 +7,7 @@ import type { CaseRecord } from "@core/evals/lib/case-record";
  * No input, product, order, judge reason or error text. The file stays under `<dir>/runs/`.
  */
 
-export type FailureType = "error" | "ignored_action" | "wrong_silent_change" | "extra_notice" | "wrong_intent" | "wrong_fields" | "wrong_resolution" | "wrong_decision" | "wrong_result";
+export type FailureType = "error" | "ignored_action" | "wrong_visible_field" | "extra_notice" | "wrong_intent" | "wrong_fields" | "wrong_resolution" | "wrong_decision" | "wrong_result";
 export type PrivateRunSummary = Readonly<{ runs: number; failures: readonly Readonly<{ id: string; failedRuns: number; types: readonly FailureType[] }>[] }>;
 
 /** The failure types of one record, in a fixed order; a record that failed with none of the specific signs is a `wrong_result`. */
@@ -16,7 +16,7 @@ export function failureTypesOf(record: CaseRecord): readonly FailureType[] {
   const types: FailureType[] = [
     ...(record.error ? ["error" as const] : []),
     ...(record.ignoredActions > 0 ? ["ignored_action" as const] : []),
-    ...(record.wrongSilentChange ? ["wrong_silent_change" as const] : []),
+    ...(record.wrongVisibleField ? ["wrong_visible_field" as const] : []),
     ...(record.extraNotice ? ["extra_notice" as const] : []),
     ...(record.facts?.intent === false ? ["wrong_intent" as const] : []),
     ...(record.facts?.fields === false ? ["wrong_fields" as const] : []),

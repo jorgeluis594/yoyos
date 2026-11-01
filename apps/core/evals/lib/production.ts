@@ -347,6 +347,8 @@ export type AppliedMessage = Readonly<{
   result: Result<ApplyChatMessageOutcome, ApplyChatMessageError>;
   /** The chat's latest order after the message, or null when the chat has none. */
   order: readonly AppliedLine[] | null;
+  /** The lines this message changed (its `OrderItemChange` rows), each with the «Con duda» mark it carries, own or inherited by a completed pending. */
+  changedLines: readonly Readonly<{ marked: boolean }>[];
   attempts: number;
   /** Duration of the scored (last) applyChatMessage attempt: no chat creation, order seeding or earlier attempts. */
   latencyMs: number;
@@ -362,6 +364,12 @@ async function chatOrderLines(chatId: string, company: EvalCompany): Promise<rea
     unitPrice: Number(item.unitPrice),
     mentionedPrice: item.mentionedPriceAmount === null ? null : { amount: Number(item.mentionedPriceAmount), units: item.mentionedPriceUnits ?? 1 },
   }));
+}
+
+/** The rows of the message's changes: one per line changed, whoever changed it (an add, a completion of a pending, an edit). */
+async function messageChangedLines(messageId: string, company: EvalCompany): Promise<AppliedMessage["changedLines"]> {
+  const rows = await inTenant(company, () => prisma.orderItemChange.findMany({ where: { messageId }, select: { decision: true } }));
+  return rows.map(({ decision }) => ({ marked: decision === "doubtful" }));
 }
 
 /** How the photo of a case is identified: by hand in the interpretation pass, by the real cascade end to end. */
@@ -388,7 +396,7 @@ async function applyStored(messageId: ChatMessageId, chatId: string, identify: A
       AbortSignal.timeout(chatMessageDeadlineMs)));
     latencyMs = Math.round(performance.now() - started);
   } while (!result.success && isRetryableChatMessageError(result.error) && attempts < maxAttempts);
-  return { result, order: await chatOrderLines(chatId, company), attempts, latencyMs };
+  return { result, order: await chatOrderLines(chatId, company), changedLines: await messageChangedLines(messageId, company), attempts, latencyMs };
 }
 
 async function applyMessage(input: MessageInput, photos: "fixed" | "real", wiring: Wiring, company: EvalCompany): Promise<AppliedMessage> {

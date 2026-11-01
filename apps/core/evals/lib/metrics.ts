@@ -16,8 +16,14 @@ const lowerIsBetter: ReadonlySet<MetricName> = new Set(["silentWrongChanges", "i
   "costPhotoUsd", "costPerMessageUsd", "p95DecisionMs"]);
 const higherIsBetter: ReadonlySet<MetricName> = new Set(["intentAccuracy", "fieldsAccuracy", "resolutionAccuracy", "decisionAccuracy", "urgentPrecision", "urgentRecall"]);
 
-/** A change applied with no «Con duda» mark and no notice, and the order differs from the expected one. */
-export const silentWrongChangeOf = (facts: StageFacts): boolean => facts.changeApplied && !facts.marked && !facts.noticed && facts.orderMatches === false;
+/**
+ * The founder's gate: a wrong change applied with no «Con duda» mark and no notice. With the message's change rows read, it is per line: some line the
+ * message changed carries no mark (own or inherited) and the order differs from the expected one. Without them (older records), a message-wide reading.
+ */
+export const silentWrongChangeOf = (facts: StageFacts): boolean => {
+  if (facts.noticed || facts.orderMatches !== false) return false;
+  return facts.unmarkedLines !== undefined ? facts.unmarkedLines > 0 : facts.changeApplied && !facts.marked;
+};
 /** A request that left no change, no mark, no «Por resolver» point and no notice. */
 export const ignoredRequestOf = (facts: StageFacts): boolean => facts.requested && !facts.changeApplied && !facts.marked && !facts.point && !facts.noticed;
 
@@ -51,7 +57,7 @@ export function metricsOfRun(records: readonly CaseRecord[]): RunMetrics {
     resolutionAccuracy: rate(stated(({ resolution }) => resolution)),
     decisionAccuracy: rate(stated(({ decision }) => decision)),
     // Records without facts (the legacy reader path) keep the flags their scoring already set.
-    silentWrongChanges: messages.filter((record) => record.facts ? silentWrongChangeOf(record.facts) : record.wrongSilentChange).length,
+    silentWrongChanges: messages.filter((record) => record.facts ? silentWrongChangeOf(record.facts) : record.wrongVisibleField).length,
     ignoredRequests: messages.filter((record) => record.facts ? ignoredRequestOf(record.facts) : record.ignoredActions > 0).length,
     urgentShare: decided.length ? urgentActual.length / decided.length : null,
     // The seller is interrupted when the case did not need it: over the decided messages, so an adversarial set cannot hide it behind the share of expected urgents.

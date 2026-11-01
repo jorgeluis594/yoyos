@@ -48,7 +48,7 @@ function scriptedAnswer(expectation: MessageExpectation, photo: boolean, id: str
 
 const base = (testCase: EvalCase, repeat: number): Omit<CaseRecord, "caseId" | "expected" | "actual" | "signature" | "input" | "messageKind" | "conversationId" | "step" | "facts" | "pass" | "fields"> => ({
   baseId: testCase.paraphraseOf ?? testCase.id, criterion: testCase.pass === "conversation" ? 0 : testCase.criterion, kind: testCase.kind, tags: testCase.tags, repeat,
-  passed: true, exactPassed: true, expectationIndex: 0, judge: null, ignoredActions: 0, wrongSilentChange: false, extraNotice: false, expectedSilent: false,
+  passed: true, exactPassed: true, expectationIndex: 0, judge: null, ignoredActions: 0, wrongVisibleField: false, extraNotice: false, expectedSilent: false,
   noticeProducts: [], expectsRepeatNotice: false, previousOrder: [], certainties: [], latencyMs: 0, retries: 0, calls: [], error: null,
 });
 

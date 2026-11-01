@@ -31,7 +31,7 @@ export function rescoreMessage(record: CaseRecord): CaseRecord {
   const decisionExpected = decisionOf(expectations[scored.expectationIndex]!);
   const facts = record.facts ? { ...record.facts, decisionExpected, decision: record.facts.decision === null ? null : record.facts.decisionActual === decisionExpected } : undefined;
   return { ...record, ...(facts ? { facts } : {}), fields, exactPassed, passed: exactPassed || rescued, expectationIndex: scored.expectationIndex, ignoredActions: scored.ignoredActions,
-    wrongSilentChange: scored.wrongSilentChange, extraNotice: scored.extraNotice, expectedSilent: scored.expectedSilent };
+    wrongVisibleField: scored.wrongVisibleField, extraNotice: scored.extraNotice, expectedSilent: scored.expectedSilent };
 }
 
 /**
