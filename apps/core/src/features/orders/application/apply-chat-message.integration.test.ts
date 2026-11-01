@@ -14,7 +14,9 @@ import type { ChatReadingContext, ReaderAction, ReaderAnswer } from "@core/src/f
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts/infrastructure/contact-repository";
 import { findProductIdsOfVariants, findSellableVariantsByQrCodes } from "@core/src/features/products";
 import { products } from "@core/src/features/products/composition";
-import { saveChatItemChanges } from "@core/src/features/orders/composition";
+import { orders, saveChatItemChanges } from "@core/src/features/orders/composition";
+import type { OrderLineQuantity } from "@core/src/features/orders/domain/order-edit";
+import type { VariantId } from "@core/src/features/products/domain/product";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
 import { identifyProductsInImage } from "@core/src/features/products/application/identify-products-in-image";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
@@ -49,7 +51,7 @@ async function fixture() {
   });
   return { companyId, sellerId, contactId, chatId, productId, variantIds, async cleanup() {
     await withTenantIsolation(companyId, async () => {
-      for (const table of ["chatPendings", "chatMessageOutcome", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productStock", "productVariant", "productOption", "product", "image"] as const)
+      for (const table of ["chatPendings", "chatMessageOutcome", "orderItemChange", "orderMessage", "payment", "orderItem", "order", "chatMessage", "chat", "contact", "customer", "productStock", "productVariant", "productOption", "product", "image"] as const)
         await (prisma[table] as unknown as { deleteMany(): Promise<unknown> }).deleteMany();
       await systemPrisma.user.deleteMany({ where: { companyId } });
       await prisma.company.delete({ where: { id: companyId } });
@@ -683,5 +685,98 @@ test("two concurrent runs of one message write one item and one outcome", async 
     const [order] = await chatOrders(f);
     expect(order!.items.map((item) => Number(item.quantity))).toEqual([1]);
     expect(await inTenant(f, () => prisma.chatMessageOutcome.count({ where: { messageId } }))).toBe(1);
+  } finally { await f.cleanup(); }
+});
+
+const changesOf = (f: Fixture) => inTenant(f, () => prisma.orderItemChange.findMany({ orderBy: { seq: "asc" } }));
+const access = (f: Fixture) => ({ companyId: f.companyId as CompanyId, userId: f.sellerId as UserId });
+const undo = (f: Fixture, orderId: string, messageId: string) => inTenant(f, () => orders.undoMessage({ orderId: orderId as OrderId, messageId: messageId as ChatMessageId }, access(f)));
+
+test("the message transaction writes order lines, pendings, outcome, order message and changes together or not at all", async () => {
+  const f = await fixture();
+  try {
+    const failing = await message(f, { codes: [f.variantIds[0]!] });
+    const rolledBack = await apply(f, failing, { saveMessageChanges: async () => err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }) });
+    expect(rolledBack.success).toBe(false);
+    expect(await chatOrders(f)).toHaveLength(0);
+    expect(await inTenant(f, () => prisma.orderMessage.count())).toBe(0);
+    expect(await inTenant(f, () => prisma.chatMessageOutcome.count())).toBe(0);
+    expect(await changesOf(f)).toHaveLength(0);
+
+    expect(await apply(f, failing)).toMatchObject({ success: true, data: { kind: "applied", createdOrder: true } });
+    const [order] = await chatOrders(f);
+    expect(await changesOf(f)).toMatchObject([{ orderId: order!.id, messageId: failing, seq: 1, position: 0, kind: "added", decision: "applied", verdict: null, itemId: order!.items[0]!.id }]);
+    expect(await inTenant(f, () => prisma.orderMessage.count({ where: { messageId: failing } }))).toBe(1);
+  } finally { await f.cleanup(); }
+});
+
+test("change rows of one company are invisible to another company", async () => {
+  const [a, b] = [await fixture(), await fixture()];
+  try {
+    await apply(a, await message(a, { codes: [a.variantIds[0]!] }));
+    expect(await changesOf(a)).toHaveLength(1);
+    expect(await changesOf(b)).toHaveLength(0);
+  } finally { await a.cleanup(); await b.cleanup(); }
+});
+
+test("undo restores lines and the touched pendings and records the undone verdict in one transaction", async () => {
+  const f = await fixture();
+  try {
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    const second = await message(f, { codes: [f.variantIds[1]!] });
+    await apply(f, second);
+    const [order] = await chatOrders(f);
+    expect(Object.keys(quantities(order!))).toHaveLength(2);
+
+    const undone = await undo(f, order!.id, second);
+    expect(undone).toMatchObject({ success: true, data: { undone: true, changeCount: 1 } });
+    expect(quantities((await chatOrders(f))[0]!)).toEqual({ [f.variantIds[0]!]: 1 });
+    expect((await changesOf(f)).map((change) => [change.messageId === second, change.verdict])).toEqual([[false, null], [true, "undone"]]);
+    expect(await inTenant(f, () => prisma.orderMessage.findFirstOrThrow({ where: { messageId: second } }))).toMatchObject({ undoneById: f.sellerId });
+    expect((await inTenant(f, () => prisma.order.findUniqueOrThrow({ where: { id: order!.id } }))).sellerActedAt).not.toBeNull();
+
+    expect(await undo(f, order!.id, second)).toMatchObject({ success: true, data: { undone: false } });
+    expect(await undo(f, order!.id, randomUUID())).toMatchObject({ success: false, error: { code: "MESSAGE_CHANGES_NOT_FOUND" } });
+  } finally { await f.cleanup(); }
+});
+
+test("a message waiting on the order lock applies after an undo and reads the undone order", async () => {
+  const f = await fixture();
+  try {
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    const second = await message(f, { codes: [f.variantIds[1]!] });
+    await apply(f, second);
+    const [order] = await chatOrders(f);
+    const third = await message(f, { codes: [f.variantIds[1]!] });
+
+    let waiting: ReturnType<typeof apply> | null = null;
+    const undoing = inTenant(f, async () => orders.undoMessage({ orderId: order!.id as OrderId, messageId: second }, access(f)));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    waiting = apply(f, third);
+    expect(await undoing).toMatchObject({ success: true, data: { undone: true } });
+    expect(await waiting).toMatchObject({ success: true, data: { kind: "applied", createdOrder: false } });
+    expect(quantities((await chatOrders(f))[0]!)).toEqual({ [f.variantIds[0]!]: 1, [f.variantIds[1]!]: 1 });
+    const changes = await changesOf(f);
+    expect(changes.map((change) => change.seq)).toEqual([1, 2, 3]);
+  } finally { await f.cleanup(); }
+});
+
+test("an edit sets the verdict of the edited items' changes, clears their marks and records sellerActedAt", async () => {
+  const f = await fixture();
+  try {
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    await apply(f, await message(f, { codes: [f.variantIds[1]!] }));
+    const [order] = await chatOrders(f);
+    const loaded = await inTenant(f, () => orders.getAggregate(order!.id as OrderId, access(f)));
+    if (!loaded.success) throw new Error(loaded.error.message);
+    const keptItem = order!.items.find((item) => item.variantId === f.variantIds[0])!;
+    const removedItem = order!.items.find((item) => item.variantId === f.variantIds[1])!;
+    const edited = await inTenant(f, () => orders.edit({ orderId: order!.id as OrderId,
+      items: { base: orders.revisions(loaded.data).items, lines: [{ variantId: f.variantIds[0] as VariantId, quantity: 3 as OrderLineQuantity }] } }, access(f)));
+    expect(edited.success).toBe(true);
+    const verdicts = Object.fromEntries((await changesOf(f)).map((change) => [change.itemId, change.verdict]));
+    expect(verdicts[removedItem.id]).toBe("removed");
+    expect(verdicts[keptItem.id]).toBe("quantity_changed");
+    expect((await inTenant(f, () => prisma.order.findUniqueOrThrow({ where: { id: order!.id } }))).sellerActedAt).not.toBeNull();
   } finally { await f.cleanup(); }
 });
