@@ -77,6 +77,18 @@ describe("the registered tool modules", () => {
     await close();
   });
 
+  test("lists exactly the nine tools, all read only, for a connection with both scopes", async () => {
+    const { client, close } = await connect(toolModules, { ...access, scopes: ["orders:read", "products:read"] });
+    const { tools } = await client.listTools();
+    expect(tools.map((tool) => tool.name)).toEqual([
+      "buscar_pedidos", "ver_pedido", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "buscar_productos", "ver_producto",
+      "resumen_de_ventas", "lo_mas_vendido", "productos_sin_ventas",
+    ]);
+    expect(tools).toHaveLength(9);
+    for (const tool of tools) expect(tool.annotations).toEqual({ readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false });
+    await close();
+  });
+
   test("the sales module needs both scopes and adds no scope literal", async () => {
     expect(salesModule.scopes).toEqual(["orders:read", "products:read"]);
     // A new literal would end every live connection: the sales group reuses the two existing ones.
