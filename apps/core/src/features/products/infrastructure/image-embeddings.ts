@@ -69,20 +69,34 @@ export async function listProductsMissingEmbedding(model: EmbeddingModel) {
 
 /** Whether some offered product of the company (RLS) (active, not hidden, with an active variant) has a current photo embedded with the model; embeddings left by removed photos are never scanned. */
 export async function hasIndexedProducts(model: EmbeddingModel) {
-  const rows = await guarded("unable_to_check_indexed_products", () => prisma.$queryRaw<Array<{ indexed: boolean }>>`
+  const rows = await guarded("unable_to_check_indexed_products", () => prisma.$queryRaw<Array<{ indexed: boolean }>>(indexedProductsQuery(model)));
+  return rows.success ? ok(rows.data[0]?.indexed === true) : rows;
+}
+
+/** The statement of `hasIndexedProducts`; exported so the benchmark can explain exactly what runs. */
+export const indexedProductsQuery = (model: EmbeddingModel) => Prisma.sql`
     SELECT EXISTS (SELECT 1 FROM "Product" p
       JOIN "ProductPhoto" pp ON pp."companyId" = p."companyId" AND pp."productId" = p.id
       JOIN "ImageEmbedding" e ON e."companyId" = pp."companyId" AND e."imageId" = pp."imageId" AND e.model = ${model}
       WHERE p.status = 'active' AND NOT p.hidden
-        AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active')) AS indexed`);
-  return rows.success ? ok(rows.data[0]?.indexed === true) : rows;
-}
+        AND EXISTS (SELECT 1 FROM "ProductVariant" v WHERE v."companyId" = p."companyId" AND v."productId" = p.id AND v.status = 'active')) AS indexed`;
 
 const candidateSchema = z.object({ productId: z.uuid(), imageId: z.uuid(), position: z.number().int().nonnegative(), distance: z.number().finite() });
 
 /** Closest current photo of each offered product of the company (RLS), compared only within one model; the K closest products. */
 export async function findNearestProductImages(vector: EmbeddingVector, model: EmbeddingModel, limit: number) {
-  const rows = await guarded("unable_to_find_nearest_product_images", () => prisma.$queryRaw<unknown[]>`
+  const rows = await guarded("unable_to_find_nearest_product_images", () => prisma.$queryRaw<unknown[]>(nearestImagesQuery(vector, model, limit)));
+  if (!rows.success) return rows;
+  const parsed = z.array(candidateSchema).safeParse(rows.data);
+  if (!parsed.success) {
+    log.error({ event: "invalid_stored_image_embedding", errorCode: "INVALID_STORED_DATA" }, "invalid_stored_image_embedding");
+    return err(unavailable);
+  }
+  return ok<readonly VisualCandidate[]>(parsed.data.map((row) => ({ productId: row.productId as ProductId, imageId: row.imageId as ImageId, position: row.position, distance: row.distance })));
+}
+
+/** The statement of `findNearestProductImages`; exported so the benchmark can explain exactly what runs. */
+export const nearestImagesQuery = (vector: EmbeddingVector, model: EmbeddingModel, limit: number) => Prisma.sql`
     SELECT "productId", "imageId", position, distance FROM (
       SELECT DISTINCT ON (p.id) p.id AS "productId", pp."imageId", pp.position,
              (e.embedding <=> ${`[${vector.join(",")}]`}::vector)::float8 AS distance
@@ -94,12 +108,4 @@ export async function findNearestProductImages(vector: EmbeddingVector, model: E
       ORDER BY p.id, distance, pp.position
     ) best
     ORDER BY distance, "productId"
-    LIMIT ${limit}`);
-  if (!rows.success) return rows;
-  const parsed = z.array(candidateSchema).safeParse(rows.data);
-  if (!parsed.success) {
-    log.error({ event: "invalid_stored_image_embedding", errorCode: "INVALID_STORED_DATA" }, "invalid_stored_image_embedding");
-    return err(unavailable);
-  }
-  return ok<readonly VisualCandidate[]>(parsed.data.map((row) => ({ productId: row.productId as ProductId, imageId: row.imageId as ImageId, position: row.position, distance: row.distance })));
-}
+    LIMIT ${limit}`;

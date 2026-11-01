@@ -499,3 +499,11 @@ test("another company cannot read or change a product's visibility", async () =>
   expect((await call(`/api/products/${other.seeded.productId}`, mine.cookie)).status).toBe(404);
   expect((await detail(other.cookie, other.seeded.productId)).product.hidden).toBe(false);
 });
+
+test("readiness reports all products hidden", async () => {
+  const { cookie, companyId } = await seller();
+  const readiness = async () => ((await (await call("/api/products/search-readiness", cookie)).json()) as { version: number; state: string });
+  expect((await readiness()).state).toBe("no_active_products");
+  await withTenantIsolation(companyId, async () => { await seedProduct({ name: "Casaca jean", hidden: true }); });
+  expect(await readiness()).toEqual({ version: 1, state: "all_products_hidden" });
+});
