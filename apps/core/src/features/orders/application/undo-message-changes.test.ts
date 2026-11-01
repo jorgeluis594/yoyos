@@ -10,7 +10,7 @@ import type { CompanyId, OrderId, OrderItem, OrderItemId, PositiveInteger, UserI
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import { undoMessageChanges, type UndoMessageChangesDependencies } from "@core/src/features/orders/application/undo-message-changes";
-import type { StoredMessageChanges } from "@core/src/features/orders/infrastructure/message-change-repository";
+import type { MessageRowSource } from "@core/src/features/orders/domain/order-review";
 
 const id = (n: number) => `00000000-0000-4000-8000-${String(n).padStart(12, "0")}`;
 const money = (amount: number) => ({ amount, currency: "PEN" as const });
@@ -35,7 +35,7 @@ const pendingOf = (n: number, minutes: number): ChatPending => ({ id: id(300 + n
   price: null, order: null, lastChangedAt: new Date(at.getTime() + minutes * 60_000), sourceMessageId: id(500 + n) as ChatMessageId, requestId: id(300 + n) as ChatPendingId, doubt: null,
   pointSince: new Date(at.getTime() + minutes * 60_000), acknowledgedAt: null });
 
-type World = { order: OrderAggregate | null; stored: StoredMessageChanges | null; pendings: ChatPendings; sellable: readonly SellableVariant[] };
+type World = { order: OrderAggregate | null; stored: MessageRowSource | null; pendings: ChatPendings; sellable: readonly SellableVariant[] };
 function dependencies(world: World, overrides: Partial<UndoMessageChangesDependencies> = {}) {
   const writes: string[] = [];
   const saveItemChanges = vi.fn<UndoMessageChangesDependencies["saveItemChanges"]>(async () => { writes.push("items"); return ok(null); });
@@ -50,7 +50,7 @@ function dependencies(world: World, overrides: Partial<UndoMessageChangesDepende
   return { deps, writes, saveItemChanges, saveChatPendings, markMessageUndone, setUndoneVerdicts, saveSellerActedAt };
 }
 const input = { orderId: id(1) as OrderId, messageId };
-const stored = (changes: readonly OrderItemChange[], rest: Partial<StoredMessageChanges> = {}): StoredMessageChanges =>
+const stored = (changes: readonly OrderItemChange[], rest: Partial<MessageRowSource> = {}): MessageRowSource =>
   ({ messageId, at, undoneAt: null, changes, pendingsBefore: [], pendingsAfter: [], ...rest });
 const sellable = (entry: OrderItem): SellableVariant => ({ variantId: entry.variantId, productName: entry.productName, variantAttributes: {}, sku: null, unitPrice: money(39), available: 9 });
 

@@ -1,3 +1,4 @@
+import { z } from "zod";
 import { Prisma } from "@prisma/client";
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
@@ -10,12 +11,20 @@ import { lineSnapshotSchema, type ChangeSeq, type ChangeVerdict, type MessageCha
 import type { CompanyId, OrderId, OrderItemId, UserId } from "@core/src/features/orders/domain/order";
 import { doubtReasonSchema } from "@core/src/features/orders/domain/reader/decision";
 import type { QuoteId } from "@core/src/features/orders/domain/reader/refs";
+import type { MessageRowSource } from "@core/src/features/orders/domain/order-review";
 import type { EditVerdicts } from "@core/src/features/orders/application/apply-items-edit";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 type InvalidStoredData = Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
 
 const json = (value: unknown) => JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
+
+/** Every JSON column is written only after its strict schema accepts the value. */
+function checked<T>(schema: z.ZodType<T>, value: unknown): Prisma.InputJsonValue {
+  const stored = json(value);
+  schema.parse(stored);
+  return stored;
+}
 
 type ChangeRow = Readonly<{ id: string; orderId: string; messageId: string; position: number; seq: number; kind: string; before: unknown; after: unknown; decision: string; doubt: unknown;
   quoteId: number | null; supersededById: string | null; reviewId: string | null; verdict: string | null; verdictAt: Date | null; createdAt: Date }>;
@@ -59,8 +68,8 @@ export async function saveMessageChanges(changes: MessageChanges): Promise<Resul
     if (changes.changes.length > 0) {
       await prisma.orderItemChange.createMany({ data: changes.changes.map((change) => ({ id: change.id, companyId, orderId: change.orderId, messageId: change.messageId,
         position: change.position, seq: change.seq, kind: change.kind, itemId: (change.after ?? change.before)!.itemId,
-        before: change.before ? json(change.before) : Prisma.DbNull, after: change.after ? json(change.after) : Prisma.DbNull,
-        decision: change.decision.kind, doubt: change.decision.kind === "doubtful" ? json(change.decision.reason) : Prisma.DbNull,
+        before: change.before ? checked(lineSnapshotSchema, change.before) : Prisma.DbNull, after: change.after ? checked(lineSnapshotSchema, change.after) : Prisma.DbNull,
+        decision: change.decision.kind, doubt: change.decision.kind === "doubtful" ? checked(doubtReasonSchema, change.decision.reason) : Prisma.DbNull,
         quoteId: change.quoteId, createdAt: change.createdAt })) });
     }
     if (changes.supersedes.length > 0) {
@@ -71,7 +80,7 @@ export async function saveMessageChanges(changes: MessageChanges): Promise<Resul
     }
     if (changes.pendingsBefore.length > 0 || changes.pendingsAfter.length > 0) {
       await prisma.orderMessage.update({ where: { companyId_messageId: { companyId, messageId: changes.messageId } },
-        data: { pendingsBefore: json(changes.pendingsBefore), pendingsAfter: json(changes.pendingsAfter) } });
+        data: { pendingsBefore: checked(pendingsSnapshotSchema, changes.pendingsBefore), pendingsAfter: checked(pendingsSnapshotSchema, changes.pendingsAfter) } });
     }
     return ok(null);
   } catch (cause) {
@@ -96,9 +105,6 @@ export async function findUnverdictedChanges(orderId: OrderId): Promise<Result<R
   }
 }
 
-export type StoredMessageChanges = Readonly<{ messageId: ChatMessageId; at: Date; undoneAt: Date | null; changes: readonly OrderItemChange[];
-  pendingsBefore: readonly ChatPending[]; pendingsAfter: readonly ChatPending[] }>;
-
 function parsePendings(value: unknown, messageId: string): Result<readonly ChatPending[], InvalidStoredData> {
   if (value === null || value === undefined) return ok([]);
   const parsed = pendingsSnapshotSchema.safeParse(value);
@@ -108,7 +114,7 @@ function parsePendings(value: unknown, messageId: string): Result<readonly ChatP
 }
 
 /** The message of the order, its change rows and the pendings it touched; null when the order has no such message. */
-export async function findMessageChanges(orderId: OrderId, messageId: ChatMessageId): Promise<Result<StoredMessageChanges | null, PersistenceError | InvalidStoredData>> {
+export async function findMessageChanges(orderId: OrderId, messageId: ChatMessageId): Promise<Result<MessageRowSource | null, PersistenceError | InvalidStoredData>> {
   const companyId = getCompanyId();
   try {
     const message = await prisma.orderMessage.findFirst({ where: { companyId, orderId, messageId } });
@@ -126,12 +132,14 @@ export async function findMessageChanges(orderId: OrderId, messageId: ChatMessag
   }
 }
 
-/** The order's changes with `seq` after the given one, whatever their message or verdict. */
+/** The order's changes with `seq` after the given one, whatever their verdict, except those of undone messages: their lines are back as before, so they no longer block an earlier undo. */
 export async function findLaterChanges(orderId: OrderId, afterSeq: number): Promise<Result<readonly OrderItemChange[], PersistenceError | InvalidStoredData>> {
   const companyId = getCompanyId();
   try {
     const rows = await prisma.$queryRaw<ChangeRow[]>`SELECT ${changeColumns} FROM "OrderItemChange"
-      WHERE "companyId" = ${companyId}::uuid AND "orderId" = ${orderId}::uuid AND seq > ${afterSeq}::int ORDER BY seq`;
+      WHERE "companyId" = ${companyId}::uuid AND "orderId" = ${orderId}::uuid AND seq > ${afterSeq}::int
+        AND NOT EXISTS (SELECT 1 FROM "OrderMessage" m WHERE m."companyId" = "OrderItemChange"."companyId" AND m."messageId" = "OrderItemChange"."messageId" AND m."undoneAt" IS NOT NULL)
+      ORDER BY seq`;
     return parseRows(rows);
   } catch (cause) {
     return unavailable("unable_to_read_later_changes", cause, "Unable to read order changes");

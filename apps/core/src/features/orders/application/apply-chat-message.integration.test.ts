@@ -740,6 +740,17 @@ test("undo restores lines and the touched pendings and records the undone verdic
   } finally { await f.cleanup(); }
 });
 
+/** Waits until `count` backends wait for an order row lock. */
+async function waitForOrderLockWaiters(f: Fixture, count: number) {
+  for (let attempt = 0; attempt < 200; attempt++) {
+    const [waiting] = await inTenant(f, () => prisma.$queryRaw<{ n: number }[]>`SELECT count(*)::int AS n FROM pg_stat_activity
+      WHERE wait_event_type = 'Lock' AND pid <> pg_backend_pid() AND query LIKE '%FROM "Order"%' AND query LIKE '%FOR UPDATE%'`);
+    if (waiting!.n >= count) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error(`Fewer than ${count} backends waited for the order lock`);
+}
+
 test("a message waiting on the order lock applies after an undo and reads the undone order", async () => {
   const f = await fixture();
   try {
@@ -749,15 +760,71 @@ test("a message waiting on the order lock applies after an undo and reads the un
     const [order] = await chatOrders(f);
     const third = await message(f, { codes: [f.variantIds[1]!] });
 
-    let waiting: ReturnType<typeof apply> | null = null;
-    const undoing = inTenant(f, async () => orders.undoMessage({ orderId: order!.id as OrderId, messageId: second }, access(f)));
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    waiting = apply(f, third);
+    // A holder keeps the order lock so that the undo, then the message, are both seen waiting and queue in that order.
+    let release!: () => void;
+    const released = new Promise<void>((resolve) => { release = resolve; });
+    let locked!: () => void;
+    const hasLock = new Promise<void>((resolve) => { locked = resolve; });
+    const holder = withTenantIsolation(f.companyId, () => withinTransaction(async () => {
+      await withLockedForUpdate(f.companyId, Prisma.sql`SELECT id FROM "Order" WHERE id = ${order!.id}::uuid`, () => ok(null));
+      locked();
+      await released;
+      return ok(null);
+    }));
+    await hasLock;
+    const undoing = undo(f, order!.id, second);
+    await waitForOrderLockWaiters(f, 1);
+    const waiting = apply(f, third);
+    await waitForOrderLockWaiters(f, 2);
+    release();
+    await holder;
     expect(await undoing).toMatchObject({ success: true, data: { undone: true } });
     expect(await waiting).toMatchObject({ success: true, data: { kind: "applied", createdOrder: false } });
     expect(quantities((await chatOrders(f))[0]!)).toEqual({ [f.variantIds[0]!]: 1, [f.variantIds[1]!]: 1 });
-    const changes = await changesOf(f);
-    expect(changes.map((change) => change.seq)).toEqual([1, 2, 3]);
+    expect((await changesOf(f)).map((change) => change.seq)).toEqual([1, 2, 3]);
+  } finally { await f.cleanup(); }
+});
+
+test("undo restores the pending a message completed, with its earlier last change, and a repeat changes nothing", async () => {
+  const f = await fixture();
+  try {
+    const catalog = await seedCatalog(f);
+    setNow("2026-10-01T10:00:00Z");
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    setNow("2026-10-01T10:05:00Z");
+    await showProduct(f, catalog.polo.productId);
+    const pendingBefore = (await storedPendings(f))!.pendings;
+    expect(pendingBefore as unknown[]).toHaveLength(1);
+    setNow("2026-10-01T10:10:00Z");
+    const completing = await say(f, "negro M", completeFirst({ Talla: "M", Color: "Negro" }));
+    expect(await pendingCount(f)).toBe(0);
+    const [order] = await chatOrders(f);
+    expect(order!.items).toHaveLength(2);
+
+    expect(await undo(f, order!.id, completing.messageId)).toMatchObject({ success: true, data: { undone: true, pendingsRestored: 1 } });
+    expect((await storedPendings(f))!.pendings).toEqual(pendingBefore);
+    expect(Object.keys(quantities((await chatOrders(f))[0]!))).toEqual([f.variantIds[0]!]);
+
+    expect(await undo(f, order!.id, completing.messageId)).toMatchObject({ success: true, data: { undone: false } });
+    expect((await storedPendings(f))!.pendings).toEqual(pendingBefore);
+  } finally { await f.cleanup(); }
+});
+
+test("an earlier undo is refused while a later message holds the line and is available again once that message is undone", async () => {
+  const f = await fixture();
+  try {
+    await apply(f, await message(f, { codes: [f.variantIds[0]!] }));
+    const earlier = await message(f, { codes: [f.variantIds[1]!] });
+    await apply(f, earlier);
+    const later = await message(f, { codes: [f.variantIds[1]!] });
+    await apply(f, later);
+    const [order] = await chatOrders(f);
+    expect(quantities(order!)[f.variantIds[1]!]).toBe(2);
+
+    expect(await undo(f, order!.id, earlier)).toMatchObject({ success: false, error: { code: "UNDO_REFUSED", reason: "later_change" } });
+    expect(await undo(f, order!.id, later)).toMatchObject({ success: true, data: { undone: true } });
+    expect(await undo(f, order!.id, earlier)).toMatchObject({ success: true, data: { undone: true } });
+    expect(quantities((await chatOrders(f))[0]!)).toEqual({ [f.variantIds[0]!]: 1 });
   } finally { await f.cleanup(); }
 });
 

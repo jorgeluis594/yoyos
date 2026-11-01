@@ -174,7 +174,6 @@ function pendingsMoved(message: UndoMessage, pendings: readonly ChatPending[]): 
 function linesMoved(message: UndoMessage, order: OrderAggregate, laterChanges: readonly OrderItemChange[]): boolean {
   return message.changes.some((change) => {
     const itemId = (change.after ?? change.before)!.itemId;
-    if (change.supersededBy !== null) return true;
     if (laterChanges.some((later) => later.messageId !== change.messageId && later.seq > change.seq && (later.after ?? later.before)!.itemId === itemId)) return true;
     if (!change.after) return order.items.some((line) => line.variantId === change.before!.variantId);
     const line = order.items.find((candidate) => candidate.id === change.after!.itemId);

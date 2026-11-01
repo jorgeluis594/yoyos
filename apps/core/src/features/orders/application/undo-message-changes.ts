@@ -12,7 +12,7 @@ import type { OrderAggregate, OrderDomainError } from "@core/src/features/orders
 import type { VariantId } from "@core/src/features/products/domain/product";
 import type { OrderAccess } from "@core/src/features/orders/application/create-order";
 import type { OrderItemChange } from "@core/src/features/orders/domain/message-changes";
-import type { StoredMessageChanges } from "@core/src/features/orders/infrastructure/message-change-repository";
+import type { MessageRowSource } from "@core/src/features/orders/domain/order-review";
 
 export type UndoMessageInput = Readonly<{ orderId: OrderId; messageId: ChatMessageId }>;
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
@@ -36,7 +36,7 @@ export type UndoMessageChangesDependencies = Readonly<{
   transaction: <T>(companyId: CompanyId, work: () => Promise<Result<T, UndoMessageError>>) => Promise<Result<T, UndoMessageError>>;
   findOrderForUpdate: (id: OrderId, companyId: CompanyId) => Promise<Result<OrderAggregate | null, UndoMessageError>>;
   findChatPendingsForUpdate: (chatId: ChatId) => Promise<Result<ChatPendings, UndoMessageError>>;
-  findMessageChanges: (orderId: OrderId, messageId: ChatMessageId) => Promise<Result<StoredMessageChanges | null, UndoMessageError>>;
+  findMessageChanges: (orderId: OrderId, messageId: ChatMessageId) => Promise<Result<MessageRowSource | null, UndoMessageError>>;
   /** The order's changes with `seq` after the given one. */
   findLaterChanges: (orderId: OrderId, afterSeq: number) => Promise<Result<readonly OrderItemChange[], UndoMessageError>>;
   findSellableVariants: (ids: readonly VariantId[]) => Promise<Result<readonly SellableVariant[], UndoMessageError>>;
