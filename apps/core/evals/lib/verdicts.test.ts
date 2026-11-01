@@ -28,3 +28,17 @@ test("refuses a verdict file with text or ids in it", () => {
   expect(() => parseVerdictFile({ ...file, rows: [{ ...file.rows[0], text: "quiero una gorra" }] })).toThrow();
   expect(() => parseVerdictFile({ rows: [], unverdicted: -1 })).toThrow();
 });
+
+test("pins the verdict file shape T19 emits and names no value of a bad file", async () => {
+  const { mkdtempSync, writeFileSync } = await import("node:fs");
+  const { tmpdir } = await import("node:os");
+  const { join } = await import("node:path");
+  const { readVerdictFile } = await import("@core/evals/lib/verdicts");
+  const dir = mkdtempSync(join(tmpdir(), "verdicts-"));
+  const write = (content: string) => { const path = join(dir, "v.json"); writeFileSync(path, content); return path; };
+
+  expect(readVerdictFile(write(JSON.stringify({ rows: [{ decision: "applied", doubtKind: null, verdict: "kept", strength: "weak", count: 1 }], unverdicted: 0 }))).unverdicted).toBe(0);
+  expect(() => readVerdictFile(write(JSON.stringify({ rows: [], unverdicted: 0, since: "2026-01-01" })))).toThrow("does not match");
+  expect(() => readVerdictFile(write('{"rows": [secret-text'))).toThrow("not valid JSON");
+  expect(() => readVerdictFile(write('{"rows": [secret-text'))).not.toThrow(/secret/);
+});

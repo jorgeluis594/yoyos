@@ -35,6 +35,9 @@ describe("seed bank", () => {
     expect(privateSeedIds(dir)).toEqual(["pv-1", "pv-2"]);
     writeFileSync(join(dir, "seed-bank.json"), JSON.stringify({ ids: ["pv-1"], text: "quiero" }));
     expect(() => privateSeedIds(dir)).toThrow("seed-bank.json");
+    writeFileSync(join(dir, "seed-bank.json"), '{"ids": [secret-id-1');
+    expect(() => privateSeedIds(dir)).toThrow("seed-bank.json");
+    expect(() => privateSeedIds(dir)).not.toThrow(/secret/);
   });
 
   test("no id of the private holdout v4 exists in the repository's evals", () => {

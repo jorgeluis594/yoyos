@@ -33,6 +33,14 @@ const evalEnvSchema = z.object({
 
 export type EvalEnv = z.output<typeof evalEnvSchema>;
 
+/**
+ * `.env` values under the shell's, except `EVAL_PAID`, which only the real shell can set: a paid run is a decision of whoever types the command,
+ * never of a file (evals/README.md). A `.env` line for it is dropped here, and a shell value is kept as it is.
+ */
+export function fileAndShellEnv(fileEnv: Readonly<Record<string, string>>, shellEnv: Readonly<Record<string, string | undefined>>): Record<string, string | undefined> {
+  return { ...Object.fromEntries(Object.entries(fileEnv).filter(([name]) => name !== "EVAL_PAID")), ...shellEnv };
+}
+
 export function readEvalEnv(env: Readonly<Record<string, string | undefined>> = process.env): EvalEnv {
   return evalEnvSchema.parse(Object.fromEntries(Object.entries(env).filter(([, value]) => value !== "")));
 }

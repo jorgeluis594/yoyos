@@ -34,7 +34,7 @@ export function privateDirOf(dir: string): string {
 /** Schema field names that may appear in an error; any other path segment (a key the file chose, such as an attribute name) shows as «*». */
 const schemaFields = new Set(["products", "key", "name", "photo", "active", "variants", "attributes", "price", "id", "pass", "kind", "tags", "criterion", "ambiguous", "input",
   "expected", "text", "caption", "order", "notice", "outcomes", "steps", "event", "days", "product", "shows", "label", "file", "variant", "quantity", "mentionedPrice",
-  "amount", "units", "expectsRepeatNotice", "pendings", "orderState", "candidates", "known", "decision", "stages", "intent", "fields"]);
+  "amount", "units", "expectsRepeatNotice", "pendings", "orderState", "candidates", "known", "decision", "stages", "intent", "fields", "ids"]);
 
 /**
  * A malformed private file must never print its content: the error names the file and the schema paths that failed, with no values,
@@ -44,7 +44,7 @@ export class PrivateFileError extends Error {}
 
 const pathOf = (path: readonly PropertyKey[]) => path.map((segment) => typeof segment === "number" ? String(segment) : schemaFields.has(String(segment)) ? String(segment) : "*").join(".") || "(root)";
 
-function invalid<T>(file: string, parse: () => T): T {
+export function invalid<T>(file: string, parse: () => T): T {
   try {
     return parse();
   } catch (cause) {
@@ -58,7 +58,7 @@ function invalid<T>(file: string, parse: () => T): T {
   }
 }
 
-function readJson(dir: string, file: string): unknown {
+export function readJson(dir: string, file: string): unknown {
   const real = realpathSync(join(dir, file));
   if (isInside(repositoryRoot, real)) throw new Error(`${file} must be outside the repository`);
   return invalid(file, () => JSON.parse(readFileSync(real, "utf8")));

@@ -1,6 +1,7 @@
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
+import { invalid, readJson } from "@core/evals/cases/private";
 import type { EvalCase } from "@core/evals/cases/schema";
 
 /**
@@ -37,13 +38,11 @@ export function familyCases(cases: readonly EvalCase[], family: SeedFamily): rea
 
 const privateSeedFile = z.strictObject({ ids: z.array(z.string().min(1)) });
 
-/** The holdout ids of `<dir>/seed-bank.json`; none when the folder has no such file. A failure names the file, never its content. */
+/** The holdout ids of `<dir>/seed-bank.json`; none when the folder has no such file. A failure names the file and schema paths, never its content (same rules as the other private files). */
 export function privateSeedIds(dir: string): readonly string[] {
   const path = join(dir, "seed-bank.json");
   if (!existsSync(path)) return [];
-  const parsed = privateSeedFile.safeParse(JSON.parse(readFileSync(path, "utf8")));
-  if (!parsed.success) throw new Error("seed-bank.json is malformed: expected { ids: string[] } and nothing else");
-  return parsed.data.ids;
+  return invalid("seed-bank.json", () => privateSeedFile.parse(readJson(dir, "seed-bank.json"))).ids;
 }
 
 export type ResolvedSeedBank = Readonly<{ cases: readonly EvalCase[]; missing: readonly string[] }>;

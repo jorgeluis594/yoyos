@@ -5,7 +5,7 @@ import type { TestProject } from "vitest/node";
 import { imagesDirOf, localImagesDirOf, readImageManifest } from "@core/evals/fixtures/image-manifest";
 import { readRecords, resultsDirOf, runDir } from "@core/evals/lib/case-record";
 import { createClaude, type ErrorGroups } from "@core/evals/lib/claude";
-import { modelSuitesBlocker, readEvalEnv } from "@core/evals/lib/eval-env";
+import { fileAndShellEnv, modelSuitesBlocker, readEvalEnv } from "@core/evals/lib/eval-env";
 import { installModelMeter, metered, type ModelCall } from "@core/evals/lib/model-meter";
 import { buildReport, formatGateSummary, formatSummary, type EvalReport } from "@core/evals/lib/report";
 import { writePrivateRunSummary } from "@core/evals/lib/private-run-summary";
@@ -37,6 +37,9 @@ async function classify(failures: EvalReport["failures"], env: ReturnType<typeof
 
 /** Gives the run an id, and after the last suite turns the case records into one timestamped JSON report. */
 export default function setup(project: TestProject) {
+  // A bad verdicts file stops the run before any model is called, not after it (evals/lib/verdicts.ts).
+  const verdictsPath = fileAndShellEnv(loadEnv("evals", process.cwd(), ""), process.env).EVAL_VERDICTS_FROM;
+  const verdictFile = verdictsPath ? readVerdictFile(verdictsPath) : null;
   const startedAt = new Date();
   const runId = startedAt.toISOString().replace(/[:.]/g, "-");
   project.provide("evalRunId", runId);
@@ -44,13 +47,13 @@ export default function setup(project: TestProject) {
 
   return async () => {
     // The workers get `.env` through the config's `env`, so the shell and `.env` decide here too.
-    const shellAndFile = { ...loadEnv("evals", process.cwd(), ""), ...process.env };
+    const shellAndFile = fileAndShellEnv(loadEnv("evals", process.cwd(), ""), process.env);
     const resultsDir = resultsDirOf(shellAndFile);
     const records = await readRecords(runId, resultsDir);
     if (!records.length) return;
     const env = readEvalEnv(shellAndFile);
     const imagesDir = imagesDirOf(shellAndFile);
-    const verdicts = env.EVAL_VERDICTS_FROM ? summarizeVerdicts(readVerdictFile(env.EVAL_VERDICTS_FROM)) : null;
+    const verdicts = verdictFile ? summarizeVerdicts(verdictFile) : null;
     const meta = { runId, startedAt: startedAt.toISOString(), finishedAt: new Date().toISOString(),
       settings: { models: env.EVAL_MODELS, seedBank: env.EVAL_SEED_BANK === "1", claudeModel: env.EVAL_CLAUDE_MODEL, maxCases: env.EVAL_MAX_CASES ?? "all", cases: env.EVAL_CASES ?? "all", repeats: env.EVAL_REPEATS,
         skipParaphrases: env.EVAL_SKIP_PARAPHRASES === "1", split: env.EVAL_SPLIT, privateRun: Boolean(shellAndFile.EVAL_PRIVATE_DIR), imagesDir, photoManifest: readImageManifest(imagesDir) !== null,

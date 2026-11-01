@@ -39,7 +39,7 @@ and only `smoke.eval.ts` runs. It refuses to run when `CI` is set, and it is not
 | `EVAL_MODELS` | `fake` runs the harness with scripted stage answers taken from the case expectations: zero model calls, no key, no database. Default `real`. |
 | `EVAL_PAID` | `1` allows a run that calls models; without it `pnpm eval` prints the estimate and stops. Set it in the shell. |
 | `EVAL_SEED_BANK` | `1` runs the seed bank (`cases/seed-bank.ts`) instead of every case; with `EVAL_PRIVATE_DIR`, the private cases listed in the folder's `seed-bank.json` (`{ "ids": [...] }`). |
-| `EVAL_VERDICTS_FROM` | Path of the JSON output of `verdicts:report` (`lib/verdicts.ts`): the report embeds its label counts, weak labels apart. |
+| `EVAL_VERDICTS_FROM` | Path of the JSON output of `verdicts:report` (`lib/verdicts.ts`): the report embeds its label counts, weak labels apart. The file is exactly `{ rows: [{ decision, doubtKind, verdict, strength, count }], unverdicted }` and nothing else (`verdictFileSchema`); a bad file stops the run before any model call. |
 | `EVAL_PRIVATE_DIR` | Absolute path of a folder outside the repository with a private `catalog.json` and `cases.json` (see «Private files format»). Set it in the shell. |
 | `EVAL_SKIP_PARAPHRASES` | `1` runs base cases only. |
 | `EVAL_SPLIT` | `dev`, `test` or `all` (default): the split of the cases to run (see «Dev and test splits»). |

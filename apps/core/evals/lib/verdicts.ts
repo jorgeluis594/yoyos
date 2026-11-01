@@ -4,6 +4,9 @@ import { z } from "zod";
 /**
  * The output of `verdicts:report` (technical design 5.10) as the eval report embeds it: counts by decision, doubt kind and verdict with the
  * label strength, and no ids or texts. Weak labels («kept» on an applied change) are kept apart from the strong ones.
+ *
+ * This schema is the contract of the file: `verdicts:report` (T19) prints exactly `{ rows: [{ decision, doubtKind, verdict, strength, count }], unverdicted }`
+ * as JSON, with no other key (a window or a date goes to the console, not to the file), and the eval refuses any other shape before the run starts.
  */
 const verdictRow = z.strictObject({
   decision: z.string().min(1),
@@ -24,7 +27,18 @@ export type VerdictSummary = Readonly<{
 }>;
 
 export const parseVerdictFile = (input: unknown): VerdictFile => verdictFileSchema.parse(input);
-export const readVerdictFile = (path: string): VerdictFile => parseVerdictFile(JSON.parse(readFileSync(path, "utf8")));
+/** Reads and checks the file; a failure names the file and the schema paths, never a value of it. */
+export function readVerdictFile(path: string): VerdictFile {
+  let content: unknown;
+  try {
+    content = JSON.parse(readFileSync(path, "utf8"));
+  } catch {
+    throw new Error("The verdicts file (EVAL_VERDICTS_FROM) is not valid JSON or cannot be read");
+  }
+  const parsed = verdictFileSchema.safeParse(content);
+  if (!parsed.success) throw new Error(`The verdicts file (EVAL_VERDICTS_FROM) does not match { rows, unverdicted } at: ${[...new Set(parsed.error.issues.map((issue) => issue.path.map(String).filter((segment) => /^(\d+|rows|unverdicted|decision|doubtKind|verdict|strength|count)$/.test(segment)).join(".") || "(root)"))].join(", ")}`);
+  return parsed.data;
+}
 
 export function summarizeVerdicts(file: VerdictFile): VerdictSummary {
   const part = (strength: "strong" | "weak") => {
