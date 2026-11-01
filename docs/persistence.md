@@ -93,6 +93,14 @@ If a business decision depends on mutable stored state, its rule still belongs o
 
 An API request sequence or a group of local storage writes must not be described as atomic unless the underlying boundary guarantees it. Mobile operations requiring server-side atomicity must use an API operation that provides it. Add retry, offline synchronization, or compensation behavior only for an explicit requirement, with defined duplicate and conflict handling.
 
+## Retention and Cross-Company Reads
+
+Data that must expire (message traces and their masked texts, 90 days) is deleted by a scheduled job. A `SECURITY DEFINER` function owned by the migration role lists the companies with expired rows (`PUBLIC` revoked, execute granted to the app role only); then each company deletes in batches of a fixed size, each batch in its own tenant transaction, until a batch comes back short, so the job always catches up. Reason: the deletion runs under each company's isolation and no job reads another company's rows.
+
+A read that is only useful across companies (counts of seller verdicts for evaluation) goes through a `SECURITY DEFINER` aggregate that returns counts by kind only: no company, order or text. Any other cross-company read is a defect. Every new tenant table is created with `companyId` defaulting to `current_setting('app.company_id')`, row level security enabled and forced, and composite foreign keys that include `companyId` ([rls-with-prisma](rls-with-prisma.md)). Indexes on existing large tables are built `CONCURRENTLY` in their own re-runnable migration, and each replaced index is dropped in a single-statement migration (Prisma wraps a multi-statement file in a transaction, which `DROP INDEX CONCURRENTLY` refuses).
+
+Strict Zod schemas parse every JSON column on read and write; invalid stored data is a persistence error, never a guess.
+
 ## Error Handling
 
 Translate known technical failures into stable failures defined by the application contract, such as a uniqueness conflict or unavailable data source. Keep the translation local to the adapter and preserve diagnostic information without exposing credentials or sensitive records.
