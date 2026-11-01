@@ -17,20 +17,26 @@ type Label = Readonly<{ stages: StageExpectation; decision?: DecisionKind }>;
 type Relabel = Readonly<{ outcomes: readonly OutcomeKind[]; order: readonly FinalLine[] }>;
 const variantChanged = (order: FinalLine): Relabel => ({ outcomes: ["variant_changed"], order: [order] });
 const quantityChanged = (order: FinalLine): Relabel => ({ outcomes: ["quantity_changed"], order: [order] });
-const gorraNegra = { Color: "Negro" } as const;
+const negro = { Color: "Negro" } as const;
 export const doubtfulRelabels: Readonly<Record<string, Relabel>> = {
   // Variant-only text with one item it fits and no photo: the variant changes, marked (product l.214).
   "int-variant-only": variantChanged(after("polo-basico", { Talla: "L", Color: "Negro" })),
-  "int-variant-only-color": variantChanged(after("gorra-trucker", gorraNegra)),
+  "int-variant-only-color": variantChanged(after("gorra-trucker", negro)),
   "int-variant-only-la-quiero": variantChanged(after("polera-capucha", { Talla: "M", Color: "Gris" })),
   // Unnamed add with a single product the context points to: the product grows by the quantity, marked (product l.215).
   "int-unnamed-add": quantityChanged(after("polo-basico", { Talla: "M", Color: "Negro" }, 3)),
-  "int-unnamed-add-otro-igual": quantityChanged(after("gorra-trucker", gorraNegra, 2)),
-  "int-unnamed-uno-mas": quantityChanged(after("correa-cuero", gorraNegra, 2)),
-  "int-unnamed-set-esos-no-photo-2": quantityChanged(after("polera-capucha", { Talla: "M", Color: "Gris" }, 3)),
+  "int-unnamed-add-otro-igual": quantityChanged(after("gorra-trucker", negro, 2)),
+  "int-unnamed-uno-mas": quantityChanged(after("correa-cuero", negro, 2)),
+  "int-unnamed-set-esos-no-photo-2": quantityChanged(after("polera-capucha", { Talla: "M", Color: "Gris" }, 2)),
   // Set wording on the only item with no photo just sent: the only item is a context target, at best «Con duda» (product l.245).
-  "int-unnamed-set-only-item-2": quantityChanged(after("correa-cuero", gorraNegra, 4)),
+  "int-unnamed-set-only-item-2": quantityChanged(after("correa-cuero", negro, 4)),
   "int-set-quantity-unnamed": quantityChanged(after("polo-basico", { Talla: "M", Color: "Negro" }, 3)),
+  // Holdout v1, same patterns.
+  "hold-variant-only-necesito": variantChanged(after("polera-capucha", { Talla: "L", Color: "Gris" })),
+  "hold-unnamed-otra": quantityChanged(after("correa-cuero", negro, 2)),
+  "hold-unnamed-dos-mas": quantityChanged(after("polera-capucha", { Talla: "M", Color: "Gris" }, 3)),
+  "hold-unnamed-lo-mismo": quantityChanged(after("gorra-trucker", negro, 3)),
+  "hold-qty-only-item": quantityChanged(after("medias-pack", {}, 4)),
 };
 
 export const stageLabels: Readonly<Record<string, Label>> = {

@@ -50,7 +50,7 @@ export const newDevConversationCases: readonly EvalCaseInput[] = [
   { id: "conv-photo-add-wording-grown-item", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"],
     order: [{ product: "gorra-snapback", variant: { Color: "Azul" }, quantity: 1 }], steps: [
       { input: photo("gorra-snapback"), expected: { notice: null, order: [snapback(2)] } },
-      { input: text("otros 2"), expected: { notice: "unnamed_add", order: [snapback(2)] } },
+      { input: text("otros 2"), expected: { notice: null, decision: "doubtful", order: [snapback(4)] } },
     ] },
   { id: "conv-photo-set-new-single-variant", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
     { input: photo("chompa-tejida"), expected: { notice: null, order: [chompaTejida()] } },
@@ -62,14 +62,16 @@ export const newDevConversationCases: readonly EvalCaseInput[] = [
   ] },
   { id: "conv-photo-add-wording-pending", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
     { input: photo("polera-capucha"), expected: { notice: "variant_missing", order: [] } },
-    { input: text("dame 2 más de esas"), expected: { notice: "unnamed_add", order: [] }, expectsRepeatNotice: true },
-    { input: text("gris L"), expected: { notice: null, order: [polera({ Talla: "L", Color: "Gris" })] } },
+    // Product AC5: add wording grows the pending to ×3 with «Con duda» on its point, still one notice; completing it marks the item.
+    { input: text("dame 2 más de esas"), expected: { notice: null, decision: "pending", order: [] } },
+    { input: text("gris L"), expected: { notice: null, decision: "doubtful", order: [polera({ Talla: "L", Color: "Gris" }, 3)] } },
   ] },
   { id: "conv-photo-after-thanks-set-b", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
     { input: photo("polo-premium"), expected: { notice: "variant_missing", order: [] } },
     { input: text("gracias, muy amable"), expected: { notice: null, order: [] } },
-    { input: text("quiero 3 de esos"), expected: { notice: "unnamed_add", order: [] }, expectsRepeatNotice: true },
-    { input: text("blanco L"), expected: { notice: null, order: [after("polo-premium", { Talla: "L", Color: "Blanco" })] } },
+    // Product AC5: with a buyer text between the photo and the set wording the quantity is «Con duda» on the pending's point.
+    { input: text("quiero 3 de esos"), expected: { notice: null, decision: "pending", order: [] } },
+    { input: text("blanco L"), expected: { notice: null, decision: "doubtful", order: [after("polo-premium", { Talla: "L", Color: "Blanco" }, 3)] } },
   ] },
   { id: "conv-photo-burst-set", pass: "conversation", kind: "photo-quantity", tags: ["unnamed-wording"], steps: [
     { input: photo("polo-rayas"), expected: { notice: "variant_missing", order: [] } },

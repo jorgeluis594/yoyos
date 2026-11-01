@@ -169,7 +169,7 @@ export const newDevInterpretationCases: readonly EvalCaseInput[] = [
 
   // Quantity wording with no product: only the order's only item or, after a photo just sent, what the photo left (conversations).
   { id: "int-unnamed-set-esos-no-photo-2", pass: "interpretation", criterion: 1, kind: "photo-quantity", tags: ["unnamed-wording", "consistency"], input: { text: "quiero 2 de esos", order: [polera] },
-    // Without a photo just sent «quiero N de esos» is an unnamed add (dev equivalent of criterion 26).
+    // Without a photo just sent «quiero N de esos» is set wording on the only item: a context target, at best «Con duda» (×2).
     expected: [{ outcomes: ["unnamed_add"], notice: "unnamed_add", order: [kept(polera)] }] },
   { id: "int-unnamed-uno-mas", pass: "interpretation", criterion: 1, kind: "photo-quantity", tags: ["unnamed-wording"], input: { text: "uno más igual", order: [correa] },
     expected: [{ outcomes: ["unnamed_add"], notice: "unnamed_add", order: [kept(correa)] }] },
