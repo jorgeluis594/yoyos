@@ -14,7 +14,8 @@ import type { AddressSpan, ExtractedRequest, IntentReading, ProductMention, Prod
 import type { StageInputSummary, TraceStage } from "@core/src/features/orders/domain/reader/trace";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }> | Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
-export type RunReadingError = StageError | PersistenceError;
+/** A failed reading keeps what it did so far, for the trace of a message whose reading failed: its stage records and the intent when that stage succeeded. */
+export type RunReadingError = (StageError | PersistenceError) & Readonly<{ records: readonly StageRecord[]; intent: IntentReading | null }>;
 
 /** What the reading needs besides the stages: the catalog reads the resolution stage depends on. */
 export type RunReadingDependencies = Readonly<{
@@ -124,11 +125,15 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
     records.push({ call, stage, input: summary, output, errorCode: result.success ? null : result.error.code });
   };
 
+  let read: IntentReading | null = null;
+  const fail = (error: StageError | PersistenceError): Result<never, RunReadingError> => err({ ...error, records, intent: read });
+
   const intentResult = await (started.intent ?? stages.readIntent(input, "primary", signal));
   const addresses = intentResult.success ? intentResult.data.value.addresses : [];
   record("intent", intentResult, inputSummary(input), intentResult.success ? maskStageOutput("intent", intentResult.data.value, addresses) : null);
-  if (!intentResult.success) return err(intentResult.error);
+  if (!intentResult.success) return fail(intentResult.error);
   const intent = intentResult.data.value;
+  read = intent;
   const empty: ReadingCatalog = { products: [], searchMs: null, matchCount: null, timedOut: false };
   if (intent.kind !== "requests") return ok({ primary: { intent, intents: [], overflow: null, droppedIntents: 0, chain: null, catalog: empty }, confirming: null, records });
 
@@ -147,7 +152,7 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   const extracted = await primaryExtraction;
   const extractionSummary = inputSummary(input);
   record("extraction", extracted, extractionSummary, extracted.success ? maskStageOutput("extraction", extracted.data.value, addresses) : null);
-  if (!extracted.success) { abort.abort(); return err(extracted.error); }
+  if (!extracted.success) { abort.abort(); return fail(extracted.error); }
 
   const requests = verifyQuotes(extracted.data.value as readonly ExtractedRequest[], input);
   const mentions = mentionsOf(requests);
@@ -157,10 +162,10 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
     return loaded.success ? ok({ mentions: [], products: loaded.data, catalog: { searchMs: null, matchCount: null, timedOut: false } }) : loaded;
   };
   const searched = mentions.length ? await searchMentions(deps, mentions, input, photoProductIds) : await noSearch();
-  if (!searched.success) { abort.abort(); return searched; }
+  if (!searched.success) { abort.abort(); return fail(searched.error); }
   const resolved = searched.data.mentions.length ? await stages.chooseProducts(searched.data.mentions, searched.data.products, "primary", signal) : null;
   if (resolved) record("resolution", resolved, resolutionSummary(input, searched.data), resolved.success ? maskStageOutput("resolution", resolved.data.value, addresses) : null);
-  if (resolved && !resolved.success) { abort.abort(); return err(resolved.error); }
+  if (resolved && !resolved.success) { abort.abort(); return fail(resolved.error); }
   const resolutions = resolved?.success ? resolved.data.value : [];
   const chain: ChainResult = { requests, resolutions };
   const primary: PrimaryReading = { intent, intents, overflow, droppedIntents: dropped.length, chain, catalog: { products: searched.data.products, ...searched.data.catalog } };

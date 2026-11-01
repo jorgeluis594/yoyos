@@ -25,7 +25,7 @@ import type { ReadChatMessage } from "@core/src/features/orders/application/read
 import { buildCheckSnapshot, type SnapshotInput } from "@core/src/features/orders/application/reader/build-check-snapshot";
 import { legacyAnswerFor, legacyReadingContextOf } from "@core/src/features/orders/application/reader/legacy-reading";
 import type { ReadingContextData, ReadingMessage } from "@core/src/features/orders/application/reader/load-reading-context";
-import { runReading, traceStagesOf, type ChainResult, type RunReadingDependencies, type StartedReading } from "@core/src/features/orders/application/reader/run-reading";
+import { runReading, traceStagesOf, type ChainResult, type RunReadingDependencies, type StageRecord, type StartedReading } from "@core/src/features/orders/application/reader/run-reading";
 import type { ReaderStages } from "@core/src/features/orders/application/reader/stages";
 import { awaitShadow } from "@core/src/features/orders/application/reader/legacy-shadow-reader";
 import type { BuildMessageTrace, LegacyShadowReader } from "@core/src/features/orders/application/reader/trace-ports";
@@ -102,12 +102,12 @@ const permanentCodes: ReadonlySet<string> = new Set<PermanentChatMessageErrorCod
 export const isRetryableChatMessageError = (error: ApplyChatMessageError) => retryableCodes.has(error.code);
 
 /** Every narrow error of the ports a run can fail with; `toApplyError` maps it to the handler's codes. */
-type RunFailure = Readonly<{ code: string; message: string }>;
+type RunFailure = Readonly<{ code: string; message: string; /** Set when a reading stage failed: what the trace of the failed reading is built from. */ trace?: TraceData }>;
 
 /** Narrow errors of the ports become the codes the handler decides on; a lost image is a lost message, and an unknown domain error is an invalid order. */
 function toApplyError(error: Readonly<{ code: string; message: string }>): ApplyChatMessageError {
   if (error.code === "IMAGE_NOT_FOUND") return { code: "MESSAGE_NOT_FOUND", message: "The image of the message is not available" };
-  if (retryableCodes.has(error.code) || permanentCodes.has(error.code)) return error as ApplyChatMessageError;
+  if (retryableCodes.has(error.code) || permanentCodes.has(error.code)) return { code: error.code as ApplyChatMessageError["code"], message: error.message };
   return { code: "INVALID_ORDER", message: error.message };
 }
 
@@ -218,6 +218,8 @@ type TraceData = Readonly<{
   context: ReadingContextData | null;
   photo: TracePhoto | null;
   started: StartedReading | null;
+  /** Every stage call so far; the confirming chain keeps adding while it runs. */
+  records: readonly StageRecord[];
   confirmingRun: boolean;
   startedAt: Date;
   answer: ReadingTrace["answer"];
@@ -227,7 +229,7 @@ type Staged = Readonly<{ plan: Plan; data: TraceData }>;
 type Applied = Readonly<{ applied: AppliedChatMessage; decided: DecidedChanges | null; commitAt: Date }>;
 
 const emptyData = (startedAt: Date, answer: ReadingTrace["answer"] = "no_intent"): TraceData =>
-  ({ intent: null, context: null, photo: null, started: null, confirmingRun: false, startedAt, answer, actionKinds: [] });
+  ({ intent: null, context: null, photo: null, started: null, records: [], confirmingRun: false, startedAt, answer, actionKinds: [] });
 
 const reportPlan = (outcome: ReportOutcome, kind: Plan["kind"] = "text"): Plan => ({ decide: () => ({ actions: [{ kind: "report", outcome }], decided: null }), intentRequests: false, kind, shownProductIds: [], quoteIds: new Map() });
 
@@ -245,18 +247,26 @@ export async function applyChatMessage(input: Input, deps: ApplyChatMessageDepen
   if (!message.imageId && !deps.stages) return ok({ kind: "skipped", reason: "reader_disabled" });
   const startedAt = deps.clock();
   const reading = deps.createDeadline(deps.limits.readingBudgetMs, { companyId: message.companyId, messageId: message.id }, signal);
-  // The shadow starts with the reading, on its own signal, and never applies anything.
-  const shadow = deps.shadowReader ? deps.shadowReader(message, AbortSignal.any([signal, AbortSignal.timeout(deps.limits.readingBudgetMs)])) : null;
-  const state = await loadChatState(message.chatId, deps);
-  if (!state.success) return err(toApplyError(state.error));
-  const staged = message.imageId ? await applyPhoto(message, message.imageId, state.data, deps, reading, startedAt) : await applyText(message, state.data, deps, reading, startedAt);
-  if (!staged.success) return staged.error.code === "MESSAGE_ALREADY_PROCESSED" ? rereadProcessed(input.messageId, deps) : err(toApplyError(staged.error));
-  const committed = await deps.transaction(input.companyId, () => applyInTransaction(message, staged.data.plan, deps));
-  if (!committed.success) return committed.error.code === "MESSAGE_ALREADY_PROCESSED" ? rereadProcessed(input.messageId, deps) : err(toApplyError(committed.error));
-  const { applied, decided, commitAt } = committed.data;
-  const trace = await afterCommit(message, staged.data.data, decided, commitAt, shadow, deps);
-  return ok({ kind: "applied", orderId: applied.orderId, createdOrder: applied.createdOrder, outcomes: applied.outcomes, noticeDue: chooseSellerNotice(applied.outcomes) !== null,
-    pendingsBefore: applied.pendingsBefore, pendingsAfter: applied.pendingsAfter, trace });
+  // The shadow starts with the reading, on its own signal, and never applies anything; it is aborted when the call ends.
+  const shadowEnd = new AbortController();
+  const shadow = deps.shadowReader ? deps.shadowReader(message, AbortSignal.any([signal, AbortSignal.timeout(deps.limits.readingBudgetMs), shadowEnd.signal])) : null;
+  try {
+    const state = await loadChatState(message.chatId, deps);
+    if (!state.success) return err(toApplyError(state.error));
+    const staged = message.imageId ? await applyPhoto(message, message.imageId, state.data, deps, reading, startedAt) : await applyText(message, state.data, deps, reading, startedAt);
+    if (!staged.success) {
+      if (staged.error.trace) await afterCommit(message, staged.error.trace, null, null, shadow, deps);
+      return staged.error.code === "MESSAGE_ALREADY_PROCESSED" ? rereadProcessed(input.messageId, deps) : err(toApplyError(staged.error));
+    }
+    const committed = await deps.transaction(input.companyId, () => applyInTransaction(message, staged.data.plan, deps));
+    if (!committed.success) return committed.error.code === "MESSAGE_ALREADY_PROCESSED" ? rereadProcessed(input.messageId, deps) : err(toApplyError(committed.error));
+    const { applied, decided, commitAt } = committed.data;
+    const trace = await afterCommit(message, staged.data.data, decided, commitAt, shadow, deps);
+    return ok({ kind: "applied", orderId: applied.orderId, createdOrder: applied.createdOrder, outcomes: applied.outcomes, noticeDue: chooseSellerNotice(applied.outcomes) !== null,
+      pendingsBefore: applied.pendingsBefore, pendingsAfter: applied.pendingsAfter, trace });
+  } finally {
+    shadowEnd.abort();
+  }
 }
 
 /** The transaction rolled back because another run recorded the message first. */
@@ -314,9 +324,12 @@ async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>>
     candidatesPerMention: deps.limits.candidatesPerMention, withAbort: deps.withAbort };
   const shownIds = shown.map(({ productId }) => productId);
   const started = await runReading(runDeps, context, shownIds, read.signal, { intent: read.intent });
-  if (!started.success) return started;
+  if (!started.success) {
+    const { records, intent, ...error } = started.error;
+    return err({ ...error, trace: { intent, context, photo: read.photo, started: null, records, confirmingRun: false, startedAt: read.startedAt, answer: "no_intent", actionKinds: [] } });
+  }
   const { primary } = started.data;
-  const data: TraceData = { intent: primary.intent, context, photo: read.photo, started: started.data, confirmingRun: false, startedAt: read.startedAt, answer: "no_intent", actionKinds: [] };
+  const data: TraceData = { intent: primary.intent, context, photo: read.photo, started: started.data, records: started.data.records, confirmingRun: false, startedAt: read.startedAt, answer: "no_intent", actionKinds: [] };
   if (primary.intent.kind === "no_intent") return ok({ plan: reportPlan({ kind: "no_intent" }, read.kind === "text" ? "text" : "photo"), data });
   if (primary.intent.kind === "unsure" || !primary.chain) return ok({ plan: reportPlan({ kind: "reader_doubt", orderId: null }, read.kind === "text" ? "text" : "photo"), data: { ...data, answer: "doubt" } });
   const chain = primary.chain;
@@ -576,15 +589,16 @@ function variantsTouch(action: ResolvedChatAction, variantId: OrderItem["variant
   }
 }
 
-/** After commit: waits for the shadow at most `min(shadowWaitMs, time left)`, builds and saves the trace and the new masks. A failure never fails the job. */
-async function afterCommit(message: ChatSourceMessage, data: TraceData, decided: DecidedChanges | null, commitAt: Date, shadow: Promise<TraceShadow | null> | null,
+/** After commit (or after a stage failure, with `decidedAt` null): waits for the shadow at most `min(shadowWaitMs, time left)`, builds and saves the trace and the new masks. A failure never fails the job. */
+async function afterCommit(message: ChatSourceMessage, data: TraceData, decided: DecidedChanges | null, decidedAt: Date | null, shadow: Promise<TraceShadow | null> | null,
   deps: ApplyChatMessageDependencies): Promise<ReadingTrace> {
   // The wait holds the chat's queue slot: at most `shadowWaitMs`, and never past the reading budget.
-  const left = Math.max(0, deps.limits.readingBudgetMs - (commitAt.getTime() - data.startedAt.getTime()));
+  const endedAt = decidedAt ?? deps.clock();
+  const left = Math.max(0, deps.limits.readingBudgetMs - (endedAt.getTime() - data.startedAt.getTime()));
   const waited = shadow ? await awaitShadow(shadow, Math.min(deps.limits.shadowWaitMs, left)) : null;
   const shadowResult = waited?.shadow ?? null;
   const shadowWaitMs = waited ? waited.waitedMs : null;
-  const records = data.started?.records ?? [];
+  const { records } = data;
   const stages = traceStagesOf(records);
   const calls: readonly StageCall[] = stages.map(({ call }) => call);
   const costUsd = [...calls.map(({ costUsd: cost }) => cost), data.photo?.costUsd ?? null].reduce<number | null>((sum, cost) => (cost === null ? sum : (sum ?? 0) + cost), null);
@@ -592,7 +606,7 @@ async function afterCommit(message: ChatSourceMessage, data: TraceData, decided:
   try {
     const primary = data.started?.primary;
     const built = deps.buildMessageTrace({ message: { id: message.id, companyId: message.companyId, receivedAt: message.receivedAt, text: message.text, caption: message.caption },
-      retentionDays: deps.limits.traceRetentionDays, startedAt: data.startedAt, decidedAt: commitAt, queuedMs, shadowWaitMs, intent: data.intent, context: data.context, photo: data.photo, records,
+      retentionDays: deps.limits.traceRetentionDays, startedAt: data.startedAt, decidedAt, queuedMs, shadowWaitMs, intent: data.intent, context: data.context, photo: data.photo, records,
       requests: primary?.chain?.requests ?? [], intents: primary?.intents ?? [], decisions: decided?.decided ?? [], shadow: shadowResult });
     const saved = await deps.saveMessageTrace(built.trace, built.masks);
     if (!saved.success) log.warn({ event: "reader_trace_save_failed", companyId: message.companyId, messageId: message.id, errorCode: saved.error.code }, "reader_trace_save_failed");
@@ -602,6 +616,6 @@ async function afterCommit(message: ChatSourceMessage, data: TraceData, decided:
   const decisions = decided?.decided.map(({ decision }) => decision.kind) ?? [];
   return { answer: data.answer, actionKinds: data.actionKinds, stageCalls: calls.length, decisionKinds: decisions, doubtfulCount: decisions.filter((kind) => kind === "doubtful").length,
     urgentCount: decisions.filter((kind) => kind === "urgent").length, confirmingRun: data.confirmingRun, contextMessages: data.context?.contextMessageIds.size ?? 0, queuedMs,
-    decidedMs: Math.max(0, commitAt.getTime() - data.startedAt.getTime()), costUsd, candidateMs: data.started?.primary.catalog.searchMs ?? null,
+    decidedMs: Math.max(0, endedAt.getTime() - data.startedAt.getTime()), costUsd, candidateMs: data.started?.primary.catalog.searchMs ?? null,
     candidateMatchCount: data.started?.primary.catalog.matchCount ?? null, candidatesTimedOut: data.started?.primary.catalog.timedOut ?? false };
 }

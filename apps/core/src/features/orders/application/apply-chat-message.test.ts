@@ -302,6 +302,26 @@ describe("applyChatMessage: the staged pipeline", () => {
     expect(h.calls).not.toContain("transaction");
   });
 
+  test("saves a trace with no decision time and the stage's error code when a stage fails, and still returns the error", async () => {
+    const h = harness({ message: textMessage("dame el polo"), script: { intent: { code: "AI_PROVIDER_UNAVAILABLE" } } });
+    const result = await h.run();
+
+    expect(result).toEqual({ success: false, error: { code: "AI_PROVIDER_UNAVAILABLE", message: "AI_PROVIDER_UNAVAILABLE" } });
+    expect(h.traces).toHaveLength(1);
+    expect(h.traces[0]).toMatchObject({ decidedAt: null, intent: null, records: [{ stage: "intent", errorCode: "AI_PROVIDER_UNAVAILABLE" }] });
+    expect(h.calls).toContain("saveMessageTrace");
+    expect(h.calls).not.toContain("transaction");
+  });
+
+  test("keeps the intent and the stages that ran when a later stage fails", async () => {
+    const h = harness({ message: textMessage("dame el polo"), script: { intent: requestsOf(intent("R1", "add", "el polo")), extraction: [addPolo("el polo")] },
+      overrides: { findMentionCandidates: async () => err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "down" }) } });
+    const result = await h.run();
+
+    expect(result).toEqual({ success: false, error: { code: "PERSISTENCE_UNAVAILABLE", message: "down" } });
+    expect(h.traces[0]).toMatchObject({ decidedAt: null, intent: { kind: "requests" }, records: [{ stage: "intent", errorCode: null }, { stage: "extraction", errorCode: null }] });
+  });
+
   test("fails permanently for an invalid stage answer", async () => {
     const result = await harness({ message: textMessage("dame el polo"), script: { intent: { code: "INVALID_AI_RESPONSE" } } }).run();
 
