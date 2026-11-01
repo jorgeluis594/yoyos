@@ -313,3 +313,24 @@ describe("WhatsApp orders", () => {
     expect(screen.queryByText("Público general")).toBeNull();
   });
 });
+
+test("the history list shows «Por revisar»", async () => {
+  const date = "2026-10-05T00:00:00.000Z";
+  const states = [
+    { number: 2001, status: "active", toReview: true },
+    { number: 2002, status: "active", toReview: false },
+    { number: 2003, status: "cancelled", toReview: true },
+    { number: 2004, status: "completed", toReview: true },
+  ];
+  mockLoadOrders.mockResolvedValue(ok({ page: 1, pageSize: 20, total: 4, items: states.map((state) => ({
+    ...state, id: String(state.number), buyer: null, createdAt: date, completedAt: null, checkoutEnabledAt: date, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
+    paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" },
+  })) }));
+  const screen = render(<OrderHistoryScreen />);
+  await screen.findByText(/#2001 ·/);
+  // Cancelled and completed orders never carry the label, whatever the list says.
+  expect(screen.getAllByText("Por revisar")).toHaveLength(1);
+  await i18n.changeLanguage("pt-BR");
+  try { screen.rerender(<OrderHistoryScreen />); expect(await screen.findByText("Para revisar")).toBeTruthy(); }
+  finally { await i18n.changeLanguage("es"); }
+});

@@ -192,3 +192,22 @@ test("«Pendiente de confirmación» only marks active orders the buyer has not 
     router.dispose();
   }
 });
+
+test("the order list shows «Por revisar» next to the checkout label", async () => {
+  const render = async (language: string, patch: Record<string, unknown>) => {
+    const i18n = createInstance();
+    await i18n.init({ lng: language, resources, interpolation: { escapeValue: false } });
+    const createdAt = "2026-09-28T12:00:00.000Z";
+    const item = { id: "sale", number: 1001, buyer: null, createdAt, itemCount: 2, balanceDue: { amount: 10, currency: "PEN" }, status: "active", paymentStatus: "pending", deliveryStatus: "pending",
+      total: { amount: 10, currency: "PEN" }, checkoutEnabledAt: createdAt, checkoutConfirmedAt: null, deliveredAt: null, completedAt: null, source: "whatsapp", toReview: true, ...patch };
+    const router = createMemoryRouter([{ id: "orders", path: "/", element: createElement(OrderList), loader: () => null }], {
+      hydrationData: { loaderData: { orders: { list: { items: [item], page: 1, pageSize: 20, total: 1 }, filters: { customer: "all", page: 1 }, contacts: [], customerSearch: "", base: "/es-PE/orders" } } } });
+    try { return renderToStaticMarkup(createElement(I18nextProvider, { i18n }, createElement(RouterProvider, { router }))); } finally { router.dispose(); }
+  };
+  const html = await render("es", {});
+  expect(html).toMatch(/Pendiente de confirmación<\/span><span[^>]*>Por revisar<\/span>/);
+  expect(await render("pt", {})).toContain("Para revisar");
+  expect(await render("es", { toReview: false })).not.toContain("Por revisar");
+  expect(await render("es", { status: "cancelled" })).not.toContain("Por revisar");
+  expect(await render("es", { status: "completed", completedAt: "2026-09-28T12:00:00.000Z", paymentStatus: "paid", deliveryStatus: "delivered" })).not.toContain("Por revisar");
+});

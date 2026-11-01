@@ -51,6 +51,9 @@ import { getOrderAggregate } from "@core/src/features/orders/application/read-or
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
 import { deleteExpiredMessageTraces, type DeleteExpiredMessageTracesDependencies, type DeleteExpiredMessageTracesInput } from "@core/src/features/orders/application/delete-expired-message-traces";
+import { reportVerdictLabels, type ReportVerdictLabelsInput } from "@core/src/features/orders/application/report-verdict-labels";
+import { countVerdicts } from "@core/src/features/orders/infrastructure/verdict-counts";
+import { readVerdictReportTimeoutMs } from "@core/src/features/orders/infrastructure/verdict-report-env";
 import { deleteExpiredMessageTraces as deleteCompanyExpiredMessageTraces, findTraceQuotes, saveMessageTrace, listCompaniesWithExpiredMessageTraces, readAuditedMessageTraces, type TraceReadAudit } from "@core/src/features/orders/infrastructure/message-trace-repository";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
 import type { AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
@@ -90,6 +93,8 @@ import { claimNotice, releaseNotice } from "@core/src/features/orders/infrastruc
 import type { ClaimedNotice } from "@core/src/features/orders/domain/seller-notice";
 import { describeChatMessageNotice as describeNotice, type NoticeLocale } from "@core/src/features/orders/application/describe-chat-message-notice";
 import { findSellerNoticeTarget } from "@core/src/features/orders/application/find-seller-notice-target";
+import { findOpenQuestions } from "@core/src/features/orders/application/find-open-questions";
+import { findChatQuestionStates, findMessageChats, findOrderQuestionFacts, findOutcomes } from "@core/src/features/orders/infrastructure/open-question-repository";
 import { renderSellerNotice } from "@core/src/features/orders/presentation/seller-notice-texts";
 import { products } from "@core/src/features/products/composition";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
@@ -736,6 +741,7 @@ export const orders = {
     companyId: getCompanyId, findOrderNumbers, findProductNames: findProductNoticeNames, render: renderSellerNotice }),
   releaseChatMessageNotice: (messageId: ChatMessageId) => releaseNotice(messageId),
   findSellerNoticeTarget: (messageId: ChatMessageId) => findSellerNoticeTarget(messageId, { findOutcome, orderExists }),
+  findOpenQuestions: (messageIds: readonly ChatMessageId[]) => findOpenQuestions(messageIds, { findOutcomes, findMessageChats, findChatQuestionStates, findOrderQuestionFacts }),
   confirmCheckoutDelivery: async (input: ConfirmCheckoutDeliveryInput, access: CheckoutAccess) => {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "confirm_checkout" });
@@ -1017,3 +1023,9 @@ const chatMessageHandlerDependencies: ChatMessageHandlerDependencies = {
 export const applyChatMessageHandler = createChatMessageHandler(chatMessageHandlerDependencies);
 /** Handler of the dead-letter queue of `apply-chat-message`: releases the chat of a message that cannot be applied. */
 export const chatMessageDeadLetterHandler = createChatMessageDeadLetterHandler(chatMessageHandlerDependencies);
+
+/** The verdicts CLI: counts over every company through the definer aggregate, with its own statement timeout read at call time. */
+export function reportConfiguredVerdictLabels(input: ReportVerdictLabelsInput) {
+  const timeoutMs = readVerdictReportTimeoutMs(process.env);
+  return reportVerdictLabels(input, { countVerdicts: (since, until) => countVerdicts(since, until, timeoutMs) });
+}

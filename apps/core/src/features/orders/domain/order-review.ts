@@ -1,8 +1,8 @@
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { SellableVariant } from "@core/src/features/orders/domain/catalog-order";
-import type { ChatPending } from "@core/src/features/orders/domain/chat-pendings";
-import { isMarked, itemOfSnapshot, undoability, type ChangeSeq, type LineSnapshot, type OrderItemChange, type OrderItemChangeId, type UndoRefusal } from "@core/src/features/orders/domain/message-changes";
+import { maxChatPendings, type ChatPending } from "@core/src/features/orders/domain/chat-pendings";
+import { isMarked, itemOfSnapshot, undoability, undoPendings, type ChangeSeq, type LineSnapshot, type OrderItemChange, type OrderItemChangeId, type UndoRefusal } from "@core/src/features/orders/domain/message-changes";
 import { isOpenForMessageItems, type ChatId } from "@core/src/features/orders/domain/message-order";
 import type { OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import type { OrderId, OrderItem, OrderItemId, PositiveInteger } from "@core/src/features/orders/domain/order";
@@ -16,6 +16,7 @@ export type { UndoRefusal };
 export type PointKey = Readonly<{ pendingId: ChatPendingId; since: Date }>;
 export type ReviewPoint = Readonly<{ key: PointKey; kind: "variant_missing" | "not_clear" | "variant_not_available"; product: string | null;
   quantity: PositiveInteger; missing: readonly string[]; doubt: DoubtReason | null; acknowledged: boolean; question: SuggestedQuestion }>;
+export type PointLabel = Pick<ReviewPoint, "kind" | "product">;
 export type ReviewStatus = Readonly<{ openForMessages: boolean; toReview: boolean; doubtfulCount: number; pointCount: number;
   entry: "link" | "detail" | "none"; hasPreviousReview: boolean }>;
 export type OrderReviewProjection = Readonly<{
@@ -25,24 +26,37 @@ export type OrderReviewProjection = Readonly<{
   products: readonly Readonly<{ itemId: OrderItemId; changedSinceLastReview: boolean }>[];
   removedSinceLastReview: readonly LineSnapshot[];
   messageRows: readonly Readonly<{ messageId: ChatMessageId; at: Date; changes: readonly OrderItemChange[];
-    undo: Readonly<{ kind: "available" } | { kind: "refused"; reason: UndoRefusal } | { kind: "undone" }> }>[];
+    undo: Readonly<{ kind: "available" } | { kind: "refused"; reason: UndoRefusal } | { kind: "undone" }>;
+    /** What undoing the message would change in the points: the ones that come back and the ones that end. */
+    pendings: Readonly<{ back: readonly PointLabel[]; end: readonly PointLabel[] }> }>[];
   moreRows: number;
   loaded: Readonly<{ changesThrough: ChangeSeq; changeIds: readonly OrderItemChangeId[]; points: readonly PointKey[]; itemsRevision: OrderRevision }>;
 }>;
+
+const pointKind = (pending: ChatPending): ReviewPoint["kind"] => (pending.subject.kind === "variant" ? "variant_missing" : "not_clear");
 
 /** A message of the order that changed lines or pendings, as `OrderMessage` and its change rows are read. */
 export type MessageRowSource = Readonly<{ messageId: ChatMessageId; at: Date; undoneAt: Date | null; changes: readonly OrderItemChange[];
   pendingsBefore: readonly ChatPending[]; pendingsAfter: readonly ChatPending[] }>;
 export type MessageRows = OrderReviewProjection["messageRows"];
 
-/** «Cambios por mensajes»: each message with its changes and whether its undo is available, refused with a reason, or done. */
+/** «Cambios por mensajes»: each message with its changes, whether its undo is available, refused with a reason, or done, and the points an undo would bring back or end. */
 export function messageRows(input: Readonly<{ order: OrderAggregate; rows: readonly MessageRowSource[]; pendings: readonly ChatPending[];
   /** Changes of the order newer than the oldest row, whatever their message. */
-  laterChanges: readonly OrderItemChange[]; sellable: readonly SellableVariant[] }>): MessageRows {
+  laterChanges: readonly OrderItemChange[]; sellable: readonly SellableVariant[]; now: Date; pendingTtlMs: number;
+  describePoint: (pending: ChatPending) => Pick<ReviewPoint, "product"> }>): MessageRows {
+  const label = (pending: ChatPending): PointLabel => ({ kind: pointKind(pending), product: input.describePoint(pending).product });
   return input.rows.map((row): MessageRows[number] => {
-    if (row.undoneAt) return { messageId: row.messageId, at: row.at, changes: row.changes, undo: { kind: "undone" } };
+    const base = { messageId: row.messageId, at: row.at, changes: row.changes };
+    if (row.undoneAt) return { ...base, undo: { kind: "undone" }, pendings: { back: [], end: [] } };
     const verdict = undoability({ order: input.order, message: row, pendings: input.pendings, laterChanges: input.laterChanges, sellable: input.sellable });
-    return { messageId: row.messageId, at: row.at, changes: row.changes, undo: verdict.kind === "available" ? { kind: "available" } : { kind: "refused", reason: verdict.reason } };
+    const undo = verdict.kind === "available" ? { kind: "available" } as const : { kind: "refused", reason: verdict.reason } as const;
+    const plan = undoPendings({ order: input.order, message: row, pendings: input.pendings, pendingTtlMs: input.pendingTtlMs, now: input.now });
+    const after = new Set(row.pendingsAfter.map((pending) => pending.id));
+    const restored = new Set(plan.restored.map((pending) => pending.id));
+    const back = plan.restored.filter((pending) => !after.has(pending.id));
+    const end = [...row.pendingsAfter.filter((pending) => !restored.has(pending.id)), ...plan.overflow];
+    return { ...base, undo, pendings: { back: back.slice(0, maxChatPendings).map(label), end: end.slice(0, maxChatPendings).map(label) } };
   });
 }
 
@@ -123,7 +137,7 @@ export type ReviewProjectionInput = Readonly<{
 export function reviewProjection(input: ReviewProjectionInput): OrderReviewProjection {
   const { order, unreviewed } = input;
   const points = pointsOfOrder(input.pendings, order, input.latestChatOrderId, input.now, input.pendingTtlMs).map((pending): ReviewPoint => ({
-    key: { pendingId: pending.id, since: pending.pointSince }, kind: pending.subject.kind === "variant" ? "variant_missing" : "not_clear", quantity: pending.quantity,
+    key: { pendingId: pending.id, since: pending.pointSince }, kind: pointKind(pending), quantity: pending.quantity,
     doubt: pending.doubt?.reason ?? null, acknowledged: (pending.acknowledgedAt?.getTime() ?? Number.NEGATIVE_INFINITY) >= pending.pointSince.getTime(), ...input.describePoint(pending) }));
   const shown = isWhatsAppOrder(order) && !isFinished(order);
   const touched = new Set(unreviewed.flatMap((change) => (change.after ? [change.after.itemId] : [])));
@@ -134,7 +148,8 @@ export function reviewProjection(input: ReviewProjectionInput): OrderReviewProje
     points: shown ? points : [],
     products: order.items.map((item) => ({ itemId: item.id, changedSinceLastReview: touched.has(item.id) })),
     removedSinceLastReview: shown ? unreviewed.filter((change) => change.decision.kind === "applied" && change.before && !change.after && !kept.has(change.before.itemId)).map((change) => change.before!) : [],
-    messageRows: shown ? messageRows({ order, rows: input.rows, pendings: input.pendings, laterChanges: input.laterChanges, sellable: input.sellable }) : [],
+    messageRows: shown ? messageRows({ order, rows: input.rows, pendings: input.pendings, laterChanges: input.laterChanges, sellable: input.sellable,
+      now: input.now, pendingTtlMs: input.pendingTtlMs, describePoint: input.describePoint }) : [],
     moreRows: shown ? input.moreRows : 0,
     loaded: { changesThrough: input.lastSeq, changeIds: unreviewed.map((change) => change.id), points: points.map((point) => point.key), itemsRevision: orderRevisions(order).items },
   };

@@ -18,6 +18,9 @@ import { ok, err } from "@shared/functional";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { paymentErrorKey } from "@core/src/features/orders/presentation/payment-decision-form";
 import { paymentRecordedKey } from "@core/src/features/orders/presentation/stock-due";
+import type { OrderReviewProjection } from "@core/src/features/orders/domain/order-review";
+import type { ChangeSeq } from "@core/src/features/orders/domain/message-changes";
+import type { OrderRevision } from "@core/src/features/orders/domain/order-revisions";
 
 vi.mock("@core/src/shared/images", async (importOriginal) => ({ ...await importOriginal<typeof import("@core/src/shared/images")>(), resolvePublicImages: vi.fn() }));
 
@@ -37,7 +40,12 @@ test("a bare seller post no longer enables or reads the checkout link", async ()
   expect(enable).not.toHaveBeenCalled();
 });
 
+const emptyReview = (): OrderReviewProjection => ({ status: { openForMessages: true, toReview: false, doubtfulCount: 0, pointCount: 0, entry: "none", hasPreviousReview: false },
+  doubtful: [], points: [], products: [], removedSinceLastReview: [], messageRows: [], moreRows: 0,
+  loaded: { changesThrough: 0 as ChangeSeq, changeIds: [], points: [], itemsRevision: "A".repeat(43) as OrderRevision } });
+
 beforeEach(() => {
+  vi.spyOn(orders, "loadOrderReview").mockResolvedValue(ok(emptyReview()));
   vi.spyOn(orders, "lineCatalog").mockResolvedValue(null);
   vi.spyOn(deliverySettings, "get").mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "unused" }));
   vi.mocked(resolvePublicImages).mockReset().mockResolvedValue(ok({ images: [], failures: [] }));
@@ -68,6 +76,16 @@ test("without a subdomain the loader points to Apariencia de la tienda's publica
   vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(aggregate()));
   vi.spyOn(orders, "checkoutUrl").mockResolvedValue(err({ code: "SUBDOMAIN_REQUIRED", message: "The company has no catalog subdomain" }));
   expect(await loader(loaderArgs())).toMatchObject({ link: { kind: "subdomain_required", appearancePath: "/es-PE/settings/store-appearance#catalog-publication" } });
+});
+
+test("the loader adds the review projection as the wire form and fails with the detail when it cannot load", async () => {
+  vi.spyOn(orders, "getAggregate").mockResolvedValue(ok(aggregate()));
+  vi.spyOn(orders, "checkoutUrl").mockResolvedValue(ok(`https://fantasio.yoyos.lat/checkout/${orderId}`));
+  const load = vi.mocked(orders.loadOrderReview);
+  expect(await loader(loaderArgs())).toMatchObject({ review: { version: 1, status: { entry: "none", toReview: false }, doubtful: [], loaded: { changesThrough: 0 } } });
+  expect(load).toHaveBeenCalledWith({ orderId }, { companyId, userId: "authenticated-seller" });
+  load.mockResolvedValue(err({ code: "PERSISTENCE_UNAVAILABLE", message: "down" }));
+  await expect(loader(loaderArgs())).rejects.toMatchObject({ status: 503 });
 });
 
 test("a cancelled order gets no link and no lookup", async () => {

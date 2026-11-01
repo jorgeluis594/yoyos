@@ -55,6 +55,14 @@ test("the review response round-trips the projection of 6.5 with structured reas
   assert.deepEqual(orderReviewResponseSchema.parse(JSON.parse(JSON.stringify(review))), review);
 });
 
+test("the review response accepts a price noted on an item the message did not name, also inherited", () => {
+  const noted = { kind: "price_noted", amount: 45, units: 2 };
+  const withReason = (reason) => ({ ...review, doubtful: [{ change: { ...change, decision: { kind: "doubtful", reason } }, quote: null }] });
+  assert.equal(orderReviewResponseSchema.safeParse(withReason(noted)).success, true);
+  assert.equal(orderReviewResponseSchema.safeParse(withReason({ kind: "inherited", from: noted })).success, true);
+  assert.equal(orderReviewResponseSchema.safeParse(withReason({ kind: "price_noted", amount: 0, units: 2 })).success, false);
+});
+
 test("the review response rejects unknown reasons, undo refusals, entries and extra fields", () => {
   const bad = (patch) => orderReviewResponseSchema.safeParse({ ...review, ...patch }).success;
   assert.equal(bad({ status: { ...review.status, entry: "mail" } }), false);
@@ -105,9 +113,9 @@ test("undo, link action and open question contracts", () => {
   assert.equal(openQuestionsResponseSchema.safeParse({ ...questions, messages: [{ messageId: id(1), points: [{ id: id(2), text: "", about: "Polera" }] }] }).success, false);
 });
 
-test("the order projections accept the new fields and stay compatible without them", () => {
+test("the order aggregate requires the items revision and the summary requires toReview", () => {
   assert.ok("revisions" in orderAggregateSchema.shape);
-  assert.ok(orderAggregateSchema.shape.revisions.safeParse(undefined).success);
+  assert.equal(orderAggregateSchema.shape.revisions.safeParse(undefined).success, false);
   assert.ok(orderAggregateSchema.shape.revisions.safeParse({ items: revision }).success);
   assert.equal(orderAggregateSchema.shape.revisions.safeParse({ items: "short" }).success, false);
   assert.ok(orderAggregateSummarySchema.shape.toReview.safeParse(true).success);

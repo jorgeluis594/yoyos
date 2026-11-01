@@ -207,6 +207,24 @@ function isRestorable(pending: ChatPending, orderId: OrderId, now: Date, ttlMs: 
   return now.getTime() < pending.lastChangedAt.getTime() + ttlMs;
 }
 
+export type UndoPendings = Readonly<{ restored: readonly ChatPending[]; remaining: readonly ChatPending[]; ended: number; overflow: readonly ChatPending[] }>;
+
+/** The pendings an undo brings back, keeps and ends: the least recently changed other ones end when the restored ones would pass the limit. */
+export function undoPendings(input: Pick<UndoPlanInput, "order" | "message" | "pendings" | "pendingTtlMs" | "now">): UndoPendings {
+  const { message } = input;
+  const touched = new Set([...message.pendingsBefore, ...message.pendingsAfter].map((pending) => pending.id));
+  const restored = message.pendingsBefore.filter((pending) => isRestorable(pending, input.order.id, input.now, input.pendingTtlMs));
+  const byAge = (a: ChatPending, b: ChatPending) => a.lastChangedAt.getTime() - b.lastChangedAt.getTime();
+  const overflow: ChatPending[] = [];
+  let remaining = input.pendings.filter((pending) => !touched.has(pending.id));
+  while (remaining.length + restored.length > maxChatPendings && remaining.length > 0) {
+    const [oldest] = [...remaining].sort(byAge);
+    remaining = remaining.filter((pending) => pending !== oldest);
+    overflow.push(oldest!);
+  }
+  return { restored, remaining, ended: overflow.length, overflow };
+}
+
 /** The writes of an undo: the lines and the totals, and only the pendings the message touched (plus the one ended to keep the limit). */
 export function undoPlan(input: UndoPlanInput): Result<UndoPlan, OrderDomainError> {
   const { order, message } = input;
@@ -222,17 +240,7 @@ export function undoPlan(input: UndoPlanInput): Result<UndoPlan, OrderDomainErro
     }),
     removedItemIds: order.items.filter((item) => !kept.has(item.id)).map((item) => item.id),
   };
-  const touched = new Set([...message.pendingsBefore, ...message.pendingsAfter].map((pending) => pending.id));
-  const restored = message.pendingsBefore.filter((pending) => isRestorable(pending, order.id, input.now, input.pendingTtlMs));
-  const others = input.pendings.filter((pending) => !touched.has(pending.id));
-  const byAge = (a: ChatPending, b: ChatPending) => a.lastChangedAt.getTime() - b.lastChangedAt.getTime();
-  let ended = 0;
-  let remaining = [...others];
-  while (remaining.length + restored.length > maxChatPendings && remaining.length > 0) {
-    const [oldest] = [...remaining].sort(byAge);
-    remaining = remaining.filter((pending) => pending !== oldest);
-    ended += 1;
-  }
+  const { restored, remaining, ended } = undoPendings({ order, message, pendings: input.pendings, pendingTtlMs: input.pendingTtlMs, now: input.now });
   const pendings = [...remaining, ...restored].slice(-maxChatPendings);
   return ok({ order: rebuilt.data, changes, pendings, pendingsRestored: restored.length, pendingsEnded: ended });
 }

@@ -21,7 +21,7 @@ export function toOrderReviewJson(projection: OrderReviewProjection): OrderRevie
       missing: point.missing, doubt: point.doubt, acknowledged: point.acknowledged, question: suggestedQuestionText(point.question) })),
     products: projection.products,
     removedSinceLastReview: projection.removedSinceLastReview.map(lineJson),
-    messageRows: projection.messageRows.map((row) => ({ messageId: row.messageId, at: row.at.toISOString(), changes: row.changes.map(changeJson), undo: row.undo })),
+    messageRows: projection.messageRows.map((row) => ({ messageId: row.messageId, at: row.at.toISOString(), changes: row.changes.map(changeJson), undo: row.undo, pendings: row.pendings })),
     moreRows: projection.moreRows,
     loaded: { changesThrough: projection.loaded.changesThrough, changeIds: projection.loaded.changeIds, points: projection.loaded.points.map((key) => ({ pendingId: key.pendingId, since: key.since.toISOString() })),
       itemsRevision: projection.loaded.itemsRevision },
