@@ -14,8 +14,19 @@ export type OrderLink =
   | Readonly<{ kind: "unavailable" }>;
 /** The buyer's side of the order, with the list's rule: «pending» only describes an order still open, so a completed unconfirmed one has no state line. */
 export type OrderLinkState = "pending" | "confirmed" | "cancelled" | null;
+/**
+ * The seller's review of a chat order, as the card needs it. `gated` hides the URL: the copy and open icons ask for the review first (`onRequest`) and the link is taken
+ * on the click after it (`onTaken`). `blocked` keeps the icons `aria-disabled` while product edits are unsaved.
+ */
+export type OrderLinkReview = Readonly<{
+  gated: boolean; counts: string | null; blocked: boolean;
+  /** «Mientras revisabas, un mensaje agregó…», announced politely until the next review. */
+  statusLine: string | null;
+  onRequest: (action: "copy" | "open") => void;
+  onTaken: (action: "copy" | "open") => void;
+}>;
 /** `pendingSave` is the unsaved new sale: the card is grey with disabled controls and ignores `link` and `state`. */
-export type OrderLinkCardProps = Readonly<{ state: OrderLinkState; link: OrderLink; pendingSave?: boolean }>;
+export type OrderLinkCardProps = Readonly<{ state: OrderLinkState; link: OrderLink; pendingSave?: boolean; review?: OrderLinkReview | null }>;
 export function orderLinkState(order: Readonly<{ cancelled: boolean; status: string; checkoutConfirmedAt: string | null }>): OrderLinkState {
   if (order.cancelled) return "cancelled";
   if (order.checkoutConfirmedAt) return "confirmed";
@@ -26,7 +37,7 @@ const copiedForMs = 3000;
 
 const iconButton = "min-h-control min-w-control max-md:min-h-touch max-md:min-w-touch";
 
-export function OrderLinkCard({ state, link, pendingSave = false }: OrderLinkCardProps) {
+export function OrderLinkCard({ state, link, pendingSave = false, review = null }: OrderLinkCardProps) {
   const { t } = useTranslation();
   const revalidator = useRevalidator();
   const [copied, setCopied] = useState(false);
@@ -35,6 +46,7 @@ export function OrderLinkCard({ state, link, pendingSave = false }: OrderLinkCar
   // The message clears after a moment so copying again is announced again.
   async function copy(url: string) {
     try { await navigator.clipboard.writeText(url); } catch { return; }
+    review?.onTaken("copy");
     setCopied(true);
     clearTimeout(timer.current);
     timer.current = setTimeout(() => setCopied(false), copiedForMs);
@@ -45,12 +57,13 @@ export function OrderLinkCard({ state, link, pendingSave = false }: OrderLinkCar
     <CardHeader><CardTitle id="order-link-title">{t("orderLink.title")}</CardTitle></CardHeader>
     <CardContent className="flex flex-col gap-3">
       {state && <p className="text-sm text-muted-foreground">{t(`orderLink.${state}`)}</p>}
-      {!cancelled && link.kind === "ready" && <>
+      {!cancelled && link.kind === "ready" && review?.gated && <GatedLink review={review} />}
+      {!cancelled && link.kind === "ready" && !review?.gated && <>
         <div className="flex items-center gap-2">
           <Input readOnly value={link.url} aria-label={t("orderLink.label")} className="min-w-0 flex-1 text-ellipsis" onFocus={event => event.target.select()} />
-          <Button type="button" variant="outline" size="icon" className={iconButton} aria-label={t("orderLink.copy")} onClick={() => void copy(link.url)}><Copy aria-hidden="true" /></Button>
+          <Button id="order-link-copy" type="button" variant="outline" size="icon" className={iconButton} aria-label={t("orderLink.copy")} onClick={() => void copy(link.url)}><Copy aria-hidden="true" /></Button>
           <Button asChild variant="outline" size="icon" className={iconButton}>
-            <a href={link.url} target="_blank" rel="noopener noreferrer" aria-label={t("orderLink.open")}><ExternalLink aria-hidden="true" /></a>
+            <a id="order-link-open" href={link.url} target="_blank" rel="noopener noreferrer" aria-label={t("orderLink.open")} onClick={() => review?.onTaken("open")}><ExternalLink aria-hidden="true" /></a>
           </Button>
         </div>
         <div className="text-sm">
@@ -58,6 +71,7 @@ export function OrderLinkCard({ state, link, pendingSave = false }: OrderLinkCar
           <p role="status" aria-live="polite">{copied ? t("orderLink.copied") : ""}</p>
         </div>
       </>}
+      {!cancelled && link.kind === "ready" && <p role="status" aria-live="polite" className="text-sm empty:hidden">{review?.statusLine ?? ""}</p>}
       {!cancelled && link.kind === "subdomain_required" && <>
         <p className="text-sm">{t("orderLink.subdomainRequired")}</p>
         <Button asChild variant="outline" className="min-h-control w-fit max-md:min-h-touch"><Link to={link.appearancePath}>{t("orderLink.goToAppearance")}</Link></Button>
@@ -68,6 +82,26 @@ export function OrderLinkCard({ state, link, pendingSave = false }: OrderLinkCar
       </>}
     </CardContent>
   </Card>;
+}
+
+/** An order with something to review: no URL, only what the review will show, and the icons that ask for it before the link is taken. */
+function GatedLink({ review }: Readonly<{ review: OrderLinkReview }>) {
+  const { t } = useTranslation();
+  const disabled = review.blocked || undefined;
+  const describedBy = review.blocked ? "order-link-blocked" : undefined;
+  return <>
+    <div className="grid gap-1 text-sm">
+      <p>{t("orderReview.card.reviewFirst")}</p>
+      {review.counts && <p className="font-medium">{review.counts}</p>}
+    </div>
+    <div className="flex items-center gap-2">
+      <Button id="order-link-copy" type="button" variant="outline" size="icon" className={`${iconButton} aria-disabled:cursor-not-allowed aria-disabled:opacity-50`} aria-label={t("orderLink.copy")} aria-disabled={disabled}
+        aria-describedby={describedBy} onClick={() => { if (!review.blocked) review.onRequest("copy"); }}><Copy aria-hidden="true" /></Button>
+      <Button id="order-link-open" type="button" variant="outline" size="icon" className={`${iconButton} aria-disabled:cursor-not-allowed aria-disabled:opacity-50`} aria-label={t("orderLink.open")} aria-disabled={disabled}
+        aria-describedby={describedBy} onClick={() => { if (!review.blocked) review.onRequest("open"); }}><ExternalLink aria-hidden="true" /></Button>
+    </div>
+    {review.blocked && <p id="order-link-blocked" className="text-sm text-muted-foreground">{t("orderReview.card.blocked")}</p>}
+  </>;
 }
 
 function PendingSaveCard() {

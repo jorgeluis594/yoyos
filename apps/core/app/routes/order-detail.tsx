@@ -23,6 +23,7 @@ import { deliverySettings, toDeliverySettingsResponse } from "@core/src/features
 import { parseRatedDeliverySelection, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
 import { orders } from "@core/src/features/orders/composition";
 import { toOrderAggregateJson } from "@core/src/features/orders/presentation/order-json";
+import { toOrderReviewJson } from "@core/src/features/orders/presentation/order-review-json";
 import { orderDetailLoaderSchema, orderAggregateSchema, registerPaymentSchema } from "@shared/contracts/orders";
 import { parseOrderRevision } from "@core/src/features/orders/domain/order-revisions";
 import { parseOrderLineQuantity, type DeliveryEdit, type OrderLineRequest } from "@core/src/features/orders/domain/order-edit";
@@ -78,17 +79,20 @@ export async function loader({ params, context, request }: LoaderFunctionArgs) {
   const pathname = new URL(request.url).pathname;
   const appearancePath = `${companyPath(pathname, access.company.country, "/settings/store-appearance")}#${catalogPublicationAnchor}`;
   // The aggregate comes first: the line catalog needs its variants. The rest reads in parallel.
-  const [described, receiptUrls, settings, link, lineCatalog] = await Promise.all([
+  const seller = { companyId: access.company.id, userId: access.user.id };
+  const [described, receiptUrls, settings, link, lineCatalog, review] = await Promise.all([
     orders.describeStockDue([order]), receiptUrlsOf(order), deliverySettings.get({ companyId: access.company.id, userId: access.user.id }),
-    orderLink(order, access.company.id, appearancePath), lineCatalogOf(order, "detail_loader"),
+    orderLink(order, access.company.id, appearancePath), lineCatalogOf(order, "detail_loader"), orders.loadOrderReview({ orderId: order.id }, seller),
   ]);
   if (!described.success) throw new Response(described.error.message, { status: 503 });
+  // The review loads with the detail and fails with it, like the message rows it shows.
+  if (!review.success) throw new Response(review.error.message, { status: 503 });
   return { ...orderDetailLoaderSchema.parse({ order: toOrderAggregateJson(order, described.data.get(order.id) ?? null), base: companyPath(pathname, access.company.country, "/orders"),
     manualPaymentId: randomUUID(), receiptUrls }),
     revisions: orderRevisionsSchema.parse(orders.revisions(order)), lineCatalog,
     settings: settings.success ? toDeliverySettingsResponse(settings.data) : null,
     settingsPath: companyPath(pathname, access.company.country, "/settings/delivery"),
-    link };
+    link, review: toOrderReviewJson(review.data) };
 }
 
 /** The link is built here from the company's current subdomain, so the page needs no request of its own to show it. A cancelled order has none. */
@@ -486,7 +490,8 @@ function OrderDetailView({ loaded }: Readonly<{ loaded: Loaded }>) {
     unavailableVariantId={unavailableVariantId} coverRequired={false} format={{ amount: money, date }}
     newPaymentId={() => crypto.randomUUID()} onSave={save} onCheckAgain={() => setDoubt("checking")}
     saved={{ link, receiptUrls, manualPaymentId, voidResult, actionBusy: blocked && !saving && doubt === null, underHeader, statusCard,
-      onPrint: () => setPrintOpen(true), onDiscardChanges: discard, onReload: reload, onSaveCustomerOnly: saveOnlyCustomer }} />;
+      onPrint: () => setPrintOpen(true), onDiscardChanges: discard, onReload: reload, onSaveCustomerOnly: saveOnlyCustomer,
+      review: { review: loaded.review, onChanged: () => void revalidator.revalidate() } }} />;
 }
 
 export function ErrorBoundary({ error }: { error: unknown }) {

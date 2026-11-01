@@ -19,6 +19,7 @@ import type { PaymentDecisionResult } from "@core/src/features/orders/presentati
 import { touchTargets } from "@core/src/features/orders/presentation/touch-targets";
 import { SavedHeader, SavedNotices } from "@core/src/features/orders/presentation/order-view-saved";
 import type { PaymentFormat } from "@core/src/features/orders/presentation/payment-row";
+import { useOrderReviewSession, type ReviewViewProps } from "@core/src/features/orders/presentation/order-review-session";
 import { useCatalogSearch } from "@core/src/features/orders/presentation/use-catalog-search";
 import type { LeaveGuard } from "@core/src/features/orders/presentation/use-unsaved-changes-guard";
 import {
@@ -58,6 +59,8 @@ export type SavedViewProps = Readonly<{
   onReload: () => void;
   /** **Guardar solo el cliente**: the route drops the other edits and saves the customer. */
   onSaveCustomerOnly: () => void;
+  /** The seller's review of a chat order: its marks, points, message rows and the dialog. Absent when the order has none. */
+  review?: ReviewViewProps;
 }>;
 
 export type OrderViewProps = Readonly<{
@@ -177,6 +180,7 @@ export function OrderView(props: OrderViewProps) {
   const productsEditable = screenLocks(state).products === null;
   const totals = estimate(state);
   const money = (amount: number, currency: string) => formatCurrency(amount, currency, i18n.language);
+  const reviewSession = useOrderReviewSession(saved?.review, order, { unsavedItems: edits.includes("items"), unsavedAny: unsaved }, money);
 
   const marks = attempts > 0 ? invalidFields(state) : [];
   const marksOf = (section: InvalidField["section"]) => marks.filter((mark) => mark.section === section);
@@ -267,8 +271,10 @@ export function OrderView(props: OrderViewProps) {
       <div className="flex min-w-0 flex-col gap-6 max-xl:contents">
         <div className="min-w-0 max-xl:order-1">
           <OrderProductsCard state={state} onChange={change} search={search} pickerOpen={pickerOpen} onPickerOpenChange={setPickerOpen}
-            createProductHref={links.createProduct} unavailableVariantId={unavailableVariantId} />
+            createProductHref={links.createProduct} unavailableVariantId={unavailableVariantId} doubts={reviewSession.marks} />
         </div>
+        {reviewSession.panel && <div className="grid min-w-0 gap-6 max-xl:order-1">{reviewSession.panel}</div>}
+        {reviewSession.changes && <div className="grid min-w-0 gap-3 max-xl:order-1">{reviewSession.changes}</div>}
         <div className="min-w-0 max-xl:order-2">
           {saved && order
             ? <OrderPaymentsPanel mode="saved" order={order} receiptUrls={saved.receiptUrls} manualPaymentId={saved.manualPaymentId} voidResult={saved.voidResult}
@@ -282,7 +288,7 @@ export function OrderView(props: OrderViewProps) {
       </div>
       <div className="flex min-w-0 flex-col gap-6 max-xl:contents">
         {saved?.statusCard && <div className="min-w-0 max-xl:-order-1">{saved.statusCard}</div>}
-        {saved && order ? <OrderLinkCard state={orderLinkState(order)} link={saved.link} /> : <OrderLinkCard pendingSave state={null} link={{ kind: "unavailable" }} />}
+        {saved && order ? <OrderLinkCard state={orderLinkState(order)} link={saved.link} review={reviewSession.linkReview} /> : <OrderLinkCard pendingSave state={null} link={{ kind: "unavailable" }} />}
         <div className="min-w-0 max-xl:order-5">
           <OrderDeliveryCard state={state} settings={settings} invalid={deliveryMarks} settingsHref={links.deliverySettings} onChange={setDelivery}
             onDeliverImmediatelyChange={(deliverImmediately) => change({ ...state, draft: { ...draft, deliverImmediately } })} />
@@ -290,6 +296,7 @@ export function OrderView(props: OrderViewProps) {
       </div>
     </div>
 
+    {reviewSession.dialogs}
     {headerOutOfView && <div className="fixed inset-x-0 bottom-0 z-40 flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-t bg-background px-4 py-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] xl:hidden">
       <div className="min-w-0"><p className="text-xs text-muted-foreground">{t(stickyLabel)}</p>
         <p className="font-semibold tabular-nums">{total}</p></div>

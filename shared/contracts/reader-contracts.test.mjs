@@ -55,6 +55,14 @@ test("the review response round-trips the projection of 6.5 with structured reas
   assert.deepEqual(orderReviewResponseSchema.parse(JSON.parse(JSON.stringify(review))), review);
 });
 
+test("the review response accepts a price noted on an item the message did not name, also inherited", () => {
+  const noted = { kind: "price_noted", amount: 45, units: 2 };
+  const withReason = (reason) => ({ ...review, doubtful: [{ change: { ...change, decision: { kind: "doubtful", reason } }, quote: null }] });
+  assert.equal(orderReviewResponseSchema.safeParse(withReason(noted)).success, true);
+  assert.equal(orderReviewResponseSchema.safeParse(withReason({ kind: "inherited", from: noted })).success, true);
+  assert.equal(orderReviewResponseSchema.safeParse(withReason({ kind: "price_noted", amount: 0, units: 2 })).success, false);
+});
+
 test("the review response rejects unknown reasons, undo refusals, entries and extra fields", () => {
   const bad = (patch) => orderReviewResponseSchema.safeParse({ ...review, ...patch }).success;
   assert.equal(bad({ status: { ...review.status, entry: "mail" } }), false);
