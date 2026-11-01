@@ -185,11 +185,11 @@ describe("renderSellerNotice with the single reader", () => {
   test("renders the suggested question at the end of the body in the buyer's language", () => {
     const question = (language: "es" | "pt") => ({ language, kind: "which_variant", product: "Polo básico", attribute: "talla", values: ["S", "M", "L"] }) as const;
     const notice = (language: "es" | "pt"): SellerNotice => ({ kind: "variant_missing", productId: product(1), newOrderId: null, question: question(language) });
-    expect(es(notice("es")).body).toBe("Un cliente pidió Polo básico pero no dijo qué talla o color. Revisa el chat. Polo básico: ¿en qué talla? Tenemos S, M y L.");
-    expect(es(notice("es")).body.endsWith("Polo básico: ¿en qué talla? Tenemos S, M y L.")).toBe(true);
-    expect(pt(notice("pt")).body.endsWith("Polo básico: em qual tamanho? Temos S, M e L.")).toBe(true);
+    expect(es(notice("es")).body).toBe("Un cliente pidió Polo básico pero no dijo qué talla o color. Revisa el chat. Polo básico: ¿en qué talla, S, M o L?");
+    expect(es(notice("es")).body.endsWith("Polo básico: ¿en qué talla, S, M o L?")).toBe(true);
+    expect(pt(notice("pt")).body.endsWith("Polo básico: em qual tamanho, S, M ou L?")).toBe(true);
     // The question is in the buyer's language, the rest in the device's.
-    expect(es(notice("pt")).body.endsWith("Polo básico: em qual tamanho? Temos S, M e L.")).toBe(true);
+    expect(es(notice("pt")).body.endsWith("Polo básico: em qual tamanho, S, M ou L?")).toBe(true);
   });
 
   test("appends the changed-after-link sentence in the device's language", () => {

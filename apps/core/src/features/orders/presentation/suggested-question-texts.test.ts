@@ -8,8 +8,8 @@ const pt = <Q extends Omit<SuggestedQuestion, "language">>(question: Q) => sugge
 describe("suggestedQuestionText", () => {
   test("writes the which-variant question with the values in Spanish and Portuguese", () => {
     const question = { kind: "which_variant", product: "Polo básico", attribute: "talla", values: ["S", "M", "L"] } as const;
-    expect(es(question)).toBe("Polo básico: ¿en qué talla? Tenemos S, M y L.");
-    expect(pt(question)).toBe("Polo básico: em qual tamanho? Temos S, M e L.");
+    expect(es(question)).toBe("Polo básico: ¿en qué talla, S, M o L?");
+    expect(pt(question)).toBe("Polo básico: em qual tamanho, S, M ou L?");
   });
 
   test("writes the which-variant question without values when the attribute has more than three", () => {
@@ -24,7 +24,7 @@ describe("suggestedQuestionText", () => {
   });
 
   test("writes the rest of the kinds in both languages", () => {
-    expect(es({ kind: "variant_unavailable", product: "Polo básico", asked: "XL", attribute: "talla", values: ["S", "M"] })).toBe("Polo básico no viene en XL. ¿En qué talla? Tenemos S y M.");
+    expect(es({ kind: "variant_unavailable", product: "Polo básico", asked: "XL", attribute: "talla", values: ["S", "M"] })).toBe("Polo básico no viene en XL. ¿En qué talla, S o M?");
     expect(pt({ kind: "variant_unavailable", product: "Polo básico", asked: "XL", attribute: "talla", values: [] })).toBe("Polo básico não vem em XL. Em qual tamanho?");
     expect(es({ kind: "variant_for_which", attribute: "Talla", value: "M", products: ["Polo básico", "Gorra"] })).toBe("Talla M: ¿para cuál de estos? Polo básico o Gorra.");
     expect(pt({ kind: "variant_for_which", attribute: "Talla", value: "M", products: ["Polo básico", "Gorra"] })).toBe("Tamanho M: para qual destes? Polo básico ou Gorra.");
@@ -41,12 +41,12 @@ describe("suggestedQuestionText", () => {
   });
 
   test("lowercases an attribute name the catalog saved capitalized and puts no article before a product", () => {
-    expect(es({ kind: "which_variant", product: "Gorra trucker", attribute: "Talla", values: ["S"] })).toBe("Gorra trucker: ¿en qué talla? Tenemos S.");
+    expect(es({ kind: "which_variant", product: "Gorra trucker", attribute: "Talla", values: ["S"] })).toBe("Gorra trucker: ¿en qué talla, S?");
     expect(pt({ kind: "which_variant", product: "Casaca jean", attribute: "Color", values: [] })).toBe("Casaca jean: em qual cor?");
   });
 
   test("never writes a question that claims how many are in stock", () => {
-    const claims = /hay |stock|estoque|disponible|disponível|quedan|sobram/i;
+    const claims = /tenemos|temos|hay |stock|estoque|disponible|disponível|quedan|sobram/i;
     const questions: SuggestedQuestion[] = (["es", "pt"] as const).flatMap((language) => [
       { language, kind: "which_variant", product: "Polo", attribute: "talla", values: ["S", "M"] },
       { language, kind: "which_product", products: ["A", "B"] },
@@ -56,8 +56,9 @@ describe("suggestedQuestionText", () => {
       { language, kind: "which_product_for_value", value: "M", products: ["A"] },
       { language, kind: "another_of_which" },
       { language, kind: "photo_product_name" },
-      { language, kind: "product_gone", product: "Gorra" },
     ] as SuggestedQuestion[]);
     for (const question of questions) expect(suggestedQuestionText(question)).not.toMatch(claims);
+    // The product itself words «Ya no tenemos X» for a product no longer sold.
+    expect(suggestedQuestionText({ language: "es", kind: "product_gone", product: "Gorra" })).toMatch(/^Ya no tenemos /);
   });
 });

@@ -13,7 +13,7 @@ test("parses every new outcome kind in an expectation", () => {
 
 test("uses only seller notice kinds that exist in an expectation", () => {
   for (const kind of sellerNoticeKinds) expect(messageExpectation.parse({ notice: kind }).notice).toBe(kind);
-  expect(noticeKind.options).toEqual([...sellerNoticeKinds, "payment_request"]);
+  expect(noticeKind.options).toEqual([...sellerNoticeKinds]);
   expect(() => messageExpectation.parse({ notice: "made_up" })).toThrow();
   expect(() => messageExpectation.parse({})).toThrow("states a notice or outcomes");
 });
