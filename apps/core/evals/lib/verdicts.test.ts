@@ -1,6 +1,7 @@
 import { expect, test } from "vitest";
 import { messageRecord } from "@core/evals/lib/record-fixture";
 import { buildReport, formatSummary } from "@core/evals/lib/report";
+import type { ReportVerdictLabelsOutput } from "@core/src/features/orders/application/report-verdict-labels";
 import { parseVerdictFile, summarizeVerdicts } from "@core/evals/lib/verdicts";
 
 const meta = { runId: "run", startedAt: "2026-10-31T00:00:00.000Z", finishedAt: "2026-10-31T00:10:00.000Z", settings: {} };
@@ -41,4 +42,13 @@ test("pins the verdict file shape T19 emits and names no value of a bad file", a
   expect(() => readVerdictFile(write(JSON.stringify({ rows: [], unverdicted: 0, since: "2026-01-01" })))).toThrow("does not match");
   expect(() => readVerdictFile(write('{"rows": [secret-text'))).toThrow("not valid JSON");
   expect(() => readVerdictFile(write('{"rows": [secret-text'))).not.toThrow(/secret/);
+});
+
+test("accepts the output the verdicts report prints, as typed by the report use case", () => {
+  const printed: ReportVerdictLabelsOutput = { rows: [
+    { decision: "doubtful", doubtKind: "variant_changed", verdict: "kept", count: 3, strength: "strong" },
+    { decision: "applied", doubtKind: null, verdict: "kept", count: 7, strength: "weak" },
+  ], unverdicted: 2 };
+  const summary = summarizeVerdicts(parseVerdictFile(JSON.parse(JSON.stringify(printed))));
+  expect(summary).toMatchObject({ strong: { total: 3 }, weak: { total: 7 }, unverdicted: 2 });
 });

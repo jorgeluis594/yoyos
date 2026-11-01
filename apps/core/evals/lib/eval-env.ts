@@ -22,6 +22,12 @@ const evalEnvSchema = z.object({
   EVAL_SPLIT: z.enum(["dev", "test", "all"]).default("all"),
   /** `fake` scripts every stage answer from the case expectations: no key, no database and no model call. */
   EVAL_MODELS: z.enum(["real", "fake"]).default("real"),
+  /**
+   * The reader the message suites run: `staged` is the production `applyChatMessage` over the three stages, scored per stage from its reading trace;
+   * `legacy` is the single-call reader of before the stages, run read-only (it can no longer apply a message) for the E1 cost and latency baseline.
+   * The shadow is off in both. T17 removes `legacy`.
+   */
+  EVAL_READER: z.enum(["staged", "legacy"]).default("staged"),
   /** Must be `1` for any run that can call a model; `run-evals.sh` prints the estimate and stops without it (lib/paid-gate.ts). */
   EVAL_PAID: z.enum(["0", "1"]).default("0"),
   /** `1` runs the seed bank (cases/seed-bank.ts) instead of every case; with a private folder, the private cases listed in its `seed-bank.json`. */

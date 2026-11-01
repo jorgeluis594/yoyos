@@ -39,8 +39,10 @@ export function metricsOfRun(records: readonly CaseRecord[]): RunMetrics {
   const messages = records.filter(({ pass }) => pass !== "image");
   const withFacts = messages.flatMap((record) => record.facts ? [record.facts] : []);
   const stated = (pick: (facts: StageFacts) => boolean | null) => withFacts.flatMap((facts) => { const value = pick(facts); return value === null ? [] : [value]; });
-  const urgentActual = withFacts.filter(({ decisionActual }) => decisionActual === "urgent");
-  const urgentExpected = withFacts.filter(({ decisionExpected }) => decisionExpected === "urgent");
+  // A path that states no decision (the legacy baseline) has no urgent share, precision or recall.
+  const decided = withFacts.filter(({ decision }) => decision !== null);
+  const urgentActual = decided.filter(({ decisionActual }) => decisionActual === "urgent");
+  const urgentExpected = decided.filter(({ decisionExpected }) => decisionExpected === "urgent");
   const cost = (group: Parameters<typeof sum>[1]) => mean(withFacts.map(({ stageCostsUsd }) => sum(stageCostsUsd, group)));
   const readings = withFacts.map(({ readingMs }) => readingMs);
   return {
@@ -51,7 +53,7 @@ export function metricsOfRun(records: readonly CaseRecord[]): RunMetrics {
     // Records without facts (the legacy reader path) keep the flags their scoring already set.
     silentWrongChanges: messages.filter((record) => record.facts ? silentWrongChangeOf(record.facts) : record.wrongSilentChange).length,
     ignoredRequests: messages.filter((record) => record.facts ? ignoredRequestOf(record.facts) : record.ignoredActions > 0).length,
-    urgentShare: withFacts.length ? urgentActual.length / withFacts.length : null,
+    urgentShare: decided.length ? urgentActual.length / decided.length : null,
     urgentPrecision: urgentActual.length ? urgentActual.filter(({ decisionExpected }) => decisionExpected === "urgent").length / urgentActual.length : null,
     urgentRecall: urgentExpected.length ? urgentExpected.filter(({ decisionActual }) => decisionActual === "urgent").length / urgentExpected.length : null,
     changedNotices: withFacts.filter(({ changedNotice }) => changedNotice).length,
