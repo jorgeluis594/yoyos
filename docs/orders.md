@@ -40,6 +40,14 @@ Every other order requires a seller, taken from the authenticated session.
 - An order always has at least one item. Chat messages can add items, remove an item, set its quantity or replace its variant (merging into the same variant if present), each recalculating subtotals and totals; removing the only item is refused. The seller of the company edits the items of a saved order from web ([Editing a saved order](#editing-a-saved-order)); mobile removes items and changes quantities only. For WhatsApp orders, every item a message changed is recorded (`OrderItemChange`) and the seller can undo one message, review the marks and confirm ([order-review](order-review.md)). A chat message never edits an order with a confirmed or reported payment, so it never makes an order due for stock deduction.
 - `total = itemsTotal + deliveryCharge`.
 
+## Item sale date
+
+Each `OrderItem` carries `orderCreatedAt`, a copy of its order's `createdAt`. It is internal: no contract, screen or tool shows it, and it is never set by hand. The database guarantees it with a composite foreign key `(companyId, orderCreatedAt, orderId)` → `Order (companyId, createdAt, id)` with `ON UPDATE CASCADE ON DELETE RESTRICT`, over the unique index `Order_companyId_createdAt_id_key`. Reason: the sales tools of the [AI assistants](assistants.md#sales-tools) decide «sold in the period» from `Order.createdAt` in some reads and from `orderCreatedAt` in others (the exact last and first sale of a variant), and a divergent row would put a product in both answers. A convention would depend on every writer, and triggers are a mechanism the repository has none of.
+
+- A value different from the order's is refused by the database. Every writer sets it from the order's `createdAt` in the statement that inserts the item; nested creates take it from the parent.
+- An order whose `createdAt` is moved (a test fixture that backdates it, a data fix) carries its items with it through the cascade, so a fixture that moves an order's date needs nothing more.
+- A raw insert of an item must include the column; it has no default.
+
 ## Mentioned price
 
 An item may keep the price the buyer mentioned in a chat (`mentionedPrice: { amount, units } | null` in `shared/contracts/orders.ts`; columns `mentionedPriceAmount` and `mentionedPriceUnits` on `OrderItem`, both or none, amount positive, units 1 to 99). The currency is the order's. It never changes the unit price, subtotal or total; its rules, including how a price for several units is read as per unit or for the lot, are in [message-to-order](message-to-order.md#rules).

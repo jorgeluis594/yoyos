@@ -58,8 +58,9 @@ const asCompany = <T>(companyId: string, work: () => Promise<T>) => withTenantIs
 let orderNumber = 1001n;
 async function orderWith(variantIds: readonly string[]) {
   const id = randomUUID();
-  await prisma.order.create({ data: { id, number: orderNumber++, currency: "PEN", total: 10, itemsTotal: 10, createdAt: new Date(), fromCatalog: true, checkoutEnabledAt: new Date() } });
-  for (const variantId of [...variantIds].sort()) await prisma.orderItem.create({ data: { orderId: id, variantId, productName: "Polo", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 } });
+  const createdAt = new Date();
+  await prisma.order.create({ data: { id, number: orderNumber++, currency: "PEN", total: 10, itemsTotal: 10, createdAt, fromCatalog: true, checkoutEnabledAt: new Date() } });
+  for (const variantId of [...variantIds].sort()) await prisma.orderItem.create({ data: { orderId: id, orderCreatedAt: createdAt, variantId, productName: "Polo", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 } });
   return id;
 }
 

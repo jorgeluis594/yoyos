@@ -4,7 +4,7 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { log } from "@core/src/shared/infrastructure/logger";
 import { getCompanyId, prisma, withinTransaction } from "@core/src/shared/infrastructure/persistance";
-import { isStatementTimeout } from "@core/src/features/products/infrastructure/statement-timeout";
+import { isStatementTimeout } from "@core/src/shared/infrastructure/statement-timeout";
 import type { ProductId } from "@core/src/features/products/domain/product";
 import { productNameFolds } from "@core/src/features/products/domain/product-name-key";
 import { allocateMentionWords, searchedWordCap, type TextMatchLimits } from "@core/src/features/products/domain/message-words";

@@ -34,9 +34,10 @@ test("findOrderedVariantIds counts unconfirmed catalog orders", async () => {
       expect(await findOrderedVariantIds([sold, unsold])).toEqual(ok(new Set()));
       expect(await findOrderedVariantIds([])).toEqual(ok(new Set()));
       const orderId = randomUUID();
+      const createdAt = new Date();
       // An open catalog order: nobody has confirmed checkout yet.
-      await prisma.order.create({ data: { id: orderId, number: 2001n, currency: "PEN", total: 10, itemsTotal: 10, createdAt: new Date(), fromCatalog: true, sellerId: null, checkoutEnabledAt: new Date() } });
-      await prisma.orderItem.create({ data: { orderId, variantId: sold, productName: "Sample product", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 } });
+      await prisma.order.create({ data: { id: orderId, number: 2001n, currency: "PEN", total: 10, itemsTotal: 10, createdAt, fromCatalog: true, sellerId: null, checkoutEnabledAt: new Date() } });
+      await prisma.orderItem.create({ data: { orderId, orderCreatedAt: createdAt, variantId: sold, productName: "Sample product", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 } });
       expect(await findOrderedVariantIds([sold, unsold, randomUUID() as VariantId])).toEqual(ok(new Set([sold])));
     });
     await withTenantIsolation(b.companyId, async () => expect(await findOrderedVariantIds([sold])).toEqual(ok(new Set())));

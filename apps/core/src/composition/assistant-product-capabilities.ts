@@ -11,6 +11,7 @@ import type { FoundProduct } from "@core/src/features/products/application/find-
 import type { AssistantReadError } from "@core/src/features/products/application/assistant-read";
 import { authIssuer } from "@core/src/shared/infrastructure/auth";
 import { log } from "@core/src/shared/infrastructure/logger";
+import { createReadSlots } from "@core/src/composition/assistant-read-slots";
 import type { AssistantAccess } from "@core/src/features/assistants/application/resolve-assistant-access";
 import type { ToolRunError } from "@core/src/features/assistants/application/answer-tool-call";
 import type {
@@ -35,31 +36,6 @@ export type ProductCapabilityPorts = Readonly<{
   slots: number;                                // product reads in flight at once, per process
   slotWaitMs: number;                           // how long a call waits for a slot before answering the reading-failure text
 }>;
-
-/** A counting semaphore whose `acquire` gives up after `waitMs`; it runs before the transaction opens, so the wait is outside the transaction budget. */
-function createSlots(count: number) {
-  let free = count;
-  const waiting: Array<() => void> = [];
-  const release = () => {
-    const next = waiting.shift();
-    if (next) next(); else free += 1;
-  };
-  return {
-    async acquire(waitMs: number): Promise<{ release: () => void; waitedMs: number } | null> {
-      const started = Date.now();
-      if (free > 0) { free -= 1; return { release, waitedMs: 0 }; }
-      return new Promise((resolve) => {
-        const grant = () => { clearTimeout(timer); resolve({ release, waitedMs: Date.now() - started }); };
-        const timer = setTimeout(() => {
-          const at = waiting.indexOf(grant);
-          if (at >= 0) waiting.splice(at, 1);
-          resolve(null);
-        }, waitMs);
-        waiting.push(grant);
-      });
-    },
-  };
-}
 
 const failure = (): ToolRunError => ({ code: "FAILURE", message: productReadFailureMessage });
 
@@ -93,7 +69,7 @@ function projectStorefront(state: StorefrontState, makeUrl: ProductCapabilityPor
 }
 
 export function createProductToolsDependencies(ports: ProductCapabilityPorts): ProductToolsDependencies {
-  const slots = createSlots(ports.slots);
+  const slots = createReadSlots(ports.slots, ports.slotWaitMs);
 
   const customerLink = (state: StorefrontState, productId: string, currency: string, inCatalog: boolean): string | null =>
     state.catalog.kind === "published" && inCatalog && currency === state.currency ? ports.storeUrl(state.catalog.subdomain, `/productos/${productId}`) : null;
@@ -122,7 +98,7 @@ export function createProductToolsDependencies(ports: ProductCapabilityPorts): P
 
   /** Takes a slot, runs one budgeted snapshot, and turns any read failure into the logged reading-failure answer. */
   async function guarded<T>(tool: string, operation: AssistantReadOperation, access: AssistantAccess, work: () => Promise<Result<T, ReadError | SearchForAssistantError>>): Promise<Result<T, ToolRunError>> {
-    const slot = await slots.acquire(ports.slotWaitMs);
+    const slot = await slots.acquire();
     if (!slot) {
       log.warn({ event: "assistant_product_reads_busy", companyId: access.companyId, connectionId: access.connectionId, tool, waitedMs: ports.slotWaitMs }, "assistant_product_reads_busy");
       return err(failure());

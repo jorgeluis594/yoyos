@@ -9,6 +9,11 @@ import { deleteSeededProducts, seedProduct } from "@core/src/features/products/i
 import { assistantConnections, authorizationFor } from "@core/src/features/assistants/composition";
 import type { AssistantConnectionId } from "@core/src/features/assistants/domain/assistant-connection";
 import type { SignedAuthorizationRequest } from "@core/src/features/assistants/application/authorize-assistant";
+import { toolModules } from "@core/src/composition/assistant-tools";
+
+// The six order and product tools plus whatever the sales module registers; the nine names are pinned by the sales acceptance test.
+const expectedToolNames = [...["buscar_pedidos", "buscar_productos", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "ver_pedido", "ver_producto"],
+  ...toolModules.filter((module) => module.scopes.length === 2).flatMap((module) => module.tools.map((tool) => tool.name))].sort();
 
 const baseUrl = process.env.BETTER_AUTH_URL ?? "http://localhost:3000";
 const resource = `${baseUrl}/mcp`;
@@ -146,7 +151,7 @@ async function seedStore(owner: Owner, orders: readonly SeedOrder[], stock = 10)
         scheduledDispatchDate: order.date ? new Date(`${order.date}T00:00:00Z`) : null, delivery: (order.delivery ?? Prisma.JsonNull) as never, sellerId: catalog ? null : owner.userId } });
       const buyer = order.buyer === undefined ? { name: "Cliente", phone: "+51911222333" } : order.buyer;
       if (buyer) await prisma.orderBuyer.create({ data: { orderId: id, name: buyer.name, phone: buyer.phone } });
-      await prisma.orderItem.create({ data: { orderId: id, variantId: variant, productName: "Camisa", variantAttributes: { Talla: "M" }, quantity: BigInt(quantity),
+      await prisma.orderItem.create({ data: { orderId: id, orderCreatedAt: new Date("2026-10-20T15:00:00Z"), variantId: variant, productName: "Camisa", variantAttributes: { Talla: "M" }, quantity: BigInt(quantity),
         unitPrice: new Prisma.Decimal(order.total / quantity), subtotal: new Prisma.Decimal(order.total) } });
       if (order.paid) await prisma.payment.create({ data: { id: randomUUID(), orderId: id, status: "confirmed", amount: new Prisma.Decimal(order.paid), currency: "PEN", method: "bank_transfer",
         data: { confirmedAt: "2026-10-21T15:00:00.000Z", confirmedBy: { kind: "seller", userId: owner.userId }, evidence: { kind: "manual" } } } });
@@ -178,7 +183,7 @@ test("lists the four order tools and the two product tools for a connected store
   const token = await connectAgent(rosa, await registerClient());
   const response = await readRpc(await mcp(token, rpc("tools/list")));
   const tools = response.result.tools as { name: string; annotations: Record<string, boolean> }[];
-  expect(tools.map((tool) => tool.name).sort()).toEqual(["buscar_pedidos", "buscar_productos", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "ver_pedido", "ver_producto"]);
+  expect(tools.map((tool) => tool.name).sort()).toEqual(expectedToolNames);
   for (const tool of tools) expect(tool.annotations).toMatchObject({ readOnlyHint: true, destructiveHint: false });
 });
 
@@ -214,7 +219,7 @@ test("re-authorizes an agent registered before products with its own client and 
   expect(rows[0]!.scopes.toSorted()).toEqual(["orders:read", "products:read"]);
   expect((await systemPrisma.oauthClient.findUniqueOrThrow({ where: { clientId } })).scopes.toSorted()).toEqual(["offline_access", "orders:read", "products:read"]);
   const tools = (await readRpc(await mcp(token, rpc("tools/list")))).result.tools as { name: string }[];
-  expect(tools.map((tool) => tool.name).sort()).toEqual(["buscar_pedidos", "buscar_productos", "pedidos_por_cobrar", "pedidos_por_despachar_hoy", "ver_pedido", "ver_producto"]);
+  expect(tools.map((tool) => tool.name).sort()).toEqual(expectedToolNames);
 });
 
 test("revokes the old grant's refresh tokens when an orders-only connection is re-authorized before its next call", async () => {

@@ -101,8 +101,8 @@ test("the migrated schema allows inactive variants and rejects invalid statuses,
     await expect(db.query(`UPDATE "Product" SET "structureVersion" = -1`)).rejects.toMatchObject({ code: "23514", constraint: "Product_structureVersion_valid" });
     const order = randomUUID();
     await db.query(`INSERT INTO "Order" (id, number, "companyId", "fromCatalog", currency, total, "itemsTotal", "createdAt", "checkoutEnabledAt") VALUES ($1, 1001, $2, true, 'PEN', 10, 10, now(), now())`, [order, companyId]);
-    const item = (attributes: unknown) => db.query(`INSERT INTO "OrderItem" (id, "companyId", "orderId", "variantId", "productName", "variantAttributes", quantity, "unitPrice", subtotal)
-      SELECT $1, $2, $3, id, 'Camisa', $4::json, 1, 10, 10 FROM "ProductVariant" WHERE "combinationKey" = 'a'`, [randomUUID(), companyId, order, JSON.stringify(attributes)]);
+    const item = (attributes: unknown) => db.query(`INSERT INTO "OrderItem" (id, "companyId", "orderId", "orderCreatedAt", "variantId", "productName", "variantAttributes", quantity, "unitPrice", subtotal)
+      SELECT $1, $2, $3, (SELECT "createdAt" FROM "Order" WHERE id = $3), id, 'Camisa', $4::json, 1, 10, 10 FROM "ProductVariant" WHERE "combinationKey" = 'a'`, [randomUUID(), companyId, order, JSON.stringify(attributes)]);
     await expect(item({ Talla: 1 })).rejects.toMatchObject({ code: "23514", constraint: "OrderItem_attributes_object" });
     await expect(item(["M"])).rejects.toMatchObject({ code: "23514", constraint: "OrderItem_attributes_object" });
     await item({ Talla: "M" });
