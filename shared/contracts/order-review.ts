@@ -14,6 +14,7 @@ type DoubtReason =
   | { kind: "quantity_set"; quantity: number }
   | { kind: "added_by_reference"; quantity: number; quote: number | null }
   | { kind: "removed"; product: string }
+  | { kind: "price_noted"; amount: number; units: number }
   | { kind: "caption_unread" }
   | { kind: "inherited"; from: DoubtReason };
 /** Reasons travel as structured kinds; clients render them. */
@@ -22,6 +23,7 @@ export const doubtReasonSchema: z.ZodType<DoubtReason> = z.lazy(() => z.discrimi
   z.strictObject({ kind: z.literal("quantity_set"), quantity: z.number().int().positive().safe() }),
   z.strictObject({ kind: z.literal("added_by_reference"), quantity: z.number().int().positive().safe(), quote: count.nullable() }),
   z.strictObject({ kind: z.literal("removed"), product: z.string() }),
+  z.strictObject({ kind: z.literal("price_noted"), amount: z.number().positive(), units: z.number().int().positive().safe() }),
   z.strictObject({ kind: z.literal("caption_unread") }),
   z.strictObject({ kind: z.literal("inherited"), from: doubtReasonSchema }),
 ]));
