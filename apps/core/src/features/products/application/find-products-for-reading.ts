@@ -10,7 +10,7 @@ type InvalidStoredData = Readonly<{ code: "INVALID_STORED_DATA"; message: string
 
 /** What one read snapshot returns for a set of products; the rows are validated by the reader. */
 export type ReadingRows = Readonly<{
-  products: readonly Readonly<{ id: ProductId; name: string; status: string }>[];
+  products: readonly Readonly<{ id: ProductId; name: string; status: string; hidden: boolean }>[];
   /** Active variants of those products. */
   variants: readonly Readonly<{ id: VariantId; productId: ProductId; sku: string | null; unitPrice: Money }>[];
   /** One row per variant option, with the stored positions of the option and of its value. */
@@ -42,8 +42,8 @@ export function buildProductsForReading(productIds: readonly ProductId[], rows: 
   return [...new Set(productIds)].flatMap((productId) => {
     const product = productsById.get(productId);
     if (!product) return [];
-    const active = product.status === "active";
-    const variants = active ? rows.variants.filter((variant) => variant.productId === productId)
+    const offered = product.status === "active" && !product.hidden;
+    const variants = offered ? rows.variants.filter((variant) => variant.productId === productId)
       .map((variant) => ({ variant, options: optionsOf.get(variant.id) ?? [] }))
       .sort((left, right) => compareVariants(left.options, right.options, left.variant.id, right.variant.id)) : [];
     const attributes = new Map<string, { position: number; values: Map<string, number> }>();
@@ -57,7 +57,7 @@ export function buildProductsForReading(productIds: readonly ProductId[], rows: 
       variantAttributes: Object.fromEntries(options.map((option) => [option.optionName, option.valueName])),
     }));
     return [{
-      productId, name: product.name, sellable: items.length > 0,
+      productId, name: product.name, hidden: product.hidden, sellable: items.length > 0,
       attributes: [...attributes].sort(([, left], [, right]) => left.position - right.position)
         .map(([name, { values }]) => ({ name, values: [...values].sort(([, left], [, right]) => left - right).map(([value]) => value) })),
       variants: items,

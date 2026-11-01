@@ -32,7 +32,7 @@ import { findVariantPhotos } from "@core/src/features/products/application/varia
 import { findVariantImages } from "@core/src/features/products/infrastructure/variant-photo-repository";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { catalogSearchReadiness } from "@core/src/features/products/application/catalog-search-readiness";
-import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
+import { productPresence } from "@core/src/features/products/infrastructure/catalog-search-readiness";
 import { findProductsForReading } from "@core/src/features/products/application/find-products-for-reading";
 import { findMessageCandidates } from "@core/src/features/products/application/find-message-candidates";
 import { readProductRowsForReading } from "@core/src/features/products/infrastructure/reading-products";
@@ -144,7 +144,7 @@ const messageCandidateLimits = createMessageCandidateLimits(process.env);
 
 const visualSearchSetup = createVisualSearch(process.env);
 export const imageEmbedder = visualSearchSetup.embedder;
-const readinessDependencies = { visualModel: visualSearchSetup.visual?.model ?? null, hasActiveProducts, hasIndexedProducts };
+const readinessDependencies = { visualModel: visualSearchSetup.visual?.model ?? null, productPresence, hasIndexedProducts };
 
 const identificationDependencies = {
   readQrCodes,

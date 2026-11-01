@@ -10,7 +10,7 @@ import { coverageQuery, searchProductsByCoverage } from "@core/src/features/prod
 import { findMessageCandidates } from "@core/src/features/products/application/find-message-candidates";
 import { defaultTextMatchLimits, searchedWords } from "@core/src/features/products/domain/message-words";
 import { catalogNames, insertProductNames } from "@core/src/features/products/infrastructure/message-candidates-fixtures";
-import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
+import { productPresence } from "@core/src/features/products/infrastructure/catalog-search-readiness";
 import { catalogSearchReadiness } from "@core/src/features/products/application/catalog-search-readiness";
 import { hasIndexedProducts } from "@core/src/features/products/infrastructure/image-embeddings";
 import type { EmbeddingModel, EmbeddingVector } from "@core/src/features/products/domain/image-identification";
@@ -45,7 +45,7 @@ afterAll(async () => {
 });
 
 test("search readiness reports no searchable photos until an active product image is embedded", async () => {
-  const deps = (visualModel: EmbeddingModel | null) => ({ visualModel, hasActiveProducts, hasIndexedProducts });
+  const deps = (visualModel: EmbeddingModel | null) => ({ visualModel, productPresence, hasIndexedProducts });
   const empty = randomUUID();
   await withTenantIsolation(empty, async () => await prisma.company.create({ data: { id: empty, name: empty, country: "PE" } }));
   expect(await withTenantIsolation(empty, () => catalogSearchReadiness(deps(model)))).toEqual({ success: true, data: "no_active_products" });

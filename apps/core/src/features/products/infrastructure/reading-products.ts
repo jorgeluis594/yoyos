@@ -7,7 +7,7 @@ import { getCompanyId, prisma, withinReadSnapshot } from "@core/src/shared/infra
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 import type { ReadingRows } from "@core/src/features/products/application/find-products-for-reading";
 
-const productRowSchema = z.object({ id: z.uuid(), name: z.string(), currency: z.enum(currencies), status: z.string() });
+const productRowSchema = z.object({ id: z.uuid(), name: z.string(), currency: z.enum(currencies), status: z.string(), hidden: z.boolean() });
 const variantRowSchema = z.object({ id: z.uuid(), productId: z.uuid(), sku: z.string().nullable(), salePrice: z.instanceof(Prisma.Decimal) });
 const optionRowSchema = z.object({ variantId: z.uuid(), optionName: z.string(), optionPosition: z.number().int(), valueName: z.string(), valuePosition: z.number().int() });
 
@@ -23,8 +23,9 @@ export async function readProductRowsForReading(productIds: readonly ProductId[]
   const companyId = getCompanyId();
   try {
     const { products, variants, options } = await withinReadSnapshot(async () => {
-      const products = await prisma.product.findMany({ where: { companyId, id: { in: [...productIds] } }, select: { id: true, name: true, currency: true, status: true } });
-      const variants = await prisma.productVariant.findMany({ where: { companyId, productId: { in: [...productIds] }, status: "active" },
+      const products = await prisma.product.findMany({ where: { companyId, id: { in: [...productIds] } }, select: { id: true, name: true, currency: true, status: true, hidden: true } });
+      const visibleIds = products.filter(({ hidden }) => !hidden).map(({ id }) => id);
+      const variants = await prisma.productVariant.findMany({ where: { companyId, productId: { in: visibleIds }, status: "active" },
         select: { id: true, productId: true, sku: true, salePrice: true } });
       const options = variants.length ? await prisma.$queryRaw<unknown[]>(Prisma.sql`
         SELECT l."variantId" AS "variantId", o.name AS "optionName", o.position AS "optionPosition", v.name AS "valueName", v.position AS "valuePosition"
@@ -43,7 +44,7 @@ export async function readProductRowsForReading(productIds: readonly ProductId[]
     }
     const currencyOf = new Map(parsedProducts.data.map(({ id, currency }) => [id, currency]));
     const rows: ReadingRows = {
-      products: parsedProducts.data.map(({ id, name, status }) => ({ id: id as ProductId, name, status })),
+      products: parsedProducts.data.map(({ id, name, status, hidden }) => ({ id: id as ProductId, name, status, hidden })),
       variants: parsedVariants.data.flatMap(({ id, productId, sku, salePrice }) => {
         const currency = currencyOf.get(productId);
         return currency ? [{ id: id as VariantId, productId: productId as ProductId, sku, unitPrice: { amount: salePrice.toNumber(), currency } }] : [];
