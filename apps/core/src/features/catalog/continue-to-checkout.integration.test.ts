@@ -29,8 +29,8 @@ import { findOrderAggregate } from "@core/src/features/orders/infrastructure/ord
 const afterSellableRead = vi.hoisted(() => ({ run: undefined as (() => Promise<void>) | undefined }));
 vi.mock("@core/src/features/products/infrastructure/order-stock", async (importOriginal) => {
   const original = await importOriginal<typeof import("@core/src/features/products/infrastructure/order-stock")>();
-  return { ...original, findSellableVariants: async (ids: readonly string[]) => {
-    const found = await original.findSellableVariants(ids);
+  return { ...original, findOfferedVariants: async (ids: readonly string[]) => {
+    const found = await original.findOfferedVariants(ids);
     const hook = afterSellableRead.run;
     afterSellableRead.run = undefined;
     await hook?.();
@@ -277,6 +277,39 @@ test("Continuar with a deactivated variant marks the line unavailable and create
   expect(await withTenantIsolation(companyId, async () => await prisma.order.count({ where: { id: orderId } }))).toBe(0);
   const refreshed = await catalogCart.refresh(await storefrontOf(companyId), [black, beige]);
   expect(refreshed.success && refreshed.data.map(({ variantId }) => variantId)).toEqual([black]);
+});
+
+const hide = (companyId: CompanyId, variantId: VariantId) => withTenantIsolation(companyId, async () => {
+  const variant = await prisma.productVariant.findUniqueOrThrow({ where: { id: variantId } });
+  await prisma.product.update({ where: { id: variant.productId }, data: { hidden: true } });
+});
+
+test("cart refresh marks a hidden line unavailable", async () => {
+  const { companyId, black } = await store();
+  await hide(companyId, black);
+  const refreshed = await catalogCart.refresh(await storefrontOf(companyId), [black]);
+  expect(refreshed).toEqual({ success: true, data: [] });
+});
+
+test("Continuar with a hidden line creates no order", async () => {
+  const { companyId, black } = await store();
+  await hide(companyId, black);
+  const before = await nextNumber(companyId);
+  const orderId = randomUUID() as OrderId;
+  expect(await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1)] }, await storefrontOf(companyId)))
+    .toMatchObject({ success: false, error: { code: "LINES_UNAVAILABLE", issues: [{ variantId: black, reason: "unavailable" }] } });
+  expect(await nextNumber(companyId)).toBe(before);
+  expect(await withTenantIsolation(companyId, async () => await prisma.order.count({ where: { id: orderId } }))).toBe(0);
+});
+
+test("Continuar on an unchanged cart returns the pending catalog order holding a hidden line", async () => {
+  const { companyId, black } = await store();
+  const orderId = randomUUID() as OrderId;
+  const created = await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1)] }, await storefrontOf(companyId));
+  if (!created.success) throw new Error(created.error.code);
+  await hide(companyId, black);
+  expect(await catalogCart.continueToCheckout({ orderId, lines: [line(black, 1)] }, await storefrontOf(companyId)))
+    .toMatchObject({ success: true, data: { id: orderId, number: created.data.number } });
 });
 
 test("a variant deleted after the cart was checked marks the line unavailable and leaves no order nor number", async () => {
