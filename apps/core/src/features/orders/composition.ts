@@ -60,6 +60,11 @@ import { createChatMessageDeadLetterHandler, createChatMessageHandler, type Chat
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
 import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { findLaterChanges, findMessageChanges, findUnverdictedChanges, markMessageUndone, saveMessageChanges, saveSellerActedAt, setUndoneVerdicts, setVerdictsForEdit } from "@core/src/features/orders/infrastructure/message-change-repository";
+import { undoMessageChanges, type UndoMessageError, type UndoMessageInput } from "@core/src/features/orders/application/undo-message-changes";
+import { isOpenForMessageItems } from "@core/src/features/orders/domain/message-order";
+import type { OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
+import type { OrderReviewResponse } from "@shared/contracts/order-review";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
@@ -575,6 +580,9 @@ export async function editConfiguredOrder(input: EditOrderInput, access: OrderAc
     publishStockIncreased: (variantIds) => { observed.stage = "restock"; return publishStockEvent("product_stock_increased", { companyId: access.companyId, variantIds }); },
     findVariantStock,
     newItemId: () => randomUUID() as OrderItemId,
+    setVerdictsForEdit,
+    saveSellerActedAt,
+    clock: () => new Date(),
   });
   const durationMs = Math.round(performance.now() - started);
   const parts = (["items", "customer", "delivery"] as const).filter((part) => input[part] !== undefined);
@@ -602,6 +610,38 @@ export async function editConfiguredOrder(input: EditOrderInput, access: OrderAc
     log.debug({ event: "order_edit_rejected", ...base, errorCode: error.code, stage: editStage(error.code, observed.stage), durationMs }, "Order edit rejected");
   }
   return result;
+}
+
+/** Undo runs in a producer-style transaction: lock waits end below Prisma's timer. The order lock comes first, then the chat's pendings, as the message apply does. */
+async function undoConfiguredMessage(input: UndoMessageInput, access: OrderAccess) {
+  const undone = await undoMessageChanges(input, access, {
+    transaction: (companyId, work) => producerTransaction(companyId, work),
+    findOrderForUpdate,
+    findChatPendingsForUpdate,
+    findMessageChanges,
+    findLaterChanges,
+    findSellableVariants,
+    saveItemChanges: saveOrderItemChanges,
+    saveChatPendings,
+    markMessageUndone,
+    setUndoneVerdicts,
+    saveSellerActedAt,
+    clock: () => new Date(),
+    newItemId: () => randomUUID() as OrderItemId,
+    pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs,
+  });
+  if (undone.success && undone.data.undone) afterTransactionCommit(() => log.info({ event: "order_message_undone", companyId: access.companyId, orderId: input.orderId,
+    messageId: input.messageId, userId: access.userId, changeCount: undone.data.changeCount, pendingsRestored: undone.data.pendingsRestored, pendingsEnded: undone.data.pendingsEnded }, "order_message_undone"));
+  return undone satisfies Result<unknown, UndoMessageError>;
+}
+
+/**
+ * The review the undo answers with until the review core builds the full projection: nothing to review, no rows, and the items revision and `changesThrough` 0 as loaded.
+ * The review core replaces it with `loadOrderReview` in this one place.
+ */
+async function minimalReviewOf(order: OrderAggregate): Promise<Result<OrderReviewResponse, never>> {
+  return ok({ version: 1, status: { openForMessages: order.chatId ? isOpenForMessageItems(order, order.chatId) : false, toReview: false, doubtfulCount: 0, pointCount: 0, entry: "none", hasPreviousReview: false },
+    doubtful: [], points: [], products: [], removedSinceLastReview: [], messageRows: [], moreRows: 0, loaded: { changesThrough: 0, changeIds: [], points: [], itemsRevision: orderRevisions(order).items } });
 }
 
 /** Whether the stored order already locks its products: the card shows no stock warning then, so the stock is not read. */
@@ -651,6 +691,8 @@ export const orders = {
   },
   setDelivery: (input: SetDeliveryInput, context: OrderAccess) => setConfiguredOrderDelivery(input, context),
   edit: (input: EditOrderInput, access: OrderAccess) => editConfiguredOrder(input, access),
+  undoMessage: (input: UndoMessageInput, access: OrderAccess) => undoConfiguredMessage(input, access),
+  reviewAfterUndo: minimalReviewOf,
   revisions: orderRevisions,
   lineCatalog,
   createCatalogOrder: createConfiguredCatalogOrder,
@@ -818,6 +860,9 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   saveNewOrder: (order, link) => savePendingOrder(order, link),
   saveItemChanges: saveChatItemChanges,
   recordOrderMessage: recordProcessedMessage,
+  findUnverdictedChanges,
+  saveMessageChanges,
+  newChangeId: () => randomUUID() as OrderItemChangeId,
   recordOutcome,
   newOrderId: () => randomUUID() as OrderId,
   newItemId: () => randomUUID() as OrderItemId,

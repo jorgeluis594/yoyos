@@ -67,7 +67,7 @@ export async function undoMessageChanges(input: UndoMessageInput, access: OrderA
       return err({ code: "MESSAGE_CHANGES_NOT_FOUND", message: "The message changed nothing in this order" });
     const stored = await deps.findChatPendingsForUpdate(order.chatId);
     if (!stored.success) return stored;
-    if (message.data.undoneAt) return ok({ order, undone: false, changeCount: 0, pendingsRestored: 0, pendingsEnded: 0 });
+    if (message.data.undoneAt) return ok<UndoneMessage>({ order, undone: false, changeCount: 0, pendingsRestored: 0, pendingsEnded: 0 });
 
     const lastSeq = Math.max(0, ...message.data.changes.map((change) => change.seq));
     const later = await deps.findLaterChanges(input.orderId, lastSeq);
@@ -97,6 +97,6 @@ export async function undoMessageChanges(input: UndoMessageInput, access: OrderA
     if (!verdicts.success) return verdicts;
     const acted = await deps.saveSellerActedAt(input.orderId, access.companyId, now);
     if (!acted.success) return acted;
-    return ok({ order: plan.data.order, undone: true, changeCount: message.data.changes.length, pendingsRestored: plan.data.pendingsRestored, pendingsEnded: plan.data.pendingsEnded });
+    return ok<UndoneMessage>({ order: plan.data.order, undone: true, changeCount: message.data.changes.length, pendingsRestored: plan.data.pendingsRestored, pendingsEnded: plan.data.pendingsEnded });
   });
 }

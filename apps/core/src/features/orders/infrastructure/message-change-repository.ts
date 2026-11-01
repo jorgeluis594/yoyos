@@ -59,8 +59,8 @@ export async function saveMessageChanges(changes: MessageChanges): Promise<Resul
     if (changes.changes.length > 0) {
       await prisma.orderItemChange.createMany({ data: changes.changes.map((change) => ({ id: change.id, companyId, orderId: change.orderId, messageId: change.messageId,
         position: change.position, seq: change.seq, kind: change.kind, itemId: (change.after ?? change.before)!.itemId,
-        before: change.before ? json(change.before) : Prisma.JsonNull, after: change.after ? json(change.after) : Prisma.JsonNull,
-        decision: change.decision.kind, doubt: change.decision.kind === "doubtful" ? json(change.decision.reason) : Prisma.JsonNull,
+        before: change.before ? json(change.before) : Prisma.DbNull, after: change.after ? json(change.after) : Prisma.DbNull,
+        decision: change.decision.kind, doubt: change.decision.kind === "doubtful" ? json(change.decision.reason) : Prisma.DbNull,
         quoteId: change.quoteId, createdAt: change.createdAt })) });
     }
     if (changes.supersedes.length > 0) {

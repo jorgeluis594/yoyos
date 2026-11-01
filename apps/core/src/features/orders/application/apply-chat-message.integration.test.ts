@@ -1,3 +1,5 @@
+import { findUnverdictedChanges, saveMessageChanges } from "@core/src/features/orders/infrastructure/message-change-repository";
+import type { OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
 import { randomUUID } from "node:crypto";
 import { afterEach, expect, test } from "vitest";
 import { Prisma } from "@prisma/client";
@@ -99,6 +101,9 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
     saveNewOrder: savePendingOrder,
     saveItemChanges: saveChatItemChanges,
     recordOrderMessage: recordProcessedMessage,
+    findUnverdictedChanges,
+    saveMessageChanges,
+    newChangeId: () => randomUUID() as OrderItemChangeId,
     recordOutcome,
     newOrderId: () => randomUUID() as OrderId,
     newItemId: () => randomUUID() as OrderItemId,
