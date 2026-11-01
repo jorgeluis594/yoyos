@@ -8,7 +8,7 @@ export type SuggestedQuestion = Readonly<{ language: BuyerLanguage } & (
   /** Two to four products. */
   | { kind: "which_product"; products: readonly string[] }
   | { kind: "variant_unavailable"; product: string; asked: string; attribute: string; values: readonly string[] }
-  | { kind: "variant_for_which"; value: string; products: readonly string[] }
+  | { kind: "variant_for_which"; attribute: string; value: string; products: readonly string[] }
   | { kind: "which_item_to_remove"; products: readonly string[] }
   | { kind: "which_product_for_value"; value: string; products: readonly string[] }
   | { kind: "another_of_which" }
@@ -24,7 +24,7 @@ export const suggestedQuestionSchema: z.ZodType<SuggestedQuestion> = z.discrimin
   z.strictObject({ language, kind: z.literal("which_variant"), product: text, attribute: text, values }),
   z.strictObject({ language, kind: z.literal("which_product"), products: z.array(text).min(2).max(4) }),
   z.strictObject({ language, kind: z.literal("variant_unavailable"), product: text, asked: text, attribute: text, values }),
-  z.strictObject({ language, kind: z.literal("variant_for_which"), value: text, products }),
+  z.strictObject({ language, kind: z.literal("variant_for_which"), attribute: text, value: text, products }),
   z.strictObject({ language, kind: z.literal("which_item_to_remove"), products }),
   z.strictObject({ language, kind: z.literal("which_product_for_value"), value: text, products }),
   z.strictObject({ language, kind: z.literal("another_of_which") }),

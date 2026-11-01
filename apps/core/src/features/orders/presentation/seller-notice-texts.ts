@@ -177,7 +177,7 @@ function textOf(notice: SellerNotice, texts: Texts, { names }: NoticeContext): T
   }
 }
 
-/** The texts of a notice in the device's language. A buyer's text, phone or WhatsApp id never reaches them. */
+/** The texts of a notice in the device's language. A buyer's message, phone or WhatsApp id never reaches them; the question names catalog products and attributes, plus the short value tokens the reader extracted. */
 export function renderSellerNotice(notice: SellerNotice, locale: NoticeLocale, context: NoticeContext): Result<RenderedSellerNotice, Readonly<{ code: "INVALID_NOTICE_DATA"; message: string; retryable: false }>> {
   const texts = textsOf[locale];
   const { title, body: ownBody } = textOf(notice, texts, context);
@@ -185,10 +185,11 @@ export function renderSellerNotice(notice: SellerNotice, locale: NoticeLocale, c
   const suffixes = "changedAfterLink" in notice || "question" in notice
     ? [notice.changedAfterLink ? texts.changedAfterLink : null, notice.question ? suggestedQuestionText(notice.question) : null].flatMap((text) => text ?? [])
     : [];
-  const body = [ownBody, ...suffixes].join(" ");
   const created = "newOrderId" in notice && notice.newOrderId ? context.names.orderNumbers.get(notice.newOrderId) : undefined;
+  // The new-order sentence belongs to the device's own text, so the question still closes the body.
+  const body = [ownBody, created === undefined ? null : texts.newOrderNote(created), ...suffixes].flatMap((text) => text ?? []).join(" ");
   // The data is the contract the phone parses on tap: a payload that does not match is never sent.
   const data = sellerNoticeDataSchema.safeParse({ v: 1, companyId: context.companyId, messageId: context.messageId, target: sellerNoticeTarget(notice).kind });
   if (!data.success) return err({ code: "INVALID_NOTICE_DATA", message: "Invalid seller notice data", retryable: false });
-  return ok({ title, body: created === undefined ? body : `${body} ${texts.newOrderNote(created)}`, data: data.data, groupKey: context.chatId });
+  return ok({ title, body, data: data.data, groupKey: context.chatId });
 }

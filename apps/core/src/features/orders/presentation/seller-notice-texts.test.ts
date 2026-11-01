@@ -185,11 +185,11 @@ describe("renderSellerNotice with the single reader", () => {
   test("renders the suggested question at the end of the body in the buyer's language", () => {
     const question = (language: "es" | "pt") => ({ language, kind: "which_variant", product: "Polo básico", attribute: "talla", values: ["S", "M", "L"] }) as const;
     const notice = (language: "es" | "pt"): SellerNotice => ({ kind: "variant_missing", productId: product(1), newOrderId: null, question: question(language) });
-    expect(es(notice("es")).body).toBe("Un cliente pidió Polo básico pero no dijo qué talla o color. Revisa el chat. ¿En qué talla quieres el Polo básico: S, M o L?");
-    expect(es(notice("es")).body.endsWith("¿En qué talla quieres el Polo básico: S, M o L?")).toBe(true);
-    expect(pt(notice("pt")).body.endsWith("Em qual tamanho você quer o Polo básico: S, M ou L?")).toBe(true);
+    expect(es(notice("es")).body).toBe("Un cliente pidió Polo básico pero no dijo qué talla o color. Revisa el chat. Polo básico: ¿en qué talla? Tenemos S, M y L.");
+    expect(es(notice("es")).body.endsWith("Polo básico: ¿en qué talla? Tenemos S, M y L.")).toBe(true);
+    expect(pt(notice("pt")).body.endsWith("Polo básico: em qual tamanho? Temos S, M e L.")).toBe(true);
     // The question is in the buyer's language, the rest in the device's.
-    expect(es(notice("pt")).body.endsWith("Em qual tamanho você quer o Polo básico: S, M ou L?")).toBe(true);
+    expect(es(notice("pt")).body.endsWith("Polo básico: em qual tamanho? Temos S, M e L.")).toBe(true);
   });
 
   test("appends the changed-after-link sentence in the device's language", () => {
@@ -200,7 +200,12 @@ describe("renderSellerNotice with the single reader", () => {
 
   test("puts the changed-after-link sentence before the question", () => {
     const notice: SellerNotice = { kind: "unnamed_add", newOrderId: null, changedAfterLink: true, question: { language: "es", kind: "photo_product_name" } };
-    expect(es(notice).body).toBe("Un cliente pidió más de un producto sin decir cuál. El pedido cambió después de enviar el enlace. ¿Cómo se llama el producto de la foto?");
+    expect(es(notice).body).toBe("Un cliente pidió más de un producto sin decir cuál. El pedido cambió después de enviar el enlace. ¿Me dices el nombre del producto de la foto?");
+  });
+
+  test("puts the new-order sentence before the question so the question closes the body", () => {
+    const notice: SellerNotice = { kind: "unnamed_add", newOrderId: order(2), question: { language: "es", kind: "photo_product_name" } };
+    expect(es(notice).body).toBe("Un cliente pidió más de un producto sin decir cuál. Se creó el pedido nuevo #1024. ¿Me dices el nombre del producto de la foto?");
   });
 
   test("writes the generic not-applied text with and without an order number", () => {

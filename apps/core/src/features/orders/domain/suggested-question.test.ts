@@ -6,7 +6,7 @@ const questions = [
   { language: "pt", kind: "which_variant", product: "Camisa", attribute: "Tamanho", values: [] },
   { language: "es", kind: "which_product", products: ["Polera roja", "Polera azul"] },
   { language: "es", kind: "variant_unavailable", product: "Polera", asked: "XL", attribute: "Talla", values: ["S"] },
-  { language: "pt", kind: "variant_for_which", value: "M", products: ["Polera", "Short"] },
+  { language: "pt", kind: "variant_for_which", attribute: "Talla", value: "M", products: ["Polera", "Short"] },
   { language: "es", kind: "which_item_to_remove", products: ["Polera", "Short"] },
   { language: "es", kind: "which_product_for_value", value: "rojo", products: ["Polera", "Short"] },
   { language: "es", kind: "another_of_which" },
