@@ -44,7 +44,7 @@ test("keeps the reasons and drops the quotes when the trace no longer exists", a
   expect(result).toMatchObject({ success: true, data: { doubtful: [{ quote: null, change: { decision: { reason: { kind: "added_by_reference" } } } }] } });
 });
 
-test("a second load reports nothing to review once the changes are reviewed", async () => {
+test("a review that showed a point acknowledges it and the next link action runs directly", async () => {
   const result = await loadOrderReview({ orderId }, access, deps({ findOrderChanges: async () => ok({ unreviewed: [], lastSeq: 1 as ChangeSeq, hasPreviousReview: true, rows: [], moreRows: 0, laterChanges: [] }),
     findChatPendings: async () => ok({ pendings: [{ ...pending, acknowledgedAt: at }], readyRemembered: false }) }));
   expect(result).toMatchObject({ success: true, data: { status: { toReview: false, hasPreviousReview: true }, doubtful: [] } });
