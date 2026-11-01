@@ -70,7 +70,9 @@ function masksOf(input: BuildMessageTraceInput, expiresAt: Date): readonly Maske
   for (const kept of context?.input.context ?? []) {
     const messageId: ChatMessageId | undefined = context?.contextMessageIds.get(kept.ref);
     if (kept.masked || kept.text === null || messageId === undefined || context?.masks.has(messageId)) continue;
-    masks.push({ messageId, text: maskPersonalData(kept.text, spansOf(intent, kept.ref)), expiresAt });
+    // A masked text expires after its own message, not after the current one.
+    const ownExpiry = new Date((kept.sentAt ?? message.receivedAt).getTime() + input.retentionDays * dayMs);
+    masks.push({ messageId, text: maskPersonalData(kept.text, spansOf(intent, kept.ref)), expiresAt: ownExpiry });
   }
   return masks;
 }

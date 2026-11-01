@@ -6,6 +6,7 @@ import { getCompanyId, prisma, requireActiveTransaction } from "@core/src/shared
 import { isPersistenceFailure } from "@core/src/shared/infrastructure/persistence-error";
 import { chatPendingsSchema, lastIncomingPhotoSchema, type ChatPendings, type LastIncomingPhoto } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
+import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 type InvalidStoredData = Readonly<{ code: "INVALID_STORED_DATA"; message: string }>;
@@ -93,6 +94,28 @@ export async function saveChatPendings(chatId: ChatId, set: ChatPendings, memory
   } catch (cause) {
     if (!isPersistenceFailure(cause)) throw cause;
     log.error({ event: "unable_to_save_chat_pendings", companyId, chatId, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_save_chat_pendings");
+    return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to save chat pendings" });
+  }
+}
+
+/**
+ * Part of the message transaction of a failed message: writes only the chat's last incoming photo, keeping the pendings, the remembered ready and
+ * `lastRequestAt`, and creating the row when the chat has none. The chat comes from the message, so a message that does not exist writes nothing.
+ */
+export async function saveLastIncomingPhotoOfMessageChat(messageId: ChatMessageId, memory: LastIncomingPhoto): Promise<Result<null, PersistenceError | InvalidStoredData>> {
+  const companyId = getCompanyId();
+  requireActiveTransaction(companyId);
+  if (!lastIncomingPhotoSchema.safeParse(JSON.parse(JSON.stringify(memory))).success) return err({ code: "INVALID_STORED_DATA", message: "Invalid last incoming photo" });
+  const stored = JSON.stringify(memory);
+  try {
+    await prisma.$executeRaw`INSERT INTO "ChatPendings" ("companyId", "chatId", "pendings", "readyRemembered", "lastIncomingPhoto", "updatedAt")
+      SELECT "companyId", "chatId", '[]'::jsonb, false, ${stored}::jsonb, now() FROM "ChatMessage"
+      WHERE "companyId" = ${companyId}::uuid AND "id" = ${messageId}::uuid
+      ON CONFLICT ("companyId", "chatId") DO UPDATE SET "lastIncomingPhoto" = EXCLUDED."lastIncomingPhoto", "updatedAt" = EXCLUDED."updatedAt"`;
+    return ok(null);
+  } catch (cause) {
+    if (!isPersistenceFailure(cause)) throw cause;
+    log.error({ event: "unable_to_save_chat_pendings", companyId, chatId: null, messageId, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "unable_to_save_chat_pendings");
     return err({ code: "PERSISTENCE_UNAVAILABLE", message: "Unable to save chat pendings" });
   }
 }

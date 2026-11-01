@@ -1,9 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { expect, test } from "vitest";
 import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@core/src/shared/infrastructure/persistance";
-import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
+import { recordFailedChatMessage } from "@core/src/features/orders/application/record-failed-chat-message";
+import { findOutcome, insertFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
+import { saveLastIncomingPhotoOfMessageChat } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import type { ChatMessageOutcomes } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
+
+const recordFailedOutcome = recordFailedChatMessage({ transaction: (work) => withinTransaction(work), insertFailedOutcome, saveLastIncomingPhotoOfMessageChat });
 
 async function fixture() {
   const companyId = randomUUID();

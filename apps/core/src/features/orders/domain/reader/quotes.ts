@@ -51,3 +51,18 @@ export function verifyIntentQuotes(intents: readonly RequestIntent[], input: Rea
   const found = (intent: RequestIntent) => isFound(intent.quote, input, true);
   return { kept: intents.filter(found), dropped: intents.filter((intent) => !found(intent)) };
 }
+
+export type QuoteDrop = Readonly<{ requestKind: RequestIntent["kind"]; field: "intent" | "target" | "values" | "quantity" | "price" | "change_verb" }>;
+
+const namedQuoteOf = (target: TargetReference): Quote | null => (target.kind === "named" ? target.words : target.kind === "item" || target.kind === "pending" ? target.named : null);
+
+/** What verifying the quotes took from a request, by field: for the `reader_quote_dropped` log. */
+export function droppedFields(before: ExtractedRequest, after: ExtractedRequest): readonly QuoteDrop["field"][] {
+  const dropped: QuoteDrop["field"][] = [];
+  if (namedQuoteOf(before.target) !== null && namedQuoteOf(after.target) === null) dropped.push("target");
+  if (after.values.length < before.values.length) dropped.push("values");
+  if (before.quantity && !after.quantity) dropped.push("quantity");
+  if (before.price && !after.price) dropped.push("price");
+  if (before.changeVerb && !after.changeVerb) dropped.push("change_verb");
+  return dropped;
+}

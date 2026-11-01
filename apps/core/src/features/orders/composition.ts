@@ -75,7 +75,8 @@ import { createLegacyShadowReader } from "@core/src/features/orders/application/
 import { readShadowConfig } from "@core/src/features/orders/infrastructure/reader/shadow-config";
 import { priceOf } from "@core/src/shared/infrastructure/model-prices";
 import { readChatReaderEnv } from "@core/src/features/orders/infrastructure/chat-reader-env";
-import { findChatMemory, findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { findChatMemory, findChatPendings, findChatPendingsForUpdate, saveChatPendings, saveLastIncomingPhotoOfMessageChat } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { recordFailedChatMessage } from "@core/src/features/orders/application/record-failed-chat-message";
 import { confirmOrderReview, type ConfirmOrderReviewInput } from "@core/src/features/orders/application/confirm-order-review";
 import { loadOrderReview, type LoadOrderReviewInput } from "@core/src/features/orders/application/load-order-review";
 import { recordLinkAction, type RecordLinkActionInput } from "@core/src/features/orders/application/record-link-action";
@@ -88,7 +89,7 @@ import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructur
 import { readerStagesFromEnv } from "@core/src/features/orders/infrastructure/reader/runtime/reader-stages-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
-import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
+import { findOutcome, insertFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import { claimNotice, releaseNotice } from "@core/src/features/orders/infrastructure/chat-message-notice-repository";
 import type { ClaimedNotice } from "@core/src/features/orders/domain/seller-notice";
 import { describeChatMessageNotice as describeNotice, type NoticeLocale } from "@core/src/features/orders/application/describe-chat-message-notice";
@@ -1013,7 +1014,7 @@ const publishChatMessageProcessed: PublishChatMessageProcessed = async (payload)
 const chatMessageHandlerDependencies: ChatMessageHandlerDependencies = {
   withTenant: withTenantIsolation,
   apply: (input, signal) => applyChatMessage(input, chatMessageDependencies, signal),
-  recordFailedOutcome,
+  recordFailedOutcome: recordFailedChatMessage({ transaction: (work) => scopedOrderTransaction(getCompanyId(), work), insertFailedOutcome, saveLastIncomingPhotoOfMessageChat }),
   publishNotice: publishChatMessageProcessed,
   deadlineMs: chatMessageDeadlineMs,
   retries: chatMessagePolicy.retries,

@@ -100,7 +100,7 @@ describe("runReading", () => {
     const { deps, log } = fakes({ intent: { kind: "requests", requests: [intent("R1", "add", "una casaca roja")], language: "es", addresses: [] } });
     const run = await runReading(deps, context, [], signal());
 
-    expect(run.success && run.data.primary).toMatchObject({ droppedIntents: 1, chain: null });
+    expect(run.success && run.data.primary).toMatchObject({ droppedIntents: 1, chain: null, quoteDrops: [{ requestKind: "add", field: "intent" }] });
     expect(log.calls).toEqual(["intent:primary"]);
   });
 

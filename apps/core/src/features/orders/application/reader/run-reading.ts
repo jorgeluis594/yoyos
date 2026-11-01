@@ -9,7 +9,7 @@ import type { ReaderStages, StageError, StageResult } from "@core/src/features/o
 import { maxReaderActions } from "@core/src/features/orders/domain/chat-reading";
 import { assembleCandidates, type MentionSearch } from "@core/src/features/orders/domain/reader/candidates";
 import { maskStageOutput, type StoredStageOutput } from "@core/src/features/orders/domain/reader/masking";
-import { verifyIntentQuotes, verifyQuotes, type VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
+import { droppedFields, verifyIntentQuotes, verifyQuotes, type QuoteDrop, type VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
 import type { AddressSpan, ExtractedRequest, IntentReading, ProductMention, ProductResolution, ReaderStage, Reading, ReadingInput, RequestIntent, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
 import type { StageInputSummary, TraceStage } from "@core/src/features/orders/domain/reader/trace";
 
@@ -47,6 +47,8 @@ export type PrimaryReading = Readonly<{
   /** The first request beyond `maxReaderActions`, which is cut: the message then reports `too_many_actions`. */
   overflow: RequestRef | null;
   droppedIntents: number;
+  /** What the quote verification took, for `reader_quote_dropped`: dropped intents and dropped data of the primary extraction. */
+  quoteDrops: readonly QuoteDrop[];
   chain: ChainResult | null;
   catalog: ReadingCatalog;
 }>;
@@ -135,11 +137,12 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   const intent = intentResult.data.value;
   read = intent;
   const empty: ReadingCatalog = { products: [], searchMs: null, matchCount: null, timedOut: false };
-  if (intent.kind !== "requests") return ok({ primary: { intent, intents: [], overflow: null, droppedIntents: 0, chain: null, catalog: empty }, confirming: null, records });
+  if (intent.kind !== "requests") return ok({ primary: { intent, intents: [], overflow: null, droppedIntents: 0, quoteDrops: [], chain: null, catalog: empty }, confirming: null, records });
 
   const overflow = intent.requests[maxReaderActions]?.id ?? null;
   const { kept: intents, dropped } = verifyIntentQuotes(intent.requests.slice(0, maxReaderActions), input);
-  if (intents.length === 0) return ok({ primary: { intent, intents, overflow, droppedIntents: dropped.length, chain: null, catalog: empty }, confirming: null, records });
+  const intentDrops = dropped.map(({ kind }): QuoteDrop => ({ requestKind: kind, field: "intent" }));
+  if (intents.length === 0) return ok({ primary: { intent, intents, overflow, droppedIntents: dropped.length, quoteDrops: intentDrops, chain: null, catalog: empty }, confirming: null, records });
 
   const extract = (reading: Reading, extractSignal: AbortSignal) => stages.extractRequests(input, intents, reading, extractSignal);
   const primaryExtraction = extract("primary", signal);
@@ -155,6 +158,7 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   if (!extracted.success) { abort.abort(); return fail(extracted.error); }
 
   const requests = verifyQuotes(extracted.data.value as readonly ExtractedRequest[], input);
+  const extractionDrops = requests.flatMap(({ request }, index) => droppedFields((extracted.data.value as readonly ExtractedRequest[])[index]!, request).map((field): QuoteDrop => ({ requestKind: request.kind, field })));
   const mentions = mentionsOf(requests);
   const known = [...photoProductIds, ...input.items.flatMap(({ productId }) => (productId ? [productId] : [])), ...input.pendings.flatMap(({ productIds }) => productIds)];
   const noSearch = async (): Promise<Result<Searched, PersistenceError>> => {
@@ -168,7 +172,7 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   if (resolved && !resolved.success) { abort.abort(); return fail(resolved.error); }
   const resolutions = resolved?.success ? resolved.data.value : [];
   const chain: ChainResult = { requests, resolutions };
-  const primary: PrimaryReading = { intent, intents, overflow, droppedIntents: dropped.length, chain, catalog: { products: searched.data.products, ...searched.data.catalog } };
+  const primary: PrimaryReading = { intent, intents, overflow, droppedIntents: dropped.length, quoteDrops: [...intentDrops, ...extractionDrops], chain, catalog: { products: searched.data.products, ...searched.data.catalog } };
 
   const confirming: ConfirmingChain | null = confirmingExtraction ? {
     abort: () => abort.abort(),

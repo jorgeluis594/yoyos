@@ -23,7 +23,7 @@ const intentReading = (over: Partial<Extract<IntentReading, { kind: "requests" }
 const context = (over: Partial<ReadingContextData> = {}): ReadingContextData => ({
   input: { current: { messageId: id(1) as ChatMessageId, kind: "text", text: "x" }, items: [], pendings: [], photoMemory: null, photo: null,
     context: [
-      { ref: m1, direction: "incoming", kind: "text", text: "vivo en Av. Lima 123", sentAt: receivedAt, masked: false },
+      { ref: m1, direction: "incoming", kind: "text", text: "vivo en Av. Lima 123", sentAt: new Date("2026-10-30T10:00:00Z"), masked: false },
       { ref: m2, direction: "incoming", kind: "text", text: "ya masked 987••••21", sentAt: receivedAt, masked: true },
     ] },
   contextMessageIds: new Map([[m1, id(2) as ChatMessageId], [m2, id(3) as ChatMessageId]]),
@@ -46,7 +46,8 @@ describe("buildMessageTrace", () => {
     expect(trace.contextMessageIds).toEqual([id(2), id(3)]);
     expect(trace.textState).toBe("masked");
     expect(trace.expiresAt).toEqual(new Date("2027-01-30T10:00:00Z"));
-    expect(masks.every(({ expiresAt }) => expiresAt.getTime() === trace.expiresAt.getTime())).toBe(true);
+    // A context text expires 90 days after its own message, not after the current one.
+    expect(masks.map(({ expiresAt }) => expiresAt)).toEqual([new Date("2027-01-30T10:00:00Z"), new Date("2027-01-28T10:00:00Z")]);
   });
 
   test("withholds every text when the intent stage did not answer", () => {

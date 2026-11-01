@@ -329,6 +329,7 @@ async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>>
     return err({ ...error, trace: { intent, context, photo: read.photo, started: null, records, confirmingRun: false, startedAt: read.startedAt, answer: "no_intent", actionKinds: [] } });
   }
   const { primary } = started.data;
+  for (const drop of primary.quoteDrops) log.debug({ event: "reader_quote_dropped", companyId: read.message.companyId, messageId: read.message.id, ...drop }, "reader_quote_dropped");
   const data: TraceData = { intent: primary.intent, context, photo: read.photo, started: started.data, records: started.data.records, confirmingRun: false, startedAt: read.startedAt, answer: "no_intent", actionKinds: [] };
   if (primary.intent.kind === "no_intent") return ok({ plan: reportPlan({ kind: "no_intent" }, read.kind === "text" ? "text" : "photo"), data });
   if (primary.intent.kind === "unsure" || !primary.chain) return ok({ plan: reportPlan({ kind: "reader_doubt", orderId: null }, read.kind === "text" ? "text" : "photo"), data: { ...data, answer: "doubt" } });

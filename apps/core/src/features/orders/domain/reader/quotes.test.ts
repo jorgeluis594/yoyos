@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { verifyIntentQuotes, verifyQuotes } from "@core/src/features/orders/domain/reader/quotes";
+import { droppedFields, verifyIntentQuotes, verifyQuotes } from "@core/src/features/orders/domain/reader/quotes";
 import type { ContextMessageRef, ExtractedRequest, Quote, ReadingInput, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 
 const ref = (value: string) => value as RequestRef;
@@ -83,3 +83,17 @@ describe("verifyIntentQuotes", () => {
   });
 });
 
+
+describe("droppedFields", () => {
+  test("names the fields whose quote verification dropped", () => {
+    const before = request({ quantity: { value: 3, mode: "set", quote: current("tres") }, values: [{ attributeWords: null, valueWords: current("rojo") }], changeVerb: current("cambia") });
+    const after = only(verifyQuotes([before], input("quiero el polo"))).request;
+
+    expect(droppedFields(before, after)).toEqual(["values", "quantity", "change_verb"]);
+  });
+
+  test("names nothing when every quote is found", () => {
+    const before = request();
+    expect(droppedFields(before, only(verifyQuotes([before], input("dame el polo"))).request)).toEqual([]);
+  });
+});
