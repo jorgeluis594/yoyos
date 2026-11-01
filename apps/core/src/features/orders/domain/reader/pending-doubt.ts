@@ -10,6 +10,8 @@ const originalOf = (reason: DoubtReason): OriginalDoubtReason => (reason.kind ==
 /** A pending change that is not high certainty is applied with a doubt: its «Por resolver» point restarts and is unacknowledged. */
 export function withDecisionOnPending(pending: ChatPending, decision: ChangeDecision, now: Date): ChatPending {
   if (decision.kind !== "doubtful") return pending;
+  // The values-alone doubt (it reuses the added-by-reference reason) never replaces a doubt the pending already carries.
+  if (decision.reason.kind === "added_by_reference" && pending.doubt) return pending;
   return { ...pending, doubt: { reason: originalOf(decision.reason) }, pointSince: now, acknowledgedAt: null };
 }
 

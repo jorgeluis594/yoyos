@@ -29,6 +29,12 @@ describe("withDecisionOnPending", () => {
     expect(withDecisionOnPending(doubted, { kind: "applied" }, later)).toBe(doubted);
   });
 
+  test("never replaces a doubt the pending already has with the values-alone doubt", () => {
+    const values: DoubtReason = { kind: "added_by_reference", quantity: 3 as PositiveInteger, quote: null };
+    expect(withDecisionOnPending(doubted, { kind: "doubtful", reason: values }, later)).toBe(doubted);
+    expect(withDecisionOnPending(pending(), { kind: "doubtful", reason: values }, later).doubt).toEqual({ reason: values });
+  });
+
   test("stores the original reason when the decision carries an inherited one", () => {
     const next = withDecisionOnPending(pending(), { kind: "doubtful", reason: { kind: "inherited", from: quantitySet } }, later);
     expect(next.doubt).toEqual({ reason: quantitySet });

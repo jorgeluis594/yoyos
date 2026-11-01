@@ -521,7 +521,7 @@ describe("applyChatMessage: pendings with a doubt", () => {
     expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", after: expect.objectContaining({ variantId: poloM.variantId, quantity: 1 }), decision: { kind: "doubtful", reason: inheritedFromQuantity } }));
   });
 
-  test("gives the item a completion creates the doubt another request of the same message left on the pending", async () => {
+  test("gives the item a completion creates the doubt of the quantity change the same message made on the pending", async () => {
     const pending = { kind: "pending", ref: "Q1" as PendingRef, named: null } as const;
     const more = extracted("R1", "change_quantity", { target: pending, quantity: { value: 2, mode: "add", quote: current("2 más") } });
     const complete = extracted("R2", "complete_pending", { target: pending, values: [{ attributeWords: null, valueWords: current("M") }] });
@@ -530,7 +530,7 @@ describe("applyChatMessage: pendings with a doubt", () => {
     await succeeded(h.run());
 
     expect(h.store.pendings.pendings).toHaveLength(0);
-    expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", after: expect.objectContaining({ variantId: poloM.variantId, quantity: 3 }), decision: { kind: "doubtful", reason: inheritedFromQuantity } }));
+    expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", after: expect.objectContaining({ variantId: poloM.variantId, quantity: 3 }), decision: { kind: "doubtful", reason: { kind: "quantity_set", quantity: 3 } } }));
   });
 
   test("marks only the variant a completion created, not the other lines the message changes", async () => {
