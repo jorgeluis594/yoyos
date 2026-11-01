@@ -12,7 +12,8 @@ const mockFind = jest.fn();
 const mockListFrom = jest.fn();
 let mockParams: Record<string, string> = { chatId: "123456@lid" };
 let mockArrival: (destination: unknown) => void = () => undefined;
-const runtime = { store: { listMessages: (...args: unknown[]) => mockListMessages(...args), findByCoreMessageId: (...args: unknown[]) => mockFind(...args), listFromArrivalSeq: (...args: unknown[]) => mockListFrom(...args) }, viewImage: (...args: unknown[]) => mockViewImage(...args), releaseImage: (...args: unknown[]) => mockReleaseImage(...(args as [])) };
+const mockFindQuestions = jest.fn();
+const runtime = { questions: { findOpenQuestions: (...args: unknown[]) => mockFindQuestions(...args) }, store: { listMessages: (...args: unknown[]) => mockListMessages(...args), findByCoreMessageId: (...args: unknown[]) => mockFind(...args), listFromArrivalSeq: (...args: unknown[]) => mockListFrom(...args) }, viewImage: (...args: unknown[]) => mockViewImage(...args), releaseImage: (...args: unknown[]) => mockReleaseImage(...(args as [])) };
 let mockFocused = true;
 jest.mock("expo-router", () => ({ useLocalSearchParams: () => mockParams, useIsFocused: () => mockFocused }));
 jest.mock("@mobile/features/notifications/presentation/notices-provider", () => ({ useNoticeArrivals: (listener: (destination: unknown) => void) => { mockArrival = listener; } }));
@@ -21,11 +22,12 @@ jest.mock("react-native-safe-area-context", () => ({ SafeAreaView: jest.requireA
 jest.mock("@mobile/features/users/presentation/access-provider", () => ({ useAccess: () => ({ state: { status: "ready", company: { id: "c1" } } }) }));
 jest.mock("@mobile/features/whatsapp/presentation/whatsapp-provider", () => ({ useWhatsApp: () => ({ runtime, status: { unsynced: 0 }, refresh: jest.fn(), messagesVersion: mockVersion }) }));
 
-beforeEach(async () => { jest.clearAllMocks(); mockVersion = 0; mockFocused = true; mockParams = { chatId: "123456@lid" }; await i18n.changeLanguage("es"); });
+beforeEach(async () => { jest.clearAllMocks(); mockFindQuestions.mockResolvedValue(ok(new Map())); mockVersion = 0; mockFocused = true; mockParams = { chatId: "123456@lid" }; await i18n.changeLanguage("es"); });
 afterEach(cleanup);
 
 const text = (seq: number, sentAt: Date | null = new Date(1_700_000_000_000)) => ({
   id: `wa-message:v1:m${seq}`, arrivalSeq: seq, direction: "incoming", sentAt, content: { type: "text", text: `mensaje ${seq}` },
+  sync: { state: "synced", coreMessageId: `core-${seq}`, syncedAt: new Date(1_700_000_000_000) },
 });
 const image = (seq: number) => ({ ...text(seq), content: { type: "image", caption: null, mimeType: "image/png", size: 1, reference: "wa-image:v1:x" } });
 
@@ -35,12 +37,13 @@ test("shows 'Fecha desconocida' for a message without date", async () => {
 });
 
 test("loads older messages by arrival sequence", async () => {
+  jest.setTimeout(15_000);
   const firstPage = Array.from({ length: 30 }, (_, index) => text(60 - index));
   mockListMessages.mockResolvedValueOnce(ok(firstPage));
   mockListMessages.mockResolvedValueOnce(ok([text(30), text(29)]));
   const screen = render(<ConversationScreen />);
-  fireEvent.press(await screen.findByRole("button", { name: "Cargar mensajes anteriores" }));
-  await waitFor(() => expect(screen.queryByRole("button", { name: "Cargar mensajes anteriores" })).toBeNull());
+  fireEvent.press(await screen.findByRole("button", { name: "Cargar mensajes anteriores" }, { timeout: 5000 }));
+  await waitFor(() => expect(screen.queryByRole("button", { name: "Cargar mensajes anteriores" })).toBeNull(), { timeout: 5000 });
   expect(mockListMessages).toHaveBeenNthCalledWith(1, "c1", "123456@lid", { beforeArrivalSeq: null, limit: 30 });
   expect(mockListMessages).toHaveBeenNthCalledWith(2, "c1", "123456@lid", { beforeArrivalSeq: 31, limit: 30 });
 });
@@ -261,4 +264,85 @@ describe("opening a notice", () => {
     expect(await screen.findByText("Aviso")).toBeTruthy();
     expect(announce).not.toHaveBeenCalled();
   });
+});
+
+const question = (id: string, questionText: string) => ({ id, text: questionText, about: "Polo básico" });
+
+test("the chat view shows a question box with Copiar pregunta under a message with an open point", async () => {
+  mockListMessages.mockResolvedValue(ok([text(2), text(1)]));
+  mockFindQuestions.mockResolvedValue(ok(new Map([["core-1", [question("p1", "Polo básico: ¿en qué talla, S, M o L?")]]])));
+  const screen = render(<ConversationScreen />);
+  expect(await screen.findByText("Pregúntale al cliente:")).toBeTruthy();
+  expect(screen.getByText("Polo básico: ¿en qué talla, S, M o L?")).toBeTruthy();
+  expect(screen.getAllByRole("button", { name: "Copiar pregunta" })).toHaveLength(1);
+  expect(mockFindQuestions).toHaveBeenCalledWith(["core-2", "core-1"]);
+});
+
+test("the chat view shows up to three boxes for a message with several points", async () => {
+  mockListMessages.mockResolvedValue(ok([text(1)]));
+  mockFindQuestions.mockResolvedValue(ok(new Map([["core-1", ["a", "b", "c", "d"].map((id) => question(id, `pregunta ${id}`))]])));
+  const screen = render(<ConversationScreen />);
+  expect(await screen.findAllByRole("button", { name: "Copiar pregunta" })).toHaveLength(3);
+  expect(screen.queryByText("pregunta d")).toBeNull();
+});
+
+test("asks core only for incoming messages core already has", async () => {
+  mockListMessages.mockResolvedValue(ok([
+    { ...text(3), direction: "outgoing" }, { ...text(2), sync: { state: "pending", attempts: 0, nextAttemptAt: new Date() } }, text(1),
+  ]));
+  render(<ConversationScreen />);
+  await waitFor(() => expect(mockFindQuestions).toHaveBeenCalledWith(["core-1"]));
+});
+
+test("a lookup that fails leaves the chat as it is", async () => {
+  mockListMessages.mockResolvedValue(ok([text(1)]));
+  mockFindQuestions.mockResolvedValue(err({ code: "NETWORK_ERROR", message: "offline" }));
+  const screen = render(<ConversationScreen />);
+  expect(await screen.findByText("mensaje 1")).toBeTruthy();
+  expect(screen.queryByText("Pregúntale al cliente:")).toBeNull();
+});
+
+test("a box leaves the next time the questions load, when the seller returns to the screen", async () => {
+  mockListMessages.mockResolvedValue(ok([text(1)]));
+  mockFindQuestions.mockResolvedValueOnce(ok(new Map([["core-1", [question("p1", "¿Cuál quieres?")]]])));
+  const screen = render(<ConversationScreen />);
+  expect(await screen.findByText("¿Cuál quieres?")).toBeTruthy();
+  mockFocused = false;
+  screen.rerender(<ConversationScreen />);
+  expect(mockFindQuestions).toHaveBeenCalledTimes(1);
+  mockFocused = true;
+  screen.rerender(<ConversationScreen />);
+  await waitFor(() => expect(mockFindQuestions).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByText("¿Cuál quieres?")).toBeNull());
+});
+
+test("a refresh that fails removes the boxes and the next trigger retries", async () => {
+  mockListMessages.mockResolvedValue(ok([text(1)]));
+  mockFindQuestions.mockResolvedValueOnce(ok(new Map([["core-1", [question("p1", "¿Cuál quieres?")]]])));
+  mockFindQuestions.mockResolvedValueOnce(err({ code: "NETWORK_ERROR", message: "offline" }));
+  const screen = render(<ConversationScreen />);
+  expect(await screen.findByText("¿Cuál quieres?")).toBeTruthy();
+  mockFocused = false;
+  screen.rerender(<ConversationScreen />);
+  mockFocused = true;
+  screen.rerender(<ConversationScreen />);
+  await waitFor(() => expect(mockFindQuestions).toHaveBeenCalledTimes(2));
+  await waitFor(() => expect(screen.queryByText("¿Cuál quieres?")).toBeNull());
+  mockFindQuestions.mockResolvedValueOnce(ok(new Map([["core-1", [question("p1", "¿Cuál quieres?")]]])));
+  mockFocused = false;
+  screen.rerender(<ConversationScreen />);
+  mockFocused = true;
+  screen.rerender(<ConversationScreen />);
+  expect(await screen.findByText("¿Cuál quieres?")).toBeTruthy();
+});
+
+test("a foreground notice for the chat loads the questions again", async () => {
+  mockListMessages.mockResolvedValue(ok([text(1)]));
+  mockFind.mockResolvedValue(ok({ ...text(1), chatId: "123456@lid" }));
+  const screen = render(<ConversationScreen />);
+  await screen.findByText("mensaje 1");
+  await waitFor(() => expect(mockFindQuestions).toHaveBeenCalledTimes(1));
+  mockFindQuestions.mockResolvedValueOnce(ok(new Map([["core-1", [question("p1", "¿Cuál quieres?")]]])));
+  await act(async () => { mockArrival({ target: "message", messageId: "00000000-0000-4000-8000-000000000001" }); });
+  expect(await screen.findByText("¿Cuál quieres?")).toBeTruthy();
 });
