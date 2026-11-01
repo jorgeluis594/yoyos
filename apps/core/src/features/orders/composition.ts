@@ -982,10 +982,15 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   limits: { ...readChatMessageLimits(process.env), ...readingLimits },
 };
 
+type ReadingContextLoader = (message: ReadingMessage, target: Parameters<typeof loadReadingContextWith>[2], pendings: Parameters<typeof loadReadingContextWith>[3],
+  photoMemory: Parameters<typeof loadReadingContextWith>[4]) => ReturnType<typeof loadReadingContextWith>;
+
+/** The loader of the reading input on a given clock (a test moves the clock; production uses the real one). */
+export const createReadingContextLoader = (clock: () => Date): ReadingContextLoader => (message, target, pendings, photoMemory) => loadReadingContextWith({ findRecentChatMessages, findMaskedTexts, findOutcome,
+  findChatOrdersOpenedSince, clock, pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs, budgets: readingBudgets }, message, target, pendings, photoMemory);
+
 /** The input of the staged reader's three stages for a message: recent chat messages, masks, the latest photo outcome, order lines and pendings. */
-export const loadReadingContext = (message: ReadingMessage, target: Parameters<typeof loadReadingContextWith>[2], pendings: Parameters<typeof loadReadingContextWith>[3],
-  photoMemory: Parameters<typeof loadReadingContextWith>[4]) => loadReadingContextWith({ findRecentChatMessages, findMaskedTexts, findOutcome, findChatOrdersOpenedSince,
-  clock: chatMessageDependencies.clock, pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs, budgets: readingBudgets }, message, target, pendings, photoMemory);
+export const loadReadingContext: ReadingContextLoader = (message, target, pendings, photoMemory) => createReadingContextLoader(chatMessageDependencies.clock)(message, target, pendings, photoMemory);
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 

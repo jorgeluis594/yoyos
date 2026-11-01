@@ -11,13 +11,15 @@ import { prisma, systemPrisma, withTenantIsolation, withinTransaction } from "@c
 import { applyChatMessage, type ApplyChatMessageDependencies, type ChatSourceMessage } from "@core/src/features/orders/application/apply-chat-message";
 import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, recordProcessedMessage, savePendingOrder } from "@core/src/features/orders/infrastructure/order-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
-import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { findChatMemory, findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
-import type { ReaderAnswer } from "@core/src/features/orders/domain/chat-reading";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts/infrastructure/contact-repository";
 import { findProductIdsOfVariants, findSellableVariantsByQrCodes } from "@core/src/features/products";
 import { products } from "@core/src/features/products/composition";
-import { orders, saveChatItemChanges } from "@core/src/features/orders/composition";
+import { loadReadingContext, orders, saveChatItemChanges } from "@core/src/features/orders/composition";
+import { buildMessageTrace } from "@core/src/features/orders/application/reader/build-message-trace";
+import { withAbort } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
+import { findLinkNoticeArming } from "@core/src/features/orders/infrastructure/order-review-repository";
 import type { OrderLineQuantity } from "@core/src/features/orders/domain/order-edit";
 import type { VariantId } from "@core/src/features/products/domain/product";
 import { seedProduct } from "@core/src/features/products/infrastructure/product-seed";
@@ -82,21 +84,27 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
     findSourceMessage: async (id) => {
       const row = await prisma.chatMessage.findFirst({ where: { id }, include: { chat: true } });
       return ok(row && { id: row.id as ChatMessageId, companyId, chatId: row.chatId as ChatId, contactId: row.chat.contactId as ContactId, direction: row.direction,
-        uploadedByUserId: row.uploadedByUserId as UserId, imageId: row.imageId as ImageId | null, text: row.text, caption: row.caption } satisfies ChatSourceMessage);
+        uploadedByUserId: row.uploadedByUserId as UserId, imageId: row.imageId as ImageId | null, text: row.text, caption: row.caption, sentAt: row.sentAt, receivedAt: row.receivedAt } satisfies ChatSourceMessage);
     },
     findChatOrderTarget: (chatId) => findChatOrderTarget(chatId, findProductIdsOfVariants),
     findChatOrdersOpenedSince,
     findChatPendings,
     findChatPendingsForUpdate,
+    findChatMemory,
     saveChatPendings,
     readImage: async (imageId) => ok({ bytes: new TextEncoder().encode(imageId), contentType: "image/jpeg" }),
     identifyProductsInImage: (image) => identifyProductsInImage(image, { visual: null,
       readQrCodes: async ({ bytes }) => ok(photos.get(new TextDecoder().decode(bytes)) ?? []),
       findVariantsByCodes: async (codes) => { const found = await findSellableVariantsByQrCodes(codes); return found.success ? ok(found.data.map((item) => ({ ...item, qrCode: item.qrCode as VariantQrCode, productId: item.productId as ProductId }))) : found; } }),
+    loadReadingContext: (loaded, target, pendings, photoMemory) => loadReadingContext(loaded, target, pendings, photoMemory),
+    findMentionCandidates: (mentions) => products.findMentionCandidates(mentions),
     findProductsForReading: (productIds) => products.findProductsForReading(productIds),
-    findMessageCandidates: (text) => products.findMessageCandidates(text),
     catalogSearchReadiness: async () => ok("no_searchable_photos"),
-    readChatMessage: async () => ok({ answer: { kind: "no_intent" } as ReaderAnswer, usage: { inputTokens: 0, cachedInputTokens: 0, outputTokens: 0, reasoningTokens: 0 } }),
+    // These tests read only label photos, which call no stage.
+    stages: null,
+    readChatMessage: null,
+    createDeadline: (_budget, _meta, jobSignal) => jobSignal,
+    withAbort,
     transaction: (_company, work) => withinTransaction(work),
     lockContact,
     ensureCustomerForContact: async (contactId) => { const ensured = await ensureCustomerForContact(contactId); return ensured.success ? ok({ customerId: ensured.data.customerId as CustomerId }) : ensured; },
@@ -106,6 +114,7 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
     saveItemChanges: saveChatItemChanges,
     recordOrderMessage: recordProcessedMessage,
     findUnverdictedChanges,
+    findLinkNoticeArming,
     saveMessageChanges,
     newChangeId: () => randomUUID() as OrderItemChangeId,
     recordOutcome,
@@ -113,7 +122,11 @@ function dependencies(f: Fixture, over: Partial<ApplyChatMessageDependencies> = 
     newItemId: () => randomUUID() as OrderItemId,
     newPendingId: () => randomUUID() as ChatPendingId,
     clock: () => clockNow(),
-    limits: { maxItemQuantity: 99 as PositiveInteger, pendingTtlMs: 7 * 86_400_000, maxReaderProducts: 24, maxReaderItems: 40, maxReaderTextChars: 2000 },
+    buildMessageTrace,
+    saveMessageTrace: async () => ok(null),
+    shadowReader: null,
+    limits: { maxItemQuantity: 99 as PositiveInteger, pendingTtlMs: 7 * 86_400_000, maxReaderProducts: 24, maxReaderItems: 40, maxReaderTextChars: 2000,
+      readingBudgetMs: 60_000, candidatesPerMention: 5, traceRetentionDays: 90, shadowWaitMs: 0 },
     ...over,
   };
 }
