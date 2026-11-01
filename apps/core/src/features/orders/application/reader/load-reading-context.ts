@@ -87,16 +87,24 @@ function pendingsOf(alive: readonly ChatPending[], products: ReadonlyMap<Product
   });
 }
 
-/** The pendings that ended, numbered after the alive ones; the stored set holds each one until this message is applied. */
-function endedPendingsOf(life: PendingLife, stored: readonly ChatPending[], products: ReadonlyMap<ProductId, ProductForReading>, firstNumber: number): readonly ReadingEndedPending[] {
+/**
+ * The pendings that ended within the context window (last changed since `since`), numbered after the alive ones;
+ * the stored set holds each one until this message is applied.
+ */
+function endedPendingsOf(life: PendingLife, stored: readonly ChatPending[], products: ReadonlyMap<ProductId, ProductForReading>, firstNumber: number, since: Date): readonly ReadingEndedPending[] {
   const byId = new Map(stored.map((pending) => [pending.id, pending] as const));
-  return life.ended.flatMap(({ id, reason }, index): ReadingEndedPending[] => {
+  const recent = life.ended.flatMap(({ id, reason }) => {
     const pending = byId.get(id);
-    if (!pending) return [];
+    return pending && pending.lastChangedAt >= since ? [{ pending, id, reason }] : [];
+  });
+  return recent.map(({ pending, id, reason }, index): ReadingEndedPending => {
     const productIds = pending.subject.kind === "variant" ? [pending.subject.productId] : pending.subject.candidates;
-    const listed = productIds.flatMap((productId) => (products.has(productId) ? [products.get(productId)!] : []));
-    return [{ ref: `Q${firstNumber + index}` as PendingRef, pendingId: id, productIds, known: pending.known, quantity: pending.quantity,
-      ...(listed.length === productIds.length ? { productNames: listed.map(({ name }) => name) } : {}), ended: reason }];
+    const listed = productIds.flatMap((productId) => {
+      const product = products.get(productId);
+      return product ? [product] : [];
+    });
+    return { ref: `Q${firstNumber + index}` as PendingRef, pendingId: id, productIds, known: pending.known, quantity: pending.quantity,
+      ...(listed.length === productIds.length ? { productNames: listed.map(({ name }) => name) } : {}), ended: reason };
   });
 }
 
@@ -136,7 +144,8 @@ export async function loadReadingContext(deps: LoadReadingContextDependencies, m
   const context = contextOf(recent, masks.data, budgets.contextMessageChars);
   const current = { messageId: message.id, kind: message.imageId ? "image" : "text", text: message.text ?? message.caption ?? "" };
   const productsById = new Map(catalog.data.map((product) => [product.productId, product] as const));
-  const endedPendings = endedPendingsOf(life, pendings.pendings, productsById, life.alive.length + 1);
+  const anchor = message.sentAt ?? message.receivedAt;
+  const endedPendings = endedPendingsOf(life, pendings.pendings, productsById, life.alive.length + 1, new Date(anchor.getTime() - budgets.contextHours * 3_600_000));
   const fitted = fitReadingInput({ current, context, items: itemsOf(target, budgets.maxItems), pendings: pendingsOf(life.alive, productsById), ...(endedPendings.length ? { endedPendings } : {}), photoMemory, photo: null, ...(currency.data ? { currency: currency.data } : {}) }, budgets.stageInputMaxChars);
   const idOf = new Map(context.map(({ ref }, index) => [ref, recent[index]!.id] as const));
   const kept = fitted.input.context.map(({ ref }) => [ref, idOf.get(ref)!] as const);

@@ -83,6 +83,14 @@ export function fitReadingInput(input: ReadingInput, maxChars: number): Readonly
     const size = pendingChars(pending);
     if (size <= remaining) { keptPendings.add(pending); remaining -= size; }
   }
-  const fitted = { ...input, context: [], items: input.items.filter((item) => keptItems.has(item)), pendings: input.pendings.filter((pending) => keptPendings.has(pending)) };
+  // Ended pendings come last: they are context for a late detail, never worth an alive pending.
+  const keptEnded = (input.endedPendings ?? []).filter((pending) => {
+    const size = pendingChars({ ...pending, doubtful: false });
+    if (size > remaining) return false;
+    remaining -= size;
+    return true;
+  });
+  const fitted = { ...input, context: [], items: input.items.filter((item) => keptItems.has(item)), pendings: input.pendings.filter((pending) => keptPendings.has(pending)),
+    ...(keptEnded.length ? { endedPendings: keptEnded } : { endedPendings: undefined }) };
   return { input: fitted, cut: { contextDropped: input.context.length, itemsOmitted: input.items.length - fitted.items.length, pendingsOmitted: input.pendings.length - fitted.pendings.length } };
 }
