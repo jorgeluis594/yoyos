@@ -29,12 +29,36 @@ export function verifyQuotes(requests: readonly ExtractedRequest[], input: Readi
       return false;
     };
     const target = verifiedTarget(request.target, keep);
-    const values: readonly ExtractedValue[] = request.values.filter((value) => keep(value.valueWords) && (value.attributeWords === null || keep(value.attributeWords)));
+    const otherData = [request.price?.quote, request.quantity?.quote, namedQuoteOf(request.target)].filter((quote): quote is Quote => quote != null);
+    const values: readonly ExtractedValue[] = request.values
+      .filter((value) => keep(value.valueWords) && !insideAny(value.valueWords, otherData, input))
+      .map((value) => ({ ...value, attributeWords: value.attributeWords !== null && isFound(value.attributeWords, input, false) ? value.attributeWords : null }));
     const quantity = request.quantity && keep(request.quantity.quote) ? request.quantity : null;
     const price = request.price && keep(request.price.quote) ? request.price : null;
     const changeVerb = request.changeVerb && keep(request.changeVerb) ? request.changeVerb : null;
     return { request: { ...request, target, values, quantity, price, changeVerb }, complete };
   });
+}
+
+/** Where the squashed `needle` starts in the squashed text of the quote's message, every time it appears. */
+const positionsOf = (needle: Quote, input: ReadingInput): readonly number[] => {
+  const text = textOf(needle, input), wanted = squash(needle.text), found: number[] = [];
+  for (let at = text.indexOf(wanted); wanted !== "" && at >= 0; at = text.indexOf(wanted, at + 1)) found.push(at);
+  return found;
+};
+const textOf = (of: Quote, input: ReadingInput): string =>
+  squash(of.source === "current" ? input.current.text : input.context.find((candidate) => candidate.ref === of.ref)?.text ?? "");
+
+/**
+ * A value whose every occurrence in the message lies inside the words of another datum of the request (the price, the quantity or the target's name)
+ * is that datum's words and not a value: span arithmetic, no reading of the words.
+ */
+function insideAny(value: Quote, others: readonly Quote[], input: ReadingInput): boolean {
+  const inValue = positionsOf(value, input);
+  if (value.source !== "current" || inValue.length === 0) return false;
+  const length = squash(value.text).length;
+  const spans = others.filter((other) => other.source === "current").flatMap((other) => positionsOf(other, input).map((at) => [at, at + squash(other.text).length] as const));
+  return inValue.every((at) => spans.some(([from, to]) => at >= from && at + length <= to));
 }
 
 function verifiedTarget(target: TargetReference, keep: (quote: Quote | null, allowContext?: boolean) => boolean): TargetReference {
