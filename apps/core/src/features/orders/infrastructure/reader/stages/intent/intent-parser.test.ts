@@ -30,17 +30,18 @@ describe("intent parser", () => {
   test("numbers the requests in the order given and keeps each quote with its source", () => {
     const parsed = parseIntentAnswer(answer({ requests: [
       { kind: "add", quote: { message: "current", text: "dos polos" } },
-      { kind: "ready", quote: { message: "M1", text: "listo" } },
+      { kind: "ready", quote: { message: "current", text: "listo" } },
     ] }), input);
 
     expect(parsed).toEqual({ success: true, data: { kind: "requests", language: "es", addresses: [], requests: [
       { id: "R1", kind: "add", quote: { source: "current", text: "dos polos" } },
-      { id: "R2", kind: "ready", quote: { source: "context", ref: "M1", text: "listo" } },
+      { id: "R2", kind: "ready", quote: { source: "current", text: "listo" } },
     ] } });
   });
 
-  test("rejects a quote that points to a message outside the context", () => {
+  test("rejects a quote that points to a context message or outside the context: requests are quoted from the current message only", () => {
     expect(parseIntentAnswer(answer({ requests: [{ kind: "add", quote: { message: "M9", text: "x" } }] }), input).success).toBe(false);
+    expect(parseIntentAnswer(answer({ requests: [{ kind: "ready", quote: { message: "M1", text: "x" } }] }), input).success).toBe(false);
   });
 
   test("rejects requests with no requests listed, and requests next to a no intent answer", () => {

@@ -15,7 +15,7 @@ describe("intent stage with its registered version", () => {
   test("reads a scripted answer into an IntentReading and sends the instructions before the rendered input", async () => {
     const model = createFakeStructuredModel({ intent: [{ json: {
       outcome: "requests", noIntentReason: null, language: "pt",
-      requests: [{ kind: "ready", quote: { message: "M1", text: "confirmo" } }], addresses: [{ message: "current", text: "Rua das Flores 12" }],
+      requests: [{ kind: "ready", quote: { message: "current", text: "confirmo" } }], addresses: [{ message: "current", text: "Rua das Flores 12" }],
     } }] });
     const run = createStage(config, promptRegistry, { openai: null, fake: model })!;
 

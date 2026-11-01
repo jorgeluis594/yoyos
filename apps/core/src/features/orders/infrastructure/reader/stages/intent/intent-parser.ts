@@ -8,15 +8,14 @@ const fail = (message: string): Result<never> => ({ success: false, error: { mes
 
 /**
  * The validated answer as an `IntentReading`, or a failure whose reason never carries model text. Requests are numbered here, in the order
- * given. A quote may only point to the current message or to a listed context message. Address spans of masked or unknown messages are
- * dropped, because those messages must not be masked again; the quotes themselves are verified later by `verifyQuotes`.
+ * given. A request is quoted only from the current message: a context quote would reach no verification. Address spans of masked or unknown messages are
+ * dropped, because those messages must not be masked again; the quotes themselves are verified later.
  */
 export function parseIntentAnswer(answer: unknown, input: ReadingInput): Result<IntentReading> {
   const parsed = intentAnswerSchema.safeParse(answer);
   if (!parsed.success) return fail(`The intent answer does not match its schema: ${parsed.error.issues.map(({ path }) => path.join(".") || "answer").join(", ")}`);
   const { outcome, noIntentReason, language, requests, addresses } = parsed.data;
   const unmasked = new Set<string>(["current", ...input.context.filter(({ masked }) => !masked).map(({ ref }) => ref)]);
-  const known = new Set<string>(["current", ...input.context.map(({ ref }) => ref)]);
   const spans: AddressSpan[] = addresses.filter(({ message, text }) => text.length > 0 && unmasked.has(message))
     .map(({ message, text }) => ({ message: message === "current" ? "current" : (message as ContextMessageRef), text }));
 
@@ -29,9 +28,7 @@ export function parseIntentAnswer(answer: unknown, input: ReadingInput): Result<
   if (requests.length === 0) return fail("The intent answer lists no requests");
   const quoted: RequestIntent[] = [];
   for (const [index, request] of requests.entries()) {
-    if (!known.has(request.quote.message)) return fail("The intent answer quotes a message that is not in the context");
-    const quote: Quote = request.quote.message === "current" ? { source: "current", text: request.quote.text }
-      : { source: "context", ref: request.quote.message as ContextMessageRef, text: request.quote.text };
+    const quote: Quote = { source: "current", text: request.quote.text };
     quoted.push({ id: `R${index + 1}` as RequestRef, kind: request.kind, quote });
   }
   return { success: true, data: { kind: "requests", requests: quoted, language, addresses: spans } };
