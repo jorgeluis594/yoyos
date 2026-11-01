@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { dedupeRequests, droppedFields, verifyIntentQuotes, verifyQuotes } from "@core/src/features/orders/domain/reader/quotes";
-import type { ContextMessageRef, ExtractedRequest, Quote, ReadingInput, RequestRef } from "@core/src/features/orders/domain/reader/readings";
+import type { ContextMessageRef, ExtractedRequest, ItemRef, PendingRef, Quote, ReadingInput, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 
 const ref = (value: string) => value as RequestRef;
 const current = (text: string): Quote => ({ source: "current", text });
@@ -39,7 +39,7 @@ describe("verifyQuotes", () => {
   });
 
   test("makes a target taken from an item context when its naming words are not found", () => {
-    const target = { kind: "item", ref: "I1", named: current("el polo") } as ExtractedRequest["target"];
+    const target = { kind: "item", ref: "I1" as ItemRef, named: current("el polo") } as ExtractedRequest["target"];
     const checked = only(verifyQuotes([request({ target })], input("quítalo")));
     expect(checked.request.target).toEqual({ kind: "item", ref: "I1", named: null });
     expect(checked.complete).toBe(false);
@@ -78,11 +78,11 @@ describe("verifyQuotes", () => {
 
   test("keeps a value inside the words that point at an order line or a pending, also when both quotes have the same span", () => {
     const values = [{ attributeWords: null, valueWords: current("la de talla M") }];
-    for (const target of [{ kind: "item", ref: "I1", named: current("la de talla M") }, { kind: "pending", ref: "Q1", named: current("la de talla M") }] as const) {
+    for (const target of [{ kind: "item", ref: "I1" as ItemRef, named: current("la de talla M") }, { kind: "pending", ref: "Q1" as PendingRef, named: current("la de talla M") }] as const) {
       expect(only(verifyQuotes([request({ target, values })], input("cambia la de talla M"))).request.values).toEqual(values);
     }
     const inner = [{ attributeWords: null, valueWords: current("talla M") }];
-    const item = { kind: "item", ref: "I1", named: current("la de talla M") } as const;
+    const item = { kind: "item", ref: "I1" as ItemRef, named: current("la de talla M") } as const;
     expect(only(verifyQuotes([request({ target: item, values: inner })], input("cambia la de talla M"))).request.values).toEqual(inner);
     const named = { kind: "named", words: current("la de talla M") } as const;
     expect(only(verifyQuotes([request({ target: named, values })], input("dame la de talla M"))).request.values).toEqual([]);

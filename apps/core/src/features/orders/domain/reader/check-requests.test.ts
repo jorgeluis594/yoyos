@@ -731,6 +731,37 @@ describe("checkRequests: requests of one message about the same thing", () => {
   const trucker = item("I1", "gorra", { Color: "Negro" });
   const polera = item("I2", "polera", { Talla: "L" });
 
+  test("never adds the shown product a second time when a named add of it takes a photo-aimed price or quantity", () => {
+    const named = request({ request: ref("R1"), kind: "add", target: { kind: "named", words: say("la gorra") }, values: [value("rojo")] });
+    const price = request({ request: ref("R2"), kind: "mention_price", target: { kind: "photo_same_message" }, price: { amount: 35, currency: "order", basis: "unit", quote: say("a 35") } });
+    const amount = request({ request: ref("R3"), kind: "change_quantity", target: { kind: "photo_same_message" }, quantity: quantity(3, "set") });
+    const resolutions = [chosen("gorra", [{ attribute: "Color", value: "Rojo" }])];
+    for (const extra of [price, amount]) {
+      const checked = only(checkRequests([named, extra], resolutions, photo({ order: "none" })));
+      expect(checked.action.kind).toBe("add");
+      expect(checked.absorbed).toEqual([extra.request.request]);
+    }
+  });
+
+  test("leaves a caption quantity as read, never an add, when the order has several lines of the shown product", () => {
+    const amount = request({ request: ref("R1"), kind: "change_quantity", target: { kind: "photo_same_message" }, quantity: quantity(3, "set") });
+    const checked = checkRequests([amount], [], photo({ items: [trucker, item("I3", "gorra", { Color: "Rojo" })] }));
+    expect(checked.map((entry) => entry.action.kind)).not.toContain("add");
+  });
+
+  test("notes a caption price on the single line of the shown product instead of adding a unit", () => {
+    const price = request({ request: ref("R1"), kind: "mention_price", target: { kind: "photo_same_message" }, price: { amount: 35, currency: "order", basis: "unit", quote: say("a 35") } });
+    const checked = checkRequests([price], [], photo({ items: [trucker] }));
+    expect(checked.map((entry) => entry.action.kind)).toEqual(["set_mentioned_price"]);
+  });
+
+  test("marks «Con duda» an add with values that names words no product matches in a photo, never applies it silently", () => {
+    const caption = request({ kind: "add", target: { kind: "named", words: say("polera") }, values: [value("negro")] });
+    const checked = only(checkRequests([caption], [{ request: ref("R1"), kind: "none" }], photo({ order: "none" })));
+    expect(checked.action.kind).toBe("add");
+    expect(checked.signals.targetNamed).toBe("context");
+  });
+
   test("folds the price and quantity a caption gives into the add of the photo", () => {
     const price = request({ request: ref("R2"), kind: "mention_price", target: { kind: "photo_same_message" }, price: { amount: 35, currency: "order", basis: "unit", quote: say("a 35") } });
     const amount = request({ request: ref("R3"), kind: "change_quantity", target: { kind: "photo_same_message" }, quantity: quantity(3, "set") });

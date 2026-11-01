@@ -39,7 +39,7 @@ export type CheckSnapshot = Readonly<{
 type Urgent = NonNullable<CheckedAction["urgent"]>;
 type Said = Readonly<{ request: ExtractedRequest; complete: boolean }>;
 type Env = Readonly<{ snapshot: CheckSnapshot; resolutions: readonly ProductResolution[]; claims: ReadonlyMap<string, number>; added: ReadonlySet<ProductId>;
-  /** Completions that took a quantity change of the same message: their target is only as named as that change was. */ contextual?: ReadonlySet<RequestRef> }>;
+  /** Completions that took a quantity change of the same message, and adds a photo caption made of words with no product: their target is only as named as that was. */ contextual?: ReadonlySet<RequestRef> }>;
 type Named = CertaintySignals["targetNamed"];
 
 const changeKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["add", "remove", "change_quantity", "change_variant", "complete_pending", "mention_price"]);
@@ -78,7 +78,9 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
     const id = claimedPending(entry.request, snapshot);
     if (id) claims.set(id, (claims.get(id) ?? 0) + 1);
   }
-  const { requests: folded, absorbedBy, contextual } = foldSameMessage(retargeted, resolutions, snapshot);
+  const { requests: folded, absorbedBy, contextual: completing } = foldSameMessage(retargeted, resolutions, snapshot);
+  const doubtful = new Set(requests.filter((entry, index) => retargeted[index]?.request.target.kind === "photo_same_message" && entry.request.target.kind === "named").map((entry) => entry.request.request));
+  const contextual = new Set([...completing, ...doubtful]);
   const env: Env = { snapshot, resolutions, claims, added: new Set(retargeted.flatMap((entry) => addedProductsOf(entry, resolutions, snapshot))), contextual };
   return folded.flatMap((entry) => checkOne(entry, env).map((action) => withAbsorbed(action, absorbedBy.get(action.request))));
 }
@@ -190,7 +192,7 @@ function foldSameMessage(requests: readonly VerifiedRequest[], resolutions: read
   const absorbedBy = new Map<RequestRef, readonly RequestRef[]>();
   const contextual = new Set<RequestRef>();
   const named = foldIntoNamedAdds(requests, resolutions, snapshot, absorbedBy);
-  const photo = foldIntoPhotoAdd(named, snapshot, absorbedBy);
+  const photo = foldIntoPhotoAdd(named, resolutions, snapshot, absorbedBy);
   const pending = foldIntoCompletions(photo, snapshot, absorbedBy, contextual);
   return { requests: foldOtherCurrency(pending, snapshot, absorbedBy), absorbedBy, contextual };
 }
@@ -199,22 +201,26 @@ const photoKinds: ReadonlySet<ExtractedRequest["kind"]> = new Set(["mention_pric
 const aimsAtPhoto = (request: ExtractedRequest): boolean => request.target.kind === "photo_same_message" && photoKinds.has(request.kind) && request.quantity?.mode !== "decrease";
 
 /**
- * A price, quantity or variant the caption gives for the photo itself is part of the photo's add: one add of the message carries it (values merged, the add keeps
- * its own price and quantity when it has them). With no add in the message the first such request becomes the add, or, when the order already has a single line of
- * the shown product, the same request on that line.
+ * A price, quantity or variant the caption gives for the photo itself is part of the photo's add: the one add of the message that adds the shown product (pointing at
+ * the photo or naming it) carries it (values merged, the add keeps its own price and quantity when it has them). With no add in the message, the order's single line of
+ * the shown product takes the request; with no line the first such request becomes the add; with several lines it stays as read, never a silent add.
  */
-function foldIntoPhotoAdd(requests: readonly VerifiedRequest[], snapshot: CheckSnapshot, absorbedBy: Map<RequestRef, readonly RequestRef[]>): readonly VerifiedRequest[] {
+function foldIntoPhotoAdd(requests: readonly VerifiedRequest[], resolutions: readonly ProductResolution[], snapshot: CheckSnapshot, absorbedBy: Map<RequestRef, readonly RequestRef[]>): readonly VerifiedRequest[] {
   if (snapshot.messageKind !== "photo_product") return requests;
+  const shownIds = shownProductIds(snapshot);
   const aimed = requests.filter((entry) => aimsAtPhoto(entry.request));
-  const photoAdds = requests.filter((entry) => entry.request.kind === "add" && entry.request.target.kind === "photo_same_message");
+  const photoAdds = requests.filter((entry) => {
+    const named = addedProductOf(entry, resolutions);
+    return (entry.request.kind === "add" && entry.request.target.kind === "photo_same_message") || (named !== null && shownIds.has(named));
+  });
   if (aimed.length === 0 || photoAdds.length > 1) return requests;
   const [first] = aimed;
   const [existing] = photoAdds;
-  const shownIds = shownProductIds(snapshot);
   const lines = snapshot.items.filter((item) => item.productId !== null && shownIds.has(item.productId));
   const [line] = lines;
-  if (first && !existing && lines.length === 1 && line && first.request.kind !== "mention_price") {
-    return requests.map((entry) => (entry === first ? { ...entry, request: { ...entry.request, target: { kind: "item", ref: line.ref, named: null } } } : entry));
+  if (!existing && lines.length > 1) return requests;
+  if (!existing && line) {
+    return requests.map((entry) => (aimed.includes(entry) ? { ...entry, request: { ...entry.request, target: { kind: "item", ref: line.ref, named: null } } } : entry));
   }
   const base: VerifiedRequest | undefined = existing ?? (first ? { ...first, request: { ...first.request, kind: "add" } } : undefined);
   if (!base) return requests;
@@ -809,7 +815,7 @@ function checkShown(said: Said, env: Env, quantity: number): readonly CheckedAct
     return [checked(said, report({ kind: "not_identified", source: "photo", identification: null, silent: false }), signalsOf(said, "photo_same_message"), { urgent: { problem: "not_identified", question: null } })];
   }
   const added: DoubtReason = { kind: "added_by_reference", quantity: quantity as PositiveInteger, quote: null };
-  return shown.map((product) => withProduct(said, env, product, choicesFor(said.request, product, env), quantity, signalsOf(said, "photo_same_message"), added, qrChoices(product))).flat();
+  return shown.map((product) => withProduct(said, env, product, choicesFor(said.request, product, env), quantity, signalsOf(said, env.contextual?.has(said.request.request) ? "context" : "photo_same_message"), added, qrChoices(product))).flat();
 }
 
 const whichProduct = (productIds: readonly ProductId[], snapshot: CheckSnapshot): SuggestedQuestion | null => {
