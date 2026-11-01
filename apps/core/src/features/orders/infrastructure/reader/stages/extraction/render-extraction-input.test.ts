@@ -39,7 +39,7 @@ describe("extraction input rendering", () => {
   });
 
   test("states the currency of the shop's prices when it is known", () => {
-    expect(render(readingInput({ currency: "PEN" }))).toContain("Prices of this shop are in PEN.");
+    expect(render(readingInput({ currency: "PEN" }))).toContain("Prices of this shop are in PEN (sol peruano, soles peruanos, Novo sol peruano, Novos sóis peruanos).");
     expect(render(readingInput())).not.toContain("Prices of this shop");
   });
 

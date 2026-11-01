@@ -12,12 +12,26 @@ const itemLine = (item: ReadingItem) => `${item.ref}: ${item.productName}${attri
 const intentLine = ({ id, kind, quote }: RequestIntent) =>
   `${id} (${kind}): «${quote.text.slice(0, maxIntentQuoteChars)}»${quote.source === "context" ? ` in ${quote.ref}` : ""}`;
 
+/** The languages of the buyers the reader serves (Spanish and Portuguese): the shop's currency is named in each, from the platform's locale data and not from a word list. */
+const currencyLocales = ["es", "pt"] as const;
+
+/** The currency's names, singular and plural, in each buyer language and without repeats: «sol peruano», «soles peruanos». */
+export function currencyNames(currency: string): readonly string[] {
+  const names = currencyLocales.flatMap((locale) => [1, 2].map((amount) => {
+    try {
+      return new Intl.NumberFormat(locale, { style: "currency", currency, currencyDisplay: "name" }).formatToParts(amount).find((part) => part.type === "currency")?.value;
+    } catch { return undefined; }
+  }));
+  return [...new Set(names.filter((name): name is string => name !== undefined && name !== currency))];
+}
+
 function photoLines(input: ReadingInput): string[] {
   const { current, photo, photoMemory, currency } = input;
   const shown = photo === null ? [] : [photo.productId === null ? "The photo shows no catalog product." : "The photo shows a catalog product."];
   const previous = photoMemory === null ? [] : [photoMemory.left === null ? "The buyer's previous message was a photo that left nothing."
     : `The buyer's previous message was a photo that left ${photoLeftText(input)}.`];
-  const shop = currency ? [`Prices of this shop are in ${currency}.`] : [];
+  const names = currency ? currencyNames(currency) : [];
+  const shop = currency ? [`Prices of this shop are in ${currency}${names.length ? ` (${names.join(", ")})` : ""}.`] : [];
   return [`Message kind: ${current.kind === "image" ? "caption of a photo" : "text message"}`, ...shown, ...previous, ...shop];
 }
 

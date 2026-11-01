@@ -653,6 +653,12 @@ describe("checkRequests: the buyer's values mapped by the resolution", () => {
     expect(checked.urgent).toMatchObject({ problem: "variant_not_available" });
   });
 
+  test("counts an unmatched word that the chosen product sells letter by letter as matched", () => {
+    const pending = pendingOf("gorra", { quantity: 1 });
+    const checked = only(checkRequests([request({ kind: "complete_pending", target: pendingTarget, values: [value("rojo")] })], [mapped("gorra", [], ["rojo"])], snapshot({ pendings: [pendingRef(1, pending)] })));
+    expect(checked.action).toMatchObject({ kind: "advance_pending", request: { values: [{ name: "Color", value: "Rojo" }] } });
+  });
+
   test("falls back to comparing the buyer's words letter by letter when the resolution did not cover them", () => {
     const pending = pendingOf("gorra", { quantity: 1 });
     const checked = only(checkRequests([request({ kind: "complete_pending", target: pendingTarget, values: [value("rojo")] })], [mapped("gorra", [])], snapshot({ pendings: [pendingRef(1, pending)] })));

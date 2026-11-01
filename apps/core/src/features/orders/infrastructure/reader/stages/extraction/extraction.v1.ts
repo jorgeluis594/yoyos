@@ -34,7 +34,7 @@ Target: what the request is about
 
 Values: the attribute values the buyer gives
 - One entry for each value. value holds the buyer's words for it exactly as written, without turning them into the catalog's value: a diminutive, a plural, a gender form or a misspelling stays as the buyer wrote it.
-- attribute holds the words the buyer uses for the attribute («talla», «color», «tamaño») when the buyer says them, and null when the buyer gives only the value.
+- attribute holds the words the buyer uses for the attribute («talla», «color», «tamaño») when the buyer says them, and null when the buyer gives only the value: never write an attribute name the buyer did not write, even when the catalog has one for that value.
 - Do not turn a number of units into a value.
 
 Quantity: how many units
