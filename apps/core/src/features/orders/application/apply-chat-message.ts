@@ -14,7 +14,7 @@ import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
 import type { OrderAggregate, OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
 import type { CompanyId, ContactId, OrderId, OrderItem, OrderItemId } from "@core/src/features/orders/domain/order";
 import { nextLastIncomingPhoto } from "@core/src/features/orders/domain/photo-just-sent";
-import { checkRequests, type CheckedAction } from "@core/src/features/orders/domain/reader/check-requests";
+import { checkRequests, checkShownPhoto, type CheckedAction } from "@core/src/features/orders/domain/reader/check-requests";
 import { decideChanges, type DecidedChanges } from "@core/src/features/orders/domain/reader/decide-changes";
 import { isHighCertainty, riskOf } from "@core/src/features/orders/domain/reader/decide";
 import type { DoubtReason } from "@core/src/features/orders/domain/reader/decision";
@@ -177,8 +177,8 @@ const unusedNumber = 0 as OrderNumber;
 
 const noticeDueOf = (stored: StoredChatMessageOutcome) => isNoticeDue(stored.outcomes, stored.noticeSentAt);
 const hasChanges = (changes: OrderItemChanges) => changes.added.length + changes.updated.length + changes.removedItemIds.length > 0;
-/** A text or caption the reader can read: not blank. */
-export const hasReadableText = (text: string | null): text is string => text !== null && text.trim() !== "";
+/** A text or caption the reader can read: with at least one letter or digit; symbols and emoji alone count as no text. */
+export const hasReadableText = (text: string | null): text is string => text !== null && /[\p{L}\p{N}]/u.test(text);
 
 /** The chat's order and its alive pendings as the reader sees them: unlocked, and the transaction decides again under lock. */
 type ChatState = Readonly<{ target: ChatOrderTarget; pendings: ChatPendings; memory: ChatMemory }>;
@@ -316,6 +316,11 @@ async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>>
   const { primary } = started.data;
   for (const drop of primary.quoteDrops) log.debug({ event: "reader_quote_dropped", companyId: read.message.companyId, messageId: read.message.id, ...drop }, "reader_quote_dropped");
   const data: TraceData = { intent: primary.intent, context, photo: read.photo, started: started.data, records: started.data.records, confirmingRun: false, startedAt: read.startedAt, answer: "no_intent", actionKinds: [] };
+  if (read.kind === "photo_product" && (primary.intent.kind !== "requests" || !primary.chain)) {
+    // The photo is the request: a caption that reads as no intent, or that cannot be read, leaves the shown products added (or pending), with a doubt for the unreadable one.
+    const fixed = await fixedPhoto(read.message, shown, primary.intent.kind !== "no_intent", state, deps, read.signal, read.startedAt, read.photo!);
+    return fixed.success ? ok({ plan: fixed.data.plan, data: { ...data, answer: "fixed", actionKinds: fixed.data.data.actionKinds } }) : fixed;
+  }
   if (primary.intent.kind === "no_intent") return ok({ plan: reportPlan({ kind: "no_intent" }, read.kind === "text" ? "text" : "photo"), data });
   if (primary.intent.kind === "unsure" || !primary.chain) return ok({ plan: reportPlan({ kind: "reader_doubt", orderId: null }, read.kind === "text" ? "text" : "photo"), data: { ...data, answer: "doubt" } });
   const chain = primary.chain;
@@ -337,7 +342,7 @@ async function readStaged(read: StagedRead): Promise<Result<Staged, RunFailure>>
       const snapshot = snapshotOf(locked);
       const checks = checkRequests(chain.requests, chain.resolutions, snapshot);
       const confirmed = confirming ? checkRequests(confirming.requests, confirming.resolutions, snapshot) : null;
-      const decided = decideChanges([...checks, ...tooManyActions(primary.overflow)], confirmed, { captionUnread: false });
+      const decided = decideChanges([...checks, ...checkShownPhoto(snapshot, chain.requests, chain.resolutions), ...tooManyActions(primary.overflow)], confirmed, { captionUnread: false });
       return { actions: nonEmpty(decided.actions, { kind: "report", outcome: { kind: "no_intent" } }), decided };
     } };
   return ok({ plan, data: { ...data, confirmingRun, answer: "actions", actionKinds: chain.requests.map(({ request }) => request.kind) } });

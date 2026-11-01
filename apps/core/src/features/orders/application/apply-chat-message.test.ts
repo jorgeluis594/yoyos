@@ -290,6 +290,52 @@ describe("applyChatMessage: the staged pipeline", () => {
     expect(h.changeSaves[0]!.changes).toMatchObject([{ kind: "added", decision: { kind: "doubtful", reason: { kind: "caption_unread" } } }]);
   });
 
+  test("adds the shown product when the caption of a product photo reads as no intent", async () => {
+    const h = harness({ message: photoMessage({ caption: "qué linda se ve" }), identification: visual(productCap) });
+
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }], trace: { answer: "fixed" } });
+    expect(h.stageLog).toEqual(["intent:primary"]);
+  });
+
+  test("leaves a pending for a product photo with several variants when its caption reads as no intent", async () => {
+    const h = harness({ message: photoMessage({ caption: "qué linda se ve" }), identification: visual(productPolo) });
+
+    expect(await succeeded(h.run())).toMatchObject({ noticeDue: true, outcomes: [{ kind: "pending_created" }, { kind: "variant_missing" }] });
+  });
+
+  test("marks the add of a product photo whose caption the intent was unsure about", async () => {
+    const h = harness({ message: photoMessage({ caption: "mmm ese o el otro" }), identification: visual(productCap), script: { intent: { kind: "unsure", language: "es", addresses: [] } } });
+    await succeeded(h.run());
+
+    expect(h.changeSaves[0]!.changes).toMatchObject([{ kind: "added", decision: { kind: "doubtful", reason: { kind: "caption_unread" } } }]);
+  });
+
+  test("treats a caption of symbols as no caption: no stage runs", async () => {
+    const h = harness({ message: photoMessage({ caption: "😍😍 !!" }), identification: visual(productCap) });
+
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: [{ kind: "added", variantId: cap.variantId }], trace: { answer: "fixed", stageCalls: 0 } });
+    expect(h.stageLog).toEqual([]);
+  });
+
+  test("skips a text of symbols without a stage call", async () => {
+    expect(await succeeded(harness({ message: textMessage("👍") }).run())).toEqual({ kind: "skipped", reason: "empty_text" });
+  });
+
+  test("adds the shown product next to a payment request in its caption", async () => {
+    const h = harness({ message: photoMessage({ caption: "pásame tu yape" }), identification: visual(productCap), script: { intent: requestsOf(intent("R1", "payment_request", "pásame tu yape")),
+      extraction: [extracted("R1", "payment_request")] } });
+
+    expect(await succeeded(h.run())).toMatchObject({ outcomes: expect.arrayContaining([expect.objectContaining({ kind: "added", variantId: cap.variantId }), expect.objectContaining({ kind: "payment_requested" })]) });
+  });
+
+  test("a caption that declines the product photo adds nothing", async () => {
+    const h = harness({ message: photoMessage({ caption: "no la quiero" }), identification: visual(productCap), script: { intent: requestsOf(intent("R1", "decline", "no la quiero")),
+      extraction: [extracted("R1", "decline", { target: { kind: "photo_same_message" } })] } });
+    await succeeded(h.run());
+
+    expect(quantityOf(h.store, cap.variantId)).toBeUndefined();
+  });
+
   test("records not identified for a photo without a match and keeps it silent while the catalog cannot recognize photos", async () => {
     expect(await succeeded(harness({ identification: { kind: "not_found", topDistance: 0.9 } as ImageIdentification }).run())).toMatchObject({ noticeDue: true, outcomes: [{ kind: "not_identified", source: "photo", silent: false }] });
     expect(await succeeded(harness({ identification: { kind: "not_found", topDistance: 0.9 } as ImageIdentification, readiness: "no_indexed_products" as CatalogSearchReadiness }).run())).toMatchObject({ noticeDue: false });
