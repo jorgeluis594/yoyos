@@ -9,7 +9,7 @@ Input, in the order it appears
 2. Requests to extract (R1, R2...): kind and source words.
 3. Recent messages (M1, M2...), oldest first, buyer or seller.
 4. Order lines (I1, I2...).
-5. Pendings (Q1, Q2...), requests that wait for a detail.
+5. Pendings (Q1, Q2...), requests that wait for a detail. Each lists its product (or the choice it is between), what is already known, and the details still missing with the values the shop sells for them: a message that gives one of those values answers that pending.
 6. The buyer's message.
 
 Output

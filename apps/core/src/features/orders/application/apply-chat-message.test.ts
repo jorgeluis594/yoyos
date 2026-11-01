@@ -400,7 +400,7 @@ describe("applyChatMessage: decisions", () => {
     const applied = await succeeded(h.run());
 
     expect(applied.kind === "applied" && applied.noticeDue).toBe(false);
-    expect(h.traces[0]!.records).toHaveLength(3);
+    expect(h.traces[0]!.records).toHaveLength(4);
     expect(h.changeSaves[0]!.changes.length).toBeGreaterThan(0);
     expect(h.changeSaves[0]!.changes.every((row) => row.decision.kind === "doubtful")).toBe(true);
     expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", decision: { kind: "doubtful", reason: { kind: "variant_changed", attribute: "Talla", from: "L", to: "M" } } }));

@@ -54,7 +54,7 @@ describe("intent input rendering", () => {
     expect(rendered).toMatchInlineSnapshot(`
       "Message kind: caption of a photo
       The photo shows a catalog product.
-      The buyer's previous message was a photo that left a pending.
+      The buyer's previous message was a photo that left a pending (Q1).
       Recent messages, oldest first:
       No recent messages are listed.
       Order lines:
@@ -65,6 +65,24 @@ describe("intent input rendering", () => {
       Buyer's message:
       me interesa"
     `);
+  });
+
+  test("names a pending's product with what is known and, per open attribute, the sellable values", () => {
+    const rendered = renderIntentInput(readingInput({
+      pendings: [pending(1, { productNames: ["Polera con capucha"], known: { Talla: "M" }, missing: [{ name: "Color", values: ["Gris", "Negro"] }] }),
+        pending(2, { productIds: ["a", "b"] as ProductId[], productNames: ["Polo básico", "Polo rayas"] })],
+      photoMemory: { left: { kind: "pending", pendingId: "pending-1" as never } },
+    }));
+
+    expect(rendered).toContain("Q1: Polera con capucha · known: Talla M · missing: Color (Gris, Negro) · quantity 1");
+    expect(rendered).toContain("Q2: a choice between: Polo básico / Polo rayas · quantity 1");
+    expect(rendered).toContain("left a pending (Q1).");
+  });
+
+  test("points a photo that left an order line at its ref", () => {
+    const rendered = renderIntentInput(readingInput({ items: [item(1, { variantId: "v1" as never })], photoMemory: { left: { kind: "item", orderId: "o" as never, variantId: "v1" as never, quantity: 1 as PositiveInteger } } }));
+
+    expect(rendered).toContain("left an item in the order (I1).");
   });
 
   test("says when a photo shows no catalog product", () => {

@@ -7,7 +7,7 @@ import type { ProductForReading } from "@core/src/features/products/domain/readi
 import type { ReadingContextData } from "@core/src/features/orders/application/reader/load-reading-context";
 import type { ReaderStages, StageError, StageResult } from "@core/src/features/orders/application/reader/stages";
 import { maxReaderActions } from "@core/src/features/orders/domain/chat-reading";
-import { assembleCandidates, type MentionSearch } from "@core/src/features/orders/domain/reader/candidates";
+import { assembleCandidates, productsOfTarget, type MentionSearch } from "@core/src/features/orders/domain/reader/candidates";
 import { maskStageOutput, type StoredStageOutput } from "@core/src/features/orders/domain/reader/masking";
 import { droppedFields, verifyIntentQuotes, verifyQuotes, type QuoteDrop, type VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
 import type { AddressSpan, ExtractedRequest, IntentReading, ProductMention, ProductResolution, ReaderStage, Reading, ReadingInput, RequestIntent, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
@@ -80,12 +80,20 @@ function inputSummary(input: ReadingInput, extra: Partial<StageInputSummary> = {
     productIds: [], productNames: [], candidateIds: [], ...extra };
 }
 
-/** The mentions of a message: every request that names a product by words. */
-export function mentionsOf(requests: readonly VerifiedRequest[]): readonly ProductMention[] {
-  return requests.flatMap(({ request }) => (request.target.kind === "named"
-    ? [{ request: request.request, words: request.target.words, values: request.values,
-      ...(request.price && request.price.currency === "order" ? { price: { amount: request.price.amount, units: request.quantity?.value ?? 1, basis: request.price.basis } } : {}) }]
-    : []));
+/**
+ * The mentions of a message: every request that names a product by words, and every other request that carries values for a product its target
+ * fixes (a pending, an item, a photo): those get the product as their one candidate, so the buyer's values are mapped to the catalog on every path.
+ */
+export function mentionsOf(requests: readonly VerifiedRequest[], input: ReadingInput, photoProductIds: readonly ProductId[]): readonly ProductMention[] {
+  return requests.flatMap(({ request }): ProductMention[] => {
+    if (request.target.kind === "named") {
+      return [{ request: request.request, words: request.target.words, values: request.values,
+        ...(request.price && request.price.currency === "order" ? { price: { amount: request.price.amount, units: request.quantity?.value ?? 1, basis: request.price.basis } } : {}) }];
+    }
+    const [first] = request.values;
+    const candidateIds = first ? productsOfTarget(request, input, photoProductIds) : [];
+    return first && candidateIds.length > 0 ? [{ request: request.request, words: first.valueWords, values: request.values, candidateIds, valuesOnly: true }] : [];
+  });
 }
 
 const sameMention = (a: ProductMention, b: ProductMention) => a.request === b.request && a.words.text.toLowerCase() === b.words.text.toLowerCase()
@@ -99,18 +107,20 @@ async function loadProducts(deps: RunReadingDependencies, ids: readonly ProductI
 
 type Searched = Readonly<{ mentions: readonly ProductMention[]; products: readonly ProductForReading[]; catalog: Omit<ReadingCatalog, "products"> }>;
 
-/** Searches the mentions in one statement and loads the candidate products, then gives each mention the ids it may be resolved to. */
+/** Searches the named mentions in one statement and loads the candidate products, then gives each mention the ids it may be resolved to. A values-only mention keeps the products its target fixed. */
 async function searchMentions(deps: RunReadingDependencies, mentions: readonly ProductMention[], input: ReadingInput, photoProductIds: readonly ProductId[]): Promise<Result<Searched, PersistenceError>> {
-  const found = await deps.findMentionCandidates(mentions.map(({ words }) => words.text));
-  if (!found.success) return found;
-  const searched: MentionSearch[] = mentions.map(({ request }, index) => ({ request, productIds: found.data.mentions[index]?.productIds ?? [], unavailableProductIds: found.data.mentions[index]?.unavailableProductIds ?? [] }));
+  const named = mentions.filter(({ valuesOnly }) => !valuesOnly);
+  const found = named.length ? await deps.findMentionCandidates(named.map(({ words }) => words.text)) : null;
+  if (found && !found.success) return found;
+  const searched: MentionSearch[] = named.map(({ request }, index) => ({ request, productIds: found?.data.mentions[index]?.productIds ?? [], unavailableProductIds: found?.data.mentions[index]?.unavailableProductIds ?? [] }));
   const itemProductIds = input.items.flatMap(({ productId }) => (productId ? [productId] : []));
   const pendingProductIds = input.pendings.flatMap(({ productIds }) => productIds);
   const assembled = assembleCandidates({ searched, photoProductId: photoProductIds[0] ?? null, itemProductIds, pendingProductIds, perMention: deps.candidatesPerMention });
-  const loaded = await loadProducts(deps, [...assembled.productIds, ...photoProductIds]);
+  const valuesOnlyIds = mentions.flatMap(({ candidateIds, valuesOnly }) => (valuesOnly ? candidateIds ?? [] : []));
+  const loaded = await loadProducts(deps, [...assembled.productIds, ...photoProductIds, ...itemProductIds, ...pendingProductIds, ...valuesOnlyIds]);
   if (!loaded.success) return loaded;
-  return ok({ mentions: mentions.map((mention) => ({ ...mention, candidateIds: assembled.byMention.get(mention.request) ?? [] })), products: loaded.data,
-    catalog: { searchMs: found.data.durationMs, matchCount: found.data.mentions.reduce((sum, entry) => sum + entry.matchCount, 0), timedOut: found.data.timedOut } });
+  return ok({ mentions: mentions.map((mention) => (mention.valuesOnly ? mention : { ...mention, candidateIds: assembled.byMention.get(mention.request) ?? [] })), products: loaded.data,
+    catalog: { searchMs: found?.data.durationMs ?? null, matchCount: found ? found.data.mentions.reduce((sum, entry) => sum + entry.matchCount, 0) : null, timedOut: found?.data.timedOut ?? false } });
 }
 
 type Recorder = (stage: ReaderStage, result: Result<StageResult<unknown>, StageError>, input: StageInputSummary, output: StoredStageOutput | null) => void;
@@ -162,7 +172,7 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
 
   const requests = verifyQuotes(extracted.data.value as readonly ExtractedRequest[], input);
   const extractionDrops = requests.flatMap(({ request }, index) => droppedFields((extracted.data.value as readonly ExtractedRequest[])[index]!, request).map((field): QuoteDrop => ({ requestKind: request.kind, field })));
-  const mentions = mentionsOf(requests);
+  const mentions = mentionsOf(requests, input, photoProductIds);
   const known = [...photoProductIds, ...input.items.flatMap(({ productId }) => (productId ? [productId] : [])), ...input.pendings.flatMap(({ productIds }) => productIds)];
   const noSearch = async (): Promise<Result<Searched, PersistenceError>> => {
     const loaded = await loadProducts(deps, known);
@@ -200,7 +210,7 @@ async function confirmChain(deps: RunReadingDependencies, stages: ReaderStages, 
     if (extracted.success && extracted.data.call.reading === "confirming") record("extraction", extracted, inputSummary(input), maskStageOutput("extraction", extracted.data.value, addresses));
     else if (!extracted.success) { record("extraction", extracted, inputSummary(input), null); return null; }
     const requests = verifyQuotes(extracted.data.value as readonly ExtractedRequest[], input);
-    const mentions = mentionsOf(requests);
+    const mentions = mentionsOf(requests, input, photoProductIds);
     const fresh = mentions.filter((mention) => !primarySearch.mentions.some((known) => sameMention(known, mention)));
     const reused = primary.resolutions.filter((resolution) => mentions.some((mention) => mention.request === resolution.request && !fresh.includes(mention)));
     if (fresh.length === 0) return { requests, resolutions: reused };

@@ -11,7 +11,7 @@ What you are given
 - Facts about a photo: whether the message is the caption of a photo, whether the photo shows a catalog product, and whether the buyer's previous message was a photo that left a pending or an item.
 - Recent messages (M1, M2...), oldest first, each marked buyer or seller. They explain what the buyer's message refers to.
 - Order lines (I1, I2...): what the chat's open order holds.
-- Pendings (Q1, Q2...): requests from earlier messages that still wait for a detail.
+- Pendings (Q1, Q2...): requests from earlier messages that still wait for a detail. Each lists its product (or the choice it is between), what is already known, and the details still missing with the values the shop sells for them: a message that gives one of those values answers that pending.
 - The buyer's message last.
 
 What you answer

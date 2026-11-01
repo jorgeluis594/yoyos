@@ -2,6 +2,8 @@ import { ok } from "@shared/functional";
 import type { Currency } from "@shared/money";
 import type { Result } from "@shared/result";
 import type { RecentChatMessage, RecentChatMessagesQuery } from "@core/src/features/chats/composition";
+import type { ProductId } from "@core/src/features/products/domain/product";
+import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ChatSourceMessage } from "@core/src/features/orders/application/chat-source-message";
 import type { StoredChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
@@ -27,6 +29,8 @@ export type LoadReadingContextDependencies = Readonly<{
   findChatOrdersOpenedSince: (chatId: ChatId, since: Date) => Promise<Result<readonly OrderAggregate[], LoadReadingContextError>>;
   /** The currency of the company's prices, or null when the company has none on record. */
   findShopCurrency: () => Promise<Result<Currency | null, LoadReadingContextError>>;
+  /** The catalog products of the pendings, named to the stages with the values their variants still leave open. */
+  findProductsForReading: (productIds: readonly ProductId[]) => Promise<Result<readonly ProductForReading[], LoadReadingContextError>>;
   clock: () => Date;
   pendingTtlMs: number;
   budgets: ReadingBudgets;
@@ -64,9 +68,23 @@ function itemsOf(target: ChatOrderTarget, maxItems: number): readonly ReadingIte
     variantId: item.variantId, productName: item.productName, variantAttributes: item.variantAttributes, quantity: item.quantity }));
 }
 
-function pendingsOf(alive: readonly ChatPending[]): readonly ReadingPending[] {
-  return alive.map((pending, index) => ({ ref: `Q${index + 1}` as PendingRef, pendingId: pending.id,
-    productIds: pending.subject.kind === "variant" ? [pending.subject.productId] : pending.subject.candidates, known: pending.known, quantity: pending.quantity, doubtful: pending.doubt !== null }));
+/** The attributes a pending on one product still lacks, each with the values of the sellable variants that fit what is known. */
+function missingOf(product: ProductForReading, known: Readonly<Record<string, string>>): ReadingPending["missing"] {
+  const fitting = product.variants.filter(({ variantAttributes }) => Object.entries(known).every(([name, value]) => variantAttributes[name] === undefined || variantAttributes[name] === value));
+  return product.attributes.filter(({ name }) => known[name] === undefined).flatMap(({ name }) => {
+    const values = [...new Set(fitting.flatMap(({ variantAttributes }) => (variantAttributes[name] === undefined ? [] : [variantAttributes[name]])))];
+    return values.length ? [{ name, values }] : [];
+  });
+}
+
+function pendingsOf(alive: readonly ChatPending[], products: ReadonlyMap<ProductId, ProductForReading>): readonly ReadingPending[] {
+  return alive.map((pending, index) => {
+    const productIds = pending.subject.kind === "variant" ? [pending.subject.productId] : pending.subject.candidates;
+    const listed = productIds.flatMap((id) => (products.has(id) ? [products.get(id)!] : []));
+    const named = listed.length === productIds.length ? { productNames: listed.map(({ name }) => name) } : {};
+    const missing = productIds.length === 1 && listed.length === 1 ? { missing: missingOf(listed[0]!, pending.known) } : {};
+    return { ref: `Q${index + 1}` as PendingRef, pendingId: pending.id, productIds, known: pending.known, quantity: pending.quantity, doubtful: pending.doubt !== null, ...named, ...missing };
+  });
 }
 
 async function openedSinceOf(deps: LoadReadingContextDependencies, chatId: ChatId, pendings: ChatPendings) {
@@ -98,10 +116,13 @@ export async function loadReadingContext(deps: LoadReadingContextDependencies, m
   if (!photo.success) return photo;
   if (!openedSince.success) return openedSince;
   if (!currency.success) return currency;
+  const pendingProductIds = [...new Set(pendings.pendings.flatMap(({ subject }) => (subject.kind === "variant" ? [subject.productId] : subject.candidates)))];
+  const catalog = pendingProductIds.length ? await deps.findProductsForReading(pendingProductIds) : ok<readonly ProductForReading[]>([]);
+  if (!catalog.success) return catalog;
   const life = pendingLife(pendings, { target, openedSince: openedSince.data }, deps.clock(), deps.pendingTtlMs);
   const context = contextOf(recent, masks.data, budgets.contextMessageChars);
   const current = { messageId: message.id, kind: message.imageId ? "image" : "text", text: message.text ?? message.caption ?? "" };
-  const fitted = fitReadingInput({ current, context, items: itemsOf(target, budgets.maxItems), pendings: pendingsOf(life.alive), photoMemory, photo: null, ...(currency.data ? { currency: currency.data } : {}) }, budgets.stageInputMaxChars);
+  const fitted = fitReadingInput({ current, context, items: itemsOf(target, budgets.maxItems), pendings: pendingsOf(life.alive, new Map(catalog.data.map((product) => [product.productId, product] as const))), photoMemory, photo: null, ...(currency.data ? { currency: currency.data } : {}) }, budgets.stageInputMaxChars);
   const idOf = new Map(context.map(({ ref }, index) => [ref, recent[index]!.id] as const));
   const kept = fitted.input.context.map(({ ref }) => [ref, idOf.get(ref)!] as const);
   const photoOutcome = latestPhoto && photo.data ? { ref: context[recent.indexOf(latestPhoto)]!.ref, messageId: latestPhoto.id, outcome: photo.data } : null;

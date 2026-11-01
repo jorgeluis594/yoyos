@@ -45,14 +45,20 @@ export type ExtractedRequest = Readonly<{
   price: Readonly<{ amount: number; currency: "order" | "other"; basis: "unit" | "lot" | "not_explicit"; quote: Quote }> | null;
   changeVerb: Quote | null;
 }>;
-/** `candidateIds` are the products the mention may be resolved to (from `assembleCandidates`); absent means any candidate listed with it. */
 /** `price` is the price the request states, so that the resolution can tell products apart by it; `units` is the quantity the request states (1 when none). */
 export type MentionPrice = Readonly<{ amount: number; units: number; basis: "unit" | "lot" | "not_explicit" }>;
-export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"]; candidateIds?: readonly ProductId[]; price?: MentionPrice }>;
+/**
+ * `candidateIds` are the products the mention may be resolved to (from `assembleCandidates`); absent means any candidate listed with it.
+ * `valuesOnly` marks a request that names no product by words but carries values: its target already fixes the candidates, and `words` repeats its first value words.
+ */
+export type ProductMention = Readonly<{ request: RequestRef; words: Quote; values: ExtractedRequest["values"]; candidateIds?: readonly ProductId[]; valuesOnly?: boolean; price?: MentionPrice }>;
+/** A buyer's value words mapped to a catalog value. */
+export type ResolvedValue = Readonly<{ attribute: string; value: string; quote: Quote }>;
 export type ProductResolution =
-  | Readonly<{ request: RequestRef; kind: "chosen"; productId: ProductId; values: readonly Readonly<{ attribute: string; value: string; quote: Quote }>[] }>
-  /** Two to four products. */
-  | Readonly<{ request: RequestRef; kind: "between"; productIds: readonly ProductId[] }>
+  /** `unmatched` are the buyer's value words that fit no value of the product: the checks then report the value as not available instead of missing. */
+  | Readonly<{ request: RequestRef; kind: "chosen"; productId: ProductId; values: readonly ResolvedValue[]; unmatched?: readonly Quote[] }>
+  /** Two to four products. `values` are the ones every candidate offers. */
+  | Readonly<{ request: RequestRef; kind: "between"; productIds: readonly ProductId[]; values?: readonly ResolvedValue[] }>
   | Readonly<{ request: RequestRef; kind: "none" }>;
 
 /** What the three stages read: built by code from a bounded context, rendered into prompts by infrastructure. */
@@ -62,7 +68,11 @@ export type ReadingContextMessage = Readonly<{ ref: ContextMessageRef; direction
 export type ReadingItem = Readonly<{ ref: ItemRef; itemId: OrderItemId; productId: ProductId | null; variantId: VariantId; productName: string;
   variantAttributes: Readonly<Record<string, string>>; quantity: PositiveInteger }>;
 export type ReadingPending = Readonly<{ ref: PendingRef; pendingId: ChatPendingId; productIds: readonly ProductId[]; known: Readonly<Record<string, string>>;
-  quantity: PositiveInteger; doubtful: boolean }>;
+  quantity: PositiveInteger; doubtful: boolean;
+  /** The names of the pending's products (catalog data the stages read), in `productIds` order; absent when the catalog could not name them. */
+  productNames?: readonly string[];
+  /** For a pending on one product: each attribute its known values leave open, with the sellable values that fit what is known. */
+  missing?: readonly Readonly<{ name: string; values: readonly string[] }>[] }>;
 export type ReadingInput = Readonly<{
   current: Readonly<{ messageId: ChatMessageId; kind: string; text: string }>;
   context: readonly ReadingContextMessage[];
