@@ -42,7 +42,7 @@ This skill contains only the method. Feature state lives in the repository memor
    - Implementer in a new child worktree:
      `orca orchestration worker-start --spec "$(cat impl-tN.md)" --task-title "Implement TN <title>" --display-name "impl TN" --worktree new-child --name <topic>-tN --base-branch jorgeluis594/<topic> --agent claude --model claude-sonnet-5-5 --json`
    - Wait with `orca orchestration check --wait --types "worker_done,escalation,question" --timeout-ms 580000 --json` (under the Bash 600 s limit), process every message, then `--ack <delivery_id>`. Answer questions with `orchestration reply`. A question about product behavior that the documents do not answer goes to a fresh product reviewer (product reviewer brief, with the question as its only item) and is written into "Questions decided by the review gate" of the product draft with its answer; everything else the coordinator answers and, if it changes the design, writes into the technical document.
-   - When an implementer reports done, `worker-retain` it and start a reviewer in the same worktree with `--worktree "id:<repoId>::<worktreePath>" --agent claude --model claude-opus-5-5`, listing in the spec the deviations the implementer declared.
+   - When an implementer reports done, `worker-retain` it and start a reviewer in the same worktree with `--worktree "id:<repoId>::<worktreePath>" --agent claude --model claude-opus-5-5`, listing in the spec the deviations the implementer declared. The reviewer uses the [Review changes](../review-changes/SKILL.md) skill and, when it rejects, delivers an approach and plan for every blocker.
    - If the reviewer rejects, send a fix round to the same implementer terminal: `worker-start --spec "$(cat fix-tN-rK.md)" --terminal <handle> --worktree "id:..."`. Then a fresh reviewer. Repeat until approved. After three rejected rounds, or if a worker repeats the same attempt twice or stays blocked, ask it for its state, help it unblock; if still stuck, report to the founder.
    - On approval: push `<topic>-tN` and open its PR against the integration branch (`gh pr create --base jorgeluis594/<topic> --head <topic>-tN`, without the `final-pr` label) with the task, the reviewer's verdict and the checks run. Conflicts go through a worker if they touch logic (a trivial one the coordinator may resolve). Merge it with `gh pr merge <n> --merge` (CI only runs on PRs to `main`, so the checks are the local ones), pull the integration branch and run lint, typecheck and unit tests of the affected apps there. Then `worker-release` the implementer and reviewer and remove the task's worktree with `orca worktree rm --worktree "id:<repoId>::<worktreePath>" --json`; if it has uncommitted or unpushed work, stop and report instead of using `--force`.
    - Start the next wave from the updated integration branch. A task in a later wave never starts before its dependencies are merged.
@@ -67,6 +67,25 @@ Applied by the coordinator to every output: product draft, technical draft, impl
 3. **Completeness.** Product: every actor, state and failure the task implies has its behavior. Architecture: every product behavior and acceptance criterion maps to a use case, a test title and a slice of the implementation plan. Implementation: the report matches the task's scope and the map, with checks run and their results; a change outside the map goes back to the worker, or into the technical document first if the design was wrong. Review: an approval with design findings or unchecked criteria is not an approval. Documentation: the permanent doc follows the Documentation skill and keeps every still-valid rule of the drafts, and the drafts are deleted.
 4. **Verdict.** Approve, or send numbered observations to the same worker for another round. Each observation states what is missing or inconsistent, never how to word or code it. After three rounds without approval, report to the founder.
 
+## Worker models
+
+Every `worker-start` passes `--agent claude` and the model of its role. A task is **simple** when the worker executes something already decided, without designing or judging: the spec, the technical document, a reviewer's observation or a failing check already says what must change or what must be run, and the worker only carries it out and reports. Simple tasks run on Sonnet; designing and judging run on Opus, except UX/UI validation.
+
+| Role | Kind | Model |
+| --- | --- | --- |
+| Implementer (slice of the technical plan) | Simple | `claude-sonnet-5-5` |
+| Fix round (reviewer's numbered observations) | Simple | `claude-sonnet-5-5` |
+| CI fixer (red check on the final PR) | Simple | `claude-sonnet-5-5` |
+| Conflict resolver (merge conflicts that touch logic) | Simple | `claude-sonnet-5-5` |
+| Final verifier (run checks, walk criteria, capture screenshots) | Simple | `claude-sonnet-5-5` |
+| Documentation worker (promote drafts, delete them) | Simple | `claude-sonnet-5-5` |
+| UX/UI reviewer | UX/UI validation | `claude-sonnet-5-5` |
+| Product writer, architecture writer | Design | `claude-opus-5-5` |
+| Code reviewer, product reviewer (also for product questions during implementation), design reviewer, performance reviewer | Review | `claude-opus-5-5` |
+| `approach-planner` agent (started by the code reviewer inside its own session) | Design | `claude-opus-5-5`, set in `.claude/agents/approach-planner.md` |
+
+A fix round reuses the implementer's terminal, so it keeps its Sonnet model. A worker that is not in the table runs on Sonnet when its task is simple by the rule above, and on Opus when it must decide a design or approve someone else's work.
+
 ## Review gates
 
 The product and technical drafts are approved by fresh reviewer workers, not by the founder. A reviewer has no conversation history: its spec carries everything it needs.
@@ -76,7 +95,7 @@ The product and technical drafts are approved by fresh reviewer workers, not by 
 | Product | UX/UI reviewer and product reviewer |
 | Architecture | Design reviewer and performance reviewer |
 
-1. After the coordinator's own [validation](#system-level-validation) of the draft, start both reviewers of the gate at once on the integration worktree, each as a new worker (never a retained terminal) with `--agent claude --model claude-opus-5-5`, passing the draft path, the change map and the writer's "Questions" and "Decided unless objected" blocks.
+1. After the coordinator's own [validation](#system-level-validation) of the draft, start both reviewers of the gate at once on the integration worktree, each as a new worker (never a retained terminal) with `--agent claude` and the reviewer's [model](#worker-models) (`claude-sonnet-5-5` for the UX/UI reviewer, `claude-opus-5-5` for the rest), passing the draft path, the change map and the writer's "Questions" and "Decided unless objected" blocks.
 2. Each reviewer reports blockers, suggestions and an answer, with its reason, to each question. The coordinator consolidates: questions where both agree take that answer; on disagreement it takes the answer consistent with the repository memory and current documents, or else the more conservative one, and records why.
 3. If either reviewer has blockers, send them with the consolidated answers to the same writer as a new round, then start two fresh reviewers on the new version. Repeat until both approve with no blockers. After three rounds without approval, or if a blocker needs a business decision no document or memory settles, report to the founder.
 4. On approval, send the answers and accepted suggestions to the writer to close the document. The questions are not removed: the document keeps each one in "Questions decided by the review gate" with its answer, who decided it (which reviewer, or the coordinator on disagreement), the reason and the discarded alternatives, because the founder confirms them in the final PR. Keep each gate's rounds and verdicts for the final PR.

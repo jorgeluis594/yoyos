@@ -70,17 +70,15 @@ REPORT (worker_done): branch, commits, each check command with its result, devia
 
 ```text
 REVIEW-ONLY TASK for T<N> in this worktree (branch <topic>-tN). Validate, do not edit or commit.
-Review `git diff jorgeluis594/<topic>...HEAD` against T<N> in the implementation plan of docs/drafts/<topic>-technical.md and the design:
-(a) scope and every acceptance criterion; (b) correctness and failure cases; (c) security: company isolation, RLS, validation at boundaries; (d) declared deviations; (e) docs/programming-style.md and docs/architecture.md; (f) tests cover the listed titles and meaningful failures.
-Run lint, typecheck and the task's tests yourself with your ports.
+Review `git diff jorgeluis594/<topic>...HEAD` with the review-changes skill against T<N> in the implementation plan of docs/drafts/<topic>-technical.md and the design. Run the checks with your ports.
 COORDINATOR NOTES — deviations declared by the implementer: <list>.
-REPORT: write review-tN-rK.md with numbered findings (file:line, blocker or suggestion, and whether it is a design finding). worker_done --outcome succeeded with "APPROVED" when there are no blockers, otherwise --outcome failed with "REJECTED"; --report-path review-tN-rK.md.
+REPORT: write review-tN-rK.md in the skill's report format (verdict, numbered findings, approach and plan when rejected, checks run). worker_done --outcome succeeded with "APPROVED" when there are no blockers, otherwise --outcome failed with "REJECTED"; --report-path review-tN-rK.md.
 ```
 
 ## Fix round
 
 ```text
-ROUND <K> for T<N>. Apply only these findings from review-tN-r<K-1>.md, verifying each against the current code first: <numbered list>. Do exactly this and nothing more.
+ROUND <K> for T<N>. Apply only these findings from review-tN-r<K-1>.md, verifying each against the current code first and following the reviewer's approach and plan in that file: <numbered list>. Do exactly this and nothing more; if the approach does not hold against the code, say why and what you did instead.
 <If the base moved:> First run `git merge jorgeluis594/<topic>`.
 Then rerun: <exact commands>. REPORT as in the implementer task, per finding: fixed or why not.
 ```
