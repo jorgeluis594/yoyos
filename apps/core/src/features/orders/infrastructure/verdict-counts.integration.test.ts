@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, expect, test } from "vitest";
+import { countVerdicts } from "@core/src/features/orders/infrastructure/verdict-counts";
 import { reportConfiguredVerdictLabels } from "@core/src/features/orders/composition";
 import { hashToken, parseTraceReaders } from "@core/src/features/orders/presentation/trace-reader-token";
 import { runVerdictsReport } from "@core/src/features/orders/presentation/verdicts-command";
@@ -58,7 +59,7 @@ test("the verdicts report returns counts by decision, doubt kind and verdict wit
   try {
     const out: string[] = [];
     const errors: string[] = [];
-    const code = await runVerdictsReport({ args: ["--since", "2041-03-01", "--until", "2041-04-01"], readers: parseTraceReaders(`Ana:${hashToken("ana-token")}`), token: async () => "ana-token",
+    const code = await runVerdictsReport({ args: ["--since", "2041-03-01", "--until", "2041-04-01"], readers: parseTraceReaders(`Ana:${hashToken("ana-token")}`), osUser: "jorge", token: async () => "ana-token",
       report: reportConfiguredVerdictLabels, print: (text) => out.push(text), fail: (text) => errors.push(text) });
     expect(errors).toEqual([]);
     expect(code).toBe(0);
@@ -78,9 +79,18 @@ test("the verdicts report returns counts by decision, doubt kind and verdict wit
   } finally { await a.cleanup(); await b.cleanup(); }
 }, 30_000);
 
-test("the verdicts report refuses a window over 366 days before reading", async () => {
-  const result = await reportConfiguredVerdictLabels({ since: new Date("2040-01-01T00:00:00Z"), until: new Date("2041-06-01T00:00:00Z") });
-  expect(result).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+test("the verdicts report refuses a window over 366 days or with since after until", async () => {
+  const tooLong = await reportConfiguredVerdictLabels({ since: new Date("2040-01-01T00:00:00Z"), until: new Date("2041-06-01T00:00:00Z") });
+  expect(tooLong).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+  const inverted = await reportConfiguredVerdictLabels({ since: new Date("2041-04-01T00:00:00Z"), until: new Date("2041-03-01T00:00:00Z") });
+  expect(inverted).toMatchObject({ success: false, error: { code: "INVALID_INPUT" } });
+});
+
+test("the verdict scan runs under the configured statement timeout", async () => {
+  let applied = "";
+  const result = await countVerdicts(new Date("2041-03-01T00:00:00Z"), new Date("2041-04-01T00:00:00Z"), 7000, (setting) => { applied = setting; });
+  expect(result.success).toBe(true);
+  expect(applied).toBe("7s");
 });
 
 test("the aggregate itself refuses an invalid window", async () => {

@@ -1,9 +1,10 @@
 import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
+import type { ChangeVerdict } from "@core/src/features/orders/domain/message-changes";
 
 type PersistenceError = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 export type VerdictDecision = "applied" | "doubtful";
-export type CountedVerdict = "kept" | "quantity_changed" | "removed" | "undone" | "not_reviewed";
+export type CountedVerdict = ChangeVerdict;
 export type LabelStrength = "strong" | "weak";
 /** One group of changes over every company: counts only, never ids or text. `verdict` is null while nobody has judged the change. */
 export type VerdictCountRow = Readonly<{ decision: VerdictDecision; doubtKind: string | null; verdict: CountedVerdict | null; count: number }>;
