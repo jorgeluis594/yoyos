@@ -68,7 +68,11 @@ export type ReadingContextMessage = Readonly<{ ref: ContextMessageRef; direction
 export type ReadingItem = Readonly<{ ref: ItemRef; itemId: OrderItemId; productId: ProductId | null; variantId: VariantId; productName: string;
   variantAttributes: Readonly<Record<string, string>>; quantity: PositiveInteger }>;
 export type ReadingPending = Readonly<{ ref: PendingRef; pendingId: ChatPendingId; productIds: readonly ProductId[]; known: Readonly<Record<string, string>>;
-  quantity: PositiveInteger; doubtful: boolean }>;
+  quantity: PositiveInteger; doubtful: boolean;
+  /** The names of the pending's products (catalog data the stages read), in `productIds` order; absent when the catalog could not name them. */
+  productNames?: readonly string[];
+  /** For a pending on one product: each attribute its known values leave open, with the sellable values that fit what is known. */
+  missing?: readonly Readonly<{ name: string; values: readonly string[] }>[] }>;
 export type ReadingInput = Readonly<{
   current: Readonly<{ messageId: ChatMessageId; kind: string; text: string }>;
   context: readonly ReadingContextMessage[];

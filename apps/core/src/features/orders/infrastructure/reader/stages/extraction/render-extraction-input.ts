@@ -1,6 +1,7 @@
 import { defaultReadingBudgets } from "@core/src/features/orders/domain/reader/budgets";
 import type { ExtractionInput } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
-import type { ReadingContextMessage, ReadingInput, ReadingItem, ReadingPending, RequestIntent } from "@core/src/features/orders/domain/reader/readings";
+import { photoLeftText, pendingLine } from "@core/src/features/orders/infrastructure/reader/stages/render-pending";
+import type { ReadingContextMessage, ReadingInput, ReadingItem, RequestIntent } from "@core/src/features/orders/domain/reader/readings";
 
 /** The quote of an intent is shown up to this long: it only points at where the request is. */
 const maxIntentQuoteChars = 200;
@@ -8,17 +9,14 @@ const maxIntentQuoteChars = 200;
 const attributesText = (attributes: Readonly<Record<string, string>>) => Object.entries(attributes).map(([name, value]) => ` · ${name} ${value}`).join("");
 const contextLine = (message: ReadingContextMessage) => `${message.ref} (${message.direction === "incoming" ? "buyer" : "seller"}, ${message.kind}): ${message.text ?? "(no text)"}`;
 const itemLine = (item: ReadingItem) => `${item.ref}: ${item.productName}${attributesText(item.variantAttributes)} · quantity ${item.quantity}`;
-const pendingLine = (pending: ReadingPending) => {
-  const subject = pending.productIds.length > 1 ? `a choice between ${pending.productIds.length} products` : "one product";
-  return `${pending.ref}: ${subject}${attributesText(pending.known).replace(/^ · /, " · known: ")} · quantity ${pending.quantity}${pending.doubtful ? " · in doubt" : ""}`;
-};
 const intentLine = ({ id, kind, quote }: RequestIntent) =>
   `${id} (${kind}): «${quote.text.slice(0, maxIntentQuoteChars)}»${quote.source === "context" ? ` in ${quote.ref}` : ""}`;
 
-function photoLines({ current, photo, photoMemory, currency }: ReadingInput): string[] {
+function photoLines(input: ReadingInput): string[] {
+  const { current, photo, photoMemory, currency } = input;
   const shown = photo === null ? [] : [photo.productId === null ? "The photo shows no catalog product." : "The photo shows a catalog product."];
   const previous = photoMemory === null ? [] : [photoMemory.left === null ? "The buyer's previous message was a photo that left nothing."
-    : `The buyer's previous message was a photo that left ${photoMemory.left.kind === "pending" ? "a pending" : "an item in the order"}.`];
+    : `The buyer's previous message was a photo that left ${photoLeftText(input)}.`];
   const shop = currency ? [`Prices of this shop are in ${currency}.`] : [];
   return [`Message kind: ${current.kind === "image" ? "caption of a photo" : "text message"}`, ...shown, ...previous, ...shop];
 }
@@ -41,7 +39,7 @@ export function renderExtractionInput({ input, intents }: ExtractionInput, maxCh
   ].join("\n");
 
   const items = input.items.map(itemLine);
-  const pendings = input.pendings.map(pendingLine);
+  const pendings = input.pendings.map((pending) => pendingLine(pending));
   let context = input.context.map(contextLine);
   while (context.length > 0 && assemble(context, items, pendings).length > maxChars) context = context.slice(1);
   if (assemble(context, items, pendings).length <= maxChars) return assemble(context, items, pendings);
