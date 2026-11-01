@@ -47,6 +47,7 @@ orderItemsRoutes.patch("/:orderId/items", async (request, response: Response<unk
         case "DELIVERY_LOCKED": return refusal(response, 409, { code: "DELIVERY_LOCKED", error: "The order can no longer be edited" });
         case "ORDER_CANCELLED": return refusal(response, 409, { code: "ORDER_CANCELLED", error: "Order is cancelled" });
         case "VARIANT_NOT_FOUND": return refusal(response, 422, { code: "VARIANT_NOT_FOUND", error: "Variant not found", variantId: error.variantId });
+        case "INVALID_ORDER":
         case "INVALID_INPUT": return refusal(response, 400, { code: "INVALID_INPUT", error: "Invalid items edit" });
         case "ORDER_NOT_FOUND": return apiError(response, 404, "ORDER_NOT_FOUND", "Order not found");
         case "PERSISTENCE_UNAVAILABLE": return apiError(response, 503, "SERVICE_UNAVAILABLE", "Service unavailable");

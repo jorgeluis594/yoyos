@@ -10,6 +10,8 @@ let mockNotice: { id: string; shownTotal: { amount: number; currency: string } }
 let mockCountry = "PE";
 const mockClear = jest.fn();
 const mockPush = jest.fn();
+const mockDispatch = jest.fn();
+const mockUsePreventRemove = jest.fn();
 let mockFocus: () => void;
 let mockLoadFailed = false;
 let mockLoads = 0;
@@ -28,7 +30,7 @@ const mockEditItems = jest.fn();
 const mockCheckCancellation = jest.fn();
 let mockUserId = "seller";
 jest.mock("expo-clipboard", () => ({ setStringAsync: jest.fn(async () => true) }));
-const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
+const initialOrder: OrderAggregateResponse = { revisions: { items: "A".repeat(43) }, number: 1001, id: mockId, companyId: "00000000-0000-4000-8000-000000000001", sellerId: "seller",
   buyer: null, source: "manual", checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T11:00:00.000Z", deliveredAt: "2026-09-29T12:00:00.000Z", completedAt: "2026-09-29T12:00:00.000Z", cancelledAt: null, stockDeductedAt: null,
   status: "completed", paymentStatus: "paid", paidAmount: { amount: 12, currency: "PEN" },
   balanceDue: { amount: 0, currency: "PEN" }, overpaidAmount: { amount: 0, currency: "PEN" }, cancelled: false,
@@ -42,7 +44,8 @@ const initialOrder: OrderAggregateResponse = { number: 1001, id: mockId, company
 let mockOrder = initialOrder;
 beforeEach(() => { mockEditItems.mockReset(); mockUserId = "seller"; mockCancel.mockReset(); mockCheckCancellation.mockReset(); mockOrder = initialOrder; mockNotice = null; mockCountry = "PE"; mockPush.mockReset(); mockLoadFailed = false; mockLoads = 0; mockNoticeAt = null; mockStopArrivals.mockReset(); mockEnableCheckout.mockReset(); mockEnableCheckout.mockResolvedValue({ success: true, data: { url: linkUrl } }); mockShip.mockReset(); mockDeliver.mockReset(); mockRegisterPayment.mockReset(); mockRejectPayment.mockReset(); mockVoidPayment.mockReset(); jest.mocked(Clipboard.setStringAsync).mockResolvedValue(true); });
 
-jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }),
+jest.mock("expo-router/react-navigation", () => ({ usePreventRemove: (...args: unknown[]) => mockUsePreventRemove(...args) }));
+jest.mock("expo-router", () => ({ useRouter: () => ({ back: jest.fn(), push: mockPush }), useNavigation: () => ({ dispatch: mockDispatch }),
   useLocalSearchParams: () => ({ id: mockId, ...(mockNoticeAt === null ? {} : { noticeAt: mockNoticeAt }) }),
   useFocusEffect: (callback: () => void) => { mockFocus = callback; jest.requireActual("react").useEffect(callback, [callback]); } }));
 jest.mock("@mobile/features/orders/composition", () => ({ orders: {
@@ -1238,6 +1241,7 @@ test("edit mode refuses removing the last item with its message", async () => {
   const screen = await startEditing();
   fireEvent.press(screen.getByRole("button", { name: "Quitar Gorra trucker" }));
   expect(screen.getByRole("button", { name: "Quitar Polo básico" })).toBeDisabled();
+  expect(screen.getByRole("button", { name: "Quitar Polo básico" }).props.accessibilityHint).toBe("El pedido necesita al menos un producto. Si ya no va, cancélalo.");
   expect(screen.getByText("El pedido necesita al menos un producto. Si ya no va, cancélalo.")).toBeTruthy();
   fireEvent.press(screen.getByRole("button", { name: "Quitar Polo básico" }));
   expect(screen.getByLabelText("Cantidad de Polo básico")).toBeTruthy();
@@ -1276,6 +1280,31 @@ test("leaving edit mode with changes asks to discard them", async () => {
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   expect(screen.getByLabelText("Cantidad de Polo básico").props.value).toBe("3");
   alert.mockRestore();
+});
+
+test("every way out of the screen asks before dropping unsaved edits", async () => {
+  const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
+  mockDispatch.mockReset();
+  const screen = await startEditing();
+  expect(mockUsePreventRemove).toHaveBeenLastCalledWith(false, expect.any(Function));
+  fireEvent.press(screen.getByRole("button", { name: "Aumentar cantidad de Polo básico" }));
+  expect(mockUsePreventRemove).toHaveBeenLastCalledWith(true, expect.any(Function));
+  const onLeave = mockUsePreventRemove.mock.lastCall?.[1];
+  act(() => onLeave({ data: { action: { type: "GO_BACK" } } }));
+  expect(alert.mock.calls[0].slice(0, 2)).toEqual(["¿Descartar los cambios?", undefined]);
+  expect(mockDispatch).not.toHaveBeenCalled();
+  confirmAlert(alert);
+  expect(mockDispatch).toHaveBeenCalledWith({ type: "GO_BACK" });
+  alert.mockRestore();
+});
+
+test("a refusal that is not about the connection does not blame it", async () => {
+  mockEditItems.mockResolvedValueOnce({ success: false, error: { code: "INVALID_INPUT", message: "bad" } });
+  const screen = await startEditing();
+  fireEvent.press(screen.getByRole("button", { name: "Disminuir cantidad de Polo básico" }));
+  fireEvent.press(screen.getByRole("button", { name: "Guardar cambios" }));
+  expect(await screen.findByText("No se pudieron guardar los cambios. Inténtalo de nuevo.")).toBeTruthy();
+  expect(screen.queryByText(/Revisa tu conexión/)).toBeNull();
 });
 
 test("link actions, Revisar pedido and Deshacer are disabled with their reason while editing", async () => {
@@ -1357,9 +1386,9 @@ test("a deactivated product keeps the edits and names the reason", async () => {
 test("an empty or invalid quantity blocks saving with its message", async () => {
   const screen = await startEditing();
   fireEvent.changeText(screen.getByLabelText("Cantidad de Polo básico"), "0");
-  expect(screen.getByText("Escribe una cantidad de 1 a 9999.")).toBeTruthy();
+  expect(screen.getByText("Ingresa una cantidad de 1 a 9999.")).toBeTruthy();
   expect(screen.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
   fireEvent.changeText(screen.getByLabelText("Cantidad de Polo básico"), "3");
-  expect(screen.queryByText("Escribe una cantidad de 1 a 9999.")).toBeNull();
+  expect(screen.queryByText("Ingresa una cantidad de 1 a 9999.")).toBeNull();
   expect(screen.getByRole("button", { name: "Guardar cambios" })).toBeDisabled();
 });

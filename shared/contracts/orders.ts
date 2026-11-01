@@ -130,8 +130,8 @@ export const orderAggregateSchema = z.strictObject({ checkoutEnabledAt: z.iso.da
     variantAttributes: z.record(z.string(), z.string()), sku: z.string().nullable(), quantity: z.number().int().positive().safe(),
     unitPrice: moneySchema, subtotal: moneySchema, mentionedPrice: mentionedPriceSchema.nullable() })).min(1), payments: z.array(paymentSchema),
   itemsTotal: moneySchema, deliveryCost: moneySchema, deliveryCharge: moneySchema, total: moneySchema,
-  /** The items revision, for mobile edits. Optional until core fills it in with the mobile item editing. */
-  revisions: z.strictObject({ items: orderRevisionSchema }).optional() });
+  /** The items revision, the base a mobile edit sends back. */
+  revisions: z.strictObject({ items: orderRevisionSchema }) });
 export type OrderAggregateResponse = z.infer<typeof orderAggregateSchema>;
 export const listOrderAggregatesSchema = z.strictObject({
   search: z.string().max(120).optional(),

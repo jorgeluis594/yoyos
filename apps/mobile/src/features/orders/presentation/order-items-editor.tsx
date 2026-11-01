@@ -14,10 +14,9 @@ type OrderItem = OrderAggregateResponse["items"][number];
 export type ItemsDraft = Readonly<{ base: string; items: readonly OrderItem[]; quantities: Readonly<Record<string, string>>; removed: ReadonlySet<string> }>;
 export type ItemsLine = Readonly<{ variantId: string; quantity: number }>;
 
-/** Pins the loaded lines and revision. An order served without its revision cannot be edited. */
-export function startItemsDraft(order: OrderAggregateResponse): ItemsDraft | null {
-  const base = order.revisions?.items;
-  return base ? { base, items: order.items, quantities: Object.fromEntries(order.items.map((item) => [item.id, String(item.quantity)])), removed: new Set() } : null;
+/** Pins the loaded lines and revision. */
+export function startItemsDraft(order: OrderAggregateResponse): ItemsDraft {
+  return { base: order.revisions.items, items: order.items, quantities: Object.fromEntries(order.items.map((item) => [item.id, String(item.quantity)])), removed: new Set() };
 }
 
 export const remainingItems = (draft: ItemsDraft) => draft.items.filter((item) => !draft.removed.has(item.id));
@@ -43,7 +42,7 @@ export const isDraftDirty = (draft: ItemsDraft) => draft.removed.size > 0 || dra
 export function reconcileLostSave(sent: readonly ItemsLine[], base: string, reread: OrderAggregateResponse): "saved" | "unchanged" | "changed" {
   const stored = new Map(reread.items.map((item) => [item.variantId, item.quantity]));
   if (stored.size === sent.length && sent.every((line) => stored.get(line.variantId) === line.quantity)) return "saved";
-  return reread.revisions?.items === base ? "unchanged" : "changed";
+  return reread.revisions.items === base ? "unchanged" : "changed";
 }
 
 const variantOf = (item: OrderItem) => Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ");
@@ -73,7 +72,7 @@ export function OrderItemsEditor({ draft, onChange, disabled, format }: Props) {
           onChange={(next) => onChange({ ...draft, quantities: { ...draft.quantities, [item.id]: next } })}
           accessibilityLabel={t("itemsEdit.quantity", { name: item.productName })} decreaseLabel={t("itemsEdit.decrease", { name: item.productName })} increaseLabel={t("itemsEdit.increase", { name: item.productName })} />
         {quantity === null ? <ThemedText type="small" style={{ color: theme.error }} accessibilityRole="alert">{t("itemsEdit.quantityInvalid")}</ThemedText> : null}
-        <Button variant="ghost" accessibilityLabel={t("itemsEdit.removeLabel", { name: item.productName })} disabled={disabled || lastItem}
+        <Button variant="ghost" accessibilityLabel={t("itemsEdit.removeLabel", { name: item.productName })} accessibilityHint={lastItem ? t("itemsEdit.lastItem") : undefined} disabled={disabled || lastItem}
           onPress={() => onChange({ ...draft, removed: new Set([...draft.removed, item.id]) })}>{t("itemsEdit.remove")}</Button>
       </View>;
     })}

@@ -68,13 +68,18 @@ test("PATCH items lowers a quantity and removes a line with the edit's revisions
   expect(body.applied).toEqual(["items"]);
   expect(body.order.items.map((item) => [item.productName, item.quantity])).toEqual([["Polo básico", 2]]);
   expect(body.order.itemsTotal).toEqual({ amount: 60, currency: "PEN" });
-  expect(body.order.revisions?.items).toBe(body.revisions.items);
+  expect(body.order.revisions.items).toBe(body.revisions.items);
   expect(body.revisions.items).not.toBe(baseRevision);
-  expect((await seller.aggregate()).revisions?.items).toBe(body.revisions.items);
+  expect((await seller.aggregate()).revisions.items).toBe(body.revisions.items);
 
   // The same final state is a repeat: nothing is applied, nothing is refused.
   const repeated = editOrderItemsResponseSchema.parse(await (await call(`/api/orders/${seller.orderId}/items`, seller.cookie, edit, "PATCH")).json());
   expect(repeated.applied).toEqual([]);
+
+  // The same variant twice is the client's mistake, not a server failure.
+  const duplicated = await call(`/api/orders/${seller.orderId}/items`, seller.cookie, { ...edit, base: body.revisions.items, lines: [{ variantId: seller.poloId, quantity: 1 }, { variantId: seller.poloId, quantity: 2 }] }, "PATCH");
+  expect(duplicated.status).toBe(400);
+  expect(editOrderItemsErrorSchema.parse(await duplicated.json())).toMatchObject({ code: "INVALID_INPUT" });
 
   // A cancelled order is locked.
   expect((await call(`/api/orders/${seller.orderId}/cancel`, seller.cookie, undefined, "POST")).status).toBe(200);
