@@ -1,4 +1,4 @@
-import type { PromptRegistry, StageVersion } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
+import type { PromptRegistry, StageVersion } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 import type { IntentReading, ReadingInput } from "@core/src/features/orders/domain/reader/readings";
 import { parseIntentAnswer } from "@core/src/features/orders/infrastructure/reader/stages/intent/intent-parser";
 import { intentInstructions, intentJsonSchema } from "@core/src/features/orders/infrastructure/reader/stages/intent/intent.v1";

@@ -1,5 +1,5 @@
-import type { StageVersion } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
-import type { ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
+import type { StageVersion } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
+import type { ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 import type { ProductResolution } from "@core/src/features/orders/domain/reader/readings";
 
 /** The fixed instructions of the resolution stage. They come first so the provider can cache them; nothing of a message is ever pasted here. */

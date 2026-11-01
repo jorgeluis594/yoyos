@@ -1,5 +1,5 @@
 import { readReadingBudgets } from "@core/src/features/orders/infrastructure/reading-budgets-env";
-import type { PromptRegistry, ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/prompt-registry";
+import type { PromptRegistry, ResolutionInput } from "@core/src/features/orders/infrastructure/reader/runtime/stage-version";
 import { parseResolution, resolutionFallback } from "@core/src/features/orders/infrastructure/reader/stages/resolution/resolution-parser";
 import { planResolution } from "@core/src/features/orders/infrastructure/reader/stages/resolution/resolution-plan";
 import { resolutionInstructions, resolutionJsonSchema, type ResolutionVersion } from "@core/src/features/orders/infrastructure/reader/stages/resolution/resolution.v1";
