@@ -93,7 +93,7 @@ test("a successful save shows the returned detail without another request", asyn
     variants: Array.from({ length: variants }, (_, index) => ({ id: id(40 + index), qrCode: id(50 + index), combination: [{ optionId: colorId, valueId: id(30 + index) }], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false })),
   });
   mockLoad.mockResolvedValue(ok(detail(2)));
-  mockSave.mockResolvedValue(ok(detail(3)));
+  mockSave.mockResolvedValue(ok({ product: detail(3), catalogEmptied: false }));
   const alert = jest.spyOn(Alert, "alert").mockImplementation(() => {});
   try {
     render(<ProductEditorProvider><ProductManagementScreen /></ProductEditorProvider>);
@@ -184,7 +184,7 @@ test("a bulk price edit on the variant of a product that had no options survives
   const simple = { id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, options: [],
     variants: [{ id: id(40), qrCode: id(50), combination: [], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }] };
   mockLoad.mockResolvedValue(ok(simple));
-  mockSave.mockResolvedValue(ok(simple));
+  mockSave.mockResolvedValue(ok({ product: simple, catalogEmptied: false }));
   let editor!: ReturnType<typeof useProductEditor>;
   render(<ProductEditorProvider><ProductManagementScreen /><Capture onEditor={(value) => { editor = value; }} /></ProductEditorProvider>);
   await screen.findByLabelText("Nombre *");
@@ -223,7 +223,7 @@ test("a cleared base price does not block saving once the product has options", 
   const simple = { id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, options: [],
     variants: [{ id: id(40), qrCode: id(50), combination: [], salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }] };
   mockLoad.mockResolvedValue(ok(simple));
-  mockSave.mockResolvedValue(ok(simple));
+  mockSave.mockResolvedValue(ok({ product: simple, catalogEmptied: false }));
   let editor!: ReturnType<typeof useProductEditor>;
   render(<ProductEditorProvider><ProductManagementScreen /><Capture onEditor={(value) => { editor = value; }} /></ProductEditorProvider>);
   fireEvent.changeText(await screen.findByLabelText(/Precio de venta/), "");
