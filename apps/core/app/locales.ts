@@ -192,7 +192,7 @@ const es = {
     variantGone: "Un producto ya no se vende. Quita su corrección e inténtalo de nuevo.",
     meanwhile: "Mientras revisabas, un mensaje {{changes}}. Total: {{total}}.",
     reason: {
-      variant_changed: "Un mensaje cambió {{attribute}} de {{from}} a {{to}}", quantity_set: "Un mensaje cambió la cantidad a {{count}}", added_by_reference: "Un mensaje agregó {{count}}",
+      variant_changed: "Un mensaje cambió {{attribute}}: de {{from}} a {{to}}", quantity_set: "Un mensaje cambió la cantidad a {{count}}", added_by_reference: "Un mensaje agregó {{count}}",
       removed: "Un mensaje quitó {{product}}", caption_unread: "No pudimos leer lo que escribió con la foto", inherited: "{{reason}} (venía de un punto por resolver)",
       price_noted_one: "Un mensaje anotó que el cliente mencionó {{amount}} por unidad. El precio del pedido no cambió.",
       price_noted_other: "Un mensaje anotó que el cliente mencionó {{amount}} por {{count}}. El precio del pedido no cambió.",
@@ -220,6 +220,7 @@ const es = {
       failed: "No se pudo deshacer. Revisa tu conexión e inténtalo de nuevo.", inDoubt: "No sabemos si se deshizo. Verificando…", working: "Deshaciendo…",
       summary: { added: "Agregó {{line}}", removed: "Quitó {{line}}", quantity: "Cambió {{name}} a ×{{quantity}}", variant: "Cambió {{name}} a {{variant}}", price: "Anotó un precio en {{name}}" },
       inverse: { added: "Quitar {{line}}", removed: "Volver {{line}}", quantity: "Volver {{name}} a ×{{quantity}}", variant: "Volver {{name}} a {{variant}}", price: "Quitar la nota de precio de {{name}}" },
+      pending: { back: "Volverá: {{point}}", end: "Terminará: {{point}}", variant_missing: "Falta la variante", not_clear: "Producto no claro", variant_not_available: "Variante no disponible" },
       rowSummary: "{{time}} · {{summary}}",
     },
   },
@@ -653,7 +654,7 @@ const pt = {
     variantGone: "Um produto não está mais à venda. Remova a correção dele e tente de novo.",
     meanwhile: "Enquanto você revisava, uma mensagem {{changes}}. Total: {{total}}.",
     reason: {
-      variant_changed: "Uma mensagem mudou {{attribute}} de {{from}} para {{to}}", quantity_set: "Uma mensagem mudou a quantidade para {{count}}", added_by_reference: "Uma mensagem adicionou {{count}}",
+      variant_changed: "Uma mensagem mudou {{attribute}}: de {{from}} para {{to}}", quantity_set: "Uma mensagem mudou a quantidade para {{count}}", added_by_reference: "Uma mensagem adicionou {{count}}",
       removed: "Uma mensagem removeu {{product}}", caption_unread: "Não conseguimos ler o que escreveu com a foto", inherited: "{{reason}} (vinha de um ponto a resolver)",
       price_noted_one: "Uma mensagem anotou que o cliente mencionou {{amount}} por unidade. O preço do pedido não mudou.",
       price_noted_other: "Uma mensagem anotou que o cliente mencionou {{amount}} por {{count}}. O preço do pedido não mudou.",
@@ -681,6 +682,7 @@ const pt = {
       failed: "Não foi possível desfazer. Verifique sua conexão e tente de novo.", inDoubt: "Não sabemos se foi desfeito. Verificando…", working: "Desfazendo…",
       summary: { added: "Adicionou {{line}}", removed: "Removeu {{line}}", quantity: "Mudou {{name}} para ×{{quantity}}", variant: "Mudou {{name}} para {{variant}}", price: "Anotou um preço em {{name}}" },
       inverse: { added: "Remover {{line}}", removed: "Voltar {{line}}", quantity: "Voltar {{name}} para ×{{quantity}}", variant: "Voltar {{name}} para {{variant}}", price: "Remover a nota de preço de {{name}}" },
+      pending: { back: "Voltará: {{point}}", end: "Terminará: {{point}}", variant_missing: "Falta a variante", not_clear: "Produto não claro", variant_not_available: "Variante indisponível" },
       rowSummary: "{{time}} · {{summary}}",
     },
   },

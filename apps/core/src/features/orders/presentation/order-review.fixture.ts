@@ -29,13 +29,15 @@ export const point = (patch: Partial<OrderReviewResponse["points"][number]> = {}
   pendingId: "00000000-0000-4000-8000-0000000000e1", since: at, kind: "variant_missing", product: "Polo básico", quantity: 2, missing: ["Talla"], doubt: null, acknowledged: false,
   question: "¿En qué talla quieres el Polo básico: S, M o L?", ...patch });
 
+export const noPendings = { back: [], end: [] };
+
 /** The review of order #1042 as a WhatsApp seller first sees it: one doubtful variant change, opened by the link. */
 export function reviewJson(patch: Partial<OrderReviewResponse> = {}): OrderReviewResponse {
   const change = doubtfulChange();
   return {
     version: 1, status: { openForMessages: true, toReview: true, doubtfulCount: 1, pointCount: 0, entry: "link", hasPreviousReview: false },
     doubtful: [{ change, quote: "la quiero en M" }], points: [], products: [{ itemId: itemTrajeM, changedSinceLastReview: false }, { itemId: itemTrajeL, changedSinceLastReview: false }],
-    removedSinceLastReview: [], messageRows: [{ messageId: messageOne, at, changes: [change], undo: { kind: "available" } }], moreRows: 0,
+    removedSinceLastReview: [], messageRows: [{ messageId: messageOne, at, changes: [change], undo: { kind: "available" }, pendings: noPendings }], moreRows: 0,
     loaded: { changesThrough: 3, changeIds: [change.id], points: [], itemsRevision: "A".repeat(43) }, ...patch };
 }
 /** Nothing to review: an order made on the web, a cancelled or a completed one. */

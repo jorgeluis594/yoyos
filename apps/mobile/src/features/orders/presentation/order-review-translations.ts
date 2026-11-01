@@ -22,7 +22,7 @@ export const orderReviewTranslations = {
       quote: 'El cliente escribió: “{{quote}}”', line: '{{name}} · {{variant}} · ×{{quantity}}', lineNoVariant: '{{name}} · ×{{quantity}}',
       meanwhile: 'Mientras revisabas, un mensaje {{summary}}. Total: {{total}}.',
       reasons: {
-        variant_changed: 'Un mensaje cambió {{attribute}} de {{from}} a {{to}}', quantity_set: 'Un mensaje cambió la cantidad a {{quantity}}',
+        variant_changed: 'Un mensaje cambió {{attribute}}: de {{from}} a {{to}}', quantity_set: 'Un mensaje cambió la cantidad a {{quantity}}',
         added_by_reference: 'Un mensaje agregó {{quantity}} sin nombrar el producto', removed: 'Un mensaje quitó {{product}}',
         price_noted_one: 'Un mensaje mencionó {{amount}} por unidad en un producto que no nombró',
         price_noted_other: 'Un mensaje mencionó {{amount}} por {{count}} en un producto que no nombró',
@@ -76,7 +76,7 @@ export const orderReviewTranslations = {
       quote: 'O cliente escreveu: “{{quote}}”', line: '{{name}} · {{variant}} · ×{{quantity}}', lineNoVariant: '{{name}} · ×{{quantity}}',
       meanwhile: 'Enquanto você revisava, uma mensagem {{summary}}. Total: {{total}}.',
       reasons: {
-        variant_changed: 'Uma mensagem mudou {{attribute}} de {{from}} para {{to}}', quantity_set: 'Uma mensagem mudou a quantidade para {{quantity}}',
+        variant_changed: 'Uma mensagem mudou {{attribute}}: de {{from}} para {{to}}', quantity_set: 'Uma mensagem mudou a quantidade para {{quantity}}',
         added_by_reference: 'Uma mensagem adicionou {{quantity}} sem nomear o produto', removed: 'Uma mensagem removeu {{product}}',
         price_noted_one: 'Uma mensagem mencionou {{amount}} por unidade em um produto que não nomeou',
         price_noted_other: 'Uma mensagem mencionou {{amount}} por {{count}} em um produto que não nomeou',

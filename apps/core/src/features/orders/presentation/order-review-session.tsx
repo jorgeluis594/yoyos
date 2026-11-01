@@ -149,7 +149,7 @@ export function useOrderReviewSession(given: ReviewViewProps | undefined, savedO
   const dialogs = <>
     {opened && review && order && <OrderReviewDialog key={opened.opener} origin={opened.origin} orderId={order.id} orderNumber={order.number} initial={{ review, order }} api={api} money={money} time={time}
       retryDelaysMs={delays} onClose={closed} onOrderChanged={() => props?.onChanged()} />}
-    {undoing && <UndoConfirmDialog changes={undoing.row.changes} progress={undoing.progress} onApply={() => void undo(undoing.row)} onKeep={() => setUndoing(null)} />}
+    {undoing && <UndoConfirmDialog changes={undoing.row.changes} pendings={undoing.row.pendings} progress={undoing.progress} onApply={() => void undo(undoing.row)} onKeep={() => setUndoing(null)} />}
   </>;
 
   return { marks, linkReview, panel, changes, dialogs };

@@ -12,6 +12,7 @@ import type { OrderViewState } from "@core/src/features/orders/presentation/orde
 import { deadpoolM, order1042, pen, savedState } from "@core/src/features/orders/presentation/order-1042.fixture";
 import {
   confirmed, doubtfulChange, fakeApi, itemDeadpool, itemTrajeL, messageOne, messageTwo, noReview, point, reviewJson, sureChange, whatsappOrder,
+  noPendings,
 } from "@core/src/features/orders/presentation/order-review.fixture";
 import type { OrderReviewResponse } from "@shared/contracts/order-review";
 
@@ -119,9 +120,10 @@ describe("web review on the order view", () => {
   test("Cambios por mensajes rows show Deshacer or the refusal reason", async () => {
     const later = doubtfulChange({ id: "00000000-0000-4000-8000-0000000000c9", messageId: "00000000-0000-4000-8000-0000000000d9", seq: 2 });
     const review = reviewJson({ moreRows: 2, messageRows: [
-      { messageId: messageOne, at: "2026-10-30T20:42:00.000Z", changes: [doubtfulChange()], undo: { kind: "available" } },
-      { messageId: messageTwo, at: "2026-10-29T20:42:00.000Z", changes: [sureChange()], undo: { kind: "refused", reason: "later_change" } },
-      { messageId: later.messageId, at: "2026-10-29T19:00:00.000Z", changes: [later], undo: { kind: "undone" } },
+      { messageId: messageOne, at: "2026-10-30T20:42:00.000Z", changes: [doubtfulChange()], undo: { kind: "available" },
+        pendings: { back: [{ kind: "variant_missing", product: "Polo básico" }], end: [{ kind: "not_clear", product: null }] } },
+      { messageId: messageTwo, at: "2026-10-29T20:42:00.000Z", changes: [sureChange()], undo: { kind: "refused", reason: "later_change" }, pendings: noPendings },
+      { messageId: later.messageId, at: "2026-10-29T19:00:00.000Z", changes: [later], undo: { kind: "undone" }, pendings: noPendings },
     ] });
     const api = fakeApi({ load: vi.fn(async () => ok({ review: { ...review, moreRows: 0 }, order: whatsappOrder() })) });
     const { onChanged } = await mount({ review, api });
@@ -135,6 +137,8 @@ describe("web review on the order view", () => {
     await click(button("Deshacer mensaje de las 15:42"));
     expect(dialog()?.textContent).toContain("¿Deshacer lo que hizo este mensaje?");
     expect(dialog()?.textContent).toContain("Volver Disfraz de Deadpool a talla L");
+    expect(dialog()?.textContent).toContain("Volverá: Falta la variante · Polo básico");
+    expect(dialog()?.textContent).toContain("Terminará: Producto no claro");
     await click(button("Deshacer cambios"));
     await gone();
     expect(api.undo).toHaveBeenCalledWith("00000000-0000-4000-8000-000000001042", messageOne);
@@ -144,7 +148,7 @@ describe("web review on the order view", () => {
 
   test("Ver más loads every row of the order", async () => {
     const review = reviewJson({ moreRows: 3 });
-    const all = reviewJson({ moreRows: 0, messageRows: [...review.messageRows, { messageId: messageTwo, at: "2026-10-29T20:42:00.000Z", changes: [sureChange()], undo: { kind: "undone" } }] });
+    const all = reviewJson({ moreRows: 0, messageRows: [...review.messageRows, { messageId: messageTwo, at: "2026-10-29T20:42:00.000Z", changes: [sureChange()], undo: { kind: "undone" }, pendings: noPendings }] });
     const api = fakeApi({ load: vi.fn(async () => ok({ review: all, order: whatsappOrder() })) });
     await mount({ review, api });
     await click(button("Ver más"));
@@ -218,7 +222,7 @@ describe("web review on the order view", () => {
     await mount();
     const row = container.querySelector<HTMLElement>(`#order-line-${deadpoolM}`) ?? [...container.querySelectorAll("li")].find((li) => li.textContent?.includes("Disfraz de Deadpool"));
     expect(row?.textContent).toContain("Con duda");
-    expect(row?.textContent).toContain("Un mensaje cambió talla de L a M");
+    expect(row?.textContent).toContain("Un mensaje cambió talla: de L a M");
   });
 });
 
@@ -232,7 +236,7 @@ describe("the review dialog", () => {
     expect(headings).toEqual(["Cambios con duda", "Por resolver", "Productos"]);
     const text = dialog()!.textContent!;
     expect(text).toContain("Con duda");
-    expect(text).toContain("Un mensaje cambió talla de L a M");
+    expect(text).toContain("Un mensaje cambió talla: de L a M");
     expect(text).toContain("El cliente escribió: “la quiero en M”");
     expect(text).toContain("Falta la variante: Polo básico ×2 — falta talla.");
     expect(text).toContain("Pregúntale al cliente o agrégalo en Productos, después de cerrar esta revisión.");
@@ -252,7 +256,7 @@ describe("the review dialog", () => {
     const item = dialog()!.querySelector<HTMLElement>(`[data-item="${itemDeadpool}"]`)!;
     expect(item.textContent).toContain("Disfraz de Deadpool");
     expect(item.textContent).toContain("Con duda");
-    expect(item.textContent).toContain("Un mensaje cambió talla de L a M");
+    expect(item.textContent).toContain("Un mensaje cambió talla: de L a M");
     await click(button("Cerrar"));
     await gone();
     await vi.waitFor(() => expect(document.activeElement?.id).toBe("order-link-copy"));
@@ -389,7 +393,7 @@ describe("the review dialog", () => {
   });
 
   test("a refusal for a product no longer sold names the product when the message touched one line", async () => {
-    const review = reviewJson({ messageRows: [{ messageId: messageTwo, at: "2026-10-29T20:42:00.000Z", changes: [sureChange()], undo: { kind: "refused", reason: "not_sold" } }] });
+    const review = reviewJson({ messageRows: [{ messageId: messageTwo, at: "2026-10-29T20:42:00.000Z", changes: [sureChange()], undo: { kind: "refused", reason: "not_sold" }, pendings: noPendings }] });
     await mount({ review });
     expect(container.textContent).toContain("Gorra trucker · Rojo ya no se vende.");
   });
