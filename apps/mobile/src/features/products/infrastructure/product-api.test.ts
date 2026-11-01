@@ -148,12 +148,13 @@ test("the create request carries the editor contract with nullable fields", asyn
 const saveBody = { structureVersion: 1, name: "Camisa", description: null, options: [], variants: [], newVariants: [], deletedVariantIds: [] };
 
 test("the editor save is a PUT that answers the full detail", async () => {
-  const request = jest.fn().mockResolvedValue(ok(withOptions("active")));
+  const request = jest.fn().mockResolvedValue(ok({ ...withOptions("active"), catalogEmptied: true }));
   const result = await createProductApi(request, () => 0).save(productId, saveBody);
   expect(request.mock.calls[0][0]).toBe(`/api/products/${productId}`);
   expect(request.mock.calls[0][1]).toMatchObject({ method: "PUT" });
   expect(JSON.parse(request.mock.calls[0][1].body)).toEqual(saveBody);
-  expect(result).toMatchObject({ success: true, data: { structureVersion: 3, variants: [{ id: variantId }] } });
+  expect(result).toMatchObject({ success: true, data: { catalogEmptied: true, product: { structureVersion: 3, hidden: false, variants: [{ id: variantId }] } } });
+  expect(await createProductApi(jest.fn().mockResolvedValue(ok(withOptions("active"))), () => 0).save(productId, saveBody)).toMatchObject({ success: false, error: { code: "INVALID_RESPONSE" } });
 });
 
 test("the editor save maps its rejections by code", async () => {

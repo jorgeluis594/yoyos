@@ -137,6 +137,16 @@ test("stock stepper adjusts the initial stock sent on creation", async () => {
   expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ draft: expect.objectContaining({ base: expect.objectContaining({ stock: 1, salePrice: 20 }) }) }));
 });
 
+test("creating with the switch on sends the product hidden", async () => {
+  mockCreate.mockResolvedValue(ok(productId));
+  renderScreen();
+  fillForm();
+  expect(screen.getByLabelText("Ocultar producto").props.value).toBe(false);
+  fireEvent(screen.getByLabelText("Ocultar producto"), "valueChange", true);
+  await act(async () => fireEvent.press(screen.getByRole("button", { name: "Guardar" })));
+  expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({ hidden: true }));
+});
+
 test("close returns to the catalog", () => {
   renderScreen();
   fireEvent.press(screen.getByRole("button", { name: "Cerrar" }));

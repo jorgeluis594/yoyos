@@ -1,5 +1,5 @@
 import { useEffect, useRef, type ReactNode } from "react";
-import { AccessibilityInfo, findNodeHandle, ScrollView, StyleSheet, useWindowDimensions, View } from "react-native";
+import { AccessibilityInfo, findNodeHandle, ScrollView, StyleSheet, Switch, useWindowDimensions, View } from "react-native";
 import { SafeAreaView } from "react-native-safe-area-context";
 import { useTranslation } from "react-i18next";
 import type { EditorDraft } from "@shared/product-variants";
@@ -18,18 +18,19 @@ import { VariantsCard } from "./variants-card";
 import { editorSummary } from "./product-editor-summary";
 import tokens from "../../../../../../docs/design-tokens.json";
 
-export type ProductFormValues = Readonly<{ name: string; description: string; sku: string; salePrice: string; purchasePrice: string; stock: string }>;
-export type ProductFormField = keyof ProductFormValues | "form";
+export type ProductFormValues = Readonly<{ name: string; description: string; sku: string; salePrice: string; purchasePrice: string; stock: string; hidden: boolean }>;
+export type ProductFormField = Exclude<keyof ProductFormValues, "hidden"> | "form";
 
 export { formEdges } from "./form-edges";
 
 export function ProductForm({
-  title, headerAction, values, setValue, currency, current, draft, errorCount, photos, errors, disabled, onSave, onClose, onReviewCatalog, onReload, onEditOptions, onOpenVariants, saving, conflict, uncertain, changed,
+  title, headerAction, values, setValue, setHidden, currency, current, draft, errorCount, photos, errors, disabled, onSave, onClose, onReviewCatalog, onReload, onEditOptions, onOpenVariants, saving, conflict, uncertain, changed,
 }: {
   title: string;
   headerAction?: ReactNode;
   values: ProductFormValues;
-  setValue: (field: keyof ProductFormValues, value: string) => void;
+  setValue: (field: Exclude<keyof ProductFormValues, "hidden">, value: string) => void;
+  setHidden: (hidden: boolean) => void;
   currency: Currency;
   current?: Product;
   draft: EditorDraft;
@@ -81,6 +82,16 @@ export function ProductForm({
     <ScrollView ref={page} style={styles.scroll} contentContainerStyle={styles.page} keyboardShouldPersistTaps="handled">
       {errors.form ? <View ref={message} accessible><ThemedText accessibilityRole="alert" style={{ color: theme.error }}>{errors.form}</ThemedText></View> : null}
       <ProductPhotosStrip photos={photos} disabled={disabled} />
+      <View style={card}>
+        <View style={styles.toggle}>
+          <View style={styles.toggleText}>
+            <ThemedText type="subtitle">{t('hideProduct')}</ThemedText>
+            <ThemedText type="small" themeColor="textSecondary">{t('hideProductHint')}</ThemedText>
+          </View>
+          <Switch accessibilityLabel={t('hideProduct')} accessibilityHint={t('hideProductHint')} value={values.hidden} disabled={disabled} hitSlop={10}
+            trackColor={{ true: theme.primary }} onValueChange={setHidden} />
+        </View>
+      </View>
       <FieldGroup style={card}>
         <Field required invalid={!!errors.name} disabled={disabled}>
           <FieldLabel>{t('name')}</FieldLabel><Input value={values.name} onChangeText={(value) => setValue("name", value)} maxLength={200} placeholder={t('productNamePlaceholder')} accessibilityLabel={t('name')} />
@@ -148,6 +159,8 @@ const styles = StyleSheet.create({
   card: { borderWidth: tokens.sizing.borderWidth, borderRadius: tokens.radius.card, padding: tokens.spacing["4"], gap: tokens.spacing["4"] },
   cardTitle: { flexDirection: "row", justifyContent: "space-between", alignItems: "baseline", gap: tokens.spacing["2"] },
   cardHeading: { fontWeight: 600 },
+  toggle: { flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: tokens.spacing["3"], minHeight: tokens.sizing.touchTargetMinSize },
+  toggleText: { flex: 1, gap: tokens.spacing["1"] },
   descriptionInput: { minHeight: 88, textAlignVertical: "top" },
   columns: { flexDirection: "row", flexWrap: "wrap", gap: tokens.spacing["3"] },
   column: { flexGrow: 1, flexBasis: 136, minWidth: 0 },

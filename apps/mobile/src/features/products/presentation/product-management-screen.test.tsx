@@ -20,7 +20,7 @@ const mockPrintProductLabel = jest.fn();
 const mockUpload = jest.fn();
 const productId = "00000000-0000-4000-8000-000000000001";
 const product = {
-  id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, options: [],
+  id: productId, name: "Camisa", currency: "PEN", photos: [], structureVersion: 1, hidden: false, options: [],
   variants: [{ id: "variant-1", qrCode: "qr-1", combination: [], sku: "CAM-1", salePrice: { amount: 20, currency: "PEN" }, stock: 1, status: "active", hasOrders: false }],
 };
 
@@ -279,7 +279,7 @@ describe("photos", () => {
   afterEach(() => { alert.mockRestore(); jest.restoreAllMocks(); jest.useRealTimers(); });
 
   test("saving without touching photos omits photoIds", async () => {
-    mockSaveProduct.mockResolvedValue(ok(withPhoto));
+    mockSaveProduct.mockResolvedValue(ok({ product: withPhoto, catalogEmptied: false }));
     renderScreen();
     fireEvent.changeText(await screen.findByLabelText("Nombre *"), "Camisa nueva");
     await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
@@ -355,5 +355,65 @@ describe("photos", () => {
     renderScreen();
     expect(await screen.findByText("1 de 8 fotos")).toBeTruthy();
     expect(screen.getByText("Principal")).toBeTruthy();
+  });
+});
+
+describe("hide product", () => {
+  const savedWith = (hidden: boolean, catalogEmptied: boolean) => ok({ product: { ...product, hidden }, catalogEmptied });
+  let alert: jest.SpyInstance;
+  beforeEach(() => { alert = jest.spyOn(Alert, "alert").mockImplementation(() => {}); });
+  afterEach(() => alert.mockRestore());
+
+  test("the product form saves the hidden switch and omits it when toggled back", async () => {
+    mockLoadProduct.mockResolvedValue(ok(product));
+    mockSaveProduct.mockResolvedValue(savedWith(true, false));
+    renderScreen();
+    const toggle = await screen.findByLabelText("Ocultar producto");
+    expect(toggle.props.value).toBe(false);
+    fireEvent(toggle, "valueChange", true);
+    await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+    expect(mockSaveProduct).toHaveBeenLastCalledWith(expect.objectContaining({ hidden: true, current: expect.objectContaining({ hidden: false }) }));
+    expect(screen.getByLabelText("Ocultar producto").props.value).toBe(true);
+  });
+
+  test("a changed switch triggers the discard guard", async () => {
+    mockLoadProduct.mockResolvedValue(ok(product));
+    renderScreen();
+    fireEvent(await screen.findByLabelText("Ocultar producto"), "valueChange", true);
+    expect(mockGuard).toHaveBeenLastCalledWith(true);
+    fireEvent(screen.getByLabelText("Ocultar producto"), "valueChange", false);
+    expect(mockGuard).toHaveBeenLastCalledWith(false);
+  });
+
+  test("the switch shows the hint and is disabled while saving", async () => {
+    mockLoadProduct.mockResolvedValue(ok(product));
+    let finish: (answer: unknown) => void = () => {};
+    mockSaveProduct.mockReturnValue(new Promise((resolve) => { finish = resolve; }));
+    renderScreen();
+    expect(await screen.findByText(/Si lo ocultas, no aparece en tu catálogo/)).toBeTruthy();
+    expect(screen.getByLabelText("Ocultar producto").props.accessibilityHint).toMatch(/Nueva venta/);
+    fireEvent(screen.getByLabelText("Ocultar producto"), "valueChange", true);
+    await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+    expect(screen.getByLabelText("Ocultar producto").props.disabled).toBe(true);
+    await act(async () => { finish(savedWith(true, false)); });
+    expect(screen.getByLabelText("Ocultar producto").props.disabled).toBe(false);
+  });
+
+  test("the saved alert adds the last-visible paragraph when the catalog was emptied", async () => {
+    mockLoadProduct.mockResolvedValue(ok(product));
+    mockSaveProduct.mockResolvedValue(savedWith(true, true));
+    renderScreen();
+    fireEvent(await screen.findByLabelText("Ocultar producto"), "valueChange", true);
+    await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+    expect(alert).toHaveBeenCalledWith("Cambios guardados", "El producto se actualizó correctamente.\n\nTu catálogo publicado se quedó sin productos visibles. Tus clientes verán la tienda vacía.");
+  });
+
+  test("the saved alert keeps one paragraph when the catalog was not emptied", async () => {
+    mockLoadProduct.mockResolvedValue(ok(product));
+    mockSaveProduct.mockResolvedValue(savedWith(true, false));
+    renderScreen();
+    fireEvent(await screen.findByLabelText("Ocultar producto"), "valueChange", true);
+    await act(async () => { fireEvent.press(screen.getByRole("button", { name: "Guardar" })); });
+    expect(alert).toHaveBeenCalledWith("Cambios guardados", "El producto se actualizó correctamente.");
   });
 });
