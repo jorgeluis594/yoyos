@@ -292,15 +292,17 @@ const folded = (text: string) => normalizeValue(text.trim());
 
 /**
  * The buyer's value words as catalog choices. The resolution's mapping covers the words it mapped (values) or found in no value of the product (unmatched,
- * kept as the buyer's own text so the catalog check rejects them); any other word is compared with the catalog letter by letter.
+ * kept as the buyer's own text so the catalog check rejects them, unless the product sells that very value letter by letter); any other word is compared with the catalog letter by letter.
  */
 function valueChoices(request: ExtractedRequest, product: ProductForReading, resolution: ProductResolution | undefined): readonly AttributeChoice[] {
   const mapped = resolution?.kind === "chosen" && resolution.productId === product.productId ? resolution
     : resolution?.kind === "between" && resolution.productIds.includes(product.productId) ? { values: resolution.values ?? [], unmatched: [] } : null;
   if (!mapped) return choicesFromWords(product, request.values);
-  const covered = new Set([...mapped.values.map(({ quote }) => folded(quote.text)), ...(mapped.unmatched ?? []).map(({ text }) => folded(text))]);
+  const sold = (text: string) => product.attributes.some((attribute) => attribute.values.some((value) => folded(value) === folded(text)));
+  const unmatched = (mapped.unmatched ?? []).filter(({ text }) => !sold(text));
+  const covered = new Set([...mapped.values.map(({ quote }) => folded(quote.text)), ...unmatched.map(({ text }) => folded(text))]);
   const rest = choicesFromWords(product, request.values.filter(({ valueWords }) => !covered.has(folded(valueWords.text))));
-  return [...mapped.values.map(({ attribute, value }): AttributeChoice => ({ name: attribute, value })), ...(mapped.unmatched ?? []).map(({ text }): AttributeChoice => ({ name: "", value: text })), ...rest];
+  return [...mapped.values.map(({ attribute, value }): AttributeChoice => ({ name: attribute, value })), ...unmatched.map(({ text }): AttributeChoice => ({ name: "", value: text })), ...rest];
 }
 const choicesFor = (request: ExtractedRequest, product: ProductForReading, env: Env): readonly AttributeChoice[] => valueChoices(request, product, resolutionOf(request, env));
 

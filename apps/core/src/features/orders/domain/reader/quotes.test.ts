@@ -53,6 +53,35 @@ describe("verifyQuotes", () => {
     expect(checked.request.quantity?.value).toBe(2);
   });
 
+  test("keeps a value whose attribute words the buyer did not write, without the attribute words", () => {
+    const values = [{ attributeWords: current("color"), valueWords: current("negro") }, { attributeWords: current("talla"), valueWords: current("M") }];
+    const checked = only(verifyQuotes([request({ values })], input("el polo negro en talla M")));
+    expect(checked.request.values).toEqual([{ attributeWords: null, valueWords: current("negro") }, { attributeWords: current("talla"), valueWords: current("M") }]);
+    expect(checked.complete).toBe(true);
+  });
+
+  test("still drops a value whose own words are not in the message", () => {
+    const checked = only(verifyQuotes([request({ values: [{ attributeWords: current("color"), valueWords: current("verde") }] })], input("el polo negro")));
+    expect(checked.request.values).toEqual([]);
+    expect(checked.complete).toBe(false);
+  });
+
+  test("drops a value that lies only inside the price quote, the quantity quote or the target's name", () => {
+    const price = { amount: 35, currency: "order", basis: "unit", quote: current("35 soles") } as const;
+    const priced = only(verifyQuotes([request({ price, values: [{ attributeWords: null, valueWords: current("35") }] })], input("lo quiero a 35 soles")));
+    expect(priced.request.values).toEqual([]);
+    const target = { kind: "named", words: current("el de rayas") } as const;
+    expect(only(verifyQuotes([request({ target, values: [{ attributeWords: null, valueWords: current("rayas") }] })], input("dame el de rayas"))).request.values).toEqual([]);
+    const quantity = { value: 2, mode: "add", quote: current("2 polos") } as const;
+    expect(only(verifyQuotes([request({ quantity, values: [{ attributeWords: null, valueWords: current("2") }] })], input("quiero 2 polos"))).request.values).toEqual([]);
+  });
+
+  test("keeps a value that also appears outside the words of the other datum", () => {
+    const quantity = { value: 2, mode: "add", quote: current("2 polos") } as const;
+    const values = [{ attributeWords: null, valueWords: current("l") }];
+    expect(only(verifyQuotes([request({ quantity, values })], input("quiero 2 polos talla L"))).request.values).toEqual(values);
+  });
+
   test("keeps a request whose every quote is found complete", () => {
     expect(only(verifyQuotes([request()], input("quiero el polo"))).complete).toBe(true);
   });
