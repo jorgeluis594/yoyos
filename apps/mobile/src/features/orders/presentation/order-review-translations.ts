@@ -49,6 +49,7 @@ export const orderReviewTranslations = {
       undoLines: {
         added: 'Quitar {{line}}', removed: 'Volver a poner {{line}}', quantity_changed: 'Volver {{name}} a ×{{quantity}}',
         variant_changed: 'Volver {{name}} a {{attribute}} {{value}}', mentioned_price_set: 'Quitar el precio mencionado de {{name}}',
+        back: 'Volverá: {{point}}', end: 'Terminará: {{point}}',
       },
     },
     orderListToReview: 'Por revisar',
@@ -102,6 +103,7 @@ export const orderReviewTranslations = {
       undoLines: {
         added: 'Remover {{line}}', removed: 'Recolocar {{line}}', quantity_changed: 'Voltar {{name}} para ×{{quantity}}',
         variant_changed: 'Voltar {{name}} para {{attribute}} {{value}}', mentioned_price_set: 'Remover o preço mencionado de {{name}}',
+        back: 'Voltará: {{point}}', end: 'Terminará: {{point}}',
       },
     },
     orderListToReview: 'Para revisar',

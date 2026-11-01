@@ -48,7 +48,7 @@ import { DoubtBadge } from "@mobile/features/orders/presentation/doubt-badge";
 import { MessageChangesBlock } from "@mobile/features/orders/presentation/message-changes-block";
 import { OrderReviewModal } from "@mobile/features/orders/presentation/order-review-modal";
 import { recordLinkAction, undoMessage, type LinkActionKind, type UndoOutcome } from "@mobile/features/orders/presentation/order-review-actions";
-import { countsText, doubtsByItem, meanwhileText, reasonText, undoConfirmationLines, undoRefusalText } from "@mobile/features/orders/presentation/order-review-model";
+import { countsText, doubtsByItem, lowerFirst, meanwhileText, reasonText, undoConfirmationLines, undoRefusalText } from "@mobile/features/orders/presentation/order-review-model";
 import { ReviewPoints } from "@mobile/features/orders/presentation/review-points";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
@@ -423,7 +423,7 @@ export default function OrderDetailScreen() {
   }
   function askUndo(row: OrderReviewResponse["messageRows"][number]) {
     if (undoing || itemsDraft) return;
-    showConfirmation({ title: t("orderReview.undoTitle"), description: undoConfirmationLines(row.changes, t).join("\n"), confirmLabel: t("orderReview.undoConfirm"), cancelLabel: t("orderReview.undoKeep"), destructive: true,
+    showConfirmation({ title: t("orderReview.undoTitle"), description: undoConfirmationLines(row.changes, t, row.pendings).join("\n"), confirmLabel: t("orderReview.undoConfirm"), cancelLabel: t("orderReview.undoKeep"), destructive: true,
       onConfirm: () => void (async () => {
         setUndoing(true); setUndoNotice(null);
         const outcome = await applyUndo(row.messageId, () => setUndoNotice({ text: t("orderReview.undoInDoubt"), tone: "polite" }));
@@ -548,7 +548,7 @@ export default function OrderDetailScreen() {
             const noteText = note ? t('mentionedPrice', { count: note.units, amount: money(note.amount, item.unitPrice.currency, locale) }) : null;
             const variant = Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ");
             const doubt = marks.get(item.id)?.[0]?.change.decision;
-            const doubtReason = doubt?.kind === "doubtful" ? reasonText(doubt.reason, reasonContext) : null;
+            const doubtReason = doubt?.kind === "doubtful" ? lowerFirst(reasonText(doubt.reason, reasonContext)) : null;
             const plainLabel = [[item.productName, variant, item.sku ? `SKU ${item.sku}` : null, t('orderItemDetailLabel', { quantity: item.quantity, unit: format(item.unitPrice), subtotal: format(item.subtotal) })].filter(Boolean).join(", "), noteText].filter(Boolean).join(". ");
             const label = doubtReason ? t("orderReview.doubtOf", { item: plainLabel, reason: doubtReason }) : plainLabel;
             return <View key={item.id} accessible accessibilityLabel={label} style={[styles.product, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.border }]}>

@@ -42,6 +42,7 @@ export const reviewChangeSchema = z.strictObject({
 });
 export const undoRefusalSchema = z.enum(["order_moved_on", "later_change", "would_empty", "not_sold"]);
 export const reviewPointKeySchema = z.strictObject({ pendingId: z.uuid(), since: date });
+export const pointLabelSchema = z.strictObject({ kind: z.enum(["variant_missing", "not_clear", "variant_not_available"]), product: z.string().nullable() });
 export const reviewPointSchema = z.strictObject({
   pendingId: z.uuid(), since: date, kind: z.enum(["variant_missing", "not_clear", "variant_not_available"]), product: z.string().nullable(),
   quantity: z.number().int().positive().safe(), missing: z.array(z.string()), doubt: doubtReasonSchema.nullable(), acknowledged: z.boolean(),
@@ -67,7 +68,9 @@ export const orderReviewResponseSchema = z.strictObject({
       z.strictObject({ kind: z.literal("available") }),
       z.strictObject({ kind: z.literal("refused"), reason: undoRefusalSchema }),
       z.strictObject({ kind: z.literal("undone") }),
-    ]) })),
+    ]),
+    /** What undoing the message does to the points: the ones that come back and the ones that end. */
+    pendings: z.strictObject({ back: z.array(pointLabelSchema).max(maxReviewPoints), end: z.array(pointLabelSchema).max(maxReviewPoints) }) })),
   moreRows: count,
   loaded: reviewLoadedSchema,
 });

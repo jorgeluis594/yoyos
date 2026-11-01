@@ -3,6 +3,8 @@ import type { OrderReviewResponse } from "@shared/contracts/order-review";
 
 type Review = OrderReviewResponse;
 export type ReviewLine = Review["removedSinceLastReview"][number];
+type Row = Review["messageRows"][number];
+type PointLabel = Row["pendings"]["back"][number];
 export type ReviewChange = Review["messageRows"][number]["changes"][number];
 export type ReviewReason = Extract<ReviewChange["decision"], { kind: "doubtful" }>["reason"];
 export type UndoRefusal = Extract<Review["messageRows"][number]["undo"], { kind: "refused" }>["reason"];
@@ -40,7 +42,7 @@ export function reasonText(reason: ReviewReason, { t, money }: ReasonContext): s
   }
 }
 
-const lowerFirst = (value: string) => value.charAt(0).toLowerCase() + value.slice(1);
+export const lowerFirst = (value: string) => value.charAt(0).toLowerCase() + value.slice(1);
 const upperFirst = (value: string) => value.charAt(0).toUpperCase() + value.slice(1);
 
 /** The reason a pending's doubt carries, as the «Por resolver» point shows it. */
@@ -81,8 +83,9 @@ export function meanwhileText(changes: readonly ReviewChange[], total: string, t
 }
 
 /** What undoing one change does, for the confirmation. */
-export function undoConfirmationLines(changes: readonly ReviewChange[], t: TFunction): string[] {
-  return changes.flatMap((change) => {
+export function undoConfirmationLines(changes: readonly ReviewChange[], t: TFunction, pendings: Row["pendings"] = { back: [], end: [] }): string[] {
+  const point = (label: PointLabel) => [t(`orderReview.points.${label.kind}`), label.product].filter(Boolean).join(" · ");
+  const lines = changes.flatMap((change) => {
     const line = change.before ?? change.after;
     if (!line) return [];
     switch (change.kind) {
@@ -96,6 +99,7 @@ export function undoConfirmationLines(changes: readonly ReviewChange[], t: TFunc
       case "mentioned_price_set": return [t("orderReview.undoLines.mentioned_price_set", { name: nameWithVariant(line) })];
     }
   });
+  return [...lines, ...pendings.back.map((label) => t("orderReview.undoLines.back", { point: point(label) })), ...pendings.end.map((label) => t("orderReview.undoLines.end", { point: point(label) }))];
 }
 
 /** Why a row cannot be undone; a product that is no longer sold is named when the row shows it. */

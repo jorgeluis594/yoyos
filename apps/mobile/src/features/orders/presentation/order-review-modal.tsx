@@ -14,7 +14,7 @@ import { showConfirmation } from "@mobile/components/ui/show-confirmation";
 import { isLostAnswer } from "@mobile/features/orders/application/in-doubt";
 import { DoubtBadge } from "@mobile/features/orders/presentation/doubt-badge";
 import { confirmReview, type UndoOutcome } from "@mobile/features/orders/presentation/order-review-actions";
-import { doubtsByItem, lineLabel, reasonText, undoConfirmationLines, undoRefusalText, type ReviewChange } from "@mobile/features/orders/presentation/order-review-model";
+import { doubtsByItem, lineLabel, lowerFirst, reasonText, undoConfirmationLines, undoRefusalText } from "@mobile/features/orders/presentation/order-review-model";
 import { typedQuantity } from "@mobile/features/orders/presentation/order-items-editor";
 import { ReviewPoints } from "@mobile/features/orders/presentation/review-points";
 import { correctionsToSend, hasCorrections, isRemoved, keepCorrections, quantityTextOf, remainingCount, type CorrectionDraft } from "@mobile/features/orders/presentation/review-corrections";
@@ -109,9 +109,10 @@ export function OrderReviewModal({ origin, order, review, format, onClose, onCon
     setBusy(null);
   }
 
-  function askUndo(changes: readonly ReviewChange[], messageId: string) {
+  function askUndo(row: Review["messageRows"][number]) {
     if (busy || corrected) return;
-    showConfirmation({ title: t("orderReview.undoTitle"), description: undoConfirmationLines(changes, t).join("\n"), confirmLabel: t("orderReview.undoConfirm"), cancelLabel: t("orderReview.undoKeep"), destructive: true, onConfirm: () => void undo(messageId) });
+    const messageId = row.messageId;
+    showConfirmation({ title: t("orderReview.undoTitle"), description: undoConfirmationLines(row.changes, t, row.pendings).join("\n"), confirmLabel: t("orderReview.undoConfirm"), cancelLabel: t("orderReview.undoKeep"), destructive: true, onConfirm: () => void undo(messageId) });
   }
   async function undo(messageId: string) {
     setBusy("undoing"); setNotice(null);
@@ -129,13 +130,14 @@ export function OrderReviewModal({ origin, order, review, format, onClose, onCon
   };
 
   const undoBlock = corrected ? t("orderReview.undoBlockedByCorrections") : null;
-  const undoControl = (messageId: string, changes: readonly ReviewChange[]) => {
+  /** Undo reverts the whole message, so it is offered only with the message's row loaded: its changes, its reason or its pendings are not known otherwise. */
+  const undoControl = (messageId: string) => {
     const row = review.messageRows.find((candidate) => candidate.messageId === messageId);
-    if (readOnly || order.status === "cancelled") return null;
-    if (row?.undo.kind === "refused") return <ThemedText type="small" themeColor="textSecondary">{undoRefusalText(row.undo.reason, row.changes, t)}</ThemedText>;
-    if (row?.undo.kind === "undone") return <ThemedText type="small" themeColor="textSecondary">{t("orderReview.undone")}</ThemedText>;
+    if (readOnly || order.status === "cancelled" || !row) return null;
+    if (row.undo.kind === "refused") return <ThemedText type="small" themeColor="textSecondary">{undoRefusalText(row.undo.reason, row.changes, t)}</ThemedText>;
+    if (row.undo.kind === "undone") return <ThemedText type="small" themeColor="textSecondary">{t("orderReview.undone")}</ThemedText>;
     return <>
-      <Button variant="secondary" disabled={busy !== null || corrected} accessibilityHint={undoBlock ?? undefined} onPress={() => askUndo(row?.changes ?? changes, messageId)}>{t("orderReview.undoMessage")}</Button>
+      <Button variant="secondary" disabled={busy !== null || corrected} accessibilityHint={undoBlock ?? undefined} onPress={() => askUndo(row)}>{t("orderReview.undoMessage")}</Button>
       {undoBlock ? <ThemedText type="small" themeColor="textSecondary">{undoBlock}</ThemedText> : null}
     </>;
   };
@@ -162,7 +164,7 @@ export function OrderReviewModal({ origin, order, review, format, onClose, onCon
           {allMarksCorrected ? <ThemedText type="small" themeColor="textSecondary">{t("orderReview.allReviewed")}</ThemedText> : null}
           {review.doubtful.map(({ change, quote }) => {
             const item = change.after ? order.items.find((candidate) => candidate.id === change.after?.itemId) : undefined;
-            const reason = change.decision.kind === "doubtful" ? reasonText(change.decision.reason, reasonContext) : "";
+            const reason = change.decision.kind === "doubtful" ? lowerFirst(reasonText(change.decision.reason, reasonContext)) : "";
             const firstOfItem = item ? !seenItems.has(item.id) : true;
             if (item) seenItems.add(item.id);
             if (!item || !change.after) {
@@ -171,7 +173,7 @@ export function OrderReviewModal({ origin, order, review, format, onClose, onCon
                 <ThemedText style={styles.strong}>{t("orderReview.removedByMessage", { line: gone ? lineLabel(gone, t) : "" })}</ThemedText>
                 <ThemedText type="small" themeColor="textSecondary">{reason}</ThemedText>
                 {quote ? <ThemedText type="small" themeColor="textSecondary">{t("orderReview.quote", { quote })}</ThemedText> : null}
-                {undoControl(change.messageId, [change])}
+                {undoControl(change.messageId)}
               </View>;
             }
             const text = quantityTextOf(draft, item);
@@ -196,7 +198,7 @@ export function OrderReviewModal({ origin, order, review, format, onClose, onCon
                   {remaining === 1 ? <ThemedText type="small" themeColor="textSecondary">{t("itemsEdit.lastItem")}</ThemedText> : null}
                 </>}
               </> : null}
-              {undoControl(change.messageId, [change])}
+              {undoControl(change.messageId)}
             </View>;
           })}
         </View> : null}

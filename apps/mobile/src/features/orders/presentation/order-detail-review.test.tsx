@@ -76,6 +76,7 @@ beforeEach(() => {
 });
 afterEach(() => { jest.restoreAllMocks(); });
 
+const noPendings = { back: [], end: [] };
 const showReview = (review: OrderReviewResponse) => { mockLoadReview.mockResolvedValue({ success: true, data: review }); };
 const openScreen = async (copyLabel = "Copiar enlace") => { const screen = render(<OrderDetailScreen />); await screen.findByRole("button", { name: copyLabel }); return screen; };
 
@@ -89,7 +90,7 @@ test("the link card hides the URL and shows the count of doubtful changes and po
   expect(screen.getByText("Falta la variante: Polo básico ×2 — falta la talla. Pregúntale al cliente o agrégalo desde la web.")).toBeTruthy();
   expect(screen.getByText("¿En qué talla quieres el Polo básico: S, M o L?")).toBeTruthy();
   expect(screen.getByText("Con duda", { includeHiddenElements: true })).toBeTruthy();
-  expect(screen.getByLabelText(/Polera gris, Talla: M.*con duda: Un mensaje cambió la talla de L a M/)).toBeTruthy();
+  expect(screen.getByLabelText(/Polera gris, Talla: M.*con duda: un mensaje cambió la talla de L a M/)).toBeTruthy();
   // Revisar pedido is not a second entry on orders open for messages.
   expect(screen.queryByRole("button", { name: "Revisar pedido" })).toBeNull();
 });
@@ -128,7 +129,7 @@ test("the first link action of an order with only sure changes opens a review wi
 });
 
 test("Deshacer mensaje is disabled while the review has corrections and enabled after Descartar correcciones", async () => {
-  showReview(doubtfulReview({ messageRows: [{ messageId: doubtChange.messageId, at: "2026-10-31T20:42:00.000Z", changes: [doubtChange], undo: { kind: "available" } }] }));
+  showReview(doubtfulReview({ messageRows: [{ messageId: doubtChange.messageId, at: "2026-10-31T20:42:00.000Z", changes: [doubtChange], pendings: noPendings, undo: { kind: "available" } }] }));
   const screen = await openScreen();
   fireEvent.press(screen.getByRole("button", { name: "Copiar enlace" }));
   await screen.findByText("Revisa el pedido #1001");
@@ -142,6 +143,16 @@ test("Deshacer mensaje is disabled while the review has corrections and enabled 
   expect(modal.getByLabelText("Cantidad de Polera gris").props.value).toBe("1");
   expect(modal.getByRole("button", { name: "Deshacer mensaje" }).props.accessibilityState.disabled).toBe(false);
   expect(modal.queryByRole("button", { name: "Descartar correcciones" })).toBeNull();
+});
+
+test("the review does not offer Deshacer mensaje for a doubtful change whose message is not among the loaded rows", async () => {
+  showReview(doubtfulReview({ messageRows: [], moreRows: 3 }));
+  const screen = await openScreen();
+  fireEvent.press(screen.getByRole("button", { name: "Copiar enlace" }));
+  await screen.findByText("Revisa el pedido #1001");
+  const modal = within(screen.getByTestId("order-review-modal"));
+  expect(modal.getByLabelText("Cantidad de Polera gris")).toBeTruthy();
+  expect(modal.queryByRole("button", { name: "Deshacer mensaje" })).toBeNull();
 });
 
 test("a confirmation answered REVIEW_OUTDATED reloads the review keeping corrections on untouched items", async () => {
@@ -229,9 +240,9 @@ test("a dismissed share is not recorded as a link action", async () => {
 test("Cambios por mensajes shows the refusal reason instead of Deshacer", async () => {
   const removed = reviewChange(3, { kind: "removed", before: reviewLine(3, { productName: "Gorra trucker", variantAttributes: { Color: "Negro" }, quantity: 2 }), after: null });
   showReview(emptyReview({ messageRows: [
-    { messageId: fixtureId(310), at: "2026-10-31T20:42:00.000Z", changes: [removed], undo: { kind: "refused", reason: "later_change" } },
-    { messageId: fixtureId(311), at: "2026-10-31T20:50:00.000Z", changes: [removed], undo: { kind: "refused", reason: "not_sold" } },
-    { messageId: fixtureId(312), at: "2026-10-31T20:55:00.000Z", changes: [removed], undo: { kind: "undone" } }] }));
+    { messageId: fixtureId(310), at: "2026-10-31T20:42:00.000Z", changes: [removed], pendings: noPendings, undo: { kind: "refused", reason: "later_change" } },
+    { messageId: fixtureId(311), at: "2026-10-31T20:50:00.000Z", changes: [removed], pendings: noPendings, undo: { kind: "refused", reason: "not_sold" } },
+    { messageId: fixtureId(312), at: "2026-10-31T20:55:00.000Z", changes: [removed], pendings: noPendings, undo: { kind: "undone" } }] }));
   const screen = await openScreen();
   expect(screen.getByText("Cambios por mensajes")).toBeTruthy();
   expect(screen.getByText("Un cambio posterior tocó este producto.")).toBeTruthy();
@@ -242,7 +253,7 @@ test("Cambios por mensajes shows the refusal reason instead of Deshacer", async 
 
 test("Cambios por mensajes shows five rows and Ver más loads all of them", async () => {
   const row = (n: number) => ({ messageId: fixtureId(320 + n), at: "2026-10-31T20:42:00.000Z", changes: [reviewChange(n, { kind: "added", before: null, after: reviewLine(n, { productName: `Producto ${n}`, variantAttributes: {} }) })],
-    undo: { kind: "refused" as const, reason: "later_change" as const } });
+    pendings: noPendings, undo: { kind: "refused" as const, reason: "later_change" as const } });
   showReview(emptyReview({ messageRows: [1, 2, 3, 4, 5].map(row), moreRows: 2 }));
   const screen = await openScreen();
   expect(screen.getAllByText(/Producto \d/)).toHaveLength(5);
@@ -256,17 +267,20 @@ test("Cambios por mensajes shows five rows and Ver más loads all of them", asyn
 test("Deshacer on a row asks its confirmation listing changes and pendings and marks the row Deshecho", async () => {
   const added = reviewChange(3, { messageId: fixtureId(330), kind: "added", before: null, after: reviewLine(3, { productName: "Gorra trucker", variantAttributes: { Color: "Negro" }, quantity: 2 }) });
   const row = { messageId: fixtureId(330), at: "2026-10-31T20:42:00.000Z", changes: [added] };
-  showReview(emptyReview({ messageRows: [{ ...row, undo: { kind: "available" } }] }));
+  const withPendings = { back: [{ kind: "variant_missing" as const, product: "Polo básico" }], end: [{ kind: "not_clear" as const, product: null }] };
+  showReview(emptyReview({ messageRows: [{ ...row, pendings: withPendings, undo: { kind: "available" } }] }));
   const alert = jest.spyOn(Alert, "alert").mockImplementation(() => undefined);
   const screen = await openScreen();
   fireEvent.press(screen.getByRole("button", { name: /^Deshacer mensaje de las .*Agregó Gorra trucker · Negro · ×2/ }));
   expect(alert).toHaveBeenCalledTimes(1);
   expect(alert.mock.calls[0][0]).toBe("¿Deshacer lo que hizo este mensaje?");
   expect(alert.mock.calls[0][1]).toContain("Quitar Gorra trucker · Negro · ×2");
+  expect(alert.mock.calls[0][1]).toContain("Volverá: Falta la variante · Polo básico");
+  expect(alert.mock.calls[0][1]).toContain("Terminará: Producto no claro");
   const buttons = alert.mock.calls[0][2] ?? [];
   expect(buttons.map((button) => button.text)).toEqual(["Conservar", "Deshacer cambios"]);
   expect(mockUndo).not.toHaveBeenCalled();
-  mockUndo.mockResolvedValue({ success: true, data: { order: mockOrder, review: emptyReview({ messageRows: [{ ...row, undo: { kind: "undone" } }] }) } });
+  mockUndo.mockResolvedValue({ success: true, data: { order: mockOrder, review: emptyReview({ messageRows: [{ ...row, pendings: noPendings, undo: { kind: "undone" } }] }) } });
   await act(async () => { buttons[1].onPress?.(); });
   expect(mockUndo).toHaveBeenCalledWith(orderId, fixtureId(330));
   await screen.findByText("Deshecho");
@@ -300,7 +314,7 @@ test("a paid order with a doubtful item offers Revisar pedido with corrections a
 test("a shipped order opens a read-only review with the lock text", async () => {
   mockOrder = { ...baseOrder, deliveryStatus: "shipped", shippedAt: "2026-10-31T15:00:00.000Z" };
   showReview(doubtfulReview({ status: { openForMessages: false, toReview: true, doubtfulCount: 1, pointCount: 0, entry: "detail", hasPreviousReview: false },
-    messageRows: [{ messageId: doubtChange.messageId, at: "2026-10-31T20:42:00.000Z", changes: [doubtChange], undo: { kind: "refused", reason: "order_moved_on" } }] }));
+    messageRows: [{ messageId: doubtChange.messageId, at: "2026-10-31T20:42:00.000Z", changes: [doubtChange], pendings: noPendings, undo: { kind: "refused", reason: "order_moved_on" } }] }));
   mockConfirm.mockResolvedValue(confirmed());
   const screen = await openScreen();
   fireEvent.press(screen.getByRole("button", { name: "Revisar pedido" }));
@@ -320,7 +334,7 @@ test("a cancelled order shows no marks and no review", async () => {
   showReview(doubtfulReview({ status: { openForMessages: false, toReview: true, doubtfulCount: 1, pointCount: 1, entry: "none", hasPreviousReview: false }, points: [pointFor] }));
   const screen = render(<OrderDetailScreen />);
   await screen.findByText("Pedido cancelado. Los pagos se conservan; no se realizó un reembolso. No se puede reabrir.");
-  expect(screen.queryByText("Con duda")).toBeNull();
+  expect(screen.queryByText("Con duda", { includeHiddenElements: true })).toBeNull();
   expect(screen.queryByText("Por resolver")).toBeNull();
   expect(screen.queryByRole("button", { name: "Revisar pedido" })).toBeNull();
 });
@@ -328,7 +342,7 @@ test("a cancelled order shows no marks and no review", async () => {
 test("an order without a chat shows no review, marks or Cambios por mensajes", async () => {
   const screen = await openScreen();
   expect(screen.getByText(linkUrl)).toBeTruthy();
-  expect(screen.queryByText("Con duda")).toBeNull();
+  expect(screen.queryByText("Con duda", { includeHiddenElements: true })).toBeNull();
   expect(screen.queryByText("Cambios por mensajes")).toBeNull();
   expect(screen.queryByRole("button", { name: "Revisar pedido" })).toBeNull();
 });
@@ -336,7 +350,7 @@ test("an order without a chat shows no review, marks or Cambios por mensajes", a
 test("link actions, Revisar pedido and Deshacer are disabled with their reason while editing", async () => {
   mockOrder = { ...baseOrder, paymentStatus: "paid", paidAmount: pen(119), balanceDue: pen(0) };
   showReview(doubtfulReview({ status: { openForMessages: false, toReview: true, doubtfulCount: 1, pointCount: 0, entry: "detail", hasPreviousReview: false },
-    messageRows: [{ messageId: doubtChange.messageId, at: "2026-10-31T20:42:00.000Z", changes: [doubtChange], undo: { kind: "available" } }] }));
+    messageRows: [{ messageId: doubtChange.messageId, at: "2026-10-31T20:42:00.000Z", changes: [doubtChange], pendings: noPendings, undo: { kind: "available" } }] }));
   const screen = await openScreen();
   fireEvent.press(screen.getByRole("button", { name: "Editar productos" }));
   for (const name of ["Copiar enlace", "Compartir enlace", "Abrir enlace", "Revisar pedido"])
