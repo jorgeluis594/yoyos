@@ -59,3 +59,15 @@ test("asks which product when a pending has several candidates", () => {
   const names = new Map([[id(400) as ProductId, { name: "Polo", attributeNames: [] }], [id(401) as ProductId, { name: "Gorra", attributeNames: [] }]]);
   expect(questionOfPending(several, names)).toMatchObject({ question: { kind: "which_product", products: ["Polo", "Gorra"] } });
 });
+
+test("names the product of a pending the message resolved, which is no longer live", async () => {
+  const resolved: ChatPending = { ...pending, id: id(301) as ChatPendingId, subject: { kind: "variant", productId: id(401) as ProductId } };
+  const row = { messageId: id(201) as ChatMessageId, at, undoneAt: null, changes: [doubtfulChange], pendingsBefore: [resolved], pendingsAfter: [] };
+  const asked: ProductId[][] = [];
+  const names = new Map([[id(400) as ProductId, { name: "Polo", attributeNames: [] }], [id(401) as ProductId, { name: "Gorra", attributeNames: [] }]]);
+  const result = await loadOrderReview({ orderId }, access, deps({ findChatPendings: async () => ok({ pendings: [], readyRemembered: false }),
+    findOrderChanges: async () => ok({ unreviewed: [doubtfulChange], lastSeq: 1 as ChangeSeq, hasPreviousReview: false, rows: [row], moreRows: 0, laterChanges: [doubtfulChange] }),
+    findProductNames: async (ids) => { asked.push([...ids]); return ok(names); } }));
+  expect(asked[0]).toContain(id(401));
+  expect(result).toMatchObject({ success: true, data: { messageRows: [{ pendings: { back: [{ kind: "variant_missing", product: "Gorra" }], end: [] } }] } });
+});
