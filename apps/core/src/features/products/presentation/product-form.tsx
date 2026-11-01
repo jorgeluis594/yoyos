@@ -112,12 +112,12 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
   return <form onSubmit={save} noValidate className="mt-8 flex flex-col gap-6">
     {notice && <Alert variant="warning"><AlertDescription className="flex flex-wrap items-center gap-3">{notice}
       {onReload && <Button type="button" variant="outline" size="sm" onClick={reload}>{t("productEditor.reload")}</Button>}</AlertDescription></Alert>}
-    <Field orientation="horizontal" data-disabled={pending || undefined} className="w-auto items-center gap-3 self-end">
-      <FieldLabel htmlFor="hidden">{t("products.hideProduct")}</FieldLabel>
-      <Switch id="hidden" name="hidden" checked={hidden} disabled={pending} onCheckedChange={setHidden} />
-    </Field>
-    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
-      <div className="grid gap-5">
+    <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem] lg:grid-rows-[auto_1fr]">
+      <Field orientation="horizontal" data-disabled={pending || undefined} className="w-auto items-center justify-self-end gap-3 lg:col-start-2 lg:row-start-1">
+        <FieldLabel htmlFor="hidden">{t("products.hideProduct")}</FieldLabel>
+        <Switch id="hidden" name="hidden" checked={hidden} disabled={pending} onCheckedChange={setHidden} />
+      </Field>
+      <div className="grid gap-5 lg:col-start-1 lg:row-span-2 lg:row-start-1">
       <section aria-labelledby="product-data-heading" className="grid gap-4 sm:grid-cols-2">
         <h2 id="product-data-heading" className="text-base font-semibold sm:col-span-2">{t("products.data")}</h2>
       {fields.map((key) => {
@@ -137,7 +137,7 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
       <VariantsCard draft={draft} setDraft={setDraft} variantHref={variantHref} currency={currency} originalNames={originalNames} targets={targets} commitOption={commitOption}
         onClearOptions={() => setDraft((current) => clearOptions(current))} />
       </div>
-      <aside className="grid gap-5">
+      <aside className="grid gap-5 lg:col-start-2 lg:row-start-2">
       <ProductPhotosField photos={photos} error={errors.photos ?? (photosUnusable ? t("productPhotos.unusableField") : undefined)} />
       {readOnlyStock ? <Field>
         <FieldLabel htmlFor="initialStock">{t("products.stock")}</FieldLabel>
