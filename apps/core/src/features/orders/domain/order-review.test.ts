@@ -33,7 +33,7 @@ const changeOf = (kind: OrderItemChange["kind"], before: OrderItem | null, after
   before: before ? snapshotOf(before, 0) : null, after: after ? snapshotOf(after, 0) : null, decision: { kind: "applied" }, quoteId: null, supersededBy: null, reviewId: null,
   verdict: null, createdAt: minutes(seq), ...overrides });
 const doubtful = { kind: "doubtful" as const, reason: { kind: "quantity_set" as const, quantity: 3 as PositiveInteger } };
-const describePoint = (pending: ChatPending): Pick<ReviewPoint, "product" | "missing" | "question"> => ({ product: "Polo", missing: ["talla"], question: { language: "es", kind: "photo_product_name" } });
+const describePoint = (_pending: ChatPending): Pick<ReviewPoint, "product" | "missing" | "question"> => ({ product: "Polo", missing: ["talla"], question: { language: "es", kind: "photo_product_name" } });
 
 describe("pointsOfOrder", () => {
   test("shows an orderless pending only on the chat's latest open order created after it", () => {

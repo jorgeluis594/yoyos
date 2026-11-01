@@ -1,4 +1,5 @@
 import express from "express";
+import type { OrderReviewProjection } from "@core/src/features/orders/domain/order-review";
 import { afterEach, expect, test, vi } from "vitest";
 import { err, ok } from "@shared/functional";
 import { undoMessageErrorSchema, undoMessageResponseSchema } from "@shared/contracts/order-message-undo";
@@ -31,8 +32,8 @@ const order = { number: 1042, id: orderId, companyId: "00000000-0000-4000-8000-0
     unitPrice: money(35), subtotal: money(70), mentionedPrice: null, stockDeductedQuantity: 0 }],
   payments: [], delivery: null, deliveryStatus: "pending", stockDeducted: false, stockDeductedAt: null, itemsTotal: money(70), deliveryCost: money(0), deliveryCharge: money(0), total: money(70) } as unknown as OrderAggregate;
 const undone = { order, undone: true, changeCount: 1, pendingsRestored: 0, pendingsEnded: 0 };
-const review = { version: 1 as const, status: { openForMessages: true, toReview: false, doubtfulCount: 0, pointCount: 0, entry: "none" as const, hasPreviousReview: false }, doubtful: [], points: [],
-  products: [], removedSinceLastReview: [], messageRows: [], moreRows: 0, loaded: { changesThrough: 0, changeIds: [], points: [], itemsRevision: "A".repeat(43) } };
+const review = { status: { openForMessages: true, toReview: false, doubtfulCount: 0, pointCount: 0, entry: "none" as const, hasPreviousReview: false }, doubtful: [], points: [],
+  products: [], removedSinceLastReview: [], messageRows: [], moreRows: 0, loaded: { changesThrough: 0, changeIds: [], points: [], itemsRevision: "A".repeat(43) } } as unknown as OrderReviewProjection;
 
 test("answers the order and the reloaded review when the message is undone", async () => {
   const undo = vi.fn(async () => ok(undone));

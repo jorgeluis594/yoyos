@@ -23,7 +23,7 @@ const order = { number: 1023 as OrderNumber, id: orderId, companyId: access.comp
   createdAt: at, scheduledDispatchDate: null, shippedAt: null, deliveredAt: null, completedAt: null, cancelled: false, cancelledAt: null, items: [polo], payments: [], delivery: null, deliveryStatus: "pending",
   stockDeducted: false, stockDeductedAt: null, itemsTotal: money(40), deliveryCost: money(0), deliveryCharge: money(0), total: money(40) } as unknown as OrderAggregate;
 const doubtfulChange: OrderItemChange = { id: id(900) as OrderItemChangeId, orderId, messageId: id(201) as ChatMessageId, position: 0, seq: 1 as ChangeSeq, kind: "added", before: null, after: snapshotOf(polo, 0),
-  decision: { kind: "doubtful", reason: { kind: "added_by_reference", quantity: 2 as PositiveInteger, quote: 4 } }, quoteId: 4 as QuoteId, supersededBy: null, reviewId: null, verdict: null, createdAt: at };
+  decision: { kind: "doubtful", reason: { kind: "added_by_reference", quantity: 2 as PositiveInteger, quote: 4 as QuoteId } }, quoteId: 4 as QuoteId, supersededBy: null, reviewId: null, verdict: null, createdAt: at };
 const pending: ChatPending = { id: id(300) as ChatPendingId, subject: { kind: "variant", productId: id(400) as ProductId }, known: { talla: "M" }, quantity: 1 as PositiveInteger, price: null, order: null,
   lastChangedAt: new Date(at.getTime() - 60_000), sourceMessageId: id(500) as ChatMessageId, requestId: id(300) as ChatPendingId, doubt: null, pointSince: at, acknowledgedAt: null };
 

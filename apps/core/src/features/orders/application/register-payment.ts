@@ -22,6 +22,8 @@ export type RegisterPaymentDependencies = Readonly<{
   savePayment: (payment: Payment, companyId: CompanyId) => Promise<Result<null, RegisterPaymentError>>;
   updatePayment: (payment: Payment, companyId: CompanyId, expectedStatus: "reported") => Promise<Result<null, RegisterPaymentError>>;
   saveCompletion: (id: OrderId, companyId: CompanyId, completedAt: Date) => Promise<Result<null, RegisterPaymentError>>;
+  /** A payment that completes the order fixes `not_reviewed` on the changes nobody judged. */
+  settleUnreviewedChanges: (orderId: OrderId, at: Date) => Promise<Result<null, RegisterPaymentError>>;
   /** In-transaction event: the orders listener deducts the stock when the order is due and fits, and answers with what happened. */
   publishPaymentConfirmed: (payload: PaymentConfirmed) => Promise<Result<DeductionOutcome, TransactionEndingError>>;
   findVariantStock: StockReader;
@@ -52,6 +54,8 @@ export async function registerPayment(input: RegisterPaymentInput, context: Orde
     if (next.data.completedAt && !found.data.completedAt) {
       const completed = await deps.saveCompletion(input.orderId, context.companyId, next.data.completedAt);
       if (!completed.success) return completed;
+      const settled = await deps.settleUnreviewedChanges(input.orderId, next.data.completedAt);
+      if (!settled.success) return settled;
     }
     const outcome = await deps.publishPaymentConfirmed({ companyId: context.companyId, orderId: input.orderId, paymentId: input.paymentId });
     if (!outcome.success) return outcome;

@@ -114,7 +114,7 @@ test("succeeds when a sure message changed another item meanwhile and reports it
   const order = orderOf([polo, gorra]);
   const newer = changeOf("quantity_changed", itemOf(4, "Gorra", 3), gorra, 2);
   const { deps, saved } = setup({ order, pendings: [], changes: [newer], review: null });
-  const result = await confirmOrderReview(inputFor(before, [], { corrections: [{ itemId: polo.id, quantity: 1 }] }), access, deps);
+  const result = await confirmOrderReview(inputFor(before, [], { corrections: [{ itemId: polo.id, quantity: 1 as never }] }), access, deps);
   expect(result).toMatchObject({ success: true, data: { changedMeanwhile: [{ id: newer.id }] } });
   expect(saved.review).toMatchObject({ changesThrough: 0, confirmedThrough: 2 });
 });

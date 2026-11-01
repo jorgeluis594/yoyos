@@ -111,6 +111,6 @@ test("the order projections accept the new fields and stay compatible without th
   assert.ok(orderAggregateSchema.shape.revisions.safeParse({ items: revision }).success);
   assert.equal(orderAggregateSchema.shape.revisions.safeParse({ items: "short" }).success, false);
   assert.ok(orderAggregateSummarySchema.shape.toReview.safeParse(true).success);
-  assert.ok(orderAggregateSummarySchema.shape.toReview.safeParse(undefined).success);
+  assert.equal(orderAggregateSummarySchema.shape.toReview.safeParse(undefined).success, false);
   assert.equal(orderAggregateSummarySchema.shape.toReview.safeParse("yes").success, false);
 });
