@@ -30,8 +30,7 @@ export type OutcomeKind = (typeof outcomeKinds)[number];
 type MissingOutcomeKinds = Exclude<ChatMessageOutcome["kind"], OutcomeKind | Extract<ChatMessageOutcome["kind"], `ambiguous_${string}`>>;
 export const everyOutcomeKindIsExpectable: MissingOutcomeKinds extends never ? true : never = true;
 
-/** The seller's notice kinds plus `payment_request`, which T6 adds to the domain; the union stays valid once the domain has it. */
-export const evalNoticeKinds = [...sellerNoticeKinds, "payment_request"] as const;
+export const evalNoticeKinds = sellerNoticeKinds;
 export const noticeKind = z.enum(evalNoticeKinds);
 
 const caseBase = {

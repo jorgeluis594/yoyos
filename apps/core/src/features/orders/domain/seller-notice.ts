@@ -1,20 +1,26 @@
 import type { OrderId } from "@core/src/features/orders/domain/order";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { ProductId } from "@core/src/features/products/domain/product";
-import type { ChatMessageOutcome, ChatMessageOutcomes } from "@core/src/features/orders/domain/chat-message-outcome";
+import type { ChatMessageOutcome, ChatMessageOutcomes, PaymentOrder } from "@core/src/features/orders/domain/chat-message-outcome";
+import type { SuggestedQuestion } from "@core/src/features/orders/domain/suggested-question";
 
 /**
- * Every kind a seller notice has, including the ones whose data fields arrive with the single reader (`not_applied`, `caption_not_applied`,
- * `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`). Evals name the expected notice with these kinds.
+ * Every kind a seller notice has, including the ones whose data fields arrive with the staged reader (`not_applied`, `product_not_available`,
+ * `variant_for_several_pendings`, `ready_with_pendings`, `payment_request`, `order_changed_after_link`). Evals name the expected notice with these kinds.
  */
 export const sellerNoticeKinds = [
   "not_identified", "not_clear", "variant_missing", "variant_not_available", "quantity_above_limit", "unclear_item", "unnamed_add", "variant_only",
   "image_with_request", "no_open_order", "failed", "order_closed", "several_problems", "only_item_kept", "ready", "new_order",
-  "not_applied", "caption_not_applied", "product_not_available", "variant_for_several_pendings", "ready_with_pendings",
+  "not_applied", "product_not_available", "variant_for_several_pendings", "ready_with_pendings", "payment_request", "order_changed_after_link",
 ] as const;
 export type SellerNoticeKind = (typeof sellerNoticeKinds)[number];
 
 type NewOrderNote = Readonly<{ newOrderId: OrderId | null }>;
+/**
+ * What an urgent notice may carry besides its own data: the sentence that the order changed after the link was taken, and the
+ * suggested question of the first problem in the message. Both are absent unless the message called for them.
+ */
+export type NoticeSuffixes = Readonly<{ changedAfterLink?: true; question?: SuggestedQuestion }>;
 type ProblemNotice =
   | Readonly<{ kind: "not_identified"; source: "photo" | "text" }>
   | Readonly<{ kind: "not_clear"; productIds: readonly ProductId[] }>
@@ -23,8 +29,9 @@ type ProblemNotice =
   | Readonly<{ kind: "unnamed_add" | "variant_only" | "image_with_request" | "no_open_order" | "failed" }>
   | Readonly<{ kind: "order_closed"; orderId: OrderId }>
   | Readonly<{ kind: "not_applied"; orderId: OrderId | null }>
-  | Readonly<{ kind: "caption_not_applied"; productId: ProductId; orderId: OrderId | null }>
   | Readonly<{ kind: "product_not_available"; productId: ProductId | null }>
+  /** `productIds` and `unnamed` are the pendings left, named like the ones of a «listo» with pendings. */
+  | Readonly<{ kind: "payment_request"; order: PaymentOrder; productIds: readonly ProductId[]; unnamed: number }>
   /** `unnamed` counts the pendings the product list cannot name (doubtful product); a deleted product is counted by the texts. */
   | Readonly<{ kind: "variant_for_several_pendings"; productIds: readonly ProductId[]; unnamed: number }>
   /** `productIds` are up to three distinct identified products; the other `problemCount - productIds.length` problems are counted. */
@@ -32,9 +39,9 @@ type ProblemNotice =
 
 /** The one notice of a message. Ids only: product names and order numbers come with the texts. */
 export type SellerNotice =
-  | (ProblemNotice & NewOrderNote)
-  | Readonly<{ kind: "only_item_kept" | "ready"; orderId: OrderId }>
-  | Readonly<{ kind: "ready_with_pendings"; orderId: OrderId | null; productIds: readonly ProductId[]; unnamed: number }>
+  | (ProblemNotice & NewOrderNote & NoticeSuffixes)
+  | Readonly<{ kind: "order_changed_after_link" | "only_item_kept" | "ready"; orderId: OrderId }>
+  | Readonly<{ kind: "ready_with_pendings"; orderId: OrderId | null; productIds: readonly ProductId[]; unnamed: number }> & NoticeSuffixes
   | Readonly<{ kind: "new_order"; orderId: OrderId; previousOrderId: OrderId }>;
 
 /** A claimed notice: who registered the message, the chat that groups it and the notice the outcomes call for. */
@@ -58,7 +65,7 @@ function problemOf(outcome: ChatMessageOutcome): ProblemNotice | null {
     case "order_closed": return { kind: "order_closed", orderId: outcome.orderId };
     case "failed": return { kind: "failed" };
     case "reader_doubt": case "request_not_allowed": case "invalid_action": return { kind: "not_applied", orderId: outcome.orderId };
-    case "caption_not_applied": return { kind: "caption_not_applied", productId: outcome.productId, orderId: outcome.orderId };
+    case "payment_requested": return { kind: "payment_request", order: outcome.order, productIds: [...new Set(outcome.productIds)], unnamed: outcome.unnamed };
     case "product_not_available": return { kind: "product_not_available", productId: outcome.productId };
     case "variant_for_several_pendings": return { kind: "variant_for_several_pendings", productIds: [...new Set(outcome.productIds)], unnamed: outcome.unnamed };
     default: return null;
@@ -70,22 +77,39 @@ function orderOutcome<K extends "ready" | "only_item_kept">(outcomes: ChatMessag
 }
 
 function namedProductOf(problem: ProblemNotice): ProductId | null {
-  if (problem.kind === "variant_missing" || problem.kind === "variant_not_available" || problem.kind === "quantity_above_limit" || problem.kind === "caption_not_applied") return problem.productId;
+  if (problem.kind === "variant_missing" || problem.kind === "variant_not_available" || problem.kind === "quantity_above_limit") return problem.productId;
   if (problem.kind === "product_not_available") return problem.productId;
   return problem.kind === "unclear_item" ? problem.namedProductId : null;
 }
 
-/** Chooses the single notice of a message, or null when the seller needs none. `no_intent`, `pending_*` and silent misses never notify. */
+function firstQuestion(outcomes: ChatMessageOutcomes): SuggestedQuestion | null {
+  for (const outcome of outcomes) if (outcome.kind === "questions") return outcome.questions[0] ?? null;
+  return null;
+}
+
+/** The notice of the problems or the pendings, with the question of the first problem and the changed-after-link sentence when the message has them. */
+function withSuffixes<N extends SellerNotice>(notice: N, outcomes: ChatMessageOutcomes): N {
+  const question = firstQuestion(outcomes);
+  const armed = outcomes.some((outcome) => outcome.kind === "changed_after_link");
+  return { ...notice, ...(armed ? { changedAfterLink: true as const } : {}), ...(question ? { question } : {}) };
+}
+
+/**
+ * Chooses the single notice of a message, or null when the seller needs none. Precedence: problems (including «listo» with pendings and a
+ * payment request) → the order changed after the link → only item kept → ready → new order. `no_intent`, `pending_*` and silent misses never notify.
+ */
 export function chooseSellerNotice(outcomes: ChatMessageOutcomes): SellerNotice | null {
   const problems = outcomes.flatMap((outcome) => problemOf(outcome) ?? []);
   const created = outcomes.find((outcome): outcome is Extract<ChatMessageOutcome, { kind: "new_order_after_closed" }> => outcome.kind === "new_order_after_closed");
   if (problems.length > 1) {
     const productIds = [...new Set(problems.flatMap((problem) => namedProductOf(problem) ?? []))].slice(0, maxNamedProducts);
-    return { kind: "several_problems", problemCount: problems.length, productIds, newOrderId: created?.orderId ?? null };
+    return withSuffixes({ kind: "several_problems", problemCount: problems.length, productIds, newOrderId: created?.orderId ?? null }, outcomes);
   }
-  if (problems.length === 1) return { ...problems[0]!, newOrderId: created?.orderId ?? null };
+  if (problems.length === 1) return withSuffixes({ ...problems[0]!, newOrderId: created?.orderId ?? null }, outcomes);
   const pendingReady = outcomes.find((outcome): outcome is Extract<ChatMessageOutcome, { kind: "ready_with_pendings" }> => outcome.kind === "ready_with_pendings");
-  if (pendingReady) return { kind: "ready_with_pendings", orderId: pendingReady.orderId, productIds: [...new Set(pendingReady.productIds)], unnamed: pendingReady.unnamed };
+  if (pendingReady) return withSuffixes({ kind: "ready_with_pendings", orderId: pendingReady.orderId, productIds: [...new Set(pendingReady.productIds)], unnamed: pendingReady.unnamed }, outcomes);
+  const changed = outcomes.find((outcome): outcome is Extract<ChatMessageOutcome, { kind: "changed_after_link" }> => outcome.kind === "changed_after_link");
+  if (changed) return { kind: "order_changed_after_link", orderId: changed.orderId };
   const kept = orderOutcome(outcomes, "only_item_kept");
   if (kept) return { kind: "only_item_kept", orderId: kept.orderId };
   const ready = orderOutcome(outcomes, "ready");
@@ -93,9 +117,13 @@ export function chooseSellerNotice(outcomes: ChatMessageOutcomes): SellerNotice 
   return created ? { kind: "new_order", orderId: created.orderId, previousOrderId: created.previousOrderId } : null;
 }
 
+/** A notice closes the link cycle when it is «Pedido #N cambió» or an urgent notice that carries the changed-after-link sentence. */
+export const closesLinkCycle = (notice: SellerNotice | null): boolean =>
+  notice !== null && (notice.kind === "order_changed_after_link" || ("changedAfterLink" in notice && notice.changedAfterLink === true));
+
 /** Order notices open the order; every other notice opens the chat on the message. */
 export function sellerNoticeTarget(notice: SellerNotice): SellerNoticeTarget {
-  return notice.kind === "only_item_kept" || notice.kind === "ready" || notice.kind === "new_order" ? { kind: "order", orderId: notice.orderId } : { kind: "message" };
+  return notice.kind === "order_changed_after_link" || notice.kind === "only_item_kept" || notice.kind === "ready" || notice.kind === "new_order" ? { kind: "order", orderId: notice.orderId } : { kind: "message" };
 }
 
 /** A notice is due while the outcomes call for one and nobody claimed it yet. */
@@ -106,6 +134,7 @@ export function noticeReferences(notice: SellerNotice): Readonly<{ orderIds: rea
   const orderIds: OrderId[] = [];
   const productIds: ProductId[] = [];
   if ("orderId" in notice && notice.orderId) orderIds.push(notice.orderId);
+  if (notice.kind === "payment_request" && notice.order.kind !== "none") orderIds.push(notice.order.orderId);
   if ("previousOrderId" in notice) orderIds.push(notice.previousOrderId);
   if ("newOrderId" in notice && notice.newOrderId) orderIds.push(notice.newOrderId);
   if ("productId" in notice && notice.productId) productIds.push(notice.productId);
