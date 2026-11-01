@@ -1,4 +1,5 @@
 import type { DecisionKind, IntentKind, MessageExpectation } from "@core/evals/cases/schema";
+import type { ScoredChangedLine } from "@core/evals/lib/changed-lines";
 import type { StageFacts } from "@core/evals/lib/case-record";
 
 /**
@@ -17,6 +18,7 @@ const urgentOutcomes: ReadonlySet<string> = new Set(["unnamed_add", "variant_onl
   "invalid_action", "reader_doubt", "request_not_allowed"]);
 const pendingOutcomes: ReadonlySet<string> = new Set(["pending_created", "pending_updated", "pending_split"]);
 const noticeOutcomes: ReadonlySet<string> = new Set(["ready", "ready_with_pendings", "only_item_kept"]);
+/** `pending_ended` is not one: a decline ends the pending as the buyer asked, so it is a change; a case that expects an interruption states its `decision`. */
 const noChangeOutcomes: ReadonlySet<string> = new Set(["no_intent", "questions", "caption_not_applied"]);
 
 /** The decision a case expects: its own `decision`, else derived from the notice (urgent or informative) and the outcomes (urgent, informative, pending, applied or silent). */
@@ -58,6 +60,8 @@ export type StageAnswer = Readonly<{
   intentOnly?: boolean;
   changeApplied: boolean;
   marked: boolean;
+  /** The lines the message changed, each with its mark (own or inherited) and whether it differs from the expected order's line; absent when the path does not read them. */
+  changedLines?: readonly ScoredChangedLine[];
   point: boolean;
   noticed: boolean;
   changedNotice: boolean;
@@ -79,7 +83,10 @@ export function scoreStages(expected: ExpectedStages, answer: StageAnswer): Stag
     decisionExpected: expected.decision,
     decisionActual: answer.decision ?? (answer.changeApplied ? "applied" : "silent"),
     requested: expected.requested,
-    changeApplied: answer.changeApplied, marked: answer.marked, point: answer.point, noticed: answer.noticed,
+    changeApplied: answer.changeApplied, marked: answer.marked,
+    ...(answer.changedLines ? { changedLines: answer.changedLines.length, unmarkedLines: answer.changedLines.filter(({ marked }) => !marked).length,
+    silentLines: answer.changedLines.filter(({ marked, wrong }) => !marked && wrong).length } : {}),
+    point: answer.point, noticed: answer.noticed,
     orderMatches: answer.orderMatches, changedNotice: answer.changedNotice,
     readingMs: answer.readingMs, queuedMs: answer.queuedMs, stageCostsUsd: answer.stageCostsUsd,
   };

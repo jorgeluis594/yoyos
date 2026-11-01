@@ -97,7 +97,7 @@ export type GateLines = Readonly<{
   rightPercent: number;
   ignoredActions: number;
   twoNoticeConversations: number;
-  wrongSilentChanges: number;
+  wrongVisibleFields: number;
   expectedSilent: number;
   extraNotices: number;
   extraNoticePercent: number;
@@ -206,7 +206,7 @@ export function gateLines(records: readonly CaseRecord[]): GateLines {
     scored: messages.length, right, rightPercent: percentOf(right, messages.length),
     ignoredActions: messages.reduce((sum, record) => sum + record.ignoredActions, 0),
     twoNoticeConversations: repeatedConversations(messages).length,
-    wrongSilentChanges: messages.filter(({ wrongSilentChange }) => wrongSilentChange).length,
+    wrongVisibleFields: messages.filter(({ wrongVisibleField }) => wrongVisibleField).length,
     expectedSilent: silent.length, extraNotices: extra.length, extraNoticePercent: percentOf(extra.length, silent.length),
   };
 }
@@ -415,7 +415,7 @@ const gateText = (name: string, lines: GateLines) => [
   `${name}: right ${lines.right} of ${lines.scored} scored messages (${lines.rightPercent.toFixed(1)}%)`,
   `${name}: ${lines.ignoredActions} ignored actions`,
   `${name}: ${lines.twoNoticeConversations} conversations with two notices for one product`,
-  `${name}: ${lines.wrongSilentChanges} wrong silent changes`,
+  `${name}: ${lines.wrongVisibleFields} wrong visible fields`,
   `${name}: extra notices ${lines.extraNotices} of ${lines.expectedSilent} messages expected silent (${lines.extraNoticePercent.toFixed(1)}%)`,
 ];
 

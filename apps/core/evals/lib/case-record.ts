@@ -22,6 +22,11 @@ export type StageFacts = Readonly<{
   /** What the message left: a change in the order, a «Con duda» mark, a «Por resolver» point, a seller notice. */
   changeApplied: boolean;
   marked: boolean;
+  /** The lines this message changed (the message's `OrderItemChange` rows, completions of a pending included) and how many carry no «Con duda» mark. Absent in records from before they were measured. */
+  changedLines?: number;
+  unmarkedLines?: number;
+  /** Of those, the lines with no mark that differ from the expected order's line (missing, extra, or another quantity, variant or price): what the silent-change gate counts. */
+  silentLines?: number;
   point: boolean;
   noticed: boolean;
   /** The order after the message equals the expected one; null when the case states no order. */
@@ -66,7 +71,7 @@ export type CaseRecord = Readonly<{
   step: number | null;
   /** How the message misled the seller (lib/scorers.ts `MessageScored`); all neutral outside message passes. */
   ignoredActions: number;
-  wrongSilentChange: boolean;
+  wrongVisibleField: boolean;
   extraNotice: boolean;
   expectedSilent: boolean;
   /** The v2 metric inputs; absent in records of the legacy reader path. */

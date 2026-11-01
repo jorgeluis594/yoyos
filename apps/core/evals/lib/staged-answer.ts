@@ -61,6 +61,8 @@ export type StagedAnswerInput = Readonly<{
   notice: string | null;
   /** The order after the message equals the expected one; null when the case states none. */
   orderMatches: boolean | null;
+  /** The lines the message changed with their marks, read from its change rows; absent when they were not read. */
+  changedLines?: StageAnswer["changedLines"];
   /** Wall time of the scored attempt: from the start of the reading to the decision, with no queue wait in an eval. */
   latencyMs: number;
   productKeyOf: (productId: string) => string | null;
@@ -80,8 +82,10 @@ export function stagedAnswerOf(input: StagedAnswerInput): StageAnswer {
     fields: extraction ? fieldsOf(extraction, expected.fields) : null,
     product: productId === null ? null : input.productKeyOf(productId),
     decision,
-    changeApplied: kinds.some((kind) => kind === "applied" || kind === "doubtful") || (kinds.length === 0 && decision === "applied"),
-    marked: kinds.includes("doubtful"),
+    // The change rows are the truth when read: a completion of a pending changes the order and its decision is `pending`, and a mark can be inherited.
+    changeApplied: kinds.some((kind) => kind === "applied" || kind === "doubtful") || (input.changedLines === undefined ? kinds.length === 0 && decision === "applied" : input.changedLines.length > 0),
+    marked: kinds.includes("doubtful") || (input.changedLines?.some(({ marked }) => marked) ?? false),
+    ...(input.changedLines ? { changedLines: input.changedLines } : {}),
     point: kinds.includes("pending"),
     noticed: notice !== null,
     changedNotice: notice === "order_changed_after_link",

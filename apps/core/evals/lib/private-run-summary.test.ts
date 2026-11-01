@@ -12,7 +12,7 @@ const failing = (over = {}) => messageRecord({ caseId: "pv-12", input: secret, e
 test("writes private run summaries with ids and failure types only", () => {
   const records = [
     failing({ ignoredActions: 1 }),
-    failing({ repeat: 1, wrongSilentChange: true }),
+    failing({ repeat: 1, wrongVisibleField: true }),
     failing({ caseId: "pv-c3#2", conversationId: "pv-c3", step: 2, extraNotice: true, error: `boom ${secret}` }),
     messageRecord({ caseId: "pv-ok", passed: true }),
   ];
@@ -20,7 +20,7 @@ test("writes private run summaries with ids and failure types only", () => {
 
   expect(summary.runs).toBe(2);
   expect(summary.failures).toEqual([
-    { id: "pv-12", failedRuns: 2, types: ["ignored_action", "wrong_silent_change"] },
+    { id: "pv-12", failedRuns: 2, types: ["ignored_action", "wrong_visible_field"] },
     { id: "pv-c3#2", failedRuns: 1, types: ["error", "extra_notice"] },
   ]);
   const dir = mkdtempSync(join(tmpdir(), "private-run-"));
@@ -29,6 +29,6 @@ test("writes private run summaries with ids and failure types only", () => {
 
   expect(path.startsWith(join(dir, "runs"))).toBe(true);
   expect(text).toContain("pv-12");
-  expect(text).toContain("wrong_silent_change");
+  expect(text).toContain("wrong_visible_field");
   for (const leaked of [secret, "taza-secreta", "boom", "no agregó"]) expect(text).not.toContain(leaked);
 });
