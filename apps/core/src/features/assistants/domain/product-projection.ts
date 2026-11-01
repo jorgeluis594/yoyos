@@ -78,14 +78,18 @@ export function catalogLine(storefront: ProjectableStorefront): string {
   }
 }
 
-/** «Stock: 12 · 1 agotada, 1 con stock bajo»; the product line only counts its variants' levels and never applies the threshold to the sum. `undefined` without active variants. */
-export function stockLine(active: ProjectableActive): string | undefined {
-  if (active.kind === "none") return undefined;
-  const { totalStock, soldOut, low, onlyLevel } = active;
+/** «Stock: 12 · 1 agotada, 1 con stock bajo»: the stock summary of the active variants of a product, never applying the threshold to the sum. */
+export function stockSummaryLine(stock: Readonly<{ totalStock: number; soldOut: number; low: number; onlyLevel: ProjectableLevel | null }>): string {
+  const { totalStock, soldOut, low, onlyLevel } = stock;
   if (totalStock === 0) return "Stock: 0 · Agotado";
   if (onlyLevel === "low") return `Stock: ${totalStock} · Stock bajo`;
   const levels = [...soldOut > 0 ? [`${soldOut} ${plural(soldOut, "agotada", "agotadas")}`] : [], ...low > 0 ? [`${low} con stock bajo`] : []];
   return levels.length === 0 ? `Stock: ${totalStock}` : `Stock: ${totalStock} · ${levels.join(", ")}`;
+}
+
+/** The product line's stock summary; `undefined` without active variants. */
+export function stockLine(active: ProjectableActive): string | undefined {
+  return active.kind === "none" ? undefined : stockSummaryLine(active);
 }
 
 const skuLabel = (sku: ProjectableSku, max: number): string => sku.kind === "several" ? "Varias variantes" : sku.sku === null ? noSku : clip(sku.sku, max);

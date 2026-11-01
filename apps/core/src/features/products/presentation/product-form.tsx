@@ -3,7 +3,7 @@ import { Fragment, useEffect, useRef, useState, type FormEvent } from "react";
 import { Link } from "react-router";
 import { Alert, AlertDescription } from "@core/app/components/ui/alert";
 import { Button } from "@core/app/components/ui/button";
-import { Field, FieldDescription, FieldError, FieldLabel } from "@core/app/components/ui/field";
+import { Field, FieldError, FieldLabel } from "@core/app/components/ui/field";
 import { Input } from "@core/app/components/ui/input";
 import { Switch } from "@core/app/components/ui/switch";
 import { Textarea } from "@core/app/components/ui/textarea";
@@ -112,6 +112,10 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
   return <form onSubmit={save} noValidate className="mt-8 flex flex-col gap-6">
     {notice && <Alert variant="warning"><AlertDescription className="flex flex-wrap items-center gap-3">{notice}
       {onReload && <Button type="button" variant="outline" size="sm" onClick={reload}>{t("productEditor.reload")}</Button>}</AlertDescription></Alert>}
+    <Field orientation="horizontal" data-disabled={pending || undefined} className="w-auto items-center gap-3 self-end">
+      <FieldLabel htmlFor="hidden">{t("products.hideProduct")}</FieldLabel>
+      <Switch id="hidden" name="hidden" checked={hidden} disabled={pending} onCheckedChange={setHidden} />
+    </Field>
     <div className="grid items-start gap-6 lg:grid-cols-[minmax(0,1fr)_18rem]">
       <div className="grid gap-5">
       <section aria-labelledby="product-data-heading" className="grid gap-4 sm:grid-cols-2">
@@ -130,13 +134,6 @@ export function ProductForm({ currency, cancelTo, feedback = noFeedback, pending
         </Fragment>;
       })}
       </section>
-      <Field orientation="horizontal" data-disabled={pending || undefined}>
-        <Switch id="hidden" name="hidden" checked={hidden} disabled={pending} aria-describedby="hidden-description" onCheckedChange={setHidden} />
-        <div className="flex flex-col gap-1">
-          <FieldLabel htmlFor="hidden">{t("products.hideProduct")}</FieldLabel>
-          <FieldDescription id="hidden-description">{t("products.hideProductHint")}</FieldDescription>
-        </div>
-      </Field>
       <VariantsCard draft={draft} setDraft={setDraft} variantHref={variantHref} currency={currency} originalNames={originalNames} targets={targets} commitOption={commitOption}
         onClearOptions={() => setDraft((current) => clearOptions(current))} />
       </div>

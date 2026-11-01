@@ -12,6 +12,8 @@ const config: KnipConfig = {
     "tests/e2e/server.ts",
     "src/**/type-contracts.ts",
     "src/shared/images/infrastructure/qr-fixtures/generate-fixtures.mjs",
+    // The sales read types are first imported by the sales summary and product reads (MCP 3/4, T1 and T2); drop this entry then.
+    "src/features/orders/application/sales-types.ts",
     // The AI evals run with their own Vitest config (scripts/run-evals.sh), which the Vitest plugin does not read.
     "vitest.evals.config.ts",
     "evals/global-setup.ts",

@@ -470,7 +470,7 @@ test("orders HTTP filters by dispatch status, courier, scheduled and shipped dat
       { ...base, number: 1003n, id: cancelledPending, sellerId: seller.userId, cancelled: true, cancelledAt: new Date("2026-09-28T12:00:00.000Z"), scheduledDispatchDate: new Date("2026-10-05") },
       { ...base, number: 1004n, id: shipped, sellerId: seller.userId, deliveryStatus: "shipped", shippedAt: new Date("2026-10-06T15:00:00.000Z"), scheduledDispatchDate: new Date("2026-10-06") },
     ] });
-    await prisma.orderItem.createMany({ data: [pendingScheduled, pendingUnscheduled, cancelledPending, shipped].map((orderId) => ({ orderId, variantId: seller.variantId,
+    await prisma.orderItem.createMany({ data: [pendingScheduled, pendingUnscheduled, cancelledPending, shipped].map((orderId) => ({ orderId, orderCreatedAt: base.createdAt, variantId: seller.variantId,
       productName: "Sample product", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 })) });
   });
   await withTenantIsolation(other.companyId, async () => {
@@ -1151,7 +1151,7 @@ test("reading mixed orders for label preparation never changes states, payments 
       { ...base, id: shipped, number: 2003n, deliveryStatus: "shipped", shippedAt: new Date("2026-10-06T15:00:00.000Z"), delivery: agency },
       { ...base, id: cancelled, number: 2004n, cancelled: true, cancelledAt: new Date("2026-09-28T12:00:00.000Z"), delivery: agency },
     ] });
-    await prisma.orderItem.createMany({ data: [complete, incomplete, shipped, cancelled].map((orderId) => ({ orderId, variantId: seller.variantId,
+    await prisma.orderItem.createMany({ data: [complete, incomplete, shipped, cancelled].map((orderId) => ({ orderId, orderCreatedAt: base.createdAt, variantId: seller.variantId,
       productName: "Sample product", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 })) });
   });
   const snapshot = () => withTenantIsolation(seller.companyId, async () => await prisma.order.findMany({ orderBy: { number: "asc" } }));
@@ -1172,7 +1172,7 @@ test("seller list and detail do not include unconfirmed catalog orders, and incl
       // Unreachable in practice; proves the legacy completed-sales list filters too.
       { ...base, id: completed, number: 3002n, completedAt: enabledAt },
     ] });
-    await prisma.orderItem.createMany({ data: [open, completed].map((orderId) => ({ orderId, variantId: seller.variantId,
+    await prisma.orderItem.createMany({ data: [open, completed].map((orderId) => ({ orderId, orderCreatedAt: base.createdAt, variantId: seller.variantId,
       productName: "Camisa", variantAttributes: {}, quantity: 1n, unitPrice: 10, subtotal: 10 })) });
   });
   const ids = async (path: string) => ((await (await call(path, seller.cookie)).json()).items as { id: string }[]).map((item) => item.id);

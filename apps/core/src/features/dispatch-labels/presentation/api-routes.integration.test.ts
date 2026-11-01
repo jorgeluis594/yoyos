@@ -51,10 +51,11 @@ async function seller() {
   let next = 1001n;
   async function order(delivery: unknown, extra: { cancelled?: boolean } = {}) {
     const id = randomUUID();
+    const createdAt = new Date();
     await withTenantIsolation(companyId, async () => {
-      await prisma.order.create({ data: { id, number: next++, sellerId: userId, currency: "PEN", total: 10, itemsTotal: 10, createdAt: new Date(),
+      await prisma.order.create({ data: { id, number: next++, sellerId: userId, currency: "PEN", total: 10, itemsTotal: 10, createdAt,
         delivery: delivery as object ?? undefined, cancelled: extra.cancelled ?? false, ...(extra.cancelled ? { cancelledAt: new Date() } : {}) } });
-      await prisma.orderItem.create({ data: { orderId: id, variantId, productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1n, unitPrice: 10, subtotal: 10 } });
+      await prisma.orderItem.create({ data: { orderId: id, orderCreatedAt: createdAt, variantId, productName: "Camisa", variantAttributes: { Talla: "M" }, sku: null, quantity: 1n, unitPrice: 10, subtotal: 10 } });
     });
     return { id, number: Number(next - 1n) };
   }
