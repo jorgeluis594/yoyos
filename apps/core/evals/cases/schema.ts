@@ -21,7 +21,7 @@ export const outcomeKinds = ["added", "removed", "quantity_lowered", "quantity_c
   "order_closed", "no_intent", "variant_only", "unnamed_add", "image_with_request", "no_open_order", "not_identified", "not_clear",
   "variant_missing", "variant_not_available", "quantity_above_limit", "unclear_item", "new_order_after_closed", "failed",
   "pending_created", "pending_updated", "pending_completed", "pending_split", "pending_ended", "reader_doubt", "request_not_allowed", "invalid_action",
-  "product_not_available", "variant_for_several_pendings", "ready_with_pendings", "caption_not_applied"] as const;
+  "product_not_available", "variant_for_several_pendings", "ready_with_pendings", "caption_not_applied", "payment_requested", "changed_after_link", "questions"] as const;
 export type OutcomeKind = (typeof outcomeKinds)[number];
 /**
  * Compile-time check: every outcome kind of the domain can be expected. Kinds named «ambiguous_…» are the one the domain union still
@@ -30,7 +30,8 @@ export type OutcomeKind = (typeof outcomeKinds)[number];
 type MissingOutcomeKinds = Exclude<ChatMessageOutcome["kind"], OutcomeKind | Extract<ChatMessageOutcome["kind"], `ambiguous_${string}`>>;
 export const everyOutcomeKindIsExpectable: MissingOutcomeKinds extends never ? true : never = true;
 
-export const noticeKind = z.enum(sellerNoticeKinds);
+export const evalNoticeKinds = sellerNoticeKinds;
+export const noticeKind = z.enum(evalNoticeKinds);
 
 const caseBase = {
   id: z.string().regex(/^[a-z0-9-]+(~p\d+)?$/),
@@ -77,14 +78,17 @@ export const finalLine = orderLine.extend({ mentionedPrice: mentionedPrice.nulla
 export type FinalLine = z.output<typeof finalLine>;
 
 /** A photo the interpretation pass identifies by hand (`shows`), so only the reader runs; `label` is a printed QR label. */
-const shownPhoto = z.strictObject({ shows: productKey, label: attributes.optional() });
+const shownPhoto = z.strictObject({ shows: productKey, label: attributes.optional() })
+  .refine(({ shows }) => shows !== "not_found" && shows !== "not_product", "A photo that matched nothing or is not a product takes no label");
 const notProductPhoto = z.strictObject({ shows: z.literal("not_product") });
+/** A photo the identification matched to nothing (a product the catalog does not have, or no match): the reader is told the photo was not found. No label. */
+const notFoundPhoto = z.strictObject({ shows: z.literal("not_found") });
 /** A photo file the end-to-end pass reads with the real identification cascade; relative to the photo folder (images/README.md) or to `apps/core`. */
 const photoFile = z.strictObject({ file: z.string() });
 
 const messageContent = {
   text: z.string().optional(),
-  photo: z.union([notProductPhoto, shownPhoto, photoFile]).optional(),
+  photo: z.union([notProductPhoto, notFoundPhoto, shownPhoto, photoFile]).optional(),
   caption: z.string().optional(),
 };
 const hasOneContent = (input: Readonly<{ text?: string; photo?: unknown; caption?: string }>) => (input.text === undefined) !== (input.photo === undefined);
@@ -100,7 +104,25 @@ export type MessageInput = z.output<typeof messageInput>;
 /** A message of a conversation: the chat's earlier messages are the order; the starting state is the conversation's. */
 const conversationInput = z.strictObject(messageContent).refine(hasOneContent, "A message is a text or a photo").refine(captionNeedsPhoto, "Only a photo has a caption");
 
+/** The decisions of the stage design (technical design 6.3): what a message's change becomes. */
+export const decisionKinds = ["applied", "doubtful", "pending", "urgent", "silent", "notice"] as const;
+export type DecisionKind = (typeof decisionKinds)[number];
+/** The intent stage's answers a case can state. */
+export const intentKinds = ["requests", "no_intent", "unsure"] as const;
+export type IntentKind = (typeof intentKinds)[number];
+
+/** What the stages must read, stated only where a case needs it: the intent kind, the extracted fields (attribute or `quantity`, `price`) and the chosen product. */
+export const stageExpectation = z.strictObject({
+  intent: z.enum(intentKinds).optional(),
+  fields: attributes.optional(),
+  product: productKey.optional(),
+});
+export type StageExpectation = z.output<typeof stageExpectation>;
+
 const expectationFields = {
+  /** The decision the policy must reach; absent means derived from the notice and outcomes (`decisionOf`). */
+  decision: z.enum(decisionKinds).optional(),
+  stages: stageExpectation.optional(),
   /** Outcome kinds, as a multiset, when stated; `[]` means the message was skipped without an outcome. */
   outcomes: z.array(z.enum(outcomeKinds)).optional(),
   /** The open order after the message; absent means unchanged. */
@@ -196,15 +218,16 @@ const pendingProducts = (pending: PendingSeed): readonly string[] => "product" i
 /** Every catalog product a case names, to check them against the catalog it runs on. */
 export function productsOf(testCase: EvalCase): readonly string[] {
   const lines = (order: readonly Readonly<{ product: string }>[] | undefined) => order?.map(({ product }) => product) ?? [];
-  const shown = (photo: MessageInput["photo"]) => photo && "shows" in photo && photo.shows !== "not_product" ? [photo.shows] : [];
+  const shown = (photo: MessageInput["photo"]) => photo && "shows" in photo && photo.shows !== "not_product" && photo.shows !== "not_found" ? [photo.shows] : [];
   const start = startOf(testCase);
+  const stated = (expectation: Readonly<{ stages?: StageExpectation }>) => expectation.stages?.product ? [expectation.stages.product] : [];
   const seeded = [...lines(start.order), ...start.pendings.flatMap(pendingProducts)];
   if (testCase.pass === "image") return testCase.expected.flatMap((expectation) => expectation.kind === "found" ? [expectation.product] : []);
   if (testCase.pass === "conversation") {
     return [...seeded, ...testCase.steps.flatMap((step) => isEventStep(step) ? (step.event === "deactivate_product" ? [step.product] : [])
-      : [...shown(step.input.photo), ...lines(step.expected.order)])];
+      : [...shown(step.input.photo), ...lines(step.expected.order), ...stated(step.expected)])];
   }
-  return [...seeded, ...lines(testCase.input.order), ...shown(testCase.input.photo), ...testCase.expected.flatMap(({ order }) => lines(order))];
+  return [...seeded, ...lines(testCase.input.order), ...shown(testCase.input.photo), ...testCase.expected.flatMap((expectation) => [...lines(expectation.order), ...stated(expectation)])];
 }
 
 /**
@@ -240,6 +263,13 @@ export function parseCases(input: readonly EvalCaseInput[], catalog: EvalCatalog
   assertKnownProducts(catalog, cases.flatMap(productsOf));
   for (const testCase of cases) assertKnownStart(catalog, testCase);
   return cases;
+}
+
+/** A message case with a photo, or a conversation with a photo in any step: the cases the report counts apart (`CaseRecord.photoCase`). */
+export function isPhotoCase(testCase: EvalCase): boolean {
+  if (testCase.pass === "image") return true;
+  if (testCase.pass === "conversation") return testCase.steps.some((step) => isMessageStep(step) && step.input.photo !== undefined);
+  return testCase.input.photo !== undefined;
 }
 
 /**

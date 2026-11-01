@@ -32,11 +32,11 @@ export function productChooserContract(harness: ChooserHarness) {
 
   test("returns the candidate chosen in the provider's structured output", async () => {
     expect(await harness({ kind: "choice", choice: "B", confidence: 0.91, showsProduct: 0.8 }).choose(await input()))
-      .toEqual({ success: true, data: { kind: "product", productId: "product-b", confidence: 0.91, showsProduct: 0.8 } });
+      .toEqual({ success: true, data: expect.objectContaining({ kind: "product", productId: "product-b", confidence: 0.91, showsProduct: 0.8 }) });
   });
 
   test("returns none when the provider answers none", async () => {
-    expect(await harness({ kind: "choice", choice: "none", confidence: 0.7, showsProduct: 0.1 }).choose(await input())).toEqual({ success: true, data: { kind: "none", confidence: 0.7, showsProduct: 0.1 } });
+    expect(await harness({ kind: "choice", choice: "none", confidence: 0.7, showsProduct: 0.1 }).choose(await input())).toEqual({ success: true, data: expect.objectContaining({ kind: "none", confidence: 0.7, showsProduct: 0.1 }) });
   });
 
   test("returns INVALID_MATCHER_RESPONSE when the provider output is not the expected JSON", async () => {

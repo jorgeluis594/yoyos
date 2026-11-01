@@ -1,3 +1,5 @@
+import { findUnverdictedChanges, saveMessageChanges } from "@core/src/features/orders/infrastructure/message-change-repository";
+import type { OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { randomUUID } from "node:crypto";
 import { ok } from "@shared/functional";
@@ -20,14 +22,24 @@ import { registerPayment } from "@core/src/features/orders/application/register-
 import { voidPayment } from "@core/src/features/orders/application/void-payment";
 import type { ImageId as PaymentImageId } from "@core/src/features/orders/domain/payment";
 import { findVariantStock } from "@core/src/features/products";
-import { publishStockEvent, saveChatItemChanges } from "@core/src/features/orders/composition";
+import { createReaderStagePorts, loadReadingContext, publishStockEvent, saveChatItemChanges } from "@core/src/features/orders/composition";
+import { createReadingDeadline, withAbort } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
+import { readReadingLimits } from "@core/src/features/orders/infrastructure/reading-budgets-env";
+import { findLinkNoticeArming } from "@core/src/features/orders/infrastructure/order-review-repository";
+import type { MessageTrace, TraceShadow } from "@core/src/features/orders/domain/reader/trace";
+import type { ReadChatMessage } from "@core/src/features/orders/application/read-chat-message";
+import { createLegacyShadowReader } from "@core/src/features/orders/application/reader/legacy-shadow-reader";
+import { readChatReaderEnv } from "@core/src/features/orders/infrastructure/chat-reader-env";
+import { priceOf } from "@core/src/shared/infrastructure/model-prices";
+import { buildMessageTrace } from "@core/src/features/orders/application/reader/build-message-trace";
 import { minShowsProduct, type ImageBytes, type MatchConfidence, type VariantQrCode } from "@core/src/features/products/domain/image-identification";
-import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ApplyChatMessageOutcome, type ApplyChatMessageError } from "@core/src/features/orders/application/apply-chat-message";
+import { applyChatMessage, isRetryableChatMessageError, type ApplyChatMessageDependencies, type ChatMessageLimits, type ApplyChatMessageOutcome, type ApplyChatMessageError } from "@core/src/features/orders/application/apply-chat-message";
 import { chatMessageDeadlineMs } from "@core/src/features/orders/application/chat-message-policy";
 import { allocateOrderNumber, findChatOrderTarget, findChatOrderTargetForUpdate, findChatOrdersOpenedSince, findOrderAggregate, findOrderForUpdate, recordProcessedMessage, saveCancellation, saveCompletion, savePayment, savePendingOrder, updatePayment } from "@core/src/features/orders/infrastructure/order-repository";
+import { settleUnreviewedChanges } from "@core/src/features/orders/infrastructure/order-review-repository";
 import { findOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
-import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { findChatMemory, findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPending, ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
@@ -37,6 +49,7 @@ import { findOrderSourceMessage } from "@core/src/features/chats";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CustomerId } from "@core/src/features/contacts/domain/contact";
 import { metered, type ModelCall } from "@core/evals/lib/model-meter";
+import { changedLinesOf, type ChangedLine } from "@core/evals/lib/changed-lines";
 import { catalogOf, describeVariantId, findVariant, productById, productIdOf, variantIdOf, type CatalogScope, type ProductKey } from "@core/evals/fixtures/catalog";
 import type { EventStep, MessageInput, MessageStep, OrderLine, PendingSeed } from "@core/evals/cases/schema";
 import { evalCompanyId, privateCompanyId, readRegisteredImage, registerImageFile, scopeOfCompany, sellerOfCompany } from "@core/evals/lib/eval-catalog";
@@ -57,10 +70,10 @@ export type CertaintySource = "visual" | "visual_none" | "shows_product";
 /** `pick` is the model's own answer, independent of what the gate then decided: the product key chosen for a photo (null for «none»). */
 export type Certainty = Readonly<{ source: CertaintySource; confidence: number; gate: number; pick?: string | null; detail?: string }>;
 
-/** What the models decided while one case ran. */
-export type Observation = { certainties: Certainty[] };
+/** What the models decided while one case ran, and the reading trace the staged `applyChatMessage` built for it (null when no reading ran). */
+export type Observation = { certainties: Certainty[]; trace: MessageTrace | null };
 
-const newObservation = (): Observation => ({ certainties: [] });
+const newObservation = (): Observation => ({ certainties: [], trace: null });
 const observed = new AsyncLocalStorage<Observation>();
 const current = () => observed.getStore();
 const observe = (certainty: Certainty) => current()?.certainties.push(certainty);
@@ -71,6 +84,9 @@ export async function observing<T>(work: () => Promise<T>): Promise<Readonly<{ v
   const value = await observed.run(observation, work);
   return { value, observation };
 }
+
+/** The reading trace the running case's last applied message built, or null when none was built. */
+export const observedTrace = (): MessageTrace | null => current()?.trace ?? null;
 
 /** Forgets what an earlier attempt observed, so a retried message reports only the scored attempt. */
 function resetObservation(): void {
@@ -92,10 +108,11 @@ type Env = Readonly<Record<string, string | undefined>>;
 export type ProductionPath = ReturnType<typeof createProductionPath>;
 
 /** Builds the real clients from the env once per suite; throws when the providers are not configured. */
-export function createProductionPath(env: Env) {
-  const readChatMessage = createChatReaderFromEnv(env);
+export function createProductionPath(env: Env, reader: "staged" | "legacy" = "staged") {
+  // The staged stages are built by the orders composition from the same env on first use; only the legacy baseline needs its own client.
+  const legacyReader = reader === "legacy" ? createChatReaderFromEnv(env) : null;
   const visualSetup = createVisualSearch(env);
-  if (!readChatMessage || !visualSetup.visual || !visualSetup.embedder) throw new Error("The production path needs OPENAI_API_KEY");
+  if ((reader === "legacy" && !legacyReader) || !visualSetup.visual || !visualSetup.embedder) throw new Error("The production path needs OPENAI_API_KEY");
   const visual = { ...visualSetup.visual, readImage: readRegisteredImage, chooseProduct: async (input: Parameters<NonNullable<typeof visualSetup.visual>["chooseProduct"]>[0], signal?: AbortSignal) => {
     const choice = await visualSetup.visual!.chooseProduct(input, signal);
     // Every answer is recorded: the product or «none» (gated at the match confidence) and whether the photo shows a product (at 0.5).
@@ -118,7 +135,7 @@ export function createProductionPath(env: Env) {
   };
   const readiness = { visualModel: visual.model, hasActiveProducts, hasIndexedProducts };
   const limits = readChatMessageLimits(env);
-  const wiring: Wiring = { readChatMessage, readiness, imageIdentification, limits };
+  const wiring: Wiring = { legacyReader, legacyModel: readChatReaderEnv(env).AI_READER_MODEL, readiness, imageIdentification, limits };
 
   return {
     /** The production gate of the visual search. */
@@ -127,6 +144,8 @@ export function createProductionPath(env: Env) {
     identifyImage: (image: ImageBytes) => inTenant(companyOf("eval"), () => identifyProductsInImage(image, imageIdentification)),
     /** Applies one message through apply-chat-message, seeding the open order first; `photos` says how the photo is identified. */
     applyMessage: (input: MessageInput, photos: "fixed" | "real", scope: CatalogScope = "eval") => applyMessage(input, photos, wiring, companyOf(scope)),
+    /** The legacy single-call reader on one text message, read-only (EVAL_READER=legacy): its answer and the time it took. */
+    readLegacy: (input: MessageInput, scope: CatalogScope = "eval") => readLegacy(input, wiring, companyOf(scope)),
     /** Applies a conversation: one chat, its messages and events in order on one simulated clock. */
     applyConversation: (steps: readonly ConversationStepInput[], scope: CatalogScope = "eval", start: ChatStart = noStart) => applyConversation(steps, wiring, companyOf(scope), start),
   };
@@ -139,14 +158,22 @@ const noStart: ChatStart = { order: [], pendings: [] };
 type ConversationStepInput = Parameters<typeof runConversationSteps>[0][number];
 
 type Wiring = Readonly<{
-  readChatMessage: NonNullable<ApplyChatMessageDependencies["readChatMessage"]>;
+  /** The legacy reader for the E1 baseline; null on the staged path. */
+  legacyReader: ReadChatMessage | null;
+  legacyModel: string;
   readiness: Parameters<typeof catalogSearchReadiness>[0];
   imageIdentification: IdentifyProductsDependencies;
-  limits: ApplyChatMessageDependencies["limits"];
+  limits: ChatMessageLimits;
 }>;
 
 /** What seeding a start needs of the wiring: label photos pass through `applyChatMessage` with no reader, so no model is called. */
-type SeedWiring = Pick<Wiring, "readChatMessage" | "readiness" | "limits">;
+const evalReadingLimits = (() => {
+  const limits = readReadingLimits(process.env);
+  if (!limits.success) throw new Error(limits.error.message);
+  return limits.data;
+})();
+
+type SeedWiring = Pick<Wiring, "readiness" | "limits">;
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
@@ -166,13 +193,25 @@ function dependencies(wiring: SeedWiring, identify: ApplyChatMessageDependencies
     findChatOrdersOpenedSince,
     findChatPendings,
     findChatPendingsForUpdate,
+    findChatMemory,
     saveChatPendings,
     readImage: (imageId) => readRegisteredImage(imageId),
     identifyProductsInImage: identify,
+    loadReadingContext: (message, target, pendings, photoMemory) => loadReadingContext(message, target, pendings, photoMemory),
+    findMentionCandidates: (mentions) => products.findMentionCandidates(mentions),
     findProductsForReading: (productIds) => products.findProductsForReading(productIds),
-    findMessageCandidates: (text) => products.findMessageCandidates(text),
+    // The eval path reads through the staged stages; T16 wires the fake mode and the compare command on top of it.
+    get stages() { return createReaderStagePorts(); },
+    createDeadline: (budgetMs, meta, jobSignal) => createReadingDeadline(budgetMs, meta, Date.now, jobSignal).signal,
+    withAbort,
+    findLinkNoticeArming,
+    buildMessageTrace,
+    // The reading trace is the per-stage scoring input (lib/staged-answer.ts): it is kept for the case that is running and stored nowhere.
+    saveMessageTrace: async (trace) => { const observation = current(); if (observation) observation.trace = trace; return ok(null); },
+    shadowReader: null,
     catalogSearchReadiness: () => catalogSearchReadiness(readiness),
-    readChatMessage: wiring.readChatMessage,
+    // The staged stages answer every text; the legacy reader is only ever read apart (`readLegacy`), never applied.
+    readChatMessage: null,
     transaction: (_companyId, work) => withinTransaction(work),
     lockContact,
     ensureCustomerForContact: async (contactId) => {
@@ -184,12 +223,15 @@ function dependencies(wiring: SeedWiring, identify: ApplyChatMessageDependencies
     saveNewOrder: (order, link) => savePendingOrder(order, link),
     saveItemChanges: saveChatItemChanges,
     recordOrderMessage: recordProcessedMessage,
+    findUnverdictedChanges,
+    saveMessageChanges,
+    newChangeId: () => randomUUID() as OrderItemChangeId,
     recordOutcome,
     newOrderId: () => randomUUID() as OrderId,
     newItemId: () => randomUUID() as OrderItemId,
     newPendingId: () => randomUUID() as ChatPendingId,
     clock,
-    limits: wiring.limits,
+    limits: { ...wiring.limits, ...evalReadingLimits },
   };
 }
 
@@ -282,7 +324,7 @@ async function seedPendings(chat: Chat, pendings: readonly PendingSeed[], compan
         : { kind: "product", candidates: pending.candidates.map(productId) as [ProductId, ProductId, ...ProductId[]] },
       known: pending.known, quantity: pending.quantity as PositiveInteger, price: null,
       order: order ? { orderId: order.id as OrderId, attachedAt: now } : null,
-      lastChangedAt: now, sourceMessageId: randomUUID() as ChatMessageId, requestId: id,
+      lastChangedAt: now, sourceMessageId: randomUUID() as ChatMessageId, requestId: id, doubt: null, pointSince: now, acknowledgedAt: null,
     };
   });
   const saved = await inTenant(company, () => withinTransaction(() => saveChatPendings(chat.chatId as ChatId, { pendings: seeded, readyRemembered: false })));
@@ -306,6 +348,8 @@ export type AppliedMessage = Readonly<{
   result: Result<ApplyChatMessageOutcome, ApplyChatMessageError>;
   /** The chat's latest order after the message, or null when the chat has none. */
   order: readonly AppliedLine[] | null;
+  /** The lines this message changed (its `OrderItemChange` rows), each with the «Con duda» mark it carries, own or inherited by a completed pending. */
+  changedLines: readonly ChangedLine[];
   attempts: number;
   /** Duration of the scored (last) applyChatMessage attempt: no chat creation, order seeding or earlier attempts. */
   latencyMs: number;
@@ -321,6 +365,12 @@ async function chatOrderLines(chatId: string, company: EvalCompany): Promise<rea
     unitPrice: Number(item.unitPrice),
     mentionedPrice: item.mentionedPriceAmount === null ? null : { amount: Number(item.mentionedPriceAmount), units: item.mentionedPriceUnits ?? 1 },
   }));
+}
+
+/** The rows of the message's changes: one per line changed, whoever changed it (an add, a completion of a pending, an edit). */
+async function messageChangedLines(messageId: string, company: EvalCompany): Promise<AppliedMessage["changedLines"]> {
+  const rows = await inTenant(company, () => prisma.orderItemChange.findMany({ where: { messageId }, select: { decision: true, before: true, after: true } }));
+  return changedLinesOf(rows, (variantId) => describeVariantId(variantId)?.product ?? null);
 }
 
 /** How the photo of a case is identified: by hand in the interpretation pass, by the real cascade end to end. */
@@ -347,7 +397,7 @@ async function applyStored(messageId: ChatMessageId, chatId: string, identify: A
       AbortSignal.timeout(chatMessageDeadlineMs)));
     latencyMs = Math.round(performance.now() - started);
   } while (!result.success && isRetryableChatMessageError(result.error) && attempts < maxAttempts);
-  return { result, order: await chatOrderLines(chatId, company), attempts, latencyMs };
+  return { result, order: await chatOrderLines(chatId, company), changedLines: await messageChangedLines(messageId, company), attempts, latencyMs };
 }
 
 async function applyMessage(input: MessageInput, photos: "fixed" | "real", wiring: Wiring, company: EvalCompany): Promise<AppliedMessage> {
@@ -404,6 +454,19 @@ async function applyConversation(steps: readonly ConversationStepInput[], wiring
     return { results: done, error: null };
   } catch (cause) {
     return { results: done, error: cause instanceof Error ? cause : new Error(String(cause)) };
+  } finally {
+    await restoreDeactivated(steps, company);
+  }
+}
+
+/** The company is shared by every case, so a product a conversation deactivated goes back to the catalog's status (a variant the catalog marks inactive stays so). */
+export async function restoreDeactivated(steps: readonly ConversationStepInput[], company: EvalCompany): Promise<void> {
+  const products = new Set(steps.flatMap((step) => "event" in step && step.event === "deactivate_product" ? [step.product] : []));
+  for (const product of products) {
+    const catalogProduct = productById(productIdOf(product, company.scope));
+    for (const variant of catalogProduct?.variants ?? []) {
+      await setProductStatus(product, variant.attributes, catalogProduct?.active && variant.active ? "active" : "inactive", company);
+    }
   }
 }
 
@@ -443,12 +506,12 @@ async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clo
     const aggregate = await run(() => findOrderAggregate(orderId, access.companyId));
     if (!aggregate) throw new Error("Order not found");
     await run(() => registerPayment({ orderId, paymentId: id as PaymentId, source, amount: partial ? { ...aggregate.total, amount: Math.floor(Math.round(aggregate.total.amount * 100) / 2) / 100 } : aggregate.total, method: "digital_wallet", deductStockIfPartial: false },
-      access, { transaction, findOrderForUpdate, savePayment, updatePayment, saveCompletion,
+      access, { transaction, findOrderForUpdate, savePayment, updatePayment, saveCompletion, settleUnreviewedChanges,
         publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock }));
   };
   switch (step.event) {
     case "cancel_order":
-      await run(() => cancelOrder(orderId, access, { transaction, findOrderForUpdate, saveCancellation, publishOrderCancelled: async () => ok(undefined), clock }));
+      await run(() => cancelOrder(orderId, access, { transaction, findOrderForUpdate, saveCancellation, settleUnreviewedChanges, publishOrderCancelled: async () => ok(undefined), clock }));
       return payment;
     case "report_payment": {
       const checkout = { companyId: access.companyId, orderId };
@@ -482,10 +545,31 @@ async function applyEvent(step: EventStep, chat: Chat, company: EvalCompany, clo
  * Creates a chat in the eval company of `scope` and seeds its start with no model call (the reader is never reached), for the tests of the
  * seeding itself: what the reader would see is then read from the repositories.
  */
+export type LegacyReading = Readonly<{ shadow: TraceShadow | null; latencyMs: number }>;
+
+async function readLegacy(input: MessageInput, wiring: Wiring, company: EvalCompany): Promise<LegacyReading> {
+  if (!wiring.legacyReader || input.text === undefined) throw new Error("The legacy baseline reads text messages only");
+  const chat = await newChat(company);
+  await seedStart(chat, input, wiring, company);
+  const messageId = await newMessage(chat, { text: input.text }, company, new Date());
+  const found = await inTenant(company, () => findOrderSourceMessage(messageId));
+  if (!found.success || !found.data) throw new Error("The legacy baseline message is not available");
+  const message = { ...found.data, companyId: found.data.companyId as string as CompanyId, chatId: found.data.chatId as ChatId, contactId: found.data.contactId as ContactId,
+    uploadedByUserId: found.data.uploadedByUserId as string as UserId, imageId: found.data.imageId as ImageId | null };
+  const price = priceOf(wiring.legacyModel);
+  const shadowReader = createLegacyShadowReader({ readChatMessage: wiring.legacyReader,
+    findChatOrderTarget: (chatId) => findChatOrderTarget(chatId, findProductIdsOfVariants), findChatOrdersOpenedSince, findChatPendings,
+    findProductsForReading: (ids) => products.findProductsForReading(ids), findMessageCandidates: (text) => products.findMessageCandidates(text),
+    costOf: (usage) => price ? (usage.inputTokens * price.input + usage.outputTokens * price.output) / 1_000_000 : null,
+    clock: () => new Date(), limits: wiring.limits });
+  const started = performance.now();
+  const shadow = await inTenant(company, () => shadowReader(message, AbortSignal.timeout(chatMessageDeadlineMs)));
+  return { shadow, latencyMs: Math.round(performance.now() - started) };
+}
+
 export async function seedChatStart(start: ChatStart, scope: CatalogScope = "eval"): Promise<Readonly<{ chatId: string; company: EvalCompany }>> {
   const company = companyOf(scope);
   const wiring: SeedWiring = {
-    readChatMessage: async () => { throw new Error("Seeding a start calls no model"); },
     readiness: { visualModel: "none" as never, hasActiveProducts, hasIndexedProducts },
     limits: readChatMessageLimits({}),
   };

@@ -3,6 +3,9 @@ import { costOf, type ModelCall } from "@core/evals/lib/model-meter";
 import type { ErrorGroups } from "@core/evals/lib/claude";
 import { gradePick, pickOf } from "@core/evals/lib/picks";
 import { repeatedNoticeProducts } from "@core/evals/lib/scorers";
+import { percentile } from "@core/evals/lib/stats";
+import { aggregateRuns, metricNames, metricsOfRun, runsOfRecords, type AggregatedMetrics, type MetricName } from "@core/evals/lib/metrics";
+import { verdictLine, type VerdictSummary } from "@core/evals/lib/verdicts";
 
 /** Aggregation of one run's case records into the report written to eval-results/. Pure: unit-tested in report.test.ts. */
 
@@ -50,7 +53,11 @@ export type EvalReport = Readonly<{
   calibration: Readonly<Record<string, Readonly<Record<string, Calibration>>>>;
   /** The production gate each certainty source was compared with, as the run's env configured it. */
   gates: Readonly<Record<string, number>>;
-  consistency: Readonly<{ cases: number; repeats: number; flipped: readonly Readonly<{ caseId: string; signatures: readonly string[] }>[] }>;
+  /** Repeated cases (run more than once) whose runs all share one signature, whole and per family. `flipped` names the others. */
+  consistency: Readonly<ConsistencyLine & { cases: number; repeats: number; flipped: readonly Readonly<{ caseId: string; signatures: readonly string[] }>[];
+    byFamily: Readonly<Record<string, ConsistencyLine>> }>;
+  /** Counts the gates do not hold; no case id or text. */
+  tagMetrics: TagMetrics;
   injection: Readonly<{ total: number; allowed: number; priceChanged: readonly string[] }>;
   latencyMs: Readonly<Record<string, Readonly<{ p50: number; p95: number }>>>;
   /** p95 over the messages of the message passes: the scored step's latency, and the time of its model calls added up. */
@@ -67,6 +74,20 @@ export type EvalReport = Readonly<{
   failures: readonly Readonly<{ caseId: string; pass: string; input: string; expected: unknown; actual: unknown; fields: unknown; error: string | null;
     certainties: CaseRecord["certainties"] }>[];
   errorGroups: ErrorGroups["groups"];
+  /** Every run of the selected set (`EVAL_REPEATS`) scored apart, then mean, min and max per metric (lib/metrics.ts). The sections above use the first run. */
+  runs: Readonly<{ count: number; metrics: AggregatedMetrics }>;
+  /** Seller verdict label counts from `EVAL_VERDICTS_FROM`, weak labels apart; null when no file was given. */
+  verdicts: VerdictSummary | null;
+}>;
+
+export type ConsistencyLine = Readonly<{ repeated: number; consistent: number; percent: number }>;
+export type TagMetrics = Readonly<{
+  /** Scored messages tagged `question-caption`, and those that added to the order with no notice. */
+  questionCaptionSilentAdds: Readonly<{ messages: number; silentAdds: number }>;
+  /** Scored messages with a payment request, and those whose notice was a several-problems count that swallowed it. */
+  paymentInCount: Readonly<{ paymentRequests: number; insideCount: number }>;
+  /** Scored messages per notice kind (`none` for a silent message). */
+  noticesByKind: Readonly<Record<string, number>>;
 }>;
 
 export type GateLines = Readonly<{
@@ -76,7 +97,7 @@ export type GateLines = Readonly<{
   rightPercent: number;
   ignoredActions: number;
   twoNoticeConversations: number;
-  wrongSilentChanges: number;
+  wrongVisibleFields: number;
   expectedSilent: number;
   extraNotices: number;
   extraNoticePercent: number;
@@ -144,12 +165,7 @@ function groupBy(records: readonly CaseRecord[], keys: (record: CaseRecord) => r
   return Object.fromEntries([...groups.entries()].sort(([a], [b]) => a.localeCompare(b)).map(([key, group]) => [key, tally(group)]));
 }
 
-/** Nearest-rank percentile of a list of numbers; 0 for an empty list. */
-export function percentile(values: readonly number[], fraction: number): number {
-  if (!values.length) return 0;
-  const ordered = [...values].sort((a, b) => a - b);
-  return ordered[Math.min(ordered.length - 1, Math.max(0, Math.ceil(fraction * ordered.length) - 1))]!;
-}
+export { percentile };
 
 const bucketEdges = [0, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1.0001];
 const bucketName = (low: number, high: number) => `${low.toFixed(1)}–${Math.min(high, 1).toFixed(1)}`;
@@ -190,9 +206,63 @@ export function gateLines(records: readonly CaseRecord[]): GateLines {
     scored: messages.length, right, rightPercent: percentOf(right, messages.length),
     ignoredActions: messages.reduce((sum, record) => sum + record.ignoredActions, 0),
     twoNoticeConversations: repeatedConversations(messages).length,
-    wrongSilentChanges: messages.filter(({ wrongSilentChange }) => wrongSilentChange).length,
+    wrongVisibleFields: messages.filter(({ wrongVisibleField }) => wrongVisibleField).length,
     expectedSilent: silent.length, extraNotices: extra.length, extraNoticePercent: percentOf(extra.length, silent.length),
   };
+}
+
+const consistencyLine = (runs: readonly (readonly CaseRecord[])[]): ConsistencyLine => {
+  const consistent = runs.filter((group) => new Set(group.map(({ signature }) => signature)).size === 1).length;
+  return { repeated: runs.length, consistent, percent: percentOf(consistent, runs.length) };
+};
+
+type ConsistencyFlips = EvalReport["consistency"]["flipped"];
+
+function consistencyOf(repeated: ReadonlyMap<string, readonly CaseRecord[]>, flipped: ConsistencyFlips): EvalReport["consistency"] {
+  const groups = [...repeated.values()];
+  const families = [...new Set(groups.map((runs) => runs[0]!.kind))].sort();
+  return { ...consistencyLine(groups), cases: repeated.size, repeats: Math.max(0, ...groups.map((runs) => runs.length)), flipped,
+    byFamily: Object.fromEntries(families.map((kind) => [kind, consistencyLine(groups.filter((runs) => runs[0]!.kind === kind))])) };
+}
+
+const noticeOf = (record: CaseRecord): string | null => (record.actual as { notice?: string | null } | null)?.notice ?? null;
+/** The notice key of the count by kind: a message whose evaluation threw counts as `error`, not as a silent one. */
+const noticeKeyOf = (record: CaseRecord): string => record.error !== null && noticeOf(record) === null ? "error" : noticeOf(record) ?? "none";
+const outcomesOf = (record: CaseRecord): readonly string[] => (record.actual as { outcomes?: readonly string[] } | null)?.outcomes ?? [];
+const addingOutcomes: ReadonlySet<string> = new Set(["added", "pending_created", "pending_completed"]);
+
+function tagMetricsOf(scored: readonly CaseRecord[]): TagMetrics {
+  const messages = scored.filter(isMessageRecord);
+  const questions = messages.filter(({ tags }) => tags.includes("question-caption"));
+  const payments = messages.filter((record) => outcomesOf(record).includes("payment_requested"));
+  const byKind = new Map<string, number>();
+  for (const record of messages) byKind.set(noticeKeyOf(record), (byKind.get(noticeKeyOf(record)) ?? 0) + 1);
+  return {
+    questionCaptionSilentAdds: { messages: questions.length, silentAdds: questions.filter((record) => noticeOf(record) === null && outcomesOf(record).some((kind) => addingOutcomes.has(kind))).length },
+    paymentInCount: { paymentRequests: payments.length, insideCount: payments.filter((record) => noticeOf(record) === "several_problems").length },
+    noticesByKind: Object.fromEntries([...byKind.entries()].sort(([a], [b]) => a.localeCompare(b))),
+  };
+}
+
+function runsReport(records: readonly CaseRecord[]): EvalReport["runs"] {
+  const runs = runsOfRecords(records);
+  return { count: runs.length, metrics: aggregateRuns(runs.map(metricsOfRun)) };
+}
+
+const metricText = (name: MetricName, value: number): string => {
+  if (name.endsWith("Usd")) return `$${value.toFixed(5)}`;
+  if (name.endsWith("Ms")) return `${Math.round(value)} ms`;
+  if (/Accuracy|Share|Precision|Recall/.test(name)) return `${(value * 100).toFixed(1)}%`;
+  return String(Math.round(value * 100) / 100);
+};
+
+/** One line per metric: the mean and the range over the runs, or «not measured». No case id or text. */
+export function metricLines(report: Pick<EvalReport, "runs">): readonly string[] {
+  return metricNames.map((name) => {
+    const range = report.runs.metrics[name];
+    return range ? `  ${name.padEnd(22)} mean ${metricText(name, range.mean)} (min ${metricText(name, range.min)}, max ${metricText(name, range.max)}) over ${range.runs} run${range.runs === 1 ? "" : "s"}`
+      : `  ${name.padEnd(22)} not measured`;
+  });
 }
 
 /** Conversations whose messages' notices name one product twice, unless a message is marked as an expected repeat. */
@@ -252,7 +322,8 @@ function usageBy(calls: readonly ModelCall[], key: (call: ModelCall) => string):
  * Builds the run report. `extraCalls` are model calls made outside any case (Claude's classifier). Accuracy counts the first run of
  * each case; repeats only feed consistency, latency and usage.
  */
-export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extraCalls: readonly ModelCall[] = [], errorGroups: ErrorGroups["groups"] = []): EvalReport {
+export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extraCalls: readonly ModelCall[] = [], errorGroups: ErrorGroups["groups"] = [],
+  verdicts: VerdictSummary | null = null): EvalReport {
   const firstRuns = records.filter(({ repeat }) => repeat === 0);
   const known = firstRuns.filter(({ tags }) => tags.includes("known-limitation"));
   const scored = firstRuns.filter((record) => !known.includes(record));
@@ -267,7 +338,7 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
   const calibration: Record<string, Record<string, Calibration>> = {};
   for (const pass of [...new Set(scored.map((record) => record.pass))].sort()) calibration[pass] = calibrationOf(scored.filter((record) => record.pass === pass));
 
-  // Every case run more than once (consistency, pinned misses, EVAL_REPEAT_TAGS) is checked for flips; the gates count the first run only.
+  // Every case runs EVAL_REPEATS times and is checked for flips across its runs; the per-run gates below use the first run, the metrics section all runs.
   const runsOf = new Map<string, CaseRecord[]>();
   for (const record of records) runsOf.set(record.caseId, [...(runsOf.get(record.caseId) ?? []), record]);
   const repeated = new Map([...runsOf.entries()].filter(([, runs]) => runs.some(({ repeat }) => repeat > 0)));
@@ -313,7 +384,10 @@ export function buildReport(records: readonly CaseRecord[], meta: RunMeta, extra
     retries: { messages: records.filter(({ retries }) => retries > 0).length, attempts: records.reduce((sum, { retries }) => sum + retries, 0) },
     calibration,
     gates: Object.fromEntries(records.flatMap(({ certainties }) => certainties.map(({ source, gate }) => [source, gate] as const)).sort(([a], [b]) => a.localeCompare(b))),
-    consistency: { cases: repeated.size, repeats: Math.max(0, ...[...repeated.values()].map((runs) => runs.length)), flipped },
+    runs: runsReport(records.filter((record) => !record.tags.includes("known-limitation"))),
+    verdicts,
+    consistency: consistencyOf(repeated, flipped),
+    tagMetrics: tagMetricsOf(scored),
     injection: { total: injection.length, allowed: injection.filter(({ passed }) => passed).length,
       priceChanged: injection.filter(({ fields }) => fields.unitPrice === false).map(({ caseId }) => caseId) },
     latencyMs: Object.fromEntries([...latencyGroups.entries()].map(([name, values]) => [name, { p50: percentile(values, 0.5), p95: percentile(values, 0.95) }])),
@@ -341,7 +415,7 @@ const gateText = (name: string, lines: GateLines) => [
   `${name}: right ${lines.right} of ${lines.scored} scored messages (${lines.rightPercent.toFixed(1)}%)`,
   `${name}: ${lines.ignoredActions} ignored actions`,
   `${name}: ${lines.twoNoticeConversations} conversations with two notices for one product`,
-  `${name}: ${lines.wrongSilentChanges} wrong silent changes`,
+  `${name}: ${lines.wrongVisibleFields} wrong visible fields`,
   `${name}: extra notices ${lines.extraNotices} of ${lines.expectedSilent} messages expected silent (${lines.extraNoticePercent.toFixed(1)}%)`,
 ];
 
@@ -353,13 +427,21 @@ export function formatGateSummary(report: EvalReport): string {
   const { cost, readerCalls } = report;
   return [
     `Eval gate ${report.runId}`,
+    `Metrics over ${report.runs.count} run${report.runs.count === 1 ? "" : "s"} (mean and range)${typeof report.settings.reader === "string" ? `, ${report.settings.reader} reader` : ""}`,
+    ...metricLines(report),
+    ...(report.verdicts ? [verdictLine(report.verdicts)] : []),
+    "First run in detail",
     ...gateText("whole run", report.gate.whole),
     ...Object.entries(report.gate.byFamily).flatMap(([family, lines]) => gateText(`family ${family}`, lines)),
     `Cost per scored message: ${cost.perScoredMessageUsd === null ? "unknown price" : `$${cost.perScoredMessageUsd.toFixed(5)}`} against $${cost.targetUsd.toFixed(3)}${cost.overTarget ? " (over the target)" : ""}; `
       + `${cost.inputTokens} in (${cost.cachedTokens} cached) / ${cost.outputTokens} out (${cost.reasoningTokens} reasoning) tokens`,
     `Latency per message: p95 ${report.messageLatency.p95Ms} ms, p95 model time ${report.messageLatency.p95ModelMs} ms`,
     ...Object.entries(readerCalls).map(([kind, line]) => `Model calls per ${kind} message: mean ${line.meanCalls}, max ${line.maxCalls}, design allows ${line.allowed}${line.withinDesign ? "" : " (over)"}`),
-    `Consistency: ${report.consistency.flipped.length} of ${report.consistency.cases} repeated cases flipped over ${report.consistency.repeats} runs`,
+    `Consistency: ${report.consistency.consistent} of ${report.consistency.repeated} repeated cases gave one result over ${report.consistency.repeats} runs (${report.consistency.percent.toFixed(1)}%)`,
+    ...Object.entries(report.consistency.byFamily).map(([family, lines]) => `Consistency of family ${family}: ${lines.consistent} of ${lines.repeated} (${lines.percent.toFixed(1)}%)`),
+    `Silent adds on question captions: ${report.tagMetrics.questionCaptionSilentAdds.silentAdds} of ${report.tagMetrics.questionCaptionSilentAdds.messages} messages`,
+    `Payment requests inside a several-problems count: ${report.tagMetrics.paymentInCount.insideCount} of ${report.tagMetrics.paymentInCount.paymentRequests}`,
+    `Notices by kind: ${Object.entries(report.tagMetrics.noticesByKind).map(([kind, count]) => `${kind} ${count}`).join(", ") || "none"}`,
   ].join("\n");
 }
 

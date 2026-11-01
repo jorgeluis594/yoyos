@@ -2,7 +2,7 @@ import { mkdtempSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { afterEach, describe, expect, test } from "vitest";
-import { loadPrivateData } from "@core/evals/cases/private";
+import { loadPrivateData, privateDirOf } from "@core/evals/cases/private";
 
 const created: string[] = [];
 const folder = (parent: string) => { const dir = mkdtempSync(join(parent, "private-")); created.push(dir); return dir; };
@@ -43,6 +43,14 @@ describe("private eval data", () => {
     symlinkSync(join(inside, "cases.json"), join(linkedFile, "cases.json"));
     expect(() => loadPrivateData(linkedFile)).toThrow("outside the repository");
     expect(() => loadPrivateData("relative/dir")).toThrow("absolute");
+  });
+
+  test("refuses a private folder inside the repository", () => {
+    const inside = folder(resolve(import.meta.dirname, "../.."));
+    write(inside);
+
+    expect(() => loadPrivateData(inside)).toThrow("EVAL_PRIVATE_DIR must be outside the repository");
+    expect(() => privateDirOf(inside)).toThrow("outside the repository");
   });
 
   test("rejects a case naming a product outside the private catalog", () => {

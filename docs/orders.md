@@ -16,7 +16,7 @@ Each order has one source, derived from stored data:
 | Source | Origin |
 | --- | --- |
 | `manual` | Created by a seller in core web or mobile. |
-| `whatsapp` | Created from an incoming chat message, whose later messages may add, remove or change its items while it is open; see [message-to-order](message-to-order.md). |
+| `whatsapp` | Created from an incoming chat message, whose later messages may add, remove or change its items while it is open; see [message-to-order](message-to-order.md) and [order-review](order-review.md). |
 | `catalog` | Created by a buyer from the public catalog; it has no seller until the seller takes it. |
 
 Every other order requires a seller, taken from the authenticated session.
@@ -37,7 +37,7 @@ Every other order requires a seller, taken from the authenticated session.
 - Items of a variant deactivated later keep working: the order is shown, paid, deducted (including the automatic deduction of a waiting order on restock) and cancelled with stock restoration, which do not filter by variant status. New orders cannot include it ([Products](products.md)).
 - Core resolves all the variants of an order in one batched lookup and inserts the items in variant order. Reason: a product save that changes combinations locks variants in the same order, so the two cannot deadlock. A variant deleted between that lookup and the insert fails the order item's foreign key and answers `VARIANT_NOT_FOUND` with its `variantId`; message-to-order treats it as a retryable failure instead, because its next scan no longer finds the variant.
 - Each variant appears once per order, with its total quantity.
-- An order always has at least one item. Chat messages can add items, remove an item, set its quantity or replace its variant (merging into the same variant if present), each recalculating subtotals and totals; removing the only item is refused. The seller of the company edits the items of a saved order from web ([Editing a saved order](#editing-a-saved-order)); mobile has no such operation. A chat message never edits an order with a confirmed or reported payment, so it never makes an order due for stock deduction.
+- An order always has at least one item. Chat messages can add items, remove an item, set its quantity or replace its variant (merging into the same variant if present), each recalculating subtotals and totals; removing the only item is refused. The seller of the company edits the items of a saved order from web ([Editing a saved order](#editing-a-saved-order)); mobile removes items and changes quantities only. For WhatsApp orders, every item a message changed is recorded (`OrderItemChange`) and the seller can undo one message, review the marks and confirm ([order-review](order-review.md)). A chat message never edits an order with a confirmed or reported payment, so it never makes an order due for stock deduction.
 - `total = itemsTotal + deliveryCharge`.
 
 ## Item sale date
@@ -204,7 +204,7 @@ Web shows «Marcar enviado», «Entregar directamente» and «Marcar entregado»
 
 ## Editing a saved order
 
-`editOrder` (`application/edit-order.ts`) is the seller's single operation to change the items, the customer and the delivery of a saved order. Only a seller of the order's company can use it; an order of another company answers as missing. Only the web route action uses it; mobile does not edit items. Reason: a public route and contract with no client is not added.
+`editOrder` (`application/edit-order.ts`) is the seller's single operation to change the items, the customer and the delivery of a saved order. Only a seller of the order's company can use it; an order of another company answers as missing. The web route action uses it for all three parts; mobile uses it through `PATCH /api/orders/:orderId/items` for the items part only (remove items, change quantities; contract `shared/contracts/order-items-edit.ts`). The order review reuses the same items step for its corrections. Reason: one items operation, whatever the caller.
 
 ### What the request carries
 
@@ -308,7 +308,9 @@ All under `/api/orders`, authenticated, scoped to the session company and sent w
 | Register / void a payment | `POST /:id/payments`, `POST /:id/payments/:paymentId/void` |
 | Reject a buyer report (body `{ reason: string \| null }`) | `POST /:id/payments/:paymentId/reject` |
 | Set delivery / update shipping and dispatch date | `PUT /:id/delivery`, `PATCH /:id/shipping` |
-| Edit items, customer and delivery of a saved order (web only) | Action `save_changes` of the web order route, on `editOrder`; there is no `/api/orders` route for it |
+| Edit items, customer and delivery of a saved order (web) | Action `save_changes` of the web order route, on `editOrder` |
+| Edit items of a saved order (mobile: remove, quantity) | `PATCH /:id/items` |
+| Read / confirm the order review; undo what one message did; record a taken checkout link | `GET /:id/review`, `POST /:id/reviews`, `POST /:id/messages/:messageId/undo`, `POST /:id/link-actions` ([order-review](order-review.md)) |
 | Ship, deliver, cancel | `POST /:id/ship`, `/deliver`, `/cancel` |
 | Read the buyer checkout link (idempotent, used by mobile; `409 SUBDOMAIN_REQUIRED` or `409 ORDER_CANCELLED`) | `POST /:orderId/checkout-link` |
 

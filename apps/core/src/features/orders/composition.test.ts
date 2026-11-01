@@ -27,8 +27,8 @@ vi.mock("@core/src/features/products", () => ({
     unitPrice: { amount: 1, currency: "PEN" } }))), lockVariantStock: vi.fn(), deductStockBulk: vi.fn(), restoreStockBulk: vi.fn(), findVariantStock: vi.fn(), searchSaleCatalog: vi.fn(),
 }));
 vi.mock("@core/src/features/products/composition", () => ({ products: { identifyProductsInImage: vi.fn(), findVariantPhotos: vi.fn() } }));
-vi.mock("@core/src/features/orders/infrastructure/chat-pending-repository", () => ({ findChatPendings: vi.fn(), findChatPendingsForUpdate: vi.fn(), saveChatPendings: vi.fn() }));
-vi.mock("@core/src/features/orders/infrastructure/chat-message-outcome-repository", () => ({ findOutcome: vi.fn(), recordOutcome: vi.fn(), recordFailedOutcome: vi.fn() }));
+vi.mock("@core/src/features/orders/infrastructure/chat-pending-repository", () => ({ findChatPendings: vi.fn(), findChatPendingsForUpdate: vi.fn(), findChatMemory: vi.fn(), saveChatPendings: vi.fn(), saveLastIncomingPhotoOfMessageChat: vi.fn() }));
+vi.mock("@core/src/features/orders/infrastructure/chat-message-outcome-repository", () => ({ findOutcome: vi.fn(), recordOutcome: vi.fn(), insertFailedOutcome: vi.fn() }));
 vi.mock("@core/src/features/contacts", () => ({ findContactById: vi.fn(), searchSaleContacts: vi.fn(), ensureCustomerForContact: vi.fn(), lockContact: vi.fn() }));
 vi.mock("@core/src/features/chats", () => ({ findOrderSourceMessage: vi.fn() }));
 const { publishEvent, cancelOrder } = vi.hoisted(() => ({ publishEvent: vi.fn(), cancelOrder: vi.fn() }));

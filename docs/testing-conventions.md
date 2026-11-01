@@ -124,3 +124,7 @@ Evals of the model-backed message-to-order flow live in `apps/core/evals/` and r
 - They never run in CI or in `test:unit`, integration or e2e, because they cost money and their results vary between runs.
 - Scoring is exact match per field; a Claude judge counts only for cases that admit several answers, because an exact match is reproducible and a judge is not.
 - Paraphrases are generated once, reviewed and committed, so runs stay comparable.
+- Every run is repeated (`EVAL_REPEATS`, default 3) and reported as mean and range per metric; a change counts as better only when its range does not overlap the previous one (`pnpm --dir apps/core eval:compare`).
+- `EVAL_MODELS=fake` runs the whole harness at zero cost with scripted stage answers, so the plumbing (runs, scoring, report) is tested without models. A run that can call a model needs `EVAL_PAID=1` and prints its estimate first; each paid step is approved separately by the founder.
+- The frozen holdout lives outside the repository (`EVAL_PRIVATE_DIR`); its texts are never published, and reports carry only ids and failure types. Seller verdicts enter reports as text-free label counts.
+- They run the staged `applyChatMessage` and score each stage (intent, fields, product, decision, cost and reading time) from the `MessageTrace` it builds, kept in memory per case and stored nowhere; cases without stage labels are labelled from their notice and outcomes (`evals/lib/stage-facts.ts`, `evals/lib/staged-answer.ts`).

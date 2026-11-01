@@ -1,5 +1,5 @@
 import { describe, expect, test } from "vitest";
-import { messageExpectation, noticeKind, outcomeKinds, parseCases, type EvalCaseInput } from "@core/evals/cases/schema";
+import { isPhotoCase, messageExpectation, noticeKind, outcomeKinds, parseCases, type EvalCaseInput } from "@core/evals/cases/schema";
 import { sellerNoticeKinds } from "@core/src/features/orders/domain/seller-notice";
 
 test("parses every new outcome kind in an expectation", () => {
@@ -13,7 +13,7 @@ test("parses every new outcome kind in an expectation", () => {
 
 test("uses only seller notice kinds that exist in an expectation", () => {
   for (const kind of sellerNoticeKinds) expect(messageExpectation.parse({ notice: kind }).notice).toBe(kind);
-  expect(noticeKind.options).toEqual(sellerNoticeKinds);
+  expect(noticeKind.options).toEqual([...sellerNoticeKinds]);
   expect(() => messageExpectation.parse({ notice: "made_up" })).toThrow();
   expect(() => messageExpectation.parse({})).toThrow("states a notice or outcomes");
 });
@@ -76,5 +76,22 @@ describe("starting state", () => {
     expect(pending({ candidates: ["polo-basico", "polo-basico"] })).toThrow("same candidate twice");
     expect(pending({ candidates: ["polo-basico", "polo-premium"], known: { Talla: "XXL" } })).toThrow("a candidate lacks");
     expect(pending({ candidates: ["polo-basico", "gorra-trucker"], known: { Talla: "M" } })).toThrow("a candidate lacks");
+  });
+});
+
+describe("photo cases", () => {
+  const message = (photo?: { shows: string }) => ({ input: photo ? { photo } : { text: "dos" }, expected: { notice: null } });
+  const conversation = (...steps: ReturnType<typeof message>[]) => ({ id: "c", pass: "conversation", kind: "k", steps }) as unknown as Parameters<typeof isPhotoCase>[0];
+
+  test("a conversation with a photo in any step marks every one of its records as a photo case", () => {
+    expect(isPhotoCase(conversation(message({ shows: "not_found" }), message()))).toBe(true);
+    expect(isPhotoCase(conversation(message(), message(), message({ shows: "not_product" })))).toBe(true);
+    expect(isPhotoCase(conversation(message(), message()))).toBe(false);
+  });
+
+  test("a message case is a photo case only when it has a photo", () => {
+    const single = (input: object) => ({ id: "m", pass: "interpretation", criterion: 1, kind: "k", input, expected: [{ notice: null }] }) as unknown as Parameters<typeof isPhotoCase>[0];
+    expect(isPhotoCase(single({ photo: { shows: "not_found" } }))).toBe(true);
+    expect(isPhotoCase(single({ text: "uno" }))).toBe(false);
   });
 });

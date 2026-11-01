@@ -1,12 +1,16 @@
 import { chooseSellerNotice } from "@core/src/features/orders/domain/seller-notice";
 import { productById, describeVariantId, type CatalogScope } from "@core/evals/fixtures/catalog";
-import { isMessageStep, needsJudge, type ConversationCase, type EvalCase, type ImageCase, type MessageCase, type MessageInput, type OrderLine, type OutcomeKind } from "@core/evals/cases/schema";
+import { isMessageStep, needsJudge, type ConversationCase, type MessageExpectation, type EvalCase, type ImageCase, type MessageCase, type MessageInput, type OrderLine, type OutcomeKind } from "@core/evals/cases/schema";
 import type { Claude, JudgeVerdict } from "@core/evals/lib/claude";
-import { appendRecord, type CaseRecord } from "@core/evals/lib/case-record";
+import { appendRecord, type CaseRecord, type ReadingRecord, type StageFacts } from "@core/evals/lib/case-record";
 import { metered, type ModelCall } from "@core/evals/lib/model-meter";
-import { observing, type AppliedMessage, type Observation, type ProductionPath } from "@core/evals/lib/production";
+import { observedTrace, observing, type AppliedMessage, type Observation, type ProductionPath } from "@core/evals/lib/production";
 import { readFixtureImage } from "@core/evals/lib/eval-catalog";
-import { scoreImage, scoreMessage, type ImageActual, type MessageActual, type MessageScored, type Scored } from "@core/evals/lib/scorers";
+import { expectedStagesOf, scoreStages } from "@core/evals/lib/stage-facts";
+import { legacyAnswerOf, stagedAnswerOf } from "@core/evals/lib/staged-answer";
+import type { MessageTrace } from "@core/src/features/orders/domain/reader/trace";
+import { scoredLinesOf } from "@core/evals/lib/changed-lines";
+import { expectedOrder, scoreImage, scoreMessage, type ImageActual, type MessageActual, type MessageScored, type Scored } from "@core/evals/lib/scorers";
 
 /** Runs one case through the production path, scores it, asks the judge when the case allows several answers, and records it. */
 
@@ -28,6 +32,24 @@ export function messageActualOf(applied: AppliedMessage): Readonly<MessageActual
   if (outcome.kind === "already_processed") return { outcomes: ["failed"], notice: "failed", noticeProducts: [], order, error: "ALREADY_PROCESSED" };
   const notice = chooseSellerNotice(outcome.outcomes);
   return { outcomes: outcome.outcomes.map(({ kind }) => kind as OutcomeKind), notice: notice?.kind ?? null, noticeProducts: noticeProductsOf(notice), order, error: null };
+}
+
+const orderFieldNames = ["product", "variant", "quantity", "mentionedPrice"] as const;
+
+/** The staged reader's scoring of one message (lib/staged-answer.ts): the intent, fields, product and decision the reading trace states, against the case. */
+export function stageFactsOf(applied: AppliedMessage, trace: MessageTrace | null, actual: Readonly<MessageActual>, scored: MessageScored, expectation: MessageExpectation, initial: readonly OrderLine[]): StageFacts {
+  const answer = stagedAnswerOf({ trace, expected: expectedStagesOf(expectation), outcomes: actual.outcomes, notice: actual.notice,
+    orderMatches: orderFieldNames.every((name) => scored.fields[name] !== false), changedLines: scoredLinesOf(applied.changedLines, expectedOrder(expectation, initial)), latencyMs: applied.latencyMs, productKeyOf: keyOf });
+  return scoreStages(expectedStagesOf(expectation), answer);
+}
+
+/** The masked output of each stage and the decision of each action the reading trace holds; null when no reading ran. */
+export function readingOf(trace: MessageTrace | null): ReadingRecord | null {
+  if (!trace) return null;
+  return {
+    stages: trace.stages.map(({ call, output, errorCode }) => ({ stage: call.stage, reading: call.reading, promptVersion: call.promptVersion, errorCode, output })),
+    decisions: trace.decisions.map(({ action, risk, agreement, decision }) => ({ action: action.kind, risk, agreement, decision })),
+  };
 }
 
 const describeOrder = (order: MessageActual["order"]) => order.map((line) =>
@@ -56,7 +78,7 @@ type Evaluated = Readonly<{
   /** The scored model step alone (setup excluded), and the attempts it took. */
   latencyMs: number; attempts: number;
   /** Set for message passes and conversation messages. */
-  message?: Readonly<{ kind: NonNullable<CaseRecord["messageKind"]>; noticeProducts: readonly string[]; previousOrder: readonly OrderLine[]; expectsRepeatNotice: boolean;
+  message?: Readonly<{ facts?: StageFacts; reading?: ReadingRecord; kind: NonNullable<CaseRecord["messageKind"]>; noticeProducts: readonly string[]; previousOrder: readonly OrderLine[]; expectsRepeatNotice: boolean;
     conversationId: string | null; step: number | null; expected: unknown; input: string }>;
 }>;
 
@@ -90,7 +112,9 @@ function entryOf(testCase: Readonly<{ id: string; kind: string; tags: readonly s
     caseId, baseId: message?.conversationId ?? testCase.paraphraseOf ?? testCase.id, pass: testCase.pass, criterion, kind: testCase.kind, tags: testCase.tags, repeat,
     passed, exactPassed: scored.passed, fields: scored.fields, expectationIndex: scored.expectationIndex, judge,
     messageKind: message?.kind ?? null, conversationId: message?.conversationId ?? null, step: message?.step ?? null,
-    ignoredActions: flags?.ignoredActions ?? 0, wrongSilentChange: flags?.wrongSilentChange ?? false, extraNotice: flags?.extraNotice ?? false, expectedSilent: flags?.expectedSilent ?? false,
+    ...(message?.facts ? { facts: message.facts } : {}),
+    ...(message?.reading ? { reading: message.reading } : {}),
+    ignoredActions: flags?.ignoredActions ?? 0, wrongVisibleField: flags?.wrongVisibleField ?? false, extraNotice: flags?.extraNotice ?? false, expectedSilent: flags?.expectedSilent ?? false,
     noticeProducts: message?.noticeProducts ?? [], expectsRepeatNotice: message?.expectsRepeatNotice ?? false, previousOrder: message?.previousOrder ?? [],
     input: message?.input ?? "", expected: message?.expected ?? null, actual: evaluated.actual, signature: evaluated.signature,
     certainties: observation.certainties, latencyMs: evaluated.latencyMs, retries: evaluated.attempts - 1, calls, error: evaluated.error,
@@ -131,9 +155,29 @@ export function runMessageCase(context: RunCaseContext, testCase: MessageCase, r
     const applied = await context.path.applyMessage(testCase.input, testCase.pass === "interpretation" ? "fixed" : "real", context.scope);
     const actual = messageActualOf(applied);
     const scored = scoreMessage(actual, testCase.expected, testCase.input.order, context.scope);
+    const trace = observedTrace();
+    const facts = stageFactsOf(applied, trace, actual, scored, testCase.expected[scored.expectationIndex]!, testCase.input.order);
+    const reading = readingOf(trace);
     return { actual: { ...actual, attempts: applied.attempts }, scored, signature: messageSignature(actual), error: actual.error, latencyMs: applied.latencyMs, attempts: applied.attempts,
-      message: { kind: messageKindOf(testCase.input), noticeProducts: actual.noticeProducts, previousOrder: testCase.input.order, expectsRepeatNotice: false,
+      message: { facts, ...(reading ? { reading } : {}), kind: messageKindOf(testCase.input), noticeProducts: actual.noticeProducts, previousOrder: testCase.input.order, expectsRepeatNotice: false,
         conversationId: null, step: null, expected: testCase.expected, input: describeInput(testCase) } };
+  });
+}
+
+/**
+ * The legacy baseline of a text message (`EVAL_READER=legacy`): the single-call reader read apart, since it can no longer apply a message. It states the
+ * intent, the cost of its call and its time; the order, fields, product and decision are not scored (lib/staged-answer.ts `legacyAnswerOf`).
+ */
+export function runLegacyMessageCase(context: RunCaseContext, testCase: MessageCase, repeat: number): Promise<CaseRecord> {
+  return record(context, testCase, repeat, async () => {
+    const reading = await context.path.readLegacy(testCase.input, context.scope);
+    const expectation = testCase.expected[0]!;
+    const facts = scoreStages(expectedStagesOf(expectation), legacyAnswerOf({ shadow: reading.shadow, expected: expectedStagesOf(expectation), latencyMs: reading.latencyMs }));
+    const actual = { outcomes: [], notice: null, noticeProducts: [], order: [], error: reading.shadow ? null : "LEGACY_READING_FAILED" } satisfies Readonly<MessageActual & { error: string | null }>;
+    const scored: MessageScored = { passed: facts.intent === true, fields: { intent: facts.intent }, expectationIndex: 0, ignoredActions: 0, wrongVisibleField: false, extraNotice: false, expectedSilent: false };
+    return { actual: { answer: reading.shadow?.answer ?? null, actionKinds: reading.shadow?.actionKinds ?? [] }, scored, signature: `legacy:${reading.shadow?.answer ?? "failed"}`, error: actual.error,
+      latencyMs: reading.latencyMs, attempts: 1,
+      message: { facts, kind: "text", noticeProducts: [], previousOrder: testCase.input.order, expectsRepeatNotice: false, conversationId: null, step: null, expected: testCase.expected, input: describeInput(testCase) } };
   });
 }
 
@@ -152,14 +196,16 @@ export async function runConversationCase(context: RunCaseContext, testCase: Con
     const base = { conversationId: testCase.id, step: number, expected: [step.expected], input: describeMessage(step.input), kind: messageKindOf(step.input), expectsRepeatNotice: step.expectsRepeatNotice === true };
     if (!done) {
       const evaluated = failedEvaluation(error ?? new Error("The conversation stopped before this message"), performance.now());
-      records.push(entryOf({ ...testCase, id: testCase.id }, 0, repeat, { ...evaluated, message: { ...base, noticeProducts: [], previousOrder: [] } }, { certainties: [] }, [], null, false, caseId));
+      records.push(entryOf({ ...testCase, id: testCase.id }, 0, repeat, { ...evaluated, message: { ...base, noticeProducts: [], previousOrder: [] } }, { certainties: [], trace: null }, [], null, false, caseId));
     } else {
       const { applied, previousOrder, observation, calls } = done.result;
       const actual = messageActualOf(applied);
       const before = previousOrder.map(lineOf);
       const scored = scoreMessage(actual, [step.expected], before, context.scope);
+      const facts = stageFactsOf(applied, observation.trace, actual, scored, step.expected, before);
+      const reading = readingOf(observation.trace);
       const evaluated: Evaluated = { actual: { ...actual, attempts: applied.attempts }, scored, signature: messageSignature(actual), error: actual.error, latencyMs: applied.latencyMs,
-        attempts: applied.attempts, message: { ...base, noticeProducts: actual.noticeProducts, previousOrder: before } };
+        attempts: applied.attempts, message: { ...base, facts, ...(reading ? { reading } : {}), noticeProducts: actual.noticeProducts, previousOrder: before } };
       records.push(entryOf(testCase, 0, repeat, evaluated, observation, calls, null, scored.passed, caseId));
     }
   }

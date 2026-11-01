@@ -1,5 +1,6 @@
 import { listOrderAggregatesResponseSchema, listOrdersResponseSchema, orderAggregateSchema, orderAggregateSummarySchema, orderSchema } from "@shared/contracts/orders";
 import { orderSource, orderStateMachine, type OrderAggregate } from "@core/src/features/orders/domain/order-state-machine";
+import { orderRevisions } from "@core/src/features/orders/domain/order-revisions";
 import type { StockDue } from "@core/src/features/orders/domain/stock-deduction";
 import type { ListOrdersOutput } from "@core/src/features/orders/application/read-orders";
 import type { AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
@@ -25,6 +26,11 @@ function omitDeducted<T extends { stockDeductedQuantity: number }>(item: T): Omi
   return Object.fromEntries(Object.entries(item).filter(([key]) => key !== "stockDeductedQuantity")) as Omit<T, "stockDeductedQuantity">;
 }
 
+/** The items part of the order's revisions: the base a mobile edit sends back. */
+function itemsRevisionJson(order: OrderAggregate) {
+  return { items: orderRevisions(order).items };
+}
+
 /** `stockDue` is described by the caller: inside the producer's transaction or in a read snapshot. Summaries and lists pass null and never expose it. */
 export function toOrderAggregateJson(order: OrderAggregate, stockDue: StockDue | null) {
   const lifecycle = orderStateMachine.getLifecycle(order);
@@ -32,7 +38,7 @@ export function toOrderAggregateJson(order: OrderAggregate, stockDue: StockDue |
   if (!lifecycle.success || !payment.success) throw new Error("Invalid order aggregate response");
   // The contract exposes `source`, not the chat id, or the catalog flag.
   const fields = Object.fromEntries(Object.entries(order).filter(([key]) => !["chatId", "fromCatalog"].includes(key)));
-  return orderAggregateSchema.parse({ ...fields, items: order.items.map((item) => ({ ...omitDeducted(item), mentionedPrice: item.mentionedPrice ?? null })), source: orderSource(order), stockDue, checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), shippedAt: order.shippedAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null,
+  return orderAggregateSchema.parse({ ...fields, items: order.items.map((item) => ({ ...omitDeducted(item), mentionedPrice: item.mentionedPrice ?? null })), source: orderSource(order), stockDue, revisions: itemsRevisionJson(order), checkoutEnabledAt: order.checkoutEnabledAt?.toISOString() ?? null, checkoutConfirmedAt: order.checkoutConfirmedAt?.toISOString() ?? null, createdAt: order.createdAt.toISOString(), shippedAt: order.shippedAt?.toISOString() ?? null, deliveredAt: order.deliveredAt?.toISOString() ?? null,
     completedAt: order.completedAt?.toISOString() ?? null, cancelledAt: order.cancelledAt?.toISOString() ?? null, stockDeductedAt: order.stockDeductedAt?.toISOString() ?? null, status: lifecycle.data.status,
     paymentStatus: payment.data.status, paidAmount: payment.data.paidAmount,
     balanceDue: payment.data.balanceDue, overpaidAmount: payment.data.overpaidAmount,
@@ -46,11 +52,13 @@ export function toOrderAggregateJson(order: OrderAggregate, stockDue: StockDue |
         ...(item.status === "voided" ? { voidedAt: item.data.voidedAt.toISOString() } : {}) } }) });
 }
 
-export function toOrderAggregateListJson(page: AggregatePage) {
-  return listOrderAggregatesResponseSchema.parse({ ...page, items: page.items.map((item) => {
+/** `toReview` holds the orders of the page with something to review; a page without it marks none. */
+export function toOrderAggregateListJson(page: AggregatePage & Readonly<{ toReview?: ReadonlySet<string> }>) {
+  const { toReview = new Set<string>(), ...rest } = page;
+  return listOrderAggregatesResponseSchema.parse({ ...rest, items: page.items.map((item) => {
     const { number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, source, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total, delivery } = toOrderAggregateJson(item, null);
     return orderAggregateSummarySchema.parse({ number, id, createdAt, scheduledDispatchDate, shippedAt, deliveredAt, completedAt, status, paymentStatus, deliveryStatus, stockDeducted, buyer, source, checkoutEnabledAt, checkoutConfirmedAt, sellerId, total,
-      courier: delivery?.method === "agency" ? delivery.courier : null });
+      courier: delivery?.method === "agency" ? delivery.courier : null, toReview: toReview.has(id) });
   }) });
 }
 

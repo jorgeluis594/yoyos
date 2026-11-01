@@ -112,7 +112,7 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   fireEvent.press(screen.getByRole("button", { name: "Público general" }));
   fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
   const stale: ListResult = outcome === "error" ? err({ code: "NETWORK_ERROR", message: "Offline" }) : ok({
-    items: [{ number: 1001, id: "old", sellerId: "seller", source: "manual", buyer: { contactId: "contact", name: "Venta anterior", phone: "999999999" }, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
+    items: [{ number: 1001, id: "old", sellerId: "seller", source: "manual", buyer: { contactId: "contact", name: "Venta anterior", phone: "999999999" }, toReview: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
       createdAt: "2026-09-28T12:00:00.000Z", deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending",
       deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" } }], page: 1, pageSize: 20, total: 80,
   });
@@ -122,7 +122,7 @@ test.each(["success", "error"])("history ignores a replaced request's %s before 
   fireEvent.press(screen.getByRole("button", { name: "Filtros" }));
   fireEvent.press(screen.getByRole("button", { name: "Aplicar filtros" }));
   await act(async () => { requests[2](ok({
-    items: [{ number: 1002, id: "latest", sellerId: "seller", source: "manual", buyer: null, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T12:00:00.000Z",
+    items: [{ number: 1002, id: "latest", sellerId: "seller", source: "manual", buyer: null, toReview: false, checkoutEnabledAt: null, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null, createdAt: "2026-09-29T12:00:00.000Z",
       deliveredAt: null, completedAt: null, status: "active", paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false,
       total: { amount: 20, currency: "PEN" } }],
     page: 1, pageSize: 20, total: 1,
@@ -312,4 +312,25 @@ describe("WhatsApp orders", () => {
     expect(screen.queryByText("—")).toBeNull();
     expect(screen.queryByText("Público general")).toBeNull();
   });
+});
+
+test("the history list shows «Por revisar»", async () => {
+  const date = "2026-10-05T00:00:00.000Z";
+  const states = [
+    { number: 2001, status: "active", toReview: true },
+    { number: 2002, status: "active", toReview: false },
+    { number: 2003, status: "cancelled", toReview: true },
+    { number: 2004, status: "completed", toReview: true },
+  ];
+  mockLoadOrders.mockResolvedValue(ok({ page: 1, pageSize: 20, total: 4, items: states.map((state) => ({
+    ...state, id: String(state.number), buyer: null, createdAt: date, completedAt: null, checkoutEnabledAt: date, checkoutConfirmedAt: null, scheduledDispatchDate: null, shippedAt: null,
+    paymentStatus: "pending", deliveryStatus: "pending", stockDeducted: false, total: { amount: 10, currency: "PEN" },
+  })) }));
+  const screen = render(<OrderHistoryScreen />);
+  await screen.findByText(/#2001 ·/);
+  // Cancelled and completed orders never carry the label, whatever the list says.
+  expect(screen.getAllByText("Por revisar")).toHaveLength(1);
+  await i18n.changeLanguage("pt-BR");
+  try { screen.rerender(<OrderHistoryScreen />); expect(await screen.findByText("Para revisar")).toBeTruthy(); }
+  finally { await i18n.changeLanguage("es"); }
 });

@@ -2,11 +2,11 @@ import { err, ok } from "@shared/functional";
 import type { Result } from "@shared/result";
 import { buildPendingOrder, orderStateMachine, type OrderAggregate, type OrderDomainError } from "@core/src/features/orders/domain/order-state-machine";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order-target";
-import type { ChatPendingId, ChatPendings } from "@core/src/features/orders/domain/chat-pendings";
-import { advancePending, attachOrderless, declinePending, describePendings, draftPending, type AdvanceRequest, type PendingDraft, type PendingStep, type TransitionEnv } from "@core/src/features/orders/domain/pending-transitions";
+import type { ChatPending, ChatPendingId, ChatPendings, PendingPrice } from "@core/src/features/orders/domain/chat-pendings";
+import { advancePending, attachOrderless, changePendingQuantity, declinePending, describePendings, draftPending, type AdvanceRequest, type PendingDraft, type PendingStep, type TransitionEnv } from "@core/src/features/orders/domain/pending-transitions";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
-import type { ChatMessageOutcome, ChatMessageOutcomes, ProductIdentification } from "@core/src/features/orders/domain/chat-message-outcome";
+import type { ChatMessageOutcome, ChatMessageOutcomes, PaymentOrder, ProductIdentification } from "@core/src/features/orders/domain/chat-message-outcome";
 import type { OrderItemChanges } from "@core/src/features/orders/domain/order-edit";
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import type { CompanyId, ContactId, MentionedPrice, OrderId, OrderItem, OrderItemId, PositiveInteger, UserId } from "@core/src/features/orders/domain/order";
@@ -28,7 +28,7 @@ export type ChangeVariantResolution =
 
 export type ReportOutcome =
   | Readonly<{ kind: "no_intent" | "variant_only" | "unnamed_add" | "image_with_request" }>
-  | Extract<ChatMessageOutcome, { kind: "not_identified" | "not_clear" | "unclear_item" | "reader_doubt" | "request_not_allowed" | "invalid_action" | "product_not_available" | "variant_for_several_pendings" }>
+  | Extract<ChatMessageOutcome, { kind: "not_identified" | "not_clear" | "unclear_item" | "reader_doubt" | "request_not_allowed" | "invalid_action" | "product_not_available" | "variant_for_several_pendings" | "payment_requested" }>
   | Readonly<{ kind: "variant_missing" | "variant_not_available"; productId: ProductId; identification: ProductIdentification | null }>;
 
 /** The only input of the transitions: model output never reaches the domain. */
@@ -38,7 +38,15 @@ export type ResolvedChatAction =
   | Readonly<{ kind: "set_quantity"; target: ItemTarget; quantity: number }>
   | Readonly<{ kind: "change_variant"; target: ItemTarget; to: ChangeVariantResolution; mentionedPrice: MentionedPrice | null }>
   | Readonly<{ kind: "set_mentioned_price"; target: ItemTarget; price: MentionedPrice | null }>
+  /** A change to an item the reading could not find: with the chat's order closed or missing the report says so, otherwise the item is unclear. */
+  | Readonly<{ kind: "change_unfound_item"; target: ItemTarget }>
   | Readonly<{ kind: "increase_quantity"; target: ItemTarget; quantity: PositiveInteger }>
+  /** Lowers an item: above 0 a lowered quantity, exactly 0 a removal, below 0 nothing changes. */
+  | Readonly<{ kind: "lower_quantity"; target: ItemTarget; quantity: PositiveInteger }>
+  /** A quantity change on a pending; `otherwise` applies when the pending is gone by the time it runs. */
+  | Readonly<{ kind: "change_pending_quantity"; pendingId: ChatPendingId; mode: "increase" | "set" | "decrease"; quantity: number; price?: PendingPrice | null; otherwise: ResolvedChatAction }>
+  /** Sets the item the photo just sent left, only while the open order still is `orderId` and the item still has `expectedQuantity`. */
+  | Readonly<{ kind: "set_photo_item_quantity"; orderId: OrderId; variantId: VariantId; expectedQuantity: PositiveInteger; quantity: number; otherwise: ResolvedChatAction }>
   /** A product with no open pending before the message becomes one. */
   | Readonly<{ kind: "draft_pending"; draft: PendingDraft }>
   /** A later message naming a pending's product. `otherwise` is the action when the pending is gone by the time it applies (ended under the lock, or completed by an earlier action). */
@@ -48,6 +56,13 @@ export type ResolvedChatAction =
   | Readonly<{ kind: "caption_doubt"; productId: ProductId; identification: ProductIdentification | null }>
   | Readonly<{ kind: "ready" }>
   | Readonly<{ kind: "report"; outcome: ReportOutcome }>;
+
+/** Every `ResolvedChatAction` kind; the compiler rejects a list that misses or invents one. */
+export const resolvedActionKinds = ["add", "remove", "set_quantity", "change_variant", "set_mentioned_price", "change_unfound_item", "increase_quantity", "lower_quantity",
+  "change_pending_quantity", "set_photo_item_quantity", "draft_pending", "advance_pending", "decline_pending", "caption_doubt", "ready", "report"] as const satisfies readonly ResolvedChatAction["kind"][];
+type MissingActionKinds = Exclude<ResolvedChatAction["kind"], (typeof resolvedActionKinds)[number]>;
+const everyActionKindListed: [MissingActionKinds] extends [never] ? true : never = true;
+void everyActionKindListed;
 
 /** Everything a new chat order needs besides its items. The use case allocates `number` only when `needsNewChatOrder` says so. */
 export type NewChatOrderSeed = Readonly<{ number: OrderNumber; companyId: CompanyId; sellerId: UserId; chatId: ChatId; contactId: ContactId;
@@ -110,6 +125,13 @@ function applyAction(state: State, action: ResolvedChatAction, ids: ChatOrderIds
     case "report": return report(state, action.outcome);
     case "ready": state.readyRequested = true; return done;
     case "increase_quantity": return withOrderItem(state, action.target, (order, item, named) => changeQuantity(state, order, item, item.quantity + action.quantity, named, "quantity_changed", limits));
+    case "lower_quantity": return withOrderItem(state, action.target, (order, item, named) => {
+      const left = item.quantity - action.quantity;
+      if (left < 0) { state.outcomes.push({ kind: "invalid_action", orderId: order.id, reason: "quantity_below_zero" }); return done; }
+      return left === 0 ? removeFromOrder(state, order, item, named) : changeQuantity(state, order, item, left, named, "quantity_lowered", limits);
+    });
+    case "change_pending_quantity": return applyPendingQuantityChange(state, action, ids, now, limits, seed);
+    case "set_photo_item_quantity": return setPhotoItem(state, action, ids, now, limits, seed);
     case "draft_pending": return draft(state, action.draft, ids, now, limits, seed);
     case "advance_pending": return advance(state, action, ids, now, limits, seed);
     case "decline_pending": return decline(state, action.pendingId);
@@ -120,6 +142,10 @@ function applyAction(state: State, action: ResolvedChatAction, ids: ChatOrderIds
       : Number.isSafeInteger(action.quantity) && action.quantity > 0 ? changeQuantity(state, order, item, action.quantity, named, "quantity_changed", limits)
         : err({ code: "INVALID_ORDER", message: "Quantity must be a whole number" }));
     case "change_variant": return changeVariant(state, action, ids, limits);
+    case "change_unfound_item": return withOrderItem(state, action.target, (order, item, named) => {
+      state.outcomes.push({ kind: "unclear_item", orderId: order.id, namedItem: named, namedProductId: state.productIds.get(item.variantId) ?? null });
+      return done;
+    });
     case "set_mentioned_price": return withOrderItem(state, action.target, (order, item) => {
       if (!action.price) { state.outcomes.push({ kind: "no_intent" }); return done; }
       const next = orderStateMachine.setItemMentionedPrice(order, item.id, action.price);
@@ -212,6 +238,25 @@ function advance(state: State, action: Extract<ResolvedChatAction, { kind: "adva
   return done;
 }
 
+/** Applies the quantity change when its pending is alive, else `otherwise`. Reaching 0 is the buyer declining it. */
+function applyPendingQuantityChange(state: State, action: Extract<ResolvedChatAction, { kind: "change_pending_quantity" }>, ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Step {
+  if (!state.pendings.pendings.some((pending) => pending.id === action.pendingId)) return applyAction(state, action.otherwise, ids, now, limits, seed);
+  const step = changePendingQuantity(state.pendings, action, transitionEnv(state, ids, now, limits, seed));
+  const open = state.original.kind === "open" ? state.original.order.id : null;
+  state.pendings = step.set;
+  state.outcomes.push(...step.outcomes.map((outcome): ChatMessageOutcome => (outcome.kind === "invalid_action" && outcome.orderId === null ? { ...outcome, orderId: open } : outcome)));
+  if (step.outcomes.some((outcome) => outcome.kind === "pending_ended" && outcome.reason === "declined")) state.pendingResolved = true;
+  return done;
+}
+
+/** The remembered item is set only while it is still what the photo left; otherwise the answer is the fallback. */
+function setPhotoItem(state: State, action: Extract<ResolvedChatAction, { kind: "set_photo_item_quantity" }>, ids: ChatOrderIds, now: Date, limits: ChatOrderLimits, seed: NewChatOrderSeed): Step {
+  const order = state.target.kind === "open" ? state.target.order : null;
+  const item = order?.id === action.orderId ? order.items.find((line) => line.variantId === action.variantId) : undefined;
+  if (!item || item.quantity !== action.expectedQuantity) return applyAction(state, action.otherwise, ids, now, limits, seed);
+  return applyAction(state, { kind: "set_quantity", target: { kind: "variant", variantId: action.variantId }, quantity: action.quantity }, ids, now, limits, seed);
+}
+
 const openOrderId = (state: State): OrderId | null => (state.target.kind === "open" ? state.target.order.id : null);
 
 /** After every action: pendings join the open order, the seller learns what a doubted photo caption did, and the remembered «listo» is evaluated. */
@@ -219,6 +264,7 @@ function finishPendings(state: State, now: Date): void {
   if (state.target.kind === "open") state.pendings = attachOrderless(state.pendings, state.target.order.id, now);
   for (const doubt of state.captionDoubts) noticeForDoubtedCaption(state, doubt);
   const left = state.pendings.pendings;
+  fillPaymentRequests(state, left);
   let remembered = state.pendings.readyRemembered && !state.newRequest;
   if (state.readyRequested) {
     if (left.length > 0) { state.outcomes.push({ kind: "ready_with_pendings", orderId: openOrderId(state), ...describePendings(left) }); remembered = true; }
@@ -227,6 +273,13 @@ function finishPendings(state: State, now: Date): void {
     if (state.target.kind === "open") state.outcomes.push({ kind: "ready", orderId: state.target.order.id });
   }
   state.pendings = { ...state.pendings, readyRemembered: left.length > 0 && remembered };
+}
+
+/** A payment request goes to the order open after the message, else to the closed one it found, and carries what the chat still waits for. */
+function fillPaymentRequests(state: State, left: readonly ChatPending[]): void {
+  const order: PaymentOrder = state.target.kind === "open" ? { kind: "open", orderId: state.target.order.id }
+    : state.original.kind === "closed" ? { kind: "closed", orderId: state.original.orderId } : { kind: "none" };
+  state.outcomes = state.outcomes.map((outcome): ChatMessageOutcome => (outcome.kind === "payment_requested" ? { ...outcome, order, ...describePendings(left) } : outcome));
 }
 
 /** A doubted caption's photo is still the request, but the seller is never left without a notice for it. */

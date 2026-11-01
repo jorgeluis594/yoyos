@@ -25,11 +25,24 @@ export type PendingOrderStoreError = Readonly<{
   message: string;
 }>;
 export type OrderRequestError = Readonly<{
-  code: TransportError["code"] | OrderApiError["code"];
+  code: TransportError["code"] | OrderApiError["code"] | "ORDER_CHANGED";
   message: string;
+  /** The variant core could not sell, when it said which. */
+  variantId?: string;
   issues?: readonly OrderApiIssue[];
   currentPrice?: Money;
 }>;
+/** A review confirmation's own refusals, with the payload the screen needs to reload in place. */
+export type ReviewRequestError = Readonly<{
+  code: OrderRequestError["code"] | "REVIEW_OUTDATED" | "LAST_ITEM";
+  message: string;
+  variantId?: string;
+  /** Items a message touched while the seller reviewed. */
+  affectedItemIds?: readonly string[];
+  newPoints?: number;
+}>;
+export type UndoRequestError = Readonly<{ code: OrderRequestError["code"] | "UNDO_REFUSED"; message: string; reason?: "order_moved_on" | "later_change" | "would_empty" | "not_sold"; variantId?: string }>;
+
 export type RejectPaymentOutcome =
   | Readonly<{ kind: "rejected"; order: OrderAggregateResponse }>
   | Readonly<{ kind: "already_reviewed" | "order_cancelled" | "unknown" }>

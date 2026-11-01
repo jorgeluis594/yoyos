@@ -16,11 +16,14 @@ import { AccessibilityInfo, ActivityIndicator, KeyboardAvoidingView, Linking, Mo
 import { SymbolView } from "expo-symbols";
 import * as Crypto from "expo-crypto";
 import { SafeAreaView } from "react-native-safe-area-context";
-import { useFocusEffect, useLocalSearchParams, useRouter } from "expo-router";
+import { useFocusEffect, useLocalSearchParams, useNavigation, useRouter } from "expo-router";
+import { usePreventRemove } from "expo-router/react-navigation";
 import { useTranslation } from "react-i18next";
 import { subtract } from "@shared/money";
+import { ok } from "@shared/functional";
 import { offersPartialStockDeduction } from "@shared/orders-payment";
 import type { OrderAggregateResponse } from "@shared/contracts/orders";
+import type { ConfirmOrderReviewResponse, OrderReviewResponse } from "@shared/contracts/order-review";
 import { orders } from "@mobile/features/orders/composition";
 import { confirmPaymentFailure } from "@mobile/features/orders/application/order-operations";
 import { ThemedText } from "@mobile/components/themed-text";
@@ -39,7 +42,14 @@ import { useDispatchPrint } from "@mobile/features/orders/presentation/dispatch-
 import { OrderDayField } from "@mobile/features/orders/presentation/order-day-field";
 import { useCopyLink } from "@mobile/features/catalog/presentation/use-copy-link";
 import { OrderBuyerName } from "@mobile/features/orders/presentation/order-buyer";
+import { OrderItemsEditor, draftLines, isDraftDirty, reconcileLostSave, startItemsDraft, type ItemsDraft, type ItemsLine } from "@mobile/features/orders/presentation/order-items-editor";
 import { isWaitingDue, joinLabels, shortStockLines } from "@mobile/features/orders/presentation/order-stock";
+import { DoubtBadge } from "@mobile/features/orders/presentation/doubt-badge";
+import { MessageChangesBlock } from "@mobile/features/orders/presentation/message-changes-block";
+import { OrderReviewModal } from "@mobile/features/orders/presentation/order-review-modal";
+import { recordLinkAction, undoMessage, type LinkActionKind, type UndoOutcome } from "@mobile/features/orders/presentation/order-review-actions";
+import { countsText, doubtsByItem, lowerFirst, meanwhileText, reasonText, undoConfirmationLines, undoRefusalText } from "@mobile/features/orders/presentation/order-review-model";
+import { ReviewPoints } from "@mobile/features/orders/presentation/review-points";
 import { useTheme } from "@mobile/hooks/use-theme";
 import translations from "@mobile/i18n";
 import { normalizeDecimalInput } from "@mobile/shared/decimal-input";
@@ -66,8 +76,14 @@ type CheckoutLinkState =
 const fulfillmentKey = (operation: "ship" | "deliver" | null, code: string) => operation === "ship" && code === "PAYMENT_REQUIRED" ? "SHIP_PAYMENT_REQUIRED"
   : operation === "deliver" && code === "INSUFFICIENT_STOCK" ? "DELIVER_INSUFFICIENT_STOCK" : code;
 
+/** What the item edit tells the seller: the bar shows the failures while editing, the products card shows how an edit ended. */
+type ItemsNotice = "saved" | "savedWaiting" | "saveShipped" | "saveDelivered" | "saveCancelled" | "conflict" | "offline" | "notFound" | "failed" | "doubt" | "checkFailed" | "deactivated";
+/** Answers that may have been lost after the request left: the order is read to know whether the edit went through. */
+const lostAnswerCodes = new Set<string>(["NETWORK_ERROR", "SERVER_ERROR", "INTERNAL_ERROR", "INVALID_RESPONSE"]);
+
 export default function OrderDetailScreen() {
   const router = useRouter();
+  const navigation = useNavigation();
   const theme = useTheme();
   const { t, i18n } = useTranslation();
   const shippingSummary = useShippingSummary();
@@ -76,6 +92,15 @@ export default function OrderDetailScreen() {
   const { state } = useAccess();
   const { notice, clear } = useOrderResult();
   const [order, setOrder] = useState<OrderAggregateResponse | null>(null);
+  const [orderReview, setOrderReview] = useState<OrderReviewResponse | null>(null);
+  // The review modal, with the link action that opened it (null from the detail).
+  const [reviewFlow, setReviewFlow] = useState<Readonly<{ origin: "link" | "detail"; action: LinkActionKind | null }> | null>(null);
+  // «Mientras revisabas…» stays in the link card until the seller leaves the screen.
+  const [meanwhile, setMeanwhile] = useState<string | null>(null);
+  const [undoNotice, setUndoNotice] = useState<Readonly<{ text: string; tone: "alert" | "polite" }> | null>(null);
+  const [undoing, setUndoing] = useState(false);
+  const [loadingRows, setLoadingRows] = useState(false);
+  const allRows = useRef(false);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
   const [linkResult, setLinkResult] = useState<Readonly<{ orderId: string; link: Exclude<CheckoutLinkState, { kind: "loading" }> }> | null>(null);
@@ -102,6 +127,11 @@ export default function OrderDetailScreen() {
   const [cancellation, setCancellation] = useState<CancellationUiState>({ kind: "idle" });
   const [detailRefreshFailed, setDetailRefreshFailed] = useState(false);
   const cancellationLock = useRef(false);
+  const [itemsDraft, setItemsDraft] = useState<ItemsDraft | null>(null);
+  const [itemsNotice, setItemsNotice] = useState<ItemsNotice | null>(null);
+  const [savingItems, setSavingItems] = useState(false);
+  const sentLines = useRef<ItemsLine[]>([]);
+  const itemsDirty = itemsDraft !== null && isDraftDirty(itemsDraft);
   const scope = `${state.status === "ready" ? state.user.id : ""}:${companyId}:${id}`;
   const currentScope = useRef(scope);
   useLayoutEffect(() => { currentScope.current = scope; }, [scope]);
@@ -110,20 +140,33 @@ export default function OrderDetailScreen() {
   // A result belongs to the order it was read for, so another order never shows this one's link while its own loads.
   const checkoutLink: CheckoutLinkState = linkResult && linkResult.orderId === order?.id ? linkResult.link : { kind: "loading" };
   const { copied, copy: copyLink, open: openLink } = useCopyLink(checkoutLink.kind === "ready" ? checkoutLink.url : null);
-  const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling;
+  const writeBusy = cancellationBlocked || !!savingPayment || !!fulfilling || rescheduling || savingItems;
+  /** The order and its review are one read: either failing fails it. */
+  const loadBoth = useCallback(async (orderId: string) => {
+    const [aggregate, review] = await Promise.all([orders.loadOrderAggregate(orderId), orders.loadOrderReview(orderId, allRows.current ? { allRows: true } : undefined)]);
+    if (!aggregate.success) return aggregate;
+    return review.success ? ok({ order: aggregate.data, review: review.data }) : review;
+  }, []);
   const reload = useCallback(async (silent = false) => {
     const generation = checkoutGeneration.current;
     const requestScope = scope;
     if (!silent) setLoading(true);
-    const result = await orders.loadOrderAggregate(id);
+    const fresh = await loadBoth(id);
     if (generation !== checkoutGeneration.current || requestScope !== currentScope.current) return;
     // A refresh the seller did not ask for keeps what is on screen when it fails.
-    if (result.success) { setOrder(result.data); setError(""); loaded.current = true; }
-    else if (!silent) setError(result.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
+    if (fresh.success) { setOrder(fresh.data.order); setOrderReview(fresh.data.review); setError(""); loaded.current = true; }
+    else if (!silent) setError(fresh.error.code === "ORDER_NOT_FOUND" ? translations.t('orderNotFound') : translations.t('loadOrderError'));
     setLoading(false);
-  }, [id, scope]);
+  }, [id, scope, loadBoth]);
+  const confirmDiscardItems = (onConfirm: () => void) => showConfirmation({ title: t("itemsEdit.discardTitle"), confirmLabel: t("itemsEdit.discard"), cancelLabel: t("itemsEdit.keepEditing"), destructive: true, onConfirm });
+  const leaveAllowed = useRef(false);
+  // Swipe-back, the header button and the hardware back all ask before dropping unsaved product edits.
+  usePreventRemove(itemsDirty, ({ data }) => {
+    if (leaveAllowed.current) { navigation.dispatch(data.action); return; }
+    confirmDiscardItems(() => { leaveAllowed.current = true; navigation.dispatch(data.action); });
+  });
   // The status line belongs to the screen: it clears when the seller really leaves it, not when the order reloads.
-  useFocusEffect(useCallback(() => () => setPaymentLine(null), []));
+  useFocusEffect(useCallback(() => () => { setPaymentLine(null); setMeanwhile(null); }, []));
   // A notice tapped while this very order is open navigates to the same route; its `noticeAt` is the only change.
   const handledNoticeAt = useRef(noticeAt);
   useFocusEffect(useCallback(() => {
@@ -191,6 +234,46 @@ export default function OrderDetailScreen() {
     if (result.success) setOrder(result.data);
     else setPaymentError(t("paymentSaveError"));
     setSavingPayment(null);
+  }
+  const endItemsEdit = (notice: ItemsNotice | null) => { setItemsDraft(null); setItemsNotice(notice); };
+  /** A lost answer: reading the order tells whether the edit went through, nothing changed or somebody else changed the items. */
+  async function verifyLostSave(orderId: string, base: string, lines: readonly ItemsLine[]) {
+    setItemsNotice("doubt");
+    const fresh = await orders.loadOrderAggregate(orderId);
+    if (!fresh.success) { setItemsNotice("checkFailed"); return; }
+    setOrder(fresh.data);
+    const outcome = reconcileLostSave(lines, base, fresh.data);
+    if (outcome === "saved") endItemsEdit(isWaitingDue(fresh.data.stockDue) ? "savedWaiting" : "saved");
+    else setItemsNotice(outcome === "unchanged" ? "offline" : "conflict");
+  }
+  async function itemsRefused(code: string, orderId: string, base: string, lines: readonly ItemsLine[]) {
+    if (code === "ORDER_CHANGED") { setItemsNotice("conflict"); return; }
+    if (code === "VARIANT_NOT_FOUND") { setItemsNotice("deactivated"); return; }
+    if (code === "DELIVERY_LOCKED" || code === "ORDER_CANCELLED") {
+      const fresh = await orders.loadOrderAggregate(orderId);
+      if (!fresh.success) { setItemsNotice("checkFailed"); return; }
+      setOrder(fresh.data);
+      endItemsEdit(fresh.data.cancelled ? "saveCancelled" : fresh.data.deliveryStatus === "shipped" ? "saveShipped" : "saveDelivered");
+      return;
+    }
+    if (lostAnswerCodes.has(code)) await verifyLostSave(orderId, base, lines);
+    else setItemsNotice(code === "SERVICE_UNAVAILABLE" ? "offline" : code === "ORDER_NOT_FOUND" ? "notFound" : "failed");
+  }
+  async function saveItems() {
+    if (!order || !itemsDraft || savingItems || cancellationLock.current) return;
+    const lines = draftLines(itemsDraft);
+    if (!lines || !isDraftDirty(itemsDraft)) return;
+    sentLines.current = lines;
+    setSavingItems(true); setItemsNotice(null);
+    const result = await orders.editOrderItems(order.id, { base: itemsDraft.base, lines });
+    if (result.success) { setOrder(result.data.order); endItemsEdit(isWaitingDue(result.data.order.stockDue) ? "savedWaiting" : "saved"); }
+    else await itemsRefused(result.error.code, order.id, itemsDraft.base, lines);
+    setSavingItems(false);
+  }
+  async function reloadAfterConflict() {
+    if (!order) return;
+    const fresh = await orders.loadOrderAggregate(order.id);
+    if (fresh.success) { setOrder(fresh.data); endItemsEdit(null); } else setItemsNotice("checkFailed");
   }
   async function fulfill(operation: "ship" | "deliver") {
     if (!order || cancellationLock.current || writeBusy || orderFulfillmentBlock(order, operation)) return;
@@ -293,6 +376,69 @@ export default function OrderDetailScreen() {
       confirmLabel: t("orderCancellation.cancel"), cancelLabel: t("orderCancellation.keep"), destructive: true,
       onConfirm: () => { if (generation === checkoutGeneration.current && requestScope === currentScope.current) void runCancellation(false); } });
   }
+  /** Takes the checkout link and records it, when the action really happened (a dismissed share sheet is not a link taken). */
+  async function takeLink(action: LinkActionKind) {
+    if (!order || checkoutLink.kind !== "ready") return;
+    const url = checkoutLink.url;
+    let taken = false;
+    if (action === "copy") taken = await copyLink();
+    else if (action === "open") taken = await openLink();
+    else {
+      const shared = await Share.share({ message: url }).catch(() => null);
+      taken = shared !== null && shared.action !== Share.dismissedAction;
+    }
+    if (taken) void recordLinkAction(order.id, action);
+  }
+  // On an order open for messages with something to review, every link action goes through the review first.
+  const needsReview = !!order && !order.cancelled && orderReview?.status.entry === "link" && orderReview.status.toReview;
+  function requestLink(action: LinkActionKind) {
+    if (itemsDraft || !order) return;
+    if (needsReview) setReviewFlow({ origin: "link", action }); else void takeLink(action);
+  }
+  async function reloadForReview() {
+    if (!order) return null;
+    const fresh = await loadBoth(order.id);
+    if (!fresh.success) return null;
+    setOrder(fresh.data.order); setOrderReview(fresh.data.review);
+    return fresh.data;
+  }
+  function reviewConfirmed(result: ConfirmOrderReviewResponse) {
+    const flow = reviewFlow;
+    setReviewFlow(null);
+    setOrder(result.order);
+    if (result.changedMeanwhile.length > 0) {
+      const text = meanwhileText(result.changedMeanwhile, money(result.total.amount, result.total.currency, locale), t);
+      setMeanwhile(text);
+      AccessibilityInfo.announceForAccessibility(text);
+    }
+    void reload(true);
+    if (flow?.origin === "link" && flow.action) void takeLink(flow.action);
+  }
+  async function applyUndo(messageId: string, onInDoubt: () => void): Promise<UndoOutcome> {
+    if (!order) return { kind: "failed" };
+    const outcome = await undoMessage(order.id, messageId, onInDoubt);
+    if (outcome.kind === "done") { setOrder(outcome.order); setOrderReview(outcome.review); }
+    else if (outcome.kind === "refused") void reload(true);
+    return outcome;
+  }
+  function askUndo(row: OrderReviewResponse["messageRows"][number]) {
+    if (undoing || itemsDraft) return;
+    showConfirmation({ title: t("orderReview.undoTitle"), description: undoConfirmationLines(row.changes, t, row.pendings).join("\n"), confirmLabel: t("orderReview.undoConfirm"), cancelLabel: t("orderReview.undoKeep"), destructive: true,
+      onConfirm: () => void (async () => {
+        setUndoing(true); setUndoNotice(null);
+        const outcome = await applyUndo(row.messageId, () => setUndoNotice({ text: t("orderReview.undoInDoubt"), tone: "polite" }));
+        if (outcome.kind === "done") { setUndoNotice({ text: t("orderReview.undoDone"), tone: "polite" }); AccessibilityInfo.announceForAccessibility(t("orderReview.undoDone")); }
+        else setUndoNotice({ text: outcome.kind === "refused" ? undoRefusalText(outcome.reason, row.changes, t) : t("orderReview.undoFailed"), tone: "alert" });
+        setUndoing(false);
+      })() });
+  }
+  async function showAllRows() {
+    if (!order) return;
+    allRows.current = true; setLoadingRows(true);
+    const result = await orders.loadOrderReview(order.id, { allRows: true });
+    if (result.success) setOrderReview(result.data);
+    setLoadingRows(false);
+  }
   if (state.status !== "ready") return null;
   if (loading) return <ScreenState status="loading" title={t('loadingOrder')} />;
   if (!order || error) return <ScreenState status="error" title={t('openOrderError')} description={error} onRetry={() => void reload()} />;
@@ -310,6 +456,8 @@ export default function OrderDetailScreen() {
   order.payments.flatMap(payment => payment.status === "confirmed" && payment.amount ? [{ id: payment.id, at: payment.data.confirmedAt, cents: Math.round(payment.amount.amount * 100) }] : [])
     .sort((a, b) => a.at.localeCompare(b.at))
     .reduce((running, payment) => { const next = running + payment.cents; if (next < Math.round(order.total.amount * 100)) advanceIds.add(payment.id); return next; }, 0);
+  const canEditItems = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
+  const itemsLockedText = order.cancelled || order.deliveryStatus === "pending" ? null : t(order.deliveryStatus === "shipped" ? "itemsEdit.lockedShipped" : "itemsEdit.lockedDelivered");
   const canEditDelivery = order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled;
   const checkoutState = order.cancelled ? t("checkoutCancelled") : order.checkoutConfirmedAt ? t("checkoutConfirmed") : order.status === "active" ? t("checkoutPending") : null;
   const openPayments = () => {
@@ -328,6 +476,11 @@ export default function OrderDetailScreen() {
     : t(`orderFulfillment.${fulfillmentKey(nextOperation, nextReason)}`);
   const stockLine = isWaitingDue(order.stockDue) ? t("stockWaiting") : order.stockDeducted ? t("stockDeducted") : order.stockDue?.kind === "deducting" ? t("stockDeducting") : t("stockPending");
   const cardStyle = { backgroundColor: theme.backgroundElement, borderColor: theme.border };
+  // Cancelled and completed orders, and orders without a chat, show no marks and no review.
+  const reviewShown = orderReview !== null && !order.cancelled && orderReview.status.entry !== "none" ? orderReview : null;
+  const marks = reviewShown ? doubtsByItem(reviewShown) : new Map<string, never[]>();
+  const counts = reviewShown ? countsText(reviewShown.status, t) : null;
+  const reasonContext = { t, money: (amount: number) => money(amount, order.total.currency, locale) };
   return <ThemedView style={styles.page}><SafeAreaView style={styles.page} edges={["top", "left", "right"]}>
     <View style={styles.container}>
       <View style={styles.header}>
@@ -377,13 +530,27 @@ export default function OrderDetailScreen() {
           {difference?.success ? <ThemedText>{t('amountDifference', { amount: money(difference.data.amount, order.total.currency, locale) })}</ThemedText> : null}
           <ThemedText type="small">{t('adjustCharge')}</ThemedText>
         </View> : null}
+        {reviewShown ? <ReviewPoints points={reviewShown.points} money={reasonContext.money} /> : null}
+        {reviewShown && reviewShown.status.entry === "detail" && reviewShown.status.toReview ? <View style={[styles.card, styles.section, cardStyle]}>
+          {counts ? <ThemedText>{counts}</ThemedText> : null}
+          <Button variant="secondary" disabled={!!itemsDraft} accessibilityHint={itemsDraft ? t("itemsEdit.saveFirst") : undefined} onPress={() => { if (!itemsDraft) setReviewFlow({ origin: "detail", action: null }); }}>{t("orderReview.open")}</Button>
+        </View> : null}
         <View style={[styles.card, cardStyle]}>
-          <ThemedText type="subtitle" accessibilityRole="header">{t('detailProducts', { count: order.items.reduce((sum, item) => sum + item.quantity, 0) })}</ThemedText>
-          {order.items.map((item, index) => {
+          <View style={styles.productsHeader}>
+            <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('detailProducts', { count: order.items.reduce((sum, item) => sum + item.quantity, 0) })}</ThemedText>
+            {canEditItems && !itemsDraft ? <Button variant="ghost" disabled={writeBusy} onPress={() => { setItemsNotice(null); setItemsDraft(startItemsDraft(order)); }}>{t("itemsEdit.edit")}</Button> : null}
+          </View>
+          {itemsLockedText ? <ThemedText type="small" themeColor="textSecondary">{itemsLockedText}</ThemedText> : null}
+          {!itemsDraft && itemsNotice && ["saved", "savedWaiting", "saveShipped", "saveDelivered", "saveCancelled"].includes(itemsNotice)
+            ? <ThemedText accessibilityLiveRegion="polite">{t(`itemsEdit.${itemsNotice}`)}</ThemedText> : null}
+          {itemsDraft ? <OrderItemsEditor draft={itemsDraft} onChange={setItemsDraft} disabled={savingItems} format={(amount, currency) => money(amount, currency, locale)} /> : order.items.map((item, index) => {
             const note = mentionedPriceNote(item);
             const noteText = note ? t('mentionedPrice', { count: note.units, amount: money(note.amount, item.unitPrice.currency, locale) }) : null;
             const variant = Object.entries(item.variantAttributes).map(([key, value]) => `${key}: ${value}`).join(" · ");
-            const label = [[item.productName, variant, item.sku ? `SKU ${item.sku}` : null, t('orderItemDetailLabel', { quantity: item.quantity, unit: format(item.unitPrice), subtotal: format(item.subtotal) })].filter(Boolean).join(", "), noteText].filter(Boolean).join(". ");
+            const doubt = marks.get(item.id)?.[0]?.change.decision;
+            const doubtReason = doubt?.kind === "doubtful" ? lowerFirst(reasonText(doubt.reason, reasonContext)) : null;
+            const plainLabel = [[item.productName, variant, item.sku ? `SKU ${item.sku}` : null, t('orderItemDetailLabel', { quantity: item.quantity, unit: format(item.unitPrice), subtotal: format(item.subtotal) })].filter(Boolean).join(", "), noteText].filter(Boolean).join(". ");
+            const label = doubtReason ? t("orderReview.doubtOf", { item: plainLabel, reason: doubtReason }) : plainLabel;
             return <View key={item.id} accessible accessibilityLabel={label} style={[styles.product, index > 0 && { borderTopWidth: StyleSheet.hairlineWidth, borderColor: theme.border }]}>
             <View style={styles.productIdentity}>
               <ThemedText style={styles.semibold}>{item.productName}</ThemedText>
@@ -391,6 +558,7 @@ export default function OrderDetailScreen() {
               {item.sku ? <ThemedText type="small" themeColor="textSecondary">SKU {item.sku}</ThemedText> : null}
               <ThemedText type="small" themeColor="textSecondary">{item.quantity} × {format(item.unitPrice)}</ThemedText>
               {noteText ? <ThemedText type="small" themeColor="textSecondary">{noteText}</ThemedText> : null}
+              {doubtReason ? <><DoubtBadge /><ThemedText type="small" themeColor="textSecondary">{doubtReason}</ThemedText></> : null}
             </View>
             <ThemedText style={styles.amount}>{format(item.subtotal)}</ThemedText>
           </View>;
@@ -400,6 +568,9 @@ export default function OrderDetailScreen() {
             <MoneyRow label={t('detailShippingCharge')} value={format(order.deliveryCharge)} />
           </View>
         </View>
+        {orderReview ? <MessageChangesBlock rows={orderReview.messageRows} moreRows={orderReview.moreRows} locale={locale} busy={undoing} disabledReason={itemsDraft ? t("itemsEdit.saveFirst") : null}
+          onUndo={askUndo} onMore={() => void showAllRows()} loadingMore={loadingRows} /> : null}
+        {undoNotice ? <ThemedText accessibilityRole={undoNotice.tone === "alert" ? "alert" : undefined} accessibilityLiveRegion="polite" style={undoNotice.tone === "alert" ? { color: theme.error } : undefined}>{undoNotice.text}</ThemedText> : null}
         <View onLayout={(event) => { paymentPosition.current = event.nativeEvent.layout.y; }} style={[styles.card, styles.section, cardStyle]}>
           <View style={styles.row}>
             <ThemedText type="subtitle" accessibilityRole="header" style={styles.flex}>{t('payments')}</ThemedText>
@@ -489,10 +660,15 @@ export default function OrderDetailScreen() {
             <ActivityIndicator color={theme.text} /><ThemedText type="small" themeColor="textSecondary">{t('checkoutLoading')}</ThemedText>
           </View> : null}
           {!order.cancelled && checkoutLink.kind === "ready" ? <>
-            <ThemedText type="small" selectable>{checkoutLink.url}</ThemedText>
-            <Button variant="secondary" onPress={() => void copyLink()}>{t('copyCheckoutLink')}</Button>
-            <Button variant="secondary" onPress={() => void Share.share({ message: checkoutLink.url }).catch(() => undefined)}>{t('shareCheckoutLink')}</Button>
-            <Button variant="secondary" onPress={openLink}>{t('openCheckoutLink')}</Button>
+            {needsReview ? <>
+              <ThemedText>{t("orderReview.beforeLink")}</ThemedText>
+              {counts ? <ThemedText type="small" themeColor="textSecondary">{counts}</ThemedText> : null}
+            </> : <ThemedText type="small" selectable>{checkoutLink.url}</ThemedText>}
+            <Button variant="secondary" disabled={!!itemsDraft} onPress={() => requestLink("copy")}>{t('copyCheckoutLink')}</Button>
+            <Button variant="secondary" disabled={!!itemsDraft} onPress={() => requestLink("share")}>{t('shareCheckoutLink')}</Button>
+            <Button variant="secondary" disabled={!!itemsDraft} onPress={() => requestLink("open")}>{t('openCheckoutLink')}</Button>
+            {meanwhile ? <ThemedText accessibilityLiveRegion="polite">{meanwhile}</ThemedText> : null}
+            {itemsDraft ? <ThemedText type="small" themeColor="textSecondary">{t("itemsEdit.saveFirst")}</ThemedText> : null}
             {copied ? <ThemedText accessibilityLiveRegion="polite">{t('checkoutCopied')}</ThemedText> : null}
             <ThemedText type="small" themeColor="textSecondary">{t('checkoutHelp')}</ThemedText>
           </> : null}
@@ -520,6 +696,18 @@ export default function OrderDetailScreen() {
         {order.status === "active" && order.deliveryStatus === "pending" && !order.cancelled ?
           <Button variant="ghost" disabled={writeBusy} loading={cancellation.kind === "submitting"} onPress={confirmCancellation}>{t("orderCancellation.cancel")}</Button> : null}
       </ScrollView>
+      {itemsDraft ? <View style={[styles.editBar, cardStyle]}>
+        {itemsNotice && !["saved", "savedWaiting", "saveShipped", "saveDelivered", "saveCancelled"].includes(itemsNotice) ? <View style={styles.section}>
+          <ThemedText type="small" accessibilityRole="alert">{t(`itemsEdit.${itemsNotice === "doubt" ? "inDoubt" : itemsNotice}`)}</ThemedText>
+          {itemsNotice === "conflict" ? <Button variant="secondary" disabled={savingItems} onPress={() => showConfirmation({ title: t("itemsEdit.reloadTitle"), confirmLabel: t("itemsEdit.reloadConfirm"), cancelLabel: t("itemsEdit.reloadKeep"), destructive: true, onConfirm: () => void reloadAfterConflict() })}>{t("itemsEdit.reload")}</Button> : null}
+          {itemsNotice === "checkFailed" ? <Button variant="secondary" onPress={() => void verifyLostSave(order.id, itemsDraft.base, sentLines.current)}>{t("itemsEdit.checkAgain")}</Button> : null}
+        </View> : null}
+        <ThemedText style={styles.semibold}>{itemsDirty ? t("itemsEdit.unsaved") : t("itemsEdit.editing")}</ThemedText>
+        <View style={styles.editActions}>
+          <View style={styles.flex}><Button variant="secondary" disabled={savingItems} onPress={() => itemsDirty ? confirmDiscardItems(() => endItemsEdit(null)) : endItemsEdit(null)}>{t("itemsEdit.discard")}</Button></View>
+          <View style={styles.flex}><Button loading={savingItems} disabled={!itemsDirty || draftLines(itemsDraft) === null} onPress={() => void saveItems()}>{t("itemsEdit.save")}</Button></View>
+        </View>
+      </View> : null}
     </View>
     <Modal visible={review !== null} animationType="slide" presentationStyle="pageSheet" onRequestClose={closeEditor}>
       <SafeAreaView style={[styles.page, { backgroundColor: theme.background }]}>
@@ -542,6 +730,8 @@ export default function OrderDetailScreen() {
         </KeyboardAvoidingView>
       </SafeAreaView>
     </Modal>
+    {reviewFlow && orderReview ? <OrderReviewModal origin={reviewFlow.origin} order={order} review={orderReview} format={format}
+      onClose={() => setReviewFlow(null)} onConfirmed={reviewConfirmed} onReload={reloadForReview} onUndo={applyUndo} /> : null}
     <PaymentRegisterSheet visible={editor === "manual"} balance={order.balanceDue.amount} currency={order.total.currency}
       format={amount => format({ amount, currency: order.total.currency })} busy={writeBusy} error={editor === "manual" ? paymentError : ""}
       stockOffer={amount => {
@@ -588,6 +778,9 @@ function Disclosure({ label, description, open, onPress }: { label: string; desc
 }
 
 const styles = StyleSheet.create({
+  productsHeader: { flexDirection: "row", alignItems: "center", gap: 8 },
+  editBar: { gap: 8, padding: 16, borderTopWidth: StyleSheet.hairlineWidth },
+  editActions: { flexDirection: "row", gap: 8 },
   page: { flex: 1 }, container: { flex: 1, width: "100%", maxWidth: 640, alignSelf: "center" }, flex: { flex: 1 },
   content: { gap: 12, padding: 16, paddingTop: 4, paddingBottom: 32, maxWidth: 640, width: "100%", alignSelf: "center" },
   header: { flexDirection: "row", alignItems: "center", gap: 8, paddingHorizontal: 8, paddingVertical: 4 },

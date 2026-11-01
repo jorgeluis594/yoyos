@@ -1,8 +1,11 @@
 import { z } from "zod";
 import type { OrderId, PositiveInteger } from "@core/src/features/orders/domain/order";
+import { suggestedQuestionSchema, type SuggestedQuestion } from "@core/src/features/orders/domain/suggested-question";
 import type { ProductId, VariantId } from "@core/src/features/products/domain/product";
 
 export type ChatPendingId = string & { readonly __brand: "ChatPendingId" };
+/** The order a payment request went to: the open one after the message, the closed latest one, or none. */
+export type PaymentOrder = Readonly<{ kind: "open" | "closed"; orderId: OrderId }> | Readonly<{ kind: "none" }>;
 export type ProductIdentification = Readonly<{ method: "qr" | "visual" | "text"; productId: ProductId; confidence: number | null }>;
 
 export type ChatMessageFailureCode =
@@ -26,11 +29,16 @@ export type ChatMessageOutcome =
   | Readonly<{ kind: "pending_split"; pendingId: ChatPendingId; newPendingId: ChatPendingId }>
   | Readonly<{ kind: "pending_ended"; pendingId: ChatPendingId; reason: "declined" | "order_closed" | "expired" | "limit" | "product_not_available" }>
   | Readonly<{ kind: "reader_doubt" | "request_not_allowed"; orderId: OrderId | null }>
-  | Readonly<{ kind: "invalid_action"; orderId: OrderId | null; reason: "unknown_reference" | "not_the_shown_product" | "quantity_not_whole" | "text_too_long" | "too_many_actions" }>
+  | Readonly<{ kind: "invalid_action"; orderId: OrderId | null; reason: "unknown_reference" | "not_the_shown_product" | "quantity_not_whole" | "text_too_long" | "too_many_actions" | "quantity_below_zero" }>
   | Readonly<{ kind: "product_not_available"; productId: ProductId | null }>
   | Readonly<{ kind: "variant_for_several_pendings"; productIds: readonly ProductId[]; unnamed: number }>
   | Readonly<{ kind: "ready_with_pendings"; orderId: OrderId | null; productIds: readonly ProductId[]; unnamed: number }>
   | Readonly<{ kind: "caption_not_applied"; productId: ProductId; orderId: OrderId | null }>
+  | Readonly<{ kind: "payment_requested"; order: PaymentOrder; productIds: readonly ProductId[]; unnamed: number }>
+  /** A sure change after the seller took the checkout link: it arms «Pedido #N cambió». */
+  | Readonly<{ kind: "changed_after_link"; orderId: OrderId }>
+  /** Questions the seller may send the buyer, structured; never buyer text. */
+  | Readonly<{ kind: "questions"; questions: readonly SuggestedQuestion[] }>
   | Readonly<{ kind: "failed"; errorCode: ChatMessageFailureCode }>;
 
 export type ChatMessageOutcomes = readonly [ChatMessageOutcome, ...ChatMessageOutcome[]];
@@ -49,6 +57,8 @@ const count = z.number().int().min(0);
 const failureCode = z.enum(["MESSAGE_NOT_FOUND", "CONTACT_NOT_FOUND", "SELLER_UNAVAILABLE", "CURRENCY_MISMATCH", "INVALID_ORDER", "INVALID_STORED_DATA",
   "INVALID_MATCHER_RESPONSE", "INVALID_EMBEDDING", "INVALID_AI_RESPONSE", "RETRIES_EXHAUSTED"]);
 
+const paymentOrder = z.discriminatedUnion("kind", [z.strictObject({ kind: z.enum(["open", "closed"]), orderId }), z.strictObject({ kind: z.literal("none") })]);
+
 const outcomeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("added"), variantId, quantity, identification }),
   z.strictObject({ kind: z.enum(["removed", "quantity_lowered"]), variantId, namedItem: z.boolean() }),
@@ -66,11 +76,14 @@ const outcomeSchema = z.discriminatedUnion("kind", [
   z.strictObject({ kind: z.literal("pending_split"), pendingId, newPendingId: pendingId }),
   z.strictObject({ kind: z.literal("pending_ended"), pendingId, reason: z.enum(["declined", "order_closed", "expired", "limit", "product_not_available"]) }),
   z.strictObject({ kind: z.enum(["reader_doubt", "request_not_allowed"]), orderId: orderId.nullable() }),
-  z.strictObject({ kind: z.literal("invalid_action"), orderId: orderId.nullable(), reason: z.enum(["unknown_reference", "not_the_shown_product", "quantity_not_whole", "text_too_long", "too_many_actions"]) }),
+  z.strictObject({ kind: z.literal("invalid_action"), orderId: orderId.nullable(), reason: z.enum(["unknown_reference", "not_the_shown_product", "quantity_not_whole", "text_too_long", "too_many_actions", "quantity_below_zero"]) }),
   z.strictObject({ kind: z.literal("product_not_available"), productId: productId.nullable() }),
   z.strictObject({ kind: z.literal("variant_for_several_pendings"), productIds: z.array(productId), unnamed: count }),
   z.strictObject({ kind: z.literal("ready_with_pendings"), orderId: orderId.nullable(), productIds: z.array(productId), unnamed: count }),
   z.strictObject({ kind: z.literal("caption_not_applied"), productId, orderId: orderId.nullable() }),
+  z.strictObject({ kind: z.literal("payment_requested"), order: paymentOrder, productIds: z.array(productId), unnamed: count }),
+  z.strictObject({ kind: z.literal("changed_after_link"), orderId }),
+  z.strictObject({ kind: z.literal("questions"), questions: z.array(suggestedQuestionSchema).min(1).max(10) }),
   z.strictObject({ kind: z.literal("failed"), errorCode: failureCode }),
 ]);
 

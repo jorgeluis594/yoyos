@@ -8,10 +8,19 @@ to `apps/core/eval-results/` (gitignored) and nothing is sent to an eval service
 ## Run
 
 ```sh
-pnpm --dir apps/core eval                          # every suite
-pnpm --dir apps/core eval evals/interpretation.eval.ts
-EVAL_MAX_CASES=10 pnpm --dir apps/core eval        # a cheap debug run spread over every pass
+EVAL_MODELS=fake pnpm --dir apps/core eval         # the whole harness at zero cost: scripted stage answers, no key, no database
+EVAL_MODELS=fake EVAL_READER=legacy pnpm --dir apps/core eval   # the same, scripted as the legacy baseline (see EVAL_READER)
+pnpm --dir apps/core eval                          # prints the estimate of the run and stops; no model is called
+EVAL_PAID=1 pnpm --dir apps/core eval              # every suite, with the real models (paid)
+EVAL_PAID=1 pnpm --dir apps/core eval evals/interpretation.eval.ts
+EVAL_PAID=1 EVAL_MAX_CASES=10 pnpm --dir apps/core eval   # a cheap debug run spread over every pass
+pnpm --dir apps/core eval:compare eval-results/<previous>.json eval-results/<new>.json
 ```
+
+A run that can call a model is paid. Without `EVAL_PAID=1` (read from the shell, never from `.env`) `pnpm eval` prints the estimate
+(messages × runs × the reference cost of a message, plus the judged cases) and exits with 1. Each paid step of the staged reader's
+evaluation needs the founder's approval of that printed estimate first; a re-run beyond what was approved needs a new approval.
+`EVAL_MODELS=fake` is free: every stage answers what the case expects, so it proves the plumbing (runs, scoring, metrics, report), not the models.
 
 `pnpm eval` runs `scripts/run-evals.sh`: with both keys it starts the `db_test` database, migrates it like the integration
 tests and points `DATABASE_URL` at it (`CORE_TEST_PORT` picks the port). Without a key the model suites skip with a message
@@ -27,8 +36,12 @@ and only `smoke.eval.ts` runs. It refuses to run when `CI` is set, and it is not
 | `EVAL_CLAUDE_MODEL` | Claude model, default `claude-sonnet-5-5`. |
 | `EVAL_MAX_CASES` | Hard cap of cases per run, taken round-robin over the passes; unset runs all. |
 | `EVAL_CASES` | Comma-separated case ids; a base id also selects its paraphrases. |
-| `EVAL_REPEATS` | Runs of each repeated case (default 3; 1 turns the repeats off). |
-| `EVAL_REPEAT_TAGS` | Comma-separated tags whose cases are repeated (default `consistency`; `consistency,pinned-miss` also repeats the pinned misses). The first run is the one every gate counts; flips are reported apart. |
+| `EVAL_REPEATS` | Times the whole selected set runs (1–5, default 3). Every run is scored; the report gives mean, min and max per metric, and flips are read from the runs. |
+| `EVAL_READER` | `staged` (default) runs the production `applyChatMessage` over the three stages and scores each stage from the reading trace it builds (`lib/staged-answer.ts`); the shadow is off. `legacy` is the E1 baseline: the single-call reader is read apart, **read-only**, because it can no longer apply a message, on the text messages of `interpretation` and `end-to-end` (conversations and photo messages are left out). It states the intent, the cost of its call and its time only, so the field, product, decision and urgent metrics read «not measured». T17 removes `legacy`. |
+| `EVAL_MODELS` | `fake` runs the harness with scripted stage answers taken from the case expectations: zero model calls, no key, no database. Default `real`. |
+| `EVAL_PAID` | `1` allows a run that calls models; without it `pnpm eval` prints the estimate and stops. Set it in the shell. |
+| `EVAL_SEED_BANK` | `1` runs the seed bank (`cases/seed-bank.ts`) instead of every case; with `EVAL_PRIVATE_DIR`, the private cases listed in the folder's `seed-bank.json` (`{ "ids": [...] }`). |
+| `EVAL_VERDICTS_FROM` | Path of the JSON output of `verdicts:report` (`lib/verdicts.ts`): the report embeds its label counts, weak labels apart. The file is exactly `{ rows: [{ decision, doubtKind, verdict, strength, count }], unverdicted }` and nothing else (`verdictFileSchema`); a bad file stops the run before any model call. |
 | `EVAL_PRIVATE_DIR` | Absolute path of a folder outside the repository with a private `catalog.json` and `cases.json` (see «Private files format»). Set it in the shell. |
 | `EVAL_SKIP_PARAPHRASES` | `1` runs base cases only. |
 | `EVAL_SPLIT` | `dev`, `test` or `all` (default): the split of the cases to run (see «Dev and test splits»). |
@@ -55,9 +68,9 @@ suite skips with a message and the end-to-end suite runs only its text cases.
 
 | Suite | Pass | Production path |
 | --- | --- | --- |
-| `interpretation.eval.ts` | Interpretation and arguments (criteria 1, 4) | `applyChatMessage` with the real reader (one model call per message), candidate search, checks and order transaction. The photo's identification is given by the case (visual match 0.95, QR label or «not a product») so only the reading is measured. |
+| `interpretation.eval.ts` | Interpretation and arguments (criteria 1, 4) | `applyChatMessage` with the staged reader (intent, extraction and resolution; the shadow is off), candidate search, checks and order transaction. The photo's identification is given by the case (visual match 0.95, QR label or «not a product») so only the reading is measured. |
 | `identification-image.eval.ts` | Non-product photos and visual identification (criteria 2, 5) | `identifyProductsInImage`: real QR reader, local embedding search and vision chooser. |
-| `end-to-end.eval.ts` | The whole message | `applyChatMessage` with the real photo cascade, reader and order transaction. |
+| `end-to-end.eval.ts` | The whole message | `applyChatMessage` with the real photo cascade, staged reader and order transaction. |
 | `conversation.eval.ts` | Conversations | One chat with 2 to 4 messages applied in order, with events between them, on a simulated clock. |
 
 Faked: image storage (fixture files instead of R2). Nothing publishes events, so no notice reaches WhatsApp or push. An open
@@ -77,7 +90,7 @@ their photo from the manifest by product, folder and a hint (`photo({ folder: "c
 and are left out when no photo matches. A case has an id, pass, criterion
 (1 reading, 2 non-product photos, 4 arguments, 5 visual identification), kind, tags, the
 input (text, or photo plus caption, and the open order) and one or more acceptable expectations. Tags: `consistency` and `pinned-miss` (run
-`EVAL_REPEATS` times when `EVAL_REPEAT_TAGS` names them; the report lists cases whose result flipped), `injection` (prompt injection attempts), `paraphrase`, and
+a case of the same tag in each of the `EVAL_REPEATS` runs; the report lists cases whose result flipped), `injection` (prompt injection attempts), `paraphrase`, and
 `known-limitation` (beyond the documented design, such as a synonym that shares no letters with the product name: reported apart
 and left out of every score).
 
@@ -147,7 +160,7 @@ Besides pass or fail, each message is counted for the acceptance gate of the pro
 - **Ignored action**: something the buyer asked for (a change, «listo» or a pending) that produced neither its effect nor any notice
   for the message, counted per action. A removal applied with «listo» lost and no notice is one. With outcomes stated, each asked
   outcome the message lacks counts; without, each expected order line the order lacks, and an expected notice that never came.
-- **Wrong silent change**: the order is wrong and the message sent no notice.
+- **Wrong visible field**: a diagnostic of the order being wrong with no notice, whether or not the line carries a «Con duda» mark; it is not the founder's gate (see `silentWrongChanges` below).
 - **Extra notice**: a notice on a message expected silent (`notice: null`); the gate is its share of the silent messages.
 - **Two notices for one product**: in a conversation, the same product named by the notices of two messages, unless the later one has
   `expectsRepeatNotice`.
@@ -159,8 +172,8 @@ certainties with their gate, the counts above, latency, retries, model calls wit
 
 - **The gate**, over the first run of each scored message, whole and per family (`kind`): right count and percentage, ignored actions,
   conversations with two notices for one product, wrong silent changes, extra notices as a share of the messages expected silent.
-  Repeated runs (see `EVAL_REPEAT_TAGS`) never count toward it; cases whose repeats gave another result are listed as flips apart;
-- the cost per scored message against the US$0.003 target (a reported target, not a gate) with input, cached, output and reasoning
+  The sections of the first run are this gate; the later runs feed the metrics section (mean, min and max per metric); cases whose runs gave another result are listed as flips apart;
+- the cost per scored message against the US$0.003 cap per message (reader plus photo stages; founder, 2026-11-01) with input, cached, output and reasoning
   tokens, the p95 latency per message, and the model calls per message kind (text, photo, photo with caption) against what the
   design allows (the reader and the vision chooser are not told apart);
 - a `pinned-miss` section: for each case tagged `pinned-miss`, the ignored actions of each repetition;
@@ -230,7 +243,22 @@ true) and `variants` (non-empty list). A variant has `attributes` (an object who
 - An expectation has `notice` (a seller notice kind or `null` for silent), and optionally `order` (the open order after the message;
   absent means unchanged) and `outcomes` (a list of outcome kinds, as a multiset). A message case needs `notice` or `outcomes`; a
   conversation step always has `notice`.
-- Seller notice kinds: `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `unnamed_add`, `variant_only`, `image_with_request`, `no_open_order`, `failed`, `order_closed`, `several_problems`, `only_item_kept`, `ready`, `new_order`, `not_applied`, `caption_not_applied`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`.
-- Outcome kinds: `added`, `removed`, `quantity_lowered`, `quantity_changed`, `variant_changed`, `mentioned_price_set`, `ready`, `only_item_kept`, `order_closed`, `no_intent`, `variant_only`, `unnamed_add`, `image_with_request`, `no_open_order`, `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `new_order_after_closed`, `failed`, `pending_created`, `pending_updated`, `pending_completed`, `pending_split`, `pending_ended`, `reader_doubt`, `request_not_allowed`, `invalid_action`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`, `caption_not_applied`.
+- Seller notice kinds: `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `unnamed_add`, `variant_only`, `image_with_request`, `no_open_order`, `failed`, `order_closed`, `several_problems`, `only_item_kept`, `ready`, `new_order`, `not_applied`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`, `payment_request`, `order_changed_after_link`.
+- Outcome kinds: `added`, `removed`, `quantity_lowered`, `quantity_changed`, `variant_changed`, `mentioned_price_set`, `ready`, `only_item_kept`, `order_closed`, `no_intent`, `variant_only`, `unnamed_add`, `image_with_request`, `no_open_order`, `not_identified`, `not_clear`, `variant_missing`, `variant_not_available`, `quantity_above_limit`, `unclear_item`, `new_order_after_closed`, `failed`, `pending_created`, `pending_updated`, `pending_completed`, `pending_split`, `pending_ended`, `reader_doubt`, `request_not_allowed`, `invalid_action`, `product_not_available`, `variant_for_several_pendings`, `ready_with_pendings`, `caption_not_applied`, `payment_requested`, `changed_after_link`, `questions`.
 
 Every product named by a case must exist in `catalog.json`. A file inside the repository, or reached through a link into it, is refused.
+
+## Metrics over the runs (staged reader)
+
+The report's `runs` section scores each of the `EVAL_REPEATS` runs apart (`lib/metrics.ts`) and gives mean, min and max per metric:
+intent, fields, resolution and decision accuracy (over the messages whose case states them), silent wrong changes (the founder's gate, judged per changed line: a message counts only when one of the lines it changed, a completed pending included, has no «Con duda» mark, own or inherited, no notice was sent, and that line differs from the expected order's line for its product and variant: missing, extra, or another quantity, variant or price. Differences in lines the message did not touch, such as a cascade from an earlier message, do not count for it; records from before the rows were scored use the message-wide reading), ignored requests (no change, mark, «Por resolver» point or notice; with the change rows read, a message that changed no line left no change, so a `pending_ended` decline with no trace decisions is counted, while on the expectation side `pending_ended` stays a change: a decline ends the pending as the buyer asked, and a case that expects an interruption states its `decision`),
+urgent share with precision and recall, the false urgent share (messages that interrupted the seller without needing it, over the decided messages; the urgent gate is a false urgent share at or under 10 % with urgent recall at 100 %, while the total urgent share and precision are reported only, because the case sets expect about 30 % urgent messages), the «Pedido #N cambió» count apart, cost per message and per stage (photo stages included), and the p95
+from the start of the reading to the decision without queue wait. `eval:compare` calls a metric better or worse only when the ranges of the two
+runs do not overlap; otherwise it prints «not distinguishable». A case states its stages with `stages` (intent, fields, product) and `decision`;
+the cases without them are relabelled by derivation from their notice and outcomes (`lib/stage-facts.ts`; an outcome that is a problem, with no pending beside it, expects an urgent decision), a conversation that deactivates a product restores the catalog's status when it ends, each record keeps the masked output of every stage (`reading`), and `cases/stage-labels.ts` labels
+the cases of the four seed-bank families. Records of the current (legacy) reader path carry no stage facts and feed only the gate flags until
+the suites point at the staged pipeline.
+
+A private run (`EVAL_PRIVATE_DIR`) prints aggregate lines only and writes `<dir>/runs/<run>.summary.json` with the ids of the failed cases and
+the type of each failure (`lib/private-run-summary.ts`); no input, product, judge reason or error text. The holdout ids of the seed bank live
+only in the private folder's `seed-bank.json`.

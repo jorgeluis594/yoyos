@@ -35,9 +35,10 @@ import { catalogSearchReadiness } from "@core/src/features/products/application/
 import { hasActiveProducts } from "@core/src/features/products/infrastructure/catalog-search-readiness";
 import { findProductsForReading } from "@core/src/features/products/application/find-products-for-reading";
 import { findMessageCandidates } from "@core/src/features/products/application/find-message-candidates";
+import { findMentionCandidates } from "@core/src/features/products/application/find-mention-candidates";
 import { readProductRowsForReading } from "@core/src/features/products/infrastructure/reading-products";
-import { searchProductsByCoverage } from "@core/src/features/products/infrastructure/text-candidates";
-import { defaultTextMatchLimits } from "@core/src/features/products/domain/message-words";
+import { searchMentionsByCoverage, searchProductsByCoverage } from "@core/src/features/products/infrastructure/text-candidates";
+import { defaultMentionPairBudget, defaultTextMatchLimits } from "@core/src/features/products/domain/message-words";
 import type { AppError, Result } from "@shared/result";
 import { searchForAssistant, type AssistantProductSearch } from "@core/src/features/products/application/search-for-assistant";
 import { findForAssistant, type AssistantProductReference } from "@core/src/features/products/application/find-for-assistant";
@@ -130,6 +131,10 @@ export function createVisualSearch(env: Env): VisualSearchSetup {
 
 const candidateEnvSchema = z.object({
   TEXT_MATCH_CANDIDATES: z.coerce.number().int().min(1).max(MAX_CANDIDATES).default(defaultTextMatchLimits.candidates),
+  TEXT_MATCH_UNAVAILABLE_CANDIDATES: z.coerce.number().int().min(0).max(4).default(defaultTextMatchLimits.unavailableCandidates),
+  // The staged reader's search of a message's mentions: candidates per mention and the pair budget of the one statement shared by all of them.
+  READER_CANDIDATES_PER_MENTION: z.coerce.number().int().min(1).max(MAX_CANDIDATES).default(5),
+  READER_MENTION_PAIR_BUDGET: z.coerce.number().int().positive().default(defaultMentionPairBudget),
   TEXT_MATCH_MIN_SIMILARITY: z.coerce.number().min(0).max(1).default(defaultTextMatchLimits.minSimilarity),
   TEXT_MATCH_PAIR_BUDGET: z.coerce.number().int().positive().default(defaultTextMatchLimits.pairBudget),
   TEXT_MATCH_MIN_WORDS: z.coerce.number().int().min(1).default(defaultTextMatchLimits.minWords),
@@ -139,11 +144,19 @@ const candidateEnvSchema = z.object({
 /** Message candidate search limits from env; invalid values fail at startup, empty values count as unset. */
 export function createMessageCandidateLimits(env: Env) {
   const config = candidateEnvSchema.parse(Object.fromEntries(Object.entries(env).filter(([, value]) => value !== "")));
-  return { candidates: config.TEXT_MATCH_CANDIDATES, minSimilarity: config.TEXT_MATCH_MIN_SIMILARITY, pairBudget: config.TEXT_MATCH_PAIR_BUDGET,
+  return { candidates: config.TEXT_MATCH_CANDIDATES, unavailableCandidates: config.TEXT_MATCH_UNAVAILABLE_CANDIDATES, minSimilarity: config.TEXT_MATCH_MIN_SIMILARITY, pairBudget: config.TEXT_MATCH_PAIR_BUDGET,
     minWords: config.TEXT_MATCH_MIN_WORDS, maxWords: config.TEXT_MATCH_MAX_WORDS, timeoutMs: 1_000 };
 }
 
 const messageCandidateLimits = createMessageCandidateLimits(process.env);
+
+/** The limits of the mention search: the text search's, with the reader's candidates per mention and its own pair budget. */
+export function createMentionSearchLimits(env: Env) {
+  const config = candidateEnvSchema.parse(Object.fromEntries(Object.entries(env).filter(([, value]) => value !== "")));
+  return { ...createMessageCandidateLimits(env), candidates: config.READER_CANDIDATES_PER_MENTION, pairBudget: config.READER_MENTION_PAIR_BUDGET };
+}
+
+const mentionSearchLimits = createMentionSearchLimits(process.env);
 
 const visualSearchSetup = createVisualSearch(process.env);
 export const imageEmbedder = visualSearchSetup.embedder;
@@ -216,6 +229,8 @@ export const products = {
   findProductsForReading: (productIds: readonly ProductId[]) => findProductsForReading(productIds, { readRows: readProductRowsForReading }),
   /** The products whose name matches the most words of a message; a timeout returns no ids with `timedOut`. */
   findMessageCandidates: (text: string) => findMessageCandidates(text, { searchByCoverage: (words) => searchProductsByCoverage(words, messageCandidateLimits) }),
+  /** The candidates of every mention of a message, searched in one statement; a timeout returns every mention empty with `timedOut`. */
+  findMentionCandidates: (mentions: readonly string[]) => findMentionCandidates(mentions, { searchMentions: (texts) => searchMentionsByCoverage(texts, mentionSearchLimits) }),
   catalogSearchReadiness: () => catalogSearchReadiness(readinessDependencies),
   listForCatalog: (criteria: Parameters<typeof listCatalogProducts>[0]) =>
     listCatalogProducts(criteria, { repository: catalogProductRepository, images: listImages }),

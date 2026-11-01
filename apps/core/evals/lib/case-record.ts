@@ -1,10 +1,50 @@
 import { appendFile, mkdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
-import type { EvalPass } from "@core/evals/cases/schema";
+import type { DecisionKind, EvalPass } from "@core/evals/cases/schema";
 import type { JudgeVerdict } from "@core/evals/lib/claude";
 import type { ModelCall } from "@core/evals/lib/model-meter";
 import type { FieldScores } from "@core/evals/lib/scorers";
 import { privateDirOf } from "@core/evals/cases/private";
+
+/**
+ * What the scoring of one message states for the v2 metrics (lib/metrics.ts). `null` is a stage the case does not state. Only the staged
+ * path and the fake mode fill it (T16 wires the staged pipeline); older records have none and keep the gate flags.
+ */
+export type StageFacts = Readonly<{
+  intent: boolean | null;
+  fields: boolean | null;
+  resolution: boolean | null;
+  decision: boolean | null;
+  decisionExpected: DecisionKind;
+  decisionActual: DecisionKind;
+  /** The buyer asked for something (a request, «listo» or a payment request). */
+  requested: boolean;
+  /** What the message left: a change in the order, a «Con duda» mark, a «Por resolver» point, a seller notice. */
+  changeApplied: boolean;
+  marked: boolean;
+  /** The lines this message changed (the message's `OrderItemChange` rows, completions of a pending included) and how many carry no «Con duda» mark. Absent in records from before they were measured. */
+  changedLines?: number;
+  unmarkedLines?: number;
+  /** Of those, the lines with no mark that differ from the expected order's line (missing, extra, or another quantity, variant or price): what the silent-change gate counts. */
+  silentLines?: number;
+  point: boolean;
+  noticed: boolean;
+  /** The order after the message equals the expected one; null when the case states no order. */
+  orderMatches: boolean | null;
+  /** The notice was «Pedido #N cambió»: counted apart from the urgent ones. */
+  changedNotice: boolean;
+  /** From the start of the reading to the decision, without the wait behind earlier messages of the chat, which is `queuedMs`. */
+  readingMs: number;
+  queuedMs: number;
+  /** Cost of each stage in US$ (`intent`, `extraction`, `confirming_extraction`, `resolution`, `confirming_resolution`, `photo_qr`, `photo_visual`). */
+  stageCostsUsd: Readonly<Record<string, number>>;
+}>;
+
+/** What the stages of the reading said for one message (masked, as the trace stores them), so a failure can be traced to a stage instead of inferred. */
+export type ReadingRecord = Readonly<{
+  stages: readonly Readonly<{ stage: string; reading: string; promptVersion: string; errorCode: string | null; output: unknown }>[];
+  decisions: readonly Readonly<{ action: string; risk: string; agreement: string; decision: string }>[];
+}>;
 
 /** What one run of one case (or one message of a conversation) left: scores, the actual result, latency and model calls. Plain JSON. */
 export type CaseRecord = Readonly<{
@@ -31,9 +71,13 @@ export type CaseRecord = Readonly<{
   step: number | null;
   /** How the message misled the seller (lib/scorers.ts `MessageScored`); all neutral outside message passes. */
   ignoredActions: number;
-  wrongSilentChange: boolean;
+  wrongVisibleField: boolean;
   extraNotice: boolean;
   expectedSilent: boolean;
+  /** The v2 metric inputs; absent in records of the legacy reader path. */
+  facts?: StageFacts;
+  /** The masked output of each stage the reading ran; absent outside the staged path. */
+  reading?: ReadingRecord;
   /** The products the message's notice names; a conversation checks that no product is named by two notices. */
   noticeProducts: readonly string[];
   expectsRepeatNotice: boolean;

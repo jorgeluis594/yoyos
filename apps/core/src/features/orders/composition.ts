@@ -53,24 +53,53 @@ import { registerShipment, registerDelivery, type FulfillOrderDependencies } fro
 import { getOrderAggregate } from "@core/src/features/orders/application/read-order-aggregate";
 import { listOrderAggregates } from "@core/src/features/orders/application/list-order-aggregates";
 import { listOrders } from "@core/src/features/orders/application/read-orders";
+import { deleteExpiredMessageTraces, type DeleteExpiredMessageTracesDependencies, type DeleteExpiredMessageTracesInput } from "@core/src/features/orders/application/delete-expired-message-traces";
+import { reportVerdictLabels, type ReportVerdictLabelsInput } from "@core/src/features/orders/application/report-verdict-labels";
+import { countVerdicts } from "@core/src/features/orders/infrastructure/verdict-counts";
+import { readVerdictReportTimeoutMs } from "@core/src/features/orders/infrastructure/verdict-report-env";
+import { deleteExpiredMessageTraces as deleteCompanyExpiredMessageTraces, findTraceQuotes, saveMessageTrace, listCompaniesWithExpiredMessageTraces, readAuditedMessageTraces, type TraceReadAudit } from "@core/src/features/orders/infrastructure/message-trace-repository";
 import { deleteExpiredCatalogOrders, type DeleteExpiredCatalogOrdersDependencies, type DeleteExpiredCatalogOrdersInput } from "@core/src/features/orders/application/delete-expired-catalog-orders";
+import type { AggregatePage } from "@core/src/features/orders/application/list-order-aggregates";
 import { allocateOrderNumber, findOrderNumbers, findChatOrderTargetForUpdate, findChatOrderTarget, findChatOrdersOpenedSince, saveItemChanges as saveOrderItemChanges, saveOrderCustomer, recordProcessedMessage, savePendingOrder, saveDelivery, savePayment, updatePayment, saveCompletion, saveStockDeduction, saveFulfillment, saveDispatchSchedule, saveCancellation, findOrderAggregate as findAnyOrderAggregate, findOrderAggregates, findOrderAggregatesByIds, findOrderForUpdate as findAnyOrderForUpdate, findOrders, orderExists, readCatalogOrderConfirmation as readConfirmation, listCompaniesWithExpiredCatalogOrders, deleteExpiredCatalogOrders as deleteCompanyExpiredCatalogOrders } from "@core/src/features/orders/infrastructure/order-repository";
 import { findSellableVariants, findSellableVariantStock, findProductIdsOfVariants, findProductNoticeNames, lockVariantStock, deductStockBulk, restoreStockBulk, findVariantStock, searchSaleCatalog } from "@core/src/features/products";
 import { ensureCustomerForContact, lockContact } from "@core/src/features/contacts";
 import { findOrderSourceMessage } from "@core/src/features/chats";
+import { findRecentChatMessages } from "@core/src/features/chats/composition";
+import { loadReadingContext as loadReadingContextWith, type ReadingMessage } from "@core/src/features/orders/application/reader/load-reading-context";
+import { findMaskedTexts } from "@core/src/features/orders/infrastructure/message-masked-text-lookup";
+import { findShopCurrency } from "@core/src/features/orders/infrastructure/shop-currency-lookup";
+import { readReadingBudgets, readReadingLimits } from "@core/src/features/orders/infrastructure/reading-budgets-env";
+import { createReadingDeadline, withAbort } from "@core/src/features/orders/infrastructure/reader/runtime/reading-deadline";
 import { applyChatMessage, type ApplyChatMessageDependencies } from "@core/src/features/orders/application/apply-chat-message";
 import { createChatMessageDeadLetterHandler, createChatMessageHandler, type ChatMessageHandlerDependencies } from "@core/src/features/orders/application/chat-message-handler";
 import { chatMessageDeadlineMs, chatMessagePolicy } from "@core/src/features/orders/application/chat-message-policy";
 import type { PublishChatMessageProcessed } from "@core/src/features/orders/application/events";
-import { findChatPendings, findChatPendingsForUpdate, saveChatPendings } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { buildMessageTrace } from "@core/src/features/orders/application/reader/build-message-trace";
+import { createLegacyShadowReader } from "@core/src/features/orders/application/reader/legacy-shadow-reader";
+import { readShadowConfig } from "@core/src/features/orders/infrastructure/reader/shadow-config";
+import { priceOf } from "@core/src/shared/infrastructure/model-prices";
+import { readChatReaderEnv } from "@core/src/features/orders/infrastructure/chat-reader-env";
+import { findChatMemory, findChatPendings, findChatPendingsForUpdate, saveChatPendings, saveLastIncomingPhotoOfMessageChat } from "@core/src/features/orders/infrastructure/chat-pending-repository";
+import { recordFailedChatMessage } from "@core/src/features/orders/application/record-failed-chat-message";
+import { confirmOrderReview, type ConfirmOrderReviewInput } from "@core/src/features/orders/application/confirm-order-review";
+import { loadOrderReview, type LoadOrderReviewInput } from "@core/src/features/orders/application/load-order-review";
+import { recordLinkAction, type RecordLinkActionInput } from "@core/src/features/orders/application/record-link-action";
+import { findChangesAfter, findChangesByIds, findLinkNoticeArming, findLatestChatOrder, findOrderChanges, findReview, findReviewListFacts, markChangesReviewed, saveLinkAction, saveReview, settleUnreviewedChanges } from "@core/src/features/orders/infrastructure/order-review-repository";
+import { pointsOfOrder, reviewStatus } from "@core/src/features/orders/domain/order-review";
+import { findLaterChanges, findMessageChanges, findUnverdictedChanges, markMessageUndone, releaseSupersededChanges, saveMessageChanges, saveSellerActedAt, setUndoneVerdicts, setVerdictsForEdit } from "@core/src/features/orders/infrastructure/message-change-repository";
+import { undoMessageChanges, type UndoMessageError, type UndoMessageInput } from "@core/src/features/orders/application/undo-message-changes";
+import type { OrderItemChangeId } from "@core/src/features/orders/domain/message-changes";
 import { createChatReaderFromEnv } from "@core/src/features/orders/infrastructure/chat-reader-from-env";
+import { readerStagesFromEnv } from "@core/src/features/orders/infrastructure/reader/runtime/reader-stages-from-env";
 import { readChatMessageLimits } from "@core/src/features/orders/infrastructure/chat-message-limits-env";
 import type { ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
-import { findOutcome, recordFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
+import { findOutcome, insertFailedOutcome, recordOutcome } from "@core/src/features/orders/infrastructure/chat-message-outcome-repository";
 import { claimNotice, releaseNotice } from "@core/src/features/orders/infrastructure/chat-message-notice-repository";
 import type { ClaimedNotice } from "@core/src/features/orders/domain/seller-notice";
 import { describeChatMessageNotice as describeNotice, type NoticeLocale } from "@core/src/features/orders/application/describe-chat-message-notice";
 import { findSellerNoticeTarget } from "@core/src/features/orders/application/find-seller-notice-target";
+import { findOpenQuestions } from "@core/src/features/orders/application/find-open-questions";
+import { findChatQuestionStates, findMessageChats, findOrderQuestionFacts, findOutcomes } from "@core/src/features/orders/infrastructure/open-question-repository";
 import { renderSellerNotice } from "@core/src/features/orders/presentation/seller-notice-texts";
 import { products } from "@core/src/features/products/composition";
 import type { ChatId } from "@core/src/features/orders/domain/message-order";
@@ -304,7 +333,7 @@ function forFulfillment<A extends unknown[], T>(operation: FulfillmentOperation,
 
 // Shipping and delivering deduct pending stock, so each deduction logs under the operation that asked for it, like set_order_delivery does.
 const fulfillmentDependenciesFor = (operation: FulfillmentOperation): FulfillOrderDependencies => ({ transaction: fulfillmentTransaction, findOrderForUpdate,
-  saveFulfillment, clock: () => new Date(),
+  saveFulfillment, settleUnreviewedChanges, clock: () => new Date(),
   lockVariantStock: forFulfillment(operation, lockVariantStock, "lock_stock"), deductStockBulk: forFulfillment(operation, deductStockBulk, "deduct_stock"),
   saveStockDeduction: (id, companyId, at) => saveStockDeduction(id, companyId, at, operation) });
 
@@ -364,7 +393,7 @@ export function createConfiguredOrder(input: CreateCompleteOrderInput, context: 
     create: orders.create,
     setDelivery: (delivery, access) => setConfiguredOrderDelivery(delivery, access),
     registerPayment: (payment, access) => registerPayment(payment, access, { transaction: paymentTransaction,
-      findOrderForUpdate, savePayment, updatePayment, saveCompletion, publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock: () => new Date() }),
+      findOrderForUpdate, savePayment, updatePayment, saveCompletion, settleUnreviewedChanges, publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock: () => new Date() }),
     ship: orders.ship,
     deliver: orders.deliver,
   });
@@ -479,6 +508,25 @@ export function deleteConfiguredExpiredCatalogOrders(input: DeleteExpiredCatalog
     } });
 }
 
+/** Worker sweep: each company's batch runs in its own transaction under RLS; an unexpected error fails only that company. */
+export function deleteConfiguredExpiredMessageTraces(input: DeleteExpiredMessageTracesInput) {
+  const dependencies: DeleteExpiredMessageTracesDependencies = { listCompaniesWithExpiredMessageTraces,
+    deleteExpiredMessageTraces: async (companyId, cutoff, limit) => {
+      try {
+        return await withTenantIsolation(companyId, () => withinTransaction(() => deleteCompanyExpiredMessageTraces(companyId, cutoff, limit)));
+      } catch (cause) {
+        log.error({ event: "unable_to_delete_message_traces", companyId, errorCode: "PERSISTENCE_UNAVAILABLE", err: cause }, "Unable to delete message traces");
+        return err({ code: "PERSISTENCE_UNAVAILABLE" as const, message: "Unable to delete message traces" });
+      }
+    } };
+  return deleteExpiredMessageTraces(input, dependencies);
+}
+
+/** The trace CLI: the audit row and the reads share one tenant transaction, so a failed audit reads nothing. */
+export function readMessageTraces(companyId: CompanyId, audit: TraceReadAudit) {
+  return withTenantIsolation(companyId, () => withinTransaction(() => readAuditedMessageTraces(audit)));
+}
+
 /** The checkout link on the brand host of `subdomain`, which the caller already holds; no query. */
 const checkoutUrlFor = (subdomain: CatalogSubdomain | null, orderId: OrderId) =>
   buildCheckoutUrl(storefrontConfig.baseUrl, subdomain, orderId);
@@ -578,6 +626,9 @@ export async function editConfiguredOrder(input: EditOrderInput, access: OrderAc
     publishStockIncreased: (variantIds) => { observed.stage = "restock"; return publishStockEvent("product_stock_increased", { companyId: access.companyId, variantIds }); },
     findVariantStock,
     newItemId: () => randomUUID() as OrderItemId,
+    setVerdictsForEdit,
+    saveSellerActedAt,
+    clock: () => new Date(),
   });
   const durationMs = Math.round(performance.now() - started);
   const parts = (["items", "customer", "delivery"] as const).filter((part) => input[part] !== undefined);
@@ -607,6 +658,68 @@ export async function editConfiguredOrder(input: EditOrderInput, access: OrderAc
   return result;
 }
 
+/** Undo runs in a producer-style transaction: lock waits end below Prisma's timer. The order lock comes first, then the chat's pendings, as the message apply does. */
+async function undoConfiguredMessage(input: UndoMessageInput, access: OrderAccess) {
+  const undone = await undoMessageChanges(input, access, {
+    transaction: (companyId, work) => producerTransaction(companyId, work),
+    findOrderForUpdate,
+    findChatPendingsForUpdate,
+    findMessageChanges,
+    findLaterChanges,
+    findSellableVariants,
+    saveItemChanges: saveOrderItemChanges,
+    saveChatPendings,
+    markMessageUndone,
+    setUndoneVerdicts,
+    releaseSupersededChanges,
+    saveSellerActedAt,
+    clock: () => new Date(),
+    newItemId: () => randomUUID() as OrderItemId,
+    pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs,
+  });
+  if (undone.success && undone.data.undone) afterTransactionCommit(() => log.info({ event: "order_message_undone", companyId: access.companyId, orderId: input.orderId,
+    messageId: input.messageId, userId: access.userId, changeCount: undone.data.changeCount, pendingsRestored: undone.data.pendingsRestored, pendingsEnded: undone.data.pendingsEnded }, "order_message_undone"));
+  return undone satisfies Result<unknown, UndoMessageError>;
+}
+
+/** The review of an order, read from one snapshot. The web loader, the review route and the answer of an undo all call it. */
+function loadConfiguredOrderReview(input: LoadOrderReviewInput, access: OrderAccess) {
+  return loadOrderReview(input, access, { inSnapshot: withinReadSnapshot, findOrder: async (id, companyId) => { const found = await findOrderAggregate(id, companyId); return found.success ? found : err({ code: found.error.code === "INVALID_ORDER" ? "INVALID_STORED_DATA" : found.error.code, message: found.error.message }); }, findOrderChanges, findChatPendings, findLatestChatOrder, findTraceQuotes,
+    findSellableVariants, findProductNames: findProductNoticeNames, clock: () => new Date(), pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs });
+}
+
+/** Review confirmation runs in a producer-style transaction, because its corrections publish stock events like an edit does. */
+async function confirmConfiguredOrderReview(input: ConfirmOrderReviewInput, access: OrderAccess) {
+  const confirmed = await confirmOrderReview(input, access, {
+    transaction: (companyId, work) => producerTransaction(companyId, work),
+    findOrderForUpdate, findChatPendingsForUpdate, findLatestChatOrder, findReview, findChangesAfter, findChangesByIds, saveReview, markChangesReviewed, saveChatPendings, saveLinkAction,
+    findSellableVariants, newItemId: () => randomUUID() as OrderItemId, saveItemChanges: saveOrderItemChanges, setVerdictsForEdit, saveSellerActedAt, clock: () => new Date(),
+    publishStockEvent: (payload) => publishStockEvent("order_edited", payload),
+    publishStockIncreased: (variantIds) => publishStockEvent("product_stock_increased", { companyId: access.companyId, variantIds }),
+    findVariantStock, pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs });
+  if (confirmed.success) afterTransactionCommit(() => log.info({ event: "order_review_confirmed", companyId: access.companyId, orderId: input.orderId, reviewId: input.reviewId, userId: access.userId,
+    origin: input.origin, correctedItems: input.corrections.length, shownChanges: input.loaded.changeIds.length, doubtfulShown: confirmed.data.doubtfulShown, pointsAcknowledged: confirmed.data.pointsAcknowledged, changedMeanwhile: confirmed.data.changedMeanwhile.length, linkAction: input.linkAction?.action ?? null }, "order_review_confirmed"));
+  return confirmed;
+}
+
+/** The orders of a list page that have something to review: the batched read of section 11, a fixed number of queries whatever the page size. */
+async function findOrdersToReview(items: readonly OrderAggregate[]): Promise<ReadonlySet<OrderId>> {
+  const chats = items.filter((order) => order.chatId && !order.cancelled && order.completedAt === null);
+  if (chats.length === 0) return new Set();
+  const facts = await findReviewListFacts(chats.map((order) => order.id), [...new Set(chats.map((order) => order.chatId!))]);
+  if (!facts.success) {
+    log.warn({ event: "order_review_list_unavailable", companyId: getCompanyId(), errorCode: facts.error.code }, "order_review_list_unavailable");
+    return new Set();
+  }
+  const now = new Date();
+  return new Set(chats.filter((order) => {
+    const points = pointsOfOrder(facts.data.pendings.get(order.chatId!) ?? [], order, facts.data.latestByChat.get(order.chatId!) ?? null, now, chatMessageDependencies.limits.pendingTtlMs);
+    return reviewStatus({ order, unreviewed: facts.data.unreviewed.get(order.id) ?? [], hasPreviousReview: facts.data.reviewed.has(order.id),
+      points: points.map((pending) => ({ key: { pendingId: pending.id, since: pending.pointSince }, kind: "variant_missing", product: null, quantity: pending.quantity, missing: [], doubt: pending.doubt?.reason ?? null,
+        acknowledged: (pending.acknowledgedAt?.getTime() ?? -1) >= pending.pointSince.getTime(), question: { language: "es", kind: "photo_product_name" } })) }).toReview;
+  }).map((order) => order.id));
+}
+
 /** Whether the stored order already locks its products: the card shows no stock warning then, so the stock is not read. */
 const productsLocked = (order: Pick<OrderAggregate, "cancelled" | "deliveryStatus">) => order.cancelled || order.deliveryStatus !== "pending";
 
@@ -633,6 +746,7 @@ export const orders = {
     companyId: getCompanyId, findOrderNumbers, findProductNames: findProductNoticeNames, render: renderSellerNotice }),
   releaseChatMessageNotice: (messageId: ChatMessageId) => releaseNotice(messageId),
   findSellerNoticeTarget: (messageId: ChatMessageId) => findSellerNoticeTarget(messageId, { findOutcome, orderExists }),
+  findOpenQuestions: (messageIds: readonly ChatMessageId[]) => findOpenQuestions(messageIds, { findOutcomes, findMessageChats, findChatQuestionStates, findOrderQuestionFacts }),
   confirmCheckoutDelivery: async (input: ConfirmCheckoutDeliveryInput, access: CheckoutAccess) => {
     requireNoActiveTransaction();
     bindRequestOperation({ operation: "confirm_checkout" });
@@ -654,6 +768,14 @@ export const orders = {
   },
   setDelivery: (input: SetDeliveryInput, context: OrderAccess) => setConfiguredOrderDelivery(input, context),
   edit: (input: EditOrderInput, access: OrderAccess) => editConfiguredOrder(input, access),
+  undoMessage: (input: UndoMessageInput, access: OrderAccess) => undoConfiguredMessage(input, access),
+  loadOrderReview: loadConfiguredOrderReview,
+  confirmOrderReview: confirmConfiguredOrderReview,
+  recordLinkAction: async (input: RecordLinkActionInput, access: OrderAccess) => {
+    const recorded = await recordLinkAction(input, access, { orderExists: async (orderId) => orderExists(orderId), saveLinkAction, clock: () => new Date() });
+    if (recorded.success) log.info({ event: "order_link_action_recorded", companyId: access.companyId, orderId: input.orderId, userId: access.userId, action: input.action }, "order_link_action_recorded");
+    return recorded;
+  },
   revisions: orderRevisions,
   lineCatalog,
   createCatalogOrder: createConfiguredCatalogOrder,
@@ -683,8 +805,11 @@ export const orders = {
     if (result.data.changed) log.info({ event: "order_checkout_confirmed", companyId: access.companyId, orderNumber: result.data.checkout.number, fromCatalog: result.data.fromCatalog }, "Order checkout confirmed");
     return ok(result.data.checkout);
   },
-  listAggregates: (criteria: Parameters<typeof listOrderAggregates>[0], context: Parameters<typeof listOrderAggregates>[1]) =>
-    listOrderAggregates(criteria, context, findOrderAggregates),
+  /** The page with the set of its orders that need the seller's review (`toReview`). */
+  listAggregates: async (criteria: Parameters<typeof listOrderAggregates>[0], context: Parameters<typeof listOrderAggregates>[1]) => {
+    const page = await listOrderAggregates(criteria, context, findOrderAggregates);
+    return page.success ? ok<AggregatePage & Readonly<{ toReview?: ReadonlySet<OrderId> }>>({ ...page.data, toReview: await findOrdersToReview(page.data.items) }) : page;
+  },
   /** Read-only: the company's orders among these ids with their derived state, one query. */
   getAggregatesByIds: (ids: readonly OrderId[], companyId: CompanyId) => findOrderAggregatesByIds(ids, companyId),
   getAggregate: (id: Parameters<typeof getOrderAggregate>[0], context: Parameters<typeof getOrderAggregate>[1]) =>
@@ -717,7 +842,7 @@ export const orders = {
       if (!published.success) failure = published.error;
       return published;
     };
-    const result = await cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation, publishOrderCancelled, clock: () => new Date() });
+    const result = await cancelOrder(id, context, { transaction: cancellationTransaction, findOrderForUpdate, saveCancellation, settleUnreviewedChanges, publishOrderCancelled, clock: () => new Date() });
     if (failure && result.success) log.error({ event: "order_cancelled_publish_failed", companyId: context.companyId, orderId: id, orderNumber: result.data.number, errorCode: failure.code, err: failure }, "order_cancelled_publish_failed");
     return result;
   },
@@ -731,7 +856,7 @@ export const orders = {
     const markSaved: typeof savePayment = async (...args) => { const result = await savePayment(...args); if (result.success) applied = true; return result; };
     const markUpdated: typeof updatePayment = async (...args) => { const result = await updatePayment(...args); if (result.success) applied = true; return result; };
     const result = await registerPayment(input, context, { transaction: paymentTransaction, findOrderForUpdate,
-      savePayment: markSaved, updatePayment: markUpdated, saveCompletion,
+      savePayment: markSaved, updatePayment: markUpdated, saveCompletion, settleUnreviewedChanges,
       publishPaymentConfirmed: (payload) => publishStockEvent("payment_confirmed", payload), findVariantStock, clock: () => new Date() });
     if (result.success) {
       const { order, stockDue } = result.data;
@@ -793,6 +918,32 @@ export const orders = {
 
 // The products composition imports the event handlers that import this module, so `products` is only read when a message is applied.
 const readChatMessage = createChatReaderFromEnv(process.env);
+const readingBudgets = readReadingBudgets(process.env);
+const readingLimits = (() => {
+  const limits = readReadingLimits(process.env);
+  if (!limits.success) throw new Error(limits.error.message);
+  return limits.data;
+})();
+/** The staged reader's ports from the env; null without OPENAI_API_KEY and no fake. Built on first use so that nothing starts, or fails startup, before a message is read. */
+let stagedPorts: ReturnType<typeof readerStagesFromEnv> | undefined;
+export const createReaderStagePorts = () => (stagedPorts ??= readerStagesFromEnv(process.env, readingBudgets.stageInputMaxChars));
+
+let shadowReaderCache: ApplyChatMessageDependencies["shadowReader"] | undefined;
+/** The legacy shadow reader, built on first use: null when `READER_SHADOW_LEGACY` is off or no model provider is configured. */
+function legacyShadowReader(): ApplyChatMessageDependencies["shadowReader"] {
+  if (shadowReaderCache !== undefined) return shadowReaderCache;
+  const config = readShadowConfig(process.env);
+  if (!config.success) throw new Error(config.error.message);
+  const limits = readChatMessageLimits(process.env);
+  const model = readChatReaderEnv(process.env).AI_READER_MODEL;
+  shadowReaderCache = config.data.legacy && readChatMessage
+    ? createLegacyShadowReader({ readChatMessage, findChatOrderTarget: (chatId) => findChatOrderTarget(chatId, findProductIdsOfVariants), findChatOrdersOpenedSince, findChatPendings,
+      findProductsForReading: (ids) => products.findProductsForReading(ids), findMessageCandidates: (text) => products.findMessageCandidates(text),
+      costOf: (usage) => { const price = priceOf(model); return price ? (usage.inputTokens * price.input + usage.outputTokens * price.output) / 1_000_000 : null; },
+      clock: () => new Date(), limits })
+    : null;
+  return shadowReaderCache;
+}
 
 const chatMessageDependencies: ApplyChatMessageDependencies = {
   findOutcome,
@@ -807,13 +958,18 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   findChatOrdersOpenedSince,
   findChatPendings,
   findChatPendingsForUpdate,
+  findChatMemory,
   saveChatPendings,
   readImage: (imageId) => readImageBytes(imageId),
   identifyProductsInImage: (image, signal) => products.identifyProductsInImage(image, signal),
+  loadReadingContext: (message, target, pendings, photoMemory) => loadReadingContext(message, target, pendings, photoMemory),
+  findMentionCandidates: (mentions) => products.findMentionCandidates(mentions),
   findProductsForReading: (productIds) => products.findProductsForReading(productIds),
-  findMessageCandidates: (text) => products.findMessageCandidates(text),
   catalogSearchReadiness: () => products.catalogSearchReadiness(),
+  get stages() { return createReaderStagePorts(); },
   readChatMessage,
+  createDeadline: (budgetMs, meta, jobSignal) => createReadingDeadline(budgetMs, meta, Date.now, jobSignal).signal,
+  withAbort,
   transaction: scopedOrderTransaction,
   lockContact,
   ensureCustomerForContact: async (contactId) => {
@@ -825,13 +981,31 @@ const chatMessageDependencies: ApplyChatMessageDependencies = {
   saveNewOrder: (order, link) => savePendingOrder(order, link),
   saveItemChanges: saveChatItemChanges,
   recordOrderMessage: recordProcessedMessage,
+  findUnverdictedChanges,
+  findLinkNoticeArming,
+  saveMessageChanges,
+  newChangeId: () => randomUUID() as OrderItemChangeId,
   recordOutcome,
   newOrderId: () => randomUUID() as OrderId,
   newItemId: () => randomUUID() as OrderItemId,
   newPendingId: () => randomUUID() as ChatPendingId,
   clock: () => new Date(),
-  limits: readChatMessageLimits(process.env),
+  buildMessageTrace,
+  saveMessageTrace,
+  // Phase 5 only: the legacy reader runs beside the staged one and never applies anything. T17 removes it.
+  get shadowReader() { return legacyShadowReader(); },
+  limits: { ...readChatMessageLimits(process.env), ...readingLimits },
 };
+
+type ReadingContextLoader = (message: ReadingMessage, target: Parameters<typeof loadReadingContextWith>[2], pendings: Parameters<typeof loadReadingContextWith>[3],
+  photoMemory: Parameters<typeof loadReadingContextWith>[4]) => ReturnType<typeof loadReadingContextWith>;
+
+/** The loader of the reading input on a given clock (a test moves the clock; production uses the real one). */
+export const createReadingContextLoader = (clock: () => Date): ReadingContextLoader => (message, target, pendings, photoMemory) => loadReadingContextWith({ findRecentChatMessages, findMaskedTexts, findOutcome, findShopCurrency, findProductsForReading: (ids) => products.findProductsForReading(ids),
+  findChatOrdersOpenedSince, clock, pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs, budgets: readingBudgets }, message, target, pendings, photoMemory);
+
+/** The input of the staged reader's three stages for a message: recent chat messages, masks, the latest photo outcome, order lines and pendings. */
+export const loadReadingContext: ReadingContextLoader = (message, target, pendings, photoMemory) => createReadingContextLoader(chatMessageDependencies.clock)(message, target, pendings, photoMemory);
 
 type Persistence = Readonly<{ code: "PERSISTENCE_UNAVAILABLE"; message: string }>;
 
@@ -848,7 +1022,7 @@ const publishChatMessageProcessed: PublishChatMessageProcessed = async (payload)
 const chatMessageHandlerDependencies: ChatMessageHandlerDependencies = {
   withTenant: withTenantIsolation,
   apply: (input, signal) => applyChatMessage(input, chatMessageDependencies, signal),
-  recordFailedOutcome,
+  recordFailedOutcome: recordFailedChatMessage({ transaction: (work) => scopedOrderTransaction(getCompanyId(), work), insertFailedOutcome, saveLastIncomingPhotoOfMessageChat }),
   publishNotice: publishChatMessageProcessed,
   deadlineMs: chatMessageDeadlineMs,
   retries: chatMessagePolicy.retries,
@@ -858,3 +1032,9 @@ const chatMessageHandlerDependencies: ChatMessageHandlerDependencies = {
 export const applyChatMessageHandler = createChatMessageHandler(chatMessageHandlerDependencies);
 /** Handler of the dead-letter queue of `apply-chat-message`: releases the chat of a message that cannot be applied. */
 export const chatMessageDeadLetterHandler = createChatMessageDeadLetterHandler(chatMessageHandlerDependencies);
+
+/** The verdicts CLI: counts over every company through the definer aggregate, with its own statement timeout read at call time. */
+export function reportConfiguredVerdictLabels(input: ReportVerdictLabelsInput) {
+  const timeoutMs = readVerdictReportTimeoutMs(process.env);
+  return reportVerdictLabels(input, { countVerdicts: (since, until) => countVerdicts(since, until, timeoutMs) });
+}
