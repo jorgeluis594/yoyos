@@ -1,5 +1,6 @@
 import { defaultReadingBudgets } from "@core/src/features/orders/domain/reader/budgets";
-import type { ReadingContextMessage, ReadingInput, ReadingItem, ReadingPending } from "@core/src/features/orders/domain/reader/readings";
+import { photoLeftText, pendingLine } from "@core/src/features/orders/infrastructure/reader/stages/render-pending";
+import type { ReadingContextMessage, ReadingInput, ReadingItem } from "@core/src/features/orders/domain/reader/readings";
 
 /**
  * Each element costs its text plus at most the fixed characters `readingInputChars` accounts for (frame included), so an input that
@@ -13,15 +14,12 @@ const attributesText = (attributes: Readonly<Record<string, string>>) => Object.
 const contextLine = (message: ReadingContextMessage) =>
   `${message.ref} (${message.direction === "incoming" ? "buyer" : "seller"}, ${message.masked ? "masked" : "unmasked"}, ${message.kind}): ${message.text === null ? "(no text)" : flat(message.text)}`;
 const itemLine = (item: ReadingItem) => `${item.ref}: ${flat(item.productName)}${attributesText(item.variantAttributes)} · quantity ${item.quantity}`;
-const pendingLine = (pending: ReadingPending) => {
-  const subject = pending.productIds.length > 1 ? `a choice between ${pending.productIds.length} products` : "one product";
-  return `${pending.ref}: ${subject}${attributesText(pending.known).replace(/^ · /, " · known: ")} · quantity ${pending.quantity}${pending.doubtful ? " · in doubt" : ""}`;
-};
 
-function photoLines({ current, photo, photoMemory }: ReadingInput): string[] {
+function photoLines(input: ReadingInput): string[] {
+  const { current, photo, photoMemory } = input;
   const shown = photo === null ? [] : [photo.productId === null ? "The photo shows no catalog product." : "The photo shows a catalog product."];
   const previous = photoMemory === null ? [] : [photoMemory.left === null ? "The buyer's previous message was a photo that left nothing."
-    : `The buyer's previous message was a photo that left ${photoMemory.left.kind === "pending" ? "a pending" : "an item in the order"}.`];
+    : `The buyer's previous message was a photo that left ${photoLeftText(input)}.`];
   return [`Message kind: ${current.kind === "image" ? "caption of a photo" : "text message"}`, ...shown, ...previous];
 }
 
@@ -43,7 +41,7 @@ export function renderIntentInput(input: ReadingInput, maxChars: number = defaul
 
   const context = input.context.map(contextLine);
   const items = input.items.map(itemLine);
-  const pendings = input.pendings.map(pendingLine);
+  const pendings = input.pendings.map((pending) => pendingLine(pending, flat));
   let keptContext = context;
   while (keptContext.length > 0 && assemble(keptContext, items, pendings).length > maxChars) keptContext = keptContext.slice(1);
   if (assemble(keptContext, items, pendings).length <= maxChars) return assemble(keptContext, items, pendings);

@@ -994,7 +994,7 @@ type ReadingContextLoader = (message: ReadingMessage, target: Parameters<typeof 
   photoMemory: Parameters<typeof loadReadingContextWith>[4]) => ReturnType<typeof loadReadingContextWith>;
 
 /** The loader of the reading input on a given clock (a test moves the clock; production uses the real one). */
-export const createReadingContextLoader = (clock: () => Date): ReadingContextLoader => (message, target, pendings, photoMemory) => loadReadingContextWith({ findRecentChatMessages, findMaskedTexts, findOutcome, findShopCurrency,
+export const createReadingContextLoader = (clock: () => Date): ReadingContextLoader => (message, target, pendings, photoMemory) => loadReadingContextWith({ findRecentChatMessages, findMaskedTexts, findOutcome, findShopCurrency, findProductsForReading: (ids) => products.findProductsForReading(ids),
   findChatOrdersOpenedSince, clock, pendingTtlMs: chatMessageDependencies.limits.pendingTtlMs, budgets: readingBudgets }, message, target, pendings, photoMemory);
 
 /** The input of the staged reader's three stages for a message: recent chat messages, masks, the latest photo outcome, order lines and pendings. */

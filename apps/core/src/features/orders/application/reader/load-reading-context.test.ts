@@ -5,6 +5,7 @@ import type { RecentChatMessage, RecentChatMessagesQuery } from "@core/src/featu
 import type { ChatMessageId } from "@core/src/features/chats/domain/mobile-message";
 import { loadReadingContext, type LoadReadingContextDependencies, type ReadingMessage } from "@core/src/features/orders/application/reader/load-reading-context";
 import type { StoredChatMessageOutcome } from "@core/src/features/orders/domain/chat-message-outcome";
+import type { ProductForReading } from "@core/src/features/products/domain/reading-product";
 import type { ChatPending, ChatPendingId } from "@core/src/features/orders/domain/chat-pendings";
 import type { ChatOrderTarget } from "@core/src/features/orders/domain/chat-order-target";
 import type { OrderNumber } from "@core/src/features/orders/domain/checkout";
@@ -33,6 +34,7 @@ function fakes(over: Partial<LoadReadingContextDependencies> & { messages?: read
     findRecentChatMessages: async (query) => { calls.recent.push(query); return ok(over.messages ?? []); },
     findMaskedTexts: async (ids) => { calls.masks.push(ids); return ok(over.masks ?? new Map()); },
     findShopCurrency: async () => ok("PEN" as const),
+    findProductsForReading: async () => ok([]),
     findOutcome: async (messageId) => { calls.outcomes.push(messageId); return ok(over.outcomes?.get(messageId) ?? null); },
     findChatOrdersOpenedSince: async (_chat, since) => { calls.openedSince.push(since); return ok([]); },
     clock: () => now, pendingTtlMs: 7 * 24 * hour, budgets: defaultReadingBudgets, ...over,
@@ -116,10 +118,40 @@ describe("loadReadingContext", () => {
       ["I1", id(200), id(400), "Polo 1", 2], ["I2", id(201), id(401), "Polo 2", 2]]);
     expect(loaded.data.input.pendings.map(({ ref, pendingId, productIds, doubtful }) => [ref, pendingId, productIds, doubtful])).toEqual([
       ["Q1", id(501), [id(410)], false], ["Q2", id(502), [id(411), id(412)], true]]);
+    // The catalog could not name them (the fake knows no product): the pendings carry no names and no open values.
+    expect(loaded.data.input.pendings.every((listed) => !("productNames" in listed) && !("missing" in listed))).toBe(true);
     expect(loaded.data.life.ended).toEqual([{ id: id(503), reason: "expired" }]);
     expect(loaded.data.input.photoMemory).toEqual(photoMemory);
     expect(loaded.data.target).toBe(target);
     expect(calls.openedSince).toEqual([ago(24 * 9)]);
+  });
+
+  test("names each pending's products and lists the open attributes with the sellable values that fit what is known", async () => {
+    const variant = (n: number, attributes: Record<string, string>) => ({ variantId: id(600 + n), productName: "Polera", variantAttributes: attributes, sku: null, unitPrice: money(50) });
+    const capucha = { productId: id(410) as ProductId, name: "Polera con capucha", sellable: true,
+      attributes: [{ name: "Talla", values: ["M", "L"] }, { name: "Color", values: ["Gris", "Negro"] }],
+      variants: [variant(1, { Talla: "M", Color: "Gris" }), variant(2, { Talla: "M", Color: "Negro" }), variant(3, { Talla: "L", Color: "Negro" })] } as unknown as ProductForReading;
+    const polo = { productId: id(411) as ProductId, name: "Polo", sellable: true, attributes: [], variants: [] } as unknown as ProductForReading;
+    const requested: (readonly ProductId[])[] = [];
+    const base = { price: null, order: null, lastChangedAt: ago(2), sourceMessageId: id(2) as ChatMessageId, doubt: null, pointSince: ago(2), acknowledgedAt: null, quantity: 1 as PositiveInteger };
+    const pendings = { pendings: [
+      { ...base, id: id(501) as ChatPendingId, requestId: id(501) as ChatPendingId, subject: { kind: "variant", productId: id(410) as ProductId }, known: { Talla: "M" } },
+      { ...base, id: id(502) as ChatPendingId, requestId: id(502) as ChatPendingId, subject: { kind: "product", candidates: [id(410), id(411)] as [ProductId, ProductId] }, known: {} },
+    ] as ChatPending[], readyRemembered: false };
+    const { deps } = fakes({ findProductsForReading: async (ids) => { requested.push(ids); return ok([capucha, polo]); } });
+    const loaded = await loadReadingContext(deps, message(), noTarget, pendings, null);
+    if (!loaded.success) throw new Error("expected context");
+    expect(requested).toEqual([[id(410), id(411)]]);
+    expect(loaded.data.input.pendings[0]).toMatchObject({ productNames: ["Polera con capucha"], missing: [{ name: "Color", values: ["Gris", "Negro"] }] });
+    expect(loaded.data.input.pendings[1]).toMatchObject({ productNames: ["Polera con capucha", "Polo"] });
+    expect(loaded.data.input.pendings[1]).not.toHaveProperty("missing");
+  });
+
+  test("does not read the catalog when there are no pendings", async () => {
+    let reads = 0;
+    const { deps } = fakes({ findProductsForReading: async () => { reads += 1; return ok([]); } });
+    await loadReadingContext(deps, message(), noTarget, noPendings, null);
+    expect(reads).toBe(0);
   });
 
   test("lists at most the budgeted order lines", async () => {

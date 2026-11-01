@@ -7,6 +7,12 @@ const intents = [intent(1, "add", "quiero dos"), intent(2, "ready", "listo")];
 const render = (input = readingInput(), maxChars?: number) => renderExtractionInput(extractionInput(input, intents), maxChars);
 
 describe("extraction input rendering", () => {
+  test("names a pending's product with what is known and, per open attribute, the sellable values", () => {
+    const rendered = render(readingInput({ pendings: [pending(1, { productNames: ["Polera con capucha"], known: { Talla: "M" }, missing: [{ name: "Color", values: ["Gris", "Negro"] }] })] }));
+
+    expect(rendered).toContain("Q1: Polera con capucha · known: Talla M · missing: Color (Gris, Negro) · quantity 1");
+  });
+
   test("lists the requests with their kind and quote, then the context, and ends with the buyer's message", () => {
     const text = render(readingInput({
       current: { messageId: "m" as never, kind: "text", text: "quiero dos y listo" },
