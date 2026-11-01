@@ -18,7 +18,7 @@ const published: StorefrontState = { currency: "PEN", catalog: { kind: "publishe
 const readFailure = { code: "PERSISTENCE_UNAVAILABLE", message: "down" } as const;
 
 const summary = (overrides: Partial<SearchedProduct> = {}): SearchedProduct => ({
-  id: productId, name: "Polo básico", currency: "PEN", variantCount: 2, inactiveCount: 0, matching: null,
+  id: productId, name: "Polo básico", hidden: false, currency: "PEN", variantCount: 2, inactiveCount: 0, matching: null,
   active: { kind: "some", count: 2, minSalePrice: { amount: 39.9, currency: "PEN" }, hasDifferentPrices: true, totalStock: 12, soldOut: 0, low: 1, onlyLevel: null, sku: { kind: "several" } },
   ...overrides,
 });
@@ -57,6 +57,7 @@ describe("assistant product capabilities", () => {
     expect(await linkOf({ currency: "PEN", catalog: { kind: "hidden", subdomain: "rosa" as never } }, summary())).toBeNull();
     expect(await linkOf(published, summary({ active: { kind: "none", sku: { kind: "several" } } }))).toBeNull();
     expect(await linkOf(published, summary({ currency: "BRL" }))).toBeNull();
+    expect(await linkOf(published, summary({ hidden: true }))).toBeNull();
   });
 
   test("maps the refusals of the search to answer kinds", async () => {
@@ -66,7 +67,6 @@ describe("assistant product capabilities", () => {
       return answer.success ? answer.data.kind : answer.error;
     };
     expect(await answerFor({ code: "PRICE_RANGE_REVERSED", message: "" })).toBe("price_range_reversed");
-    expect(await answerFor({ code: "VARIANT_FILTER_OUTSIDE_CATALOG", message: "" })).toBe("variant_filter_outside_catalog");
     expect(await answerFor({ code: "VALUE_REJECTED", message: "", rejection: { kind: "no_options" } })).toBe("value_rejected");
   });
 

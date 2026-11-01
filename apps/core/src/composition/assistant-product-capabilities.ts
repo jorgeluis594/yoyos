@@ -95,13 +95,13 @@ function projectStorefront(state: StorefrontState, makeUrl: ProductCapabilityPor
 export function createProductToolsDependencies(ports: ProductCapabilityPorts): ProductToolsDependencies {
   const slots = createSlots(ports.slots);
 
-  const customerLink = (state: StorefrontState, productId: string, currency: string, inCatalog: boolean): string | null =>
-    state.catalog.kind === "published" && inCatalog && currency === state.currency ? ports.storeUrl(state.catalog.subdomain, `/productos/${productId}`) : null;
+  const customerLink = (state: StorefrontState, productId: string, currency: string, offered: boolean): string | null =>
+    state.catalog.kind === "published" && offered && currency === state.currency ? ports.storeUrl(state.catalog.subdomain, `/productos/${productId}`) : null;
 
   function summaryOf(item: SearchedProduct, state: StorefrontState): ProjectableProductSummary {
     return {
-      id: item.id, name: item.name, variantCount: item.variantCount, inactiveCount: item.inactiveCount, active: item.active,
-      customerLink: customerLink(state, item.id, item.currency, item.active.kind === "some"),
+      id: item.id, name: item.name, hidden: item.hidden, variantCount: item.variantCount, inactiveCount: item.inactiveCount, active: item.active,
+      customerLink: customerLink(state, item.id, item.currency, !item.hidden && item.active.kind === "some"),
       matching: item.matching && { total: item.matching.total, variants: item.matching.variants.map(({ values, sku, salePrice, stock, level }) => ({ values, sku, salePrice, stock, level })) },
     };
   }
@@ -110,9 +110,9 @@ export function createProductToolsDependencies(ports: ProductCapabilityPorts): P
     const active = activeOf(found);
     const valueName = (variant: Product["variants"][number]) => found.options.map((option) => option.values.find((value) => value.id === variant.combination[option.id])?.name ?? "");
     return {
-      id: found.id, name: found.name, description: found.description ?? null,
+      id: found.id, name: found.name, hidden: found.hidden, description: found.description ?? null,
       options: found.options.map((option) => ({ name: option.name, values: option.values.map((value) => value.name) })),
-      active, customerLink: customerLink(state, found.id, found.currency, active.kind === "some"),
+      active, customerLink: customerLink(state, found.id, found.currency, !found.hidden && active.kind === "some"),
       variants: found.variants.map((variant) => ({
         values: valueName(variant), sku: variant.sku ?? null, salePrice: variant.salePrice, stock: variant.stock.quantity, level: stockLevelOf(variant.stock.quantity),
         purchasePrice: variant.purchasePrice ?? null, isActive: variant.status === "active", searched: variant.id === searchedVariantId,
@@ -154,7 +154,6 @@ export function createProductToolsDependencies(ports: ProductCapabilityPorts): P
         }
         switch (found.error.code) {
           case "PRICE_RANGE_REVERSED": return ok({ storefront, kind: "price_range_reversed" });
-          case "VARIANT_FILTER_OUTSIDE_CATALOG": return ok({ storefront, kind: "variant_filter_outside_catalog" });
           case "VALUE_REJECTED": return ok({ storefront, kind: "value_rejected", rejection: projectRejection(found.error.rejection) });
           default: return found;
         }
