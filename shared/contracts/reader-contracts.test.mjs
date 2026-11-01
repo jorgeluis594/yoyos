@@ -105,7 +105,7 @@ test("undo, link action and open question contracts", () => {
   assert.equal(openQuestionsResponseSchema.safeParse({ ...questions, messages: [{ messageId: id(1), points: [{ id: id(2), text: "", about: "Polera" }] }] }).success, false);
 });
 
-test("the order aggregate requires the items revision and the summary keeps toReview optional", () => {
+test("the order aggregate requires the items revision and the summary requires toReview", () => {
   assert.ok("revisions" in orderAggregateSchema.shape);
   assert.equal(orderAggregateSchema.shape.revisions.safeParse(undefined).success, false);
   assert.ok(orderAggregateSchema.shape.revisions.safeParse({ items: revision }).success);
