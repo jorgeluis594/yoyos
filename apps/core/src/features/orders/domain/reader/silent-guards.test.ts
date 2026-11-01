@@ -1,23 +1,7 @@
 import { describe, expect, test } from "vitest";
 import type { CheckedAction } from "@core/src/features/orders/domain/reader/decide";
 import type { RequestRef } from "@core/src/features/orders/domain/reader/readings";
-import { lostRequests, quoteNames } from "@core/src/features/orders/domain/reader/silent-guards";
-
-describe("quoteNames", () => {
-  const catalog = ["Polo básico", "Negro", "M"];
-
-  test("accepts a quote with a catalog word, ignoring case, accents and a plural or other ending", () => {
-    expect(quoteNames("los POLOS", catalog)).toBe(true);
-    expect(quoteNames("el basico", catalog)).toBe(true);
-    expect(quoteNames("la negra", ["Negro"])).toBe(true);
-    expect(quoteNames("el negro", catalog)).toBe(true);
-    expect(quoteNames("la M", catalog)).toBe(true);
-  });
-
-  test("refuses a quote that holds no catalog word, such as a pronoun or a demonstrative", () => {
-    for (const quote of ["esas", "lo mismo", "igual", "ese"]) expect(quoteNames(quote, catalog)).toBe(false);
-  });
-});
+import { lostRequests } from "@core/src/features/orders/domain/reader/silent-guards";
 
 describe("lostRequests", () => {
   const answered = { request: "R1" as RequestRef } as CheckedAction;
@@ -30,5 +14,10 @@ describe("lostRequests", () => {
 
   test("gives nothing when every intent was answered", () => {
     expect(lostRequests([], ["R1" as RequestRef], [answered])).toEqual([]);
+  });
+
+  test("counts a request that another request absorbed as answered, from the dedupe or from the action that folded it", () => {
+    const folding = { request: "R1" as RequestRef, absorbed: ["R2" as RequestRef] } as unknown as CheckedAction;
+    expect(lostRequests([], ["R1" as RequestRef, "R2" as RequestRef, "R3" as RequestRef], [folding], ["R3" as RequestRef])).toEqual([]);
   });
 });

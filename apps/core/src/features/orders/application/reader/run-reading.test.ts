@@ -103,15 +103,16 @@ describe("runReading", () => {
     expect(run.success && run.data.primary).toMatchObject({ droppedIntents: 1, droppedRequests: ["R2"] });
   });
 
-  test("reads one request for intents of the same kind and quote the message says once, and two when it says them twice", async () => {
-    const once = fakes({ intent: { kind: "requests", requests: [intent("R1", "add"), intent("R2", "add")], language: "es", addresses: [] }, extraction: [request("R1", "add")] });
+  test("reads one request for an extraction repeated once, keeps the other as absorbed, and keeps both when the message says the words twice", async () => {
+    const once = fakes({ intent: { kind: "requests", requests: [intent("R1", "add"), intent("R2", "add")], language: "es", addresses: [] }, extraction: [request("R1", "add"), request("R2", "add")] });
     const single = await runReading(once.deps, context, [], signal());
-    expect(single.success && single.data.primary.intents.map(({ id }) => id)).toEqual(["R1"]);
+    expect(single.success && single.data.primary.chain?.requests.map(({ request: entry }) => entry.request)).toEqual(["R1"]);
+    expect(single.success && single.data.primary.chain?.absorbed).toEqual(["R2"]);
 
     const twice = { ...context, input: { ...context.input, current: { ...context.input.current, text: "la polera gris y la polera gris" } } } as unknown as ReadingContextData;
     const both = fakes({ intent: { kind: "requests", requests: [intent("R1", "add"), intent("R2", "add")], language: "es", addresses: [] }, extraction: [request("R1", "add"), request("R2", "add")] });
     const double = await runReading(both.deps, twice, [], signal());
-    expect(double.success && double.data.primary.intents.map(({ id }) => id)).toEqual(["R1", "R2"]);
+    expect(double.success && double.data.primary.chain?.requests.map(({ request: entry }) => entry.request)).toEqual(["R1", "R2"]);
   });
 
   test("starts the confirming extraction for an add only when the order has lines", async () => {
@@ -152,13 +153,40 @@ describe("helpers", () => {
   test("a mention carries the price the request states in the order's currency, with its units, and none in another currency", () => {
     const priced = (currency: "order" | "other") => ({ request: { ...request("R1", "add"), price: { amount: 45, currency, basis: "not_explicit" as const, quote: { source: "current" as const, text: "45" } },
       quantity: { value: 2, mode: "add" as const, quote: { source: "current" as const, text: "2" } } }, complete: true });
-    expect(mentionsOf([priced("order")])[0]!.price).toEqual({ amount: 45, units: 2, basis: "not_explicit" });
-    expect(mentionsOf([priced("other")])[0]!.price).toBeUndefined();
+    expect(mentionsOf([priced("order")], context.input, [])[0]!.price).toEqual({ amount: 45, units: 2, basis: "not_explicit" });
+    expect(mentionsOf([priced("other")], context.input, [])[0]!.price).toBeUndefined();
   });
 
   test("a mention is a request that names its product", () => {
     const named = { request: request("R1", "add"), complete: true };
     const unnamed = { request: { ...request("R2", "add"), target: { kind: "none" } as const }, complete: true };
-    expect(mentionsOf([named, unnamed]).map(({ request: id }) => id)).toEqual(["R1"]);
+    expect(mentionsOf([named, unnamed], context.input, []).map(({ request: id }) => id)).toEqual(["R1"]);
+  });
+
+  test("a request with values for a product its target fixes is a values-only mention of that product", () => {
+    const withValues = (target: ExtractedRequest["target"]) => ({ request: { ...request("R1", "complete_pending"), target, values: [{ attributeWords: null, valueWords: current("negra") }] }, complete: true });
+    const input = { ...context.input, pendings: [{ ref: "Q1", pendingId: "p1", productIds: [productId], known: {}, quantity: 1, doubtful: false }],
+      items: [{ ref: "I1", itemId: "i1", productId, variantId: "v1", productName: "Polera", variantAttributes: {}, quantity: 1 }] } as unknown as typeof context.input;
+
+    expect(mentionsOf([withValues({ kind: "pending", ref: "Q1" as never, named: null })], input, [])).toEqual([expect.objectContaining({ valuesOnly: true, candidateIds: [productId] })]);
+    expect(mentionsOf([withValues({ kind: "item", ref: "I1" as never, named: null })], input, [])).toEqual([expect.objectContaining({ valuesOnly: true, candidateIds: [productId] })]);
+    expect(mentionsOf([withValues({ kind: "photo_same_message" })], input, [productId])).toEqual([expect.objectContaining({ valuesOnly: true, candidateIds: [productId] })]);
+    expect(mentionsOf([withValues({ kind: "photo_same_message" })], input, [])).toEqual([]);
+    expect(mentionsOf([withValues({ kind: "none" })], input, [productId])).toEqual([]);
+  });
+});
+
+describe("values-only resolution", () => {
+  test("resolves the values of a completion without searching the catalog", async () => {
+    const values = [{ attributeWords: null, valueWords: current("negra") }];
+    const { deps, log } = fakes({ intent: { kind: "requests", requests: [intent("R1", "complete_pending", "negra")], language: "es", addresses: [] },
+      extraction: [{ ...request("R1", "complete_pending"), target: { kind: "pending", ref: "Q1" as never, named: null }, values }] });
+    const withPending = { ...context, input: { ...context.input, text: "negra", current: { ...context.input.current, text: "negra" },
+      pendings: [{ ref: "Q1", pendingId: "p1", productIds: [productId], known: {}, quantity: 1, doubtful: false }] } } as unknown as ReadingContextData;
+    const run = await runReading(deps, withPending, [], signal());
+
+    expect(run.success).toBe(true);
+    expect(log.calls).toContain("resolution:primary");
+    expect(log.searches).toBe(0);
   });
 });

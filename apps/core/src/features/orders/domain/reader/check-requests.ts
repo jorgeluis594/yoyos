@@ -8,7 +8,6 @@ import { conflictsWithKnown, describePendings, normalizeValue, pendingPriceOf, r
 import { choicesFromWords, openAttributes, questionValues } from "@core/src/features/orders/domain/reader/check-questions";
 import type { CheckedAction } from "@core/src/features/orders/domain/reader/decide";
 import type { CertaintySignals, DoubtReason, ProblemKind } from "@core/src/features/orders/domain/reader/decision";
-import { quoteNames } from "@core/src/features/orders/domain/reader/silent-guards";
 import type { VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
 import type { BuyerLanguage, ContextMessageRef, ExtractedRequest, ItemRef, PendingRef, ProductResolution } from "@core/src/features/orders/domain/reader/readings";
 import type { SuggestedQuestion } from "@core/src/features/orders/domain/suggested-question";
@@ -73,12 +72,13 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
     return first ? [checked(first, report({ kind: "image_with_request" }), signalsOf(first, "context"), { urgent: { problem: "image_with_request", question: null } })] : [];
   }
   const claims = new Map<string, number>();
-  for (const entry of requests.map((verified) => photoRetargeted(verified, snapshot))) {
+  const retargeted = requests.map((verified) => photoRetargeted(namedOnlyIfResolved(verified, resolutions, snapshot), snapshot));
+  for (const entry of retargeted) {
     const id = claimedPending(entry.request, snapshot);
     if (id) claims.set(id, (claims.get(id) ?? 0) + 1);
   }
   const env: Env = { snapshot, resolutions, claims };
-  return requests.flatMap((entry) => checkOne(photoRetargeted(entry, snapshot), env));
+  return retargeted.flatMap((entry) => checkOne(entry, env));
 }
 
 /**
@@ -86,8 +86,7 @@ export function checkRequests(requests: readonly VerifiedRequest[], resolutions:
  * is about the shown product: the photo is the request. It becomes an add of the shown product, or, when the order already has a single line of it,
  * the same request on that line; with several lines of the shown product it stays as read.
  */
-function photoRetargeted(unchecked: VerifiedRequest, snapshot: CheckSnapshot): VerifiedRequest {
-  const verified = namedOnlyIfNaming(unchecked, snapshot);
+function photoRetargeted(verified: VerifiedRequest, snapshot: CheckSnapshot): VerifiedRequest {
   const { request } = verified;
   if (snapshot.messageKind !== "photo_product" || (request.kind !== "change_quantity" && request.kind !== "change_variant")) return verified;
   if (request.quantity?.mode === "decrease") return verified;
@@ -103,31 +102,37 @@ function photoRetargeted(unchecked: VerifiedRequest, snapshot: CheckSnapshot): V
   return { ...verified, request: { ...request, target: { kind: "item", ref: line.ref, named: null } } };
 }
 
-/** The catalog words a reference to an order line or a pending may use: its products' names and attribute values, and the values the line or pending has. */
-function catalogWordsOf(target: Extract<ExtractedRequest["target"], { kind: "item" | "pending" }>, snapshot: CheckSnapshot): readonly string[] | null {
-  const productWords = (products: readonly CheckProduct[]) => products.flatMap((product) => [product.name, ...product.attributes.flatMap((attribute) => attribute.values)]);
+/** The products an order line or a pending stands for; null when it has none the resolution could choose (an item with no product). */
+function productsOfReference(target: Extract<ExtractedRequest["target"], { kind: "item" | "pending" }>, snapshot: CheckSnapshot): readonly ProductId[] | null {
   if (target.kind === "item") {
     const item = itemOfRef(target.ref, snapshot);
-    return item ? [item.productName, ...Object.values(item.variantAttributes), ...productWords(snapshot.products.filter((product) => product.productId === item.productId))] : null;
+    return item?.productId ? [item.productId] : null;
   }
   const pending = snapshot.pendings.find((entry) => entry.ref === target.ref)?.pending;
   if (!pending) return null;
-  const ids = pending.subject.kind === "variant" ? [pending.subject.productId] : pending.subject.candidates;
-  const products = snapshot.products.filter((product) => ids.includes(product.productId));
-  return products.length > 0 ? [...Object.values(pending.known), ...productWords(products)] : null;
+  return pending.subject.kind === "variant" ? [pending.subject.productId] : pending.subject.candidates;
 }
 
 /**
- * A reference counts as named only when the words the model quoted for it name what it points to in the catalog (the line's or pending's product or
- * values). A pronoun or a demonstrative quoted as the name leaves the target taken from context, which never goes beyond «Con duda».
+ * A reference counts as named only when the resolution of the name the model quoted for it chose that line's or pending's product (code compares no
+ * words): a pronoun or a demonstrative resolves to nothing, so the target stays taken from context, which never goes beyond «Con duda». A resolution
+ * that is `between` several products counts only when exactly one line or pending of the order fits it.
  */
-function namedOnlyIfNaming(verified: VerifiedRequest, snapshot: CheckSnapshot): VerifiedRequest {
+function namedOnlyIfResolved(verified: VerifiedRequest, resolutions: readonly ProductResolution[], snapshot: CheckSnapshot): VerifiedRequest {
   const { target } = verified.request;
   if ((target.kind !== "item" && target.kind !== "pending") || target.named === null) return verified;
-  const words = catalogWordsOf(target, snapshot);
-  if (words === null || quoteNames(target.named.text, words)) return verified;
-  return { ...verified, request: { ...verified.request, target: { ...target, named: null } } };
+  const products = productsOfReference(target, snapshot);
+  if (products === null) return verified;
+  const resolution = resolutions.find((candidate) => candidate.request === verified.request.request);
+  const fits = (ids: readonly ProductId[]) => ids.some((id) => products.includes(id));
+  const naming = resolution?.kind === "chosen" ? fits([resolution.productId])
+    : resolution?.kind === "between" && fits(resolution.productIds) && referencesFitting(target.kind, resolution.productIds, snapshot) === 1;
+  return naming ? verified : { ...verified, request: { ...verified.request, target: { ...target, named: null } } };
 }
+
+const referencesFitting = (kind: "item" | "pending", ids: readonly ProductId[], snapshot: CheckSnapshot): number => kind === "item"
+  ? snapshot.items.filter((item) => item.productId !== null && ids.includes(item.productId)).length
+  : snapshot.pendings.filter(({ pending }) => (pending.subject.kind === "variant" ? [pending.subject.productId] : pending.subject.candidates).some((id) => ids.includes(id))).length;
 
 const shownProductIds = (snapshot: CheckSnapshot): ReadonlySet<ProductId> => new Set(snapshot.products.filter((product) => product.shown).map((product) => product.productId));
 
@@ -199,12 +204,14 @@ function checkOne(said: Said, env: Env): readonly CheckedAction[] {
 // ---- items ----
 
 /**
- * A removal, quantity or price on an order line the buyer did not name, in an order with several lines: no single reading is best unless a photo added that very line, so the seller is asked. «Con duda» is for a reference to the only product that can be meant.
+ * A removal, quantity or price on an order line the buyer did not name, in an order with several lines that fit the request's values: no single reading is best unless a photo added that very line, so the seller is asked. «Con duda» is for a reference to the only product that can be meant.
  */
 function unnamedReference(said: Said, env: Env): CheckedAction | null {
   const { request } = said;
   const { snapshot } = env;
   if (request.kind === "change_variant" || !itemKinds.has(request.kind) || request.target.kind !== "item" || request.target.named !== null || snapshot.items.length < 2) return null;
+  const fitting = snapshot.items.filter((line) => offersValues(line, (product) => choicesFor(request, product, env), snapshot));
+  if (fitting.length < 2) return null;
   const item = itemOfRef(request.target.ref, snapshot);
   const { lastPhoto } = snapshot;
   if (item && lastPhoto.kind === "product" && lastPhoto.added && lastPhoto.productId === item.productId) return null;
@@ -219,6 +226,28 @@ type FoundItem =
 
 const itemOfRef = (ref: string, snapshot: CheckSnapshot): CheckItem | undefined => snapshot.items.find((item) => item.ref === ref);
 const resolutionOf = (request: ExtractedRequest, env: Env): ProductResolution | undefined => env.resolutions.find((resolution) => resolution.request === request.request);
+
+const folded = (text: string) => normalizeValue(text.trim());
+
+/**
+ * The buyer's value words as catalog choices. The resolution's mapping covers the words it mapped (values) or found in no value of the product (unmatched,
+ * kept as the buyer's own text so the catalog check rejects them); any other word is compared with the catalog letter by letter.
+ */
+function valueChoices(request: ExtractedRequest, product: ProductForReading, resolution: ProductResolution | undefined): readonly AttributeChoice[] {
+  const mapped = resolution?.kind === "chosen" && resolution.productId === product.productId ? resolution
+    : resolution?.kind === "between" && resolution.productIds.includes(product.productId) ? { values: resolution.values ?? [], unmatched: [] } : null;
+  if (!mapped) return choicesFromWords(product, request.values);
+  const covered = new Set([...mapped.values.map(({ quote }) => folded(quote.text)), ...(mapped.unmatched ?? []).map(({ text }) => folded(text))]);
+  const rest = choicesFromWords(product, request.values.filter(({ valueWords }) => !covered.has(folded(valueWords.text))));
+  return [...mapped.values.map(({ attribute, value }): AttributeChoice => ({ name: attribute, value })), ...(mapped.unmatched ?? []).map(({ text }): AttributeChoice => ({ name: "", value: text })), ...rest];
+}
+const choicesFor = (request: ExtractedRequest, product: ProductForReading, env: Env): readonly AttributeChoice[] => valueChoices(request, product, resolutionOf(request, env));
+
+/** Whether the choices of one request give two different values to one attribute: such a request is ambiguous and never resolves, because which value gets which unit is the buyer's to say. */
+function hasConflict(choices: readonly AttributeChoice[]): boolean {
+  const named = choices.filter(({ name }) => name !== "");
+  return named.some((choice) => named.some((other) => folded(other.name) === folded(choice.name) && folded(other.value) !== folded(choice.value)));
+}
 
 /** The order item a request points to: by reference, by the product it names, or the only item the order has. */
 function findItem(request: ExtractedRequest, env: Env): FoundItem {
@@ -367,7 +396,7 @@ function checkVariant(said: Said, env: Env): CheckedAction {
   const { request } = said;
   const { snapshot } = env;
   const valueWord = request.values[0]?.valueWords.text ?? "";
-  const choicesOf = (product: CheckProduct) => choicesFromWords(product, request.values);
+  const choicesOf = (product: CheckProduct) => choicesFor(request, product, env);
   const attributeOf = (items: readonly CheckItem[]): string => {
     const product = items.map((item) => productOfItem(item, snapshot)).find((candidate) => candidate !== undefined);
     return (product ? choicesOf(product)[0]?.name : undefined) || request.values[0]?.attributeWords?.text || "";
@@ -393,6 +422,7 @@ function checkVariant(said: Said, env: Env): CheckedAction {
   if (!product) return problem(said, { kind: "unclear_item", orderId: null, namedItem: found.named, namedProductId: item.productId }, "unclear_item", null);
   if (!product.sellable) return problem(said, { kind: "product_not_available", productId: product.productId }, "product_not_available", null);
   const choices = choicesOf(product);
+  if (hasConflict(choices)) return problem(said, { kind: "variant_only" }, "variant_only", null, named(found));
   const resolution = resolveVariant(product, item.variantAttributes, choices);
   const signals = signalsOf(said, named(found), { variantChangeVerb: request.changeVerb ? "present" : "absent" });
   if (resolution.kind !== "resolved") {
@@ -444,14 +474,14 @@ function checkAdd(said: Said, env: Env): readonly CheckedAction[] {
   if (quantity === null) return [checked(said, invalid("quantity_not_whole"), signalsOf(said, "context"), { urgent: { problem: "invalid_action", question: null } })];
   const { target } = request;
   if (target.kind === "photo_same_message") return checkShown(said, env, quantity);
-  if (target.kind === "named") return [onExistingLine(said, checkNamedAdd(said, env, quantity), snapshot)];
+  if (target.kind === "named") return checkNamedAdd(said, env, quantity).map((added) => onExistingLine(said, added, snapshot));
   if (target.kind === "photo_just_sent") {
     const grown = photoQuantity(said, env, { value: quantity, mode: "add" });
     if (grown) return [grown];
     const pending = pendingOfRequest(request, snapshot);
     if (pending) return [pendingQuantity(said, pending, { value: quantity, mode: "add" }, "context")];
   }
-  return [checkReferencedAdd(said, env, quantity, snapshot)];
+  return checkReferencedAdd(said, env, quantity, snapshot);
 }
 
 /**
@@ -472,52 +502,59 @@ function onExistingLine(said: Said, add: CheckedAction, snapshot: CheckSnapshot)
 const unnamedAdd = (said: Said, language: BuyerLanguage): CheckedAction =>
   problem(said, { kind: "unnamed_add" }, "unnamed_add", { language, kind: "another_of_which" });
 
-/** «otro igual»: the product the context points to, when it is a single one. */
-function checkReferencedAdd(said: Said, env: Env, quantity: number, snapshot: CheckSnapshot): CheckedAction {
+/** «otro igual»: the product the context points to, when it is a single one. A line of the order is raised only when the values the request states fit it. */
+function checkReferencedAdd(said: Said, env: Env, quantity: number, snapshot: CheckSnapshot): readonly CheckedAction[] {
   const { target } = said.request;
   const signals = signalsOf(said, "context");
   const added: DoubtReason = { kind: "added_by_reference", quantity: quantity as PositiveInteger, quote: null };
+  const raise = (item: CheckItem, over: CertaintySignals = signals) => [checked(said, { kind: "increase_quantity", target: variantTarget(item), quantity: quantity as PositiveInteger }, over, { doubt: added })];
+  const fits = (item: CheckItem) => {
+    const product = productOfItem(item, snapshot);
+    if (!product) return true;
+    const choices = choicesFor(said.request, product, env);
+    return !choices.some(({ name }) => name === "") && !conflictsWithKnown(item.variantAttributes, choices);
+  };
   let productIds: readonly ProductId[] = [];
   if (target.kind === "context" && target.basis === "mentioned_product") productIds = snapshot.contextProducts.get(target.ref as ContextMessageRef) ?? [];
   else if (target.kind === "context" && target.basis === "last_photo" && snapshot.lastPhoto.kind === "product") productIds = [snapshot.lastPhoto.productId];
   else if (target.kind === "item") {
     const item = itemOfRef(target.ref, snapshot);
-    if (item) return checked(said, { kind: "increase_quantity", target: variantTarget(item), quantity: quantity as PositiveInteger }, signalsOf(said, target.named ? "named" : "context"), { doubt: added });
+    if (item && fits(item)) return raise(item, signalsOf(said, target.named ? "named" : "context"));
+    if (item?.productId) productIds = [item.productId];
   }
   const [only, ...more] = [...new Set(productIds)];
-  if (!only || more.length > 0) return unnamedAdd(said, snapshot.language);
+  if (!only || more.length > 0) return [unnamedAdd(said, snapshot.language)];
   const inOrder = snapshot.items.filter((item) => item.productId === only);
   const [line, ...others] = inOrder;
-  if (line && others.length === 0) return checked(said, { kind: "increase_quantity", target: variantTarget(line), quantity: quantity as PositiveInteger }, signals, { doubt: added });
+  if (line && others.length === 0 && fits(line)) return raise(line);
   const product = snapshot.products.find((candidate) => candidate.productId === only);
-  if (!product) return unnamedAdd(said, snapshot.language);
-  return withProduct(said, env, product, [], quantity, signals, added);
+  if (!product) return [unnamedAdd(said, snapshot.language)];
+  return withProduct(said, env, product, choicesFor(said.request, product, env), quantity, signals, added);
 }
 
-function checkNamedAdd(said: Said, env: Env, quantity: number): CheckedAction {
+function checkNamedAdd(said: Said, env: Env, quantity: number): readonly CheckedAction[] {
   const { snapshot } = env;
   const signals = signalsOf(said, "named");
   const resolution = resolutionOf(said.request, env);
   if (!resolution || resolution.kind === "none") {
-    if (snapshot.messageKind === "photo_product") return checked(said, invalid("not_the_shown_product"), signals, { urgent: { problem: "invalid_action", question: null } });
-    return checked(said, report({ kind: "not_identified", source: "text", identification: null, silent: false }), signals, { urgent: { problem: "not_identified", question: null } });
+    if (snapshot.messageKind === "photo_product") return [checked(said, invalid("not_the_shown_product"), signals, { urgent: { problem: "invalid_action", question: null } })];
+    return [checked(said, report({ kind: "not_identified", source: "text", identification: null, silent: false }), signals, { urgent: { problem: "not_identified", question: null } })];
   }
   const added: DoubtReason = { kind: "added_by_reference", quantity: quantity as PositiveInteger, quote: null };
-  if (resolution.kind === "between") return checked(said, doubtfulDraft(said.request, resolution.productIds, quantity, snapshot), signalsOf(said, "named", { candidates: "several" }),
-    { doubt: added, urgent: { problem: "not_clear", question: whichProduct(resolution.productIds, snapshot) } });
+  if (resolution.kind === "between") return [checked(said, doubtfulDraft(said.request, resolution, quantity, snapshot), signalsOf(said, "named", { candidates: "several" }),
+    { doubt: added, urgent: { problem: "not_clear", question: whichProduct(resolution.productIds, snapshot) } })];
   const product = snapshot.products.find((candidate) => candidate.productId === resolution.productId);
-  if (!product) return checked(said, report({ kind: "not_identified", source: "text", identification: null, silent: false }), signals, { urgent: { problem: "not_identified", question: null } });
-  const choices = resolution.values.map((entry): AttributeChoice => ({ name: entry.attribute, value: entry.value }));
+  if (!product) return [checked(said, report({ kind: "not_identified", source: "text", identification: null, silent: false }), signals, { urgent: { problem: "not_identified", question: null } })];
+  const choices = valueChoices(said.request, product, resolution);
   // A caption naming another product completes that product's pending; without one it adds nothing.
   if (snapshot.messageKind === "photo_product" && !product.shown && matchPendings(product, choices, snapshot).kind === "none") {
-    return checked(said, invalid("not_the_shown_product"), signals, { urgent: { problem: "invalid_action", question: null } });
+    return [checked(said, invalid("not_the_shown_product"), signals, { urgent: { problem: "invalid_action", question: null } })];
   }
-  const action = withProduct(said, env, product, choices, quantity, signals, added);
   // Naming another product from a photo completes its pending or adds nothing: the pending being gone by the time it runs does not turn it into an add.
-  if (snapshot.messageKind === "photo_product" && !product.shown && action.action.kind === "advance_pending") {
-    return { ...action, action: { ...action.action, otherwise: invalid("not_the_shown_product") } };
-  }
-  return action;
+  return withProduct(said, env, product, choices, quantity, signals, added).map((action) =>
+    snapshot.messageKind === "photo_product" && !product.shown && action.action.kind === "advance_pending"
+      ? { ...action, action: { ...action.action, otherwise: invalid("not_the_shown_product") } }
+      : action);
 }
 
 function checkShown(said: Said, env: Env, quantity: number): readonly CheckedAction[] {
@@ -526,7 +563,7 @@ function checkShown(said: Said, env: Env, quantity: number): readonly CheckedAct
     return [checked(said, report({ kind: "not_identified", source: "photo", identification: null, silent: false }), signalsOf(said, "photo_same_message"), { urgent: { problem: "not_identified", question: null } })];
   }
   const added: DoubtReason = { kind: "added_by_reference", quantity: quantity as PositiveInteger, quote: null };
-  return shown.map((product) => withProduct(said, env, product, [...qrChoices(product), ...choicesFromWords(product, said.request.values)], quantity, signalsOf(said, "photo_same_message"), added));
+  return shown.map((product) => withProduct(said, env, product, choicesFor(said.request, product, env), quantity, signalsOf(said, "photo_same_message"), added, qrChoices(product))).flat();
 }
 
 const whichProduct = (productIds: readonly ProductId[], snapshot: CheckSnapshot): SuggestedQuestion | null => {
@@ -535,14 +572,14 @@ const whichProduct = (productIds: readonly ProductId[], snapshot: CheckSnapshot)
 };
 
 /** Two to four candidates the resolution could not tell apart; only the values every candidate offers are kept. */
-function doubtfulDraft(request: ExtractedRequest, productIds: readonly ProductId[], quantity: number, snapshot: CheckSnapshot): ResolvedChatAction {
-  const products = productIds.flatMap((productId) => snapshot.products.find((product) => product.productId === productId) ?? []).slice(0, maxPendingCandidates);
+function doubtfulDraft(request: ExtractedRequest, resolution: Extract<ProductResolution, { kind: "between" }>, quantity: number, snapshot: CheckSnapshot): ResolvedChatAction {
+  const products = resolution.productIds.flatMap((productId) => snapshot.products.find((product) => product.productId === productId) ?? []).slice(0, maxPendingCandidates);
   const [first] = products;
   if (!first || products.length < 2) return report({ kind: "not_identified", source: "text", identification: null, silent: false });
   const offered = (product: CheckProduct, choice: AttributeChoice) => product.attributes.find((attribute) => normalizeValue(attribute.name) === normalizeValue(choice.name))
     ?.values.find((value) => normalizeValue(value) === normalizeValue(choice.value));
   const known: Record<string, string> = {};
-  for (const choice of choicesFromWords(first, request.values)) {
+  for (const choice of valueChoices(request, first, resolution)) {
     const attribute = first.attributes.find((candidate) => normalizeValue(candidate.name) === normalizeValue(choice.name));
     const value = offered(first, choice);
     if (attribute && value !== undefined && products.every((product) => offered(product, choice) !== undefined)) known[attribute.name] = value;
@@ -552,8 +589,15 @@ function doubtfulDraft(request: ExtractedRequest, productIds: readonly ProductId
   return { kind: "draft_pending", draft: { subject: { kind: "product", candidates }, known, quantity, price: stated ? pendingPriceOf(stated, quantity, first) : null, problem: "not_clear", identification: null } };
 }
 
+/** The actions for a product. Two values of one attribute in one request never resolve: the seller is asked, because the model gave no split into one request per value. */
+function withProduct(said: Said, env: Env, product: CheckProduct, choices: readonly AttributeChoice[], quantity: number, signals: CertaintySignals, doubt: DoubtReason,
+  base: readonly AttributeChoice[] = []): readonly CheckedAction[] {
+  if (hasConflict(choices)) return [problem(said, { kind: "variant_only" }, "variant_only", null, signals.targetNamed)];
+  return [withChoices(said, env, product, [...base, ...choices], quantity, signals, doubt)];
+}
+
 /** The action for a product: an item, a pending it advances, a new pending, or the reason it cannot be either. */
-function withProduct(said: Said, env: Env, product: CheckProduct, choices: readonly AttributeChoice[], quantity: number, signals: CertaintySignals, doubt: DoubtReason): CheckedAction {
+function withChoices(said: Said, env: Env, product: CheckProduct, choices: readonly AttributeChoice[], quantity: number, signals: CertaintySignals, doubt: DoubtReason): CheckedAction {
   const { request } = said;
   const stated = request.price ? statedOf(request.price) : null;
   if (!product.sellable) return checked(said, report({ kind: "product_not_available", productId: product.productId }), signals, { urgent: { problem: "product_not_available", question: null } });
@@ -615,7 +659,8 @@ function checkComplete(said: Said, env: Env): CheckedAction {
   const [product, ...rest] = present;
   if (rest.length > 0) return problem(said, { kind: "variant_only" }, "variant_only", null, "named");
   const productId = product?.productId ?? (subject.kind === "variant" ? subject.productId : subject.candidates[0]);
-  const values = product ? choicesFromWords(product, request.values) : [];
+  const values = product ? choicesFor(request, product, env) : [];
+  if (hasConflict(values)) return problem(said, { kind: "variant_only" }, "variant_only", null, "named");
   const shared = (env.claims.get(pending.id) ?? 0) > 1;
   const advance: AdvanceRequest = { pendingId: pending.id, mode: "assign", product: product ?? null, productId, identification: product ? identificationOf(product) : textIdentification(productId),
     values, quantity: shared ? request.quantity?.value ?? 1 : request.quantity?.value ?? null, price: request.price ? statedOf(request.price) : null };

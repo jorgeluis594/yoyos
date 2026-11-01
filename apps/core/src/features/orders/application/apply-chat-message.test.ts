@@ -415,7 +415,7 @@ describe("applyChatMessage: decisions", () => {
     const applied = await succeeded(h.run());
 
     expect(applied.kind === "applied" && applied.noticeDue).toBe(false);
-    expect(h.traces[0]!.records).toHaveLength(3);
+    expect(h.traces[0]!.records).toHaveLength(4);
     expect(h.changeSaves[0]!.changes.length).toBeGreaterThan(0);
     expect(h.changeSaves[0]!.changes.every((row) => row.decision.kind === "doubtful")).toBe(true);
     expect(h.changeSaves[0]!.changes).toContainEqual(expect.objectContaining({ kind: "added", decision: { kind: "doubtful", reason: { kind: "variant_changed", attribute: "Talla", from: "L", to: "M" } } }));
@@ -447,7 +447,7 @@ describe("applyChatMessage: too many requests", () => {
   test("cuts the requests beyond the tenth and reports too_many_actions as urgent", async () => {
     const ids = Array.from({ length: 11 }, (_, index) => `R${index + 1}`);
     const h = harness({ message: textMessage("cómo te pago"), target: poloTarget(), script: { intent: requestsOf(...ids.map((request) => intent(request, "payment_request", "cómo te pago"))),
-      extraction: ids.slice(0, 10).map((request) => extracted(request, "payment_request")) } });
+      extraction: ids.slice(0, 10).map((request, index) => extracted(request, "payment_request", { quantity: { value: index + 1, mode: "set", quote: current("cómo te pago") } })) } });
     const applied = await succeeded(h.run());
 
     expect(applied).toMatchObject({ kind: "applied", noticeDue: true, outcomes: expect.arrayContaining([expect.objectContaining({ kind: "invalid_action", reason: "too_many_actions" })]) });

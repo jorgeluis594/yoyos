@@ -1,6 +1,6 @@
 import { describe, expect, test } from "vitest";
-import { dedupeIntents, droppedFields, verifyIntentQuotes, verifyQuotes } from "@core/src/features/orders/domain/reader/quotes";
-import type { ContextMessageRef, ExtractedRequest, Quote, ReadingInput, RequestIntent, RequestRef } from "@core/src/features/orders/domain/reader/readings";
+import { dedupeRequests, droppedFields, verifyIntentQuotes, verifyQuotes } from "@core/src/features/orders/domain/reader/quotes";
+import type { ContextMessageRef, ExtractedRequest, Quote, ReadingInput, RequestRef } from "@core/src/features/orders/domain/reader/readings";
 
 const ref = (value: string) => value as RequestRef;
 const current = (text: string): Quote => ({ source: "current", text });
@@ -98,17 +98,28 @@ describe("droppedFields", () => {
   });
 });
 
-describe("dedupeIntents", () => {
-  const intent = (id: string, kind: RequestIntent["kind"], text: string): RequestIntent => ({ id: ref(id), kind, quote: current(text) });
+describe("dedupeRequests", () => {
+  const said = (id: string, over: Partial<ExtractedRequest> = {}) => ({ request: request({ request: ref(id), ...over }), complete: true });
+  const twoGorras = { quantity: { value: 2, mode: "add" as const, quote: current("2 gorras") } };
 
-  test("keeps one intent of the same kind and quote when the message says the words once", () => {
-    const kept = dedupeIntents([intent("R1", "add", "uno más igual"), intent("R2", "add", "Uno  más igual")], input("uno más igual x fa"));
-    expect(kept.map(({ id }) => id)).toEqual(["R1"]);
+  test("keeps one request of the same extracted signature when the message says the words once, and reports the other as absorbed", () => {
+    const { kept, absorbed } = dedupeRequests([said("R1", twoGorras), said("R2", twoGorras)], input("2 gorras x fa"));
+    expect(kept.map(({ request: entry }) => entry.request)).toEqual(["R1"]);
+    expect(absorbed).toEqual(["R2"]);
   });
 
-  test("keeps as many as the message says the words and every intent of another kind or quote", () => {
-    const text = "2 gorras y 2 gorras, quita el polo";
-    const kept = dedupeIntents([intent("R1", "add", "2 gorras"), intent("R2", "add", "2 gorras"), intent("R3", "add", "2 gorras"), intent("R4", "remove", "2 gorras"), intent("R5", "remove", "quita el polo")], input(text));
-    expect(kept.map(({ id }) => id)).toEqual(["R1", "R2", "R4", "R5"]);
+  test("keeps as many as the message says the words", () => {
+    const { kept, absorbed } = dedupeRequests([said("R1", twoGorras), said("R2", twoGorras), said("R3", twoGorras)], input("2 gorras y 2 gorras"));
+    expect(kept.map(({ request: entry }) => entry.request)).toEqual(["R1", "R2"]);
+    expect(absorbed).toEqual(["R3"]);
+  });
+
+  test("never drops a request that extracted something else from the same words", () => {
+    const polo = { target: { kind: "named" as const, words: current("polo") } };
+    const gorra = { target: { kind: "named" as const, words: current("gorra") } };
+    const each = { quantity: { value: 2, mode: "add" as const, quote: current("dos de cada una") } };
+    const { kept, absorbed } = dedupeRequests([said("R1", { ...polo, ...each }), said("R2", { ...gorra, ...each })], input("polo y gorra, dos de cada una"));
+    expect(kept).toHaveLength(2);
+    expect(absorbed).toEqual([]);
   });
 });

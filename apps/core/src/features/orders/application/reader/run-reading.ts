@@ -7,9 +7,9 @@ import type { ProductForReading } from "@core/src/features/products/domain/readi
 import type { ReadingContextData } from "@core/src/features/orders/application/reader/load-reading-context";
 import type { ReaderStages, StageError, StageResult } from "@core/src/features/orders/application/reader/stages";
 import { maxReaderActions } from "@core/src/features/orders/domain/chat-reading";
-import { assembleCandidates, type MentionSearch } from "@core/src/features/orders/domain/reader/candidates";
+import { assembleCandidates, productsOfTarget, type MentionSearch } from "@core/src/features/orders/domain/reader/candidates";
 import { maskStageOutput, type StoredStageOutput } from "@core/src/features/orders/domain/reader/masking";
-import { droppedFields, dedupeIntents, verifyIntentQuotes, verifyQuotes, type QuoteDrop, type VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
+import { droppedFields, dedupeRequests, verifyIntentQuotes, verifyQuotes, type QuoteDrop, type VerifiedRequest } from "@core/src/features/orders/domain/reader/quotes";
 import type { AddressSpan, ExtractedRequest, IntentReading, ProductMention, ProductResolution, ReaderStage, Reading, ReadingInput, RequestIntent, RequestRef, StageCall } from "@core/src/features/orders/domain/reader/readings";
 import type { StageInputSummary, TraceStage } from "@core/src/features/orders/domain/reader/trace";
 
@@ -29,7 +29,8 @@ export type RunReadingDependencies = Readonly<{
 }>;
 
 /** One chain's answer: the requests with their verified quotes and what the resolution chose for each mention. */
-export type ChainResult = Readonly<{ requests: readonly VerifiedRequest[]; resolutions: readonly ProductResolution[] }>;
+/** `absorbed` are the refs of the requests the dedupe removed because another request of the message says the same: they are answered, not lost. */
+export type ChainResult = Readonly<{ requests: readonly VerifiedRequest[]; resolutions: readonly ProductResolution[]; absorbed?: readonly RequestRef[] }>;
 
 export type StageRecord = Readonly<{ call: StageCall | null; stage: ReaderStage; input: StageInputSummary; output: StoredStageOutput | null; errorCode: string | null }>;
 
@@ -82,12 +83,25 @@ function inputSummary(input: ReadingInput, extra: Partial<StageInputSummary> = {
     productIds: [], productNames: [], candidateIds: [], ...extra };
 }
 
-/** The mentions of a message: every request that names a product by words. */
-export function mentionsOf(requests: readonly VerifiedRequest[]): readonly ProductMention[] {
-  return requests.flatMap(({ request }) => (request.target.kind === "named"
-    ? [{ request: request.request, words: request.target.words, values: request.values,
-      ...(request.price && request.price.currency === "order" ? { price: { amount: request.price.amount, units: request.quantity?.value ?? 1, basis: request.price.basis } } : {}) }]
-    : []));
+/**
+ * The mentions of a message: every request that names a product by words, and every other request that carries values for a product its target
+ * fixes (a pending, an item, a photo): those get the product as their one candidate, so the buyer's values are mapped to the catalog on every path.
+ * A request that points at an order line or a pending by quoting a name sends that quote too (`fixed`): the resolution says whether it names that product.
+ */
+export function mentionsOf(requests: readonly VerifiedRequest[], input: ReadingInput, photoProductIds: readonly ProductId[]): readonly ProductMention[] {
+  return requests.flatMap(({ request }): ProductMention[] => {
+    if (request.target.kind === "named") {
+      return [{ request: request.request, words: request.target.words, values: request.values,
+        ...(request.price && request.price.currency === "order" ? { price: { amount: request.price.amount, units: request.quantity?.value ?? 1, basis: request.price.basis } } : {}) }];
+    }
+    const [first] = request.values;
+    const candidateIds = first || (request.target.kind === "item" || request.target.kind === "pending") && request.target.named ? productsOfTarget(request, input, photoProductIds) : [];
+    if (candidateIds.length === 0) return [];
+    const { target } = request;
+    const nameWords = (target.kind === "item" || target.kind === "pending") ? target.named : null;
+    if (nameWords) return [{ request: request.request, words: nameWords, values: request.values, candidateIds, fixed: true }];
+    return first ? [{ request: request.request, words: first.valueWords, values: request.values, candidateIds, valuesOnly: true }] : [];
+  });
 }
 
 const sameMention = (a: ProductMention, b: ProductMention) => a.request === b.request && a.words.text.toLowerCase() === b.words.text.toLowerCase()
@@ -101,18 +115,20 @@ async function loadProducts(deps: RunReadingDependencies, ids: readonly ProductI
 
 type Searched = Readonly<{ mentions: readonly ProductMention[]; products: readonly ProductForReading[]; catalog: Omit<ReadingCatalog, "products"> }>;
 
-/** Searches the mentions in one statement and loads the candidate products, then gives each mention the ids it may be resolved to. */
+/** Searches the named mentions in one statement and loads the candidate products, then gives each mention the ids it may be resolved to. A values-only mention keeps the products its target fixed. */
 async function searchMentions(deps: RunReadingDependencies, mentions: readonly ProductMention[], input: ReadingInput, photoProductIds: readonly ProductId[]): Promise<Result<Searched, PersistenceError>> {
-  const found = await deps.findMentionCandidates(mentions.map(({ words }) => words.text));
-  if (!found.success) return found;
-  const searched: MentionSearch[] = mentions.map(({ request }, index) => ({ request, productIds: found.data.mentions[index]?.productIds ?? [], unavailableProductIds: found.data.mentions[index]?.unavailableProductIds ?? [] }));
+  const named = mentions.filter(({ valuesOnly, fixed }) => !valuesOnly && !fixed);
+  const found = named.length ? await deps.findMentionCandidates(named.map(({ words }) => words.text)) : null;
+  if (found && !found.success) return found;
+  const searched: MentionSearch[] = named.map(({ request }, index) => ({ request, productIds: found?.data.mentions[index]?.productIds ?? [], unavailableProductIds: found?.data.mentions[index]?.unavailableProductIds ?? [] }));
   const itemProductIds = input.items.flatMap(({ productId }) => (productId ? [productId] : []));
   const pendingProductIds = input.pendings.flatMap(({ productIds }) => productIds);
   const assembled = assembleCandidates({ searched, photoProductId: photoProductIds[0] ?? null, itemProductIds, pendingProductIds, perMention: deps.candidatesPerMention });
-  const loaded = await loadProducts(deps, [...assembled.productIds, ...photoProductIds]);
+  const valuesOnlyIds = mentions.flatMap(({ candidateIds, valuesOnly, fixed }) => (valuesOnly || fixed ? candidateIds ?? [] : []));
+  const loaded = await loadProducts(deps, [...assembled.productIds, ...photoProductIds, ...itemProductIds, ...pendingProductIds, ...valuesOnlyIds]);
   if (!loaded.success) return loaded;
-  return ok({ mentions: mentions.map((mention) => ({ ...mention, candidateIds: assembled.byMention.get(mention.request) ?? [] })), products: loaded.data,
-    catalog: { searchMs: found.data.durationMs, matchCount: found.data.mentions.reduce((sum, entry) => sum + entry.matchCount, 0), timedOut: found.data.timedOut } });
+  return ok({ mentions: mentions.map((mention) => (mention.valuesOnly || mention.fixed ? mention : { ...mention, candidateIds: assembled.byMention.get(mention.request) ?? [] })), products: loaded.data,
+    catalog: { searchMs: found?.data.durationMs ?? null, matchCount: found ? found.data.mentions.reduce((sum, entry) => sum + entry.matchCount, 0) : null, timedOut: found?.data.timedOut ?? false } });
 }
 
 type Recorder = (stage: ReaderStage, result: Result<StageResult<unknown>, StageError>, input: StageInputSummary, output: StoredStageOutput | null) => void;
@@ -146,7 +162,7 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
 
   const overflow = intent.requests[maxReaderActions]?.id ?? null;
   const { kept, dropped } = verifyIntentQuotes(intent.requests.slice(0, maxReaderActions), input);
-  const intents = dedupeIntents(kept, input);
+  const intents = kept;
   const droppedRequests = dropped.map(({ id }) => id);
   const intentDrops = dropped.map(({ kind }): QuoteDrop => ({ requestKind: kind, field: "intent" }));
   if (intents.length === 0) return ok({ primary: { intent, intents, overflow, droppedIntents: dropped.length, droppedRequests, quoteDrops: intentDrops, chain: null, catalog: empty }, confirming: null, records });
@@ -165,9 +181,10 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   record("extraction", extracted, extractionSummary, extracted.success ? maskStageOutput("extraction", extracted.data.value, addresses) : null);
   if (!extracted.success) { abort.abort(); return fail(extracted.error); }
 
-  const requests = verifyQuotes(extracted.data.value as readonly ExtractedRequest[], input);
-  const extractionDrops = requests.flatMap(({ request }, index) => droppedFields((extracted.data.value as readonly ExtractedRequest[])[index]!, request).map((field): QuoteDrop => ({ requestKind: request.kind, field })));
-  const mentions = mentionsOf(requests);
+  const verified = verifyQuotes(extracted.data.value as readonly ExtractedRequest[], input);
+  const extractionDrops = verified.flatMap(({ request }, index) => droppedFields((extracted.data.value as readonly ExtractedRequest[])[index]!, request).map((field): QuoteDrop => ({ requestKind: request.kind, field })));
+  const { kept: requests, absorbed } = dedupeRequests(verified, input);
+  const mentions = mentionsOf(requests, input, photoProductIds);
   const known = [...photoProductIds, ...input.items.flatMap(({ productId }) => (productId ? [productId] : [])), ...input.pendings.flatMap(({ productIds }) => productIds)];
   const noSearch = async (): Promise<Result<Searched, PersistenceError>> => {
     const loaded = await loadProducts(deps, known);
@@ -179,7 +196,7 @@ export async function runReading(deps: RunReadingDependencies, context: ReadingC
   if (resolved) record("resolution", resolved, resolutionSummary(input, searched.data), resolved.success ? maskStageOutput("resolution", resolved.data.value, addresses) : null);
   if (resolved && !resolved.success) { abort.abort(); return fail(resolved.error); }
   const resolutions = resolved?.success ? resolved.data.value : [];
-  const chain: ChainResult = { requests, resolutions };
+  const chain: ChainResult = { requests, resolutions, absorbed };
   const primary: PrimaryReading = { intent, intents, overflow, droppedIntents: dropped.length, droppedRequests, quoteDrops: [...intentDrops, ...extractionDrops], chain, catalog: { products: searched.data.products, ...searched.data.catalog } };
 
   const confirming: ConfirmingChain | null = confirmingExtraction ? {
@@ -204,16 +221,16 @@ async function confirmChain(deps: RunReadingDependencies, stages: ReaderStages, 
     const extracted = await extraction;
     if (extracted.success && extracted.data.call.reading === "confirming") record("extraction", extracted, inputSummary(input), maskStageOutput("extraction", extracted.data.value, addresses));
     else if (!extracted.success) { record("extraction", extracted, inputSummary(input), null); return null; }
-    const requests = verifyQuotes(extracted.data.value as readonly ExtractedRequest[], input);
-    const mentions = mentionsOf(requests);
+    const { kept: requests, absorbed } = dedupeRequests(verifyQuotes(extracted.data.value as readonly ExtractedRequest[], input), input);
+    const mentions = mentionsOf(requests, input, photoProductIds);
     const fresh = mentions.filter((mention) => !primarySearch.mentions.some((known) => sameMention(known, mention)));
     const reused = primary.resolutions.filter((resolution) => mentions.some((mention) => mention.request === resolution.request && !fresh.includes(mention)));
-    if (fresh.length === 0) return { requests, resolutions: reused };
+    if (fresh.length === 0) return { requests, resolutions: reused, absorbed };
     const searched = await searchMentions(deps, fresh, input, photoProductIds);
     if (!searched.success || signal.aborted) return null;
     const resolved = await stages.chooseProducts(searched.data.mentions, [...searched.data.products, ...primarySearch.products], "confirming", signal);
     record("resolution", resolved, resolutionSummary(input, searched.data), resolved.success ? maskStageOutput("resolution", resolved.data.value, addresses) : null);
-    return resolved.success ? { requests, resolutions: [...reused, ...resolved.data.value] } : null;
+    return resolved.success ? { requests, resolutions: [...reused, ...resolved.data.value], absorbed } : null;
   } catch (cause) {
     log.warn({ event: "reader_confirming_chain_failed", err: cause }, "reader_confirming_chain_failed");
     return null;
